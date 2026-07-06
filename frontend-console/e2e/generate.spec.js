@@ -3,8 +3,6 @@ import { SEL } from "./helpers/selectors.js"
 import { openWorkbench } from "./helpers/workbench.js"
 import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
 
-const generatedTaskId = "00000000-0000-0000-0000-0000000000b1"
-
 test.describe("生成中心模块", () => {
   let testProjectId = null
 
@@ -20,70 +18,41 @@ test.describe("生成中心模块", () => {
     })
     testProjectId = project.id
 
-    await openWorkbench(page, project, "generate")
-
-    // Mock 上下文编译 API
-    await page.route("**/api/context/compile", async (route) => {
+    await page.route("**/api/world/object-draft-chat", async (route) => {
       await route.fulfill({
         status: 200,
+        contentType: "application/json",
         body: JSON.stringify({
-          section_count: 3,
-          scope: "arc",
-          reveal_mode: "author_safe",
-          budgets: [{ category: "core_entities", budget: 100, used: 20 }],
-          sections_present: ["project", "world_entities"],
-          warnings: [],
+          reply: "可以设计成旧友型反派，动机来自一次被误解的牺牲。",
+          model: "deepseek-v4-flash",
+          provider: "fake",
         }),
       })
     })
 
-    // Mock AI 参考资料确认 API
-    await page.route("**/api/context/confirm", async (route) => {
-      await route.fulfill({
-        status: 200,
-        body: JSON.stringify({
-          id: "confirm-generate-e2e",
-          selected_asset_ids: {},
-          warnings: [],
-        }),
-      })
-    })
-
-    await page.route("**/api/tasks/**", async (route) => {
-      const url = new URL(route.request().url())
-      if (url.pathname === `/api/tasks/${generatedTaskId}`) {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            id: generatedTaskId,
-            task_id: generatedTaskId,
-            task_type: "plot_structure_generate",
-            status: "done",
-            progress: 100,
-            result: { summary: "剧情结构生成完成" },
-          }),
-        })
-        return
-      }
-      await route.continue()
-    })
-
-    // Mock 领域生成任务提交 API
-    await page.route("**/api/outline/generate", async (route) => {
+    await page.route("**/api/world/object-drafts/generate", async (route) => {
       const postBody = route.request().postDataJSON()
-      if (postBody?.context_confirmation_id) {
-        await route.fulfill({
-          status: 200,
-          body: JSON.stringify({
-            task_id: generatedTaskId,
-            status: "pending",
-          }),
-        })
-        return
-      }
-      await route.continue()
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({
+          quality_mode: postBody.quality_mode,
+          model: postBody.quality_mode === "pro" ? "deepseek-v4-pro" : "deepseek-v4-flash",
+          provider: "fake",
+          entity: {
+            id: "entity-generate-e2e",
+            novel_id: testProjectId,
+            entity_type: postBody.template || "character",
+            name: "沈无咎",
+            summary: "旧友型反派，公开温和，暗中推动主角面对旧秩序。",
+            status: "draft",
+            content_json: {},
+          },
+        }),
+      })
     })
+
+    await openWorkbench(page, project, "generate")
   })
 
   test.afterEach(async () => {
@@ -94,36 +63,48 @@ test.describe("生成中心模块", () => {
   })
 
   test("生成中心页面加载", async ({ page }) => {
-    await expect(page.locator("#workspace-content")).toContainText("生成类型")
-    await expect(page.locator("#workspace-content")).toContainText("世界与人物结构")
-    await expect(page.locator("#workspace-content")).toContainText("剧情结构")
-    await expect(page.locator("#workspace-content")).toContainText("章节与场景结构")
+    await expect(page.locator("#view-title")).toContainText("生成中心")
+    await expect(page.locator("#topbar-generate-note")).toContainText("先自由聊")
+    await expect(page.locator("#workspace-content")).toContainText("人物")
+    await expect(page.locator("#workspace-content")).toContainText("高质量")
+    await expect(page.locator("#workspace-content")).toContainText("生成对象（数据库草稿）")
+    await expect(page.locator("#workspace-content")).not.toContainText("粘贴已有对话")
   })
 
-  test("选择生成类型后显示输入区域", async ({ page }) => {
-    await page.locator('[data-action="select-type"][data-type="world_character"]').click()
-    await expect(page.locator("#generate-input-area")).toBeVisible()
-    await expect(page.locator("#generate-intent")).toBeVisible()
+  test("自由聊天不会打开 AI 参考资料确认", async ({ page }) => {
+    await page.locator("#generate-chat-input").fill("帮我设计一个反派")
+    await page.getByRole("button", { name: "发送" }).click()
+
+    await expect(page.locator("#generate-chat-messages")).toContainText("旧友型反派")
+    await expect(page.locator(SEL.modalTitle)).not.toHaveText("AI 参考资料")
   })
 
-  test("提交生成任务并显示结果", async ({ page }) => {
-    await page.locator('[data-action="select-type"][data-type="plot"]').click()
-    await expect(page.locator("#generate-input-area")).toBeVisible()
+  test("粘贴外部对话后生成数据库草稿", async ({ page }) => {
+    await page.locator("#generate-chat-input").fill("外部 Chatbox：反派不是纯恶人。")
+    await page.locator("#generate-quality-pro").check()
+    await page.getByRole("button", { name: "生成对象（数据库草稿）" }).click()
 
-    await page.locator("#generate-intent").fill("生成测试剧情结构")
-    await page.locator('[data-action="start-generate"]').click()
-    await expect(page.locator(SEL.modalTitle)).toHaveText("AI 参考资料")
-    await page.getByRole("button", { name: "确认使用" }).click()
-
-    // 验证进度步骤显示
-    await expect(page.locator("#generate-result")).toContainText("剧情结构生成完成", { timeout: 15000 })
-    await expect(page.locator("#generate-result")).toContainText("查看大纲")
+    await expect(page.locator("#generate-result")).toContainText("沈无咎", { timeout: 15000 })
+    await expect(page.locator("#generate-result")).toContainText("draft")
+    await expect(page.locator("#generate-result")).toContainText("打开世界对象")
   })
 
-  test("未填写意图时给出警告", async ({ page }) => {
-    await page.locator('[data-action="select-type"][data-type="chapter"]').click()
-    await page.locator('[data-action="start-generate"]').click()
+  test("编辑模板弹窗可查看提示词并创建新模板", async ({ page }) => {
+    await page.getByRole("button", { name: "编辑模板" }).click()
 
-    await expect(page.locator(SEL.toastContainer)).toContainText("请输入创作意图描述", { timeout: 10000 })
+    await expect(page.locator(SEL.modalTitle)).toHaveText("编辑模板")
+    await expect(page.locator("#generate-template-editor-prompt")).toHaveValue(/不预设对象类型/)
+
+    await page.locator("#generate-template-editor-name").fill("DND 圣骑士")
+    await page.locator("#generate-template-editor-prompt").fill("突出誓言、神术、阵营冲突。")
+    await page.getByRole("button", { name: "新建模板" }).click()
+
+    await expect(page.locator("#workspace-content")).toContainText("DND 圣骑士")
+  })
+
+  test("没有聊天或粘贴内容时给出警告", async ({ page }) => {
+    await page.getByRole("button", { name: "生成对象（数据库草稿）" }).click()
+
+    await expect(page.locator(SEL.toastContainer)).toContainText("请先聊天或粘贴已有对话到输入框", { timeout: 10000 })
   })
 })

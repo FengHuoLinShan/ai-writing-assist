@@ -41,7 +41,7 @@ describe("writingConflictModal", () => {
       onStatusChanged: vi.fn(),
     })
 
-    const body = showModal.mock.calls[0][1]
+    const body = showModal.mock.calls[0][1].html
     expect(body).toContain("&lt;img")
     expect(body).not.toContain("<img src=x")
 
@@ -85,7 +85,7 @@ describe("writingConflictModal", () => {
       novelId: "p1",
     })
 
-    const body = showModal.mock.calls[0][1]
+    const body = showModal.mock.calls[0][1].html
     expect(body).toContain("规则命中")
     expect(body).toContain("AI 判断")
     expect(body).toContain("72%")
@@ -124,7 +124,7 @@ describe("writingConflictModal", () => {
       novelId: "p1",
     })
 
-    const body = showModal.mock.calls[0][1]
+    const body = showModal.mock.calls[0][1].html
     expect(body).toContain("writing-conflict-evidence-drawer")
     expect(body).toContain("&lt;script&gt;alert(1)&lt;/script&gt;")
     expect(body).toContain("地图&lt;script&gt;alert(2)&lt;/script&gt;")
@@ -145,7 +145,7 @@ describe("writingConflictModal", () => {
       novelId: "p1",
     })
 
-    const body = showModal.mock.calls[0][1]
+    const body = showModal.mock.calls[0][1].html
     expect(body).toContain("本次检查包含待确认对象")
     expect(body).not.toContain("结果需复核")
   })
@@ -170,7 +170,7 @@ describe("writingConflictModal", () => {
       onAiReviewComplete,
     })
 
-    document.body.innerHTML = `<div>${showModal.mock.calls[0][1]}</div>`
+    document.body.innerHTML = `<div>${showModal.mock.calls[0][1].html}</div>`
     document.querySelector("[data-conflict-ai-review]").click()
     await Promise.resolve()
     await Promise.resolve()
@@ -223,7 +223,7 @@ describe("writingConflictModal", () => {
       onAiReviewComplete,
     })
 
-    document.body.innerHTML = `<div>${showModal.mock.calls[0][1]}</div>`
+    document.body.innerHTML = `<div>${showModal.mock.calls[0][1].html}</div>`
     document.querySelector("[data-conflict-ai-review]").click()
     await vi.waitFor(() => {
       expect(toast).toHaveBeenCalledWith("AI 软冲突判断已生成", "success")
@@ -260,7 +260,7 @@ describe("writingConflictModal", () => {
       onAiReviewComplete: vi.fn(),
     })
 
-    document.body.innerHTML = `<div>${showModal.mock.calls[0][1]}</div>`
+    document.body.innerHTML = `<div>${showModal.mock.calls[0][1].html}</div>`
     document.querySelector("[data-conflict-ai-review]").click()
 
     await vi.waitFor(() => {
@@ -300,7 +300,7 @@ describe("writingConflictModal", () => {
       novelId: "p1",
     })
 
-    document.body.innerHTML = `<div>${showModal.mock.calls[0][1]}</div>`
+    document.body.innerHTML = `<div>${showModal.mock.calls[0][1].html}</div>`
     document.querySelector('[data-conflict-ai-suggestion="i1"]').click()
     await Promise.resolve()
     await Promise.resolve()
@@ -351,7 +351,7 @@ describe("writingConflictModal", () => {
       novelId: "p1",
     })
 
-    document.body.innerHTML = `<div>${showModal.mock.calls[0][1]}</div>`
+    document.body.innerHTML = `<div>${showModal.mock.calls[0][1].html}</div>`
     document.querySelector('[data-conflict-copy-suggestion="i1"]').click()
     await Promise.resolve()
 
@@ -386,7 +386,7 @@ describe("writingConflictModal", () => {
       onApplySuggestion,
     })
 
-    document.body.innerHTML = `<div>${showModal.mock.calls[0][1]}</div>`
+    document.body.innerHTML = `<div>${showModal.mock.calls[0][1].html}</div>`
     const editor = document.querySelector('[data-conflict-suggestion-draft="i1"]')
     expect(editor).not.toBeNull()
     editor.value = "用户修改后的建议文本。"
@@ -423,11 +423,41 @@ describe("writingConflictModal", () => {
       onSuggestionComplete: vi.fn(),
     })
 
-    document.body.innerHTML = `<div>${showModal.mock.calls[0][1]}</div>`
+    document.body.innerHTML = `<div>${showModal.mock.calls[0][1].html}</div>`
     document.querySelector('[data-conflict-ai-suggestion="i1"]').click()
     await Promise.resolve()
     await Promise.resolve()
 
     expect(toast).toHaveBeenCalledWith("provider unavailable", "error")
+  })
+
+  it("handles ai_suggestion that is already an object instead of a JSON string", () => {
+    showWritingConflictModal({
+      check: {
+        id: "c1",
+        chapter_index: 1,
+        scene_id: "scene-1",
+        items: [
+          {
+            id: "i1",
+            kind: "required_missing",
+            severity: "medium",
+            source_module: "ai",
+            evidence_summary: "缺少动机",
+            status: "open",
+            ai_suggestion: {
+              strategy: "补动机",
+              suggested_text: "补一段犹豫。",
+              rationale: "减少跳变",
+            },
+          },
+        ],
+      },
+      novelId: "p1",
+    })
+
+    const body = showModal.mock.calls[0][1].html
+    expect(body).toContain("补一段犹豫。")
+    expect(body).not.toContain("[object Object]")
   })
 })

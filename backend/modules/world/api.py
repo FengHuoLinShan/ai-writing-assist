@@ -52,6 +52,10 @@ from modules.world.schemas import (
     EventUpdate,
     KnowledgeTagExclusionRequest,
     KnowledgeTagExclusionResponse,
+    ObjectDraftChatRequest,
+    ObjectDraftChatResponse,
+    ObjectDraftGenerateRequest,
+    ObjectDraftGenerateResponse,
     ProjectionRefreshResponse,
     SuggestionDecisionResponse,
     TextArchiveSeedRequest,
@@ -80,6 +84,9 @@ from modules.world.services import (
     WorldEntityService,
 )
 from modules.world.services.dedup_service import EntityDedupService
+from modules.world.services.object_draft_generation_service import (
+    ObjectDraftGenerationService,
+)
 from modules.world.services.worldbuilding_service import (
     ConflictQueueService,
     KnowledgeTagService,
@@ -108,6 +115,34 @@ _bible_service = WorldBibleService()
 _suggestion_service = SuggestionQueueService()
 _conflict_queue_service = ConflictQueueService()
 _knowledge_tag_service = KnowledgeTagService()
+_object_draft_service = ObjectDraftGenerationService()
+
+
+# ============================================================
+# Generate Center Chatbox 路由
+# ============================================================
+
+
+@router.post("/object-draft-chat", response_model=ObjectDraftChatResponse)
+async def chat_object_draft(
+    db: DbSession,
+    data: ObjectDraftChatRequest,
+) -> ObjectDraftChatResponse:
+    """自由共创聊天；不创建数据库对象。"""
+    return await _object_draft_service.chat(db, data)
+
+
+@router.post(
+    "/object-drafts/generate",
+    response_model=ObjectDraftGenerateResponse,
+    status_code=201,
+)
+async def generate_object_draft(
+    db: DbSession,
+    data: ObjectDraftGenerateRequest,
+) -> ObjectDraftGenerateResponse:
+    """将 Chatbox 上下文收束为 world object 数据库草稿。"""
+    return await _object_draft_service.generate(db, data)
 
 
 # ============================================================

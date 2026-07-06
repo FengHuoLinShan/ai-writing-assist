@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest"
+import { describe, it, expect, beforeEach, vi } from "vitest"
 
 import "../app.js"
 
@@ -24,5 +24,17 @@ describe("setup smoke test", () => {
     expect(globalThis.App).toBeDefined()
     expect(() => globalThis.App.init()).not.toThrow()
     expect(globalThis.App._initialized).toBe(true)
+  })
+
+  it("clears the previous health interval when init is called again", () => {
+    const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval").mockImplementation(() => {})
+    globalThis.App._initialized = false
+    globalThis.App._healthInterval = 1234
+
+    globalThis.App.init()
+
+    expect(clearIntervalSpy).toHaveBeenCalledWith(1234)
+    expect(globalThis.App._healthInterval).not.toBeNull()
+    clearIntervalSpy.mockRestore()
   })
 })

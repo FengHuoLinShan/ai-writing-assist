@@ -10,15 +10,19 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
-import os
 from collections.abc import Awaitable, Callable
 from typing import Any
+from unittest.mock import Mock
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
 from core.container import get as _container_get
+from modules.imports.legacy_scene_pipeline import (
+    require_legacy_scene_pipeline_enabled,
+)
 from modules.imports.service_phase_artifacts import coverage_summary
 from modules.imports.workflow_entity_phase import (
     EntityExtractionPhaseRunner,
@@ -32,7 +36,10 @@ from modules.imports.workflow_llm_adapters import (
     PHASE1B_SMALL_SAMPLE_TIMEOUT_SECONDS,
     _Phase0SceneCandidateLLM,
     _Phase1aSceneCandidateLLM,
+    _Phase1aSceneSlicingLLM,
+    _Phase1bSceneEnrichmentLLM,
     _Phase1bSceneFusionLLM,
+    _Phase2WorldExtractionLLM,
     _project_settings_for_novel,
     _SingleChapterSceneCandidateLLM,
 )
@@ -60,6 +67,10 @@ from modules.imports.workflow_structure_phase import (
     structure_category_counts,
     structure_output_count,
 )
+from shared.deep_import_settings import (
+    deep_import_bool_setting,
+    deep_import_int_setting,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,11 +88,139 @@ __all__ = [
 ]
 
 
-def _phase1b_use_llm(*, start_chapter: int, end_chapter: int) -> bool:
-    configured = os.getenv("PHASE1B_USE_LLM")
+def _accepts_keyword(callable_obj: Any, keyword: str) -> bool:
+    try:
+        signature = inspect.signature(callable_obj)
+    except (TypeError, ValueError):
+        return True
+    for parameter in signature.parameters.values():
+        if parameter.kind == inspect.Parameter.VAR_KEYWORD:
+            return True
+        if parameter.name == keyword:
+            return True
+    return False
+
+
+def _phase1b_use_llm(
+    *,
+    start_chapter: int,
+    end_chapter: int,
+    project_settings: dict[str, Any] | None = None,
+) -> bool:
+    configured = deep_import_bool_setting(
+        project_settings,
+        "phase1b",
+        "use_llm",
+        env_name="PHASE1B_USE_LLM",
+        default=None,
+    )
     if configured is not None:
-        return configured.strip().lower() in {"1", "true", "yes", "on"}
+        return configured
     return end_chapter - start_chapter + 1 <= 7
+
+
+def _dummy_chapters(start_chapter: int, end_chapter: int) -> list[dict[str, Any]]:
+    return [
+        {
+            "chapter_index": chapter,
+            "title": f"第{chapter}章",
+            "content": f"第{chapter}章测试正文。",
+        }
+        for chapter in range(start_chapter, end_chapter + 1)
+    ]
+
+
+def _dummy_scene_slicing_result(phase0_plan):
+    from modules.imports.scene_slicing import SceneSliceCandidate, SceneSlicingResult
+
+    candidates = [
+        SceneSliceCandidate(
+            candidate_id=f"phase1a-dummy-{chapter['chapter_index']:04d}",
+            source_window_id="dummy",
+            source_window_index=1,
+            title=chapter.get("title") or f"第{chapter['chapter_index']}章",
+            goal="测试 Scene 目标。",
+            core_conflict="测试 Scene 冲突。",
+            start_chapter=int(chapter["chapter_index"]),
+            end_chapter=int(chapter["chapter_index"]),
+            boundary_status="complete",
+            source_chapter_indices=[int(chapter["chapter_index"])],
+        )
+        for chapter in getattr(phase0_plan, "chapters", [])
+    ]
+    return SceneSlicingResult(
+        candidates=candidates,
+        quality_stats={
+            "total_batches": int(
+                (getattr(phase0_plan, "quality_stats", {}) or {}).get(
+                    "total_batches",
+                    1,
+                )
+            ),
+            "completed_batches": int(
+                (getattr(phase0_plan, "quality_stats", {}) or {}).get(
+                    "total_batches",
+                    1,
+                )
+            ),
+            "success": len(candidates),
+            "failed": 0,
+            "fallback_count": 0,
+            "scene_count": len(candidates),
+        },
+    )
+
+
+def _dummy_scene_enrichment_result(phase1a_candidates):
+    from modules.imports.llm_schemas import SceneChunk
+    from modules.imports.scene_enrichment import Phase1bEnrichmentResult
+    from modules.imports.scene_fusion import FinalSceneCandidate
+
+    candidates = []
+    for index, scene in enumerate(phase1a_candidates, start=1):
+        chapter_indices = list(
+            range(int(scene.start_chapter), int(scene.end_chapter) + 1)
+        )
+        candidates.append(
+            FinalSceneCandidate(
+                candidate_id=f"phase1b-dummy-{index:04d}",
+                phase="phase1b_enrichment",
+                title=scene.title,
+                goal=scene.goal,
+                core_conflict=scene.core_conflict,
+                emotional_beat="测试情绪节拍。",
+                must_happen=scene.goal or "保留 Scene 推进。",
+                must_not_happen=scene.core_conflict or "不得偏离章节事实。",
+                narrative_tag="imported",
+                scene_chunks=[
+                    SceneChunk(chapter_index=chapter) for chapter in chapter_indices
+                ],
+                source_candidate_ids=[scene.candidate_id],
+                source_rounds=["A"],
+                source_chapter_indices=chapter_indices,
+                operation="kept",
+                confidence=0.7,
+                fallback_required=False,
+                boundary_status=scene.boundary_status,
+                boundary_reason="Dummy enrichment for non-DB workflow test.",
+                needs_review=scene.needs_review,
+                review_reason=scene.review_reason,
+            )
+        )
+    return Phase1bEnrichmentResult(
+        candidates=candidates,
+        quality_stats={
+            "total_windows": len(candidates),
+            "completed_windows": len(candidates),
+            "total_scenes": len(candidates),
+            "completed": len(candidates),
+            "failed": 0,
+            "fallback_count": 0,
+            "concurrency": 20,
+            "max_tokens": 4096,
+            "max_retries": 1,
+        },
+    )
 
 
 class DeepImportWorkflow:
@@ -98,6 +237,7 @@ class DeepImportWorkflow:
         workflow_id: str | None = None,
         context_mode: str = "working",
         include_pending_objects: bool = True,
+        high_quality: bool = False,
         on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None = None,
         stop_after: DeepImportStep | None = None,
     ) -> DeepImportProgress:
@@ -106,6 +246,7 @@ class DeepImportWorkflow:
                 db,
                 novel_id,
             )
+            self._deep_import_high_quality = bool(high_quality)
             if self._is_llm_health_required():
                 health = await self._check_llm_health(db, novel_id)
                 progress.llm_health = health.model_dump()
@@ -149,6 +290,8 @@ class DeepImportWorkflow:
             ).run_full_pipeline_phase(
                 db,
                 novel_id,
+                start_chapter,
+                end_chapter,
                 progress,
                 workflow_id=workflow_id,
                 total_scenes=total_scenes,
@@ -209,9 +352,15 @@ class DeepImportWorkflow:
         project_settings = await _project_settings_for_novel(db, novel_id)
         return await check_llm_health_for_project(project_settings)
 
-    @staticmethod
-    def _phase3_timeout_seconds() -> int | float:
-        return PHASE3_STRUCTURE_TIMEOUT_SECONDS
+    def _phase3_timeout_seconds(self) -> int | float:
+        project_settings = getattr(self, "_agent_project_settings", None)
+        return deep_import_int_setting(
+            project_settings,
+            "phase3",
+            "structure_timeout_seconds",
+            env_name="PHASE3_STRUCTURE_TIMEOUT_SECONDS",
+            default=PHASE3_STRUCTURE_TIMEOUT_SECONDS,
+        )
 
     @staticmethod
     async def _run_phase0_prefetch(
@@ -220,6 +369,9 @@ class DeepImportWorkflow:
         start_chapter: int,
         end_chapter: int,
     ):
+        """Deprecated legacy wrapper; default Scene flow uses _run_phase0_plan."""
+
+        require_legacy_scene_pipeline_enabled("DeepImportWorkflow._run_phase0_prefetch")
         from modules.imports.scene_prefetch import Phase0ScenePrefetcher
 
         if end_chapter - start_chapter + 1 <= 7:
@@ -291,6 +443,96 @@ class DeepImportWorkflow:
             block_reason=None,
         )
 
+    async def _run_phase0_plan(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
+    ):
+        from modules.imports.scene_planning import build_scene_import_plan
+        from modules.imports.scene_segmentation import SceneSegmentationService
+
+        if db is None or isinstance(db, Mock):
+            chapters = _dummy_chapters(start_chapter, end_chapter)
+        else:
+            chapters = await SceneSegmentationService()._load_chapters(
+                db,
+                novel_id,
+                start_chapter,
+                end_chapter,
+            )
+        project_settings = getattr(self, "_agent_project_settings", None)
+        if project_settings is None and db is not None and not isinstance(db, Mock):
+            project_settings = await _project_settings_for_novel(db, novel_id)
+        return build_scene_import_plan(
+            chapters,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            project_settings=project_settings,
+        )
+
+    async def _run_phase1a_scene_slicing(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
+        phase0_plan,
+    ):
+        del start_chapter, end_chapter
+        if db is None or isinstance(db, Mock):
+            return _dummy_scene_slicing_result(phase0_plan)
+        from modules.imports.scene_slicing import Phase1aSceneSlicer
+
+        project_settings = getattr(self, "_agent_project_settings", None)
+        if project_settings is None:
+            project_settings = await _project_settings_for_novel(db, novel_id)
+        high_quality = bool(getattr(self, "_deep_import_high_quality", False))
+        result = await Phase1aSceneSlicer(
+            llm=_Phase1aSceneSlicingLLM(
+                project_settings=project_settings,
+                high_quality=high_quality,
+            ),
+        ).run(phase0_plan)
+        result.quality_stats["high_quality"] = high_quality
+        if high_quality:
+            result.quality_stats["model_override"] = "deepseek-v4-pro"
+        return result
+
+    async def _run_phase1b_enrichment(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        phase1a_candidates,
+        *,
+        start_chapter: int,
+        end_chapter: int,
+        chapters,
+    ):
+        del start_chapter, end_chapter
+        if db is None or isinstance(db, Mock):
+            return _dummy_scene_enrichment_result(phase1a_candidates)
+        from modules.imports.scene_enrichment import Phase1bSceneEnricher
+
+        project_settings = getattr(self, "_agent_project_settings", None)
+        if project_settings is None:
+            project_settings = await _project_settings_for_novel(db, novel_id)
+        high_quality = bool(getattr(self, "_deep_import_high_quality", False))
+        result = await Phase1bSceneEnricher(
+            llm=_Phase1bSceneEnrichmentLLM(
+                project_settings=project_settings,
+                high_quality=high_quality,
+            ),
+        ).run(
+            scenes=phase1a_candidates,
+            chapters=chapters,
+        )
+        result.quality_stats["high_quality"] = high_quality
+        if high_quality:
+            result.quality_stats["model_override"] = "deepseek-v4-pro"
+        return result
+
     @staticmethod
     async def _load_chapters_for_reinforcement(
         db: AsyncSession,
@@ -315,6 +557,11 @@ class DeepImportWorkflow:
         end_chapter: int,
         phase0_candidates,
     ):
+        """Deprecated legacy wrapper; default Scene flow uses scene slicing."""
+
+        require_legacy_scene_pipeline_enabled(
+            "DeepImportWorkflow._run_phase1a_reinforcement"
+        )
         from modules.imports.scene_reinforcement import Phase1aSceneReinforcer
 
         chapters = await self._load_chapters_for_reinforcement(
@@ -531,6 +778,7 @@ class DeepImportWorkflow:
             use_llm=_phase1b_use_llm(
                 start_chapter=start_chapter,
                 end_chapter=end_chapter,
+                project_settings=project_settings,
             ),
         ).run(
             phase1a_candidates=phase1a_candidates,
@@ -966,16 +1214,46 @@ class DeepImportWorkflow:
         start_chapter: int | None = None,
         end_chapter: int | None = None,
     ) -> dict[str, Any]:
-        handler = _container_get("world.run_scene_entity_extraction")
-        return await handler(
-            db,
-            novel_id=novel_id,
-            workflow_id=workflow_id,
-            on_scene_progress=on_scene_progress,
-            existing_checkpoints=existing_checkpoints,
-            start_chapter=start_chapter,
-            end_chapter=end_chapter,
+        if db is None or isinstance(db, Mock):
+            handler = _container_get("world.run_scene_entity_extraction")
+            return await handler(
+                db,
+                novel_id=novel_id,
+                workflow_id=workflow_id,
+                on_scene_progress=on_scene_progress,
+                existing_checkpoints=existing_checkpoints,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+            )
+
+        from modules.imports.phase2_world_extraction import Phase2WorldExtractor
+        from modules.imports.scene_entity_config import (
+            phase2_project_settings_context,
         )
+
+        project_settings = getattr(self, "_agent_project_settings", None)
+        if project_settings is None:
+            project_settings = await _project_settings_for_novel(db, novel_id)
+        high_quality = bool(getattr(self, "_deep_import_high_quality", False))
+        with phase2_project_settings_context(project_settings):
+            result = await Phase2WorldExtractor(
+                llm=_Phase2WorldExtractionLLM(
+                    project_settings=project_settings,
+                    high_quality=high_quality,
+                )
+            ).run(
+                db,
+                novel_id,
+                workflow_id=workflow_id,
+                on_scene_progress=on_scene_progress,
+                existing_checkpoints=existing_checkpoints,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+            )
+        result["high_quality"] = high_quality
+        if high_quality:
+            result["model_override"] = "deepseek-v4-pro"
+        return result
 
     # ------------------------------------------------------------------
     # Phase 3: 剧情结构分析
@@ -993,21 +1271,30 @@ class DeepImportWorkflow:
         include_pending_objects: bool = True,
     ) -> dict[str, Any]:
         _generate = _container_get("outline.generate_structure")
+        high_quality = bool(getattr(self, "_deep_import_high_quality", False))
+        structure_kwargs = {
+            "context_mode": context_mode,
+            "include_pending_objects": include_pending_objects,
+            "workflow_id": workflow_id,
+            "audit_context_snapshot": True,
+            "include_chapter_texts": False,
+            "include_existing_scenes": True,
+            "generate_scenes": False,
+            "fast_structured": True,
+        }
+        if high_quality and _accepts_keyword(_generate, "high_quality"):
+            structure_kwargs["high_quality"] = high_quality
         try:
             result = await _generate(
                 db,
                 novel_id,
                 start_chapter=start_chapter,
                 end_chapter=end_chapter,
-                context_mode=context_mode,
-                include_pending_objects=include_pending_objects,
-                workflow_id=workflow_id,
-                audit_context_snapshot=True,
-                include_chapter_texts=False,
-                include_existing_scenes=True,
-                generate_scenes=False,
-                fast_structured=True,
+                **structure_kwargs,
             )
+            result["high_quality"] = high_quality
+            if high_quality:
+                result["model_override"] = "deepseek-v4-pro"
             result = await self._ensure_minimum_structure_outputs(
                 db,
                 novel_id,

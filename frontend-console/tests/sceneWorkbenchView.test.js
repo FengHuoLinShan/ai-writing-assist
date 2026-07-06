@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import sceneWorkbenchView from "../views/sceneWorkbenchView.js"
-import { captureModalHandler, clearDocument, resetState } from "./helpers.js"
+import { captureModalHandler, clearDocument, modalHtmlFromCall, resetState } from "./helpers.js"
 
 const workbenchPayload = {
   total: 2,
@@ -109,6 +109,9 @@ describe("sceneWorkbenchView", () => {
     expect(html).toContain('data-action="scene-auto-extract"')
     expect(html).toContain("再选 2 个即可融合")
     expect(html).toContain('data-action="start-selected-merge"')
+    expect(html).toContain('data-action="review-selected-scenes"')
+    expect(html).toContain("复核选中项")
+    expect(html.indexOf("复核选中项")).toBeLessThan(html.indexOf("机械合并"))
     expect(html).toContain("机械合并")
     expect(html).toContain('data-action="start-ai-fusion-draft"')
     expect(html).toContain("AI 融合草稿")
@@ -139,20 +142,73 @@ describe("sceneWorkbenchView", () => {
     expect(router.refresh).not.toHaveBeenCalled()
   })
 
+  it("selects another scene without rerendering or resetting list scroll", async () => {
+    state.currentView = "scene"
+    sceneWorkbenchView._workbench = workbenchPayload
+    window.history.replaceState({ view: "scene", subView: "s1", projectId: "p1" }, "", "#workbench/p1/scene/s1")
+    document.body.innerHTML = `<main id="workspace-content">${await sceneWorkbenchView.render()}</main>`
+    sceneWorkbenchView._bindEvents()
+    const organize = document.querySelector(".scene-workbench__organize")
+    organize.scrollTop = 96
+    vi.clearAllMocks()
+
+    document.querySelector('.scene-workbench-row[data-id="s2"] [data-action="select-workbench-scene"]').click()
+
+    expect(state.currentSubView).toBe("s2")
+    expect(window.location.hash).toBe("#workbench/p1/scene/s2")
+    expect(organize.scrollTop).toBe(96)
+    expect(document.querySelector('.scene-workbench-row[data-id="s1"]').classList.contains("is-selected")).toBe(false)
+    expect(document.querySelector('.scene-workbench-row[data-id="s2"]').classList.contains("is-selected")).toBe(true)
+    expect(document.querySelector(".scene-workbench__detail").textContent).toContain("撤离")
+    expect(router.navigate).not.toHaveBeenCalled()
+    expect(router.renderCurrentView).not.toHaveBeenCalled()
+    expect(router.refresh).not.toHaveBeenCalled()
+  })
+
   it("submits scene auto extraction stage task", async () => {
+    api.imports.startStage.mockResolvedValue({ task_id: "scene-task" })
+    sceneWorkbenchView._showSceneAutoExtractForm()
+    expect(showModal.mock.calls[0][1].html).toContain("需要标准提取约8倍时间")
+    document.body.innerHTML += `
+      <input id="scene-auto-extract-start" value="1" />
+      <input id="scene-auto-extract-end" value="5" />
+      <input id="scene-auto-extract-high-quality" type="checkbox" />
+    `
+
+    await captureModalHandler()()
+
+    expect(api.imports.startStage).toHaveBeenCalledWith(
+      "scenes",
+      "p1",
+      1,
+      5,
+      false,
+      false,
+    )
+    expect(toast).toHaveBeenCalledWith(
+      "场景（scene）自动提取任务已提交：scene-task",
+      "success",
+    )
+  })
+
+  it("passes high quality flag for scene auto extraction", async () => {
     api.imports.startStage.mockResolvedValue({ task_id: "scene-task" })
     sceneWorkbenchView._showSceneAutoExtractForm()
     document.body.innerHTML += `
       <input id="scene-auto-extract-start" value="1" />
       <input id="scene-auto-extract-end" value="5" />
+      <input id="scene-auto-extract-high-quality" type="checkbox" checked />
     `
 
     await captureModalHandler()()
 
-    expect(api.imports.startStage).toHaveBeenCalledWith("scenes", "p1", 1, 5)
-    expect(toast).toHaveBeenCalledWith(
-      "场景（scene）自动提取任务已提交：scene-task",
-      "success",
+    expect(api.imports.startStage).toHaveBeenCalledWith(
+      "scenes",
+      "p1",
+      1,
+      5,
+      false,
+      true,
     )
   })
 
@@ -319,7 +375,7 @@ describe("sceneWorkbenchView", () => {
     expect(router.refresh).toHaveBeenCalled()
   })
 
-  it("marks a scene as reviewed while preserving structure meta", async () => {
+  it("marks a scene as reviewed and organized while preserving structure meta", async () => {
     sceneWorkbenchView._workbench = {
       ...workbenchPayload,
       items: workbenchPayload.items.map((item) => item.scene.id === "s1"
@@ -327,25 +383,87 @@ describe("sceneWorkbenchView", () => {
             ...item,
             scene: {
               ...item.scene,
-              structure_meta: { source_workflow_id: "wf-1", needs_review: true },
+              structure_meta: {
+                source_workflow_id: "wf-1",
+                needs_review: true,
+                needs_organize: true,
+              },
             },
           }
         : item),
     }
 
+    document.body.innerHTML = `<main id="workspace-content">${await sceneWorkbenchView.render()}</main>`
+    sceneWorkbenchView._bindEvents()
+    document.querySelector(".scene-workbench__organize").scrollTop = 84
+
     await sceneWorkbenchView._markSceneReviewed("s1")
 
     expect(api.outline.updateScene).toHaveBeenCalledWith("s1", "p1", {
+      status: "canonical",
       structure_meta: expect.objectContaining({
         source_workflow_id: "wf-1",
         needs_review: false,
+        needs_organize: false,
         reviewed_at: expect.any(String),
         reviewed_by: "manual",
         reviewed_from: "scene_workbench",
       }),
     })
-    expect(toast).toHaveBeenCalledWith("Scene 已标记为已复核", "success")
-    expect(router.refresh).toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("Scene 已标记为已复核/已整理", "success")
+    expect(router.refresh).not.toHaveBeenCalled()
+    expect(document.querySelector(".scene-workbench__organize").scrollTop).toBe(84)
+  })
+
+  it("reviews selected scenes in bulk without resetting the scene list scroll", async () => {
+    sceneWorkbenchView._workbench = {
+      ...workbenchPayload,
+      items: workbenchPayload.items.map((item) => ({
+        ...item,
+        scene: {
+          ...item.scene,
+          structure_meta: {
+            source_workflow_id: `wf-${item.scene.id}`,
+            needs_review: true,
+            needs_organize: true,
+          },
+        },
+      })),
+    }
+    sceneWorkbenchView._selectedFusionSceneIds = new Set(["s1", "s2"])
+    document.body.innerHTML = `<main id="workspace-content">${await sceneWorkbenchView.render()}</main>`
+    sceneWorkbenchView._bindEvents()
+    document.querySelector(".scene-workbench__organize").scrollTop = 91
+
+    await sceneWorkbenchView._reviewSelectedScenes()
+
+    expect(api.outline.updateScene).toHaveBeenCalledTimes(2)
+    expect(api.outline.updateScene).toHaveBeenCalledWith("s1", "p1", {
+      status: "canonical",
+      structure_meta: expect.objectContaining({
+        source_workflow_id: "wf-s1",
+        needs_review: false,
+        needs_organize: false,
+        reviewed_at: expect.any(String),
+        reviewed_by: "manual",
+        reviewed_from: "scene_workbench_bulk",
+      }),
+    })
+    expect(api.outline.updateScene).toHaveBeenCalledWith("s2", "p1", {
+      status: "canonical",
+      structure_meta: expect.objectContaining({
+        source_workflow_id: "wf-s2",
+        needs_review: false,
+        needs_organize: false,
+        reviewed_at: expect.any(String),
+        reviewed_by: "manual",
+        reviewed_from: "scene_workbench_bulk",
+      }),
+    })
+    expect(sceneWorkbenchView._selectedFusionSceneIds.size).toBe(0)
+    expect(toast).toHaveBeenCalledWith("已复核 2 个 Scene", "success")
+    expect(router.refresh).not.toHaveBeenCalled()
+    expect(document.querySelector(".scene-workbench__organize").scrollTop).toBe(91)
   })
 
   it("marks a reviewed scene as needing review", async () => {
@@ -367,6 +485,10 @@ describe("sceneWorkbenchView", () => {
         : item),
     }
 
+    document.body.innerHTML = `<main id="workspace-content">${await sceneWorkbenchView.render()}</main>`
+    sceneWorkbenchView._bindEvents()
+    document.querySelector(".scene-workbench__organize").scrollTop = 73
+
     await sceneWorkbenchView._markSceneUnreviewed("s1")
 
     const payload = api.outline.updateScene.mock.calls[0][2]
@@ -375,7 +497,8 @@ describe("sceneWorkbenchView", () => {
       needs_review: true,
     })
     expect(toast).toHaveBeenCalledWith("Scene 已标记为需复核", "success")
-    expect(router.refresh).toHaveBeenCalled()
+    expect(router.refresh).not.toHaveBeenCalled()
+    expect(document.querySelector(".scene-workbench__organize").scrollTop).toBe(73)
   })
 
   it("does not preview manual fusion with fewer than two selected scenes", async () => {
@@ -417,7 +540,7 @@ describe("sceneWorkbenchView", () => {
 
     await sceneWorkbenchView._startManualFusion()
     expect(showModal.mock.calls[0][0]).toBe("选择主 Scene")
-    document.body.innerHTML = showModal.mock.calls[0][1]
+    document.body.innerHTML = showModal.mock.calls[0][1].html
     await showModal.mock.calls[0][2][1].handler()
 
     expect(api.outline.previewSceneFusion).toHaveBeenCalledWith("p1", {
@@ -425,7 +548,9 @@ describe("sceneWorkbenchView", () => {
       primary_scene_id: "s1",
     })
     expect(showModal).toHaveBeenCalled()
-    const [title, body, buttons] = showModal.mock.calls[1]
+    const call = showModal.mock.calls[1]
+    const [title, , buttons] = call
+    const body = modalHtmlFromCall(call)
     expect(title).toBe("Scene AI 草稿审稿")
     expect(body).toContain("潜入与撤离")
     expect(body).toContain("取得密信并撤离")
@@ -510,7 +635,9 @@ describe("sceneWorkbenchView", () => {
     sceneWorkbenchView._workbench = workbenchPayload
 
     sceneWorkbenchView._showFusionPreview(preview, ["s1", "s2"])
-    const [, body, buttons] = showModal.mock.calls[0]
+    const call = showModal.mock.calls[0]
+    const [, , buttons] = call
+    const body = modalHtmlFromCall(call)
     document.body.innerHTML = body
     document.getElementById("scene-fusion-title").value = "用户改标题"
     document.getElementById("scene-fusion-goal").value = "用户改目标"
@@ -587,7 +714,7 @@ describe("sceneWorkbenchView", () => {
 
     await sceneWorkbenchView._startSelectedMerge()
     expect(showModal.mock.calls[0][0]).toBe("选择目标 Scene")
-    document.body.innerHTML = showModal.mock.calls[0][1]
+    document.body.innerHTML = showModal.mock.calls[0][1].html
     await showModal.mock.calls[0][2][1].handler()
 
     expect(api.outline.previewSceneMerge).toHaveBeenCalledWith("p1", {
@@ -615,7 +742,9 @@ describe("sceneWorkbenchView", () => {
     sceneWorkbenchView._workbench = workbenchPayload
 
     await sceneWorkbenchView._previewAndSplit("s1", 2)
-    const [title, body, buttons] = showModal.mock.calls[0]
+    const call = showModal.mock.calls[0]
+    const [title, , buttons] = call
+    const body = modalHtmlFromCall(call)
     expect(title).toBe("Scene AI 草稿审稿")
     expect(body).toContain("AI 拆分草稿")
     expect(body).toContain("scene-split-0-title")
@@ -676,5 +805,38 @@ describe("sceneWorkbenchView", () => {
 
     expect(state.viewStates.writing.currentChapter).toBe(3)
     expect(router.navigate).toHaveBeenCalledWith("writing", null)
+  })
+
+  it("keeps router subview and only closes mobile detail on leave", () => {
+    state.currentSubView = "s1"
+    sceneWorkbenchView._mobileDetailOpen = true
+
+    sceneWorkbenchView.onLeave()
+
+    expect(state.currentSubView).toBe("s1")
+    expect(sceneWorkbenchView._mobileDetailOpen).toBe(false)
+  })
+
+  it("toasts and does not refresh workbench when saving scene details fails", async () => {
+    document.body.innerHTML = `
+      <input id="scene-detail-title" value="新标题" />
+      <select id="scene-detail-tag"><option value="climax" selected>climax</option></select>
+      <select id="scene-detail-status"><option value="canonical" selected>canonical</option></select>
+      <select id="scene-detail-source"><option value="manual" selected>manual</option></select>
+      <textarea id="scene-detail-goal">目标</textarea>
+      <textarea id="scene-detail-conflict">冲突</textarea>
+      <textarea id="scene-detail-emotion">情感</textarea>
+      <textarea id="scene-detail-must">必须</textarea>
+      <textarea id="scene-detail-must-not">禁止</textarea>
+      <input id="scene-detail-pov" value="char-2" />
+    `
+    sceneWorkbenchView._workbench = workbenchPayload
+    api.outline.updateScene.mockRejectedValue(new Error("保存失败"))
+
+    await sceneWorkbenchView._saveSceneDetails("s1")
+
+    expect(api.outline.updateScene).toHaveBeenCalledWith("s1", "p1", expect.any(Object))
+    expect(toast).toHaveBeenCalledWith("保存失败", "error")
+    expect(router.refresh).not.toHaveBeenCalled()
   })
 })

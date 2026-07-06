@@ -106,6 +106,7 @@ const sceneWorkbenchView = {
   onLeave() {
     this._stopAutoExtractPolling()
     this._stopCrossChapterPolling()
+    this._mobileDetailOpen = false
   },
 
   async render() {
@@ -302,7 +303,7 @@ const sceneWorkbenchView = {
     const disabled = count < 2 ? "disabled" : ""
     const hint = count < 2 ? `再选 ${2 - count} 个即可融合` : "已可开始融合"
     return `
-      <div class="scene-fusion-toolbar" aria-label="Scene 手动融合">
+      <div class="scene-fusion-toolbar" aria-label="Scene 批量操作">
         <div class="scene-fusion-toolbar__status">
           <strong>${esc(count)}</strong>
           <span>个 Scene 已选</span>
@@ -310,6 +311,9 @@ const sceneWorkbenchView = {
         </div>
         <button class="btn btn-sm" data-action="select-visible-fusion-scenes">全选当前列表</button>
         <button class="btn btn-sm" data-action="clear-fusion-selection" ${count === 0 ? "disabled" : ""} title="${count === 0 ? "当前没有选中的 Scene" : "清空当前选择"}">清空</button>
+        <button class="btn btn-sm btn-primary" data-action="review-selected-scenes" ${count === 0 ? "disabled" : ""} title="${count === 0 ? "请先选择要复核的 Scene" : "将选中的 Scene 标记为已复核/已整理"}">
+          复核选中项
+        </button>
         <button class="btn btn-sm" data-action="start-selected-merge" ${disabled} title="${count < 2 ? hint : "机械合并：目标 Scene 吸收其他 Scene"}">
           机械合并
         </button>
@@ -433,6 +437,93 @@ const sceneWorkbenchView = {
     return items.find((item) => item.scene?.id === id) || items[0] || null
   },
 
+  _selectSceneInPlace(sceneId) {
+    if (!sceneId) return
+    const item = this._findSceneItem(sceneId)
+    if (!item) return
+
+    this._mobileDetailOpen = true
+    state.currentSubView = sceneId
+    this._pushSceneHistory(sceneId)
+    this._syncSelectedSceneUi()
+  },
+
+  _pushSceneHistory(sceneId) {
+    if (typeof window === "undefined" || !window.history || !state.currentProjectId) return
+    const hash = `#workbench/${encodeURIComponent(state.currentProjectId)}/scene/${encodeURIComponent(sceneId)}`
+    if (window.location.hash === hash) return
+    window.history.pushState(
+      { view: "scene", subView: sceneId, projectId: state.currentProjectId },
+      "",
+      hash,
+    )
+  },
+
+  _syncSelectedSceneUi() {
+    if (typeof document === "undefined") return
+    const selectedId = this._selectedSceneId()
+    document.querySelectorAll(".scene-workbench-row[data-id]").forEach((row) => {
+      row.classList.toggle("is-selected", row.getAttribute("data-id") === selectedId)
+    })
+
+    const item = this._selectedSceneItem()
+    const narrow = typeof window !== "undefined" && window.innerWidth < 720
+    const detail = this._renderDetail(item, narrow)
+    const detailEl = document.querySelector(".scene-workbench__detail")
+    if (detailEl) detailEl.innerHTML = detail
+
+    const drawer = document.querySelector(".scene-workbench-drawer")
+    if (narrow && this._mobileDetailOpen && item) {
+      if (drawer) {
+        drawer.innerHTML = detail
+      } else {
+        document.querySelector(".scene-workbench")?.insertAdjacentHTML(
+          "beforeend",
+          `<div class="scene-workbench-drawer">${detail}</div>`,
+        )
+      }
+    } else if (drawer) {
+      drawer.remove()
+    }
+  },
+
+  async _refreshWorkbenchInPlace({ preserveScroll = true } = {}) {
+    const currentOrganize = typeof document !== "undefined"
+      ? document.querySelector(".scene-workbench__organize")
+      : null
+    const scrollTop = preserveScroll && currentOrganize ? currentOrganize.scrollTop : 0
+
+    await this._loadWorkbench()
+
+    const root = typeof document !== "undefined"
+      ? document.querySelector(".scene-workbench")
+      : null
+    if (!root) {
+      await router.refresh()
+      return
+    }
+
+    const narrow = typeof window !== "undefined" && window.innerWidth < 720
+    const item = this._selectedSceneItem()
+    const detail = this._renderDetail(item, narrow)
+    const showNarrowDetail = narrow && this._mobileDetailOpen && item
+    root.className = `scene-workbench ${narrow ? "is-narrow" : ""}`
+    root.innerHTML = `
+      <section class="scene-workbench__organize">
+        ${this._renderManagementFilters()}
+        ${this._renderHealthFilters()}
+        ${this._renderFusionToolbar()}
+        ${this._renderSceneList()}
+        ${this._renderPagination()}
+      </section>
+      ${narrow ? "" : `<aside class="scene-workbench__detail">${detail}</aside>`}
+      ${showNarrowDetail ? `<div class="scene-workbench-drawer">${detail}</div>` : ""}
+    `
+    const nextOrganize = root.querySelector(".scene-workbench__organize")
+    if (preserveScroll && nextOrganize) nextOrganize.scrollTop = scrollTop
+    this._bindEvents()
+  },
+
   _findScene(sceneId) {
     return (this._workbench?.items || []).find((item) => item.scene?.id === sceneId)?.scene || null
   },
@@ -476,6 +567,20 @@ const sceneWorkbenchView = {
     })
   },
 
+  _sceneReviewPayload(scene, reviewedFrom = "scene_workbench", reviewedAt = new Date().toISOString()) {
+    return {
+      status: "canonical",
+      structure_meta: {
+        ...(scene?.structure_meta || {}),
+        needs_review: false,
+        needs_organize: false,
+        reviewed_at: reviewedAt,
+        reviewed_by: "manual",
+        reviewed_from: reviewedFrom,
+      },
+    }
+  },
+
   _toggleFusionSelection(sceneId, selected) {
     if (!sceneId) return
     if (selected) this._selectedFusionSceneIds.add(sceneId)
@@ -508,20 +613,24 @@ const sceneWorkbenchView = {
 
   async _saveSceneDetails(sceneId) {
     const value = (id) => document.getElementById(id)?.value?.trim() || null
-    await api.outline.updateScene(sceneId, state.currentProjectId, {
-      title: value("scene-detail-title"),
-      narrative_tag: value("scene-detail-tag") || "draft",
-      status: value("scene-detail-status") || "draft",
-      source: value("scene-detail-source") || "manual",
-      goal: value("scene-detail-goal"),
-      core_conflict: value("scene-detail-conflict"),
-      emotional_beat: value("scene-detail-emotion"),
-      must_happen: value("scene-detail-must"),
-      must_not_happen: value("scene-detail-must-not"),
-      pov_character_id: value("scene-detail-pov"),
-    })
-    toast("Scene 已保存", "success")
-    await router.refresh()
+    try {
+      await api.outline.updateScene(sceneId, state.currentProjectId, {
+        title: value("scene-detail-title"),
+        narrative_tag: value("scene-detail-tag") || "draft",
+        status: value("scene-detail-status") || "draft",
+        source: value("scene-detail-source") || "manual",
+        goal: value("scene-detail-goal"),
+        core_conflict: value("scene-detail-conflict"),
+        emotional_beat: value("scene-detail-emotion"),
+        must_happen: value("scene-detail-must"),
+        must_not_happen: value("scene-detail-must-not"),
+        pov_character_id: value("scene-detail-pov"),
+      })
+      toast("Scene 已保存", "success")
+      await this._refreshWorkbenchInPlace()
+    } catch (err) {
+      toast(err.message || "保存 Scene 失败", "error")
+    }
   },
 
   async _markSceneReviewed(sceneId) {
@@ -531,16 +640,48 @@ const sceneWorkbenchView = {
       toast("未找到目标 Scene", "error")
       return
     }
-    const meta = {
-      ...(scene.structure_meta || {}),
-      needs_review: false,
-      reviewed_at: new Date().toISOString(),
-      reviewed_by: "manual",
-      reviewed_from: "scene_workbench",
+    await api.outline.updateScene(sceneId, state.currentProjectId, this._sceneReviewPayload(scene))
+    toast("Scene 已标记为已复核/已整理", "success")
+    await this._refreshWorkbenchInPlace()
+  },
+
+  async _reviewSelectedScenes() {
+    const sceneIds = Array.from(this._selectedFusionSceneIds)
+    if (!sceneIds.length) {
+      toast("请先选择要复核的 Scene", "warning")
+      return
     }
-    await api.outline.updateScene(sceneId, state.currentProjectId, { structure_meta: meta })
-    toast("Scene 已标记为已复核", "success")
-    await router.refresh()
+
+    const scenes = sceneIds
+      .map((sceneId) => this._findScene(sceneId))
+      .filter(Boolean)
+    if (!scenes.length) {
+      toast("未找到选中的 Scene", "error")
+      return
+    }
+
+    const reviewedAt = new Date().toISOString()
+    const failedIds = []
+    const results = await Promise.allSettled(scenes.map((scene) => (
+      api.outline.updateScene(
+        scene.id,
+        state.currentProjectId,
+        this._sceneReviewPayload(scene, "scene_workbench_bulk", reviewedAt),
+      )
+    )))
+
+    results.forEach((result, index) => {
+      if (result.status === "rejected") failedIds.push(scenes[index].id)
+    })
+
+    this._selectedFusionSceneIds = new Set(failedIds)
+    const successCount = results.length - failedIds.length
+    if (successCount) {
+      toast(`已复核 ${successCount} 个 Scene`, failedIds.length ? "warning" : "success")
+      await this._refreshWorkbenchInPlace()
+      return
+    }
+    toast("选中 Scene 复核失败", "error")
   },
 
   async _markSceneUnreviewed(sceneId) {
@@ -556,7 +697,7 @@ const sceneWorkbenchView = {
     delete meta.reviewed_from
     await api.outline.updateScene(sceneId, state.currentProjectId, { structure_meta: meta })
     toast("Scene 已标记为需复核", "success")
-    await router.refresh()
+    await this._refreshWorkbenchInPlace()
   },
 
   async _assignChapter(chapterIndex) {
@@ -589,7 +730,7 @@ const sceneWorkbenchView = {
       source_scene_ids: sourceSceneIds,
     }
     const preview = await api.outline.previewSceneMerge(state.currentProjectId, request)
-    showModal("合并 Scene 影响预览", this._renderPreview(preview), [
+    showModalHtml("合并 Scene 影响预览", this._renderPreview(preview), [
       { text: "取消", class: "", handler: () => closeModal() },
       {
         text: "确认合并",
@@ -634,14 +775,14 @@ const sceneWorkbenchView = {
       return
     }
     const cards = scenes.map((scene, index) => `
-      <label class="scene-primary-card" style="display:block;margin-bottom:10px;border:1px solid var(--border);padding:10px;border-radius:6px;">
+      <label class="scene-primary-card" style="display:block;margin-bottom:10px;border:1px solid var(--border);padding:10px;border-radius:var(--radius-md);">
         <input type="radio" name="merge-target-scene-id" value="${esc(scene.id)}" ${index === 0 ? "checked" : ""} />
         <strong>${esc(scene.title || "未命名 Scene")}</strong>
         <div style="color:var(--text-dim);font-size:12px;">${esc(this._sourceLabel(scene.source))} · ${esc(this._statusLabel(scene.status))} · ${esc(this._sceneChapterLabel(scene))}</div>
         <p style="margin:6px 0 0;">${esc(scene.goal || scene.core_conflict || "暂无目标")}</p>
       </label>
     `).join("")
-    showModal("选择目标 Scene", cards, [
+    showModalHtml("选择目标 Scene", cards, [
       { text: "取消", class: "", handler: () => closeModal() },
       {
         text: "预览机械合并",
@@ -677,7 +818,7 @@ const sceneWorkbenchView = {
         meta.confidence != null ? `置信度:${meta.confidence}` : "",
       ].filter(Boolean)
       return `
-        <label class="scene-primary-card" style="display:block;margin-bottom:10px;border:1px solid var(--border);padding:10px;border-radius:6px;">
+        <label class="scene-primary-card" style="display:block;margin-bottom:10px;border:1px solid var(--border);padding:10px;border-radius:var(--radius-md);">
           <input type="radio" name="primary-scene-id" value="${esc(scene.id)}" ${index === 0 ? "checked" : ""} />
           <strong>${esc(scene.title || "未命名 Scene")}</strong>
           <div style="color:var(--text-dim);font-size:12px;">${esc(this._sourceLabel(scene.source))} · ${esc(this._statusLabel(scene.status))} · ${esc(this._sceneChapterLabel(scene))}</div>
@@ -686,7 +827,7 @@ const sceneWorkbenchView = {
         </label>
       `
     }).join("")
-    showModal("选择主 Scene", cards, [
+    showModalHtml("选择主 Scene", cards, [
       { text: "取消", class: "", handler: () => closeModal() },
       {
         text: "生成 AI 融合草稿",
@@ -721,7 +862,7 @@ const sceneWorkbenchView = {
       ? preview.source_scene_ids
       : fallbackSourceIds
     this._activeDraftReview = preview || null
-    showModal("Scene AI 草稿审稿", this._renderDraftReview(preview), [
+    showModalHtml("Scene AI 草稿审稿", this._renderDraftReview(preview), [
       {
         text: "保留原 Scene + 保存融合 Scene",
         class: "btn-primary",
@@ -866,7 +1007,7 @@ const sceneWorkbenchView = {
       split_chapter_index: splitChapterIndex,
     }
     const preview = await api.outline.previewSceneSplit(state.currentProjectId, request)
-    showModal("Scene AI 草稿审稿", this._renderSplitDraftReview(preview), [
+    showModalHtml("Scene AI 草稿审稿", this._renderSplitDraftReview(preview), [
       { text: "取消", class: "", handler: () => closeModal() },
       {
         text: "确认拆分",
@@ -1098,16 +1239,28 @@ const sceneWorkbenchView = {
         <label>结束章节</label>
         <input class="form-input" id="scene-auto-extract-end" type="number" min="1" value="10" />
       </div>
+      <label style="display:flex;gap:8px;align-items:center;font-size:12px;color:var(--text-body);margin-top:8px;">
+        <input id="scene-auto-extract-high-quality" type="checkbox" />
+        更高质量 <span style="color:var(--text-dim);">需要标准提取约8倍时间</span>
+      </label>
     `
-    showModal("场景（scene）自动提取", formHtml, [{
+    showModalHtml("场景（scene）自动提取", formHtml, [{
       text: "开始提取",
       class: "btn-primary",
       handler: async () => {
         const start = parseInt(document.getElementById("scene-auto-extract-start")?.value || "1", 10)
         const end = parseInt(document.getElementById("scene-auto-extract-end")?.value || "10", 10)
+        const highQuality = !!document.getElementById("scene-auto-extract-high-quality")?.checked
         if (end < start) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
         try {
-          const result = await api.imports.startStage("scenes", state.currentProjectId, start, end)
+          const result = await api.imports.startStage(
+            "scenes",
+            state.currentProjectId,
+            start,
+            end,
+            false,
+            highQuality,
+          )
           this._autoExtractTaskId = result.task_id
           this._autoExtractMeta = { start_chapter: start, end_chapter: end }
           this._autoExtractProgress = normalizeTaskProgress({
@@ -1121,7 +1274,7 @@ const sceneWorkbenchView = {
             label: "场景（scene）自动提取",
             projectId: state.currentProjectId,
             view: "scene",
-            meta: this._autoExtractMeta,
+            meta: { ...this._autoExtractMeta, highQuality },
           })
           closeModal()
           toast(`场景（scene）自动提取任务已提交：${result.task_id || ""}`, "success")
@@ -1215,7 +1368,7 @@ const sceneWorkbenchView = {
       const span = Array.isArray(item.chapter_span) ? item.chapter_span.join("-") : "-"
       const trace = (item.scan_trace || []).map((step) => `${step.action}: ${step.reason || ""}`).join(" / ")
       return `
-        <label class="scene-fusion-suggestion" style="display:block;margin-bottom:12px;border:1px solid var(--border);padding:8px;border-radius:6px;">
+        <label class="scene-fusion-suggestion" style="display:block;margin-bottom:12px;border:1px solid var(--border);padding:8px;border-radius:var(--radius-md);">
           <input type="radio" name="cross-chapter-suggestion" value="${esc(index)}" ${index === 0 ? "checked" : ""} />
           <strong>${esc(item.proposed_scene?.title || "跨章融合建议")}</strong>
           <div style="color:var(--text-dim);font-size:12px;">章节 ${esc(span)} · 置信度 ${esc(item.confidence ?? "-")} · ${esc(item.stop_reason || "")}</div>
@@ -1224,7 +1377,7 @@ const sceneWorkbenchView = {
         </label>
       `
     }).join("")
-    showModal("跨章 Scene 建议", rows, [{
+    showModalHtml("跨章 Scene 建议", rows, [{
       text: "打开 AI 融合草稿",
       class: "btn-primary",
       handler: async () => {
@@ -1253,14 +1406,10 @@ const sceneWorkbenchView = {
       "prev-scene-page": () => this._changePage(-1),
       "next-scene-page": () => this._changePage(1),
       "select-workbench-scene": (_e, _t, ctx) => {
-        if (!ctx.id) return
-        this._mobileDetailOpen = true
-        router.navigate("scene", ctx.id)
+        this._selectSceneInPlace(ctx.id)
       },
       "edit-workbench-scene": (_e, _t, ctx) => {
-        if (!ctx.id) return
-        this._mobileDetailOpen = true
-        router.navigate("scene", ctx.id)
+        this._selectSceneInPlace(ctx.id)
       },
       "organize-workbench-scene": (_e, _t, ctx) => ctx.id && this._startSplit(ctx.id),
       "open-writing-scene": (_e, _t, ctx) => {
@@ -1277,6 +1426,7 @@ const sceneWorkbenchView = {
       },
       "select-visible-fusion-scenes": () => this._selectVisibleFusionScenes(),
       "clear-fusion-selection": () => this._clearFusionSelection(),
+      "review-selected-scenes": () => this._reviewSelectedScenes(),
       "start-selected-merge": () => this._startSelectedMerge(),
       "start-ai-fusion-draft": () => this._startManualFusion(),
       "start-manual-fusion": () => this._startManualFusion(),

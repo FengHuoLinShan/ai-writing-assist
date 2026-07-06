@@ -35,6 +35,7 @@ async def start_deep_import(
     start_chapter: int,
     end_chapter: int,
     force: bool = False,
+    high_quality: bool = False,
 ) -> dict[str, Any]:
     """提交深度导入任务（异步）
 
@@ -46,6 +47,7 @@ async def start_deep_import(
         start_chapter,
         end_chapter,
         force=force,
+        high_quality=high_quality,
     )
 
 
@@ -57,6 +59,7 @@ async def start_deep_import_stage(
     *,
     stage: str,
     force: bool = False,
+    high_quality: bool = False,
 ) -> dict[str, Any]:
     """提交分阶段自动提取任务。"""
     return await _orchestrator.start_stage(
@@ -66,6 +69,7 @@ async def start_deep_import_stage(
         end_chapter,
         stage=stage,
         force=force,
+        high_quality=high_quality,
     )
 
 

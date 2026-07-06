@@ -343,6 +343,9 @@ const mapWorkspaceView = {
     this._focusedDynamicItemId = null
     this._dynamicSummary = {
       mapId,
+      sceneId: this._activeSceneId,
+      focusEntityId: this._focusEntityId,
+      focusedDynamicItemId: this._focusedDynamicItemId,
       loading: false,
       loaded: false,
       dashboard: null,
@@ -848,6 +851,7 @@ const mapWorkspaceView = {
   },
 
   _mountMap() {
+    mapView.unmount()
     mapView.mount("map-root", {
       mapId: this._activeMapId,
       sceneId: this._activeSceneId,
@@ -867,6 +871,9 @@ const mapWorkspaceView = {
     if (
       !force
       && this._dynamicSummary?.mapId === this._activeMapId
+      && this._dynamicSummary?.sceneId === this._activeSceneId
+      && this._dynamicSummary?.focusEntityId === this._focusEntityId
+      && this._dynamicSummary?.focusedDynamicItemId === this._focusedDynamicItemId
       && this._dynamicSummary?.loaded
       && !this._dynamicSummary?.error
       && !this._playback?.error
@@ -874,8 +881,14 @@ const mapWorkspaceView = {
       return
     }
     const mapId = this._activeMapId
+    const sceneId = this._activeSceneId
+    const focusEntityId = this._focusEntityId
+    const focusedDynamicItemId = this._focusedDynamicItemId
     this._dynamicSummary = {
       mapId,
+      sceneId,
+      focusEntityId,
+      focusedDynamicItemId,
       loading: true,
       loaded: false,
       dashboard: null,
@@ -897,21 +910,24 @@ const mapWorkspaceView = {
         api.world.getMapDashboard(
           mapId,
           state.currentProjectId,
-          this._activeSceneId,
-          this._focusEntityId,
-          this._focusedDynamicItemId,
+          sceneId,
+          focusEntityId,
+          focusedDynamicItemId,
         ),
         api.world.getMapPlayback(
           mapId,
           state.currentProjectId,
-          this._activeSceneId,
-          this._focusEntityId,
+          sceneId,
+          focusEntityId,
           true,
         ),
       ])
       if (this._activeMapId !== mapId) return
       this._dynamicSummary = {
         mapId,
+        sceneId,
+        focusEntityId,
+        focusedDynamicItemId,
         loading: false,
         loaded: true,
         dashboard,
@@ -934,6 +950,9 @@ const mapWorkspaceView = {
       if (this._activeMapId !== mapId) return
       this._dynamicSummary = {
         mapId,
+        sceneId,
+        focusEntityId,
+        focusedDynamicItemId,
         loading: false,
         loaded: true,
         dashboard: null,
@@ -1088,7 +1107,7 @@ const mapWorkspaceView = {
         </div>
       </div>
     `
-    showModal(esc(title), body, [
+    showModalHtml(esc(title), body, [
       {
         text: "修改",
         class: "btn-primary",
@@ -1171,7 +1190,7 @@ const mapWorkspaceView = {
       </div>
       ${observationFields}
     `
-    showModal("修改地图对象", formHtml, [{
+    showModalHtml("修改地图对象", formHtml, [{
       text: "保存",
       class: "btn-primary",
       handler: async () => {
@@ -1298,10 +1317,20 @@ const mapWorkspaceView = {
     })
   },
 
+  _reviewStateLabel(reviewState) {
+    const state = typeof reviewState === "object" ? reviewState?.review_state : reviewState
+    return {
+      candidate: "待确认",
+      ignored: "已忽略",
+      conflicted: "冲突",
+    }[state] || state || "待确认"
+  },
+
   async _updateObservationReview(id, reviewState) {
     const item = this._dynamicObservation(id)
     const name = item?.title || item?.target_name || "地图映射"
-    return confirmAction(`将地图映射「${name}」设为${reviewState}？`, async () => {
+    const label = this._reviewStateLabel(reviewState)
+    return confirmAction(`将地图映射「${name}」设为${label}？`, async () => {
       try {
         await api.world.updateMapObservationReview(this._activeMapId, id, state.currentProjectId, reviewState)
         toast("地图映射已更新", "success")
@@ -1477,7 +1506,7 @@ const mapWorkspaceView = {
         </select>
       </div>
     `
-    showModal("创建世界地图", formHtml, [{
+    showModalHtml("创建世界地图", formHtml, [{
       text: "创建",
       class: "btn-primary",
       handler: async () => {

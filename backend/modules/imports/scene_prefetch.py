@@ -1,4 +1,9 @@
-"""Phase 0 two-round scene candidate prefetch."""
+"""Deprecated Phase 0 two-round scene candidate prefetch.
+
+This module is kept only for legacy repair and historical artifact acceptance.
+The default Scene auto extraction path uses deterministic ``phase0_plan`` and
+does not call this prefetcher.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +14,9 @@ from typing import Any
 
 from modules.imports.deep_import_retry import run_deep_import_llm_with_retry
 from modules.imports.env_helpers import positive_float_env, positive_int_env
+from modules.imports.legacy_scene_pipeline import (
+    require_legacy_scene_pipeline_enabled,
+)
 from modules.imports.llm_schemas import SceneCandidateOutput
 from modules.imports.scene_candidates import (
     SceneCandidate,
@@ -61,7 +69,7 @@ def build_phase0_prefetch_batches(
 
 
 class Phase0ScenePrefetcher:
-    """Collect Phase 0 candidate observations without formal Scene writes."""
+    """Deprecated legacy collector for Phase 0 candidate observations."""
 
     def __init__(
         self,
@@ -101,6 +109,7 @@ class Phase0ScenePrefetcher:
         are intentionally unused here; Phase 0 must not write formal Scene rows.
         """
 
+        require_legacy_scene_pipeline_enabled("Phase0ScenePrefetcher")
         del db, novel_id
         batches = build_phase0_prefetch_batches(
             start_chapter=start_chapter,

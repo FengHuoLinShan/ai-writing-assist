@@ -311,6 +311,35 @@ async def test_deep_import_stage_endpoints_enqueue_expected_task(
     assert task.meta["novel_id"] == novel_id
     assert task.meta["start_chapter"] == 1
     assert task.meta["end_chapter"] == 5
+    assert task.meta["high_quality"] is False
+
+
+@pytest.mark.asyncio
+async def test_scene_stage_endpoint_accepts_high_quality_flag(
+    async_client: AsyncClient,
+    db_session,
+    sample_project: dict,
+) -> None:
+    novel_id = sample_project["id"]
+
+    resp = await async_client.post(
+        "/api/imports/stages/scenes",
+        json={
+            "novel_id": novel_id,
+            "start_chapter": 1,
+            "end_chapter": 5,
+            "high_quality": True,
+        },
+    )
+
+    assert resp.status_code == 201
+    data = resp.json()
+    result = await db_session.execute(
+        select(AsyncTask).where(AsyncTask.id == uuid.UUID(data["task_id"]))
+    )
+    task = result.scalar_one()
+    assert task.task_type == "scene_auto_extraction"
+    assert task.meta["high_quality"] is True
 
 
 @pytest.mark.asyncio

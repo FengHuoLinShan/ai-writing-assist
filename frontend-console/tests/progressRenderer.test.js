@@ -121,4 +121,22 @@ describe("progressRenderer", () => {
 
     expect(html).toContain("<details class=\"workflow-progress__details\" open>")
   })
+
+  it("preserves detailed progress open state across rerenders", () => {
+    sessionStorage.setItem("workflow-progress-details:t-sticky", "open")
+
+    const html = renderWorkflowCard({
+      taskId: "t-sticky",
+      label: "场景自动提取",
+      message: "处理中",
+      statusLabel: "运行中",
+      status: "running",
+      progressEvents: [{ event: "phase_started", phase: "phase1a_scene_slicing" }],
+    })
+
+    expect(html).toContain('data-details-storage-key="workflow-progress-details:t-sticky"')
+    expect(html).toContain("<details class=\"workflow-progress__details\" data-details-storage-key=\"workflow-progress-details:t-sticky\" open>")
+
+    sessionStorage.removeItem("workflow-progress-details:t-sticky")
+  })
 })

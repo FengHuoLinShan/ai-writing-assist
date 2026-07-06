@@ -546,6 +546,56 @@ class TestSceneWorkbenchApi:
             "wf-scene-filter"
         )
 
+    async def test_workbench_unassigned_chapters_use_all_active_scenes_under_filters(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        await _create_draft(async_client, test_project_id, 1, "已整理章节")
+        await _create_draft(async_client, test_project_id, 2, "待复核章节")
+        reviewed = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "已整理 Scene",
+                "source": "deep_import",
+                "status": "canonical",
+                "chapter_ids": ["1"],
+                "structure_meta": {
+                    "needs_review": False,
+                    "reviewed_at": "2026-07-06T00:00:00Z",
+                },
+            },
+        )
+        matching = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 1,
+                "title": "待复核 Scene",
+                "source": "deep_import",
+                "status": "draft",
+                "chapter_ids": ["2"],
+                "structure_meta": {"needs_review": True},
+            },
+        )
+
+        resp = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={
+                "novel_id": test_project_id,
+                "needs_review": "true",
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert [item["scene"]["id"] for item in data["items"]] == [matching["id"]]
+        assert reviewed["id"] not in [item["scene"]["id"] for item in data["items"]]
+        assert data["unassigned_chapters"] == []
+        assert data["health"]["unassigned"]["count"] == 0
+
     async def test_workbench_marks_cross_scene_duplicate_chapters_needs_organize(
         self,
         async_client: AsyncClient,
@@ -591,6 +641,56 @@ class TestSceneWorkbenchApi:
         assert "needs_organize" in health_by_scene[first["id"]]
         assert "needs_organize" in health_by_scene[second["id"]]
         assert data["health"]["needs_organize"]["count"] == 2
+
+    async def test_reviewed_canonical_duplicate_chapters_are_not_needs_organize(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        first = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "已确认一",
+                "chapter_ids": ["1"],
+                "goal": "目标",
+                "core_conflict": "冲突",
+                "must_happen": "必须",
+                "must_not_happen": "禁止",
+                "status": "canonical",
+                "structure_meta": {"reviewed_at": "2026-07-06T00:00:00Z"},
+            },
+        )
+        second = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 1,
+                "title": "已确认二",
+                "chapter_ids": ["1"],
+                "goal": "目标",
+                "core_conflict": "冲突",
+                "must_happen": "必须",
+                "must_not_happen": "禁止",
+                "status": "canonical",
+                "structure_meta": {"reviewed_at": "2026-07-06T00:00:00Z"},
+            },
+        )
+
+        resp = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={"novel_id": test_project_id},
+        )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        health_by_scene = {
+            item["scene"]["id"]: item["health"] for item in data["items"]
+        }
+        assert "needs_organize" not in health_by_scene[first["id"]]
+        assert "needs_organize" not in health_by_scene[second["id"]]
+        assert data["health"]["needs_organize"]["count"] == 0
 
     async def test_mapping_update_changes_scene_mapping_without_touching_text(
         self,

@@ -181,6 +181,8 @@ const mapView = {
       this._tooltipPopup = null
     }
     if (this._leaflet) {
+      this._leaflet.off("resize zoom move")
+      this._leaflet.off("zoomend moveend")
       this._leaflet.remove()
       this._leaflet = null
     }
@@ -929,7 +931,7 @@ const mapView = {
     if (!scenes.length) return
     const options = scenes.map((s) => `<option value="${esc(s.id)}">${esc(s.title)}</option>`).join("")
     const formHtml = `<div class="form-group"><label>选择 Scene</label><select class="form-select" id="map-scene-pick-select">${options}</select></div>`
-    showModal("Scene 时间轴", formHtml, [{
+    showModalHtml("Scene 时间轴", formHtml, [{
       text: "跳转", class: "btn-primary", handler: async () => {
         const sel = document.getElementById("map-scene-pick-select")
         if (sel && sel.value) {
@@ -1340,6 +1342,7 @@ const mapView = {
           await api.world.deleteMap(mapId, state.currentProjectId)
           toast("地图已删除", "success")
           await this._loadMaps()
+          this.unmount()
           this._render("map-root")
         } catch (err) {
           toast(`删除失败：${err.message}`, "error")
@@ -1512,7 +1515,7 @@ const mapView = {
         </select>
       </div>
     `
-    showModal("创建世界地图", formHtml, [{
+    showModalHtml("创建世界地图", formHtml, [{
       text: "创建", class: "btn-primary", handler: async () => {
         const name = document.getElementById("map-create-name")?.value.trim()
         if (!name) { toast("请输入地图名称", "warning"); return }
@@ -1556,7 +1559,7 @@ const mapView = {
         </select>
       </div>
     `
-    showModal("创建地点详图", formHtml, [{
+    showModalHtml("创建地点详图", formHtml, [{
       text: "创建", class: "btn-primary", handler: async () => {
         const name = document.getElementById("map-detail-name")?.value.trim() || locName
         const importance = document.getElementById("map-detail-importance")?.value || "important"
@@ -1613,7 +1616,7 @@ const mapView = {
         <textarea class="form-input" id="map-settings-desc" rows="3">${esc(cfg.description || "")}</textarea>
       </div>
     `
-    showModal("地图设置", formHtml, [{
+    showModalHtml("地图设置", formHtml, [{
       text: "保存", class: "btn-primary", handler: async () => {
         const name = document.getElementById("map-settings-name")?.value.trim()
         if (!name) { toast("请输入地图名称", "warning"); return }

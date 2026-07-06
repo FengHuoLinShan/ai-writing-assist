@@ -46,10 +46,14 @@ describe("mapQuickCreateView", () => {
       include_candidates: false,
     }), "p1")
     expect(api.world.confirmQuickCreateMap).not.toHaveBeenCalled()
-    expect(showModal).toHaveBeenCalledWith("快速创建地图", expect.stringContaining("洛阳"), expect.any(Array))
     expect(showModal).toHaveBeenCalledWith(
       "快速创建地图",
-      expect.not.stringContaining("生成人物等结构化标记"),
+      expect.objectContaining({ html: expect.stringContaining("洛阳") }),
+      expect.any(Array),
+    )
+    expect(showModal).toHaveBeenCalledWith(
+      "快速创建地图",
+      expect.objectContaining({ html: expect.not.stringContaining("生成人物等结构化标记") }),
       expect.any(Array),
     )
   })
@@ -76,7 +80,7 @@ describe("mapQuickCreateView", () => {
 
     await mapQuickCreateView.open()
 
-    const modalHtml = showModal.mock.calls.at(-1)[1]
+    const modalHtml = showModal.mock.calls.at(-1)[1].html
     expect(modalHtml).toContain("琉璃湾")
     expect(modalHtml).toContain("缺少地点方向/距离关系，已生成等间距草稿")
     expect(modalHtml).not.toContain("暂无可放置地点")

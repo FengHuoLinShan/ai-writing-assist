@@ -127,6 +127,7 @@ const worldView = {
 
     this._recoverAutoExtractWorkflow()
     this._recoverFusionWorkflow()
+    this._eventsBound = false
 
     await this._loadEntities()
     await this._loadCandidates()
@@ -200,16 +201,41 @@ const worldView = {
     ])
   },
 
+  async _refreshCurrentSubViewInPlace({ preserveScroll = true } = {}) {
+    const content = typeof document !== "undefined"
+      ? document.getElementById("workspace-content")
+      : null
+    const scrollTop = preserveScroll && content ? content.scrollTop : 0
+    const subView = state.currentSubView || "objects"
+
+    if (subView === "objects") {
+      await this._reloadWorldLists()
+    } else if (subView === "candidates") {
+      await this._loadCandidates()
+    }
+
+    if (!content) {
+      await router.refresh()
+      return
+    }
+
+    content.innerHTML = await this.render()
+    content.scrollTop = scrollTop
+    this._bindEvents()
+  },
+
   onLeave() {
     if (this._autoExtractTimer) {
       clearInterval(this._autoExtractTimer)
       this._autoExtractTimer = null
     }
     this._stopAutoExtractPolling()
+    this._stopFusionPolling()
     worldBibleView.onLeave()
   },
 
   async render() {
+    this._eventsBound = false
     const subView = state.currentSubView || "objects"
     if (this._lastRenderedSubView === "bible" && subView !== "bible") {
       worldBibleView.onLeave()
@@ -282,11 +308,11 @@ const worldView = {
       })
       : `<div id="w-extract-status" style="margin-top:4px;font-size:11px;color:var(--text-dim);">状态: ${esc(this._autoExtractStatus)}</div>`
     return `
-      <div style="border:1px solid var(--border);border-radius:4px;padding:10px;margin-bottom:12px;text-align:center;">
+      <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;margin-bottom:12px;text-align:center;">
         <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">${label}</div>
         <div style="display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;">
-          起始章 <input id="w-extract-start" type="number" min="1" value="1" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;" />
-          结束章 <input id="w-extract-end" type="number" min="1" value="10" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:3px;" />
+          起始章 <input id="w-extract-start" type="number" min="1" value="1" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:var(--radius-sm);" />
+          结束章 <input id="w-extract-end" type="number" min="1" value="10" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:var(--radius-sm);" />
           <button class="btn btn-sm btn-primary" data-action="submit-extract" data-type="${taskType}" ${isRunning ? "disabled" : ""}>
             ${isRunning ? "提取中..." : "开始提取"}
           </button>
@@ -302,9 +328,11 @@ const worldView = {
     const end = parseInt(document.getElementById("w-extract-end")?.value || "10", 10)
     if (start > end) { toast("起始章节不能大于结束章节", "warning"); return }
 
+    // worldView 面板只提供 world_objects 阶段；保留 taskType 参数便于后续扩展。
+    const stage = taskType === "world_object_auto_extraction" ? "world_objects" : taskType
     try {
       const result = await api.imports.startStage(
-        "world_objects",
+        stage,
         state.currentProjectId,
         start,
         end,
@@ -635,7 +663,7 @@ const worldView = {
       // 渲染自动入库批次折叠区
       if (autoEntities.length > 0) {
         html += `<div style="margin-bottom:12px;">`
-        html += `<details open style="border:1px solid var(--border);border-radius:4px;overflow:hidden;">`
+        html += `<details open style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;">`
         html += `<summary style="padding:6px 10px;background:var(--bg-alt);cursor:pointer;font-size:13px;font-weight:600;">
           <span style="color:var(--accent);">&#9733;</span> 自动入库 — ${this._formatBatchTime(this._batches[0]?.ingested_at)} — ${autoEntities.length} 个对象
         </summary>`
@@ -645,7 +673,7 @@ const worldView = {
 
       // 渲染手动创建区
       if (manualEntities.length > 0) {
-        html += `<details ${!autoEntities.length > 0 ? "open" : ""} style="border:1px solid var(--border);border-radius:4px;overflow:hidden;">`
+        html += `<details ${!autoEntities.length > 0 ? "open" : ""} style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;">`
         html += `<summary style="padding:6px 10px;background:var(--bg-alt);cursor:pointer;font-size:13px;font-weight:600;">
           其他对象 — ${manualEntities.length} 个
         </summary>`
@@ -778,7 +806,7 @@ const worldView = {
       const sourceText = { deep_import: "深度导入", manual: "手动", ai_generated: "AI 生成" }
       const needsReview = this._entityNeedsReview(e)
       const reviewText = needsReview ? "需复核" : "已复核"
-      const isNew = showNewBadge ? ' <span class="badge badge-new" style="font-size:10px;background:var(--accent);color:#fff;padding:1px 4px;border-radius:2px;">新</span>' : ""
+      const isNew = showNewBadge ? ' <span class="badge badge-new" style="font-size:10px;background:var(--accent);color:#fff;padding:1px 4px;border-radius:var(--radius-sm);">新</span>' : ""
       const isCharacter = (e.entity_type === "character" || e.entity_type === "character_ref")
       const canMerge = e.status === "draft" || e.status === "candidate"
       const canPromote = e.status === "draft" || e.status === "candidate"
@@ -1157,7 +1185,7 @@ const worldView = {
         <input class="form-input" id="rel-desc" placeholder="关系描述（可选）" />
       </div>
     `
-    showModal("新建关系", formHtml, [{
+    showModalHtml("新建关系", formHtml, [{
       text: "创建", class: "btn-primary", handler: async () => {
         const src = document.getElementById("rel-source")?.value
         const tgt = document.getElementById("rel-target")?.value
@@ -1328,7 +1356,7 @@ const worldView = {
         </select>
       </div>
     `
-    showModal("新建别名", formHtml, [{
+    showModalHtml("新建别名", formHtml, [{
       text: "创建", class: "btn-primary", handler: async () => {
         const eid = document.getElementById("alias-entity")?.value
         const text = document.getElementById("alias-text")?.value
@@ -1376,7 +1404,7 @@ const worldView = {
       content_json: this._entityReviewContent(entity, true, "world_objects"),
     }, state.currentProjectId)
     toast("世界对象已标记为已复核", "success")
-    router.refresh()
+    await this._refreshCurrentSubViewInPlace()
   },
 
   async _markEntityUnreviewed(id) {
@@ -1395,19 +1423,19 @@ const worldView = {
       content_json: this._entityReviewContent(entity, false, "world_objects"),
     }, state.currentProjectId)
     toast("世界对象已标记为需复核", "success")
-    router.refresh()
+    await this._refreshCurrentSubViewInPlace()
   },
 
   async _markRelationReviewed(id) {
     await api.world.updateRelationship(id, { status: "canonical" }, state.currentProjectId)
     toast("关系已标记为已复核", "success")
-    router.refresh()
+    await this._refreshCurrentSubViewInPlace()
   },
 
   async _markRelationUnreviewed(id) {
     await api.world.updateRelationship(id, { status: "candidate" }, state.currentProjectId)
     toast("关系已标记为需复核", "success")
-    router.refresh()
+    await this._refreshCurrentSubViewInPlace()
   },
 
   async _markAliasReviewed(entityId, alias) {
@@ -1419,7 +1447,7 @@ const worldView = {
       reviewed_from: "world_aliases",
     }, { novel_id: state.currentProjectId })
     toast("别名已标记为已复核", "success")
-    router.refresh()
+    await this._refreshCurrentSubViewInPlace()
   },
 
   async _markAliasUnreviewed(entityId, alias) {
@@ -1431,7 +1459,7 @@ const worldView = {
       reviewed_from: null,
     }, { novel_id: state.currentProjectId })
     toast("别名已标记为需复核", "success")
-    router.refresh()
+    await this._refreshCurrentSubViewInPlace()
   },
 
   editEntity(id) {
@@ -1455,7 +1483,7 @@ const worldView = {
       </div>
     `
 
-    showModal("编辑世界对象", formHtml, [
+    showModalHtml("编辑世界对象", formHtml, [
       {
         text: "保存",
         class: "btn-primary",
@@ -1621,6 +1649,7 @@ const worldView = {
   },
 
   _bindEvents() {
+    if (this._eventsBound) return
     bindWorkspaceClick(this, {
       "nav-objects": () => router.navigate("world", "objects"),
       "nav-candidates": () => router.navigate("world", "candidates"),
@@ -1688,6 +1717,7 @@ const worldView = {
     bindActionMenus()
     if (state.currentSubView === "bible") worldBibleView.bindEvents()
     document.getElementById("btn-new-entity")?.addEventListener("click", () => this._showCreateForm())
+    this._eventsBound = true
   },
 
   _setObjectViewMode(mode) {
@@ -1820,8 +1850,7 @@ const worldView = {
 
     toast(bulkResultMessage(result, label, (item) => item.name || item.alias || item.relation_type || this._entityId(item)), result.failed.length ? "warning" : "success")
     clearBulkSelection(this, scope)
-    await this._reloadWorldLists()
-    router.refresh()
+    await this._refreshCurrentSubViewInPlace()
   },
 
   _toggleAdvancedFilters() {
@@ -1870,7 +1899,7 @@ const worldView = {
       </div>
     `
 
-    showModal("新建世界对象", formHtml, [
+    showModalHtml("新建世界对象", formHtml, [
       {
         text: "创建",
         class: "btn-primary",
@@ -1977,7 +2006,7 @@ const worldView = {
         <p style="font-size:12px;color:var(--text-muted);margin-top:6px;">显示名称、类型、状态和摘要；没有明确目标时请先搜索再选择。</p>
       </div>
     `
-    showModal("合并对象", formHtml, [{
+    showModalHtml("合并对象", formHtml, [{
       text: "合并",
       class: "btn-primary",
       handler: async () => {
@@ -2095,7 +2124,7 @@ const worldView = {
         </label>
       ` : ""
       return `
-        <article style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:10px;">
+        <article style="border:1px solid var(--border);border-radius:var(--radius-md);padding:8px;margin-bottom:10px;">
           <label style="display:flex;gap:8px;align-items:flex-start;">
             <input type="checkbox" data-fusion-index="${esc(index)}" ${item.action === "needs_review" ? "" : "checked"} />
             <span>
@@ -2112,7 +2141,7 @@ const worldView = {
         </article>
       `
     }).join("")
-    showModal("世界对象 AI 合并建议", rows, [{
+    showModalHtml("世界对象 AI 合并建议", rows, [{
       text: "应用选中建议",
       class: "btn-primary",
       handler: async () => {
@@ -2162,7 +2191,7 @@ const worldView = {
         <input class="form-input" id="rollback-scene-index" type="number" min="0" value="0" />
       </div>
     `
-    showModal("回滚对象", formHtml, [{
+    showModalHtml("回滚对象", formHtml, [{
       text: "回滚",
       class: "btn-primary",
       handler: async () => {
@@ -2221,7 +2250,7 @@ const worldView = {
         <input class="form-input" id="knowledge-chapter" type="number" min="0" placeholder="可选" />
       </div>
     `
-    showModal("添加知识边界", formHtml, [{
+    showModalHtml("添加知识边界", formHtml, [{
       text: "添加",
       class: "btn-primary",
       handler: async () => {

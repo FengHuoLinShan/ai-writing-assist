@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import mapWorkspaceView from "../views/mapWorkspaceView.js"
+import mapView from "../views/mapView.js"
 import mapQuickCreateView from "../views/mapQuickCreateView.js"
-import { expectNoTechnicalIds, renderHtml, resetState, clearDocument } from "./helpers.js"
+import { expectNoTechnicalIds, renderHtml, resetState, clearDocument, modalHtmlFromCall } from "./helpers.js"
 
 beforeEach(() => {
   resetState({ currentProjectId: "p1" })
@@ -388,7 +389,7 @@ describe("mapWorkspaceView overview", () => {
     expect(container.textContent).not.toContain("scene_id")
 
     mapWorkspaceView._showDynamicObjectInfo(observationId)
-    const [, body] = showModal.mock.calls.at(-1)
+    const body = modalHtmlFromCall(showModal.mock.calls.at(-1))
     expect(body).toContain("洛阳外城")
     expect(body).toContain("坐标 2,2")
     expect(body).not.toContain(observationId)
@@ -564,7 +565,9 @@ describe("mapWorkspaceView overview", () => {
     mapWorkspaceView._showDynamicObjectInfo("technical-object-id")
 
     expect(showModal).toHaveBeenCalled()
-    const [title, body, actions] = showModal.mock.calls.at(-1)
+    const call = showModal.mock.calls.at(-1)
+    const [title, , actions] = call
+    const body = modalHtmlFromCall(call)
     expect(title).toContain("沈砚入城")
     expect(body).toContain("Scene 1")
     expect(body).toContain("待确认")
@@ -678,7 +681,9 @@ describe("mapWorkspaceView overview", () => {
     confirmAction.mockImplementation((_message, onConfirm) => onConfirm())
 
     mapWorkspaceView._showDynamicEditForm(mapWorkspaceView._dynamicSummary.observations[0])
-    const [, body, buttons] = showModal.mock.calls.at(-1)
+    const call = showModal.mock.calls.at(-1)
+    const [, , buttons] = call
+    const body = modalHtmlFromCall(call)
     document.body.innerHTML = body
     document.getElementById("map-object-edit-target-name").value = "沈砚修订"
     document.getElementById("map-object-edit-time-anchor").value = '{"chapter":2}'
@@ -991,5 +996,111 @@ describe("mapWorkspaceView overview", () => {
 
     expect(clearSpy).toHaveBeenCalled()
     vi.useRealTimers()
+  })
+})
+
+describe("mapWorkspaceView map mounting", () => {
+  beforeEach(() => {
+    mapWorkspaceView._activeMapId = "m1"
+    mapWorkspaceView._activeSceneId = null
+    mapWorkspaceView._focusEntityId = null
+    mapWorkspaceView._focusedDynamicItemId = null
+    mapWorkspaceView._viewMode = "dashboard"
+    mapWorkspaceView._lowMotion = false
+    mapWorkspaceView._layers = { terrain: true, locations: true }
+  })
+
+  it("_mountMap unmounts existing map view before mounting", () => {
+    const unmountSpy = vi.spyOn(mapView, "unmount").mockImplementation(() => {})
+    const mountSpy = vi.spyOn(mapView, "mount").mockImplementation(() => {})
+    const loadSpy = vi.spyOn(mapWorkspaceView, "_loadDynamicSummary").mockImplementation(() => {})
+
+    mapWorkspaceView._mountMap()
+
+    expect(unmountSpy).toHaveBeenCalled()
+    expect(mountSpy).toHaveBeenCalled()
+    expect(unmountSpy.mock.invocationCallOrder[0]).toBeLessThan(mountSpy.mock.invocationCallOrder[0])
+    unmountSpy.mockRestore()
+    mountSpy.mockRestore()
+    loadSpy.mockRestore()
+  })
+})
+
+describe("mapWorkspaceView dynamic summary cache", () => {
+  beforeEach(() => {
+    mapWorkspaceView._activeMapId = "m1"
+    mapWorkspaceView._activeSceneId = null
+    mapWorkspaceView._focusEntityId = null
+    mapWorkspaceView._focusedDynamicItemId = null
+    mapWorkspaceView._resetDynamicSummary("m1")
+    vi.clearAllMocks()
+  })
+
+  it("refreshes summary when scene changes within the same map", async () => {
+    api.world.getMapDashboard.mockResolvedValue({ dynamic_queue: [] })
+    api.world.getMapPlayback.mockResolvedValue({ events: [], tracks: [] })
+
+    await mapWorkspaceView._loadDynamicSummary()
+    expect(api.world.getMapDashboard).toHaveBeenCalledTimes(1)
+
+    mapWorkspaceView._activeSceneId = "s2"
+    await mapWorkspaceView._loadDynamicSummary()
+
+    expect(api.world.getMapDashboard).toHaveBeenCalledTimes(2)
+  })
+
+  it("refreshes summary when focus entity changes within the same map", async () => {
+    api.world.getMapDashboard.mockResolvedValue({ dynamic_queue: [] })
+    api.world.getMapPlayback.mockResolvedValue({ events: [], tracks: [] })
+
+    await mapWorkspaceView._loadDynamicSummary()
+    expect(api.world.getMapDashboard).toHaveBeenCalledTimes(1)
+
+    mapWorkspaceView._focusEntityId = "e2"
+    await mapWorkspaceView._loadDynamicSummary()
+
+    expect(api.world.getMapDashboard).toHaveBeenCalledTimes(2)
+  })
+
+  it("refreshes summary when focused dynamic item changes within the same map", async () => {
+    api.world.getMapDashboard.mockResolvedValue({ dynamic_queue: [] })
+    api.world.getMapPlayback.mockResolvedValue({ events: [], tracks: [] })
+
+    await mapWorkspaceView._loadDynamicSummary()
+    expect(api.world.getMapDashboard).toHaveBeenCalledTimes(1)
+
+    mapWorkspaceView._focusedDynamicItemId = "i2"
+    await mapWorkspaceView._loadDynamicSummary()
+
+    expect(api.world.getMapDashboard).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("mapWorkspaceView observation review", () => {
+  it("_updateObservationReview shows readable label instead of [object Object]", async () => {
+    mapWorkspaceView._activeMapId = "m1"
+    mapWorkspaceView._dynamicSummary = {
+      dashboard: {
+        dynamic_queue: [{
+          item_id: "obs1",
+          item_kind: "observation",
+          title: "沈砚入城",
+          review_state: "candidate",
+        }],
+      },
+      observations: [{ item_id: "obs1", title: "沈砚入城" }],
+      facts: [],
+    }
+    api.world.updateMapObservationReview.mockResolvedValue({ id: "obs1" })
+    api.world.getMapDashboard.mockResolvedValue({ dynamic_queue: [], batch_groups: [] })
+    api.world.getMapPlayback.mockResolvedValue({ events: [], tracks: [] })
+
+    mapWorkspaceView._updateObservationReview("obs1", { review_state: "ignored" })
+
+    expect(confirmAction).toHaveBeenCalled()
+    const message = confirmAction.mock.calls[0][0]
+    expect(message).toContain("沈砚入城")
+    expect(message).toContain("已忽略")
+    expect(message).not.toContain("[object Object]")
   })
 })

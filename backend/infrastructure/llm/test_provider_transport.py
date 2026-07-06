@@ -99,3 +99,31 @@ def test_provider_allows_non_reserved_extra_fields() -> None:
     )
 
     assert kwargs["reasoning_effort"] == "low"
+
+
+def test_provider_sends_thinking_through_extra_body() -> None:
+    with (
+        patch("infrastructure.llm.providers.httpx.AsyncClient"),
+        patch("infrastructure.llm.providers.AsyncOpenAI"),
+    ):
+        provider = OpenAIProvider(
+            api_key="test-key",
+            base_url="https://opencode.ai/zen/go/v1",
+            default_model="deepseek-v4-flash",
+        )
+
+    kwargs = provider._build_kwargs(
+        LLMCallRequest(
+            model="deepseek-v4-flash",
+            messages=[LLMMessage(role="user", content="hi")],
+            extra={
+                "thinking": {"type": "enabled"},
+                "reasoning_effort": "max",
+            },
+        ),
+        "deepseek-v4-flash",
+    )
+
+    assert "thinking" not in kwargs
+    assert kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
+    assert kwargs["reasoning_effort"] == "max"

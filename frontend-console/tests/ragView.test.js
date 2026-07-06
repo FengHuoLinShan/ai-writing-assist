@@ -151,7 +151,7 @@ describe("ragView", () => {
       }
       await result
       if (expectedCall) {
-        expect(api.rag.search).toHaveBeenCalledWith(expectedCall, projectId)
+        expect(api.rag.search).toHaveBeenCalledWith(expectedCall, projectId, expect.objectContaining({ signal: expect.any(AbortSignal) }))
       }
       const results = document.getElementById("rag-results")
       for (const text of expectedInHtml) {
@@ -201,7 +201,7 @@ describe("ragView", () => {
       await ragView._rebuildIndex()
 
       if (expectedPayload) {
-        expect(api.rag.rebuild).toHaveBeenCalledWith(expectedPayload)
+        expect(api.rag.rebuild).toHaveBeenCalledWith(expectedPayload, expect.objectContaining({ signal: expect.any(AbortSignal) }))
       }
       for (const toastMessage of expectedToasts) {
         expect(toast).toHaveBeenCalledWith(toastMessage[0], toastMessage[1])
@@ -322,7 +322,7 @@ describe("ragView", () => {
       expect(api.rag.retryEmbeddings).toHaveBeenCalledWith({
         novel_id: "p1",
         statuses: ["failed", "pending_vectorization"],
-      })
+      }, expect.objectContaining({ signal: expect.any(AbortSignal) }))
       expect(api.tasks.get).toHaveBeenCalledWith("task-retry")
       await vi.waitFor(() => {
         expect(api.rag.status).toHaveBeenCalledWith("p1")
@@ -361,6 +361,122 @@ describe("ragView", () => {
 
       expect(api.rag.retryEmbeddings).not.toHaveBeenCalled()
       expect(toast).toHaveBeenCalledWith("暂无可重试的失败向量", "info")
+    })
+
+    it("_prewarm background 不触发 DOM 更新", async () => {
+      const updateSpy = vi.spyOn(ragView, "_updateDiagnosticsDOM").mockImplementation(() => {})
+      api.rag.prewarm.mockResolvedValue({ status: "ready" })
+
+      await ragView._prewarm({ background: true })
+
+      expect(updateSpy).not.toHaveBeenCalled()
+      expect(ragView._prewarmState).toBe("ready")
+      updateSpy.mockRestore()
+    })
+
+    it("_prewarm 非后台模式更新 DOM", async () => {
+      const updateSpy = vi.spyOn(ragView, "_updateDiagnosticsDOM").mockImplementation(() => {})
+      api.rag.prewarm.mockResolvedValue({ status: "ready" })
+
+      await ragView._prewarm()
+
+      expect(updateSpy).toHaveBeenCalledTimes(2)
+      updateSpy.mockRestore()
+    })
+
+    it("chunks_created 为 0 时不回退到旧 total", () => {
+      ragView._totalChunks = 10
+      ragView._applyRagRebuildResult({ total_chapters: 3, chunks_created: 0 })
+      expect(ragView._totalChunks).toBe(0)
+    })
+
+    it("重建结果缺 chunks_created 时刷新服务端状态，避免保留旧片段数", async () => {
+      state.currentProjectId = "p1"
+      ragView._totalChunks = 10
+      api.rag.status.mockResolvedValue({
+        total: 7,
+        embedding_failed_count: 1,
+        retryable_embedding_count: 1,
+        items: [],
+      })
+
+      await ragView._applyRagRebuildResult({ total_chapters: 3 })
+
+      expect(api.rag.status).toHaveBeenCalledWith("p1")
+      expect(ragView._totalChunks).toBe(7)
+      expect(ragView._embeddingFailedCount).toBe(1)
+    })
+
+    it("搜索结果中 chunks 非数组时兜底为空数组", async () => {
+      state.currentProjectId = "p1"
+      document.body.innerHTML = '<div id="rag-results"></div>'
+      api.rag.search.mockResolvedValue({ chunks: null })
+
+      await ragView._doSearch("test")
+
+      expect(document.getElementById("rag-results").textContent).toContain("未找到匹配结果")
+    })
+
+    it("搜索结果直接返回数组时也兼容", async () => {
+      state.currentProjectId = "p1"
+      document.body.innerHTML = '<div id="rag-results"></div>'
+      api.rag.search.mockResolvedValue([{ text: "直接数组", source_type: "chapter_text" }])
+
+      await ragView._doSearch("test")
+
+      expect(document.getElementById("rag-results").textContent).toContain("直接数组")
+    })
+
+    it("重建索引成功后清空 API 缓存", async () => {
+      state.currentProjectId = "p1"
+      api.rag.rebuild.mockResolvedValue({ task_id: "task-1" })
+
+      await ragView._rebuildIndex()
+
+      expect(api.clearCache).toHaveBeenCalled()
+    })
+
+    it("重试向量成功后清空 API 缓存", async () => {
+      state.currentProjectId = "p1"
+      ragView._retryableEmbeddingCount = 2
+      api.rag.retryEmbeddings.mockResolvedValue({ task_id: "task-retry" })
+
+      await ragView._retryEmbeddings()
+
+      expect(api.clearCache).toHaveBeenCalled()
+    })
+
+    it("onLeave 中止进行中的长请求", () => {
+      const controller = new AbortController()
+      ragView._abortController = controller
+      const abortSpy = vi.spyOn(controller, "abort")
+
+      ragView.onLeave()
+
+      expect(abortSpy).toHaveBeenCalled()
+      expect(ragView._abortController).toBeNull()
+    })
+
+    it("长请求调用携带 abort signal", async () => {
+      state.currentProjectId = "p1"
+      ragView._abortController = new AbortController()
+      ragView._retryableEmbeddingCount = 2
+      api.rag.search.mockResolvedValue({ chunks: [] })
+      api.rag.rebuild.mockResolvedValue({ task_id: "task-1" })
+      api.rag.retryEmbeddings.mockResolvedValue({ task_id: "task-retry" })
+      api.rag.prewarm.mockResolvedValue({ status: "ready" })
+
+      document.body.innerHTML = '<div id="rag-results"></div>'
+      await ragView._doSearch("q")
+      await ragView._rebuildIndex()
+      await ragView._retryEmbeddings()
+      await ragView._prewarm({ signal: ragView._abortController.signal })
+      ragView.onLeave()
+
+      expect(api.rag.search.mock.calls[0][2]).toMatchObject({ signal: expect.any(AbortSignal) })
+      expect(api.rag.rebuild.mock.calls[0][1]).toMatchObject({ signal: expect.any(AbortSignal) })
+      expect(api.rag.retryEmbeddings.mock.calls[0][1]).toMatchObject({ signal: expect.any(AbortSignal) })
+      expect(api.rag.prewarm.mock.calls[0][0]).toMatchObject({ signal: expect.any(AbortSignal) })
     })
   })
 })

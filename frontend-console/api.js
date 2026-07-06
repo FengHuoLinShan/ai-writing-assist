@@ -10,6 +10,7 @@ const API_TIMEOUT = 15000
 const RAG_SEARCH_TIMEOUT = 60000
 const RAG_PREWARM_TIMEOUT = 75000
 const CONTEXT_CONFIRM_TIMEOUT = 90000
+const LLM_GENERATE_TIMEOUT = 90000
 const API_CACHE_TTL = 30000
 
 const _apiCache = new Map()
@@ -112,110 +113,153 @@ function _formatErrorDetail(rawDetail) {
  * @returns {Promise<any>}
  */
 async function request(path, options = {}) {
+  const { timeout, signal: externalSignal, ...fetchOptions } = options
   const url = `${API_BASE_URL}${path}`
   const controller = new AbortController()
-  const timeoutMs = options.timeout || API_TIMEOUT
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  const timeoutMs = timeout || API_TIMEOUT
+  let timeoutFired = false
+  const timeoutId = setTimeout(() => {
+    timeoutFired = true
+    controller.abort()
+  }, timeoutMs)
+  const cleanup = () => {
+    clearTimeout(timeoutId)
+    if (externalAbortHandler && externalSignal) {
+      externalSignal.removeEventListener("abort", externalAbortHandler)
+    }
+  }
+
+  let signal = controller.signal
+  let externalAbortHandler = null
+  if (externalSignal) {
+    if (typeof AbortSignal !== "undefined" && AbortSignal.any) {
+      signal = AbortSignal.any([controller.signal, externalSignal])
+    } else {
+      externalAbortHandler = () => controller.abort()
+      if (externalSignal.aborted) {
+        controller.abort()
+      } else {
+        externalSignal.addEventListener("abort", externalAbortHandler, { once: true })
+      }
+    }
+  }
 
   const headers = {
     "Accept": "application/json",
   }
 
-  const method = (options.method || "GET").toUpperCase()
-  const isFormData = options.body instanceof FormData
+  const method = (fetchOptions.method || "GET").toUpperCase()
+  const isFormData = fetchOptions.body instanceof FormData
   if (method !== "GET" && method !== "DELETE" && !isFormData) {
     headers["Content-Type"] = "application/json"
   }
 
-  const cacheKey = _cacheKey(path, options)
+  const cacheKey = _cacheKey(path, fetchOptions)
+  const shouldSharePending = method === "GET" && !externalSignal
 
   if (method === "GET") {
     const cached = _getCached(cacheKey)
-    if (cached !== null) return cached
+    if (cached !== null) {
+      cleanup()
+      return cached
+    }
 
-    const pending = _pendingRequests.get(cacheKey)
-    if (pending) return pending
-  }
-
-  if (method !== "GET") {
-    _invalidateRelatedCache(path)
-  }
-
-  let fetchPromise
-  try {
-    fetchPromise = fetch(url, {
-      ...options,
-      headers: { ...headers, ...options.headers },
-      signal: controller.signal,
-    })
-
-    if (method === "GET") _pendingRequests.set(cacheKey, fetchPromise)
-
-    const resp = await fetchPromise
-
-    clearTimeout(timeoutId)
-
-    if (!resp.ok) {
-      const errorMap = {
-        400: "请求参数错误",
-        401: "未授权，请检查后端认证配置",
-        404: "请求的资源不存在",
-        422: "数据格式校验失败",
-        500: "后端服务器错误",
-        502: "后端服务不可用",
-        503: "后端服务暂时不可用",
+    // 外部 AbortSignal 不共享 pending：第一个调用者 abort 不应影响后续调用者
+    if (shouldSharePending) {
+      const pending = _pendingRequests.get(cacheKey)
+      if (pending) {
+        cleanup()
+        return pending
       }
-      let detail = "", responseBody = "", errorBody = null, rawDetail = ""
-      try {
-        errorBody = await resp.json()
-        rawDetail = errorBody.detail || errorBody.message || ""
-        responseBody = JSON.stringify(errorBody).slice(0, 500)
-        detail = _formatErrorDetail(rawDetail)
-      } catch (e) { console.warn("解析错误响应失败", e) }
+    }
+  }
 
-      const msg = errorMap[resp.status] || `请求失败 (${resp.status})`
+  const requestPromise = (async () => {
+    try {
+      const resp = await fetch(url, {
+        ...fetchOptions,
+        headers: { ...headers, ...fetchOptions.headers },
+        signal,
+      })
 
-      // 记录请求详情供 error-logger 使用
-      if (window.errorLog) {
-        window.errorLog._lastApiError = {
-          method, url: path,
-          status: resp.status,
-          response: responseBody,
-          body: options.body ? String(options.body).slice(0, 200) : undefined,
+      if (!resp.ok) {
+        const errorMap = {
+          400: "请求参数错误",
+          401: "未授权，请检查后端认证配置",
+          404: "请求的资源不存在",
+          422: "数据格式校验失败",
+          500: "后端服务器错误",
+          502: "后端服务不可用",
+          503: "后端服务暂时不可用",
         }
+        let detail = "", responseBody = "", errorBody = null, rawDetail = ""
+        try {
+          errorBody = await resp.json()
+          rawDetail = errorBody.detail || errorBody.message || ""
+          responseBody = JSON.stringify(errorBody).slice(0, 500)
+          detail = _formatErrorDetail(rawDetail)
+        } catch (e) { console.warn("解析错误响应失败", e) }
+
+        const msg = errorMap[resp.status] || `请求失败 (${resp.status})`
+
+        // 记录请求详情供 error-logger 使用
+        if (window.errorLog) {
+          window.errorLog._lastApiError = {
+            method, url: path,
+            status: resp.status,
+            response: responseBody,
+            body: fetchOptions.body ? String(fetchOptions.body).slice(0, 200) : undefined,
+          }
+        }
+
+        const err = new Error(detail ? `${msg}：${detail}` : msg)
+        err.status = resp.status
+        err.detail = rawDetail
+        err.body = errorBody
+        err.responseBody = responseBody
+        throw err
       }
 
-      const err = new Error(detail ? `${msg}：${detail}` : msg)
-      err.status = resp.status
-      err.detail = rawDetail
-      err.body = errorBody
-      err.responseBody = responseBody
+      // 只在写操作成功后才失效相关 GET 缓存，避免失败请求清空有效缓存。
+      if (method !== "GET") {
+        _invalidateRelatedCache(path)
+      }
+
+      if (resp.status === 204) {
+        if (method === "GET") _setCache(cacheKey, null)
+        return null
+      }
+
+      const data = await resp.json()
+      if (method === "GET") _setCache(cacheKey, data)
+      return data
+    } catch (err) {
+      if (err.name === "AbortError") {
+        if (timeoutFired) {
+          throw new Error("请求超时，请检查后端服务是否运行")
+        }
+        if (externalSignal?.aborted) {
+          throw new Error("请求已取消")
+        }
+        throw err
+      }
+
+      if (!err.status && (err.message === "Failed to fetch" || err.message.includes("fetch"))) {
+        throw new Error("无法连接到后端服务，请确认后端已启动")
+      }
+
       throw err
+    } finally {
+      cleanup()
+      if (shouldSharePending && _pendingRequests.get(cacheKey) === requestPromise) {
+        _pendingRequests.delete(cacheKey)
+      }
     }
+  })()
 
-    if (resp.status === 204) {
-      if (method === "GET") _setCache(cacheKey, null)
-      return null
-    }
+  if (shouldSharePending) _pendingRequests.set(cacheKey, requestPromise)
 
-    const data = await resp.json()
-    if (method === "GET") _setCache(cacheKey, data)
-    return data
-  } catch (err) {
-    clearTimeout(timeoutId)
-
-    if (err.name === "AbortError") {
-      throw new Error("请求超时，请检查后端服务是否运行")
-    }
-
-    if (!err.status && (err.message === "Failed to fetch" || err.message.includes("fetch"))) {
-      throw new Error("无法连接到后端服务，请确认后端已启动")
-    }
-
-    throw err
-  } finally {
-    if (method === "GET") _pendingRequests.delete(cacheKey)
-  }
+  return requestPromise
 }
 
 /**
@@ -650,24 +694,24 @@ const api = {
   // RAG 检索
   // ============================================================
   rag: {
-    async search(payload, novelId) {
-      return post(withQuery("/rag/retrieve", { novel_id: novelId }), payload, { timeout: RAG_SEARCH_TIMEOUT })
+    async search(payload, novelId, options = {}) {
+      return post(withQuery("/rag/retrieve", { novel_id: novelId }), payload, { timeout: RAG_SEARCH_TIMEOUT, ...options })
     },
 
-    async rebuild(payload) {
+    async rebuild(payload, options = {}) {
       const { novel_id, start_chapter, end_chapter } = payload || {}
       if (!novel_id) throw new Error("重建索引需要先选择项目")
-      return post("/rag/rebuild", { novel_id, start_chapter, end_chapter })
+      return post("/rag/rebuild", { novel_id, start_chapter, end_chapter }, options)
     },
 
-    async prewarm() {
-      return post("/rag/prewarm", {}, { timeout: RAG_PREWARM_TIMEOUT })
+    async prewarm(options = {}) {
+      return post("/rag/prewarm", {}, { timeout: RAG_PREWARM_TIMEOUT, ...options })
     },
 
-    async retryEmbeddings(payload) {
+    async retryEmbeddings(payload, options = {}) {
       const { novel_id, start_chapter, end_chapter, statuses } = payload || {}
       if (!novel_id) throw new Error("重试失败向量需要先选择项目")
-      return post("/rag/retry-embeddings", { novel_id, start_chapter, end_chapter, statuses })
+      return post("/rag/retry-embeddings", { novel_id, start_chapter, end_chapter, statuses }, options)
     },
 
     async status(projectId) {
@@ -683,12 +727,12 @@ const api = {
   // 上下文
   // ============================================================
   context: {
-    async compile(payload) {
-      return post("/context/compile", payload)
+    async compile(payload, options = {}) {
+      return post("/context/compile", payload, options)
     },
 
-    async render(payload) {
-      return post("/context/render", payload)
+    async render(payload, options = {}) {
+      return post("/context/render", payload, options)
     },
 
     async confirm(payload) {
@@ -789,6 +833,14 @@ const api = {
   // 生成中心
   // ============================================================
   generate: {
+    async objectDraftChat(payload, options = {}) {
+      return post("/world/object-draft-chat", payload, { timeout: LLM_GENERATE_TIMEOUT, ...options })
+    },
+
+    async generateObjectDraft(payload, options = {}) {
+      return post("/world/object-drafts/generate", payload, { timeout: LLM_GENERATE_TIMEOUT, ...options })
+    },
+
     async worldCharacter(payload) {
       return post("/world/entities/extract", payload)
     },
@@ -807,7 +859,8 @@ const api = {
   // ============================================================
   async healthCheck() {
     try {
-      await request("/health")
+      // 健康检查必须绕过 GET 缓存，否则短时间内多次检查会命中同一份缓存。
+      await request(withQuery("/health", { _ts: Date.now() }))
       return true
     } catch {
       return false
@@ -836,11 +889,11 @@ const api = {
       return request(withQuery(`/imports/${recordId}`, params))
     },
 
-    async deepImport(novelId, startChapter, endChapter, force = false) {
-      return post("/imports/deep", { novel_id: novelId, start_chapter: startChapter, end_chapter: endChapter, force })
+    async deepImport(novelId, startChapter, endChapter, force = false, highQuality = false) {
+      return post("/imports/deep", { novel_id: novelId, start_chapter: startChapter, end_chapter: endChapter, force, high_quality: highQuality })
     },
 
-    async startStage(stage, novelId, startChapter, endChapter, force = false) {
+    async startStage(stage, novelId, startChapter, endChapter, force = false, highQuality = false) {
       const endpoints = {
         scenes: "/imports/stages/scenes",
         world_objects: "/imports/stages/world-objects",
@@ -848,7 +901,7 @@ const api = {
       }
       const endpoint = endpoints[stage]
       if (!endpoint) throw new Error(`unsupported import stage: ${stage}`)
-      return post(endpoint, { novel_id: novelId, start_chapter: startChapter, end_chapter: endChapter, force })
+      return post(endpoint, { novel_id: novelId, start_chapter: startChapter, end_chapter: endChapter, force, high_quality: highQuality })
     },
 
     async resumeDeepImport(taskId) {
@@ -1020,6 +1073,9 @@ const api = {
       return this.getStatus(taskId, novelId)
     },
   },
+
+  // 底层请求入口（测试用，业务代码优先使用领域方法）
+  request,
 }
 
 // 导出到全局

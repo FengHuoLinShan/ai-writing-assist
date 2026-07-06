@@ -55,7 +55,7 @@ const mapQuickCreateView = {
   },
 
   _showModal() {
-    showModal("快速创建地图", this._render(), [{
+    showModalHtml("快速创建地图", this._render(), [{
       text: "创建",
       class: "btn-primary",
       handler: async () => this._confirm(),

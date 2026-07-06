@@ -54,6 +54,9 @@ globalThis.esc = (str) => {
 
 globalThis.toast = vi.fn()
 globalThis.showModal = vi.fn()
+globalThis.showModalHtml = vi.fn((title, htmlString, buttons) => {
+  globalThis.showModal(title, { html: htmlString }, buttons)
+})
 globalThis.confirmAction = vi.fn()
 globalThis.closeModal = vi.fn()
 globalThis.prompt = vi.fn()
@@ -116,6 +119,8 @@ globalThis.api = {
     getSnapshot: vi.fn(),
   },
   generate: {
+    objectDraftChat: vi.fn(),
+    generateObjectDraft: vi.fn(),
     worldCharacter: vi.fn(),
     plotStructure: vi.fn(),
     chapterScene: vi.fn(),

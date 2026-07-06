@@ -121,7 +121,7 @@ function getHelpText() {
 // ============================================================
 
 registerCommand("help", () => {
-  showModal("命令帮助", `<pre style="font-family:var(--font-mono);font-size:12px;line-height:1.8;">${getHelpText()}</pre>`, [
+  showModalHtml("命令帮助", `<pre style="font-family:var(--font-mono);font-size:12px;line-height:1.8;">${getHelpText()}</pre>`, [
     { text: "关闭", class: "", handler: closeModal },
   ])
 }, "查看帮助")

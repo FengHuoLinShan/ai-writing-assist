@@ -32,7 +32,13 @@ beforeEach(() => {
   worldView._autoExtractProgress = null
   worldView._autoExtractPoller = null
   worldView._autoExtractMeta = null
+  worldView._fusionTaskId = null
+  worldView._fusionProgress = null
+  if (worldView._fusionPoller?.stop) worldView._fusionPoller.stop()
+  worldView._fusionPoller = null
+  worldView._eventsBound = false
   localStorage.removeItem("novel_world_extract_task")
+  localStorage.removeItem("novel_active_workflows_v1")
   vi.clearAllMocks()
 })
 
@@ -76,6 +82,20 @@ describe("onEnter", () => {
 })
 
 // ============================================================
+// onLeave
+// ============================================================
+
+describe("onLeave", () => {
+  it("stops the fusion poller", () => {
+    const stop = vi.fn()
+    worldView._fusionPoller = { stop }
+    worldView.onLeave()
+    expect(stop).toHaveBeenCalled()
+    expect(worldView._fusionPoller).toBeNull()
+  })
+})
+
+// ============================================================
 // render
 // ============================================================
 
@@ -98,6 +118,21 @@ describe("worldView render", () => {
     await vi.waitFor(() => {
       expect(router.navigate).toHaveBeenCalledWith("map", null)
     })
+  })
+
+  it("repeated render and bind does not double-fire direct-bound button clicks", async () => {
+    state.currentProjectId = "p1"
+    worldView._entities = [{ id: "e1", name: "王都", entity_type: "location", status: "canonical" }]
+    const spy = vi.spyOn(worldView, "_showCreateForm").mockImplementation(() => {})
+
+    document.body.innerHTML = await worldView.render()
+    worldView._bindEvents()
+    document.body.innerHTML = await worldView.render()
+    worldView._bindEvents()
+
+    document.getElementById("btn-new-entity").click()
+    expect(spy).toHaveBeenCalledTimes(1)
+    spy.mockRestore()
   })
 })
 
@@ -506,7 +541,7 @@ describe("对象库", () => {
     it("_showCreateForm 调用 showModal 显示表单", () => {
       worldView._showCreateForm()
       expect(showModal).toHaveBeenCalled()
-      const html = vi.mocked(showModal).mock.calls[0][1]
+      const html = vi.mocked(showModal).mock.calls[0][1].html
       expect(html).toContain("create-entity-name")
     })
 
@@ -622,13 +657,21 @@ describe("关系", () => {
 
     it("标记关系复核通过", async () => {
       state.currentProjectId = "p1"
+      state.currentSubView = "relations"
       api.world.updateRelationship.mockResolvedValue({})
+      api.world.listRelationships.mockResolvedValue({
+        items: [{ id: "r1", source_name: "A", target_name: "B", relation_type: "ally_of", status: "canonical" }],
+        total: 1,
+      })
+      document.body.innerHTML = `<main id="workspace-content">${await worldView.render()}</main>`
+      document.getElementById("workspace-content").scrollTop = 66
 
       await worldView._markRelationReviewed("r1")
 
       expect(api.world.updateRelationship).toHaveBeenCalledWith("r1", { status: "canonical" }, "p1")
       expect(toast).toHaveBeenCalledWith("关系已标记为已复核", "success")
-      expect(router.refresh).toHaveBeenCalled()
+      expect(router.refresh).not.toHaveBeenCalled()
+      expect(document.getElementById("workspace-content").scrollTop).toBe(66)
     })
   })
 })
@@ -757,7 +800,14 @@ describe("别名", () => {
 
     it("标记别名复核通过", async () => {
       state.currentProjectId = "p1"
+      state.currentSubView = "aliases"
       api.world.updateAlias.mockResolvedValue({})
+      api.world.listAliases.mockResolvedValue({
+        items: [{ entity_id: "e1", entity_name: "炎帝", alias: "炎帝", status: "canonical", needs_review: false }],
+        total: 1,
+      })
+      document.body.innerHTML = `<main id="workspace-content">${await worldView.render()}</main>`
+      document.getElementById("workspace-content").scrollTop = 58
 
       await worldView._markAliasReviewed("e1", "炎帝")
 
@@ -769,7 +819,8 @@ describe("别名", () => {
         reviewed_from: "world_aliases",
       }, { novel_id: "p1" })
       expect(toast).toHaveBeenCalledWith("别名已标记为已复核", "success")
-      expect(router.refresh).toHaveBeenCalled()
+      expect(router.refresh).not.toHaveBeenCalled()
+      expect(document.getElementById("workspace-content").scrollTop).toBe(58)
     })
   })
 })
@@ -809,6 +860,20 @@ describe("AI 自动识别", () => {
       expect(api.world.extractEntities).not.toHaveBeenCalled()
       expect(api.world.extractAliasRelations).not.toHaveBeenCalled()
       expect(worldView._autoExtractTaskId).toBe("t1")
+    })
+
+    it("honors the passed taskType when mapping to a stage", async () => {
+      state.currentProjectId = "p1"
+      document.body.innerHTML = `
+        <input id="w-extract-start" value="2"/>
+        <input id="w-extract-end" value="4"/>
+      `
+      api.imports.startStage.mockResolvedValue({ task_id: "t2" })
+
+      await worldView._submitAutoExtract("plot_structure")
+
+      expect(api.imports.startStage).toHaveBeenCalledWith("plot_structure", "p1", 2, 4)
+      expect(worldView._autoExtractTaskId).toBe("t2")
     })
   })
 
@@ -1098,6 +1163,19 @@ describe("批量操作", () => {
       content_json: { aliases: ["王城"], _meta: { source: "deep_import", needs_review: true } },
     })
     api.world.updateEntity.mockResolvedValue({})
+    api.world.listEntities
+      .mockResolvedValueOnce({
+        items: [{
+          id: "e1",
+          name: "王都",
+          needs_review: false,
+          content_json: { aliases: ["王城"], _meta: { source: "deep_import", needs_review: false } },
+        }],
+        total: 1,
+      })
+      .mockResolvedValueOnce({ items: [], total: 0 })
+    document.body.innerHTML = `<main id="workspace-content">${await worldView.render()}</main>`
+    document.getElementById("workspace-content").scrollTop = 88
 
     await worldView._markEntityReviewed("e1")
 
@@ -1114,6 +1192,8 @@ describe("批量操作", () => {
       },
     }, "p1")
     expect(toast).toHaveBeenCalledWith("世界对象已标记为已复核", "success")
+    expect(router.refresh).not.toHaveBeenCalled()
+    expect(document.getElementById("workspace-content").scrollTop).toBe(88)
   })
 
   it("对象库批量复核调用现有更新 API", async () => {

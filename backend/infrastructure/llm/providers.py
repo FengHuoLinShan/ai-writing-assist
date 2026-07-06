@@ -56,6 +56,10 @@ _RESERVED_EXTRA_FIELDS = {
     "timeout",
 }
 
+_EXTRA_BODY_FIELDS = {
+    "thinking",
+}
+
 
 class OpenAIProvider:
     """OpenAI-compatible API Provider
@@ -364,7 +368,16 @@ class OpenAIProvider:
             fields = ", ".join(sorted(reserved_extra))
             raise ValueError(f"reserved LLM extra fields are not allowed: {fields}")
 
-        kwargs.update(request.extra)
+        extra_body = dict(request.extra.get("extra_body") or {})
+        for key, value in request.extra.items():
+            if key in _EXTRA_BODY_FIELDS:
+                extra_body[key] = value
+                continue
+            if key == "extra_body":
+                continue
+            kwargs[key] = value
+        if extra_body:
+            kwargs["extra_body"] = extra_body
         return kwargs
 
 

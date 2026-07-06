@@ -26,6 +26,8 @@ from modules.outline.generation.models import (
     Question,
     RevealPlan,
     Risk,
+    SimpleStructureOutput,
+    SimpleSupportedStructureItem,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,6 +45,9 @@ class ParsedPlotStructure:
     offscreen_progress: list[OffscreenProgress]
     risks: list[Risk]
     questions_for_user: list[Question]
+    turning_points: list[dict] | None = None
+    uncertain_items: list[dict] | None = None
+    diagnostics: dict | None = None
 
 
 class PlotStructureParser:
@@ -80,6 +85,14 @@ class PlotStructureParser:
             ParsedPlotStructure: 成功时返回解析结果
             None: 多次重试后仍无有效内容时返回 None
         """
+        if self._fast_structured and getattr(self._context, "scenes", []):
+            return await self._parse_deep_import_simple(
+                llm_client,
+                model,
+                start_chapter,
+                end_chapter,
+            )
+
         system_prompt = self._build_system_prompt(start_chapter, end_chapter)
         request = self._build_request(system_prompt, model, start_chapter, end_chapter)
 
@@ -173,6 +186,202 @@ class PlotStructureParser:
                 "优先保留长期创作资产。\n"
             )
         return system_prompt
+
+    async def _parse_deep_import_simple(
+        self,
+        llm_client: LLMClient,
+        model: str,
+        start_chapter: int,
+        end_chapter: int,
+    ) -> ParsedPlotStructure | None:
+        scene_cards = [
+            scene
+            for scene in getattr(self._context, "scenes", [])
+            if isinstance(scene, dict) and scene.get("scene_id")
+        ]
+        scene_by_id = {str(scene["scene_id"]): scene for scene in scene_cards}
+        request, prompt_chars = self._build_deep_import_simple_request(
+            model,
+            start_chapter,
+            end_chapter,
+            scene_cards,
+        )
+        diagnostics: dict[str, object] = {
+            "parameter_version": "phase3_structure_simple_v1",
+            "input_mode": "scenes_plus_world" if scene_cards else "scenes_only",
+            "prompt_level": "minimal",
+            "prompt_chars": prompt_chars,
+            "retry_count": 0,
+            "invalid_scene_ref_count": 0,
+        }
+        token_attempts = _phase3_token_attempts(prompt_chars)
+        last_error: Exception | None = None
+        for attempt_index, max_tokens in enumerate(token_attempts):
+            request.max_tokens = max_tokens
+            diagnostics["max_tokens"] = max_tokens
+            diagnostics["retry_count"] = attempt_index
+            try:
+                parsed = await llm_client.generate_structured(
+                    request,
+                    SimpleStructureOutput,
+                    max_fix_attempts=1,
+                    partial_list_fields={
+                        "plot_threads",
+                        "arcs",
+                        "foreshadowing",
+                        "reveals",
+                        "turning_points",
+                        "uncertain_items",
+                    },
+                    format_repair_attempts=1,
+                    transport_retries=True,
+                    fix_prompt=(
+                        "请修复为严格 JSON object，只包含 plot_threads、arcs、"
+                        "foreshadowing、reveals、turning_points、uncertain_items。"
+                        "每条结构结论必须有 supporting_scene_ids，且只能使用给定 "
+                        "Scene ID。不要 Markdown。"
+                    ),
+                )
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    "Deep import simple structure parse failed at max_tokens=%s: %s",
+                    max_tokens,
+                    exc,
+                )
+                continue
+            normalized, invalid_refs = _normalize_simple_structure_refs(
+                parsed,
+                scene_by_id,
+            )
+            diagnostics["invalid_scene_ref_count"] = invalid_refs
+            diagnostics["turning_point_count"] = len(normalized.turning_points)
+            diagnostics["uncertain_count"] = len(normalized.uncertain_items)
+            if _simple_structure_has_content(normalized):
+                return _simple_structure_to_parsed(
+                    normalized,
+                    scene_by_id=scene_by_id,
+                    start_chapter=start_chapter,
+                    end_chapter=end_chapter,
+                    diagnostics=diagnostics,
+                )
+            last_error = RuntimeError("empty simple structure output")
+        logger.warning("Deep import simple structure failed: %s", last_error)
+        return None
+
+    def _build_deep_import_simple_request(
+        self,
+        model: str,
+        start_chapter: int,
+        end_chapter: int,
+        scene_cards: list[dict],
+    ) -> tuple[LLMCallRequest, int]:
+        scene_ids = [str(scene["scene_id"]) for scene in scene_cards]
+        input_mode = "scenes_plus_world" if self._context.markdown else "scenes_only"
+        input_block = (
+            "【Scene卡片 JSON】\n"
+            f"{json.dumps(scene_cards, ensure_ascii=False)}\n\n"
+            "【Phase2世界资产与上下文摘要】\n"
+            f"{self._context.markdown}"
+        )
+        user_prompt = (
+            f"{input_block}\n\n"
+            f"你是小说叙事结构分析助手。上方是第{start_chapter}章到"
+            f"第{end_chapter}章的 Scene 输入。\n"
+            f"输入模式：{input_mode}。\n"
+            "Phase2 来源组合：production_phase2_world_window_v1。\n\n"
+            "任务：\n"
+            "- 基于输入 Scene 总结叙事结构，不要重新切 Scene。\n"
+            "- 输出主线、人物弧、伏笔、揭示、关键转折。\n"
+            "- 每条结论必须有 supporting_scene_ids，且只能使用输入中的 "
+            "Scene ID。\n"
+            f"- 不要引用第{end_chapter}章之后的剧情，不要用后文知识解释"
+            "当前内容。\n"
+            "- 不要为了凑数量而拆得过细。\n\n"
+            f"可用 Scene IDs：{', '.join(scene_ids)}\n\n"
+            "严格输出 JSON object：\n"
+            "{\n"
+            "  \"plot_threads\": [\n"
+            "    {\n"
+            "      \"title\": \"主线标题\",\n"
+            "      \"summary\": \"主线说明\",\n"
+            "      \"thread_type\": \"main|subplot|mystery|relationship|world\",\n"
+            "      \"status\": \"active|resolved|paused\",\n"
+            "      \"confidence\": 0.0,\n"
+            "      \"needs_review\": false,\n"
+            "      \"review_reason\": \"\",\n"
+            "      \"supporting_scene_ids\": []\n"
+            "    }\n"
+            "  ],\n"
+            "  \"arcs\": [\n"
+            "    {\n"
+            "      \"character_name\": \"人物名\",\n"
+            "      \"title\": \"弧线标题\",\n"
+            "      \"summary\": \"人物阶段性变化\",\n"
+            "      \"confidence\": 0.0,\n"
+            "      \"needs_review\": false,\n"
+            "      \"review_reason\": \"\",\n"
+            "      \"supporting_scene_ids\": []\n"
+            "    }\n"
+            "  ],\n"
+            "  \"foreshadowing\": [\n"
+            "    {\n"
+            "      \"title\": \"伏笔标题\",\n"
+            "      \"summary\": \"设置与潜在指向\",\n"
+            "      \"confidence\": 0.0,\n"
+            "      \"needs_review\": false,\n"
+            "      \"review_reason\": \"\",\n"
+            "      \"supporting_scene_ids\": []\n"
+            "    }\n"
+            "  ],\n"
+            "  \"reveals\": [\n"
+            "    {\n"
+            "      \"title\": \"揭示标题\",\n"
+            "      \"summary\": \"揭示内容\",\n"
+            "      \"confidence\": 0.0,\n"
+            "      \"needs_review\": false,\n"
+            "      \"review_reason\": \"\",\n"
+            "      \"supporting_scene_ids\": []\n"
+            "    }\n"
+            "  ],\n"
+            "  \"turning_points\": [\n"
+            "    {\n"
+            "      \"title\": \"转折标题\",\n"
+            "      \"summary\": \"为什么是转折\",\n"
+            "      \"confidence\": 0.0,\n"
+            "      \"needs_review\": false,\n"
+            "      \"review_reason\": \"\",\n"
+            "      \"supporting_scene_ids\": []\n"
+            "    }\n"
+            "  ],\n"
+            "  \"uncertain_items\": [\n"
+            "    {\n"
+            "      \"description\": \"不确定项\",\n"
+            "      \"reason\": \"为什么不确定\",\n"
+            "      \"supporting_scene_ids\": []\n"
+            "    }\n"
+            "  ]\n"
+            "}"
+        )
+        system_prompt = "你只输出可解析 JSON。不要 Markdown，不要解释。"
+        prompt_chars = len(user_prompt) + len(system_prompt)
+        return (
+            LLMCallRequest(
+                model=model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": system_prompt,
+                    },
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.2,
+                max_tokens=_phase3_token_attempts(prompt_chars)[0],
+                response_format={"type": "json_object"},
+                extra=_deepseek_extra(model),
+            ),
+            prompt_chars,
+        )
 
     def _build_request(
         self,
@@ -280,7 +489,225 @@ class PlotStructureParser:
             offscreen_progress=list(output.offscreen_progress),
             risks=list(output.risks),
             questions_for_user=list(output.questions_for_user),
+            turning_points=[],
+            uncertain_items=[],
+            diagnostics={},
         )
+
+
+def _deepseek_extra(model: str) -> dict[str, object]:
+    if str(model).startswith("deepseek-v4"):
+        return {
+            "thinking": {"type": "enabled"},
+            "reasoning_effort": "max",
+        }
+    return {}
+
+
+def _phase3_token_attempts(prompt_chars: int) -> list[int]:
+    initial = _clamp(_round_half_up(prompt_chars * 0.20), 12_288, 24_576)
+    attempts = [initial]
+    for value in (16_384, 24_576):
+        if value > attempts[-1]:
+            attempts.append(value)
+    return attempts
+
+
+def _round_half_up(value: float) -> int:
+    return int(value + 0.5)
+
+
+def _clamp(value: int, minimum: int, maximum: int) -> int:
+    return max(minimum, min(value, maximum))
+
+
+def _normalize_simple_structure_refs(
+    output: SimpleStructureOutput,
+    scene_by_id: dict[str, dict],
+) -> tuple[SimpleStructureOutput, int]:
+    invalid_refs = 0
+
+    def normalize_item(
+        item: SimpleSupportedStructureItem,
+    ) -> SimpleSupportedStructureItem:
+        nonlocal invalid_refs
+        valid_ids: list[str] = []
+        for scene_id in item.supporting_scene_ids:
+            if scene_id in scene_by_id:
+                if scene_id not in valid_ids:
+                    valid_ids.append(scene_id)
+            else:
+                invalid_refs += 1
+        return item.model_copy(
+            update={
+                "supporting_scene_ids": valid_ids,
+                "needs_review": item.needs_review or not valid_ids,
+            }
+        )
+
+    uncertain_items: list[dict] = []
+    for item in output.uncertain_items:
+        if not isinstance(item, dict):
+            continue
+        raw_ids = item.get("supporting_scene_ids") or []
+        valid_ids = []
+        if isinstance(raw_ids, list):
+            for scene_id in raw_ids:
+                scene_id = str(scene_id)
+                if scene_id in scene_by_id:
+                    valid_ids.append(scene_id)
+                else:
+                    invalid_refs += 1
+        uncertain_items.append({**item, "supporting_scene_ids": valid_ids})
+
+    return (
+        SimpleStructureOutput(
+            plot_threads=[normalize_item(item) for item in output.plot_threads],
+            arcs=[normalize_item(item) for item in output.arcs],
+            foreshadowing=[normalize_item(item) for item in output.foreshadowing],
+            reveals=[normalize_item(item) for item in output.reveals],
+            turning_points=[normalize_item(item) for item in output.turning_points],
+            uncertain_items=uncertain_items,
+        ),
+        invalid_refs,
+    )
+
+
+def _simple_structure_has_content(output: SimpleStructureOutput) -> bool:
+    return bool(
+        output.plot_threads
+        or output.arcs
+        or output.foreshadowing
+        or output.reveals
+        or output.turning_points
+    )
+
+
+def _simple_structure_to_parsed(
+    output: SimpleStructureOutput,
+    *,
+    scene_by_id: dict[str, dict],
+    start_chapter: int,
+    end_chapter: int,
+    diagnostics: dict,
+) -> ParsedPlotStructure:
+    threads = [
+        GeneratedThread(
+            name=item.title or item.summary[:24] or f"导入主线{index}",
+            thread_type=item.thread_type or "main",
+            summary=item.summary,
+            visible_goal=item.summary,
+            hidden_truth=None,
+            start_chapter=_supported_start(item, scene_by_id, start_chapter),
+            planned_payoff_chapter=_supported_end(item, scene_by_id, end_chapter),
+            current_stage=item.status or "active",
+        )
+        for index, item in enumerate(output.plot_threads, start=1)
+        if item.title or item.summary
+    ]
+    arcs = [
+        GeneratedArc(
+            title=item.title or f"{item.character_name or '人物'}弧线",
+            arc_index=index,
+            start_chapter=_supported_start(item, scene_by_id, start_chapter),
+            end_chapter=_supported_end(item, scene_by_id, end_chapter),
+            arc_goal=item.summary,
+            core_conflict=item.review_reason or None,
+            related_character_names=[item.character_name] if item.character_name else [],
+        )
+        for index, item in enumerate(output.arcs, start=1)
+        if item.title or item.summary or item.character_name
+    ]
+    foreshadowing = [
+        ForeshadowingPlan(
+            name=item.title or item.summary[:24],
+            summary=item.summary,
+            planned_seed_chapter=_supported_start(item, scene_by_id, start_chapter),
+            planned_payoff_chapter=_supported_end(item, scene_by_id, end_chapter),
+        )
+        for item in output.foreshadowing
+        if item.title or item.summary
+    ]
+    reveals = [
+        RevealPlan(
+            target_name=item.title or item.summary[:24],
+            target_type="world_entity",
+            secret_summary=item.summary,
+        )
+        for item in output.reveals
+        if item.title or item.summary
+    ]
+    turning_points = [
+        _supported_extra_item(item, scene_by_id)
+        for item in output.turning_points
+        if item.title or item.summary
+    ]
+    return ParsedPlotStructure(
+        threads=threads,
+        arcs=arcs,
+        scenes=[],
+        foreshadowing_plans=foreshadowing,
+        reveal_plans=reveals,
+        offscreen_progress=[],
+        risks=[],
+        questions_for_user=[],
+        turning_points=turning_points,
+        uncertain_items=list(output.uncertain_items),
+        diagnostics=dict(diagnostics),
+    )
+
+
+def _supported_start(
+    item: SimpleSupportedStructureItem,
+    scene_by_id: dict[str, dict],
+    default: int,
+) -> int:
+    chapters = _chapters_for_scene_ids(item.supporting_scene_ids, scene_by_id)
+    return min(chapters) if chapters else default
+
+
+def _supported_end(
+    item: SimpleSupportedStructureItem,
+    scene_by_id: dict[str, dict],
+    default: int,
+) -> int:
+    chapters = _chapters_for_scene_ids(item.supporting_scene_ids, scene_by_id)
+    return max(chapters) if chapters else default
+
+
+def _chapters_for_scene_ids(
+    scene_ids: list[str],
+    scene_by_id: dict[str, dict],
+) -> list[int]:
+    chapters: list[int] = []
+    for scene_id in scene_ids:
+        scene = scene_by_id.get(scene_id)
+        if not scene:
+            continue
+        for key in ("start_chapter", "end_chapter"):
+            try:
+                value = int(scene.get(key) or 0)
+            except (TypeError, ValueError):
+                value = 0
+            if value > 0:
+                chapters.append(value)
+    return chapters
+
+
+def _supported_extra_item(
+    item: SimpleSupportedStructureItem,
+    scene_by_id: dict[str, dict],
+) -> dict:
+    chapters = _chapters_for_scene_ids(item.supporting_scene_ids, scene_by_id)
+    return {
+        "title": item.title,
+        "summary": item.summary,
+        "confidence": item.confidence,
+        "needs_review": item.needs_review,
+        "review_reason": item.review_reason,
+        "supporting_scene_ids": item.supporting_scene_ids,
+        "chapter_range": [min(chapters), max(chapters)] if chapters else [],
+    }
 
 
 def _per_item_validate[P: BaseModel](

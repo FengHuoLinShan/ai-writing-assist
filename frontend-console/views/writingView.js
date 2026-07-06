@@ -76,6 +76,7 @@ const writingView = {
   _deepImportTaskId: null,
   _deepImportProgress: null,
   _deepImportTimer: null,
+  _deepImportPollFailures: 0,
   _scenes: [],
   _currentSceneId: null,
   _cursorOffset: 0,
@@ -83,11 +84,13 @@ const writingView = {
   _cursorDebounceTimer: null,
   _autoSaveTimer: null,
   _autoSaving: false,
+  _currentSavePromise: null,
   _lastSavedContent: null,
   _beforeUnloadHandler: null,
   _sceneMapSummary: null,
   _sceneMapSummaryError: null,
   _sceneMapSummarySceneId: null,
+  _sceneMapSummaryPendingSceneId: null,
   _sceneMapSummaryLoading: false,
   _conflictChecks: [],
   _latestConflictCheck: null,
@@ -155,6 +158,7 @@ const writingView = {
     this._sceneMapSummary = null
     this._sceneMapSummaryError = null
     this._sceneMapSummarySceneId = null
+    this._sceneMapSummaryPendingSceneId = null
     this._sceneMapSummaryLoading = false
     this._conflictChecks = []
     this._latestConflictCheck = null
@@ -547,6 +551,10 @@ const writingView = {
   /** 导航离开前保存当前编辑内容 */
   async _saveBeforeNavigate() {
     this._clearAutoSaveTimer()
+    if (this._currentSavePromise) {
+      await this._currentSavePromise
+      return
+    }
     const editor = document.getElementById("writing-editor")
     if (!editor || !this._currentChapter || this._isReadonly) return
 
@@ -791,7 +799,7 @@ const writingView = {
       html += `
         <div class="scene-tree-node">
           <div class="scene-tree-scene clickable" data-action="select-scene" data-scene-id="${esc(scene.id)}"
-               style="padding:4px 4px;border-radius:4px;${isCurrentScene ? 'background:var(--hover-bg);' : ''}">
+               style="padding:4px 4px;border-radius:var(--radius-sm);${isCurrentScene ? 'background:var(--hover-bg);' : ''}">
             <span class="toggle-icon">${isExpanded ? '▼' : '▶'}</span>
             <span style="font-size:13px;font-weight:${isCurrentScene ? 'bold' : 'normal'};">${esc(scene.title || '未命名')}</span>
             <span style="color:var(--text-dim);font-size:10px;margin-left:4px;">(${chapters.length}章)</span>
@@ -919,7 +927,7 @@ const writingView = {
 
     if (hasSelection) {
       html += `
-        <input id="writing-title-input" type="text" value="${esc(this._currentTitle || '')}" placeholder="章节标题" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);padding:6px 10px;border-radius:4px;font-size:13px;margin-bottom:6px;" ${this._isReadonly ? 'readonly' : ''} />
+        <input id="writing-title-input" type="text" value="${esc(this._currentTitle || '')}" placeholder="章节标题" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);padding:6px 10px;border-radius:var(--radius-sm);font-size:13px;margin-bottom:6px;" ${this._isReadonly ? 'readonly' : ''} />
 
         <textarea id="writing-editor" class="novel-editor ${this._focusMode ? "novel-editor--focus" : ""}"
           placeholder="在此书写正文..." ${this._isReadonly ? 'readonly' : ''}>${this._currentContent ? esc(this._currentContent) : ''}</textarea>
@@ -1203,7 +1211,7 @@ const writingView = {
     let html = `
       <div style="margin-bottom:8px;display:flex;align-items:center;gap:6px;font-size:12px;">
         <span style="color:var(--text-dim);">版本：</span>
-        <select id="version-selector" style="background:var(--bg);color:var(--text);border:1px solid var(--border);padding:3px 6px;border-radius:3px;font-size:12px;">
+        <select id="version-selector" style="background:var(--bg);color:var(--text);border:1px solid var(--border);padding:3px 6px;border-radius:var(--radius-sm);font-size:12px;">
     `
 
     for (const v of this._versions) {
@@ -1255,6 +1263,7 @@ const writingView = {
       this._sceneMapSummary = null
       this._sceneMapSummaryError = null
       this._sceneMapSummarySceneId = null
+      this._sceneMapSummaryPendingSceneId = null
       this._sceneMapSummaryLoading = false
     }
     this._currentSceneId = nextSceneId
@@ -1346,11 +1355,10 @@ const writingView = {
 
   _scheduleSceneMapSummaryLoad(currentScene) {
     if (!state.currentProjectId || !currentScene?.id) return
-    if (this._sceneMapSummarySceneId === currentScene.id &&
-        (this._sceneMapSummary || this._sceneMapSummaryError || this._sceneMapSummaryLoading)) {
-      return
-    }
-    this._sceneMapSummarySceneId = currentScene.id
+    // 当前场景已有结果或已有正在进行的同场景请求，避免重复调度
+    if (this._sceneMapSummarySceneId === currentScene.id) return
+    if (this._sceneMapSummaryPendingSceneId === currentScene.id) return
+    this._sceneMapSummaryPendingSceneId = currentScene.id
     this._sceneMapSummaryLoading = true
     setTimeout(async () => {
       await this._loadCurrentSceneMapSummary(currentScene)
@@ -1369,29 +1377,33 @@ const writingView = {
       this._sceneMapSummary = null
       this._sceneMapSummaryError = null
       this._sceneMapSummarySceneId = null
+      this._sceneMapSummaryPendingSceneId = null
       this._sceneMapSummaryLoading = false
       return null
     }
-    this._sceneMapSummarySceneId = scene.id
     this._sceneMapSummaryError = null
     this._sceneMapSummaryLoading = true
-    const isStale = () => this._currentSceneId && this._currentSceneId !== scene.id
-    const isActiveRequest = () => this._sceneMapSummarySceneId === scene.id
+    const isStillCurrent = () => this._currentSceneId === scene.id
+    const isActiveRequest = () => this._sceneMapSummaryPendingSceneId === scene.id ||
+      this._sceneMapSummaryPendingSceneId === null
     try {
       const summary = await api.world.getMapSceneSummary(state.currentProjectId, scene.id)
-      if (isStale()) return null
+      if (!isStillCurrent() || !isActiveRequest()) return null
       this._sceneMapSummary = summary
       this._sceneMapSummaryError = null
+      this._sceneMapSummarySceneId = scene.id
       return summary
     } catch {
-      if (isStale()) return null
+      if (!isStillCurrent() || !isActiveRequest()) return null
       this._sceneMapSummary = null
       this._sceneMapSummaryError = "地图摘要暂不可用"
+      this._sceneMapSummarySceneId = scene.id
       toast("地图摘要暂不可用", "warning")
       return null
     } finally {
       if (isActiveRequest()) {
         this._sceneMapSummaryLoading = false
+        this._sceneMapSummaryPendingSceneId = null
       }
     }
   },
@@ -1653,7 +1665,7 @@ const writingView = {
       const created = v.created_at ? new Date(v.created_at).toLocaleDateString("zh-CN") : ""
       const isCurrent = v.version_number === this._currentVersionNumber
       listHtml += `
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border-dim);${isCurrent ? 'background:var(--hover-bg);border-radius:4px;padding:8px;' : ''}">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border-dim);${isCurrent ? 'background:var(--hover-bg);border-radius:var(--radius-sm);padding:8px;' : ''}">
           <div>
             <span style="font-weight:500;">v${esc(v.version_number)}</span>
             ${isLatest ? ' <span class="badge badge-canonical">最新</span>' : ''}
@@ -1668,7 +1680,7 @@ const writingView = {
       `
     }
     listHtml += "</div>"
-    showModal(`第 ${this._currentChapter} 章 — 版本历史 (${this._versions.length})`, listHtml)
+    showModalHtml(`第 ${this._currentChapter} 章 — 版本历史 (${this._versions.length})`, listHtml)
 
     setTimeout(() => {
       document.querySelectorAll(".version-preview-btn").forEach((btn) => {
@@ -1719,56 +1731,86 @@ const writingView = {
     this._clearAutoSaveTimer()
     const editor = document.getElementById("writing-editor")
     const titleInput = document.getElementById("writing-title-input")
-    if (!editor || this._autoSaving) return
+    if (!editor || this._currentSavePromise) return
 
     // 从历史版本恢复后编辑：走发布流程（POST 创建新版本），不覆盖旧版本
     if (this._restoreSourceVersion) {
-      return this._publish()
+      const publishPromise = this._publish()
+      this._currentSavePromise = publishPromise
+      this._autoSaving = true
+      try {
+        return await publishPromise
+      } catch (err) {
+        toast(err.message || "发布失败", "error")
+      } finally {
+        this._autoSaving = false
+        this._currentSavePromise = null
+        this._updateSaveStatus()
+      }
+      return
     }
 
-    if (!this._currentDraftId) return
+    if (!this._currentDraftId) {
+      return
+    }
 
-    this._autoSaving = true
     const content = editor.value
     const title = titleInput ? titleInput.value.trim() : ""
 
-    try {
-      const result = await api.writing.autosave(
-        this._currentDraftId,
-        {
-          title,
-          content,
-          expected_version: this._currentVersionNumber,
-          expected_updated_at: this._currentUpdatedAt,
-        },
-        state.currentProjectId,
-      )
-      this._currentContent = content
-      this._currentTitle = title
-      this._currentVersionNumber = result.version_number
-      this._currentUpdatedAt = result.updated_at || this._currentUpdatedAt
-      this._lastSavedContent = content
-      this._lastPublishStatus = null
-      this._saveBackup(null, null)
+    const savePromise = (async () => {
+      try {
+        const result = await api.writing.autosave(
+          this._currentDraftId,
+          {
+            title,
+            content,
+            expected_version: this._currentVersionNumber,
+            expected_updated_at: this._currentUpdatedAt,
+          },
+          state.currentProjectId,
+        )
+        this._currentContent = content
+        this._currentTitle = title
+        this._currentVersionNumber = result.version_number
+        this._currentUpdatedAt = result.updated_at || this._currentUpdatedAt
+        this._lastSavedContent = content
+        this._lastPublishStatus = null
+        this._saveBackup(null, null)
 
-      if (this._chapters[this._currentChapter]) {
-        this._chapters[this._currentChapter].title = title
+        if (this._chapters[this._currentChapter]) {
+          this._chapters[this._currentChapter].title = title
+        }
+        toast("已暂存", "success")
+      } catch (err) {
+        if (err.status === 409) {
+          toast("该章节已被其他会话更新，请刷新后重新编辑", "error")
+        } else {
+          toast(err.message || "暂存失败", "error")
+        }
+      } finally {
+        this._autoSaving = false
+        this._updateSaveStatus()
       }
-      toast("已暂存", "success")
-    } catch (err) {
-      if (err.status === 409) {
-        toast("该章节已被其他会话更新，请刷新后重新编辑", "error")
-      } else {
-        toast(err.message || "暂存失败", "error")
-      }
+    })()
+    this._currentSavePromise = savePromise
+    this._autoSaving = true
+    try {
+      await savePromise
     } finally {
-      this._autoSaving = false
-      this._updateSaveStatus()
+      this._currentSavePromise = null
     }
   },
 
   async _saveDraftForConflictCheck() {
     this._clearAutoSaveTimer()
+    if (this._currentSavePromise) {
+      await this._currentSavePromise
+      return {
+        id: this._currentDraftId,
+        version_number: this._currentVersionNumber,
+        updated_at: this._currentUpdatedAt,
+      }
+    }
     const editor = document.getElementById("writing-editor")
     const titleInput = document.getElementById("writing-title-input")
     if (!editor || !this._currentChapter) throw new Error("请先选择章节")
@@ -1882,7 +1924,7 @@ const writingView = {
           </p>
         </div>
       `
-      showModal("剧情设定冲突检查", body, [
+      showModalHtml("剧情设定冲突检查", body, [
         {
           text: "取消",
           class: "btn-ghost",
@@ -2003,7 +2045,7 @@ const writingView = {
     if (openTargetKind === "memory_chapter") {
       const chapterIndex = openTarget.chapter_index || location.source?.chapter_index || "-"
       const characterId = openTarget.character_id || location.source?.character_id || "-"
-      showModal("记忆来源", `
+      showModalHtml("记忆来源", `
         <div class="writing-conflict-source-modal">
           <p><strong>章节</strong>：第 ${esc(chapterIndex)} 章</p>
           <p><strong>角色</strong>：${esc(characterId)}</p>
@@ -2127,11 +2169,48 @@ const writingView = {
 
   _confirmAsync(message, confirmText) {
     return new Promise((resolve) => {
-      confirmAction(message, () => resolve(true), confirmText)
+      let settled = false
+      const settle = (value) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        resolve(value)
+      }
+      const onConfirm = () => settle(true)
+      const onCancel = () => settle(false)
+
+      const modalClose = document.getElementById("modal-close")
+      const modalOverlay = document.getElementById("modal-overlay")
+      const onCloseClick = onCancel
+      const onOverlayClick = (event) => {
+        if (event.target === event.currentTarget) onCancel()
+      }
+      const onKeyDown = (event) => {
+        if (event.key === "Escape") onCancel()
+      }
+      let observer = null
+      const cleanup = () => {
+        modalClose?.removeEventListener("click", onCloseClick)
+        modalOverlay?.removeEventListener("click", onOverlayClick)
+        document.removeEventListener("keydown", onKeyDown, true)
+        observer?.disconnect()
+      }
+
+      confirmAction(message, onConfirm, confirmText)
       setTimeout(() => {
         const cancelBtn = document.querySelector(".modal-content .btn:not(.btn-primary)")
-        if (cancelBtn) cancelBtn.onclick = () => resolve(false)
+        if (cancelBtn) cancelBtn.onclick = onCancel
       }, 50)
+
+      modalClose?.addEventListener("click", onCloseClick)
+      modalOverlay?.addEventListener("click", onOverlayClick)
+      document.addEventListener("keydown", onKeyDown, true)
+      if (modalOverlay && typeof MutationObserver !== "undefined") {
+        observer = new MutationObserver(() => {
+          if (modalOverlay.classList.contains("hidden")) onCancel()
+        })
+        observer.observe(modalOverlay, { attributes: true, attributeFilter: ["class"] })
+      }
     })
   },
 
@@ -2223,7 +2302,7 @@ const writingView = {
 
   _showPublishErrorModal(msg) {
     this._errorModalVisible = true
-    showModal("发布失败", `
+    showModalHtml("发布失败", `
       <p>${esc(msg)}</p>
       <p style="color:var(--text-dim);font-size:11px;margin-top:8px;">草稿已保存成功。您可以手动重试失败的步骤。</p>
       <div style="margin-top:12px;display:flex;gap:6px;justify-content:flex-end;">
@@ -2403,7 +2482,7 @@ const writingView = {
         从当前章节的指定 offset 处切分为新章节，并同步更新 Scene chunk。
       </p>
     `
-    showModal("断章", html, [{
+    showModalHtml("断章", html, [{
       text: "确认断章", class: "btn-primary",
       handler: async () => {
         const splitPos = parseInt(document.getElementById("split-pos")?.value || "", 10)
@@ -2476,7 +2555,7 @@ const writingView = {
         调用 AI 分析章节内容，生成 Scene 卡（场景目标、冲突、情感节奏等）。
       </p>
     `
-    showModal("AI 提取章节卡", formHtml, [{
+    showModalHtml("AI 提取章节卡", formHtml, [{
       text: "开始提取", class: "btn-primary",
       handler: async () => {
         const start = parseInt(document.getElementById("extract-start")?.value || "1", 10)
@@ -2557,18 +2636,25 @@ const writingView = {
         <label>结束章节</label>
         <input class="form-input" id="auto-extract-end" type="number" min="1" value="${lastChapter}" />
       </div>
+      ${stage === "scenes" ? `
+        <label style="display:flex;gap:8px;align-items:center;font-size:12px;color:var(--text-body);margin-top:8px;">
+          <input id="auto-extract-high-quality" type="checkbox" />
+          更高质量 <span style="color:var(--text-dim);">需要标准提取约8倍时间</span>
+        </label>
+      ` : ""}
       <p style="color:var(--text-dim);font-size:11px;margin-top:8px;">
         ${esc(config.label)}会在所选章节范围内创建或补充对应结构资产。
       </p>
     `
-    showModal(config.label, formHtml, [{
+    showModalHtml(config.label, formHtml, [{
       text: "开始提取", class: "btn-primary",
       handler: async () => {
         const start = parseInt(document.getElementById("auto-extract-start")?.value || "1", 10)
         const end = parseInt(document.getElementById("auto-extract-end")?.value || "10", 10)
+        const highQuality = !!document.getElementById("auto-extract-high-quality")?.checked
         if (end < start) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
         closeModal()
-        await this._submitAutoExtractionStage(stage, start, end)
+        await this._submitAutoExtractionStage(stage, start, end, false, highQuality)
       },
     }])
   },
@@ -2577,11 +2663,11 @@ const writingView = {
     this._showAutoExtractionForm("scenes")
   },
 
-  async _submitAutoExtractionStage(stage, startChapter, endChapter, force = false) {
+  async _submitAutoExtractionStage(stage, startChapter, endChapter, force = false, highQuality = false) {
     const config = this._stageConfig(stage)
     try {
       const result = await api.imports.startStage(
-        stage, state.currentProjectId, startChapter, endChapter, force,
+        stage, state.currentProjectId, startChapter, endChapter, force, highQuality,
       )
       if (result.requires_confirmation) {
         const confirmed = await new Promise((resolve) => {
@@ -2593,7 +2679,7 @@ const writingView = {
           }, 50)
         })
         if (!confirmed) return
-        await this._submitAutoExtractionStage(stage, startChapter, endChapter, true)
+        await this._submitAutoExtractionStage(stage, startChapter, endChapter, true, highQuality)
         return
       }
 
@@ -2612,7 +2698,13 @@ const writingView = {
         degraded: false, degradedBatches: [], phaseError: "",
         phaseErrors: [], qualityStatus: "pending", auditSummary: {}, snapshotHealthSummary: {},
       }
-      this._persistDeepImportWorkflow(result.task_id, startChapter, endChapter, stage)
+      this._persistDeepImportWorkflow(
+        result.task_id,
+        startChapter,
+        endChapter,
+        stage,
+        highQuality,
+      )
       toast(`${config.label}已启动`, "success")
       await this._rerender()
       this._startDeepImportPolling()
@@ -2621,8 +2713,14 @@ const writingView = {
     }
   },
 
-  async _submitDeepImport(startChapter, endChapter, force = false) {
-    return this._submitAutoExtractionStage("scenes", startChapter, endChapter, force)
+  async _submitDeepImport(startChapter, endChapter, force = false, highQuality = false) {
+    return this._submitAutoExtractionStage(
+      "scenes",
+      startChapter,
+      endChapter,
+      force,
+      highQuality,
+    )
   },
 
   _startDeepImportPolling() {
@@ -2712,11 +2810,16 @@ const writingView = {
           return
         }
         await this._rerender()
-      } catch {
-        // polling error, ignore
+        this._deepImportPollFailures = 0
+      } catch (err) {
+        this._deepImportPollFailures += 1
+        if (this._deepImportPollFailures >= 5) {
+          this._stopDeepImportPolling()
+          toast(`自动提取状态轮询连续失败 ${this._deepImportPollFailures} 次，已停止。请刷新后重试。`, "error")
+        }
       }
     }
-    poll()
+    this._deepImportPollFailures = 0
     this._deepImportTimer = setInterval(poll, 3000)
   },
 
@@ -3066,7 +3169,13 @@ const writingView = {
     return confirmedWork
   },
 
-  _persistDeepImportWorkflow(taskId, startChapter, endChapter, stage = "scenes") {
+  _persistDeepImportWorkflow(
+    taskId,
+    startChapter,
+    endChapter,
+    stage = "scenes",
+    highQuality = false,
+  ) {
     const config = this._stageConfig(stage)
     persistActiveWorkflow({
       taskId,
@@ -3074,7 +3183,7 @@ const writingView = {
       label: config.label,
       projectId: state.currentProjectId,
       view: "writing",
-      meta: { startChapter, endChapter, stage },
+      meta: { startChapter, endChapter, stage, highQuality },
     })
   },
 
@@ -3118,11 +3227,11 @@ const writingView = {
             </div>
           </div>
         `).join("")
-      showModal(
+      showModalHtml(
         "深度导入快照状态",
         rows || failureHtml || retainedHtml
           ? `${rows}${failureHtml}${retainedHtml}`
-          : '<p style="color:var(--text-dim);">暂无快照健康摘要</p>',
+          : '<p style="color:var(--text-dim);">暂无快照健康摘要</p>'
       )
       return
     }
@@ -3146,7 +3255,7 @@ const writingView = {
           </div>
         `
       }).join("")
-    showModal("深度导入快照状态", rows || '<p style="color:var(--text-dim);">暂无快照健康摘要</p>')
+    showModalHtml("深度导入快照状态", rows || '<p style="color:var(--text-dim);">暂无快照健康摘要</p>')
   },
 
   _bindCockpitDrag() {

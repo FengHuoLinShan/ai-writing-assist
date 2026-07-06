@@ -62,14 +62,15 @@ export function renderSelectionHeader(view, scope, ids, label = "选择当前页
   const selection = getBulkSelection(view, scope)
   const selectedVisibleCount = cleanIds.filter((id) => selection.has(id)).length
   const checked = cleanIds.length > 0 && selectedVisibleCount === cleanIds.length
-  const indeterminate = selectedVisibleCount > 0 && !checked ? "data-indeterminate=\"true\"" : ""
+  const indeterminate = selectedVisibleCount > 0 && !checked
+  const indeterminateAttr = indeterminate ? "data-indeterminate=\"true\" indeterminate" : ""
   return `
     <label class="selection-checkbox" title="${escHtml(label)}">
       <input type="checkbox"
         data-action="bulk-toggle-all"
         data-scope="${escHtml(scope)}"
         ${checked ? "checked" : ""}
-        ${indeterminate}
+        ${indeterminateAttr}
         ${cleanIds.length === 0 ? "disabled" : ""}
       />
       <span class="sr-only">${escHtml(label)}</span>

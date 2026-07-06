@@ -44,6 +44,18 @@ describe("bulkSelection helper", () => {
     expect(toolbar).toContain("对象已选")
   })
 
+  it("renders indeterminate header checkbox with indeterminate attribute", () => {
+    const view = {}
+    toggleBulkSelection(view, "world", "e1", true)
+    const header = renderSelectionHeader(view, "world", ["e1", "e2"], "全选")
+    const container = document.createElement("div")
+    container.innerHTML = header
+    const checkbox = container.querySelector("input[type='checkbox']")
+    expect(checkbox).not.toBeNull()
+    expect(checkbox.hasAttribute("data-indeterminate")).toBe(true)
+    expect(checkbox.hasAttribute("indeterminate")).toBe(true)
+  })
+
   it("filters selected items by ids", () => {
     const items = [{ id: "a", name: "A" }, { id: "b", name: "B" }]
     const selected = new Set(["b"])

@@ -21,8 +21,10 @@ beforeEach(() => {
   worldBibleView._suggestions = []
   worldBibleView._conflicts = []
   worldBibleView._task = null
+  worldBibleView._projectionConflictHint = null
   if (worldBibleView._projectionPoller?.stop) worldBibleView._projectionPoller.stop()
   worldBibleView._projectionPoller = null
+  worldBibleView._bibleClickHandler = null
 })
 
 describe("worldBibleView", () => {
@@ -35,9 +37,13 @@ describe("worldBibleView", () => {
     document.querySelector("[data-action='bible-new-page']").click()
 
     expect(prompt).not.toHaveBeenCalled()
-    expect(showModal).toHaveBeenCalledWith("新建世界书页面", expect.stringContaining("bible-create-title"), expect.any(Array))
+    expect(showModal).toHaveBeenCalledWith(
+      "新建世界书页面",
+      expect.objectContaining({ html: expect.stringContaining("bible-create-title") }),
+      expect.any(Array),
+    )
 
-    document.body.innerHTML = showModal.mock.calls[0][1]
+    document.body.innerHTML = showModal.mock.calls[0][1].html
     document.getElementById("bible-create-title").value = "种族设定"
     document.getElementById("bible-create-type").value = "species"
     await showModal.mock.calls[0][2][0].handler()
@@ -90,7 +96,7 @@ describe("worldBibleView", () => {
     expect(router.renderCurrentView).toHaveBeenCalled()
   })
 
-  it("普通刷新遇到已完成任务时保留 task_id，刷新后仍可强制重跑", async () => {
+  it("普通刷新遇到已完成任务时保留真实 task 并使用单独 hint 提示", async () => {
     worldBibleView._activePage = page
     const err = new Error("请求失败：status: projection_task_finished；task_id: task-done；task_status: done")
     err.status = 409
@@ -108,7 +114,8 @@ describe("worldBibleView", () => {
     expect(localStorage.getItem("worldBibleProjection:p1:page-1:context_brief")).toBe("task-done")
     expect(api.tasks.get).toHaveBeenCalledWith("task-done", "p1")
     expect(worldBibleView._task.status).toBe("done")
-    expect(worldBibleView._task.error_message).toContain("强制重新刷新")
+    expect(worldBibleView._task.error_message).toBeUndefined()
+    expect(worldBibleView._projectionConflictHint).toContain("强制重新刷新")
     expect(router.refresh).toHaveBeenCalled()
   })
 
@@ -124,6 +131,20 @@ describe("worldBibleView", () => {
       "投影刷新任务暂不可用，请确认后端 worker 已更新并重启后重试",
       "error",
     )
+  })
+
+  it("bindEvents does not add duplicate click listeners on repeated renders", async () => {
+    api.world.listBiblePages.mockResolvedValue({ items: [page], total: 1 })
+    const spy = vi.spyOn(worldBibleView, "_createPage").mockImplementation(() => {})
+
+    document.body.innerHTML = await worldBibleView.render()
+    worldBibleView.bindEvents()
+    document.body.innerHTML = await worldBibleView.render()
+    worldBibleView.bindEvents()
+
+    document.querySelector("[data-action='bible-new-page']").click()
+    expect(spy).toHaveBeenCalledTimes(1)
+    spy.mockRestore()
   })
 
   it("打开建议和冲突弹窗时使用世界书专用过滤条件", async () => {

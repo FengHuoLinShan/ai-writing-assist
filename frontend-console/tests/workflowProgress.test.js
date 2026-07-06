@@ -151,6 +151,39 @@ describe("normalizeTaskProgress", () => {
     expect(progress.phaseErrors[0].error_kind).toBe("missing_scene_prerequisite")
     expect(progress.warnings).toContain("entity_extraction 请先执行场景")
   })
+
+  it("uses current phase for running scene extraction message", () => {
+    const progress = normalizeTaskProgress({
+      task_id: "scene-task",
+      task_type: "scene_auto_extraction",
+      status: "running",
+      result: {
+        current_phase: "phase1a_scene_slicing",
+        current_operation: "scene_slicing",
+        message: "正在按完整窗口切分 Scene 边界...",
+      },
+    })
+
+    expect(progress.message).toBe("正在切分 Scene 边界")
+    expect(progress.currentPhase).toBe("phase1a_scene_slicing")
+    expect(progress.currentOperation).toBe("scene_slicing")
+  })
+
+  it("does not show stale running message for failed tasks", () => {
+    const progress = normalizeTaskProgress({
+      task_id: "scene-task",
+      task_type: "scene_auto_extraction",
+      status: "failed",
+      error_message: "ValidationError",
+      result: {
+        phase: "running",
+        message: "正在提交 enriched 正式 Scene...",
+      },
+    })
+
+    expect(progress.message).toBe("任务失败")
+    expect(progress.errorMessage).toBe("ValidationError")
+  })
 })
 
 describe("active workflow storage", () => {

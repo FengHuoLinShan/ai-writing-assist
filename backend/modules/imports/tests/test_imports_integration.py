@@ -13,13 +13,119 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.imports.llm_schemas import SceneChunk
+from modules.imports.scene_commit import SceneCommitResult
+from modules.imports.scene_enrichment import Phase1bEnrichmentResult
+from modules.imports.scene_fusion import FinalSceneCandidate
+from modules.imports.scene_planning import ScenePlanResult, SceneWindowPlan
+from modules.imports.scene_slicing import SceneSliceCandidate, SceneSlicingResult
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 from tests.utils import (
     _mock_analyze,
     _mock_extract,
     _mock_extract_fail,
-    _mock_segment,
 )
+
+
+def _integration_phase0_plan(start_chapter: int, end_chapter: int) -> ScenePlanResult:
+    chapters = [
+        {
+            "chapter_index": chapter,
+            "title": f"第{chapter}章",
+            "content": f"第{chapter}章正文。",
+        }
+        for chapter in range(start_chapter, end_chapter + 1)
+    ]
+    return ScenePlanResult(
+        chapters=chapters,
+        windows=[
+            SceneWindowPlan(
+                window_index=1,
+                window_id=f"B0001-{start_chapter}-{end_chapter}",
+                covered_start=start_chapter,
+                covered_end=end_chapter,
+                owned_start=start_chapter,
+                owned_end=end_chapter,
+                chapter_indices=list(range(start_chapter, end_chapter + 1)),
+                owned_chapter_indices=list(range(start_chapter, end_chapter + 1)),
+                input_chars=1000,
+                max_tokens=13_000,
+                batch_size=end_chapter - start_chapter + 1,
+                overlap=0,
+            )
+        ],
+        quality_stats={"total_batches": 1, "completed_batches": 1},
+    )
+
+
+def _integration_phase1a_slicing(
+    start_chapter: int,
+    end_chapter: int,
+) -> SceneSlicingResult:
+    candidates = [
+        SceneSliceCandidate(
+            candidate_id=f"phase1a-{chapter}",
+            source_window_id="B0001",
+            source_window_index=1,
+            title=f"第{chapter}章 Scene",
+            goal="推进章节目标。",
+            core_conflict="章节冲突。",
+            start_chapter=chapter,
+            end_chapter=chapter,
+            boundary_status="complete",
+            source_chapter_indices=[chapter],
+        )
+        for chapter in range(start_chapter, end_chapter + 1)
+    ]
+    return SceneSlicingResult(
+        candidates=candidates,
+        quality_stats={
+            "total_batches": 1,
+            "completed_batches": 1,
+            "success": 1,
+            "failed": 0,
+            "fallback_count": 0,
+            "scene_count": len(candidates),
+        },
+    )
+
+
+def _integration_phase1b_enrichment(
+    start_chapter: int,
+    end_chapter: int,
+) -> Phase1bEnrichmentResult:
+    return Phase1bEnrichmentResult(
+        candidates=[
+            FinalSceneCandidate(
+                phase="phase1b_enrichment",
+                title=f"第{chapter}章 Scene",
+                goal="推进章节目标。",
+                core_conflict="章节冲突。",
+                emotional_beat="稳定推进。",
+                must_happen="保留章节事件。",
+                must_not_happen="不得偏离原文。",
+                narrative_tag="imported",
+                scene_chunks=[SceneChunk(chapter_index=chapter)],
+                source_candidate_ids=[f"phase1a-{chapter}"],
+                source_rounds=["A"],
+                source_chapter_indices=[chapter],
+                operation="kept",
+                confidence=0.8,
+                fallback_required=False,
+                boundary_status="complete",
+                boundary_reason="integration test",
+            )
+            for chapter in range(start_chapter, end_chapter + 1)
+        ],
+        quality_stats={
+            "total_windows": 1,
+            "completed_windows": 1,
+            "total_scenes": end_chapter - start_chapter + 1,
+            "completed": end_chapter - start_chapter + 1,
+            "failed": 0,
+            "fallback_count": 0,
+        },
+    )
 
 
 class TestSceneSegmentationIntegration:
@@ -60,12 +166,14 @@ class TestDeepImportApiValidation:
             end_chapter: int,
             *,
             force: bool,
+            high_quality: bool,
         ) -> dict:
             return {
                 "novel_id": novel_id,
                 "start_chapter": start_chapter,
                 "end_chapter": end_chapter,
                 "force": force,
+                "high_quality": high_quality,
             }
 
         with mock.patch.object(
@@ -85,6 +193,7 @@ class TestDeepImportApiValidation:
 
         assert resp.status_code == 201, resp.text
         assert resp.json()["force"] is False
+        assert resp.json()["high_quality"] is False
 
     async def test_deep_import_sync_route_is_not_public(
         self,
@@ -117,7 +226,31 @@ class TestDeepImportWorkflowNewPipeline:
         progress = DeepImportProgress()
 
         with (
-            mock.patch.object(workflow, "_segment_scenes", side_effect=_mock_segment),
+            mock.patch.object(
+                workflow,
+                "_run_phase0_plan",
+                return_value=_integration_phase0_plan(1, 5),
+            ),
+            mock.patch.object(
+                workflow,
+                "_run_phase1a_scene_slicing",
+                return_value=_integration_phase1a_slicing(1, 5),
+            ),
+            mock.patch.object(
+                workflow,
+                "_run_phase1b_enrichment",
+                return_value=_integration_phase1b_enrichment(1, 5),
+            ),
+            mock.patch.object(
+                workflow,
+                "_commit_fused_scenes",
+                return_value=SceneCommitResult(
+                    created_count=5,
+                    skipped_count=0,
+                    conflict_count=0,
+                    created_scene_ids=[f"scene-{index}" for index in range(5)],
+                ),
+            ),
             mock.patch.object(
                 workflow, "_extract_entities_by_scene", side_effect=_mock_extract
             ),
@@ -149,7 +282,31 @@ class TestDeepImportWorkflowNewPipeline:
         progress = DeepImportProgress()
 
         with (
-            mock.patch.object(workflow, "_segment_scenes", side_effect=_mock_segment),
+            mock.patch.object(
+                workflow,
+                "_run_phase0_plan",
+                return_value=_integration_phase0_plan(1, 3),
+            ),
+            mock.patch.object(
+                workflow,
+                "_run_phase1a_scene_slicing",
+                return_value=_integration_phase1a_slicing(1, 3),
+            ),
+            mock.patch.object(
+                workflow,
+                "_run_phase1b_enrichment",
+                return_value=_integration_phase1b_enrichment(1, 3),
+            ),
+            mock.patch.object(
+                workflow,
+                "_commit_fused_scenes",
+                return_value=SceneCommitResult(
+                    created_count=3,
+                    skipped_count=0,
+                    conflict_count=0,
+                    created_scene_ids=[f"scene-{index}" for index in range(3)],
+                ),
+            ),
             mock.patch.object(
                 workflow, "_extract_entities_by_scene", side_effect=_mock_extract_fail
             ),

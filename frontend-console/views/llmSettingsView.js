@@ -15,6 +15,82 @@ const llmSettingsView = {
     custom: { label: "自定义" },
   },
 
+  _deepImportGroups: [
+    {
+      id: "global",
+      label: "Global",
+      fields: [
+        { key: "structured_timeout_grace_seconds", label: "结构化调用宽限（秒）", type: "int", min: 1, max: 600, value: 15 },
+        { key: "structured_max_fix_attempts", label: "结构化修复次数", type: "int", min: 0, max: 10, value: 2 },
+      ],
+    },
+    {
+      id: "phase0",
+      label: "Phase 0 Plan",
+      fields: [
+        { key: "target_input_chars", label: "窗口目标字数", type: "int", min: 1000, max: 500000, value: 72000 },
+        { key: "max_chapters_per_window", label: "窗口最大章节", type: "int", min: 1, max: 100, value: 20 },
+        { key: "right_overlap_chapters", label: "右侧重叠章节", type: "int", min: 0, max: 20, value: 2 },
+        { key: "max_tokens_per_input_char", label: "Max tokens / 字符", type: "float", min: 0.05, max: 2, step: "0.01", value: 0.36 },
+        { key: "min_max_tokens", label: "窗口最小 tokens", type: "int", min: 1, max: 200000, value: 13000 },
+        { key: "max_max_tokens", label: "窗口最大 tokens", type: "int", min: 1, max: 200000, value: 32768 },
+      ],
+    },
+    {
+      id: "phase1a",
+      label: "Phase 1A Scene Slicing",
+      fields: [
+        { key: "scene_slicing_timeout_seconds", label: "切分超时（秒）", type: "int", min: 1, max: 7200, value: 900 },
+        { key: "structured_max_fix_attempts", label: "Schema 修复次数", type: "int", min: 0, max: 10, value: 1 },
+      ],
+    },
+    {
+      id: "phase1b",
+      label: "Phase 1B",
+      fields: [
+        { key: "small_sample_max_tokens", label: "小样本 max tokens", type: "int", min: 1, max: 200000, value: 6144 },
+        { key: "small_sample_timeout_seconds", label: "小样本超时（秒）", type: "int", min: 1, max: 3600, value: 90 },
+        { key: "reducer_max_tokens", label: "Reducer max tokens", type: "int", min: 1, max: 200000, value: 128 },
+        { key: "reducer_timeout_seconds", label: "Reducer 超时（秒）", type: "int", min: 1, max: 3600, value: 45 },
+        { key: "compact_text_limit", label: "候选压缩字数", type: "int", min: 10, max: 5000, value: 180 },
+        { key: "enrich_max_tokens", label: "Enrich max tokens", type: "int", min: 1, max: 200000, value: 4096 },
+        { key: "enrich_timeout_seconds", label: "Enrich 超时（秒）", type: "int", min: 1, max: 7200, value: 300 },
+        { key: "use_llm", label: "Fusion 使用 LLM", type: "nullableBool", value: "" },
+      ],
+    },
+    {
+      id: "phase2",
+      label: "Phase 2",
+      fields: [
+        { key: "world_timeout_seconds", label: "世界抽取超时（秒）", type: "int", min: 1, max: 7200, value: 900 },
+        { key: "world_min_max_tokens", label: "世界抽取最小 tokens", type: "int", min: 1, max: 200000, value: 24576 },
+        { key: "world_max_max_tokens", label: "世界抽取最大 tokens", type: "int", min: 1, max: 200000, value: 32768 },
+        { key: "world_max_tokens_per_source_char", label: "世界 tokens / 字符", type: "float", min: 0.05, max: 2, step: "0.01", value: 0.36 },
+        { key: "world_window_concurrency", label: "世界窗口并发", type: "int", min: 1, max: 100, value: 3 },
+        { key: "batch_size_scenes", label: "Scene / batch", type: "int", min: 1, max: 200, value: 12 },
+        { key: "batch_concurrency", label: "Batch 并发", type: "int", min: 1, max: 100, value: 6 },
+        { key: "boundary_scenes", label: "边界 Scene 数", type: "int", min: 1, max: 20, value: 2 },
+        { key: "boundary_supplement_enabled", label: "边界补提", type: "bool", value: false },
+        { key: "boundary_total_timeout_seconds", label: "边界总超时（秒）", type: "float", min: 0.1, max: 7200, step: "0.1", value: 120 },
+        { key: "alias_relation_total_timeout_seconds", label: "别名关系总超时（秒）", type: "int", min: 1, max: 7200, value: 240 },
+        { key: "alias_relation_concurrency", label: "别名关系并发", type: "int", min: 1, max: 100, value: 4 },
+        { key: "alias_relation_llm_timeout_seconds", label: "别名关系 LLM 超时", type: "int", min: 1, max: 3600, value: 75 },
+        { key: "alias_relation_scene_char_limit", label: "Scene 文本上限", type: "int", min: 100, max: 100000, value: 3200 },
+        { key: "alias_relation_entity_index_char_limit", label: "实体索引字数", type: "int", min: 100, max: 100000, value: 3600 },
+        { key: "alias_relation_entity_index_fallback_limit", label: "实体索引兜底数", type: "int", min: 1, max: 1000, value: 30 },
+        { key: "alias_relation_supplement_enabled", label: "别名关系补提", type: "bool", value: false },
+        { key: "postprocess_timeout_seconds", label: "后处理超时（秒）", type: "float", min: 0.1, max: 3600, step: "0.1", value: 30 },
+      ],
+    },
+    {
+      id: "phase3",
+      label: "Phase 3",
+      fields: [
+        { key: "structure_timeout_seconds", label: "结构分析超时（秒）", type: "int", min: 1, max: 7200, value: 300 },
+      ],
+    },
+  ],
+
   async onEnter() {
     if (!state.currentProjectId) {
       this._templates = []
@@ -58,9 +134,21 @@ const llmSettingsView = {
       settings.model || selectedTemplate.default_model || "",
     )
     const preferences = this._loadAuthorPreferences()
+    const deepImportSettings = this._effectiveDeepImportSettings(settings.deep_import)
     const creativeMode = this._creativeMode || this._detectCreativeMode(parameters)
     const statusText = settings.api_key_configured ? "已保存" : "未保存"
     const statusClass = settings.api_key_configured ? "success" : "muted"
+    const hasTemplates = this._templates.length > 0
+    const providerOptions = hasTemplates
+      ? this._templates.map((template) => `
+          <option value="${esc(template.id)}" ${template.id === providerId ? "selected" : ""}>
+            ${esc(template.name)}
+          </option>
+        `).join("")
+      : `<option value="openai-compatible" selected>openai-compatible</option>`
+    const providerFallbackHint = hasTemplates
+      ? ""
+      : `<p class="llm-provider-fallback-hint" style="font-size:12px;color:var(--warning);margin-top:4px;">未加载到供应商模板，将使用 openai-compatible 默认配置。</p>`
 
     setTimeout(() => this.bindEvents(), 0)
 
@@ -78,13 +166,10 @@ const llmSettingsView = {
           <div class="form-row">
             <div class="form-group">
               <label for="llm-provider">供应商模板</label>
-              <select class="form-input" id="llm-provider">
-                ${this._templates.map((template) => `
-                  <option value="${esc(template.id)}" ${template.id === providerId ? "selected" : ""}>
-                    ${esc(template.name)}
-                  </option>
-                `).join("")}
+              <select class="form-input" id="llm-provider" ${hasTemplates ? "" : "disabled"}>
+                ${providerOptions}
               </select>
+              ${providerFallbackHint}
             </div>
             <div class="form-group">
               <label>API Key</label>
@@ -158,6 +243,11 @@ const llmSettingsView = {
 
           <div class="llm-template-list">
             ${this._templates.map((template) => this._renderTemplateSummary(template, providerId)).join("")}
+          </div>
+
+          <div class="llm-deep-import-settings">
+            <h3>深度导入参数</h3>
+            ${this._renderDeepImportSettings(deepImportSettings)}
           </div>
 
           <div class="llm-author-preferences">
@@ -347,6 +437,8 @@ const llmSettingsView = {
     if (!topP.ok) return
     const extra = this._readExtraParameters()
     if (!extra.ok) return
+    const deepImport = this._readDeepImportSettings()
+    if (!deepImport.ok) return
 
     const payload = {
       provider_id: providerId,
@@ -358,6 +450,7 @@ const llmSettingsView = {
       temperature: temperature.value,
       top_p: topP.value,
       extra: extra.value,
+      deep_import: deepImport.value,
       api_key: document.getElementById("llm-api-key")?.value.trim() || "",
       clear_api_key: Boolean(document.getElementById("llm-clear-api-key")?.checked),
     }
@@ -428,6 +521,99 @@ const llmSettingsView = {
       top_p: this._settingOrDefault(settings, defaults, "top_p"),
       extra: settings.extra || defaults.extra || {},
     }
+  },
+
+  _effectiveDeepImportSettings(settings) {
+    const result = {}
+    for (const group of this._deepImportGroups) {
+      const rawGroup = settings?.[group.id] || {}
+      result[group.id] = {}
+      for (const field of group.fields) {
+        const value = rawGroup[field.key]
+        result[group.id][field.key] = value === undefined || value === null
+          ? field.value
+          : value
+      }
+    }
+    return result
+  },
+
+  _renderDeepImportSettings(settings) {
+    return `
+      <div class="llm-deep-import-grid">
+        ${this._deepImportGroups.map((group) => `
+          <div class="deep-import-group">
+            <h4>${esc(group.label)}</h4>
+            <div class="form-row">
+              ${group.fields.map((field) => this._renderDeepImportField(group.id, field, settings[group.id]?.[field.key])).join("")}
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    `
+  },
+
+  _renderDeepImportField(groupId, field, value) {
+    const id = this._deepImportFieldId(groupId, field.key)
+    if (field.type === "bool") {
+      return `
+        <div class="form-group">
+          <label for="${esc(id)}">${esc(field.label)}</label>
+          <select class="form-input" id="${esc(id)}">
+            <option value="false" ${value ? "" : "selected"}>关闭</option>
+            <option value="true" ${value ? "selected" : ""}>开启</option>
+          </select>
+        </div>
+      `
+    }
+    if (field.type === "nullableBool") {
+      const selected = value === true ? "true" : value === false ? "false" : ""
+      return `
+        <div class="form-group">
+          <label for="${esc(id)}">${esc(field.label)}</label>
+          <select class="form-input" id="${esc(id)}">
+            <option value="" ${selected === "" ? "selected" : ""}>自动</option>
+            <option value="true" ${selected === "true" ? "selected" : ""}>开启</option>
+            <option value="false" ${selected === "false" ? "selected" : ""}>关闭</option>
+          </select>
+        </div>
+      `
+    }
+    return `
+      <div class="form-group">
+        <label for="${esc(id)}">${esc(field.label)}</label>
+        <input class="form-input" id="${esc(id)}" type="number" min="${esc(field.min)}" max="${esc(field.max)}" step="${esc(field.step || (field.type === "float" ? "0.01" : "1"))}" value="${esc(this._formatOptionalNumber(value))}" />
+      </div>
+    `
+  },
+
+  _readDeepImportSettings() {
+    const value = {}
+    for (const group of this._deepImportGroups) {
+      value[group.id] = {}
+      for (const field of group.fields) {
+        const id = this._deepImportFieldId(group.id, field.key)
+        if (field.type === "bool") {
+          value[group.id][field.key] = document.getElementById(id)?.value === "true"
+          continue
+        }
+        if (field.type === "nullableBool") {
+          const raw = document.getElementById(id)?.value || ""
+          value[group.id][field.key] = raw === "" ? null : raw === "true"
+          continue
+        }
+        const read = field.type === "float"
+          ? this._readOptionalFloat(id, field.label, field.min, field.max)
+          : this._readOptionalInt(id, field.label, field.min, field.max)
+        if (!read.ok) return { ok: false, value: {} }
+        value[group.id][field.key] = read.value ?? field.value
+      }
+    }
+    return { ok: true, value }
+  },
+
+  _deepImportFieldId(groupId, key) {
+    return `deep-import-${groupId}-${key.replaceAll("_", "-")}`
   },
 
   _settingOrDefault(settings, defaults, key) {

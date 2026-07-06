@@ -19,6 +19,24 @@ class FakeHTTPError(RuntimeError):
         super().__init__(f"Error code: {status_code}")
 
 
+@pytest.fixture(autouse=True)
+def _enable_legacy_scene_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEEP_IMPORT_LEGACY_SCENE_PIPELINE_ENABLED", "1")
+
+
+@pytest.mark.asyncio
+async def test_phase0_prefetch_rejects_default_legacy_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("DEEP_IMPORT_LEGACY_SCENE_PIPELINE_ENABLED", raising=False)
+
+    async def llm(_batch):
+        return {"scenes": []}
+
+    with pytest.raises(RuntimeError, match="deprecated legacy Scene pipeline"):
+        await Phase0ScenePrefetcher(llm=llm).run(start_chapter=1, end_chapter=1)
+
+
 def test_phase0_builds_two_offset_rounds_for_213_chapters() -> None:
     batches = build_phase0_prefetch_batches(
         start_chapter=1,

@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Any
 
-from modules.imports.env_helpers import bool_env, positive_float_env, positive_int_env
+from shared.deep_import_settings import (
+    deep_import_bool_setting,
+    deep_import_float_setting,
+    deep_import_int_setting,
+)
 
 MAX_PHASE2_SCENE_RETRIES = 3
 MAX_PHASE2_CONSECUTIVE_TRANSPORT_FAILURES = 3
@@ -37,13 +44,57 @@ PHASE2_SMALL_SAMPLE_SUPPLEMENT_TIMEOUT_SECONDS = 90
 PHASE2_SMALL_SAMPLE_SUPPLEMENT_CHAPTER_CHAR_LIMIT = 4200
 PHASE2_SMALL_SAMPLE_SUPPLEMENT_TOTAL_CHAR_LIMIT = 36000
 
+_phase2_project_settings: ContextVar[dict[str, Any] | None] = ContextVar(
+    "phase2_project_settings",
+    default=None,
+)
+
+
+@contextmanager
+def phase2_project_settings_context(project_settings: dict[str, Any] | None):
+    token = _phase2_project_settings.set(project_settings)
+    try:
+        yield
+    finally:
+        _phase2_project_settings.reset(token)
+
+
+def _project_settings() -> dict[str, Any] | None:
+    return _phase2_project_settings.get()
+
+
+def current_phase2_project_settings() -> dict[str, Any] | None:
+    return _project_settings()
+
 
 def phase2_batch_size_scenes() -> int:
-    return positive_int_env("PHASE2_BATCH_SIZE_SCENES", PHASE2_BATCH_SIZE_SCENES)
+    return deep_import_int_setting(
+        _project_settings(),
+        "phase2",
+        "batch_size_scenes",
+        env_name="PHASE2_BATCH_SIZE_SCENES",
+        default=PHASE2_BATCH_SIZE_SCENES,
+    )
 
 
 def phase2_batch_concurrency() -> int:
-    return positive_int_env("PHASE2_BATCH_CONCURRENCY", PHASE2_BATCH_CONCURRENCY)
+    return deep_import_int_setting(
+        _project_settings(),
+        "phase2",
+        "batch_concurrency",
+        env_name="PHASE2_BATCH_CONCURRENCY",
+        default=PHASE2_BATCH_CONCURRENCY,
+    )
+
+
+def phase2_boundary_scenes() -> int:
+    return deep_import_int_setting(
+        _project_settings(),
+        "phase2",
+        "boundary_scenes",
+        env_name="PHASE2_BOUNDARY_SCENES",
+        default=PHASE2_BOUNDARY_SCENES,
+    )
 
 
 def phase2_batch_tuning_group() -> str:
@@ -54,70 +105,104 @@ def phase2_batch_tuning_group() -> str:
 
 
 def phase2_alias_relation_total_timeout_seconds() -> int:
-    return positive_int_env(
-        "PHASE2_ALIAS_RELATION_TOTAL_TIMEOUT_SECONDS",
-        PHASE2_ALIAS_RELATION_TOTAL_TIMEOUT_SECONDS,
+    return deep_import_int_setting(
+        _project_settings(),
+        "phase2",
+        "alias_relation_total_timeout_seconds",
+        env_name="PHASE2_ALIAS_RELATION_TOTAL_TIMEOUT_SECONDS",
+        default=PHASE2_ALIAS_RELATION_TOTAL_TIMEOUT_SECONDS,
     )
 
 
 def phase2_alias_relation_concurrency() -> int:
-    return positive_int_env(
-        "PHASE2_ALIAS_RELATION_CONCURRENCY",
-        PHASE2_ALIAS_RELATION_CONCURRENCY,
+    return deep_import_int_setting(
+        _project_settings(),
+        "phase2",
+        "alias_relation_concurrency",
+        env_name="PHASE2_ALIAS_RELATION_CONCURRENCY",
+        default=PHASE2_ALIAS_RELATION_CONCURRENCY,
     )
 
 
 def phase2_alias_relation_llm_timeout_seconds() -> int:
-    return positive_int_env(
-        "PHASE2_ALIAS_RELATION_LLM_TIMEOUT_SECONDS",
-        PHASE2_ALIAS_RELATION_LLM_TIMEOUT_SECONDS,
+    return deep_import_int_setting(
+        _project_settings(),
+        "phase2",
+        "alias_relation_llm_timeout_seconds",
+        env_name="PHASE2_ALIAS_RELATION_LLM_TIMEOUT_SECONDS",
+        default=PHASE2_ALIAS_RELATION_LLM_TIMEOUT_SECONDS,
     )
 
 
 def phase2_alias_relation_scene_char_limit() -> int:
-    return positive_int_env(
-        "PHASE2_ALIAS_RELATION_SCENE_CHAR_LIMIT",
-        PHASE2_ALIAS_RELATION_SCENE_CHAR_LIMIT,
+    return deep_import_int_setting(
+        _project_settings(),
+        "phase2",
+        "alias_relation_scene_char_limit",
+        env_name="PHASE2_ALIAS_RELATION_SCENE_CHAR_LIMIT",
+        default=PHASE2_ALIAS_RELATION_SCENE_CHAR_LIMIT,
     )
 
 
 def phase2_alias_relation_entity_index_char_limit() -> int:
-    return positive_int_env(
-        "PHASE2_ALIAS_RELATION_ENTITY_INDEX_CHAR_LIMIT",
-        PHASE2_ALIAS_RELATION_ENTITY_INDEX_CHAR_LIMIT,
+    return deep_import_int_setting(
+        _project_settings(),
+        "phase2",
+        "alias_relation_entity_index_char_limit",
+        env_name="PHASE2_ALIAS_RELATION_ENTITY_INDEX_CHAR_LIMIT",
+        default=PHASE2_ALIAS_RELATION_ENTITY_INDEX_CHAR_LIMIT,
     )
 
 
 def phase2_alias_relation_entity_index_fallback_limit() -> int:
-    return positive_int_env(
-        "PHASE2_ALIAS_RELATION_ENTITY_INDEX_FALLBACK_LIMIT",
-        PHASE2_ALIAS_RELATION_ENTITY_INDEX_FALLBACK_LIMIT,
+    return deep_import_int_setting(
+        _project_settings(),
+        "phase2",
+        "alias_relation_entity_index_fallback_limit",
+        env_name="PHASE2_ALIAS_RELATION_ENTITY_INDEX_FALLBACK_LIMIT",
+        default=PHASE2_ALIAS_RELATION_ENTITY_INDEX_FALLBACK_LIMIT,
     )
 
 
 def phase2_alias_relation_supplement_enabled() -> bool:
-    return bool_env(
-        "PHASE2_ALIAS_RELATION_SUPPLEMENT_ENABLED",
-        PHASE2_ALIAS_RELATION_SUPPLEMENT_ENABLED,
+    return bool(
+        deep_import_bool_setting(
+            _project_settings(),
+            "phase2",
+            "alias_relation_supplement_enabled",
+            env_name="PHASE2_ALIAS_RELATION_SUPPLEMENT_ENABLED",
+            default=PHASE2_ALIAS_RELATION_SUPPLEMENT_ENABLED,
+        )
     )
 
 
 def phase2_postprocess_timeout_seconds() -> float:
-    return positive_float_env(
-        "PHASE2_POSTPROCESS_TIMEOUT_SECONDS",
-        PHASE2_POSTPROCESS_TIMEOUT_SECONDS,
+    return deep_import_float_setting(
+        _project_settings(),
+        "phase2",
+        "postprocess_timeout_seconds",
+        env_name="PHASE2_POSTPROCESS_TIMEOUT_SECONDS",
+        default=PHASE2_POSTPROCESS_TIMEOUT_SECONDS,
     )
 
 
 def phase2_boundary_total_timeout_seconds() -> float:
-    return positive_float_env(
-        "PHASE2_BOUNDARY_TOTAL_TIMEOUT_SECONDS",
-        PHASE2_BOUNDARY_TOTAL_TIMEOUT_SECONDS,
+    return deep_import_float_setting(
+        _project_settings(),
+        "phase2",
+        "boundary_total_timeout_seconds",
+        env_name="PHASE2_BOUNDARY_TOTAL_TIMEOUT_SECONDS",
+        default=PHASE2_BOUNDARY_TOTAL_TIMEOUT_SECONDS,
     )
 
 
 def phase2_boundary_supplement_enabled() -> bool:
-    return bool_env(
-        "PHASE2_BOUNDARY_SUPPLEMENT_ENABLED",
-        PHASE2_BOUNDARY_SUPPLEMENT_ENABLED,
+    return bool(
+        deep_import_bool_setting(
+            _project_settings(),
+            "phase2",
+            "boundary_supplement_enabled",
+            env_name="PHASE2_BOUNDARY_SUPPLEMENT_ENABLED",
+            default=PHASE2_BOUNDARY_SUPPLEMENT_ENABLED,
+        )
     )

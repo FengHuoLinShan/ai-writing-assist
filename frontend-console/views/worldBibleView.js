@@ -11,6 +11,7 @@ const worldBibleView = {
   _suggestions: [],
   _conflicts: [],
   _task: null,
+  _projectionConflictHint: null,
   _projectionPoller: null,
   _beforeUnloadBound: false,
 
@@ -46,18 +47,34 @@ const worldBibleView = {
       window.addEventListener("beforeunload", () => this.onLeave())
       this._beforeUnloadBound = true
     }
-    document.querySelectorAll("[data-bible-page-id]").forEach((node) => {
-      node.addEventListener("click", () => {
-        this._activePage = this._pages.find((page) => page.id === node.getAttribute("data-bible-page-id")) || null
+    // 优先绑定到本视图渲染的根节点，这样 re-render 时旧的委托监听器会随旧 DOM 一起消失，
+    // 同时支持直接 innerHTML 替换的测试环境。
+    const container = document.querySelector(".world-bible-workspace")
+      || document.getElementById("workspace-content")
+      || document.body
+    if (!container) return
+    if (this._bibleClickHandler && this._bibleClickContainer) {
+      this._bibleClickContainer.removeEventListener("click", this._bibleClickHandler)
+    }
+    this._bibleClickHandler = (e) => {
+      const pageNode = e.target.closest("[data-bible-page-id]")
+      if (pageNode) {
+        this._activePage = this._pages.find((page) => page.id === pageNode.getAttribute("data-bible-page-id")) || null
         router.refresh()
-      })
-    })
-    document.querySelector("[data-action='bible-new-page']")?.addEventListener("click", () => this._createPage())
-    document.querySelector("[data-action='bible-save-page']")?.addEventListener("click", () => this._savePage())
-    document.querySelector("[data-action='bible-refresh-projection']")?.addEventListener("click", () => this._refreshProjection(false))
-    document.querySelector("[data-action='bible-force-refresh-projection']")?.addEventListener("click", () => this._refreshProjection(true))
-    document.querySelector("[data-action='bible-open-suggestions']")?.addEventListener("click", () => this._openSuggestions())
-    document.querySelector("[data-action='bible-open-conflicts']")?.addEventListener("click", () => this._openConflicts())
+        return
+      }
+      const actionNode = e.target.closest("[data-action]")
+      if (!actionNode) return
+      const action = actionNode.getAttribute("data-action")
+      if (action === "bible-new-page") this._createPage()
+      else if (action === "bible-save-page") this._savePage()
+      else if (action === "bible-refresh-projection") this._refreshProjection(false)
+      else if (action === "bible-force-refresh-projection") this._refreshProjection(true)
+      else if (action === "bible-open-suggestions") this._openSuggestions()
+      else if (action === "bible-open-conflicts") this._openConflicts()
+    }
+    this._bibleClickContainer = container
+    container.addEventListener("click", this._bibleClickHandler)
   },
 
   onLeave() {
@@ -118,11 +135,15 @@ const worldBibleView = {
     const retry = task.status === "failed" || task.status === "done"
       ? `<button class="btn btn-sm" data-action="bible-force-refresh-projection">强制重新刷新</button>`
       : ""
+    const hintHtml = this._projectionConflictHint
+      ? `<div style="color:var(--warning);font-size:12px;">${esc(this._projectionConflictHint)}</div>`
+      : ""
     return `
-      <div style="margin-top:12px;border:1px solid var(--border);padding:10px;border-radius:6px;">
+      <div style="margin-top:12px;border:1px solid var(--border);padding:10px;border-radius:var(--radius-md);">
         <div style="font-size:12px;color:var(--text-dim);">投影任务：${esc(task.task_id || task.id || "")}</div>
         <div>状态：${esc(task.status || "pending")} · 进度 ${Math.round((task.progress || 0) * 100)}%</div>
         ${task.error_message ? `<div style="color:var(--danger);font-size:12px;">${esc(task.error_message)}</div>` : ""}
+        ${hintHtml}
         ${retry}
       </div>
     `
@@ -148,7 +169,7 @@ const worldBibleView = {
         </select>
       </div>
     `
-    showModal("新建世界书页面", formHtml, [
+    showModalHtml("新建世界书页面", formHtml, [
       {
         text: "创建",
         class: "btn-primary",
@@ -196,6 +217,7 @@ const worldBibleView = {
       const result = await api.world.refreshBibleProjection(page.id, state.currentProjectId, PROJECTION_TYPE, force)
       localStorage.setItem(this._taskStorageKey(page), result.task_id)
       this._task = await api.tasks.get(result.task_id, state.currentProjectId)
+      this._projectionConflictHint = null
       toast(result.existing ? "已有刷新任务正在运行" : "刷新任务已提交", "success")
       await router.refresh()
     } catch (err) {
@@ -211,11 +233,7 @@ const worldBibleView = {
             this._task = null
           }
         }
-        this._task = {
-          ...(this._task || {}),
-          status: "done",
-          error_message: "上次刷新已结束，可使用强制重新刷新。",
-        }
+        this._projectionConflictHint = "上次刷新已结束，可使用强制重新刷新。"
         toast("上次刷新已结束，如需重跑请使用强制刷新", "warning")
         router.refresh()
       } else {
@@ -318,7 +336,7 @@ const worldBibleView = {
       })
       this._suggestions = data.items || []
       const body = this._renderSuggestionsModal()
-      showModal("创设建议", body, [])
+      showModalHtml("创设建议", body, [])
       this._bindSuggestionModal()
     } catch (err) {
       toast(err.message || "加载建议失败", "error")
@@ -429,7 +447,7 @@ const worldBibleView = {
       const body = this._conflicts.length
         ? this._conflicts.map((item) => `<p>${esc(item.severity)} · ${esc(item.summary)}</p>`).join("")
         : `<div class="empty-state"><p>暂无冲突检查项</p></div>`
-      showModal("冲突检查", body, [])
+      showModalHtml("冲突检查", body, [])
     } catch (err) {
       toast(err.message || "加载冲突失败", "error")
     }

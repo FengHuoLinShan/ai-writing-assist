@@ -353,7 +353,7 @@ const projectView = {
       </div>
     `
 
-    showModal("编辑项目", formHtml, [
+    showModalHtml("编辑项目", formHtml, [
       {
         text: "保存",
         class: "btn-primary",
@@ -423,7 +423,7 @@ const projectView = {
       const data = await api.projects.listDeleted()
       const items = data.items || data || []
       if (items.length === 0) {
-        showModal("回收站", "<p>回收站为空。</p>")
+        showModalHtml("回收站", "<p>回收站为空。</p>")
         return
       }
       let listHtml = `
@@ -460,7 +460,7 @@ const projectView = {
         `
       }
       listHtml += "</div>"
-      showModal("回收站", listHtml)
+      showModalHtml("回收站", listHtml)
 
       setTimeout(() => {
         const selectedRecycleProjects = () => {
@@ -558,7 +558,7 @@ const projectView = {
       </div>
     `
 
-    showModal("新建项目", formHtml, [
+    showModalHtml("新建项目", formHtml, [
       {
         text: "创建",
         class: "btn-primary",
@@ -639,7 +639,7 @@ const projectView = {
   _renderImportSection() {
     const hasProject = !!state.currentProjectId
     return `
-      <div style="border:1px solid var(--text-quaternary);border-radius:8px;padding:16px;margin-top:16px;background:var(--bg-panel);">
+      <div style="border:1px solid var(--text-quaternary);border-radius:var(--radius-md);padding:16px;margin-top:16px;background:var(--bg-panel);">
         <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">
           将小说文件导入到当前选中的项目。
           ${hasProject ? `当前项目：<strong>${esc(state.currentProject?.title || "")}</strong>` : '<span style="color:var(--warning);">请先点击项目行选择项目</span>'}

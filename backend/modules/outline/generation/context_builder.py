@@ -30,6 +30,24 @@ class PlotStructureContext:
     character_name_to_id: dict[str, str] = field(default_factory=dict)
     """人物名称 → character_id (UUID hex)。"""
 
+    scenes: list[dict] = field(default_factory=list)
+    """已生成 Scene 卡片，供 deep-import fast path 使用。"""
+
+
+class SceneSummaryText(str):
+    """Backward-compatible scene summary text that can also unpack cards."""
+
+    cards: list[dict]
+
+    def __new__(cls, markdown: str, cards: list[dict]):
+        value = str.__new__(cls, markdown)
+        value.cards = cards
+        return value
+
+    def __iter__(self):
+        yield str(self)
+        yield self.cards
+
 
 class PlotStructureContextBuilder:
     """构建 PlotStructureGenerator 所需的上下文。"""
@@ -81,8 +99,9 @@ class PlotStructureContextBuilder:
             if ch.get("character_id") and ch.get("name")
         }
 
+        scene_cards: list[dict] = []
         if include_existing_scenes:
-            scenes_md = await self._load_scene_summaries(
+            scenes_md, scene_cards = await self._load_scene_summaries(
                 db,
                 novel_id,
                 start_chapter,
@@ -109,6 +128,7 @@ class PlotStructureContextBuilder:
             warnings=list(bundle.warnings or []),
             entity_name_to_id=entity_name_to_id,
             character_name_to_id=character_name_to_id,
+            scenes=scene_cards,
         )
 
     def _render_bundle_to_markdown(self, bundle: object) -> str:
@@ -155,7 +175,7 @@ class PlotStructureContextBuilder:
         novel_id: str,
         start_chapter: int,
         end_chapter: int,
-    ) -> str:
+    ) -> SceneSummaryText:
         """加载指定章节范围内已有 Scene 的紧凑摘要。"""
         from modules.outline.services import SceneService
 
@@ -166,9 +186,12 @@ class PlotStructureContextBuilder:
             end_chapter,
         )
         lines: list[str] = []
+        cards: list[dict] = []
         for scene in scenes:
             if scene.status == "deprecated":
                 continue
+            scene_id = getattr(scene, "id", None)
+            scene_index = getattr(scene, "scene_index", 0)
             chapter_indices = self._scene_chapter_indices(scene)
             chapter_label = (
                 f"第{min(chapter_indices)}-{max(chapter_indices)}章"
@@ -176,16 +199,37 @@ class PlotStructureContextBuilder:
                 else "章节未知"
             )
             summary_parts = [
-                scene.goal,
-                scene.core_conflict,
-                scene.emotional_beat,
+                getattr(scene, "goal", None),
+                getattr(scene, "core_conflict", None),
+                getattr(scene, "emotional_beat", None),
             ]
             summary = "；".join(str(part).strip() for part in summary_parts if part)
+            scene_label = (
+                f"{scene_id} / S{scene_index}"
+                if scene_id is not None
+                else f"S{scene_index}"
+            )
             lines.append(
-                f"- S{scene.scene_index} {chapter_label}《{scene.title or '未命名'}》"
+                f"- {scene_label} {chapter_label}"
+                f"《{getattr(scene, 'title', None) or '未命名'}》"
                 f"：{summary[:240]}"
             )
-        return "\n".join(lines) + ("\n" if lines else "")
+            cards.append(
+                {
+                    "scene_id": str(scene_id or scene_index),
+                    "scene_index": scene_index,
+                    "title": getattr(scene, "title", None) or "",
+                    "goal": getattr(scene, "goal", None) or "",
+                    "core_conflict": getattr(scene, "core_conflict", None) or "",
+                    "emotional_beat": getattr(scene, "emotional_beat", None) or "",
+                    "must_happen": getattr(scene, "must_happen", None) or "",
+                    "must_not_happen": getattr(scene, "must_not_happen", None) or "",
+                    "narrative_tag": getattr(scene, "narrative_tag", None) or "",
+                    "start_chapter": min(chapter_indices) if chapter_indices else None,
+                    "end_chapter": max(chapter_indices) if chapter_indices else None,
+                }
+            )
+        return SceneSummaryText("\n".join(lines) + ("\n" if lines else ""), cards)
 
     @staticmethod
     def _scene_chapter_indices(scene: object) -> list[int]:

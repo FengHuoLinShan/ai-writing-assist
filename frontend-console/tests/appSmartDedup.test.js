@@ -144,7 +144,7 @@ describe("App smart dedup action", () => {
 
     App._showSmartDedupSuggestions(0)
 
-    const firstPageBody = showModal.mock.calls.at(-1)[1]
+    const firstPageBody = showModal.mock.calls.at(-1)[1].html
     expect(firstPageBody).toContain("第 1 / 2 页")
     expect(firstPageBody).toContain("候选1")
     expect(firstPageBody).toContain("主体对象")
@@ -174,7 +174,7 @@ describe("App smart dedup action", () => {
     expect(document.querySelector('[data-action="start-smart-dedup"]')).toBeTruthy()
     const modal = latestModal()
     expect(modal.title).toBe("智能去重")
-    expect(modal.body).toContain("没有发现可处理的重复资产")
+    expect(modal.body.html).toContain("没有发现可处理的重复资产")
     expect(modal.buttons.map((button) => button.text)).toContain("重新扫描")
 
     api.projects.startSmartDedupScan.mockResolvedValue({ task_id: "scan-2" })
@@ -210,11 +210,11 @@ describe("App smart dedup action", () => {
 
     const modal = latestModal()
     expect(modal.title).toBe("智能去重建议")
-    expect(modal.body).toContain("北港镜修师")
-    expect(modal.body).toContain("沈澜")
-    expect(modal.body).toContain("登记为别名")
+    expect(modal.body.html).toContain("北港镜修师")
+    expect(modal.body.html).toContain("沈澜")
+    expect(modal.body.html).toContain("登记为别名")
 
-    document.body.innerHTML = modal.body + '<div id="view-actions"></div>'
+    document.body.innerHTML = modal.body.html + '<div id="view-actions"></div>'
     await modal.buttons.find((button) => button.text === "应用选中建议").handler()
 
     expect(api.projects.applySmartDedup).toHaveBeenCalledWith("p1", {
@@ -255,8 +255,8 @@ describe("App smart dedup action", () => {
     App._showSmartDedupSuggestions()
 
     const modal = latestModal()
-    expect(modal.body).toContain("高风险别名命中")
-    document.body.innerHTML = modal.body + '<div id="view-actions"></div>'
+    expect(modal.body.html).toContain("高风险别名命中")
+    document.body.innerHTML = modal.body.html + '<div id="view-actions"></div>'
     const checkbox = document.querySelector('[data-smart-dedup-index="0"]')
     expect(checkbox.checked).toBe(false)
 
@@ -307,7 +307,7 @@ describe("App smart dedup action", () => {
     App._showSmartDedupSuggestions()
 
     const modal = latestModal()
-    document.body.innerHTML = modal.body + '<div id="view-actions"></div>'
+    document.body.innerHTML = modal.body.html + '<div id="view-actions"></div>'
     expect(document.querySelector('[data-smart-dedup-index="0"]').checked).toBe(false)
   })
 
@@ -363,5 +363,27 @@ describe("App smart dedup action", () => {
         },
       ],
     })
+  })
+
+  it("stops polling when the current project changes", async () => {
+    vi.useFakeTimers()
+    state.currentProjectId = "p1"
+    App._smartDedupTaskId = "scan-switch"
+    App._smartDedupProgress = { taskId: "scan-switch", terminal: false }
+    App._smartDedupPoller = null
+    api.tasks.get.mockResolvedValue({
+      task_id: "scan-switch",
+      task_type: "smart_dedup_scan",
+      status: "running",
+    })
+
+    App._startSmartDedupPolling("scan-switch")
+    expect(App._smartDedupPoller).not.toBeNull()
+
+    state.currentProjectId = "p2"
+    await vi.advanceTimersByTimeAsync(2000)
+
+    expect(App._smartDedupPoller).toBeNull()
+    vi.useRealTimers()
   })
 })

@@ -6,6 +6,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
 import "../app.js"
+import "../ui/modal.js"
 import contextView from "../views/contextView.js"
 
 beforeEach(() => {
@@ -91,5 +92,54 @@ describe("context markdown output", () => {
     expect(output.textContent).toContain("<script>alert(1)</script>")
 
     api.context.render = originalRender
+  })
+})
+
+describe("modal body rendering", () => {
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <div id="modal-overlay" class="hidden">
+        <div id="modal-title"></div>
+        <div id="modal-body"></div>
+        <div id="modal-footer"></div>
+      </div>
+    `
+  })
+
+  it("does not execute script tags passed as a string body", () => {
+    let executed = false
+    globalThis.modalXssPayload = () => { executed = true }
+
+    window.showModal("XSS test", "<script>globalThis.modalXssPayload()</script>")
+
+    const bodyEl = document.getElementById("modal-body")
+    expect(bodyEl.querySelector("script")).toBeNull()
+    expect(executed).toBe(false)
+    expect(bodyEl.textContent).toContain("<script>globalThis.modalXssPayload()</script>")
+
+    delete globalThis.modalXssPayload
+  })
+
+  it("still accepts HTMLElement bodies", () => {
+    const node = document.createElement("p")
+    node.textContent = "paragraph"
+    window.showModal("Node test", node)
+
+    const bodyEl = document.getElementById("modal-body")
+    expect(bodyEl.querySelector("p")?.textContent).toBe("paragraph")
+  })
+
+  it("renders trusted { html: string } via innerHTML", () => {
+    window.showModal("HTML test", { html: "<p>paragraph</p>" })
+
+    const bodyEl = document.getElementById("modal-body")
+    expect(bodyEl.querySelector("p")?.textContent).toBe("paragraph")
+  })
+
+  it("showModalHtml wraps the body as trusted HTML", () => {
+    window.showModalHtml("HTML helper test", "<p>helper paragraph</p>")
+
+    const bodyEl = document.getElementById("modal-body")
+    expect(bodyEl.querySelector("p")?.textContent).toBe("helper paragraph")
   })
 })

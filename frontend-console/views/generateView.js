@@ -1,403 +1,695 @@
 /**
- * 生成中心视图
+ * 生成中心视图 — 自由共创 Chatbox + 数据库草稿生成
  */
 
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
-import {
-  clearActiveWorkflow,
-  normalizeTaskProgress,
-  persistActiveWorkflow,
-  pollTaskProgress,
-  recoverActiveWorkflows,
-} from "../shared/workflowProgress.js"
-import { renderWorkflowCard } from "../shared/progressRenderer.js"
-import { confirmAiReference } from "../shared/aiReferenceModal.js"
+
+const BUILTIN_TEMPLATE_PROMPTS = {
+  none: "不预设对象类型，按用户聊天内容自由收束为一个有用的世界对象草稿。",
+  character: "聚焦人物卡：动机、欲望、恐惧、秘密、能力边界、外貌、性格、关系钩子、声音风格和剧情用途。",
+  event: "聚焦事件卡：起因、参与方、过程、结果、隐性真相、影响范围、后续钩子和可揭示层级。",
+  item: "聚焦物品卡：外观、来源、能力或用途、限制代价、归属关系、秘密、失控风险和剧情钩子。",
+  location: "聚焦地点卡：地貌/空间、历史、势力归属、资源、危险、秘密区域、进入条件和剧情用途。",
+  faction: "聚焦组织卡：宗旨、结构、资源、关键成员、公开形象、隐藏目标、敌友关系和行动方式。",
+  rule: "聚焦规则设定：适用范围、运作机制、限制代价、例外、冲突点、已知误解和剧情可用性。",
+}
+
+const OBJECT_TEMPLATES = [
+  { value: "none", label: "不带模板", hint: "不预设对象类型，按聊天内容自由收束", prompt: BUILTIN_TEMPLATE_PROMPTS.none },
+  { value: "character", label: "人物", hint: "反派、主角、配角、导师", prompt: BUILTIN_TEMPLATE_PROMPTS.character },
+  { value: "event", label: "事件", hint: "转折、事故、阴谋、仪式", prompt: BUILTIN_TEMPLATE_PROMPTS.event },
+  { value: "item", label: "物品", hint: "法器、信物、线索、资源", prompt: BUILTIN_TEMPLATE_PROMPTS.item },
+  { value: "location", label: "地点", hint: "城市、秘境、据点、禁区", prompt: BUILTIN_TEMPLATE_PROMPTS.location },
+  { value: "faction", label: "组织", hint: "宗门、公司、帮派、王朝", prompt: BUILTIN_TEMPLATE_PROMPTS.faction },
+  { value: "rule", label: "规则设定", hint: "能力体系、禁忌、代价", prompt: BUILTIN_TEMPLATE_PROMPTS.rule },
+]
+
+const TEMPLATE_PROMPT_STORAGE_KEY = "generate_object_template_prompts_v1"
+const CUSTOM_TEMPLATE_STORAGE_KEY = "generate_object_custom_templates_v1"
 
 const generateView = {
+  _template: "none",
+  _messages: [],
+  _pastedContext: "",
+  _selectedChapters: [],
+  _qualityMode: "fast",
+  _lastEntity: null,
+  _busy: false,
+  _templatePromptOverrides: {},
+  _customTemplates: [],
+  _renderTimeout: null,
+  _abortControllers: null,
+
   onLeave() {
-    this._currentType = null
-    this._stopActivePolling()
+    this._persistState()
+    this._clearTopbarNote()
+    this._clearRenderTimeout()
+    this._abortAllRequests()
   },
-  _currentType: null,
-  _activePoller: null,
 
   async render() {
-    setTimeout(() => {
+    this._restoreState()
+    this._clearRenderTimeout()
+    this._renderTimeout = setTimeout(() => {
       this._bindEvents()
-      this._recoverGenerateWorkflow()
+      this._mountTopbarNote()
+      this._renderMessages()
+      this._renderAttachments()
     }, 0)
     return `
-      <p style="color:var(--text-muted);font-size:12px;margin-bottom:16px;">
-        从左侧菜单中选择模块，或使用下方的生成中心统一入口。
-      </p>
+      <div class="generate-chatbox">
+        <div class="generate-chat-main">
+          <div class="card generate-chat-panel">
+            <div id="generate-chat-messages" class="generate-chat-messages"></div>
 
-      <div class="two-column-workspace generate-workspace">
-        <div>
-          <div class="card" style="margin-bottom:12px;">
-            <div class="card-title">生成类型</div>
-            <div class="generate-type-grid">
-              <div class="clickable generate-card ${this._currentType === "world_character" ? "active" : ""}" data-action="select-type" data-type="world_character">
-                <strong>1. 世界与人物结构</strong>
-                <p style="color:var(--text-dim);font-size:11px;margin:4px 0 0 0;">世界对象、人物、关系等</p>
-              </div>
-              <div class="clickable generate-card ${this._currentType === "plot" ? "active" : ""}" data-action="select-type" data-type="plot">
-                <strong>2. 剧情结构</strong>
-                <p style="color:var(--text-dim);font-size:11px;margin:4px 0 0 0;">剧情线、篇章纲、伏笔计划</p>
-              </div>
-              <div class="clickable generate-card ${this._currentType === "chapter" ? "active" : ""}" data-action="select-type" data-type="chapter">
-                <strong>3. 章节与场景结构</strong>
-                <p style="color:var(--text-dim);font-size:11px;margin:4px 0 0 0;">章节卡和场景卡</p>
+            <div class="generate-composer">
+              <textarea
+                class="generate-chat-input"
+                id="generate-chat-input"
+                rows="4"
+                placeholder="直接聊，或把其他 Chatbox 的完整讨论粘贴到这里。"
+              ></textarea>
+              <div class="generate-chat-actions">
+                <button class="btn" data-action="send-chat-message">发送</button>
+                <button class="btn btn-primary" data-action="generate-object-draft">生成对象（数据库草稿）</button>
               </div>
             </div>
-          </div>
-
-          <div class="card" id="generate-input-area" style="${this._currentType ? "" : "display:none;"}">
-            <div class="card-title">输入意图</div>
-            <div class="form-group">
-              <label>创作意图/描述 *</label>
-              <textarea class="form-textarea" id="generate-intent" rows="3"
-                placeholder="描述你想要生成的内容..."></textarea>
-            </div>
-            <div class="form-group">
-              <label>范围</label>
-              <select class="form-select" id="generate-scope">
-                <option value="arc">当前篇章</option>
-                <option value="chapter">当前章节</option>
-                <option value="full">全部</option>
-              </select>
-            </div>
-            <div id="generate-extra-fields">
-              <div class="form-group">
-                <label>相关对象/人物 ID（可选）</label>
-                <input class="form-input" id="generate-related" placeholder="逗号分隔" />
-              </div>
-            </div>
-            <button class="btn btn-primary" data-action="start-generate">开始生成</button>
           </div>
         </div>
 
-        <div>
-          <div class="card" style="margin-bottom:12px;">
-            <div class="card-title">生成流程</div>
-            <div id="generate-steps" style="margin-top:8px;">
-              <div class="step-item" data-step="1"><span class="step-indicator">1</span> 输入意图</div>
-              <div class="step-item" data-step="2"><span class="step-indicator">2</span> 编译上下文</div>
-              <div class="step-item" data-step="3"><span class="step-indicator">3</span> 生成候选</div>
-              <div class="step-item" data-step="4"><span class="step-indicator">4</span> 预览结果</div>
-              <div class="step-item" data-step="5"><span class="step-indicator">5</span> 结构复查</div>
-              <div class="step-item" data-step="6"><span class="step-indicator">6</span> 确认写入正史</div>
+        <div class="generate-chat-side">
+          <div class="card generate-settings-card">
+            <div class="generate-card-title-row">
+              <div class="card-title">模板</div>
+              <button class="btn btn-sm" data-action="edit-object-templates">编辑模板</button>
             </div>
+            <div id="generate-template-row" class="generate-template-row">
+              ${this._renderTemplateButtons()}
+            </div>
+            <div class="generate-side-options">
+              <label class="generate-quality-toggle">
+                <input id="generate-quality-pro" type="checkbox" ${this._qualityMode === "pro" ? "checked" : ""} />
+                <span>高质量</span>
+              </label>
+              <button class="btn btn-sm" data-action="select-source-chapters">附带正文</button>
+            </div>
+            <div id="generate-selected-chapters" class="generate-attachment-summary"></div>
           </div>
-
-          <div class="card" style="min-height:200px;">
+          <div class="card">
             <div class="card-title">结果</div>
-            <div id="generate-result">
-              <p style="color:var(--text-dim);font-size:13px;">选择左侧生成类型并填写意图后，点击"开始生成"。</p>
+            <div id="generate-result" class="generate-result">
+              ${this._lastEntity ? this._renderEntityResult(this._lastEntity) : `
+                <p class="generate-empty-copy">聊天不会写入数据库。点击“生成对象（数据库草稿）”后，结果会作为世界对象草稿保存。</p>
+              `}
             </div>
           </div>
         </div>
       </div>
 
       <style>
-        .generate-card { padding:12px; border:1px solid var(--border); border-radius:4px; background:var(--panel); transition:border-color 0.2s; }
-        .generate-card:hover { border-color:var(--accent); }
-        .generate-card.active { border-color:var(--accent); background:var(--selected); }
-        .step-item { display:flex; align-items:center; gap:8px; padding:6px 0; color:var(--text-dim); font-size:13px; }
-        .step-item.active { color:var(--accent); }
-        .step-item.done { color:var(--accent-dim); }
-        .step-indicator { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background:var(--border); color:var(--text-dim); font-size:12px; font-weight:bold; }
-        .step-item.active .step-indicator { background:var(--accent); color:var(--bg); }
-        .step-item.done .step-indicator { background:var(--accent-dim); color:var(--bg); }
+        .topbar-generate-note { margin-left:10px; color:var(--text-secondary); font-size:12px; font-style:italic; white-space:nowrap; }
+        .generate-chatbox { display:grid; grid-template-columns:minmax(0,1fr) 280px; gap:12px; align-items:stretch; height:calc(100vh - 180px); min-height:480px; overflow:hidden; }
+        .generate-chat-main { min-height:0; overflow:hidden; }
+        .generate-chat-panel { display:flex; flex-direction:column; height:100%; min-height:0; overflow:hidden; }
+        .generate-chat-side { min-height:0; max-height:100%; overflow:auto; padding-right:2px; }
+        .generate-settings-card { margin-bottom:12px; }
+        .generate-card-title-row { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; }
+        .generate-card-title-row .card-title { margin-bottom:0; }
+        .generate-quality-toggle { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-muted); white-space:nowrap; }
+        .generate-template-row { display:flex; flex-wrap:wrap; gap:6px; }
+        .generate-template-btn { border:1px solid var(--border); background:var(--panel); color:var(--text); border-radius:var(--radius-sm); padding:6px 10px; cursor:pointer; font-size:13px; }
+        .generate-template-btn.active { border-color:var(--accent); background:var(--selected); color:var(--accent); }
+        .generate-side-options { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:12px; }
+        .generate-attachment-summary { color:var(--text-dim); font-size:12px; }
+        .generate-chat-messages { flex:1 1 auto; min-height:0; overflow:auto; border:1px solid var(--border); border-radius:var(--radius-md); padding:18px; background:var(--bg); margin-bottom:12px; }
+        .generate-chat-message { margin-bottom:10px; max-width:92%; }
+        .generate-chat-message.assistant { margin-left:auto; }
+        .generate-chat-role { color:var(--text-dim); font-size:11px; margin-bottom:3px; }
+        .generate-chat-bubble { white-space:pre-wrap; border:1px solid var(--border); border-radius:var(--radius-md); padding:10px 12px; background:var(--panel); color:var(--text); font-size:13px; line-height:1.55; }
+        .generate-chat-message.assistant .generate-chat-bubble { border-color:var(--accent-dim); }
+        .generate-chat-message.pending .generate-chat-bubble { color:var(--text-dim); font-style:italic; }
+        .generate-chat-message.error .generate-chat-bubble { color:var(--danger); border-color:var(--danger); background:var(--panel); }
+        .generate-composer { flex:0 0 auto; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--panel); padding:10px; }
+        .generate-chat-input { width:100%; min-height:92px; resize:vertical; border:0; outline:0; background:transparent; color:var(--text); font:inherit; line-height:1.5; }
+        .generate-chat-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:8px; flex-wrap:wrap; }
+        .generate-empty-copy { color:var(--text-dim); font-size:13px; line-height:1.6; margin:0; }
+        .generate-result-card { border:1px solid var(--accent); border-radius:var(--radius-sm); padding:12px; background:var(--panel); }
+        .generate-result-title { font-weight:600; margin-bottom:6px; }
+        .generate-result-meta { color:var(--text-dim); font-size:12px; margin-bottom:8px; }
+        .generate-result-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+        .generate-chapter-list { display:grid; gap:8px; max-height:460px; overflow:auto; }
+        .generate-chapter-card { display:grid; grid-template-columns:auto minmax(0,1fr); gap:8px; border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px; }
+        .generate-chapter-title { font-weight:600; font-size:13px; }
+        .generate-chapter-excerpt { color:var(--text-dim); font-size:12px; margin-top:4px; line-height:1.45; }
+        .generate-template-editor { display:grid; gap:10px; }
+        .generate-template-editor label { display:block; color:var(--text-muted); font-size:12px; margin-bottom:4px; }
+        .generate-template-editor textarea { min-height:180px; }
+        .generate-template-editor-help { color:var(--text-dim); font-size:12px; line-height:1.5; margin:0; }
+        @media (max-width: 900px) {
+          .generate-chatbox { grid-template-columns:1fr; height:auto; min-height:0; overflow:visible; }
+          .topbar-generate-note { display:none; }
+          .generate-chat-panel { min-height:auto; }
+          .generate-chat-side { max-height:none; overflow:visible; padding-right:0; }
+          .generate-chat-messages { min-height:260px; max-height:60vh; }
+        }
       </style>
     `
   },
 
   _bindEvents() {
     bindWorkspaceClick(this, {
-      "select-type": (_e, t) => this._selectType(t.getAttribute("data-type")),
-      "start-generate": () => this._startGenerate(),
-      "open-generated-destination": (_e, t) => {
-        const view = t.getAttribute("data-target-view")
-        const subview = t.getAttribute("data-target-subview") || null
+      "select-object-template": (_e, target) => this._selectTemplate(target.getAttribute("data-template")),
+      "edit-object-templates": () => this._openTemplateEditor(),
+      "send-chat-message": () => this._sendChatMessage(),
+      "generate-object-draft": () => this._generateObjectDraft(),
+      "select-source-chapters": () => this._openChapterPicker(),
+      "open-generated-destination": (_e, target) => {
+        const view = target.getAttribute("data-target-view")
+        const subview = target.getAttribute("data-target-subview") || null
         if (view) router.navigate(view, subview)
       },
+      "continue-chat": () => this._focusChatInput(),
+      "generate-another": () => this._clearResult(),
+    })
+    document.getElementById("generate-quality-pro")?.addEventListener("change", () => {
+      this._syncInputs()
+      this._persistState()
     })
   },
 
-  _selectType(type) {
-    this._currentType = type
-    const inputArea = document.getElementById("generate-input-area")
-    if (inputArea) inputArea.style.display = ""
+  _renderTemplateButtons() {
+    return this._allTemplates().map((item) => `
+      <button
+        class="generate-template-btn ${item.value === this._template ? "active" : ""}"
+        data-action="select-object-template"
+        data-template="${esc(item.value)}"
+        title="${esc(item.hint || item.prompt || "")}"
+      >${esc(item.label)}</button>
+    `).join("")
+  },
 
-    const intentEl = document.getElementById("generate-intent")
-    const typeNames = {
-      world_character: "如：为旧档案缺页篇生成世界对象和人物候选",
-      plot: "如：为旧档案缺页篇生成 10 章剧情结构和伏笔计划",
-      chapter: "如：为旧档案缺页篇生成章节卡",
-      review: "如：复查旧档案缺页篇的章节卡结构",
+  _selectTemplate(template) {
+    if (!this._findTemplate(template)) return
+    this._template = template
+    this._renderTemplateControls()
+    this._persistState()
+  },
+
+  _renderTemplateControls() {
+    const row = document.getElementById("generate-template-row")
+    if (row) row.innerHTML = this._renderTemplateButtons()
+  },
+
+  _allTemplates() {
+    const builtins = OBJECT_TEMPLATES.map((item) => ({
+      ...item,
+      prompt: this._templatePromptOverrides[item.value] || item.prompt,
+      template: item.value,
+      custom: false,
+    }))
+    const custom = this._customTemplates.map((item) => ({
+      value: `custom:${item.id}`,
+      label: item.name,
+      hint: item.prompt,
+      prompt: item.prompt,
+      template: "custom",
+      custom: true,
+    }))
+    return [...builtins, ...custom]
+  },
+
+  _findTemplate(value = this._template) {
+    return this._allTemplates().find((item) => item.value === value)
+  },
+
+  _selectedTemplatePayload() {
+    const item = this._findTemplate() || this._allTemplates()[0]
+    const hasOverride = item.custom || Boolean(this._templatePromptOverrides[item.value])
+    return {
+      template: item.template,
+      template_name: item.label,
+      template_prompt: hasOverride ? item.prompt : undefined,
     }
-    if (intentEl) intentEl.placeholder = typeNames[type] || "描述你想要生成的内容..."
-    document.querySelectorAll(".generate-card").forEach((el) => {
-      el.classList.toggle("active", el.getAttribute("data-type") === type)
+  },
+
+  _openTemplateEditor() {
+    const current = this._findTemplate()
+    showModalHtml("编辑模板", this._renderTemplateEditor(current.value), [
+      { text: "保存模板", class: "btn-primary", handler: () => this._saveTemplateFromEditor() },
+      { text: "新建模板", class: "btn", handler: () => this._createTemplateFromEditor() },
+      { text: "关闭", class: "btn-ghost", handler: closeModal },
+    ])
+    setTimeout(() => this._bindTemplateEditor(), 0)
+  },
+
+  _renderTemplateEditor(selectedValue) {
+    const selected = this._findTemplate(selectedValue) || this._allTemplates()[0]
+    return `
+      <div class="generate-template-editor">
+        <div>
+          <label for="generate-template-editor-select">现有模板</label>
+          <select class="form-select" id="generate-template-editor-select">
+            ${this._allTemplates().map((item) => `
+              <option value="${esc(item.value)}" ${item.value === selected.value ? "selected" : ""}>
+                ${esc(item.custom ? `自定义 · ${item.label}` : item.label)}
+              </option>
+            `).join("")}
+          </select>
+        </div>
+        <div>
+          <label for="generate-template-editor-name">模板名称</label>
+          <input class="form-input" id="generate-template-editor-name" value="${esc(selected.label)}" maxlength="80" />
+        </div>
+        <div>
+          <label for="generate-template-editor-prompt">提示词</label>
+          <textarea class="form-textarea" id="generate-template-editor-prompt" maxlength="8000">${esc(selected.prompt || "")}</textarea>
+        </div>
+        <p class="generate-template-editor-help">
+          保存内置模板时只覆盖提示词，不改名称。点击“新建模板”会使用当前名称和提示词创建一个新的自定义模板。
+        </p>
+      </div>
+    `
+  },
+
+  _bindTemplateEditor() {
+    const select = document.getElementById("generate-template-editor-select")
+    select?.addEventListener("change", () => {
+      const item = this._findTemplate(select.value)
+      const nameEl = document.getElementById("generate-template-editor-name")
+      const promptEl = document.getElementById("generate-template-editor-prompt")
+      if (nameEl) nameEl.value = item.label
+      if (promptEl) promptEl.value = item.prompt || ""
     })
   },
 
-  _updateStep(step, status) {
-    document.querySelectorAll(".step-item").forEach((el) => {
-      const s = parseInt(el.dataset.step, 10)
-      el.classList.remove("active", "done")
-      if (s === step) {
-        if (status === "active") el.classList.add("active")
-        if (status === "done") el.classList.add("done")
-      } else if (s < step) {
-        el.classList.add("done")
+  _saveTemplateFromEditor() {
+    const selected = document.getElementById("generate-template-editor-select")?.value || this._template
+    const item = this._findTemplate(selected) || this._allTemplates()[0]
+    const prompt = document.getElementById("generate-template-editor-prompt")?.value?.trim() || ""
+    const name = document.getElementById("generate-template-editor-name")?.value?.trim() || ""
+    if (!prompt) {
+      toast("请输入模板提示词", "warning")
+      return
+    }
+    if (item.custom) {
+      if (!name) {
+        toast("请输入模板名称", "warning")
+        return
       }
-    })
+      this._customTemplates = this._customTemplates.map((tpl) => (
+        `custom:${tpl.id}` === selected ? { ...tpl, name, prompt } : tpl
+      ))
+    } else {
+      this._templatePromptOverrides[item.value] = prompt
+    }
+    this._template = selected
+    this._persistTemplateLibrary()
+    this._renderTemplateControls()
+    this._persistState()
+    toast("模板已保存", "success")
   },
 
-  _stopActivePolling() {
-    if (this._activePoller?.stop) this._activePoller.stop()
-    this._activePoller = null
+  _createTemplateFromEditor() {
+    const name = document.getElementById("generate-template-editor-name")?.value?.trim() || ""
+    const prompt = document.getElementById("generate-template-editor-prompt")?.value?.trim() || ""
+    if (!name) {
+      toast("请输入模板名称", "warning")
+      return
+    }
+    if (!prompt) {
+      toast("请输入模板提示词", "warning")
+      return
+    }
+    const id = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    this._customTemplates.push({ id, name, prompt })
+    this._template = `custom:${id}`
+    this._persistTemplateLibrary()
+    this._renderTemplateControls()
+    this._persistState()
+    toast("新模板已创建", "success")
   },
 
-  _workflowTypeFor(type) {
-    return {
-      world_character: "world_entity_extraction",
-      plot: "outline_generate",
-      chapter: "outline_generate",
-    }[type] || "task"
+  async _sendChatMessage() {
+    if (!state.currentProjectId) {
+      toast("请先选择项目", "warning")
+      return
+    }
+    const input = document.getElementById("generate-chat-input")
+    const text = input?.value?.trim() || ""
+    if (!text) {
+      toast("请输入要聊的内容", "warning")
+      return
+    }
+    this._syncInputs()
+    this._messages.push({ role: "user", content: text })
+    if (input) input.value = ""
+    const payload = this._buildPayload()
+    const pendingMessage = { role: "assistant", content: "正在思考...", pending: true }
+    this._messages.push(pendingMessage)
+    this._renderMessages()
+    this._persistState()
+
+    let controller = null
+    try {
+      this._setBusy(true)
+      controller = this._trackRequestController()
+      const response = await api.generate.objectDraftChat(payload, { signal: controller.signal })
+      if (response?.reply) {
+        pendingMessage.content = response.reply
+        pendingMessage.pending = false
+        this._renderMessages()
+        this._persistState()
+      }
+    } catch (err) {
+      pendingMessage.content = `聊天失败：${err.message || "未知错误"}`
+      pendingMessage.pending = false
+      pendingMessage.error = true
+      this._renderMessages()
+      this._persistState()
+      toast(`聊天失败：${err.message || "未知错误"}`, "error")
+    } finally {
+      this._releaseRequestController(controller)
+      this._setBusy(false)
+    }
   },
 
-  _destinationHintFor(type) {
-    return {
-      world_character: "完成后到 世界 > 候选清洗 查看候选对象。",
-      plot: "完成后到 大纲 查看生成的剧情结构。",
-      chapter: "完成后到 Scene 工作台或篇章纲查看生成的章节与场景结构。",
-    }[type] || "完成后可在对应模块查看结果。"
-  },
-
-  _destinationActionsFor(type) {
-    return {
-      world_character: [
-        { label: "查看候选", view: "world", subview: "candidates" },
-        { label: "查看世界对象", view: "world", subview: "objects" },
-      ],
-      plot: [
-        { label: "查看大纲", view: "outline", subview: "threads" },
-        { label: "查看伏笔", view: "outline", subview: "foreshadowing" },
-      ],
-      chapter: [
-        { label: "查看场景", view: "scene", subview: "" },
-        { label: "查看篇章纲", view: "outline", subview: "arcs" },
-        { label: "去写作台", view: "writing", subview: "" },
-      ],
-    }[type] || [{ label: "去写作台", view: "writing", subview: "" }]
-  },
-
-  _renderTaskProgress(progress, type) {
+  async _generateObjectDraft() {
+    if (!state.currentProjectId) {
+      toast("请先选择项目", "warning")
+      return
+    }
+    this._captureDraftInputAsMessage()
+    this._syncInputs()
+    if (!this._messages.length) {
+      toast("请先聊天或粘贴已有对话到输入框", "warning")
+      return
+    }
+    this._renderMessages()
+    this._persistState()
     const resultEl = document.getElementById("generate-result")
-    if (!resultEl || !progress) return
-    const typeNames = { world_character: "世界与人物结构", plot: "剧情结构", chapter: "章节与场景结构" }
-    const actionHtml = progress.done ? `
-      <div class="generate-result-actions">
-        ${this._destinationActionsFor(type).map((action) => `
-          <button
-            class="btn btn-sm"
-            data-action="open-generated-destination"
-            data-target-view="${esc(action.view)}"
-            data-target-subview="${esc(action.subview || "")}"
-          >${esc(action.label)}</button>
+    if (resultEl) resultEl.innerHTML = '<div class="loading">正在生成数据库草稿...</div>'
+    let controller = null
+    try {
+      this._setBusy(true)
+      controller = this._trackRequestController()
+      const response = await api.generate.generateObjectDraft(this._buildPayload(), { signal: controller.signal })
+      this._lastEntity = response?.entity || null
+      if (resultEl) resultEl.innerHTML = this._lastEntity
+        ? this._renderEntityResult(this._lastEntity)
+        : '<p class="generate-empty-copy">生成完成，但未返回对象。</p>'
+      this._persistState()
+      toast("对象草稿已生成", "success")
+    } catch (err) {
+      if (resultEl) {
+        resultEl.innerHTML = `<p style="color:var(--danger);font-size:13px;">生成失败：${esc(err.message || "未知错误")}</p>`
+      }
+      toast(`生成失败：${err.message || "未知错误"}`, "error")
+    } finally {
+      this._releaseRequestController(controller)
+      this._setBusy(false)
+    }
+  },
+
+  async _openChapterPicker() {
+    if (!state.currentProjectId) {
+      toast("请先选择项目", "warning")
+      return
+    }
+    try {
+      const data = await api.writing.listChapters(state.currentProjectId)
+      const summaries = Array.isArray(data.chapters) ? data.chapters : []
+      if (!summaries.length) {
+        toast("当前项目还没有正文，可直接聊天或粘贴外部对话生成草稿", "info")
+        return
+      }
+      const chapters = await this._runInBatches(summaries.slice(0, 60), 5, async (item) => {
+        try {
+          const draft = item.id
+            ? await api.writing.get(item.id, state.currentProjectId)
+            : await api.writing.getDraft(item.chapter_index, state.currentProjectId)
+          return {
+            chapter_index: item.chapter_index,
+            title: draft.title || item.title || `第${item.chapter_index}章`,
+            excerpt: this._excerpt(draft.content || ""),
+          }
+        } catch {
+          return {
+            chapter_index: item.chapter_index,
+            title: item.title || `第${item.chapter_index}章`,
+            excerpt: "",
+          }
+        }
+      })
+      showModalHtml("选择附带正文", this._renderChapterPicker(chapters), [
+        { text: "取消", class: "btn-ghost", handler: closeModal },
+        {
+          text: "确认选择",
+          class: "btn-primary",
+          handler: () => {
+            this._selectedChapters = chapters.filter((item) => {
+              const el = document.getElementById(`generate-chapter-${item.chapter_index}`)
+              return Boolean(el?.checked)
+            })
+            this._renderAttachments()
+            this._persistState()
+            closeModal()
+          },
+        },
+      ])
+    } catch (err) {
+      toast(`加载章节失败：${err.message || "未知错误"}`, "error")
+    }
+  },
+
+  _renderChapterPicker(chapters) {
+    const selected = new Set(this._selectedChapters.map((item) => item.chapter_index))
+    return `
+      <div class="generate-chapter-list">
+        ${chapters.map((item) => `
+          <label class="generate-chapter-card">
+            <input id="generate-chapter-${esc(item.chapter_index)}" type="checkbox" ${selected.has(item.chapter_index) ? "checked" : ""} />
+            <span>
+              <span class="generate-chapter-title">第 ${esc(item.chapter_index)} 章 · ${esc(item.title || "")}</span>
+              <span class="generate-chapter-excerpt">${esc(item.excerpt || "暂无正文摘录")}</span>
+            </span>
+          </label>
         `).join("")}
       </div>
-    ` : ""
-    resultEl.innerHTML = renderWorkflowCard(progress, {
-      title: `生成${typeNames[type] || "内容"}`,
-      destinationLabel: this._destinationHintFor(type),
-    }) + actionHtml
+    `
   },
 
-  _startTaskPolling(taskId, workflowType, type) {
-    this._stopActivePolling()
-    this._activePoller = pollTaskProgress({
-      taskId,
-      workflowType,
-      apiClient: api,
-      onUpdate: (progress) => {
-        this._renderTaskProgress(progress, type)
-        if (progress.done) {
-          this._updateStep(4, "done")
-          this._updateStep(5, "active")
-        } else if (progress.failed || progress.cancelled) {
-          this._updateStep(3, "")
-        } else {
-          this._updateStep(3, "active")
-        }
-      },
-      onDone: () => {
-        clearActiveWorkflow(taskId)
-      },
-      onFailed: () => {
-        clearActiveWorkflow(taskId)
-      },
+  _renderMessages() {
+    const el = document.getElementById("generate-chat-messages")
+    if (!el) return
+    if (!this._messages.length) {
+      el.innerHTML = '<p class="generate-empty-copy">可以直接说“帮我设计一个反派”，也可以先粘贴外部聊完的内容。</p>'
+      return
+    }
+    el.innerHTML = this._messages.map((message) => `
+      <div class="generate-chat-message ${esc(message.role)} ${message.pending ? "pending" : ""} ${message.error ? "error" : ""}">
+        <div class="generate-chat-role">${message.role === "assistant" ? "AI" : "你"}</div>
+        <div class="generate-chat-bubble">${esc(message.content)}</div>
+      </div>
+    `).join("")
+    el.scrollTop = el.scrollHeight
+  },
+
+  _renderAttachments() {
+    const el = document.getElementById("generate-selected-chapters")
+    if (!el) return
+    if (!this._selectedChapters.length) {
+      el.textContent = "未附带正文"
+      return
+    }
+    el.textContent = `已附带 ${this._selectedChapters.length} 章：${
+      this._selectedChapters.map((item) => `第${item.chapter_index}章`).join("、")
+    }`
+  },
+
+  _renderEntityResult(entity) {
+    return `
+      <div class="generate-result-card">
+        <div class="generate-result-title">${esc(entity.name || "未命名对象")}</div>
+        <div class="generate-result-meta">${esc(entity.entity_type || "-")} · ${esc(entity.status || "draft")}</div>
+        <p style="font-size:13px;line-height:1.6;margin:0;">${esc(entity.summary || "已生成数据库草稿。")}</p>
+        <div class="generate-result-actions">
+          <button class="btn btn-sm btn-primary" data-action="open-generated-destination" data-target-view="world" data-target-subview="objects">打开世界对象</button>
+          <button class="btn btn-sm" data-action="continue-chat">继续聊</button>
+          <button class="btn btn-sm" data-action="generate-another">再生成一个</button>
+        </div>
+      </div>
+    `
+  },
+
+  _buildPayload() {
+    const templatePayload = this._selectedTemplatePayload()
+    return {
+      novel_id: state.currentProjectId,
+      template: templatePayload.template,
+      template_name: templatePayload.template_name,
+      template_prompt: templatePayload.template_prompt,
+      messages: this._messages
+        .filter((item) => !item.pending && !item.error && (item.role === "user" || item.role === "assistant"))
+        .map((item) => ({
+          role: item.role,
+          content: item.content,
+        })),
+      pasted_context: undefined,
+      selected_chapter_indices: this._selectedChapters.map((item) => item.chapter_index),
+      quality_mode: this._qualityMode,
+    }
+  },
+
+  _syncInputs() {
+    this._qualityMode = document.getElementById("generate-quality-pro")?.checked ? "pro" : "fast"
+  },
+
+  _captureDraftInputAsMessage() {
+    const input = document.getElementById("generate-chat-input")
+    const text = input?.value?.trim() || ""
+    if (!text) return false
+    this._messages.push({ role: "user", content: text })
+    if (input) input.value = ""
+    return true
+  },
+
+  _setBusy(busy) {
+    this._busy = busy
+    document.querySelectorAll('[data-action="send-chat-message"], [data-action="generate-object-draft"]').forEach((btn) => {
+      btn.disabled = busy
     })
   },
 
-  _recoverGenerateWorkflow() {
-    if (!state.currentProjectId || this._activePoller) return
-    const workflows = recoverActiveWorkflows(state.currentProjectId)
-    const workflow = workflows.find((item) => item.view === "generate")
-    if (!workflow?.taskId) return
-
-    const type = workflow.meta?.type || {
-      world_entity_extraction: "world_character",
-      plot_structure_generate: "plot",
-      outline_generate: "plot",
-      chapter_scene_generate: "chapter",
-      outline_chapter_scenes_extract: "chapter",
-    }[workflow.workflowType] || this._currentType
-    if (!type) return
-
-    this._currentType = type
-    this._renderTaskProgress(normalizeTaskProgress({
-      task_id: workflow.taskId,
-      task_type: workflow.workflowType,
-      status: "running",
-      meta: workflow.meta || {},
-    }, workflow.workflowType), type)
-    this._startTaskPolling(workflow.taskId, workflow.workflowType, type)
+  _trackRequestController() {
+    if (!this._abortControllers) this._abortControllers = new Set()
+    const controller = new AbortController()
+    this._abortControllers.add(controller)
+    return controller
   },
 
-  async _startGenerate() {
-    const intent = document.getElementById("generate-intent")?.value
-    if (!intent || !intent.trim()) { toast("请输入创作意图描述", "warning"); return }
-    if (!this._currentType) { toast("请先选择生成类型", "warning"); return }
+  _releaseRequestController(controller) {
+    if (!controller) return
+    this._abortControllers?.delete(controller)
+  },
 
+  _abortAllRequests() {
+    if (!this._abortControllers) return
+    for (const controller of this._abortControllers) {
+      try {
+        controller.abort()
+      } catch {}
+    }
+    this._abortControllers.clear()
+  },
+
+  _clearRenderTimeout() {
+    if (this._renderTimeout) {
+      clearTimeout(this._renderTimeout)
+      this._renderTimeout = null
+    }
+  },
+
+  async _runInBatches(items, batchSize, fn) {
+    const results = []
+    for (let i = 0; i < items.length; i += batchSize) {
+      const batch = items.slice(i, i + batchSize)
+      const batchResults = await Promise.all(batch.map((item) => fn(item)))
+      results.push(...batchResults)
+    }
+    return results
+  },
+
+  _focusChatInput() {
+    document.getElementById("generate-chat-input")?.focus()
+  },
+
+  _clearResult() {
+    this._lastEntity = null
     const resultEl = document.getElementById("generate-result")
-    if (!resultEl) return
+    if (resultEl) {
+      resultEl.innerHTML = '<p class="generate-empty-copy">可以继续基于当前聊天生成新的对象草稿。</p>'
+    }
+    this._persistState()
+  },
 
-    const typeNames = { world_character: "世界与人物结构", plot: "剧情结构", chapter: "章节与场景结构" }
+  _excerpt(content, limit = 120) {
+    const text = String(content || "").replace(/\s+/g, " ").trim()
+    return text.length > limit ? `${text.slice(0, limit)}...` : text
+  },
 
-    this._updateStep(1, "done")
-    this._updateStep(2, "active")
-    resultEl.innerHTML = '<div class="loading">步骤 2/6：正在确认 AI 参考资料...</div>'
+  _storageKey() {
+    return `generate_chatbox_state_v1_${state.currentProjectId || "none"}`
+  },
 
+  _persistTemplateLibrary() {
     try {
-      const scope = document.getElementById("generate-scope")?.value || "arc"
-      const related = document.getElementById("generate-related")?.value || ""
-      const relatedIds = related ? related.split(",").map((s) => s.trim()).filter((s) => s) : undefined
+      localStorage.setItem(TEMPLATE_PROMPT_STORAGE_KEY, JSON.stringify(this._templatePromptOverrides))
+      localStorage.setItem(CUSTOM_TEMPLATE_STORAGE_KEY, JSON.stringify(this._customTemplates))
+    } catch {}
+  },
 
-      const config = this._actionConfig(intent, scope)
-      const confirmation = await confirmAiReference({
-        novel_id: state.currentProjectId,
-        action: config.action,
-        task: config.task,
-        scope: config.scope,
-        ...(config.scope === "chapter" ? { chapter_index: config.chapterIndex } : {}),
-        context_mode: "working",
-        include_pending_objects: true,
-        entity_ids: relatedIds,
-        character_ids: relatedIds,
-        user_note: intent,
-      })
-
-      this._updateStep(2, "done")
-      this._updateStep(3, "active")
-      resultEl.innerHTML = `<div class="loading">步骤 3/6：正在生成${typeNames[this._currentType]}...</div>`
-
-      const workflowType = this._workflowTypeFor(this._currentType)
-      const resp = await config.submit(confirmation.id, intent)
-
-      this._updateStep(3, resp ? "done" : "active")
-      this._updateStep(4, "active")
-
-      const responseId = resp && (resp.task_id || resp.id)
-      if (responseId) {
-        persistActiveWorkflow({
-          taskId: responseId,
-          workflowType,
-          projectId: state.currentProjectId,
-          view: "generate",
-          meta: { type: this._currentType, intent },
-        })
-        this._renderTaskProgress(normalizeTaskProgress({
-          ...resp,
-          task_id: responseId,
-          task_type: workflowType,
-          meta: { workflowType },
-        }, workflowType), this._currentType)
-        this._startTaskPolling(responseId, workflowType, this._currentType)
-      } else {
-        resultEl.innerHTML = `
-          <div class="card" style="border-color:var(--accent);">
-          <p style="color:var(--accent);">&#10003; 生成请求已发送</p>
-          <p style="color:var(--text-muted);font-size:12px;">请在对应模块中查看生成的候选对象。</p>
-          </div>
-        `
-      }
-      this._updateStep(4, "done")
-
-      setTimeout(() => { this._updateStep(5, "active"); this._updateStep(6, "") }, 500)
-    } catch (err) {
-      this._updateStep(2, "")
-      const errMsg = esc(err.message)
-      resultEl.innerHTML = `
-        <div style="color:var(--danger);padding:12px;border:1px solid var(--danger);border-radius:4px;">
-          <strong>生成失败</strong>
-          <p style="margin:4px 0 0 0;font-size:13px;">${errMsg}</p>
-          <p style="color:var(--text-dim);font-size:12px;margin:4px 0 0 0;">请确认后端已启动，并且项目已选择。</p>
-          <button class="btn btn-sm" style="margin-top:8px;" data-action="start-generate">重试</button>
-        </div>
-      `
-      toast(`生成失败：${err.message}`, "error")
+  _loadTemplateLibrary() {
+    try {
+      const prompts = JSON.parse(localStorage.getItem(TEMPLATE_PROMPT_STORAGE_KEY) || "{}")
+      this._templatePromptOverrides = prompts && typeof prompts === "object" && !Array.isArray(prompts) ? prompts : {}
+    } catch {
+      this._templatePromptOverrides = {}
+    }
+    try {
+      const custom = JSON.parse(localStorage.getItem(CUSTOM_TEMPLATE_STORAGE_KEY) || "[]")
+      this._customTemplates = Array.isArray(custom)
+        ? custom.filter((item) => item?.id && item?.name && item?.prompt).map((item) => ({
+          id: String(item.id),
+          name: String(item.name).slice(0, 80),
+          prompt: String(item.prompt).slice(0, 8000),
+        }))
+        : []
+    } catch {
+      this._customTemplates = []
     }
   },
 
-  _actionConfig(intent, scope) {
-    const start = 1
-    const end = 10
-    if (this._currentType === "world_character") {
-      return {
-        action: "world.entities.extract",
-        task: intent || "世界对象补抽",
-        scope: scope === "chapter" ? "chapter" : "full",
-        chapterIndex: start,
-        submit: (confirmationId) => api.generate.worldCharacter({
-          novel_id: state.currentProjectId,
-          context_confirmation_id: confirmationId,
-          start_chapter: start,
-          end_chapter: end,
-          instruction: intent,
-        }),
-      }
-    }
-    if (this._currentType === "chapter") {
-      return {
-        action: "outline.generate",
-        task: intent || "章节与 Scene 结构生成",
-        scope: scope === "chapter" ? "chapter" : "full",
-        chapterIndex: start,
-        submit: (confirmationId) => api.generate.plotStructure({
-          novel_id: state.currentProjectId,
-          context_confirmation_id: confirmationId,
-          start_chapter: start,
-          end_chapter: end,
-          instruction: intent,
-        }),
-      }
-    }
-    return {
-      action: "outline.generate",
-      task: intent || "剧情结构生成",
-      scope: scope === "chapter" ? "chapter" : "full",
-      chapterIndex: start,
-      submit: (confirmationId) => api.generate.plotStructure({
-        novel_id: state.currentProjectId,
-        context_confirmation_id: confirmationId,
-        start_chapter: start,
-        end_chapter: end,
-        instruction: intent,
-      }),
-    }
+  _mountTopbarNote() {
+    this._clearTopbarNote()
+    const moduleEl = document.getElementById("topbar-module")
+    if (!moduleEl) return
+    const note = document.createElement("span")
+    note.id = "topbar-generate-note"
+    note.className = "topbar-generate-note"
+    note.textContent = "先自由聊，确定后再生成数据库草稿。"
+    moduleEl.insertAdjacentElement("afterend", note)
+  },
+
+  _clearTopbarNote() {
+    document.getElementById("topbar-generate-note")?.remove()
+  },
+
+  _persistState() {
+    try {
+      localStorage.setItem(this._storageKey(), JSON.stringify({
+        template: this._template,
+        messages: this._messages.filter((item) => !item.pending),
+        selectedChapters: this._selectedChapters,
+        qualityMode: this._qualityMode,
+        lastEntity: this._lastEntity,
+      }))
+    } catch {}
+  },
+
+  _restoreState() {
+    this._loadTemplateLibrary()
+    try {
+      const raw = localStorage.getItem(this._storageKey())
+      if (!raw) return
+      const parsed = JSON.parse(raw)
+      this._template = parsed.template || this._template
+      if (!this._findTemplate(this._template)) this._template = "none"
+      this._messages = Array.isArray(parsed.messages) ? parsed.messages : []
+      this._pastedContext = ""
+      this._selectedChapters = Array.isArray(parsed.selectedChapters) ? parsed.selectedChapters : []
+      this._qualityMode = parsed.qualityMode || "fast"
+      this._lastEntity = parsed.lastEntity || null
+    } catch {}
   },
 }
 

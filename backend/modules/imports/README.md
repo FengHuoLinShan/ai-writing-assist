@@ -15,9 +15,11 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - 提交并编排深度导入任务（基于 async_tasks）
 - 提交并编排分阶段自动提取任务：Scene、世界对象与别名/关系、剧情结构
 - 在重复导入时返回覆盖确认要求，确认后才入队
-- 深度导入 Scene 阶段执行 Phase 0 双轮预取、Phase 1a 正文补强、Phase 1b 融合提交，并记录质量统计
-- Phase 0 / Phase 1a 是 workflow 中间候选层，不写正式 Scene；真实 LLM 验收会持久化 JSONL / Markdown / artifact 作为测试证据，供复跑和失败 batch repair
-- Phase 1a 默认作为受控正文补强器：输入正文按预算收敛，输出短候选锚点；真正跨章的候选必须用同一个 Scene 的多条 `scene_chunks.chapter_index` 显式表达；最终仍失败的非 422 LLM 错误会生成 `degraded_fallback` 低质量中间候选，保留每章锚点给 Phase 1b 融合
+- 深度导入 Scene 阶段默认执行 `Phase0 deterministic plan → Phase1a scene slicing → Phase1b scene enrichment → Scene commit`，并记录质量统计
+- Phase 0 不调用 LLM；它按章节字符数计算窗口计划、owned range、固定右侧 2 章 overlap 和每窗 `max_tokens` 预算。默认目标输入约 `72000` 字符，窗口最多 20 章，`max_tokens=clamp(round(input_chars * 0.36), 13000, 32768)`
+- Phase 1a 只切分并锁定 Scene 边界字段：`title` / `goal` / `core_conflict` / `start_chapter` / `end_chapter` / `boundary_status`；缺失章节会生成 `needs_review` 的章节级 fallback
+- Phase 1b 每个 Scene 一个并发 enrichment 请求，只解析补充字段；`scene_chunks` 由系统按 `start_chapter` / `end_chapter` 章级确定生成，不由 LLM 定位
+- 旧 `scene_prefetch` / `scene_reinforcement` / `scene_fusion` 保留为 legacy/repair 组件，不进入默认 Scene 自动提取路径；`scene_prefetch` / `scene_reinforcement` 默认被 `DEEP_IMPORT_LEGACY_SCENE_PIPELINE_ENABLED=0` 禁用
 - 深度导入保持自动流水线，不弹出“AI 参考资料”确认；Phase 3 结构分析显式使用 `context_mode="working"` 并包含待确认对象
 - 分阶段世界对象自动提取执行 Phase 2a / 2b：先基于已提交 Scene 抽取世界对象与 Delta，再补抽别名 / 关系
 - Phase 2 对大量 Scene 使用 batch 间并发、batch 内 Scene 串行的调度：默认 12 Scene / batch、6 batch 并发；真实 LLM 调参可用 `PHASE2_BATCH_SIZE_SCENES` / `PHASE2_BATCH_CONCURRENCY` 临时覆盖；每个 batch 保留局部 rolling context
@@ -70,9 +72,10 @@ worker 启动时会检测 stale 的 `deep_import` 任务并标记为需要恢复
 前端通过 `GET /api/tasks/{task_id}` 展示 `recovery_required` / `recovery_summary`，
 用户点击继续后调用 `POST /api/imports/deep/resume` 复用原 task；放弃恢复调用
 `POST /api/imports/deep/abandon`，只清理同 `workflow_id` 的自动派生 Scene、实体和结构资产。
-Phase 0 / Phase 1a 的最终 422 错误率超过 40% 时阻断任务；Phase 1a 的
-network / rate_limit / empty_result 可短重试，最终仍失败的 timeout / schema 等非 422
-错误会降级为 `degraded_fallback` 中间候选继续推进；Phase 1b 超阈值时降级继续。
+Phase 0 只做确定性窗口规划，不执行 LLM 健康或 422 门禁；Phase 1a 使用
+Phase 0 计算出的 `max_tokens`，在 length / invalid JSON 等截断类失败时按
+`24576 → 32768` 对失败窗口重试，仍失败则为缺失章节生成 `needs_review` fallback。
+Phase 1b 每个 Scene 失败只 retry 1 次，仍失败时仅 fallback 当前 Scene 并进入人工复核清单。
 
 ## 深度导入内部结构
 
@@ -84,7 +87,10 @@ network / rate_limit / empty_result 可短重试，最终仍失败的 timeout / 
 - `workflow_structure_phase.py` — Phase 3、plot_structure stage 与小样本结构保底
 - `workflow_progress.py` — progress timeline、诊断计数、checkpoint/audit/snapshot summary 合并
 - `workflow_llm_adapters.py` — 深度导入 LLM adapter、Phase 0/1a/1b prompt 和 token 预算控制
-- `scene_reinforcement.py` — Phase 1a 正文补强、compact payload、短候选 normalize 和 degraded fallback
+- `scene_planning.py` — Phase 0 章节字符统计、字符预算窗口 / overlap / max_tokens 规划
+- `scene_slicing.py` — Phase 1a Scene 边界切分、owned range 过滤和章节级 fallback
+- `scene_enrichment.py` — Phase 1b 逐 Scene 补字段、锁定字段保护、确定性 `scene_chunks`
+- `scene_prefetch.py` / `scene_reinforcement.py` / `scene_fusion.py` — legacy/repair 路径的候选预取、补强与融合组件，默认不调用；前两者只有显式设置 `DEEP_IMPORT_LEGACY_SCENE_PIPELINE_ENABLED=1` 才允许运行
 - `deep_import_retry.py` — 深度导入 LLM 错误分类与阶段可控 retry 策略
 - `agent_step_harness.py` — imports 内部受控 LLM step envelope / journal / 输出守门；由 `workflow_llm_adapters.py` 使用，不提供自治 agent loop 或工具自主选择
 
@@ -99,12 +105,22 @@ payload 字段，并只保留脱敏 provider 摘要。服务路径还会返回
 
 ## 真实 LLM 验收与 artifact
 
+Phase0/1 默认参数和 DeepSeek probe 证据以
+`tools/deepseek_scene_probe/DECISIONS.md` 为准。下面的历史 artifact harness
+仍用于回归、repair 和旧结果复核；其中涉及 prefetch / reinforcement / fusion 的
+术语属于 legacy 路径，不代表当前默认 Scene 自动提取链路。正式 Scene 自动提取链路是
+`phase0_plan -> phase1a_scene_slicing -> phase1b_enrichment -> scene_commit`；
+Phase 1a slicing 的 `max_tokens` 来自 Phase 0 window 的
+`clamp(round(input_chars * max_tokens_per_input_char), min_max_tokens, max_max_tokens)`。
+
 真实 LLM 验收入口默认跳过，只在显式环境变量开启时运行：
 
 ```bash
+DEEP_IMPORT_LEGACY_SCENE_PIPELINE_ENABLED=1 \
 RUN_DEEP_IMPORT_60_PHASE0_REAL_LLM=1 LLM_TIMEOUT=180 \
   PHASE01_SCENE_MAX_TOKENS=8192 pytest modules/imports/tests/test_deep_import_real_llm.py -q -s
 
+DEEP_IMPORT_LEGACY_SCENE_PIPELINE_ENABLED=1 \
 RUN_DEEP_IMPORT_60_PHASE1A_REAL_LLM=1 LLM_TIMEOUT=180 \
   PHASE1A_SCENE_MAX_TOKENS=8192 pytest modules/imports/tests/test_deep_import_real_llm.py -q -s
 

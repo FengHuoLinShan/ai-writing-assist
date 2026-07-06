@@ -33,9 +33,11 @@ const ragView = {
   _rebuildProgress: null,
   _rebuildInfo: null,
   _rebuildPoller: null,
+  _abortController: null,
 
   async onEnter() {
     this._loading = true
+    this._abortController = new AbortController()
     if (!state.currentProjectId) {
       this._totalChunks = null
       this._apiAvailable = false
@@ -48,7 +50,7 @@ const ragView = {
       this._apiAvailable = true
       this._refreshMetrics()
       if (this._totalChunks > 0 && !this._embeddingRuntime?.healthy) {
-        this._prewarm({ background: true })
+        this._prewarm({ background: true, signal: this._abortController?.signal })
       }
     } catch {
       this._totalChunks = null
@@ -87,6 +89,10 @@ const ragView = {
 
   onLeave() {
     this._stopRebuildPolling()
+    if (this._abortController) {
+      this._abortController.abort()
+      this._abortController = null
+    }
   },
 
   async render() {
@@ -238,12 +244,14 @@ const ragView = {
     }
   },
 
-  async _prewarm() {
+  async _prewarm(options = {}) {
     this._prewarmState = "running"
     this._prewarmWarning = ""
-    this._updateDiagnosticsDOM()
+    if (!options.background) {
+      this._updateDiagnosticsDOM()
+    }
     try {
-      const result = await api.rag.prewarm()
+      const result = await api.rag.prewarm({ signal: options.signal })
       this._prewarmState = result.status === "ready" ? "ready" : "failed"
       this._prewarmWarning = result.warning || ""
       this._embeddingDim = result.embedding_dim ?? this._embeddingDim
@@ -257,7 +265,16 @@ const ragView = {
       this._prewarmState = "failed"
       this._prewarmWarning = err.message || "预热失败"
     }
-    this._updateDiagnosticsDOM()
+    if (!options.background) {
+      this._updateDiagnosticsDOM()
+    }
+  },
+
+  _ensureAbortController() {
+    if (!this._abortController) {
+      this._abortController = new AbortController()
+    }
+    return this._abortController
   },
 
   _stopRebuildPolling() {
@@ -287,13 +304,31 @@ const ragView = {
     if (el) el.innerHTML = this._renderRebuildProgress()
   },
 
-  _applyRagRebuildResult(result = {}) {
-    if (result.total_chapters != null) this._totalChunks = result.chunks_created || this._totalChunks
+  async _applyRagRebuildResult(result = {}) {
+    if (result.chunks_created != null) {
+      this._totalChunks = result.chunks_created
+    } else if (result.total_chapters != null) {
+      this._totalChunks = null
+      await this._refreshStatusFromServer()
+    }
     if (result.embedding_failed_count != null) this._embeddingFailedCount = result.embedding_failed_count
     if (Array.isArray(result.warnings)) {
       this._statusWarnings = result.warnings
       this._statusDegraded = result.warnings.length > 0 || Boolean(result.embedding_failed_count)
     }
+  },
+
+  async _handleRebuildDone(taskId, workflowType, result = {}) {
+    if (workflowType === "rag_retry_embeddings") {
+      this._retryableEmbeddingCount = result.remaining_retryable_count ?? result.failed ?? 0
+      this._embeddingFailedCount = result.remaining_retryable_count ?? result.failed ?? 0
+      await this._refreshStatusFromServer()
+    } else {
+      await this._applyRagRebuildResult(result)
+    }
+    clearActiveWorkflow(taskId)
+    this._updateRebuildProgressDOM()
+    this._updateDiagnosticsDOM()
   },
 
   _startRebuildPolling(taskId, workflowType = "rag_reindex_novel") {
@@ -309,16 +344,7 @@ const ragView = {
       },
       onDone: (progress, task) => {
         const result = task?.result || progress.raw?.result || {}
-        if (workflowType === "rag_retry_embeddings") {
-          this._retryableEmbeddingCount = result.remaining_retryable_count ?? result.failed ?? 0
-          this._embeddingFailedCount = result.remaining_retryable_count ?? result.failed ?? 0
-          this._refreshStatusFromServer()
-        } else {
-          this._applyRagRebuildResult(result)
-        }
-        clearActiveWorkflow(taskId)
-        this._updateRebuildProgressDOM()
-        this._updateDiagnosticsDOM()
+        this._handleRebuildDone(taskId, workflowType, result)
       },
       onFailed: () => {
         clearActiveWorkflow(taskId)
@@ -429,8 +455,8 @@ const ragView = {
     results.innerHTML = '<div class="loading">搜索中</div>'
 
     try {
-      const data = await api.rag.search({ query, top_k: 8, mode: "search" }, state.currentProjectId)
-      const chunks = data.chunks || data || []
+      const data = await api.rag.search({ query, top_k: 8, mode: "search" }, state.currentProjectId, { signal: this._ensureAbortController().signal })
+      const chunks = Array.isArray(data.chunks) ? data.chunks : (Array.isArray(data) ? data : [])
       if (chunks.length === 0) {
         results.innerHTML = '<div class="empty-state"><p style="color:var(--text-dim);">未找到匹配结果</p></div>'
         return
@@ -486,7 +512,8 @@ const ragView = {
         payload.start_chapter = startChapter
         payload.end_chapter = endChapter
       }
-      const result = await api.rag.rebuild(payload)
+      const result = await api.rag.rebuild(payload, { signal: this._ensureAbortController().signal })
+      api.clearCache()
       if (result.task_id) {
         this._rebuildInfo = null
         this._rebuildProgress = normalizeTaskProgress({
@@ -535,7 +562,8 @@ const ragView = {
       const result = await api.rag.retryEmbeddings({
         novel_id: state.currentProjectId,
         statuses: ["failed", "pending_vectorization"],
-      })
+      }, { signal: this._ensureAbortController().signal })
+      api.clearCache()
       if (result.task_id) {
         this._rebuildInfo = null
         this._rebuildProgress = normalizeTaskProgress({

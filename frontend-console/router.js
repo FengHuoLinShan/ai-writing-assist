@@ -88,6 +88,7 @@ function onNavigate(listener) {
 let _prevView = null
 let _prevRenderedView = null
 let _prevRenderedSubView = null
+let _prevRenderedProjectId = null
 
 /** @type {Object<string, string|null>} 各视图最后访问的子标签 */
 const _lastSubViewMap = {}
@@ -102,6 +103,10 @@ const _viewDomCache = {}
 
 /** @type {Set<string>} 标记为 KeepAlive 的视图 */
 const _keepAliveViews = new Set(["writing", "outline", "scene"])
+
+function _viewCacheKey(viewName, subView = null, projectId = state.currentProjectId) {
+  return `${projectId || "global"}:${viewName}:${subView || ""}`
+}
 
 /**
  * 根据当前是否选择了项目，构造路由 hash
@@ -157,7 +162,7 @@ function _rememberSubView(viewName, subView) {
  * 同步当前项目状态：当 projectId 变化时，清空缓存并加载项目元数据。
  * 避免面包屑/标题显示旧项目名或为空。
  */
-async function _syncCurrentProject(projectId) {
+async function _syncCurrentProject(projectId, force) {
   // 无 projectId 时保留当前选择（例如项目列表视图），不要清空 localStorage 恢复的状态
   if (!projectId) {
     return
@@ -170,8 +175,8 @@ async function _syncCurrentProject(projectId) {
     state.currentProject = null
   }
 
-  // 当前项目对象已存在且 ID 一致时避免重复请求
-  if (state.currentProject && state.currentProject.id === projectId) {
+  // 当前项目对象已存在且 ID 一致时避免重复请求，refresh() 可通过 force 强制刷新
+  if (!changed && state.currentProject && !force) {
     return
   }
 
@@ -209,7 +214,7 @@ async function renderCurrentView() {
       while (content.firstChild) {
         frag.appendChild(content.firstChild)
       }
-      const cacheKey = `${_prevView}:${_prevRenderedSubView || ""}`
+      const cacheKey = _viewCacheKey(_prevView, _prevRenderedSubView, _prevRenderedProjectId)
       _viewDomCache[cacheKey] = frag
     }
   }
@@ -217,14 +222,18 @@ async function renderCurrentView() {
 
   const forceRefresh = _forceRefresh
   _forceRefresh = false
-  const isSameRender = !forceRefresh && _prevRenderedView === viewName && _prevRenderedSubView === (state.currentSubView || "")
+  const currentProjectId = state.currentProjectId || null
+  const isSameRender = !forceRefresh
+    && _prevRenderedView === viewName
+    && _prevRenderedSubView === (state.currentSubView || "")
+    && _prevRenderedProjectId === currentProjectId
   const renderer = viewRenderers[viewName]
 
   state.loading = true
 
   try {
     if (renderer) {
-      const cacheKey = `${viewName}:${state.currentSubView || ""}`
+      const cacheKey = _viewCacheKey(viewName, state.currentSubView, currentProjectId)
       const cached = _viewDomCache[cacheKey]
       if (cached && _keepAliveViews.has(viewName) && !forceRefresh) {
         content.innerHTML = ""
@@ -263,6 +272,7 @@ async function renderCurrentView() {
     state.loading = false
     _prevRenderedView = viewName
     _prevRenderedSubView = state.currentSubView || ""
+    _prevRenderedProjectId = currentProjectId
   }
 
   updateRightPanelForView(viewName)
@@ -313,8 +323,9 @@ async function navigate(viewName, subView = null, pushHistory = true) {
  */
 async function refresh() {
   _forceRefresh = true
-  const cacheKey = `${state.currentView}:${state.currentSubView || ""}`
+  const cacheKey = _viewCacheKey(state.currentView, state.currentSubView)
   delete _viewDomCache[cacheKey]
+  await _syncCurrentProject(state.currentProjectId, true)
   await renderCurrentView()
 }
 
