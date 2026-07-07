@@ -38,7 +38,8 @@ const projectSettingsView = {
       ])
       this._effectiveLLM = llm
       this._effectivePrefs = prefs
-      this._templates = templates || []
+      // listLlmProviderTemplates 返回 { items: [...] }，归一化为数组供 llmFormFields 使用
+      this._templates = Array.isArray(templates) ? templates : (templates?.items || [])
       if (!this._tab) this._tab = "main"
     } catch (err) {
       console.error("加载项目设置失败:", err)
