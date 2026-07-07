@@ -19,6 +19,7 @@ from modules.writing.schemas import (
     ChapterSummaryItem,
     DraftListItem,
     VersionHistoryResponse,
+    WritingDraftAutosaveCreate,
     WritingDraftCreate,
     WritingDraftResponse,
     WritingDraftUpdate,
@@ -42,18 +43,29 @@ class TestWritingDraftContract:
         assert contract.title is None
         assert contract.content is None
         assert contract.version_number == 1
+        assert contract.id is None
+        assert contract.conflict_check_snapshot_json is None
+        assert contract.provenance_json is None
+        assert contract.created_at is None
+        assert contract.updated_at is None
 
     def test_create_full(self):
         contract = WritingDraftContract(
             novel_id="nid",
             chapter_index=2,
+            id="draft-1",
             title="第二章",
             content="正文内容",
             version_number=3,
+            conflict_check_snapshot_json={"source": "snapshot"},
+            provenance_json={"source": "test"},
         )
+        assert contract.id == "draft-1"
         assert contract.title == "第二章"
         assert contract.content == "正文内容"
         assert contract.version_number == 3
+        assert contract.conflict_check_snapshot_json == {"source": "snapshot"}
+        assert contract.provenance_json == {"source": "test"}
 
     def test_is_frozen(self):
         contract = WritingDraftContract(novel_id="nid", chapter_index=1)
@@ -564,6 +576,7 @@ class TestWritingAPI:
     def mock_service(self):
         with patch("modules.writing.api._service") as svc:
             svc.get_draft = AsyncMock()
+            svc.publish_draft = AsyncMock()
             svc.update_draft = AsyncMock()
             svc.delete_draft = AsyncMock()
             svc.delete_chapter = AsyncMock()
@@ -583,7 +596,7 @@ class TestWritingAPI:
     @pytest.fixture
     def mock_facade(self):
         with patch("modules.writing.api._create_draft_only") as facade:
-            facade.return_value = WritingDraftResponse(
+            facade.return_value = WritingDraftContract(
                 id=str(uuid.uuid4()),
                 novel_id=str(uuid.uuid4()),
                 chapter_index=1,
@@ -612,26 +625,24 @@ class TestWritingAPI:
         """验证预期数量的路由已注册"""
         assert len(router.routes) >= 8
 
-    async def test_create_draft_endpoint(
+    async def test_autosave_draft_endpoint_uses_facade_and_returns_response(
         self,
         mock_facade,
-        mock_enqueue,
         mock_service,
-        mock_conflict_service,
     ):
         """verify facade is called with correct args"""
-        from modules.writing.api import create_draft
+        from modules.writing.api import create_autosaved_draft
 
         mock_db = AsyncMock()
         mock_db.add = MagicMock()
         mock_db.flush = AsyncMock()
-        data = WritingDraftCreate(
+        data = WritingDraftAutosaveCreate(
             novel_id=str(uuid.uuid4()),
             chapter_index=1,
             title="第一章",
             content="正文",
         )
-        result = await create_draft(mock_db, data)
+        result = await create_autosaved_draft(mock_db, data)
         mock_facade.assert_awaited_once_with(
             mock_db,
             novel_id=data.novel_id,
@@ -639,7 +650,46 @@ class TestWritingAPI:
             title=data.title,
             content=data.content or "",
         )
-        assert result.draft.title == "第一章"
+        assert isinstance(result, WritingDraftResponse)
+        assert result.title == "第一章"
+        mock_service.publish_draft.assert_not_awaited()
+
+    async def test_create_draft_endpoint_publishes_through_service_and_enqueue(
+        self,
+        mock_facade,
+        mock_enqueue,
+        mock_service,
+        mock_conflict_service,
+    ):
+        from modules.writing.api import create_draft
+
+        mock_db = AsyncMock()
+        mock_db.flush = AsyncMock()
+        data = WritingDraftCreate(
+            novel_id=str(uuid.uuid4()),
+            chapter_index=1,
+            title="第一章",
+            content="正文",
+        )
+        expected = WritingDraftResponse(
+            id=str(uuid.uuid4()),
+            novel_id=data.novel_id,
+            chapter_index=1,
+            title="第一章",
+            version_number=1,
+        )
+        mock_service.publish_draft.return_value = expected
+
+        result = await create_draft(mock_db, data)
+
+        mock_service.publish_draft.assert_awaited_once_with(mock_db, data)
+        mock_facade.assert_not_awaited()
+        mock_enqueue.assert_called_once_with(
+            mock_db,
+            "publish_chapter",
+            meta={"novel_id": data.novel_id, "chapter_index": data.chapter_index},
+        )
+        assert result.draft == expected
         assert result.task_id is not None
 
     async def test_get_draft_endpoint(

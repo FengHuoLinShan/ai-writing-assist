@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from modules.imports.service_progress_limits import trim_progress_diagnostics
 from modules.imports.workflow_schemas import DeepImportProgress
 
 MAX_PROGRESS_EVENTS = 200
@@ -54,6 +55,7 @@ def record_acceptance_check(
         "created_at": _now_iso(),
     }
     progress.acceptance_checks.append(check)
+    trim_progress_diagnostics(progress)
     if not ok:
         record_progress_event(
             progress,

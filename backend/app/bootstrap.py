@@ -9,7 +9,7 @@ from typing import Any
 from core.container import get as _get
 from core.container import register as _register
 from modules.context.facade import compile_structure_context as _ctx_compile
-from modules.imports.scene_entity_extraction import (
+from modules.imports.entity_extraction.scene_entity_extraction import (
     SceneEntityExtractionService as _SceneExtractSvc,
 )
 from modules.memory.services import MemoryService
@@ -39,15 +39,17 @@ from modules.world.facade import (
     run_entity_extraction as _world_extract,
 )
 
-# Register ORM models with Base.metadata for FK dependency resolution.
-import modules.context.models  # noqa: F401, I001
-import modules.imports.models  # noqa: F401, I001
-import modules.project.models  # noqa: F401, I001
-import modules.world.map_models  # noqa: F401, I001
-import modules.world.models  # noqa: F401, I001
+def _register_orm_models() -> None:
+    """Import ORM models with Base.metadata for FK dependency resolution."""
+    import modules.context.models  # noqa: F401, I001
+    import modules.imports.models  # noqa: F401, I001
+    import modules.project.models  # noqa: F401, I001
+    import modules.world.map_models  # noqa: F401, I001
+    import modules.world.models  # noqa: F401, I001
 
 
 def _container_services() -> Iterable[tuple[str, Any]]:
+    """Build app/worker process-singleton service registrations."""
     scene_extraction = _SceneExtractSvc()
     memory = MemoryService()
 
@@ -81,13 +83,14 @@ def _container_services() -> Iterable[tuple[str, Any]]:
 
 
 def register_container_services(ignore_existing: bool = False) -> None:
-    """Register module services in the global DI container.
+    """Register module services as process singletons in the global DI container.
 
     Args:
         ignore_existing: when True, keep any already registered service object
             and register only missing keys. When False, duplicate registrations
             keep core.container.register's ValueError behavior.
     """
+    _register_orm_models()
     for name, service in _container_services():
         if ignore_existing:
             try:

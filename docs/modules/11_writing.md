@@ -21,12 +21,24 @@ API 提供了两种写入模式：
 ## Facade
 
 ```python
-async def create_draft_only(db, novel_id, chapter_index, title: str | None = None, content: str = "") -> WritingDraftResponse
-async def create_draft(db, novel_id, chapter_index, title: str | None = None, content: str = "") -> tuple[WritingDraftResponse, str]
+async def create_draft_only(db, novel_id, chapter_index, title: str | None = None, content: str = "") -> WritingDraftContract
+async def create_published_draft_only(db, novel_id, chapter_index, title: str | None = None, content: str = "") -> WritingDraftContract
+async def create_draft(db, novel_id, chapter_index, title: str | None = None, content: str = "") -> tuple[WritingDraftContract, str]
 async def get_draft(db, draft_id) -> WritingDraftContract | None
 async def get_latest_draft_for_chapter(db, novel_id, chapter_index) -> WritingDraftContract | None
+async def list_latest_drafts_for_chapters(db, novel_id, chapter_indices, *, content_limit: int | None = None) -> list[WritingDraftContract]
 async def list_chapter_indices(db, novel_id) -> list[int]
 ```
+
+facade 的 create 系列只暴露跨模块 `WritingDraftContract`，不返回 API response schema；REST API 层继续负责把 contract 适配为 `WritingDraftResponse`，保持 HTTP response body 不变。
+
+## 跨模块依赖
+
+outline 可以只读消费 writing facade/contracts 中的草稿和章节索引。writing 需要调用
+outline 时不在服务模块顶层 import outline facade，而是通过可注入 provider 完成：
+断章同步使用 split provider，冲突检查使用 Scene contract loader。默认 provider 仍在
+调用时 lazy import `modules.outline.facade`，所以写作断章同步调整 Scene chunk、冲突
+检查读取 Scene contract、outline 读取 writing 草稿/章节索引这三条用户流程保持不变。
 
 ## API
 
@@ -48,7 +60,7 @@ PATCH  /api/writing/conflict-check-items/{id}          # 更新问题处理状�
 POST   /api/writing/conflict-check-items/{id}/ai-suggestion # 生成单条 AI 修复建议
 ```
 
-`POST /api/writing/chapters/{chapter_index}/split?novel_id=...` splits the latest draft at `split_pos`, creates the next chapter draft, shifts later chapter indices, and delegates Scene chunk remapping to outline facade. It does not enqueue `publish_chapter`; RAG indexing waits for an explicit save/publish.
+`POST /api/writing/chapters/{chapter_index}/split?novel_id=...` splits the latest draft at `split_pos`, creates the next chapter draft, shifts later chapter indices, and remaps Scene chunks through the injected split provider. The default provider still delegates to outline facade, so existing behavior is unchanged. It does not enqueue `publish_chapter`; RAG indexing waits for an explicit save/publish.
 
 ## 版本历史
 
@@ -65,7 +77,7 @@ POST   /api/writing/conflict-check-items/{id}/ai-suggestion # 生成单条 AI �
 
 规则层检查聚合三类跨模块证据：
 
-- `outline.facade.get_scene_contract`：Scene 的目标、必须发生、禁止发生和核心冲突，命中项带 `outline_scene` 打开目标或正文 `text_range`。
+- 注入的 Scene contract loader：Scene 的目标、必须发生、禁止发生和核心冲突，命中项带 `outline_scene` 打开目标或正文 `text_range`；默认 loader lazy 调用 `outline.facade.get_scene_contract`。
 - `world.map_facade.summarize_scene_map_for_writing`：当前 Scene 的地图摘要、风险和待确认观察，地图项带 `map_scene` / `map_object` 打开目标。
 - `memory.facade.get_continuity_evidence_for_writing`：上一章角色位置连续性证据，连续性问题带 `memory_chapter` 打开目标。
 

@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.models import AsyncTask
 from modules.imports.contracts import TaskNotFoundError
+from modules.imports.service_progress_limits import trim_progress_diagnostics
 from modules.imports.workflow import DeepImportWorkflow
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 from shared.utils import parse_uuid as _parse_uuid
@@ -561,6 +562,7 @@ class DeepImportOrchestrator:
 
     @staticmethod
     def _result_from_progress(progress: DeepImportProgress) -> dict[str, Any]:
+        trim_progress_diagnostics(progress)
         return {
             "workflow_type": progress.workflow_type,
             "stage": progress.stage,

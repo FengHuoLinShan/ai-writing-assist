@@ -4,10 +4,18 @@ TB1: Embedding provider — generate_embedding() 测试
 
 from __future__ import annotations
 
+import asyncio
+import threading
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from infrastructure.embedding.client import (
+    BgeEmbeddingClient,
+    EmbeddingBatchQueueClosedError,
+)
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.providers import OpenAIProvider
 
@@ -118,3 +126,160 @@ async def test_llm_client_generate_embedding_delegates_to_provider():
         "text": "测试文本",
         "model": None,
     }
+
+
+class RecordingBgeWorker:
+    def __init__(self) -> None:
+        self.calls: list[tuple[list[str], bool]] = []
+        self.started = False
+        self.stopped = False
+        self.error: Exception | None = None
+        self.encode_started = threading.Event()
+
+    @property
+    def healthy(self) -> bool:
+        return self.started and not self.stopped
+
+    def start(self) -> None:
+        self.started = True
+
+    def stop(self) -> None:
+        self.stopped = True
+
+    def encode(
+        self,
+        texts: list[str],
+        *,
+        is_query: bool = False,
+    ) -> list[list[float]]:
+        self.encode_started.set()
+        self.calls.append((list(texts), is_query))
+        if self.error is not None:
+            raise self.error
+        query_marker = 1.0 if is_query else 0.0
+        return [
+            [float(len(text)), float(index), query_marker]
+            for index, text in enumerate(texts)
+        ]
+
+
+@asynccontextmanager
+async def bge_client_context(
+    *,
+    delay_ms: int = 20,
+    max_items: int = 64,
+    worker: RecordingBgeWorker | None = None,
+):
+    worker = worker or RecordingBgeWorker()
+    settings = SimpleNamespace(
+        bge_onnx_model_path="test-model",
+        bge_onnx_device="cpu",
+        bge_onnx_quantization="int8",
+        inference_worker_max_batch=64,
+        inference_worker_timeout=30.0,
+        inference_worker_queue_maxsize=200,
+        embedding_batch_queue_delay_ms=delay_ms,
+        embedding_batch_queue_max_items=max_items,
+    )
+    with (
+        patch("infrastructure.embedding.client.get_settings", return_value=settings),
+        patch("infrastructure.embedding.client.BgeOnnxWorker", return_value=worker),
+    ):
+        client = BgeEmbeddingClient()
+
+    await client.start()
+    try:
+        yield client, worker
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_bge_embedding_batches_concurrent_uncached_document_requests():
+    async with bge_client_context(delay_ms=25) as (client, worker):
+        single_a, single_b, batch = await asyncio.gather(
+            client.generate_embedding("alpha"),
+            client.generate_embedding("beta"),
+            client.generate_embedding(["gamma", "delta"]),
+        )
+
+    assert worker.calls == [(["alpha", "beta", "gamma", "delta"], False)]
+    assert single_a == [5.0, 0.0, 0.0]
+    assert single_b == [4.0, 1.0, 0.0]
+    assert batch == [[5.0, 2.0, 0.0], [5.0, 3.0, 0.0]]
+
+
+@pytest.mark.asyncio
+async def test_bge_embedding_never_mixes_query_and_document_batches():
+    async with bge_client_context(delay_ms=25) as (client, worker):
+        query_result, document_result = await asyncio.gather(
+            client.generate_embedding("search text", is_query=True),
+            client.generate_embedding("stored text", is_query=False),
+        )
+
+    assert sorted(worker.calls, key=lambda call: call[1]) == [
+        (["stored text"], False),
+        (["search text"], True),
+    ]
+    assert query_result == [11.0, 0.0, 1.0]
+    assert document_result == [11.0, 0.0, 0.0]
+
+
+@pytest.mark.asyncio
+async def test_bge_embedding_cache_hit_does_not_enter_batch_queue():
+    async with bge_client_context(delay_ms=1) as (client, worker):
+        first = await client.generate_embedding("cached text")
+        second = await client.generate_embedding("cached text")
+
+    assert first == second
+    assert worker.calls == [(["cached text"], False)]
+
+
+@pytest.mark.asyncio
+async def test_bge_embedding_worker_exception_fails_entire_batch():
+    worker = RecordingBgeWorker()
+    worker.error = RuntimeError("encode exploded")
+
+    async with bge_client_context(delay_ms=25, worker=worker) as (client, _worker):
+        results = await asyncio.gather(
+            client.generate_embedding("one"),
+            client.generate_embedding("two"),
+            return_exceptions=True,
+        )
+
+    assert worker.calls == [(["one", "two"], False)]
+    assert [str(result) for result in results] == [
+        "encode exploded",
+        "encode exploded",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_bge_embedding_close_fails_pending_queue_requests():
+    async with bge_client_context(delay_ms=1000) as (client, worker):
+        task = asyncio.create_task(client.generate_embedding("pending"))
+        await asyncio.sleep(0.01)
+
+        await client.close()
+
+        with pytest.raises(EmbeddingBatchQueueClosedError, match="batch queue closed"):
+            await task
+
+    assert worker.calls == []
+
+
+@pytest.mark.asyncio
+async def test_bge_embedding_single_call_cancellation_does_not_cancel_batch():
+    async with bge_client_context(delay_ms=25) as (client, worker):
+        canceled = asyncio.create_task(client.generate_embedding("cancel me"))
+        kept = asyncio.create_task(client.generate_embedding("keep me"))
+        await asyncio.sleep(0)
+
+        canceled.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await canceled
+        kept_result = await kept
+
+    assert worker.calls == [(["cancel me", "keep me"], False)]
+    assert kept_result == [7.0, 1.0, 0.0]

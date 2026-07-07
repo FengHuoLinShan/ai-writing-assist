@@ -548,6 +548,17 @@ const App = {
     })
   },
 
+  _projectStorageSummary(project) {
+    if (!project || typeof project !== "object") return null
+    const summary = {}
+    for (const key of ["id", "title", "name"]) {
+      if (Object.prototype.hasOwnProperty.call(project, key)) {
+        summary[key] = project[key]
+      }
+    }
+    return Object.keys(summary).length > 0 ? summary : null
+  },
+
   /**
    * 从 localStorage 恢复项目选择状态
    */
@@ -559,7 +570,14 @@ const App = {
       }
       const savedProject = localStorage.getItem("novel_currentProject")
       if (savedProject) {
-        state.currentProject = JSON.parse(savedProject)
+        const parsed = JSON.parse(savedProject)
+        const summary = window.projectStorageSummary?.(parsed) || this._projectStorageSummary(parsed)
+        if (summary) {
+          if (!state.currentProjectId && summary.id) {
+            state.currentProjectId = summary.id
+          }
+          state.currentProject = { ...summary, summaryOnly: true }
+        }
       }
     } catch {}
   },

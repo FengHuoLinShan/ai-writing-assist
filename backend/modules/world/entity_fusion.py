@@ -16,9 +16,9 @@ from modules.rag import facade as rag_facade
 from modules.world.models import CoreEntity
 from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import EntityFusionApplyItem
-from modules.world.services.dedup_service import EntityDedupService
-from modules.world.services.entity_alias_service import EntityAliasService
-from modules.world.services.helpers import normalize_name, parse_uuid
+from modules.world.services.common import normalize_name, parse_uuid
+from modules.world.services.core.dedup_service import EntityDedupService
+from modules.world.services.core.entity_alias_service import EntityAliasService
 
 logger = logging.getLogger(__name__)
 
@@ -460,6 +460,8 @@ def _lexical_similarity(left: CoreEntity, right: CoreEntity) -> tuple[float, str
 
 def _pair_similarity(left: CoreEntity, right: CoreEntity) -> tuple[float, str]:
     lexical_score, lexical_method = _lexical_similarity(left, right)
+    if lexical_method in {"normalized_exact_name", "alias_name_match"}:
+        return lexical_score, lexical_method
     summary_score = _summary_similarity(left.summary, right.summary)
     if summary_score > lexical_score:
         return summary_score, "summary_overlap"

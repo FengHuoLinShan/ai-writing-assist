@@ -127,7 +127,7 @@ async def test_archived_template_is_hidden_and_not_usable_for_generation(
 ) -> None:
     fake = _FakeLLMClient()
     monkeypatch.setattr(
-        "modules.world.services.object_draft_generation_service."
+        "modules.world.services.worldbuilding.object_draft_generation_service."
         "LLMClient.from_project_settings",
         lambda _settings: fake,
     )
@@ -232,7 +232,7 @@ async def test_validate_and_preview_are_deterministic_without_llm(
         raise AssertionError("validate/preview must not create LLM client")
 
     monkeypatch.setattr(
-        "modules.world.services.object_draft_generation_service."
+        "modules.world.services.worldbuilding.object_draft_generation_service."
         "LLMClient.from_project_settings",
         fail_llm,
     )
@@ -343,7 +343,7 @@ async def test_p2_template_warning_does_not_block_generation(
 ) -> None:
     fake = _FakeLLMClient()
     monkeypatch.setattr(
-        "modules.world.services.object_draft_generation_service."
+        "modules.world.services.worldbuilding.object_draft_generation_service."
         "LLMClient.from_project_settings",
         lambda _settings: fake,
     )
@@ -389,7 +389,7 @@ async def test_generate_rejects_stale_template_version_before_llm(
 ) -> None:
     fake = _FakeLLMClient()
     monkeypatch.setattr(
-        "modules.world.services.object_draft_generation_service."
+        "modules.world.services.worldbuilding.object_draft_generation_service."
         "LLMClient.from_project_settings",
         lambda _settings: fake,
     )
@@ -424,7 +424,7 @@ async def test_generate_with_template_id_writes_template_meta(
 ) -> None:
     fake = _FakeLLMClient()
     monkeypatch.setattr(
-        "modules.world.services.object_draft_generation_service."
+        "modules.world.services.worldbuilding.object_draft_generation_service."
         "LLMClient.from_project_settings",
         lambda _settings: fake,
     )

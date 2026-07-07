@@ -10,6 +10,7 @@ from infrastructure.llm.errors import (
 )
 from infrastructure.llm.providers import OpenAIProvider, get_provider
 from infrastructure.llm.schemas import LLMCallRequest, LLMCallResponse, LLMMessage
+from infrastructure.llm.token_estimation import estimate_token_count
 
 __all__ = [
     "LLMClient",
@@ -23,4 +24,5 @@ __all__ = [
     "LLMTimeoutError",
     "LLMRateLimitError",
     "LLMInvalidResponseError",
+    "estimate_token_count",
 ]

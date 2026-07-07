@@ -4,20 +4,21 @@ shared/utils.py 单元测试
 测试 parse_uuid（UUID 解析 + 422 错误）和 is_valid_uuid（格式验证）。
 """
 
+import logging
 import uuid
 from pathlib import Path
 
 import pytest
 
 from core.errors import ValidationError as DomainValidationError
-from shared.utils import is_valid_uuid, parse_uuid
+from shared.utils import is_valid_uuid, parse_llm_json, parse_uuid
 
 
 class TestParseUUID:
     """parse_uuid — 字符串 UUID 解析"""
 
     def test_shared_utils_has_no_fastapi_exception_dependency(self):
-        source = Path("backend/shared/utils.py").read_text()
+        source = (Path(__file__).resolve().parents[2] / "shared/utils.py").read_text()
 
         assert "from fastapi import HTTPException" not in source
         assert "raise HTTPException" not in source
@@ -91,3 +92,34 @@ class TestIsValidUUID:
 
     def test_non_hex_returns_false(self):
         assert is_valid_uuid("zzzz1111222233334444555566667777") is False
+
+
+class TestParseLLMJsonLogging:
+    """parse_llm_json — 失败日志脱敏"""
+
+    def test_parse_failure_log_redacts_secrets(self, caplog):
+        bearer_secret = "bearersecret123456"
+        api_secret = "sk-proj-abcdef1234567890"
+        token_secret = "tok_secret_123456"
+        content = (
+            f"Authorization: Bearer {bearer_secret} "
+            f'api_key="{api_secret}" token={token_secret} not json'
+        )
+
+        with caplog.at_level(logging.WARNING, logger="shared.utils"):
+            with pytest.raises(ValueError) as exc:
+                parse_llm_json(content, label="Bad LLM")
+
+        assert str(exc.value) == "Bad LLM is not valid JSON"
+        assert "[REDACTED]" in caplog.text
+        assert bearer_secret not in caplog.text
+        assert api_secret not in caplog.text
+        assert token_secret not in caplog.text
+
+    def test_empty_branch_log_keeps_error_message(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="shared.utils"):
+            with pytest.raises(ValueError) as exc:
+                parse_llm_json(" \n\t ", label="Empty LLM")
+
+        assert str(exc.value) == "Empty LLM is empty"
+        assert "empty or whitespace-only" in caplog.text

@@ -7,4 +7,15 @@ Project 对外契约
 
 from __future__ import annotations
 
+import uuid
+from dataclasses import dataclass
+
 from modules.project.schemas import ProjectContext  # noqa: F401
+
+
+@dataclass(frozen=True)
+class ProjectSummary:
+    """Lightweight active project projection for cross-module aggregations."""
+
+    project_id: uuid.UUID
+    title: str

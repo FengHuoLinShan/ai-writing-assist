@@ -16,4 +16,10 @@
 | `fix-plan-p0.md` | P0 阻塞项修复已完成 | 根目录 |
 | `地图设计参考代码.md` | geo 模块已移除 | `docs/` |
 | `地图需求文档.md` | geo 模块已移除 | `docs/` |
+| `character-module-removed.md` | character 旧文档入口已移除，人物能力并入 world | `docs/modules/character/README.md` |
+| `geo-module-removed.md` | geo 旧文档入口已移除，地点/地图能力归 world/map 文档维护 | `docs/modules/geo/README.md` |
+| `review-module-removed.md` | review 旧文档入口已移除，结构复查模块暂缓 | `docs/modules/review/README.md` |
+| `timeline-module-removed.md` | timeline 旧文档入口已移除，事件/时间线语义并入 world/context | `docs/modules/timeline/README.md` |
 | `review_findings.json` | 代码审查临时输出 | 根目录 |
+
+未迁移项：`docs/architecture/old-scene-pipeline.md` 当前无现存副本；旧 Scene prefetch/reinforcement 已由 legacy guard 和 imports 模块废弃说明替代，无需创建归档副本。

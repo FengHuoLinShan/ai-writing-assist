@@ -10,7 +10,7 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.writing.contracts import WritingDraftContract, WritingProjectStatsContract
-from modules.writing.schemas import WritingDraftCreate, WritingDraftResponse
+from modules.writing.schemas import WritingDraftCreate
 from modules.writing.services import WritingDraftService
 
 _service = WritingDraftService()
@@ -22,7 +22,7 @@ async def create_draft_only(
     chapter_index: int,
     title: str | None = None,
     content: str = "",
-) -> WritingDraftResponse:
+) -> WritingDraftContract:
     """创建正文草稿（纯持久化，不入队任务）"""
     data = WritingDraftCreate(
         novel_id=novel_id,
@@ -30,7 +30,7 @@ async def create_draft_only(
         title=title or f"第{chapter_index}章",
         content=content,
     )
-    return await _service.create_draft(db, data)
+    return await _service.create_draft_contract(db, data)
 
 
 async def create_published_draft_only(
@@ -39,7 +39,7 @@ async def create_published_draft_only(
     chapter_index: int,
     title: str | None = None,
     content: str = "",
-) -> WritingDraftResponse:
+) -> WritingDraftContract:
     """创建已发布正文版本（纯持久化，不入队任务）"""
     data = WritingDraftCreate(
         novel_id=novel_id,
@@ -47,7 +47,7 @@ async def create_published_draft_only(
         title=title or f"第{chapter_index}章",
         content=content,
     )
-    return await _service.create_published_draft(db, data)
+    return await _service.create_published_draft_contract(db, data)
 
 
 async def create_draft(
@@ -56,11 +56,11 @@ async def create_draft(
     chapter_index: int,
     title: str | None = None,
     content: str = "",
-) -> tuple[WritingDraftResponse, str]:
+) -> tuple[WritingDraftContract, str]:
     """创建正文草稿并触发发布流程（兼容旧接口，新代码优先用 create_draft_only）
 
     Returns:
-        (WritingDraftResponse, task_id) — 草稿信息 + 发布任务 ID
+        (WritingDraftContract, task_id) — 草稿契约 + 发布任务 ID
     """
     from infrastructure.tasks.enqueuer import enqueue_task
 
@@ -95,9 +95,16 @@ async def list_latest_drafts_for_chapters(
     db: AsyncSession,
     novel_id: str,
     chapter_indices: list[int],
+    *,
+    content_limit: int | None = None,
 ) -> list[WritingDraftContract]:
     """批量获取指定章节的最新草稿契约。"""
-    return await _service.list_latest_draft_contracts(db, novel_id, chapter_indices)
+    return await _service.list_latest_draft_contracts(
+        db,
+        novel_id,
+        chapter_indices,
+        content_limit=content_limit,
+    )
 
 
 async def list_chapter_indices(

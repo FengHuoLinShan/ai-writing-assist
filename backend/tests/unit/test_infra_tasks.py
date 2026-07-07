@@ -19,6 +19,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
+
+def _compiled_execute_statement(db: AsyncMock) -> str:
+    statement = db.execute.call_args[0][0]
+    return str(statement.compile(compile_kwargs={"literal_binds": True}))
+
+
 # ============================================================
 # enqueuer.py
 # ============================================================
@@ -199,6 +205,9 @@ class TestGetTaskStatus:
         assert response.meta == {"novel_id": "abc"}
         assert response.result == {"output": "ok"}
         assert response.error_message is None
+        sql = _compiled_execute_statement(db)
+        assert "async_tasks.id" in sql
+        assert "novel_id" in sql
 
     @pytest.mark.asyncio
     async def test_task_not_found_raises_404(self) -> None:
@@ -276,6 +285,9 @@ class TestCancelTask:
         assert response.task_id == str(task_id)
         assert response.cancelled is True
         task_mock.mark_cancelled.assert_called_once()
+        sql = _compiled_execute_statement(db)
+        assert "async_tasks.id" in sql
+        assert "novel_id" in sql
 
     @pytest.mark.asyncio
     async def test_cancel_running_task(self) -> None:
@@ -401,9 +413,10 @@ class TestTaskWorkerInitAndProps:
         assert worker._poll_interval == TASK_POLL_INTERVAL
         assert worker._heartbeat_interval == TASK_HEARTBEAT_INTERVAL
         assert worker._max_heartbeat_gap == TASK_MAX_HEARTBEAT_GAP
+        assert worker._max_concurrent_tasks >= 1
         assert worker._running is False
-        assert worker._current_task is None
-        assert worker._heartbeat_task is None
+        assert worker._running_task_ids == set()
+        assert worker._heartbeat_tasks == {}
         assert worker._stats == {
             "processed": 0,
             "succeeded": 0,
@@ -480,7 +493,7 @@ class TestTaskWorkerClaimTask:
         assert claimed is task_mock
         task_mock.mark_running.assert_called_once()
         db_session.commit.assert_awaited_once()
-        assert worker._current_task is task_mock
+        assert task_mock.id in worker._running_task_ids
 
     @pytest.mark.asyncio
     async def test_claim_no_pending_task(self) -> None:
@@ -499,7 +512,7 @@ class TestTaskWorkerClaimTask:
         claimed = await worker._claim_task(db_session)
 
         assert claimed is None
-        assert worker._current_task is None
+        assert worker._running_task_ids == set()
 
     @pytest.mark.asyncio
     async def test_claim_uses_skip_locked(self) -> None:
@@ -559,7 +572,7 @@ class TestTaskWorkerExecuteTask:
         db_session.commit.assert_awaited()
         assert worker._stats["succeeded"] == 1
         assert worker._stats["processed"] == 1
-        assert worker._current_task is None
+        assert task_mock.id not in worker._running_task_ids
 
     @pytest.mark.asyncio
     async def test_execute_handler_returns_non_dict(self) -> None:
@@ -739,8 +752,8 @@ class TestTaskWorkerExecuteTask:
 
             await worker._execute_task(task_mock, db_session)
 
-        # _heartbeat_task 应在 finally 中被置为 None
-        assert worker._heartbeat_task is None
+        # 心跳任务应在 finally 中从集合移除
+        assert worker._heartbeat_tasks == {}
 
 
 class TestTaskWorkerHeartbeat:
@@ -1060,3 +1073,56 @@ class TestTaskWorkerRunOnce:
 
         result = await worker.run_once()
         assert result is None
+
+
+class TestTaskWorkerRunForever:
+    """TaskWorker.run_forever 并发调度测试"""
+
+    @pytest.mark.asyncio
+    async def test_run_forever_fills_concurrency_slots_and_waits_on_stop(self) -> None:
+        """run_forever 按配置填满 in-flight 槽，stop 后等待任务自然完成。"""
+        from infrastructure.tasks.worker import TaskWorker
+
+        db_manager = MagicMock()
+        worker = TaskWorker(db_manager=db_manager, poll_interval=0.01)
+        worker._max_concurrent_tasks = 2
+
+        created = 0
+        active = 0
+        max_active = 0
+        both_started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def fake_claim_task_runner():
+            nonlocal created
+            if created >= 2:
+                return None
+            created += 1
+
+            async def runner() -> None:
+                nonlocal active, max_active
+                active += 1
+                max_active = max(max_active, active)
+                if active == 2:
+                    both_started.set()
+                    worker.stop()
+                await release.wait()
+                active -= 1
+
+            return asyncio.create_task(runner())
+
+        worker._claim_task_runner = AsyncMock(side_effect=fake_claim_task_runner)
+        worker._maybe_recover_stale_tasks = AsyncMock(return_value=0)
+
+        with patch("infrastructure.tasks.worker._register_container_services"):
+            run_task = asyncio.create_task(worker.run_forever())
+            await asyncio.wait_for(both_started.wait(), timeout=1.0)
+
+            assert created == 2
+            assert max_active == 2
+            assert not run_task.done()
+
+            release.set()
+            await asyncio.wait_for(run_task, timeout=1.0)
+
+        assert active == 0

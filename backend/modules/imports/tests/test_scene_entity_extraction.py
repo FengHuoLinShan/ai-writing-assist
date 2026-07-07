@@ -14,7 +14,30 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.errors import LLMConnectionError, LLMInvalidResponseError
-from modules.imports import scene_entity_extraction as scene_entity_extraction_module
+from modules.imports import (
+    scene_entity_extraction as legacy_scene_entity_extraction_module,
+)
+from modules.imports.entity_extraction import (
+    scene_entity_extraction as scene_entity_extraction_module,
+)
+from modules.imports.entity_extraction.scene_entity_alias_relation import (
+    _compact_entity_index_for_scene,
+    _effective_alias_relation_total_timeout_seconds,
+    _trim_phase2b_scene_text,
+)
+from modules.imports.entity_extraction.scene_entity_bulk import BulkSceneEntityExtractor
+from modules.imports.entity_extraction.scene_entity_extraction import (
+    SceneEntityExtractionService,
+)
+from modules.imports.entity_extraction.scene_entity_strategy import (
+    SceneEntityExtractionStrategySelector,
+)
+from modules.imports.entity_extraction.scene_entity_text import (
+    scene_chapter_ids,
+    scene_chunks_by_chapter,
+    scene_context_header,
+    select_scene_text,
+)
 from modules.imports.llm_schemas import (
     AliasRelationExtractionOutput,
     DeltaEvent,
@@ -23,19 +46,6 @@ from modules.imports.llm_schemas import (
     ExtractedRelation,
     SceneCandidateOutput,
     SceneEntityExtractionOutput,
-)
-from modules.imports.scene_entity_alias_relation import (
-    _compact_entity_index_for_scene,
-    _effective_alias_relation_total_timeout_seconds,
-    _trim_phase2b_scene_text,
-)
-from modules.imports.scene_entity_bulk import BulkSceneEntityExtractor
-from modules.imports.scene_entity_extraction import SceneEntityExtractionService
-from modules.imports.scene_entity_text import (
-    scene_chapter_ids,
-    scene_chunks_by_chapter,
-    scene_context_header,
-    select_scene_text,
 )
 from modules.writing.contracts import WritingDraftContract
 
@@ -66,6 +76,34 @@ def _patched_phase2_summaries(svc: SceneEntityExtractionService):
             )
         )
         yield
+
+
+@pytest.mark.parametrize(
+    ("total_scenes", "has_checkpoints", "expected_strategy"),
+    [
+        (0, False, "empty"),
+        (7, False, "bulk"),
+        (8, False, "small_sample_parallel"),
+        (12, False, "small_sample_parallel"),
+        (13, False, "batched"),
+        (8, True, "checkpoint_resume"),
+    ],
+)
+def test_phase2_strategy_selector_preserves_existing_boundaries(
+    total_scenes: int,
+    has_checkpoints: bool,
+    expected_strategy: str,
+) -> None:
+    route = SceneEntityExtractionStrategySelector.select(
+        total_scenes=total_scenes,
+        has_checkpoints=has_checkpoints,
+        small_sample_min=8,
+        bulk_max=12,
+    )
+
+    assert route.strategy == expected_strategy
+    assert route.total_scenes == total_scenes
+    assert route.has_checkpoints is has_checkpoints
 
 
 def test_llm_schema_normalizes_common_score_strings() -> None:
@@ -1282,7 +1320,7 @@ async def test_phase2b_total_timeout_budget_degrades_remaining_scenes(
         return AliasRelationExtractionOutput(aliases=[], relations=[])
 
     monkeypatch.setattr(
-        "modules.imports.scene_entity_alias_relation."
+        "modules.imports.entity_extraction.scene_entity_alias_relation."
         "phase2_alias_relation_total_timeout_seconds",
         lambda: 0.01,
     )
@@ -1352,12 +1390,12 @@ async def test_phase2b_runs_llm_calls_concurrently_before_serial_persistence(
         return AliasRelationExtractionOutput(aliases=[], relations=[])
 
     monkeypatch.setattr(
-        "modules.imports.scene_entity_alias_relation."
+        "modules.imports.entity_extraction.scene_entity_alias_relation."
         "phase2_alias_relation_concurrency",
         lambda: 2,
     )
     monkeypatch.setattr(
-        "modules.imports.scene_entity_alias_relation."
+        "modules.imports.entity_extraction.scene_entity_alias_relation."
         "phase2_alias_relation_total_timeout_seconds",
         lambda: 1,
     )
@@ -1424,7 +1462,7 @@ async def test_phase2b_records_checkpoints_and_progress(
         progress_events.append((completed, total))
 
     monkeypatch.setattr(
-        "modules.imports.scene_entity_alias_relation."
+        "modules.imports.entity_extraction.scene_entity_alias_relation."
         "phase2_alias_relation_total_timeout_seconds",
         lambda: 1,
     )
@@ -1610,17 +1648,17 @@ async def test_phase2b_watchdog_timeout_returns_degraded_result(
         }
 
     monkeypatch.setattr(
-        "modules.imports.scene_entity_extraction."
+        "modules.imports.entity_extraction.scene_entity_extraction."
         "_phase2_config.phase2_alias_relation_total_timeout_seconds",
         lambda: 0.01,
     )
     monkeypatch.setattr(
-        "modules.imports.scene_entity_extraction."
+        "modules.imports.entity_extraction.scene_entity_extraction."
         "PHASE2_SCENE_TIMEOUT_GRACE_SECONDS",
         0,
     )
     monkeypatch.setattr(
-        "modules.imports.scene_entity_extraction.AliasRelationExtractor.run",
+        "modules.imports.entity_extraction.scene_entity_extraction.AliasRelationExtractor.run",
         stuck_alias_relation_run,
     )
 
@@ -1664,7 +1702,7 @@ async def test_phase2b_watchdog_uses_dynamic_timeout_for_large_scene_sets(
 
     monkeypatch.delenv("PHASE2_ALIAS_RELATION_TOTAL_TIMEOUT_SECONDS", raising=False)
     monkeypatch.setattr(
-        "modules.imports.scene_entity_extraction.AliasRelationExtractor.run",
+        "modules.imports.entity_extraction.scene_entity_extraction.AliasRelationExtractor.run",
         quick_alias_relation_run,
     )
 
@@ -1777,7 +1815,7 @@ async def test_phase2b_snapshot_preparation_timeout_degrades_scene(
         return Mock(id="snapshot-7")
 
     monkeypatch.setattr(
-        "modules.imports.scene_entity_alias_relation."
+        "modules.imports.entity_extraction.scene_entity_alias_relation."
         "phase2_postprocess_timeout_seconds",
         lambda: 0.01,
     )
@@ -1831,12 +1869,12 @@ async def test_phase2_postprocess_summary_timeout_returns_degraded(
         return {"ok": True}
 
     monkeypatch.setattr(
-        "modules.imports.scene_entity_extraction."
+        "modules.imports.entity_extraction.scene_entity_extraction."
         "_phase2_config.phase2_postprocess_timeout_seconds",
         lambda: 0.01,
     )
     monkeypatch.setattr(
-        "modules.imports.scene_entity_extraction.phase2_snapshot_health_summary",
+        "modules.imports.entity_extraction.scene_entity_extraction.phase2_snapshot_health_summary",
         slow_summary,
     )
 
@@ -1862,7 +1900,7 @@ async def test_phase2_flush_timeout_returns_degraded(
             await asyncio.sleep(0.05)
 
     monkeypatch.setattr(
-        "modules.imports.scene_entity_extraction."
+        "modules.imports.entity_extraction.scene_entity_extraction."
         "_phase2_config.phase2_postprocess_timeout_seconds",
         lambda: 0.01,
     )
@@ -1984,6 +2022,28 @@ async def test_process_scene_captures_memory_snapshot(
 
     assert result["created"] == 1
     mock_snapshot.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_extract_by_scenes_empty_route_skips_world_context() -> None:
+    svc = SceneEntityExtractionService()
+    db = Mock()
+
+    with (
+        patch.object(svc, "_get_scenes", new_callable=AsyncMock, return_value=[]),
+        patch(
+            "modules.world.facade.get_world_context",
+            new_callable=AsyncMock,
+        ) as world_context,
+    ):
+        result = await svc.extract_by_scenes(
+            db,
+            "00000000-0000-0000-0000-000000000001",
+        )
+
+    world_context.assert_not_awaited()
+    assert result["total_scenes"] == 0
+    assert result["checkpoints"] == {"phase2": {"scenes": []}}
 
 
 @pytest.mark.asyncio
@@ -2279,6 +2339,69 @@ async def test_phase2_small_sample_prefers_parallel_scene_llm() -> None:
 
 
 @pytest.mark.asyncio
+async def test_phase2_large_without_checkpoints_uses_batched_route() -> None:
+    svc = SceneEntityExtractionService()
+    scenes = [
+        {
+            "id": f"scene-{index}",
+            "novel_id": "novel-1",
+            "scene_index": index,
+            "chapter_ids": [str(index)],
+        }
+        for index in range(1, 14)
+    ]
+    db = Mock()
+    db.flush = AsyncMock()
+    batched_result = {
+        "total_created": 13,
+        "total_relations": 0,
+        "total_aliases": 0,
+        "total_deltas": 0,
+        "total_scenes": 13,
+        "degraded": False,
+        "error_kind": None,
+        "error_message": None,
+        "failed_scene_indices": [],
+        "completed_scenes": 13,
+        "skipped_scenes": 0,
+        "rerun_scenes": 0,
+        "stopped_early": False,
+        "checkpoints": {"phase2": {"scenes": []}},
+    }
+
+    with (
+        patch.object(svc, "_get_scenes", new_callable=AsyncMock, return_value=scenes),
+        patch(
+            "modules.world.facade.get_world_context",
+            new_callable=AsyncMock,
+            return_value=Mock(entities=[]),
+        ),
+        patch.object(
+            svc,
+            "_process_scenes_batched",
+            new_callable=AsyncMock,
+            return_value=batched_result,
+        ) as batched,
+        patch.object(
+            svc,
+            "_process_scenes_parallel_llm",
+            new_callable=AsyncMock,
+        ) as parallel,
+        patch.object(svc, "_process_scenes_bulk", new_callable=AsyncMock) as bulk,
+    ):
+        result = await svc.extract_by_scenes(
+            db,
+            "00000000-0000-0000-0000-000000000001",
+            workflow_id="wf-phase2-batched-route",
+        )
+
+    batched.assert_awaited_once()
+    parallel.assert_not_awaited()
+    bulk.assert_not_awaited()
+    assert result["total_created"] == 13
+
+
+@pytest.mark.asyncio
 async def test_phase2_bulk_failure_uses_parallel_llm_fallback() -> None:
     svc = SceneEntityExtractionService()
     scenes = [
@@ -2329,6 +2452,17 @@ async def test_phase2_bulk_failure_uses_parallel_llm_fallback() -> None:
             new_callable=AsyncMock,
             return_value=parallel_result,
         ) as parallel,
+        patch.object(
+            svc,
+            "_phase2_alias_relation_result",
+            new_callable=AsyncMock,
+            return_value={"total_aliases": 2},
+        ) as alias_result,
+        patch.object(
+            svc,
+            "_merge_alias_relation_result",
+            return_value={**parallel_result, "total_aliases": 2},
+        ) as merge_alias,
         patch.object(svc, "_process_scene", new_callable=AsyncMock) as process_scene,
     ):
         result = await svc.extract_by_scenes(
@@ -2339,9 +2473,12 @@ async def test_phase2_bulk_failure_uses_parallel_llm_fallback() -> None:
 
     bulk.assert_awaited_once()
     parallel.assert_awaited_once()
+    alias_result.assert_awaited_once()
+    merge_alias.assert_called_once()
     process_scene.assert_not_awaited()
     assert result["parallel_llm_fallback"] is True
     assert result["bulk_error_kind"] == "timeout"
+    assert result["total_aliases"] == 2
 
 
 @pytest.mark.asyncio
@@ -2850,7 +2987,7 @@ async def test_small_sample_bulk_uses_llm_supplement_before_fallback() -> None:
 @pytest.mark.asyncio
 async def test_small_sample_supplement_timeout_falls_back(monkeypatch) -> None:
     monkeypatch.setattr(
-        scene_entity_extraction_module,
+        legacy_scene_entity_extraction_module,
         "PHASE2_SMALL_SAMPLE_SUPPLEMENT_TIMEOUT_SECONDS",
         0.01,
     )
@@ -2993,6 +3130,13 @@ async def test_phase2_recovery_skips_successful_scene_and_reruns_failed_scene() 
                 "updated_memory": [{"scene_index": 2, "entities": 1}],
             },
         ) as process_scene,
+        patch.object(svc, "_process_scenes_bulk", new_callable=AsyncMock) as bulk,
+        patch.object(
+            svc,
+            "_process_scenes_parallel_llm",
+            new_callable=AsyncMock,
+        ) as parallel,
+        patch.object(svc, "_process_scenes_batched", new_callable=AsyncMock) as batched,
         _patched_phase2_summaries(svc),
     ):
         result = await svc.extract_by_scenes(
@@ -3012,6 +3156,9 @@ async def test_phase2_recovery_skips_successful_scene_and_reruns_failed_scene() 
     assert result["skipped_scenes"] == 1
     assert result["rerun_scenes"] == 1
     assert process_scene.await_count == 1
+    bulk.assert_not_awaited()
+    parallel.assert_not_awaited()
+    batched.assert_not_awaited()
     processed_scene = process_scene.await_args.args[2]
     assert processed_scene["id"] == "scene-b"
     checkpoints = result["checkpoints"]["phase2"]["scenes"]

@@ -29,8 +29,20 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 
 ## 数据表（关联模块）
 
-- `text_archive`（定义在 world/models.py）— 文本归档：存储回滚时使用的长文本字段快照，在执行回滚时写入并读取以恢复先前值；不会在日常每次编辑时自动填充。字段：entity_id / field_name / text_content / scene_index / source / meta
+- `text_archive`（由 `modules.world.models` 兼容入口导出，具体定义在 world 模型 package 的 core 子域）— 文本归档：存储回滚时使用的长文本字段快照，在执行回滚时写入并读取以恢复先前值；不会在日常每次编辑时自动填充。字段：entity_id / field_name / text_content / scene_index / source / meta
 - `delta_log`（定义在 memory/models.py）— 实体变更日志：属于 memory 模块，记录结构化字段的 before/after 变更（category / field_path / old_value / new_value）；不会在每个实体编辑时自动写入
+
+### models 子包布局
+
+`backend/modules/world/models/` 已按领域拆成 package；`modules.world.models`
+仍是稳定兼容入口，导入后会注册所有 world ORM 表到同一个
+`core.base.Base.metadata`：
+
+- `models/core.py`：核心实体、事件、关系、版本快照和 TextArchive。
+- `models/character.py`：人物档案和人物知识边界。
+- `models/profiles.py`：世界资产 profile、模板和通用档案。
+- `models/worldbuilding.py`：生成模板、World Bible、知识标签、创设建议和冲突队列。
+- `models/common.py`：共享 SQLAlchemy imports 与 pgvector/SQLite embedding column helper。
 
 ## 服务
 
@@ -45,7 +57,30 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - **CharacterKnowledgeService** — 人物知识边界管理
 - 动态地图服务 — 详见 `docs/modules/15_map.md`
 
+### services 子包布局
+
+`backend/modules/world/services/` 已按领域拆成子包，顶层仅保留聚合导出、通用
+helper 和历史兼容入口：
+
+- `services/core/`：核心实体、关系、事件、版本回滚、去重与抽取。
+- `services/map/`：动态地图、地图状态、标记、territory、observation/fact 和播放。
+- `services/worldbuilding/`：世界书、模板、投影和作者资料整理。
+- `services/common.py`：跨子包通用 helper，如 `parse_uuid`、`normalize_name`。
+- `services/map_service.py`：历史兼容导出层，不承载业务逻辑。
+
+拆分保持 world facade、API wire shape、novel_id 隔离和现有测试入口稳定；跨模块调用仍只能通过 facade/contracts/API/DI port。
+
 ## Facade
+
+Root `modules.world.facade` 是纯 re-export hub，用来保持旧跨模块 import path
+稳定；它不定义 async function，也不承载业务编排。具体入口按子域下沉到
+`entity_facade.py`、`character_facade.py`、`event_facade.py`、`map_facade.py`
+和 `worldbuilding_facade.py`。
+
+`worldbuilding_facade.py` 承载世界书上下文激活入口：
+`preview_worldbuilding_activation()` 委托确定性 activation preview 服务；
+`mark_worldbuilding_context_stale()` 保持函数内 lazy import `modules.context.facade`，
+避免扩大 context ↔ world 循环 import 风险。
 
 ```python
 # ---- CoreEntity ----
@@ -65,6 +100,8 @@ async def run_entity_extraction(db, novel_id, start_chapter, end_chapter, batch_
 # ---- Dedup ----
 async def find_similar_entities(db, novel_id, name, aliases=None, ...) -> list[DuplicateSuggestionResult]
 async def merge_candidate_into_entity(db, novel_id, candidate_id, target_entity_id) -> MergeResult
+async def suggest_entity_fusion(db, novel_id, *, entity_type=None, status=None, ...) -> dict
+async def apply_entity_fusion(db, novel_id, *, confirmed: bool, suggestions: list[dict]) -> dict
 
 # ---- Relationships (thin proxy) ----
 async def find_entity_id_by_name(db, novel_id, name, entity_type=None) -> str | None
@@ -79,6 +116,10 @@ async def upsert_relation(db, novel_id, source_id, target_id, relation_type, ...
 async def create_event(db, novel_id, data: dict) -> dict
 async def get_events_context(db, novel_id, limit=50) -> EventsContextBundle
 async def get_full_state(db, novel_id) -> dict
+
+# ---- Worldbuilding ----
+async def preview_worldbuilding_activation(db, novel_id, *, entity_ids=None, ...) -> dict
+async def mark_worldbuilding_context_stale(db, novel_id, *, reason: str, asset_id="worldbuilding") -> int
 
 # ---- EntityRevision (legacy rollback by revision_id) ----
 async def get_entity_revisions(db, novel_id, entity_id, skip=0, limit=20) -> dict

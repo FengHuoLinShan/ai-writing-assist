@@ -12,7 +12,7 @@ import logging
 from core.container import get as _container_get
 from infrastructure.tasks.registry import task_handler
 from modules.context import facade as context_facade
-from modules.world.services.extraction_service import EntityExtractionService
+from modules.world.services.core.extraction_service import EntityExtractionService
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +170,9 @@ async def handle_world_entity_fusion_suggestions(db, task):
 @task_handler("world_bible_projection_refresh")
 async def handle_world_bible_projection_refresh(db, task):
     """Refresh a World Bible page projection."""
-    from modules.world.services.worldbuilding_service import WorldBibleService
+    from modules.world.services.worldbuilding.worldbuilding_service import (
+        WorldBibleService,
+    )
 
     meta = task.meta or {}
     novel_id = str(meta.get("novel_id") or "")

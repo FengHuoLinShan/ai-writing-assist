@@ -50,26 +50,39 @@ Writing 模块当前 **不是** 核心 AI 正文生成模块，而是**人工正
 class WritingDraftContract:
     novel_id: str
     chapter_index: int
+    id: str | None
     title: str | None
     content: str | None
     version_number: int
     status: str
-    provenance_json: dict | None
+    conflict_check_snapshot_json: dict | None
+    provenance_json: dict[str, Any] | None
+    created_at: datetime | None
+    updated_at: datetime | None
 ```
 
 ## Facade 入口
 
 ```python
-async def create_draft_only(db: AsyncSession, novel_id: str, chapter_index: int, title: str | None = None, content: str = "") -> WritingDraftResponse
-async def create_published_draft_only(db: AsyncSession, novel_id: str, chapter_index: int, title: str | None = None, content: str = "") -> WritingDraftResponse
-async def create_draft(db: AsyncSession, novel_id: str, chapter_index: int, title: str | None = None, content: str = "") -> tuple[WritingDraftResponse, str]
+async def create_draft_only(db: AsyncSession, novel_id: str, chapter_index: int, title: str | None = None, content: str = "") -> WritingDraftContract
+async def create_published_draft_only(db: AsyncSession, novel_id: str, chapter_index: int, title: str | None = None, content: str = "") -> WritingDraftContract
+async def create_draft(db: AsyncSession, novel_id: str, chapter_index: int, title: str | None = None, content: str = "") -> tuple[WritingDraftContract, str]
 async def get_draft(db: AsyncSession, novel_id: str, draft_id: str) -> WritingDraftContract | None
 async def get_latest_draft_for_chapter(db: AsyncSession, novel_id: str, chapter_index: int) -> WritingDraftContract | None
+async def list_latest_drafts_for_chapters(db: AsyncSession, novel_id: str, chapter_indices: list[int], *, content_limit: int | None = None) -> list[WritingDraftContract]
 async def list_chapter_indices(db: AsyncSession, novel_id: str) -> list[int]
 ```
 
-通过 `facade.create_draft` 创建已发布正文版本并提交 `publish_chapter` 章节发布任务；`facade.create_published_draft_only` 只创建已发布正文版本，不入队；`facade.create_draft_only` 仅创建草稿，不会提交发布任务。导入模块等内部调用方不需要直接访问 RAG 模块。
+通过 `facade.create_draft` 创建已发布正文版本并提交 `publish_chapter` 章节发布任务；`facade.create_published_draft_only` 只创建已发布正文版本，不入队；`facade.create_draft_only` 仅创建草稿，不会提交发布任务。facade create 系列返回跨模块 `WritingDraftContract`，API 层负责适配为 `WritingDraftResponse`。导入模块等内部调用方不需要直接访问 RAG 模块。
 AI 生成候选稿会在 `provenance_json` 中记录 `source_confirmation_id` 和来源任务。
+
+`facade.list_latest_drafts_for_chapters(..., content_limit=N)` 供跨模块批量加载正文时做 DB-side 截断；默认 `None` 保持返回完整最新正文。`content_limit` 必须为正整数，启用时仅投影跨模块契约必要字段，不加载完整 `WritingDraft` ORM。
+
+## 跨模块依赖
+
+Writing 对外继续通过 `contracts.py` / `facade.py` 暴露草稿和章节索引。outline 可以只读消费这些契约，用于结构生成上下文、Scene 工作台和跨章检测，不直接访问 writing 的 model / repository / service。
+
+Writing 服务需要同步 outline 结构时通过可注入 port 调用：断章使用 `split_scene_chunk_to_new_chapter` provider，冲突检查使用 Scene contract loader provider。默认 provider 在函数内部 lazy import `modules.outline.facade`，保持旧的用户流程和 HTTP/API 返回形状；测试可注入 fake callable，不需要 monkeypatch outline facade。
 
 ## API
 
@@ -92,11 +105,11 @@ PATCH /api/writing/conflict-check-items/{id}      → 更新问题处理状态
 POST /api/writing/conflict-check-items/{id}/ai-suggestion → 生成单条问题 AI 修复建议
 ```
 
-`POST /api/writing/chapters/{chapter_index}/split` 将最新草稿在 `split_pos` 处切分为两章，生成下一章草稿并位移后续章节索引，同时委托 outline facade 完成 Scene chunk 重映射。该操作不入队 `publish_chapter`，RAG 索引需等待显式保存/发布。
+`POST /api/writing/chapters/{chapter_index}/split` 将最新草稿在 `split_pos` 处切分为两章，生成下一章草稿并位移后续章节索引，同时通过注入的 split provider 完成 Scene chunk 重映射。默认 provider 仍委托 outline facade，因此现有写作断章同步调整 outline Scene chunk 的行为不变。该操作不入队 `publish_chapter`，RAG 索引需等待显式保存/发布。
 
 `POST /api/writing/conflict-checks` 默认只做规则层检查。请求体的 `include_candidates` 默认为 `false`；写作页会在检查前弹出确认，只有用户勾选“包含待确认对象”时才传 `true`。
 
-- 通过 `outline.facade.get_scene_contract` 读取当前 Scene 的目标、必须发生、禁止发生和核心冲突。
+- 通过注入的 Scene contract loader 读取当前 Scene 的目标、必须发生、禁止发生和核心冲突；默认 loader 仍 lazy 调用 `outline.facade.get_scene_contract`。
 - 通过 `world.map_facade.summarize_scene_map_for_writing` 读取写作页地图摘要，默认不纳入待确认对象；`include_candidates=true` 时会纳入候选 observation，相关问题标记 `needs_review=true` 并写入复核原因。
 - 通过 `memory.facade.get_continuity_evidence_for_writing` 获取上一章位置连续性证据；来源不可用时写入 `summary_json.degraded_sources`。
 - 每条问题的 `location_json` 保存轻量证据：`source` 描述来源模块/类型/标签/字段/摘录，`open_target` 描述前端可打开目标（`text_range` / `outline_scene` / `map_scene` / `map_object` / `memory_chapter`），`needs_review_reason` 描述候选证据复核原因。

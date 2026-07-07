@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
+from core.api_params import NovelIdQuery
 from core.config import get_settings
 from core.dependencies import DbSession
 from infrastructure.tasks.enqueuer import enqueue_task
@@ -93,15 +94,15 @@ from modules.world.services import (
     EventService,
     WorldEntityService,
 )
-from modules.world.services.dedup_service import EntityDedupService
-from modules.world.services.generation_prompt_template_service import (
+from modules.world.services.core.dedup_service import EntityDedupService
+from modules.world.services.worldbuilding.generation_prompt_template_service import (
     GenerationPromptTemplateService,
     TemplateVersionConflictError,
 )
-from modules.world.services.object_draft_generation_service import (
+from modules.world.services.worldbuilding.object_draft_generation_service import (
     ObjectDraftGenerationService,
 )
-from modules.world.services.worldbuilding_service import (
+from modules.world.services.worldbuilding.worldbuilding_service import (
     ConflictQueueService,
     KnowledgeTagService,
     ProjectionRefreshConflictError,
@@ -183,7 +184,8 @@ async def generate_object_draft(
 )
 async def list_generation_prompt_templates(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     target_kind: str = Query(default="world_object"),
     include_archived: bool = Query(default=False),
 ) -> GenerationPromptTemplateListResponse:
@@ -238,7 +240,8 @@ async def preview_generation_prompt_template(
 async def get_generation_prompt_template(
     db: DbSession,
     template_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> GenerationPromptTemplateResponse:
     return await _generation_template_service.get(db, novel_id, template_id)
 
@@ -251,7 +254,8 @@ async def update_generation_prompt_template(
     db: DbSession,
     template_id: str,
     data: GenerationPromptTemplateUpdate,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> GenerationPromptTemplateResponse:
     try:
         return await _generation_template_service.update(db, novel_id, template_id, data)
@@ -263,7 +267,8 @@ async def update_generation_prompt_template(
 async def archive_generation_prompt_template(
     db: DbSession,
     template_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> None:
     await _generation_template_service.archive(db, novel_id, template_id)
 
@@ -275,7 +280,8 @@ async def archive_generation_prompt_template(
 async def list_generation_prompt_template_revisions(
     db: DbSession,
     template_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> list[GenerationPromptTemplateRevisionResponse]:
     return await _generation_template_service.revisions(db, novel_id, template_id)
 
@@ -301,7 +307,8 @@ async def copy_builtin_generation_prompt_template(
 @router.get("/profiles", response_model=WorldProfileListResponse)
 async def list_world_profiles(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     entity_type: str | None = Query(None, description="实体类型"),
     status: str | None = Query(None, description="实体状态"),
     skip: int = Query(default=0, ge=0),
@@ -322,7 +329,8 @@ async def list_world_profiles(
 async def get_world_profile(
     db: DbSession,
     entity_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> WorldProfileResponse:
     return await _profile_service.get_profile(db, novel_id, entity_id)
 
@@ -332,7 +340,8 @@ async def upsert_world_profile(
     db: DbSession,
     entity_id: str,
     data: WorldProfileUpsertRequest,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> WorldProfileResponse:
     return await _profile_service.upsert_profile(db, novel_id, entity_id, data)
 
@@ -344,7 +353,8 @@ async def upsert_world_profile(
 async def migrate_generic_profile(
     db: DbSession,
     entity_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> WorldProfileMigrateResponse:
     profile = await _profile_service.migrate_generic_to_strong(db, novel_id, entity_id)
     return WorldProfileMigrateResponse(
@@ -357,7 +367,8 @@ async def migrate_generic_profile(
 @router.get("/bible/pages", response_model=WorldBiblePageListResponse)
 async def list_bible_pages(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     page_type: str | None = Query(None, description="页面类型"),
 ) -> WorldBiblePageListResponse:
     items, total = await _bible_service.list_pages(db, novel_id, page_type=page_type)
@@ -376,7 +387,8 @@ async def create_bible_page(
 async def get_bible_page(
     db: DbSession,
     page_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> WorldBiblePageResponse:
     return await _bible_service.get_page(db, novel_id, page_id)
 
@@ -386,7 +398,8 @@ async def update_bible_page(
     db: DbSession,
     page_id: str,
     data: WorldBiblePageUpdate,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> WorldBiblePageResponse:
     return await _bible_service.update_page(db, novel_id, page_id, data)
 
@@ -403,7 +416,8 @@ async def list_bible_templates() -> list[dict]:
 async def refresh_bible_projection(
     db: DbSession,
     page_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     projection_type: str = Query(default="context_brief"),
     force: bool = Query(default=False),
 ) -> ProjectionRefreshResponse:
@@ -436,7 +450,8 @@ async def refresh_bible_projection(
 @router.post("/bible/pages/{page_id}/organize")
 async def organize_bible_page(
     page_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> dict:
     return {
         "page_id": page_id,
@@ -450,7 +465,8 @@ async def organize_bible_page(
 @router.get("/suggestions", response_model=CreationSuggestionListResponse)
 async def list_world_suggestions(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     source_module: str | None = Query(None),
     review_group: str | None = Query(None),
     risk_level: str | None = Query(None),
@@ -478,7 +494,8 @@ async def list_world_suggestions(
 async def confirm_world_suggestion(
     db: DbSession,
     suggestion_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> SuggestionDecisionResponse:
     try:
         suggestion = await _suggestion_service.confirm(db, novel_id, suggestion_id)
@@ -504,7 +521,8 @@ async def confirm_world_suggestion(
 async def reject_world_suggestion(
     db: DbSession,
     suggestion_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> SuggestionDecisionResponse:
     try:
         suggestion = await _suggestion_service.reject(db, novel_id, suggestion_id)
@@ -526,7 +544,8 @@ async def reject_world_suggestion(
 @router.get("/conflicts", response_model=ConflictQueueListResponse)
 async def list_world_conflicts(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     status: str | None = Query(None),
     conflict_type: str | None = Query(None),
 ) -> ConflictQueueListResponse:
@@ -544,7 +563,8 @@ async def resolve_world_conflict(
     db: DbSession,
     conflict_id: str,
     data: ConflictResolveRequest,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> dict:
     item = await _conflict_queue_service.resolve(
         db,
@@ -583,7 +603,8 @@ async def delete_character_knowledge_tag_exclusion(
     db: DbSession,
     character_id: str,
     tag_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> KnowledgeTagExclusionResponse:
     return await _knowledge_tag_service.delete_exclusion(
         db,
@@ -598,7 +619,8 @@ async def lock_character_knowledge_tag(
     db: DbSession,
     character_id: str,
     tag_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> dict:
     return await _knowledge_tag_service.lock_tag(db, novel_id, character_id, tag_id)
 
@@ -611,7 +633,8 @@ async def lock_character_knowledge_tag(
 @router.get("/entities", response_model=CoreEntityListResponse)
 async def list_entities(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     entity_type: str | None = Query(None, description="实体类型过滤"),
     status: str | None = Query(None, description="状态过滤"),
     q: str | None = Query(None, description="名称/别名搜索"),
@@ -645,7 +668,8 @@ async def list_entities(
 @router.post("/entities", response_model=CoreEntityResponse, status_code=201)
 async def create_entity(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     data: CoreEntityCreate = ...,
 ) -> CoreEntityResponse:
     return await _entity_service.create(db, novel_id, data)
@@ -732,7 +756,8 @@ async def extract_alias_relations(
 async def get_entity(
     db: DbSession,
     entity_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> CoreEntityResponse:
     return await _entity_service.get(db, entity_id, novel_id=novel_id)
 
@@ -742,7 +767,8 @@ async def update_entity(
     db: DbSession,
     entity_id: str,
     data: CoreEntityUpdate,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> CoreEntityResponse:
     return await _entity_service.update(db, entity_id, data, novel_id=novel_id)
 
@@ -751,7 +777,8 @@ async def update_entity(
 async def delete_entity(
     db: DbSession,
     entity_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> None:
     await _entity_service.delete(db, entity_id, novel_id=novel_id)
 
@@ -761,7 +788,8 @@ async def merge_entity(
     db: DbSession,
     candidate_id: str,
     data: EntityMergeRequest,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> EntityMergeResponse:
     result = await _dedup_service.merge_candidate_into_entity(
         db,
@@ -821,7 +849,8 @@ async def promote_entity(
     db: DbSession,
     entity_id: str,
     data: EntityPromoteRequest = EntityPromoteRequest(),
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> EntityPromoteResponse:
     """将草稿/候选实体手动提升为正史。"""
     return await _entity_service.promote(
@@ -836,7 +865,8 @@ async def promote_entity(
 async def get_entity_relations(
     db: DbSession,
     entity_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> EntityRelationListResponse:
     """获取实体的关联关系"""
     return await _relation_service.get_by_entity(db, novel_id, entity_id)
@@ -850,7 +880,8 @@ async def get_entity_relations(
 @router.get("/events", response_model=EventListResponse)
 async def list_events(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(
         default=DEFAULT_PAGE_SIZE,
@@ -866,7 +897,8 @@ async def list_events(
 @router.post("/events", response_model=EventResponse, status_code=201)
 async def create_event(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     data: EventCreate = ...,
 ) -> EventResponse:
     return await _event_service.create(db, novel_id, data)
@@ -876,7 +908,8 @@ async def create_event(
 async def get_event(
     db: DbSession,
     entity_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> EventResponse:
     return await _event_service.get(db, entity_id, novel_id=novel_id)
 
@@ -886,7 +919,8 @@ async def update_event(
     db: DbSession,
     entity_id: str,
     data: EventUpdate,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> EventResponse:
     return await _event_service.update(db, entity_id, data, novel_id=novel_id)
 
@@ -895,7 +929,8 @@ async def update_event(
 async def delete_event(
     db: DbSession,
     entity_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> None:
     await _event_service.delete(db, entity_id, novel_id=novel_id)
 
@@ -908,7 +943,8 @@ async def delete_event(
 @router.get("/relations", response_model=EntityRelationListResponse)
 async def list_relations(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(
         default=DEFAULT_PAGE_SIZE,
@@ -923,7 +959,8 @@ async def list_relations(
 @router.post("/relations", response_model=EntityRelationResponse, status_code=201)
 async def create_relation(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     data: EntityRelationCreate = ...,
 ) -> EntityRelationResponse:
     return await _relation_service.create(db, novel_id, data)
@@ -934,7 +971,8 @@ async def update_relation(
     db: DbSession,
     rel_id: str,
     data: EntityRelationUpdate,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> EntityRelationResponse:
     return await _relation_service.update(db, rel_id, data, novel_id=novel_id)
 
@@ -943,7 +981,8 @@ async def update_relation(
 async def delete_relation(
     db: DbSession,
     rel_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> None:
     await _relation_service.delete(db, rel_id, novel_id=novel_id)
 
@@ -960,7 +999,8 @@ async def delete_relation(
 async def list_revisions(
     db: DbSession,
     entity_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(default=20, ge=1, le=100, description="每页条数"),
 ) -> EntityRevisionListResponse:
@@ -979,7 +1019,8 @@ async def rollback_entity(
     db: DbSession,
     entity_id: str,
     data: EntityRollbackRequest,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> EntityRollbackResponse:
     result = await _revision_service.rollback_to_scene_index(
         db,
@@ -1003,7 +1044,8 @@ async def rollback_entity_by_revision(
     db: DbSession,
     entity_id: str,
     revision_id: str = Query(..., description="目标版本 ID"),
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> CoreEntityResponse:
     return await _revision_service.rollback_to_revision(
         db,
@@ -1052,7 +1094,8 @@ async def seed_entity_text_archive(
 @router.get("/characters", response_model=CharacterListResponse)
 async def list_characters(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(
         default=DEFAULT_PAGE_SIZE,
@@ -1073,7 +1116,8 @@ async def list_characters(
 @router.post("/characters", response_model=CharacterResponse, status_code=201)
 async def create_character(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     data: CharacterCreate = ...,
 ) -> CharacterResponse:
     return await _character_service.create(db, novel_id, data)
@@ -1083,7 +1127,8 @@ async def create_character(
 async def get_character(
     db: DbSession,
     character_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> CharacterResponse:
     return await _character_service.get(
         db,
@@ -1097,7 +1142,8 @@ async def update_character(
     db: DbSession,
     character_id: str,
     data: CharacterUpdate,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> CharacterResponse:
     return await _character_service.update(
         db,
@@ -1111,7 +1157,8 @@ async def update_character(
 async def delete_character(
     db: DbSession,
     character_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> None:
     await _character_service.delete(db, character_id, novel_id=novel_id)
 
@@ -1128,7 +1175,8 @@ async def delete_character(
 async def list_knowledge(
     db: DbSession,
     character_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(
         default=DEFAULT_PAGE_SIZE,
@@ -1155,7 +1203,8 @@ async def create_knowledge(
     db: DbSession,
     character_id: str,
     data: CharacterKnowledgeCreate,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> CharacterKnowledgeResponse:
     if data.character_id != character_id:
         raise HTTPException(
@@ -1173,7 +1222,8 @@ async def update_knowledge(
     db: DbSession,
     knowledge_id: str,
     data: CharacterKnowledgeUpdate,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> CharacterKnowledgeResponse:
     return await _knowledge_service.update(
         db,
@@ -1187,7 +1237,8 @@ async def update_knowledge(
 async def delete_knowledge(
     db: DbSession,
     knowledge_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> None:
     await _knowledge_service.delete(
         db,
@@ -1199,7 +1250,8 @@ async def delete_knowledge(
 @router.get("/entity-batches")
 async def list_entity_batches(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     limit: int = Query(default=10, ge=1, le=50, description="最多返回的批次数量"),
 ) -> list[dict]:
     """获取自动入库实体的批次分组列表
@@ -1222,7 +1274,8 @@ async def list_entity_batches(
 @router.get("/aliases")
 async def list_aliases(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
 ) -> dict:
@@ -1238,7 +1291,8 @@ async def list_aliases(
 @router.post("/aliases", status_code=201)
 async def create_alias(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     data: EntityAliasCreate = ...,
 ) -> dict:
     """为实体添加别名"""
@@ -1256,7 +1310,8 @@ async def update_alias(
     db: DbSession,
     entity_id: str,
     data: EntityAliasUpdate,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     alias: str = Query(..., description="要更新的别名文本"),
 ) -> dict:
     """更新实体的指定别名元数据。"""
@@ -1273,7 +1328,8 @@ async def update_alias(
 async def delete_alias(
     db: DbSession,
     entity_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     alias: str = Query(..., description="要删除的别名文本"),
 ) -> dict:
     """删除实体的指定别名"""

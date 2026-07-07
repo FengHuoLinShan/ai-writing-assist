@@ -9,11 +9,15 @@ from __future__ import annotations
 import logging
 import os
 
-from fastapi import APIRouter, Body, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field, model_validator
 
+from core.api_params import NovelIdForm, NovelIdQuery
+from core.config import get_settings
 from core.dependencies import DbSession
 from core.errors import DomainError
+from core.errors import ValidationError as DomainValidationError
+from modules.imports.parsers import MAX_FILE_SIZE
 from modules.imports.schemas import ImportListResponse, ImportResponse
 from modules.imports.services import ImportService
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
@@ -22,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/imports", tags=["imports"])
 _service = ImportService()
+UPLOAD_READ_CHUNK_SIZE = 1024 * 1024
 
 
 class DeepImportRequest(BaseModel):
@@ -55,14 +60,45 @@ async def _resolve_end_chapter(db: DbSession, request: DeepImportRequest) -> int
     return max(indices)
 
 
+def _validate_chapter_count_limit(start_chapter: int, end_chapter: int) -> None:
+    total = end_chapter - start_chapter + 1
+    max_chapters = get_settings().import_max_chapters
+    if total > max_chapters:
+        raise DomainValidationError(
+            f"导入章节范围 {start_chapter}-{end_chapter} 共 {total} 章，"
+            f"超过上限 {max_chapters}",
+            status_code=400,
+        )
+
+
+async def _read_upload_file_in_chunks(file: UploadFile) -> bytes:
+    chunks: list[bytes] = []
+    file_size = 0
+
+    while chunk := await file.read(UPLOAD_READ_CHUNK_SIZE):
+        file_size += len(chunk)
+        if file_size > MAX_FILE_SIZE:
+            raise DomainValidationError(
+                (
+                    f"文件过大（{file_size} bytes），"
+                    f"最大允许 {MAX_FILE_SIZE} bytes（50MB）"
+                ),
+                status_code=413,
+            )
+        chunks.append(chunk)
+
+    return b"".join(chunks)
+
+
 @router.post("/upload", response_model=ImportResponse, status_code=201)
 async def upload_file(
     db: DbSession,
-    novel_id: str = Form(..., description="小说项目 ID"),
+    *,
+    novel_id: NovelIdForm,
     file: UploadFile = File(..., description="小说文件（txt/epub/html/mobi）"),
 ) -> ImportResponse:
     """上传小说文件并自动导入"""
-    content = await file.read()
+    content = await _read_upload_file_in_chunks(file)
     try:
         return await _service.upload_and_import(
             db,
@@ -88,7 +124,8 @@ async def upload_file(
 @router.get("", response_model=ImportListResponse)
 async def list_imports(
     db: DbSession,
-    novel_id: str = Query(..., description="小说项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ) -> ImportListResponse:
@@ -100,7 +137,8 @@ async def list_imports(
 async def get_import(
     db: DbSession,
     record_id: str,
-    novel_id: str = Query(..., description="小说项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> ImportResponse:
     """获取单条导入记录详情"""
     return await _service.get_import_record(db, novel_id, record_id)
@@ -130,6 +168,7 @@ async def submit_deep_import(
     from modules.imports.facade import start_deep_import as _start
 
     end_chapter = await _resolve_end_chapter(db, body)
+    _validate_chapter_count_limit(body.start_chapter, end_chapter)
     result = await _start(
         db,
         body.novel_id,
@@ -150,6 +189,7 @@ async def _submit_stage(
     from modules.imports.facade import start_deep_import_stage as _start_stage
 
     end_chapter = await _resolve_end_chapter(db, body)
+    _validate_chapter_count_limit(body.start_chapter, end_chapter)
 
     return await _start_stage(
         db,

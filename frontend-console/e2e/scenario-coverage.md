@@ -61,7 +61,7 @@
 以下功能已有页面/API/基础 E2E，但仍有文档化操作路径未完整断言或未实现：
 
 - **深度导入流水线**：当前覆盖异步任务提交、轮询 UI、刷新/路由恢复、新版 Phase 0 / Phase 1a / Phase 1b 韧性进度、422 阻断/降级、手动恢复提示，以及 guarded worker 浏览器关闭场景。
-- **真实异步深度导入质量验收**：`deep-import-real.spec.js` 当前仅覆盖同步成功流；前 60 章真实 LLM 质量验收由 `backend/modules/imports/tests/test_deep_import_real_llm.py` 提供，默认跳过，需显式环境变量开启。
+- **真实异步深度导入质量验收**：旧真实 LLM 验收 harness 已废弃；当前以 staged async task 结果、后端 imports 单元/集成测试和必要的手动 provider probe 作为质量回归依据。
 - **伏笔/揭示高级管理**：基础创建、删除与伏笔状态更新已有覆盖；回收率统计、积压高亮、手动标记回收仍待实现/验收。
 - **RAG 父子检索**：真实 chunk UI 召回与 embedding 降级 warning 已覆盖；父子检索补齐父 Scene 元数据和 Delta 摘要仍待实现/验收。
 - **上下文人物视角隐藏真相转换**：前端已覆盖 `reveal_mode=character` 与 `viewpoint_character_id` 提交契约；真实数据下不同 `reveal_mode` 的内容差异主要由后端 context 测试覆盖，浏览器端仍未完整断言预算裁剪和 hidden_truth 差异。

@@ -155,7 +155,7 @@ class DeepImportProgress(BaseModel):
     degraded_batches: list[int] = Field(
         default_factory=list, description="触发降级的批次索引"
     )
-    phase_errors: list[dict[str, str]] = Field(
+    phase_errors: list[dict[str, Any]] = Field(
         default_factory=list,
         description="各阶段可机器读取的失败/降级原因",
     )

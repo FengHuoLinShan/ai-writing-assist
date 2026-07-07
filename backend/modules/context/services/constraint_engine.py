@@ -14,6 +14,7 @@ from dataclasses import asdict
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.token_estimation import estimate_token_count
 from modules.context.services.compiled_context import ContextSection, Tier
 
 logger = logging.getLogger(__name__)
@@ -63,7 +64,7 @@ class ConstraintEngine:
                 key="hard_constraints",
                 tier=Tier.P0,
                 content=content,
-                token_count=max(1, len(content) // 4),
+                token_count=estimate_token_count(content),
             )
         ]
 
@@ -101,7 +102,7 @@ class ConstraintEngine:
                 key="scene_constraints",
                 tier=Tier.P0,
                 content=content,
-                token_count=max(1, len(content) // 4),
+                token_count=estimate_token_count(content),
             )
         ]
 
@@ -176,7 +177,7 @@ class ConstraintEngine:
                 key="knowledge_constraints",
                 tier=Tier.P0,
                 content=content,
-                token_count=max(1, len(content) // 4),
+                token_count=estimate_token_count(content),
             )
         ]
 
@@ -242,6 +243,6 @@ class ConstraintEngine:
                 key="foreshadowing_constraints",
                 tier=Tier.P0,
                 content=content,
-                token_count=max(1, len(content) // 4),
+                token_count=estimate_token_count(content),
             )
         ]

@@ -41,12 +41,16 @@ class EmbeddingWriter:
                 if self._is_single_embedding(embedding):
                     chunk.embedding = embedding  # type: ignore[assignment]
                     chunk.embedding_status = "succeeded"
+                    chunk.embedding_error = None
+                    chunk.index_warnings = []
                 else:
                     raise ValueError("embedding 返回格式异常")
             except Exception as exc:
+                error = str(exc)
+                chunk.embedding = None
                 chunk.embedding_status = "failed"
-                chunk.embedding_error = str(exc)[:1000]
-                chunk.index_warnings = [f"embedding 生成失败: {exc}"]
+                chunk.embedding_error = error[:1000]
+                chunk.index_warnings = [f"embedding 生成失败: {error[:1000]}"]
                 failed_count += 1
         await db.flush()
         warnings = []
@@ -85,13 +89,11 @@ class EmbeddingWriter:
             return EmbeddingWriteResult()
         except Exception as exc:
             error = str(exc)
-            for chunk in chunks:
-                chunk.embedding_status = "failed"
-                chunk.embedding_error = error[:1000]
-            await db.flush()
+            batch_warning = f"{warning_prefix}: {error}"
+            fallback_result = await self.write_per_chunk(db, chunks)
             return EmbeddingWriteResult(
-                failed_count=len(chunks),
-                warnings=[f"{warning_prefix}: {error}"],
+                failed_count=fallback_result.failed_count,
+                warnings=[batch_warning, *fallback_result.warnings],
             )
 
     @staticmethod
@@ -99,5 +101,5 @@ class EmbeddingWriter:
         return (
             isinstance(value, list)
             and bool(value)
-            and isinstance(value[0], float)
+            and all(isinstance(item, float) for item in value)
         )

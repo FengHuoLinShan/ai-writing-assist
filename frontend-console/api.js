@@ -150,6 +150,9 @@ async function request(path, options = {}) {
 
   const method = (fetchOptions.method || "GET").toUpperCase()
   const isFormData = fetchOptions.body instanceof FormData
+  if (method !== "GET" && method !== "HEAD") {
+    headers["X-Requested-With"] = "XMLHttpRequest"
+  }
   if (method !== "GET" && method !== "DELETE" && !isFormData) {
     headers["Content-Type"] = "application/json"
   }
@@ -306,6 +309,36 @@ function deleteRequest(path) {
   return request(path, { method: "DELETE" })
 }
 
+const apiContractHelpers = globalThis.apiContracts
+if (!apiContractHelpers) {
+  throw new Error("apiContracts.js must load before api.js")
+}
+
+function contractOptions(name, options = {}) {
+  const contract = apiContractHelpers.getApiContract(name)
+  return {
+    timeout: contract.timeout,
+    ...options,
+  }
+}
+
+function contractPath(name, params = {}, query = {}) {
+  return apiContractHelpers.contractPath(name, params, query)
+}
+
+function contractFetch(name, params = {}, query = {}, options = {}) {
+  const contract = apiContractHelpers.getApiContract(name)
+  return request(contractPath(name, params, query), {
+    method: contract.method,
+    ...contractOptions(name, options),
+  })
+}
+
+function contractJson(name, params = {}, query = {}, payload, options = {}) {
+  const contract = apiContractHelpers.getApiContract(name)
+  return jsonRequest(contractPath(name, params, query), contract.method, payload, contractOptions(name, options))
+}
+
 // ============================================================
 // API 对象
 // ============================================================
@@ -316,19 +349,19 @@ const api = {
   // ============================================================
   projects: {
     async list() {
-      return request("/projects")
+      return contractFetch("projects.list")
     },
 
     async create(payload) {
-      return post("/projects", payload)
+      return contractJson("projects.create", {}, {}, payload)
     },
 
     async get(id) {
-      return request(`/projects/${id}`)
+      return contractFetch("projects.get", { id })
     },
 
     async update(id, payload) {
-      return put(`/projects/${id}`, payload)
+      return contractJson("projects.update", { id }, {}, payload)
     },
 
     async remove(id) {
@@ -347,10 +380,10 @@ const api = {
       return request("/projects/llm/provider-templates")
     },
     async getLlmSettings(id) {
-      return request(`/projects/${id}/llm-settings`)
+      return contractFetch("projects.getLlmSettings", { id })
     },
     async updateLlmSettings(id, payload) {
-      return put(`/projects/${id}/llm-settings`, payload)
+      return contractJson("projects.updateLlmSettings", { id }, {}, payload)
     },
     async startSmartDedupScan(id, payload = {}) {
       return post(`/projects/${id}/smart-dedup/scan`, payload)
@@ -365,7 +398,7 @@ const api = {
   // ============================================================
   world: {
     async listEntities(params = {}) {
-      return request(withQuery("/world/entities", params))
+      return contractFetch("world.listEntities", {}, params)
     },
 
     async listCharacters(params = {}) {
@@ -373,7 +406,7 @@ const api = {
     },
 
     async getEntity(id, novelId) {
-      return request(withQuery(`/world/entities/${id}`, { novel_id: novelId }))
+      return contractFetch("world.getEntity", { id }, { novel_id: novelId })
     },
 
     async listProfiles(params = {}) {
@@ -445,11 +478,11 @@ const api = {
     },
 
     async createEntity(payload, novelId) {
-      return post(withQuery("/world/entities", { novel_id: novelId }), payload)
+      return contractJson("world.createEntity", {}, { novel_id: novelId }, payload)
     },
 
     async updateEntity(id, payload, novelId) {
-      return put(withQuery(`/world/entities/${id}`, { novel_id: novelId }), payload)
+      return contractJson("world.updateEntity", { id }, { novel_id: novelId }, payload)
     },
 
     async promoteEntity(id, novelId, payload = {}) {
@@ -465,7 +498,7 @@ const api = {
     },
 
     async deleteEntity(id, novelId) {
-      return deleteRequest(withQuery(`/world/entities/${id}`, { novel_id: novelId }))
+      return contractFetch("world.deleteEntity", { id }, { novel_id: novelId })
     },
 
     async listEntityBatches(params = {}) {
@@ -555,7 +588,7 @@ const api = {
     async getMapState(mapId, novelId, sceneId = null) {
       const params = { novel_id: novelId }
       if (sceneId) params.scene_id = sceneId
-      return request(withQuery(`/world/maps/${mapId}/state`, params))
+      return contractFetch("world.getMapState", { mapId }, params)
     },
     async getMapDynamicState(mapId, novelId, sceneId = null) {
       const params = { novel_id: novelId }
@@ -569,7 +602,7 @@ const api = {
         focus_entity_id: focusEntityId,
         focus_item_id: focusItemId,
       }
-      return request(withQuery(`/world/maps/${mapId}/dashboard`, params))
+      return contractFetch("world.getMapDashboard", { mapId }, params)
     },
     async getMapPlayback(mapId, novelId, sceneId = null, focusEntityId = null, includeCandidates = true) {
       const params = {
@@ -578,7 +611,7 @@ const api = {
         focus_entity_id: focusEntityId,
         include_candidates: includeCandidates,
       }
-      return request(withQuery(`/world/maps/${mapId}/playback`, params))
+      return contractFetch("world.getMapPlayback", { mapId }, params)
     },
     async getMapOpenTarget(novelId, { sceneId = null, focusEntityId = null } = {}) {
       return request(withQuery("/world/maps/open-target", {
@@ -659,7 +692,7 @@ const api = {
       return deleteRequest(withQuery(`/world/maps/${mapId}/territories`, { novel_id: novelId, faction_entity_id: factionEntityId }))
     },
     async listMapObservations(mapId, novelId, reviewState = null) {
-      return request(withQuery(`/world/maps/${mapId}/observations`, { novel_id: novelId, review_state: reviewState }))
+      return contractFetch("world.listMapObservations", { mapId }, { novel_id: novelId, review_state: reviewState })
     },
     async createMapObservation(mapId, payload, novelId) {
       return post(withQuery(`/world/maps/${mapId}/observations`, { novel_id: novelId }), payload)
@@ -677,7 +710,7 @@ const api = {
       return post(withQuery(`/world/maps/${mapId}/batch-actions`, { novel_id: novelId }), payload)
     },
     async confirmMapObservation(mapId, observationId, novelId) {
-      return post(withQuery(`/world/maps/${mapId}/observations/${observationId}/confirm`, { novel_id: novelId }))
+      return contractJson("world.confirmMapObservation", { mapId, observationId }, { novel_id: novelId })
     },
     async ignoreMapObservation(mapId, observationId, novelId) {
       return post(withQuery(`/world/maps/${mapId}/observations/${observationId}/ignore`, { novel_id: novelId }))
@@ -686,7 +719,7 @@ const api = {
       return request(withQuery(`/world/maps/${mapId}/facts`, { novel_id: novelId, fact_status: factStatus }))
     },
     async updateMapFactStatus(mapId, factId, novelId, factStatus) {
-      return patch(withQuery(`/world/maps/${mapId}/facts/${factId}`, { novel_id: novelId }), { fact_status: factStatus })
+      return contractJson("world.updateMapFactStatus", { mapId, factId }, { novel_id: novelId }, { fact_status: factStatus })
     },
   },
 
@@ -699,7 +732,7 @@ const api = {
   // ============================================================
   rag: {
     async search(payload, novelId, options = {}) {
-      return post(withQuery("/rag/retrieve", { novel_id: novelId }), payload, { timeout: RAG_SEARCH_TIMEOUT, ...options })
+      return contractJson("rag.search", {}, { novel_id: novelId }, payload, options)
     },
 
     async rebuild(payload, options = {}) {
@@ -709,7 +742,7 @@ const api = {
     },
 
     async prewarm(options = {}) {
-      return post("/rag/prewarm", {}, { timeout: RAG_PREWARM_TIMEOUT, ...options })
+      return contractJson("rag.prewarm", {}, {}, {}, options)
     },
 
     async retryEmbeddings(payload, options = {}) {
@@ -740,19 +773,19 @@ const api = {
     },
 
     async confirm(payload) {
-      return post("/context/confirm", payload, { timeout: CONTEXT_CONFIRM_TIMEOUT })
+      return contractJson("context.confirm", {}, {}, payload)
     },
 
     async listSnapshots(params = {}) {
-      return request(withQuery("/context/snapshots", params))
+      return contractFetch("context.listSnapshots", {}, params)
     },
 
     async getSnapshot(snapshotId, params = {}) {
-      return request(withQuery(`/context/snapshots/${snapshotId}`, params))
+      return contractFetch("context.getSnapshot", { snapshotId }, params)
     },
 
     async activationPreview(params = {}) {
-      return request(withQuery("/context/activation-preview", params))
+      return contractFetch("context.activationPreview", {}, params)
     },
   },
 
@@ -761,11 +794,11 @@ const api = {
   // ============================================================
   writing: {
     async publish(payload) {
-      return post("/writing/drafts", payload)
+      return contractJson("writing.publish", {}, {}, payload)
     },
 
     async autosave(draftId, payload, novelId) {
-      return put(withQuery(`/writing/drafts/${draftId}`, { novel_id: novelId }), payload)
+      return contractJson("writing.autosave", { draftId }, { novel_id: novelId }, payload)
     },
 
     async autosaveDraftOnly(payload) {
@@ -773,7 +806,7 @@ const api = {
     },
 
     async getDraft(chapterIndex, novelId) {
-      return request(withQuery(`/writing/chapters/${chapterIndex}/draft`, { novel_id: novelId }))
+      return contractFetch("writing.getDraft", { chapterIndex }, { novel_id: novelId })
     },
 
     async get(draftId, novelId) {
@@ -805,7 +838,7 @@ const api = {
     },
 
     async createConflictCheck(payload) {
-      return post("/writing/conflict-checks", payload)
+      return contractJson("writing.createConflictCheck", {}, {}, payload)
     },
 
     async listConflictChecks(params = {}) {
@@ -821,11 +854,11 @@ const api = {
     },
 
     async runConflictAiReview(checkId, payload) {
-      return post(`/writing/conflict-checks/${checkId}/ai-review`, payload)
+      return contractJson("writing.runConflictAiReview", { checkId }, {}, payload)
     },
 
     async enqueueConflictAiReview(checkId, payload) {
-      return post(`/writing/conflict-checks/${checkId}/ai-review-task`, payload)
+      return contractJson("writing.enqueueConflictAiReview", { checkId }, {}, payload)
     },
 
     async requestConflictAiSuggestion(itemId, payload) {
@@ -917,26 +950,19 @@ const api = {
     },
 
     async deepImport(novelId, startChapter, endChapter, force = false, highQuality = false) {
-      return post("/imports/deep", { novel_id: novelId, start_chapter: startChapter, end_chapter: endChapter, force, high_quality: highQuality })
+      return contractJson("imports.deepImport", {}, {}, { novel_id: novelId, start_chapter: startChapter, end_chapter: endChapter, force, high_quality: highQuality })
     },
 
     async startStage(stage, novelId, startChapter, endChapter, force = false, highQuality = false) {
-      const endpoints = {
-        scenes: "/imports/stages/scenes",
-        world_objects: "/imports/stages/world-objects",
-        plot_structure: "/imports/stages/plot-structure",
-      }
-      const endpoint = endpoints[stage]
-      if (!endpoint) throw new Error(`unsupported import stage: ${stage}`)
-      return post(endpoint, { novel_id: novelId, start_chapter: startChapter, end_chapter: endChapter, force, high_quality: highQuality })
+      return contractJson("imports.startStage", { stage }, {}, { novel_id: novelId, start_chapter: startChapter, end_chapter: endChapter, force, high_quality: highQuality })
     },
 
     async resumeDeepImport(taskId) {
-      return post("/imports/deep/resume", { task_id: taskId })
+      return contractJson("imports.resumeDeepImport", {}, {}, { task_id: taskId })
     },
 
     async abandonDeepImport(taskId) {
-      return post("/imports/deep/abandon", { task_id: taskId })
+      return contractJson("imports.abandonDeepImport", {}, {}, { task_id: taskId })
     },
   },
 
@@ -1108,8 +1134,9 @@ const api = {
 // Settings API — 全局默认 + 项目覆盖 + effective 视图（D1-D25 见 spec）
 const settingsApi = {
   // 全局 LLM 默认（不含 Key）
-  listGlobalLLMDefaults: () => request("/settings/llm-defaults"),
-  updateGlobalLLMDefaults: (payload) => put("/settings/llm-defaults", payload),
+  listGlobalLLMDefaults: () => contractFetch("settings.listGlobalLLMDefaults"),
+  updateGlobalLLMDefaults: (payload) =>
+    contractJson("settings.updateGlobalLLMDefaults", {}, {}, payload),
 
   // 全局作者偏好
   listGlobalAuthorPrefs: () => request("/settings/author-preferences"),
@@ -1124,15 +1151,15 @@ const settingsApi = {
 
   // 项目级作者偏好覆盖
   getProjectAuthorPrefs: (projectId) =>
-    request(`/settings/projects/${projectId}/author-preferences`),
+    contractFetch("settings.getProjectAuthorPrefs", { projectId }),
   updateProjectAuthorPrefs: (projectId, payload) =>
-    put(`/settings/projects/${projectId}/author-preferences`, payload),
+    contractJson("settings.updateProjectAuthorPrefs", { projectId }, {}, payload),
   resetProjectAuthorPrefsField: (projectId, field) =>
     deleteRequest(`/settings/projects/${projectId}/author-preferences/field/${field}`),
 
   // 项目 effective 视图（含 source 标签）
   getEffectiveLLMSettings: (projectId) =>
-    request(`/projects/${projectId}/effective-llm-settings`),
+    contractFetch("settings.getEffectiveLLMSettings", { projectId }),
   getEffectiveAuthorPrefs: (projectId) =>
     request(`/projects/${projectId}/effective-author-preferences`),
 

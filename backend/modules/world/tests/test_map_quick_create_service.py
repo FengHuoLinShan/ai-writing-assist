@@ -18,10 +18,10 @@ from modules.world.map_schemas import (
 )
 from modules.world.repositories import CoreEntityRepository, EntityRelationRepository
 from modules.world.schemas import EntityRelationCreate
-from modules.world.services.map_location_binding_service import (
+from modules.world.services.map.map_location_binding_service import (
     MapLocationBindingService,
 )
-from modules.world.services.map_quick_create import MapQuickCreateService
+from modules.world.services.map.map_quick_create import MapQuickCreateService
 from modules.world.tests.helpers import _create_entity, _create_project
 
 

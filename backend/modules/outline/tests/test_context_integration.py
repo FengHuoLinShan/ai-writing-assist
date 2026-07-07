@@ -90,8 +90,9 @@ async def test_plot_structure_context_loads_chapter_texts_in_one_batch(
     async def fail_single_fetch(db, novel_id, chapter_index):
         raise AssertionError("should not fetch latest drafts one chapter at a time")
 
-    async def fake_batch_fetch(db, novel_id, chapter_indices):
+    async def fake_batch_fetch(db, novel_id, chapter_indices, *, content_limit=None):
         batch_calls.append(list(chapter_indices))
+        assert content_limit == context_builder._CHAPTER_TEXT_LIMIT + 1
         return [
             WritingDraftContract(
                 novel_id=novel_id,

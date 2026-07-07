@@ -26,8 +26,8 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 别名管理（`EntityAliasService`，内联于 CoreEntity.aliases JSONB，支持待复核别名元数据）
 - 对象去重（EntityDedupService）
 - 对象融合建议（WorldEntityFusionService，LLM 只生成建议，用户确认后应用）
-- 面向项目级智能去重的实体融合 facade（`suggest_entity_fusion` /
-  `apply_entity_fusion`）
+- 面向项目级智能去重的实体融合子 facade（`entity_facade.suggest_entity_fusion` /
+  `entity_facade.apply_entity_fusion`；root `facade.py` 仅 re-export）
 - 世界上下文/检索词典/批次（`EntityContextService`）
 - 实体统计与自动抽取批次查询（`EntityStatsService`）
 - 实体 embedding 回填（`EntityEmbeddingService`）
@@ -83,6 +83,20 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 | ~~`entity_aliases`~~ | 已移除，别名存 `core_entities.content_json.aliases` JSONB |
 | ~~`entity_candidates`~~ | 已废弃；候选对象存于 `core_entities.status="candidate"` |
 | ~~`relationships`~~ | 已废弃，使用 `entity_relations` |
+
+### ORM 模型布局
+
+`modules.world.models` 是兼容导出 package，导入该 package 会注册 world 所有
+ORM 表到同一个 `core.base.Base.metadata`。具体模型按子域拆分：
+
+- `models/core.py`：CoreEntity、Event、EntityRelation、EntityRevision、TextArchive。
+- `models/character.py`：Character、CharacterKnowledge。
+- `models/profiles.py`：世界资产 profile 与模板表。
+- `models/worldbuilding.py`：生成模板、World Bible、知识标签、创设建议和冲突队列。
+- `models/common.py`：共享 SQLAlchemy imports 与 pgvector/SQLite embedding column helper。
+
+旧路径 `from modules.world.models import CoreEntity` 与 `import modules.world.models`
+保持可用；兼容别名 `WorldEntity` 等仍从 package 顶层导出。
 
 ### core_entities 表核心字段
 
@@ -219,7 +233,16 @@ class ResolveResult:
 
 ## 地图内部结构
 
-`modules.world.services.map_service` 是历史兼容导出层，保留旧测试和 API 路由 import 路径；具体实现拆到以下内部服务：
+`backend/modules/world/services/` 已按领域拆成子包：
+
+- `services/core/`：核心实体、人物、事件、关系、去重、抽取、版本和回滚。
+- `services/map/`：地图配置、tile、marker、territory、observation/fact、dashboard、playback、动态队列。
+- `services/worldbuilding/`：世界书页面、模板、投影、作者资料整理和上下文摘要。
+- `services/common.py`：跨子包通用 helper。
+- `services/__init__.py`：顶层 re-export hub，保留常用 service 和 helper 的旧聚合入口。
+- `services/map_service.py`：历史兼容导出层，不承载业务逻辑。
+
+`modules.world.services.map_service` 保留旧测试和 API 路由 import 路径；具体地图实现位于 `services/map/`：
 
 - `map_templates.py`：初始地形模板和详图 tile 生成。
 - `map_config_service.py` / `map_tile_service.py` / `map_location_binding_service.py`：地图配置、tile 批量编辑、地点绑定。
@@ -228,10 +251,19 @@ class ResolveResult:
 - `map_observation_service.py` / `map_fact_service.py`：观察事实候选、确认流转和正式事实状态。
 - `map_dashboard_service.py` / `map_playback_service.py` / `map_open_target_service.py`：只读派生视图、播放事件流和地图打开目标。
 - `map_dynamic_helpers.py`：动态地图 formatter、risk/priority/label、UUID 安全解析、空间锚点校验等私有 helper。
+- `map_state_assembler.py`、`map_scene_summary.py`、`map_terrain.py`、`map_location_layout.py`、`map_quick_create.py`：独立地图入口，不通过 `map_service.py` 承载业务实现。
 
-已有的 `map_state_assembler.py`、`map_scene_summary.py`、`map_terrain.py`、`map_location_layout.py`、`map_quick_create.py` 继续作为独立入口存在，不通过 `map_service.py` 承载业务实现。
+## Facade
 
-## Facade（facade.py）
+Root `facade.py` 是纯 re-export hub，不定义 async wrapper 或承载业务编排；
+旧 `modules.world.facade.*` import path 保持可用。具体薄委托按子域落在
+`entity_facade.py`、`character_facade.py`、`event_facade.py`、`map_facade.py`
+和 `worldbuilding_facade.py`。
+
+`worldbuilding_facade.py` 承载世界书上下文激活相关入口：
+`preview_worldbuilding_activation()` 调用确定性 activation preview 服务；
+`mark_worldbuilding_context_stale()` 保持函数内 lazy import `modules.context.facade`，
+避免扩大 context ↔ world 循环 import 风险。
 
 ```python
 # ---- CoreEntity ----
@@ -251,6 +283,8 @@ async def run_entity_extraction(db, novel_id, start_chapter, end_chapter, batch_
 # ---- Dedup ----
 async def find_similar_entities(db, novel_id, name, aliases=None, ...) -> list[DuplicateSuggestionResult]
 async def merge_candidate_into_entity(db, novel_id, candidate_id, target_entity_id) -> MergeResult
+async def suggest_entity_fusion(db, novel_id, *, entity_type=None, status=None, ...) -> dict
+async def apply_entity_fusion(db, novel_id, *, confirmed: bool, suggestions: list[dict]) -> dict
 
 # ---- Relationships (thin proxy) ----
 async def find_entity_id_by_name(db, novel_id, name, entity_type=None) -> str | None
@@ -269,6 +303,10 @@ async def get_full_state(db, novel_id) -> dict
 # ---- Map dynamic facts ----
 async def create_map_observation_from_delta_event(db, novel_id, *, event: dict, scene_index: int, ...) -> dict
 async def summarize_scene_map_for_writing(db, novel_id, scene_id, *, include_candidates=False) -> dict
+
+# ---- Worldbuilding ----
+async def preview_worldbuilding_activation(db, novel_id, *, entity_ids=None, ...) -> dict
+async def mark_worldbuilding_context_stale(db, novel_id, *, reason: str, asset_id="worldbuilding") -> int
 
 # ---- EntityRevision (legacy rollback by revision_id) ----
 async def get_entity_revisions(db, novel_id, entity_id, skip=0, limit=20) -> dict

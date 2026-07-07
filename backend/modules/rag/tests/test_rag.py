@@ -752,6 +752,76 @@ class TestChunkingService:
             for i in range(1, len(chunks))
         )
 
+    def test_cn_boundary_prefers_scene_transition_over_paragraph(
+        self,
+        chunking: ChunkingService,
+    ) -> None:
+        """场景转换关键词优先级高于更接近 target 的段落边界。"""
+        text = "甲" * 90 + "\n\n" + "乙" * 20 + "第二天" + "丙" * 40
+
+        boundary = chunking._choose_cn_boundary_with_scenes(
+            text,
+            start=0,
+            target_length=100,
+            hard_end=len(text),
+        )
+
+        assert boundary == text.rfind("第二天")
+
+    def test_cn_boundary_scene_pattern_keeps_only_last_occurrence(
+        self,
+        chunking: ChunkingService,
+    ) -> None:
+        """保持旧语义：每个 scene pattern 只取窗口内最后一次出现。"""
+        text = "甲" * 90 + "第二天" + "乙" * 30 + "第二天" + "丙" * 40
+
+        boundary = chunking._choose_cn_boundary_with_scenes(
+            text,
+            start=0,
+            target_length=100,
+            hard_end=len(text),
+        )
+
+        assert boundary == text.rfind("第二天")
+
+    def test_cn_boundary_prefers_location_transition_over_paragraph(
+        self,
+        chunking: ChunkingService,
+    ) -> None:
+        text = "甲" * 90 + "\n\n来到王城，众人放慢脚步。" + "乙" * 40
+
+        boundary = chunking._choose_cn_boundary_with_scenes(
+            text,
+            start=0,
+            target_length=100,
+            hard_end=len(text),
+        )
+
+        assert boundary == text.rfind("\n\n")
+
+    def test_cn_boundary_uses_paragraph_then_sentence_fallbacks(
+        self,
+        chunking: ChunkingService,
+    ) -> None:
+        paragraph_text = "甲" * 90 + "\n\n" + "乙" * 50
+        sentence_text = "甲" * 90 + "。" + "乙" * 50
+
+        paragraph_boundary = chunking._choose_cn_boundary_with_scenes(
+            paragraph_text,
+            start=0,
+            target_length=100,
+            hard_end=len(paragraph_text),
+        )
+        sentence_boundary = chunking._choose_cn_boundary_with_scenes(
+            sentence_text,
+            start=0,
+            target_length=100,
+            hard_end=len(sentence_text),
+        )
+
+        assert paragraph_boundary == paragraph_text.rfind("\n\n") + 2
+        assert sentence_boundary == sentence_text.rfind("。") + 1
+
 
 # ============================================================
 # RetrievalService 测试

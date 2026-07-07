@@ -191,7 +191,7 @@ def test_phase3_simple_structure_contract_no_longer_declares_status() -> None:
 
 
 def test_generation_center_template_validator_reports_missing_variable() -> None:
-    from modules.world.services.generation_prompt_template_service import (
+    from modules.world.services.worldbuilding.generation_prompt_template_service import (
         validate_template,
     )
 
@@ -206,7 +206,7 @@ def test_generation_center_template_validator_reports_missing_variable() -> None
 
 
 def test_generation_center_template_validator_reports_unsupported_type() -> None:
-    from modules.world.services.generation_prompt_template_service import (
+    from modules.world.services.worldbuilding.generation_prompt_template_service import (
         validate_template,
     )
 
@@ -220,7 +220,7 @@ def test_generation_center_template_validator_reports_unsupported_type() -> None
 
 
 def test_generation_center_template_validator_rejects_expressions_and_loops() -> None:
-    from modules.world.services.generation_prompt_template_service import (
+    from modules.world.services.worldbuilding.generation_prompt_template_service import (
         validate_template,
     )
 

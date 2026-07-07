@@ -10,7 +10,7 @@ from modules.world.schemas import (
     WorldBiblePageCreate,
     WorldProfileUpsertRequest,
 )
-from modules.world.services.worldbuilding_service import (
+from modules.world.services.worldbuilding.worldbuilding_service import (
     KnowledgeTagService,
     ProjectionRefreshConflictError,
     SuggestionAlreadyProcessedError,

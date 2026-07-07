@@ -8,7 +8,8 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ValidationError
-from modules.world.entity_fusion import WorldEntityFusionService
+from modules.world.entity_fusion import WorldEntityFusionService, _pair_similarity
+from modules.world.models import CoreEntity
 from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import CoreEntityCreate, EntityFusionApplyItem
 
@@ -43,6 +44,87 @@ async def _create_entity(
         ),
     )
     return str(entity.id)
+
+
+def _fusion_entity(
+    *,
+    name: str,
+    aliases: list[str] | None = None,
+    summary: str | None = None,
+) -> CoreEntity:
+    return CoreEntity(
+        name=name,
+        entity_type="character",
+        status="draft",
+        summary=summary,
+        content_json={
+            "aliases": [{"alias": alias, "type": "name"} for alias in aliases or []]
+        },
+    )
+
+
+async def test_pair_similarity_short_circuits_normalized_exact_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_summary_similarity(*args: object, **kwargs: object) -> float:
+        raise AssertionError("exact name pair should not compare summaries")
+
+    monkeypatch.setattr(
+        "modules.world.entity_fusion._summary_similarity",
+        fail_summary_similarity,
+    )
+
+    score, method = _pair_similarity(
+        _fusion_entity(name=" 克莱恩 "),
+        _fusion_entity(name="克莱恩"),
+    )
+
+    assert (score, method) == (1.0, "normalized_exact_name")
+
+
+async def test_pair_similarity_short_circuits_alias_name_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_summary_similarity(*args: object, **kwargs: object) -> float:
+        raise AssertionError("alias pair should not compare summaries")
+
+    monkeypatch.setattr(
+        "modules.world.entity_fusion._summary_similarity",
+        fail_summary_similarity,
+    )
+
+    score, method = _pair_similarity(
+        _fusion_entity(name="周明瑞"),
+        _fusion_entity(name="克莱恩", aliases=["周明瑞"]),
+    )
+
+    assert (score, method) == (0.99, "alias_name_match")
+
+
+async def test_pair_similarity_keeps_summary_comparison_for_substring_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def count_summary_similarity(left: str | None, right: str | None) -> float:
+        nonlocal calls
+        calls += 1
+        assert left == "source summary"
+        assert right == "target summary"
+        return 0.91
+
+    monkeypatch.setattr(
+        "modules.world.entity_fusion._summary_similarity",
+        count_summary_similarity,
+    )
+
+    score, method = _pair_similarity(
+        _fusion_entity(name="林七", summary="source summary"),
+        _fusion_entity(name="林七长老", summary="target summary"),
+    )
+
+    assert calls == 1
+    assert (score, method) == (0.91, "summary_overlap")
 
 
 async def test_entity_fusion_alias_only_persists_alias(

@@ -29,6 +29,10 @@ DeepImportWorkflow 将 Scene 提取、实体抽取和结构分析串成全自动
 `Phase 0 deterministic plan → Phase 1a scene slicing → Phase 1b scene enrichment → Scene commit`。
 旧 `scene_prefetch` / `scene_reinforcement` / `scene_fusion` 只保留为 legacy/repair 组件，
 默认不进入 Scene 自动提取路径。
+`workflow.py` 不再保留旧 prefetch / reinforcement / single-chapter fallback / fusion wrapper；
+默认路径只通过 `workflow_scene_phase.py` 调用 plan / slicing / enrichment / commit seam。
+`workflow.py` 仅保留 `DeepImportWorkflowRuntime` 要求的活跃 phase runner seam；
+非 runtime seam 的薄包装/死代码已清理，PhaseRunner DI 大重构不属于本次变更。
 
 ### Phase 0: deterministic plan
 - 不调用 LLM；按章节字符数生成窗口计划、owned range、右侧 overlap 和每窗 token 预算。
@@ -52,6 +56,8 @@ DeepImportWorkflow 将 Scene 提取、实体抽取和结构分析串成全自动
 
 ### Phase 2a / 2b: 世界对象、Delta、别名与关系（40%）
 - Phase 2a 基于已提交 Scene 抽取世界对象与 Delta。
+- Phase 2 Scene 实体抽取实现位于 `entity_extraction/` 子包；顶层 `scene_entity_extraction.py` 只保留兼容 shell，不承载真实实现。
+- Phase 2a 路由选择集中在 `entity_extraction/scene_entity_strategy.py`，只决定 empty、small-sample parallel、bulk、batched 或 checkpoint resume；LLM 调用、persistence、checkpoint、prompt、timeout 和返回契约仍由子包内执行模块负责。
 - Phase 2b 基于 Phase 2a 的对象索引补抽别名和关系；失败只降级，不丢弃已抽取对象。
 - 大量 Scene 使用 batch 间并发、batch 内 Scene 串行的调度；每个 batch 保留局部 rolling context。
 - 只对相邻 batch 边界执行补充抽取，不做全局对象融合扫描。
@@ -123,7 +129,8 @@ coverage、checkpoint 和脱敏 provider summary。
 服务路径也会把测试期 JSONL / Markdown 中有价值的事件和验收信息转成
 `progress_events` / `acceptance_checks`，作为前端默认摘要和“详细进度”展开区的数据源；
 真实服务不依赖 `.test-logs` 文件路径。
-测试期 `.artifact.json` 仍只作为 `.test-logs` 下的验收证据，不是业务数据源。
+旧测试期 artifact harness 已移除，不再作为推荐验收入口；恢复、审计和前端展示都以
+`async_tasks.result` 内的 compact 字段为准。
 
 ## 跨模块依赖
 
@@ -135,34 +142,21 @@ coverage、checkpoint 和脱敏 provider summary。
 - Phase 3 通过 outline facade / DI handler 写入 `plot_threads` / `outline_arcs` / `foreshadowing_plans` / `reveal_plans`
 - 新增跨模块依赖应优先走 facade 或 DI container 注册服务；不得直接 import 其他模块 repositories/services
 
-## 真实 LLM 验收与测试 artifact
+## 真实服务验收与恢复证据
 
-60 章真实 LLM 验收入口是 test-only，不改变 HTTP API：
+当前三阶段任务不依赖 test-only artifact 文件。生产任务和 stage task 在
+`async_tasks.result` 写入 compact 证据：
 
-- `RUN_DEEP_IMPORT_60_PHASE0_REAL_LLM=1`：只跑 Phase 0 deterministic plan，输出 `phase0_real_llm_<timestamp>.artifact.json`
-- `RUN_DEEP_IMPORT_60_PHASE1A_REAL_LLM=1`：默认复用最近通过的 Phase 0 artifact，再跑 Phase 1a scene slicing 后停止；可通过 `PHASE1A_PHASE0_ARTIFACT_PATH` 显式指定 artifact。后续 phase-only 真实验收入口默认消费上一个 phase 已通过 artifact，避免因前置 phase 临时波动重复整轮失败。
-- `RUN_DEEP_IMPORT_60_PHASE1B_REAL_LLM=1`：默认复用最近通过的 Phase 1a artifact，再跑 Phase 1b enrichment 后停止；60 章默认使用确定性 reducer，不调用 LLM。可通过 `PHASE1B_PHASE1A_ARTIFACT_PATH` 显式指定输入，或用 `PHASE1B_USE_LLM=1` 复测 LLM reducer。LLM reducer 是最小决策器，只输出 `use_primary_round`，由代码物化 Phase 1a 的短候选字段。
-- `RUN_DEEP_IMPORT_60_PHASE2A_REAL_LLM=1`：默认复用最近通过的 Phase 1b artifact，先把 `FinalSceneCandidate` 提交成 draft Scene，再只跑 Phase 2a 世界对象/Delta 抽取；明确跳过 Phase 2b alias/relation 与 Phase 3。可通过 `PHASE2A_PHASE1B_ARTIFACT_PATH` 指定输入。新 artifact 会写入 `world_snapshot`，供 Phase2b-only hydrate 上游世界对象。
-- `RUN_DEEP_IMPORT_60_PHASE2B_REAL_LLM=1`：默认复用最近通过且带 `world_snapshot` 的 Phase 2a artifact，重新导入正文、提交 Scene、hydrate Phase2a 世界对象后只跑 Phase 2b alias/relation；明确跳过 Phase 3。可通过 `PHASE2B_PHASE2A_ARTIFACT_PATH` 指定输入。旧的无 `world_snapshot` Phase2a artifact 不能作为 Phase2b-only 输入。Phase2b 记录 scene 级 `alias_relation_checkpoints`，repair 时复用 `done` / `skipped` checkpoint；截断 JSON 会记录为 `alias_relation_fallback_scenes` 并以空结果完成该 Scene。
-- `RUN_DEEP_IMPORT_60_PHASE3_REAL_LLM=1`：默认复用最近通过且带 `world_snapshot` 的 Phase 2b artifact，重新导入正文、提交 Scene、hydrate Phase2b 世界对象/关系快照后只跑 Phase 3 结构分析。可通过 `PHASE3_PHASE2B_ARTIFACT_PATH` 指定输入。输出 `phase3_real_llm_<timestamp>.md` 与 `.artifact.json`。
-- `RUN_DEEP_IMPORT_60_SCENE_REAL_LLM=1`：跑 Phase 0 deterministic plan / Phase 1a scene slicing / Phase 1b enrichment / scene_commit 后停止
+- `phase_artifacts`：章节覆盖、阶段计数、checkpoint 摘要、repair 状态、质量状态和脱敏 provider 摘要
+- `progress_events`：compact JSONL-like 事件流，供前端默认摘要和“详细进度”展开区使用
+- `acceptance_checks`：coverage、zero output、degraded、repair 等结构化门禁结果
+- `phase_errors`：各阶段可机器读取的失败或降级原因
 
-artifact 只落在 `.test-logs/deep_import_real_llm/`，用于验收、复盘和 failed-batch repair；
-Phase0 / Phase1a / Phase1b / Phase2a / Phase2b / Phase3-only 入口还会创建 test-only `AsyncTask` result 映射，使 artifact
-里的 `project_id` / `task_id` 能对上对应验收项目。它不进入前端主流程，也不等同于正式
-Scene。repair 按 batch key 合并新旧结果，常用变量包括
-`PHASE0_REPAIR_SOURCE_ARTIFACT_PATH`、`PHASE0_REPAIR_MAX_FAILED_BATCHES`、
-`PHASE0_REPAIR_CONCURRENCY`、`PHASE0_REPAIR_ATTEMPTS`、
-`PHASE1A_REPAIR_SOURCE_ARTIFACT_PATH`、`PHASE1A_REPAIR_MAX_FAILED_BATCHES`、
-`PHASE1A_REPAIR_ATTEMPTS`、`PHASE1A_REPAIR_BATCH_IDS`、
-`PHASE2A_REPAIR_SOURCE_ARTIFACT_PATH` 和
-`PHASE2B_REPAIR_SOURCE_ARTIFACT_PATH`。Phase2a repair 读取失败/降级 Phase2a
-artifact 的 checkpoint，按本轮 Scene commit 结果 remap 旧/新 Scene ID，先 hydrate
-source `world_snapshot`，再只重跑失败或未完成 Scene，并写入新的
-`phase2a_real_llm_<timestamp>.artifact.json`，不覆盖旧 artifact。Phase2b repair
-同样 remap `alias_relation_checkpoints`，优先 hydrate source Phase2b
-`world_snapshot` 以保留已成功的别名/关系，再只重跑失败或未完成 Scene，并写入新的
-`phase2b_real_llm_<timestamp>.artifact.json`。
+这些字段只用于恢复、审计和轮询展示，不保存 API key、完整正文、raw prompt 或 raw LLM
+输出。Phase 0 少量 batch 失败时自动重跑并合并一次；Phase 1a 对有限缺章做一轮
+single-chapter fallback；Phase 2a / 2b 通过 checkpoint 和当前 Scene commit 结果复用已完成单元，
+只重跑失败或未完成单元。`/api/imports/deep/resume` 与
+`/api/imports/deep/abandon` 仍是生产兼容的恢复/放弃入口。
 
 Phase2b 稳定性可通过 `PHASE2_ALIAS_RELATION_TOTAL_TIMEOUT_SECONDS`、
 `PHASE2_ALIAS_RELATION_LLM_TIMEOUT_SECONDS`、

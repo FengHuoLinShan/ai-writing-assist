@@ -114,7 +114,7 @@ async def run_entity_extraction(
     end_chapter: int,
     batch_size: int = 5,
 ) -> dict[str, Any]:
-    from modules.world.services.extraction_service import EntityExtractionService
+    from modules.world.services.core.extraction_service import EntityExtractionService
 
     service = EntityExtractionService()
     result = await service.extract_entities_from_chapters(

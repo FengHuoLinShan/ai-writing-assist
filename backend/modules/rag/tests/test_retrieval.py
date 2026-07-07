@@ -5,7 +5,7 @@ RAG 检索编排单元测试
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -80,6 +80,108 @@ class TestRetrievalOrchestratorDedup:
 
 
 class TestRetrievalOrchestratorInjected:
+    @pytest.mark.asyncio
+    async def test_default_circuit_breaker_provider_uses_novel_id(self) -> None:
+        novel_id = uuid.uuid4()
+        breaker = type(
+            "CB",
+            (),
+            {
+                "allow_request": lambda self: False,
+                "record_success": lambda self: None,
+                "record_failure": lambda self: None,
+            },
+        )()
+        repo = type(
+            "Repo",
+            (),
+            {
+                "has_embeddings": AsyncMock(return_value=True),
+                "keyword_search": AsyncMock(return_value=[]),
+            },
+        )()
+
+        class _Metrics:
+            def record(self, **kwargs) -> None:
+                pass
+
+        async def _fake_expand(db, novel_id, query, **kwargs):
+            return query
+
+        expander = QueryExpander(term_loader=lambda db, nid: [])
+        expander.expand = _fake_expand  # type: ignore[method-assign]
+
+        with patch(
+            "modules.rag.retrieval.get_circuit_breaker",
+            return_value=breaker,
+        ) as get_cb:
+            orch = RetrievalOrchestrator(
+                repo=repo,  # type: ignore[arg-type]
+                query_expander=expander,
+                embedder_fn=AsyncMock(return_value=[1.0, 0.0]),
+                metrics=lambda: _Metrics(),
+            )
+            bundle = await orch.retrieve(
+                None,  # type: ignore[arg-type]
+                novel_id,
+                "灰雾",
+            )
+
+        get_cb.assert_called_once_with(novel_id)
+        assert bundle.degraded is True
+        assert "BGE 服务熔断中" in bundle.warnings[0]
+
+    @pytest.mark.asyncio
+    async def test_legacy_zero_arg_circuit_breaker_provider_still_works(self) -> None:
+        calls = 0
+
+        def _legacy_provider():
+            nonlocal calls
+            calls += 1
+            return type(
+                "CB",
+                (),
+                {
+                    "allow_request": lambda self: False,
+                    "record_success": lambda self: None,
+                    "record_failure": lambda self: None,
+                },
+            )()
+
+        repo = type(
+            "Repo",
+            (),
+            {
+                "has_embeddings": AsyncMock(return_value=True),
+                "keyword_search": AsyncMock(return_value=[]),
+            },
+        )()
+
+        class _Metrics:
+            def record(self, **kwargs) -> None:
+                pass
+
+        async def _fake_expand(db, novel_id, query, **kwargs):
+            return query
+
+        expander = QueryExpander(term_loader=lambda db, nid: [])
+        expander.expand = _fake_expand  # type: ignore[method-assign]
+        orch = RetrievalOrchestrator(
+            repo=repo,  # type: ignore[arg-type]
+            query_expander=expander,
+            embedder_fn=AsyncMock(return_value=[1.0, 0.0]),
+            metrics=lambda: _Metrics(),
+            circuit_breaker=_legacy_provider,
+        )
+
+        await orch.retrieve(
+            None,  # type: ignore[arg-type]
+            uuid.uuid4(),
+            "灰雾",
+        )
+
+        assert calls == 1
+
     @pytest.mark.asyncio
     async def test_retrieve_includes_vector_only_candidates(self) -> None:
         fake_chunk = type(

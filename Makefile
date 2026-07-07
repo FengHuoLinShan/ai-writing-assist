@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-v lint lint-fix format format-fix prompt-contracts prompt-contracts-json generate-e2e help db migrate doctor doctor-json doctor-llm
+.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-v test-frontend test-all lint lint-fix format format-fix prompt-contracts prompt-contracts-json generate-e2e help db migrate doctor doctor-json doctor-llm
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BACKEND_DIR := $(ROOT_DIR)backend
@@ -30,11 +30,18 @@ migrate:  ## Run database migrations
 
 # ─── Testing & Linting ──────────────────────────────
 
-test:  ## Run all tests
+test:  ## Run backend tests
 	cd $(BACKEND_DIR) && pytest $(ARGS)
 
 test-v:  ## Run tests verbosely (stop on first failure)
 	cd $(BACKEND_DIR) && pytest -xvs $(ARGS)
+
+test-frontend:  ## Run frontend tests
+	cd $(FRONTEND_DIR) && npm test -- $(FRONTEND_ARGS)
+
+test-all:  ## Run backend tests, then frontend tests
+	cd $(BACKEND_DIR) && pytest $(BACKEND_ARGS)
+	cd $(FRONTEND_DIR) && npm test -- $(FRONTEND_ARGS)
 
 lint:  ## Run ruff linter
 	cd $(BACKEND_DIR) && ruff check .

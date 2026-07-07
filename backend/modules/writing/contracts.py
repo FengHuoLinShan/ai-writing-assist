@@ -8,10 +8,8 @@ Writing 对外契约
 from __future__ import annotations
 
 from dataclasses import dataclass
-
-from modules.writing.schemas import (
-    WritingDraftResponse,  # noqa: F401 — facade.create_draft 返回
-)
+from datetime import datetime
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -20,10 +18,15 @@ class WritingDraftContract:
 
     novel_id: str
     chapter_index: int
+    id: str | None = None
     title: str | None = None
     content: str | None = None
     version_number: int = 1
     status: str = "draft"
+    conflict_check_snapshot_json: dict | None = None
+    provenance_json: dict[str, Any] | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 @dataclass(frozen=True)

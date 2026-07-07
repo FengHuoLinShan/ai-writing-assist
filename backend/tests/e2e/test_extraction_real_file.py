@@ -17,7 +17,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.imports.parsers import parse_txt
-from modules.world.services.extraction_service import EntityExtractionService
+from modules.world.services.core.extraction_service import EntityExtractionService
 from modules.writing.facade import get_latest_draft_for_chapter
 from shared.protocols import DraftProvider
 
@@ -419,7 +419,7 @@ class TestRealFileRagContextPipeline:
     ):
         """WritingDraftProvider 能从 RAG chunks 加载章节正文"""
         # Arrange
-        from modules.world.services.draft_provider import WritingDraftProvider
+        from modules.world.services.core.draft_provider import WritingDraftProvider
 
         provider = WritingDraftProvider()
 

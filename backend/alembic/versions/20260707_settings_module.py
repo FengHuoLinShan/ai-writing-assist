@@ -33,8 +33,16 @@ def upgrade() -> None:
         sa.Column("extra", JSONB, nullable=True),
         sa.Column("creative_mode", sa.String(32), nullable=True),
         sa.Column("deep_import", JSONB, nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+        ),
     )
     op.create_table(
         "global_author_preferences",
@@ -45,8 +53,16 @@ def upgrade() -> None:
         sa.Column("daily_goal", sa.Integer, nullable=True),
         sa.Column("editor_font", sa.String(32), nullable=True),
         sa.Column("default_focus_mode", sa.Boolean, nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+        ),
     )
     op.create_table(
         "project_author_preferences",
@@ -62,8 +78,16 @@ def upgrade() -> None:
         sa.Column("daily_goal", sa.Integer, nullable=True),
         sa.Column("editor_font", sa.String(32), nullable=True),
         sa.Column("default_focus_mode", sa.Boolean, nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+        ),
     )
 
 

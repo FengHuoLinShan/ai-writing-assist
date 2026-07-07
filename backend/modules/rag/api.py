@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
+from core.api_params import NovelIdQuery
 from core.dependencies import DbSession
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.rag.facade import (
@@ -36,7 +37,8 @@ router = APIRouter(prefix="/api/rag", tags=["rag"])
 @router.post("/chunks", response_model=RagChunkResponse, status_code=201)
 async def create_rag_chunk(
     db: DbSession,
-    novel_id: str = Query(..., description="小说项目 ID (UUID hex string)"),
+    *,
+    novel_id: NovelIdQuery,
     data: RagChunkCreate = None,  # noqa: ANN401 — FastAPI body
 ) -> RagChunkResponse:
     """创建 RAG 片段
@@ -49,7 +51,8 @@ async def create_rag_chunk(
 @router.get("/chunks", response_model=dict)
 async def list_rag_chunks(
     db: DbSession,
-    novel_id: str = Query(..., description="小说项目 ID (UUID hex string)"),
+    *,
+    novel_id: NovelIdQuery,
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(
         default=DEFAULT_PAGE_SIZE,
@@ -71,7 +74,8 @@ async def list_rag_chunks(
 @router.post("/retrieve", response_model=RagResult)
 async def retrieve_chunks(
     db: DbSession,
-    novel_id: str = Query(..., description="小说项目 ID (UUID hex string)"),
+    *,
+    novel_id: NovelIdQuery,
     query: RagQuery = None,  # noqa: ANN401 — FastAPI body
 ) -> RagResult:
     """混合检索 RAG 片段

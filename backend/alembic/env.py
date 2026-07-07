@@ -6,7 +6,6 @@ Alembic 迁移环境配置
 
 import os
 from logging.config import fileConfig
-from pathlib import Path
 
 from sqlalchemy import pool
 
@@ -35,21 +34,15 @@ import modules.world.map_models  # noqa: E402, F401
 import modules.world.models  # noqa: E402, F401
 import modules.writing.models  # noqa: E402, F401
 from core.base import Base  # noqa: E402
+from core.config import load_env_file  # noqa: E402
 
 target_metadata = Base.metadata
+
+load_env_file()
 
 
 def _database_url() -> str:
     """Return the runtime database URL, falling back to alembic.ini."""
-    env_path = Path(__file__).resolve().parents[1] / ".env"
-    if env_path.exists():
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            if key.strip() == "DATABASE_URL" and "DATABASE_URL" not in os.environ:
-                return value.strip().strip("\"'")
     return os.environ.get("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
 
 

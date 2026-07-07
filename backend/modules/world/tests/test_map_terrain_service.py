@@ -15,8 +15,8 @@ from modules.world.map_schemas import (
     MapTerrainPatchReplaceRequest,
     MapTerrainRegionCreate,
 )
+from modules.world.services.map.map_terrain import MapTerrainService
 from modules.world.services.map_service import MapConfigService
-from modules.world.services.map_terrain import MapTerrainService
 from modules.world.tests.helpers import _create_location_entity, _create_project
 
 

@@ -81,7 +81,11 @@ Phase 1b 每个 Scene 失败只 retry 1 次，仍失败时仅 fallback 当前 Sc
 ## 深度导入内部结构
 
 `DeepImportOrchestrator` 负责重复导入策略、任务提交、恢复和放弃清理；
-`DeepImportWorkflow` 只保留 worker 执行入口和兼容 wrapper。阶段实现拆在同模块内部：
+`DeepImportWorkflow` 只保留 worker 执行入口和 `DeepImportWorkflowRuntime`
+要求的活跃 phase runner seam；旧 Scene prefetch / reinforcement /
+single-chapter / fusion wrapper，以及非 runtime seam 的薄包装/死代码已从
+`workflow.py` 移除。
+阶段实现拆在同模块内部：
 
 - `workflow_scene_phase.py` — Phase 0 / Phase 1a / Phase 1b / Scene commit
 - `workflow_entity_phase.py` — Phase 2a / Phase 2b 与 world_objects stage
@@ -104,100 +108,25 @@ payload 字段，并只保留脱敏 provider 摘要。服务路径还会返回
 后者是结构化门禁结果，供前端默认/详细两级进度显示复用。前端通过现有任务轮询读取
 这些字段。
 
-## 真实 LLM 验收与 artifact
+## 真实服务验收与恢复证据
 
-Phase0/1 默认参数和 DeepSeek probe 证据以
-`tools/deepseek_scene_probe/DECISIONS.md` 为准。下面的历史 artifact harness
-仍用于回归、repair 和旧结果复核；其中涉及 prefetch / reinforcement / fusion 的
-术语属于 legacy 路径，不代表当前默认 Scene 自动提取链路。正式 Scene 自动提取链路是
+当前验收和恢复证据以内嵌在 `async_tasks.result` 的 compact 数据为准，不再通过旧
+real-LLM artifact harness 驱动。正式 Scene 自动提取链路是
 `phase0_plan -> phase1a_scene_slicing -> phase1b_enrichment -> scene_commit`；
 Phase 1a slicing 的 `max_tokens` 来自 Phase 0 window 的
 `clamp(round(input_chars * max_tokens_per_input_char), min_max_tokens, max_max_tokens)`。
 
-真实 LLM 验收入口默认跳过，只在显式环境变量开启时运行：
+生产任务和 stage task 会写入：
 
-```bash
-DEEP_IMPORT_LEGACY_SCENE_PIPELINE_ENABLED=1 \
-RUN_DEEP_IMPORT_60_PHASE0_REAL_LLM=1 LLM_TIMEOUT=180 \
-  PHASE01_SCENE_MAX_TOKENS=8192 pytest modules/imports/tests/test_deep_import_real_llm.py -q -s
+- `phase_artifacts`：章节覆盖、阶段计数、checkpoint 摘要、repair 状态、质量状态和脱敏 provider 摘要
+- `progress_events`：compact JSONL-like 事件流，供任务轮询和前端详细进度展示
+- `acceptance_checks`：coverage、zero output、degraded、repair 等结构化门禁结果
+- `phase_errors`：按阶段记录可机器读取的失败或降级原因
 
-DEEP_IMPORT_LEGACY_SCENE_PIPELINE_ENABLED=1 \
-RUN_DEEP_IMPORT_60_PHASE1A_REAL_LLM=1 LLM_TIMEOUT=180 \
-  PHASE1A_SCENE_MAX_TOKENS=8192 pytest modules/imports/tests/test_deep_import_real_llm.py -q -s
-
-RUN_DEEP_IMPORT_60_PHASE1B_REAL_LLM=1 LLM_TIMEOUT=180 \
-  pytest modules/imports/tests/test_deep_import_real_llm.py -q -s
-
-RUN_DEEP_IMPORT_60_PHASE2A_REAL_LLM=1 LLM_TIMEOUT=180 \
-  pytest modules/imports/tests/test_deep_import_real_llm.py -q -s
-
-RUN_DEEP_IMPORT_60_PHASE2B_REAL_LLM=1 LLM_TIMEOUT=180 \
-  pytest modules/imports/tests/test_deep_import_real_llm.py -q -s
-
-RUN_DEEP_IMPORT_60_PHASE3_REAL_LLM=1 LLM_TIMEOUT=180 \
-  pytest modules/imports/tests/test_deep_import_real_llm.py -q -s
-```
-
-Phase 0 / Phase 1a 验收会写入 `.test-logs/deep_import_real_llm/` 下的
-JSONL、Markdown summary 和 `.artifact.json`，同时创建 test-only `AsyncTask`
-结果映射，确保分阶段结果有对应 `Project` / `task_id` 可追踪。artifact 是测试/验收证据，
-不是业务表；repair 会按 batch key 合并新旧结果，避免少量 provider 波动导致整轮
-60 章作废。Phase 1a-only 默认会自动使用最近一个完整通过的 Phase 0 artifact；
-Phase 1b-only 默认会自动使用最近一个完整通过的 Phase 1a artifact。需要复核旧结果或
-指定输入时，可分别用 `PHASE1A_PHASE0_ARTIFACT_PATH` / `PHASE1B_PHASE1A_ARTIFACT_PATH`
-显式覆盖。60 章 Phase 1b 默认使用确定性 reducer，不调用 LLM；若需要复测 LLM reducer，
-显式设置 `PHASE1B_USE_LLM=1`。LLM reducer 使用最小决策输出，只让模型回答
-`use_primary_round`，再由代码物化 Phase 1a 的短候选字段，避免长 JSON 或候选
-ID 列表超时。物化时只保留 Phase 1a 明确给出的多章 `scene_chunks` 作为跨章
-Scene；若多个 Scene 缺失 chunks，不把整批章节套给每个 Scene，而是按候选顺序
-保守分配到具体章节并保留复核标记。
-
-Phase 2a-only 默认读取最近完整通过的 `phase1b_real_llm_*.artifact.json`，把
-`FinalSceneCandidate` 通过 `SceneCommitter` 写入 draft Scene 后，只调用
-`SceneEntityExtractionService.extract_by_scenes(..., include_alias_relations=False)`。
-它输出 `phase2a_real_llm_<timestamp>.md` 与 `.artifact.json`，记录 source Phase1b
-artifact、scene commit 覆盖、Phase2 batch 参数、世界对象/Delta 数、checkpoint、
-snapshot health、`world_snapshot` 和后续 Phase2b/Phase3 skipped 状态。需要显式指定
-上游输入时使用 `PHASE2A_PHASE1B_ARTIFACT_PATH`。
-
-Phase 2b-only 默认读取最近完整通过且带 `world_snapshot` 的
-`phase2a_real_llm_*.artifact.json`。入口会重新导入 60 章正文、提交 source Phase1b
-Scene、hydrate Phase2a 世界对象快照，然后只调用
-`SceneEntityExtractionService.extract_alias_relations()`，明确不进入 Phase3。需要显式
-指定输入时使用 `PHASE2B_PHASE2A_ARTIFACT_PATH`。旧的 Phase2a artifact 如果没有
-`world_snapshot`，不能作为 Phase2b-only 输入，需重新跑 Phase2a-only 生成新 artifact。
-Phase2b 记录 scene 级 `alias_relation_checkpoints`，repair 时 `done` / `skipped`
-checkpoint 都会复用，只重跑 failed 或未完成 Scene；结构化 JSON 截断会记录为
-`alias_relation_fallback_scenes` 并以空别名/关系结果完成该 Scene，避免少量低价值
-别名/关系阻断后续 Phase3。
-
-Phase 3-only 默认读取最近完整通过且带 `world_snapshot` 的
-`phase2b_real_llm_*.artifact.json`。入口会重新导入 60 章正文、提交 source Phase1b
-Scene、hydrate Phase2b 世界对象/关系快照，然后只调用
-`DeepImportWorkflow.run_structure_analysis_only()`，输出
-`phase3_real_llm_<timestamp>.md` 与 `.artifact.json`。需要显式指定输入时使用
-`PHASE3_PHASE2B_ARTIFACT_PATH`。Phase3 深度导入模式使用紧凑结构 prompt：不生成新
-Scene，结构输出以少量剧情线/篇章纲/伏笔/揭示为稳定基线。
-
-常用 repair 环境变量：
-
-- `PHASE0_REPAIR_SOURCE_ARTIFACT_PATH`
-- `PHASE0_REPAIR_MAX_FAILED_BATCHES`
-- `PHASE0_REPAIR_CONCURRENCY`
-- `PHASE0_REPAIR_ATTEMPTS`
-- `PHASE1A_REPAIR_SOURCE_ARTIFACT_PATH`
-- `PHASE1A_REPAIR_MAX_FAILED_BATCHES`
-- `PHASE1A_REPAIR_ATTEMPTS`
-- `PHASE1A_REPAIR_BATCH_IDS`
-- `PHASE2A_REPAIR_SOURCE_ARTIFACT_PATH`
-- `PHASE2B_REPAIR_SOURCE_ARTIFACT_PATH`
-
-真实服务路径使用 `DEEP_IMPORT_STAGE_REPAIR_ATTEMPTS=1`、
-`DEEP_IMPORT_STAGE_REPAIR_MAX_FAILED_UNITS=6`、
-`DEEP_IMPORT_STAGE_REPAIR_MAX_FAILED_RATIO=0.20` 作为默认自动 repair 策略。
-Phase 0 少量 batch 失败时自动重跑并合并一次；Phase 1a 对有限缺章只做一轮
-single-chapter fallback，仍缺章时记录 `remaining_missing_after_fallback`，
-交由后续门禁或显式 artifact repair 处理。
+这些字段只保留恢复、审计和展示所需的 compact 信息，不保存 API key、完整正文、raw
+prompt 或 raw LLM 输出。阶段恢复策略由服务路径自己执行：Phase 0 少量 batch 失败时
+自动重跑并合并一次；Phase 1a 对有限缺章做一轮 single-chapter fallback；Phase 2a /
+2b 通过 checkpoint 和当前 Scene commit 结果复用已完成单元，只重跑失败或未完成单元。
 
 Phase2b 稳定性相关环境变量：
 
@@ -207,38 +136,19 @@ Phase2b 稳定性相关环境变量：
 - `PHASE2_ALIAS_RELATION_ENTITY_INDEX_CHAR_LIMIT`
 - `PHASE2_ALIAS_RELATION_ENTITY_INDEX_FALLBACK_LIMIT`
 
-Phase 2a repair 会读取失败/降级的 Phase2a artifact 中的 checkpoint，按本轮
-`SceneCommitter` 结果把旧 Scene ID 映射到新 Scene ID，先 hydrate source
-`world_snapshot`，再只重跑失败或未完成的 Scene，并写入新的 Phase2a artifact；
-旧 artifact 不覆盖。若只有少量 Scene/batch 失败，可使用：
+Phase 2 的 Scene 实体抽取实现位于 `entity_extraction/` 子包；
+`SceneEntityExtractionService` 保持对外入口，顶层
+`scene_entity_extraction.py` 仅作为旧导入和 monkeypatch 路径的兼容 shell。
 
-```bash
-RUN_DEEP_IMPORT_60_PHASE2A_REAL_LLM=1 \
-  PHASE2A_REPAIR_SOURCE_ARTIFACT_PATH=.test-logs/deep_import_real_llm/phase2a_real_llm_<timestamp>.artifact.json \
-  LLM_TIMEOUT=180 pytest modules/imports/tests/test_deep_import_real_llm.py -q -s
-```
-
-Phase 2b repair 会读取失败/降级的 Phase2b artifact，按本轮 Scene commit 结果
-remap `alias_relation_checkpoints`，优先 hydrate source Phase2b `world_snapshot`
-以保留已成功的别名/关系，再只重跑失败或未完成的 Scene。需要 repair 时使用：
-
-```bash
-RUN_DEEP_IMPORT_60_PHASE2B_REAL_LLM=1 \
-  PHASE2B_REPAIR_SOURCE_ARTIFACT_PATH=.test-logs/deep_import_real_llm/phase2b_real_llm_<timestamp>.artifact.json \
-  LLM_TIMEOUT=180 pytest modules/imports/tests/test_deep_import_real_llm.py -q -s
-```
-
-Phase 2 的 Scene 实体抽取由 `SceneEntityExtractionService` 保持对外入口和旧私有
-wrapper，内部策略拆在同模块内部：
-
-- `scene_entity_single_scene.py` — 单 Scene 串行 Phase 2a
-- `scene_entity_parallel.py` — 小样本并发抽取与 bulk 失败 fallback
-- `scene_entity_bulk.py` — bulk 抽取、小样本 LLM supplement 与 fallback 候选
-- `scene_entity_alias_relation.py` — Phase 2b 别名/关系抽取
-- `scene_entity_persistence.py` — entity / alias / relation / delta / map observation 写入
-- `scene_entity_text.py`、`scene_entity_snapshots.py`、`scene_entity_llm_adapters.py`
+- `entity_extraction/scene_entity_strategy.py` — 选择 empty / small-sample parallel / bulk / batched / checkpoint resume 路由
+- `entity_extraction/scene_entity_single_scene.py` — 单 Scene 串行 Phase 2a
+- `entity_extraction/scene_entity_parallel.py` — 小样本并发抽取与 bulk 失败 fallback
+- `entity_extraction/scene_entity_bulk.py` — bulk 抽取、小样本 LLM supplement 与 fallback 候选
+- `entity_extraction/scene_entity_alias_relation.py` — Phase 2b 别名/关系抽取
+- `entity_extraction/scene_entity_persistence.py` — entity / alias / relation / delta / map observation 写入
+- `entity_extraction/scene_entity_text.py`、`entity_extraction/scene_entity_snapshots.py`、`entity_extraction/scene_entity_llm_adapters.py`
   — Scene 正文、context snapshot、LLM adapter 支撑逻辑
-- `scene_entity_checkpoint.py`、`scene_entity_config.py` — checkpoint、错误分类和 Phase 2 常量
+- `entity_extraction/scene_entity_checkpoint.py`、`entity_extraction/scene_entity_config.py` — checkpoint、错误分类和 Phase 2 常量
 
 这些拆分不改变 `extract_by_scenes()` / `extract_alias_relations()` 返回字段、
 checkpoint shape、snapshot/audit summary、LLM prompt 或 timeout 语义。

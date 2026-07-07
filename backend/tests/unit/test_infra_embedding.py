@@ -151,6 +151,20 @@ class TestEmbeddingCacheTTL:
         cache.get("hello", is_query=False)  # 触发过期删除
         assert len(cache._cache) == 0
 
+    def test_get_does_not_extend_ttl(self) -> None:
+        """GREEN: get 命中不会刷新 timestamp 或延长 TTL"""
+        from infrastructure.embedding.cache import EmbeddingCache
+
+        cache = EmbeddingCache(ttl=10.0)
+
+        with patch(
+            "infrastructure.embedding.cache.time.monotonic",
+            side_effect=[100.0, 105.0, 111.0],
+        ):
+            cache.set("hello", [0.1, 0.2], is_query=False)
+            assert cache.get("hello", is_query=False) == [0.1, 0.2]
+            assert cache.get("hello", is_query=False) is None
+
 
 class TestEmbeddingCacheLRUEviction:
     """EmbeddingCache LRU 淘汰"""
@@ -172,6 +186,37 @@ class TestEmbeddingCacheLRUEviction:
         assert cache.get("b", is_query=False) == [0.2]
         assert cache.get("c", is_query=False) == [0.3]
         assert cache.get("d", is_query=False) == [0.4]
+
+    def test_get_hit_refreshes_lru_order(self) -> None:
+        """GREEN: get 命中后该 key 成为最新条目"""
+        from infrastructure.embedding.cache import EmbeddingCache
+
+        cache = EmbeddingCache(max_size=2)
+
+        cache.set("a", [0.1], is_query=False)
+        cache.set("b", [0.2], is_query=False)
+        assert cache.get("a", is_query=False) == [0.1]
+
+        cache.set("c", [0.3], is_query=False)
+
+        assert cache.get("a", is_query=False) == [0.1]
+        assert cache.get("b", is_query=False) is None
+        assert cache.get("c", is_query=False) == [0.3]
+
+    def test_set_existing_key_refreshes_lru_without_eviction(self) -> None:
+        """GREEN: 满容量覆盖已有 key 不会先误删其他 key"""
+        from infrastructure.embedding.cache import EmbeddingCache
+
+        cache = EmbeddingCache(max_size=2)
+
+        cache.set("a", [0.1], is_query=False)
+        cache.set("b", [0.2], is_query=False)
+        cache.set("a", [0.9], is_query=False)
+        cache.set("c", [0.3], is_query=False)
+
+        assert cache.get("a", is_query=False) == [0.9]
+        assert cache.get("b", is_query=False) is None
+        assert cache.get("c", is_query=False) == [0.3]
 
     def test_no_eviction_when_under_limit(self) -> None:
         """GREEN: 未超上限时不淘汰"""
@@ -376,6 +421,7 @@ class TestBgeOnnxWorkerInit:
         assert worker._quantization == "int8"
         assert worker._max_batch == 64
         assert worker._timeout == 5.0
+        assert worker._queue_maxsize == 200
         assert worker._healthy is False
         assert worker._request_counter == 0
 
@@ -389,12 +435,21 @@ class TestBgeOnnxWorkerInit:
             quantization="fp16",
             max_batch=128,
             timeout=30.0,
+            queue_maxsize=17,
         )
 
         assert worker._device == "cuda"
         assert worker._quantization == "fp16"
         assert worker._max_batch == 128
         assert worker._timeout == 30.0
+        assert worker._queue_maxsize == 17
+
+    def test_init_clamps_queue_maxsize_to_at_least_one(self) -> None:
+        from infrastructure.embedding.worker import BgeOnnxWorker
+
+        worker = BgeOnnxWorker(model_path="my-model", queue_maxsize=0)
+
+        assert worker._queue_maxsize == 1
 
     def test_healthy_when_no_process(self) -> None:
         """GREEN: 无进程时 healthy 返回 False"""
@@ -790,6 +845,37 @@ class TestBgeEmbeddingClientSingleton:
 
 class TestBgeEmbeddingClientStartClose:
     """BgeEmbeddingClient.start/close"""
+
+    def test_init_passes_queue_maxsize_from_settings(self) -> None:
+        from types import SimpleNamespace
+
+        from infrastructure.embedding.client import BgeEmbeddingClient
+
+        settings = SimpleNamespace(
+            bge_onnx_model_path="test-model",
+            bge_onnx_device="cpu",
+            bge_onnx_quantization="int8",
+            inference_worker_max_batch=64,
+            inference_worker_timeout=30.0,
+            inference_worker_queue_maxsize=123,
+            embedding_batch_queue_delay_ms=5,
+            embedding_batch_queue_max_items=64,
+        )
+
+        with (
+            patch("infrastructure.embedding.client.get_settings", return_value=settings),
+            patch("infrastructure.embedding.client.BgeOnnxWorker") as worker_cls,
+        ):
+            BgeEmbeddingClient()
+
+        worker_cls.assert_called_once_with(
+            model_path="test-model",
+            device="cpu",
+            quantization="int8",
+            max_batch=64,
+            timeout=30.0,
+            queue_maxsize=123,
+        )
 
     @pytest.mark.asyncio
     async def test_start_already_started(self) -> None:

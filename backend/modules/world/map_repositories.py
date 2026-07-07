@@ -13,9 +13,10 @@ import logging
 import uuid
 from typing import Any, ClassVar
 
-from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy import String, and_, cast, delete, func, literal, or_, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from modules.world.map_models import (
     MapConfig,
@@ -34,6 +35,10 @@ from modules.world.map_models import (
 from modules.world.models import CoreEntity
 
 logger = logging.getLogger(__name__)
+
+_MAP_BREADCRUMB_MAX_DEPTH = 32
+_MAP_TILE_UPSERT_POSTGRES_CHUNK_SIZE = 1000
+_MAP_TILE_UPSERT_SQLITE_CHUNK_SIZE = 180
 
 # ============================================================
 # MapEntityRepository — 放置型地图实体泛型基类
@@ -239,17 +244,47 @@ class MapConfigRepository:
         map_id: uuid.UUID,
     ) -> list[MapConfig]:
         """从当前地图向上遍历 parent_map_id 到顶层（含当前）。"""
-        chain: list[MapConfig] = []
-        current = await self.get(db, map_id)
-        visited: set[uuid.UUID] = set()
-        while current is not None and current.id not in visited:
-            visited.add(current.id)
-            chain.append(current)
-            if current.parent_map_id is None:
-                break
-            current = await self.get(db, current.parent_map_id)
-        chain.reverse()  # 顶层在前，当前在尾
-        return chain
+        anchor = (
+            select(
+                MapConfig.id.label("id"),
+                MapConfig.parent_map_id.label("parent_map_id"),
+                literal(0).label("depth"),
+                (
+                    literal(",")
+                    + cast(MapConfig.id, String)
+                    + literal(",")
+                ).label("path"),
+            )
+            .where(MapConfig.id == map_id)
+            .cte(name="map_breadcrumbs", recursive=True)
+        )
+
+        parent = aliased(MapConfig)
+        parent_path_token = literal("%,") + cast(parent.id, String) + literal(",%")
+        anchor = anchor.union_all(
+            select(
+                parent.id,
+                parent.parent_map_id,
+                (anchor.c.depth + 1).label("depth"),
+                (
+                    anchor.c.path
+                    + cast(parent.id, String)
+                    + literal(",")
+                ).label("path"),
+            ).where(
+                parent.id == anchor.c.parent_map_id,
+                anchor.c.depth < _MAP_BREADCRUMB_MAX_DEPTH,
+                anchor.c.path.not_like(parent_path_token),
+            )
+        )
+
+        stmt = (
+            select(MapConfig)
+            .join(anchor, MapConfig.id == anchor.c.id)
+            .order_by(anchor.c.depth.desc())
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
 
 
 # ============================================================
@@ -315,32 +350,44 @@ class MapTileRepository:
         """
         from sqlalchemy.dialects import postgresql as pg_dialect
 
+        if not changes:
+            return 0
+
         dialect_name = db.bind.dialect.name if db.bind else "sqlite"
         insert_fn = pg_dialect.insert if dialect_name == "postgresql" else sqlite_insert
-        count = 0
+
+        # PostgreSQL cannot update the same conflicting row twice within one
+        # multi-values INSERT. Collapse repeated coordinates so the last edit wins.
+        rows_by_coord: dict[tuple[int, int], dict[str, Any]] = {}
         for change in changes:
-            stmt = (
-                insert_fn(MapTile)
-                .values(
-                    novel_id=novel_id,
-                    map_id=map_id,
-                    hex_q=change["hex_q"],
-                    hex_r=change["hex_r"],
-                    terrain_type=change["terrain_type"],
-                    elevation=change.get("elevation") or 0,
-                )
-                .on_conflict_do_update(
-                    index_elements=["map_id", "hex_q", "hex_r"],
-                    set_={
-                        "terrain_type": change["terrain_type"],
-                        "elevation": change.get("elevation") or 0,
-                    },
-                )
+            rows_by_coord[(change["hex_q"], change["hex_r"])] = {
+                "novel_id": novel_id,
+                "map_id": map_id,
+                "hex_q": change["hex_q"],
+                "hex_r": change["hex_r"],
+                "terrain_type": change["terrain_type"],
+                "elevation": change.get("elevation") or 0,
+            }
+
+        rows = list(rows_by_coord.values())
+        chunk_size = (
+            _MAP_TILE_UPSERT_SQLITE_CHUNK_SIZE
+            if dialect_name == "sqlite"
+            else _MAP_TILE_UPSERT_POSTGRES_CHUNK_SIZE
+        )
+        for start in range(0, len(rows), chunk_size):
+            chunk = rows[start : start + chunk_size]
+            insert_stmt = insert_fn(MapTile).values(chunk)
+            stmt = insert_stmt.on_conflict_do_update(
+                index_elements=["map_id", "hex_q", "hex_r"],
+                set_={
+                    "terrain_type": insert_stmt.excluded.terrain_type,
+                    "elevation": insert_stmt.excluded.elevation,
+                },
             )
             await db.execute(stmt)
-            count += 1
         await db.flush()
-        return count
+        return len(changes)
 
     async def delete_by_map(
         self,

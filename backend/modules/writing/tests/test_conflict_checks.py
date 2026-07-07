@@ -23,6 +23,8 @@ from modules.writing.conflict_ai import (
     ConflictSuggestionService,
 )
 from modules.writing.repositories import WritingConflictCheckRepository
+from modules.writing.schemas import WritingConflictCheckCreate
+from modules.writing.services import WritingConflictCheckService
 
 
 async def _create_project(async_client: AsyncClient, title: str = "冲突检查项目") -> str:
@@ -165,6 +167,127 @@ async def test_conflict_check_persists_rule_hits_and_summary(
     assert required_location["source"]["field"] == "必须发生"
     assert required_location["source"]["excerpt"] in {"主角拿到令牌", "王后签字"}
     assert kinds["required_missing"]["status"] == "open"
+
+
+@pytest.mark.asyncio
+async def test_conflict_check_uses_injected_scene_loader_for_rule_hits(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    novel_id = uuid.uuid4()
+    scene_id = uuid.uuid4()
+    db_session.add(Project(id=novel_id, title="Injected scene loader"))
+    await db_session.flush()
+    calls: list[tuple[object, str, str]] = []
+
+    async def fake_scene_loader(
+        db: AsyncSession,
+        passed_novel_id: str,
+        passed_scene_id: str,
+    ) -> object:
+        calls.append((db, passed_novel_id, passed_scene_id))
+        return SimpleNamespace(
+            id=passed_scene_id,
+            title="东门交涉",
+            must_happen="王后签字",
+            must_not_happen="主角死亡",
+            pov_character_id=None,
+        )
+
+    async def fake_map_summary(
+        _db: AsyncSession,
+        _novel_id: str,
+        _scene_id: str,
+        *,
+        include_candidates: bool = False,
+    ) -> dict:
+        return {"primary_location": None, "risks": [], "warnings": []}
+
+    async def fake_memory_evidence(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        return None
+
+    monkeypatch.setattr(
+        "modules.world.map_facade.summarize_scene_map_for_writing",
+        fake_map_summary,
+    )
+    monkeypatch.setattr(
+        "modules.memory.facade.get_continuity_evidence_for_writing",
+        fake_memory_evidence,
+    )
+    service = WritingConflictCheckService(scene_contract_loader=fake_scene_loader)
+
+    response = await service.create_check(
+        db_session,
+        WritingConflictCheckCreate(
+            novel_id=str(novel_id),
+            chapter_index=1,
+            scene_id=str(scene_id),
+            content="主角死亡。",
+        ),
+    )
+
+    assert calls == [(db_session, str(novel_id), str(scene_id))]
+    assert response.status == "completed"
+    assert response.summary_json["degraded_sources"] == []
+    kinds = {item.kind: item for item in response.items}
+    assert kinds["forbidden_present"].source_module == "outline"
+    assert kinds["forbidden_present"].source_id == str(scene_id)
+    assert "主角死亡" in kinds["forbidden_present"].evidence_summary
+    assert kinds["required_missing"].source_module == "outline"
+    assert "王后签字" in kinds["required_missing"].evidence_summary
+
+
+@pytest.mark.parametrize("loader_mode", ["none", "exception"])
+@pytest.mark.asyncio
+async def test_conflict_check_injected_scene_loader_degrades_on_missing_scene(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    loader_mode: str,
+) -> None:
+    novel_id = uuid.uuid4()
+    scene_id = uuid.uuid4()
+    db_session.add(Project(id=novel_id, title=f"Scene loader {loader_mode}"))
+    await db_session.flush()
+
+    async def fake_scene_loader(
+        _db: AsyncSession,
+        _novel_id: str,
+        _scene_id: str,
+    ) -> object | None:
+        if loader_mode == "exception":
+            raise RuntimeError("outline unavailable")
+        return None
+
+    async def fake_map_summary(
+        _db: AsyncSession,
+        _novel_id: str,
+        _scene_id: str,
+        *,
+        include_candidates: bool = False,
+    ) -> dict:
+        return {"primary_location": None, "risks": [], "warnings": []}
+
+    monkeypatch.setattr(
+        "modules.world.map_facade.summarize_scene_map_for_writing",
+        fake_map_summary,
+    )
+    service = WritingConflictCheckService(scene_contract_loader=fake_scene_loader)
+
+    response = await service.create_check(
+        db_session,
+        WritingConflictCheckCreate(
+            novel_id=str(novel_id),
+            chapter_index=1,
+            scene_id=str(scene_id),
+            content="主角死亡。",
+        ),
+    )
+
+    assert response.status == "degraded"
+    assert response.summary_json["degraded_sources"] == ["outline"]
+    assert [
+        item for item in response.items if item.source_module == "outline"
+    ] == []
 
 
 @pytest.mark.asyncio

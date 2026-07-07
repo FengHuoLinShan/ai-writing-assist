@@ -6,6 +6,7 @@ Writing 模块测试
 
 from __future__ import annotations
 
+import ast
 import subprocess
 import sys
 import uuid
@@ -73,6 +74,31 @@ def test_writing_facade_cold_import_does_not_cycle_through_worker() -> None:
     assert "list_latest_drafts_for_chapters get_project_writing_stats TaskWorker" in (
         result.stdout
     )
+
+
+def test_writing_facade_does_not_import_api_response_schema() -> None:
+    import modules.writing.facade as writing_facade
+
+    facade_source = Path(writing_facade.__file__).read_text()
+    contracts_source = Path("modules/writing/contracts.py").read_text()
+
+    assert not hasattr(writing_facade, "WritingDraftResponse")
+    assert "WritingDraftResponse" not in facade_source
+    assert "WritingDraftResponse" not in contracts_source
+
+
+def test_writing_services_has_no_top_level_outline_facade_import() -> None:
+    services_path = Path("modules/writing/services.py")
+    tree = ast.parse(services_path.read_text(), filename=str(services_path))
+
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom):
+            assert node.module != "modules.outline.facade"
+        elif isinstance(node, ast.Import):
+            assert all(
+                alias.name != "modules.outline.facade"
+                for alias in node.names
+            )
 
 
 @pytest.fixture
@@ -620,6 +646,42 @@ class TestWritingDraftService:
         repo.create.assert_awaited_once_with(db, sample_draft_data)
 
     @pytest.mark.asyncio
+    async def test_create_draft_sanitizes_html_before_repo(
+        self,
+        sample_draft_data: WritingDraftCreate,
+    ) -> None:
+        async def _create(_db: object, data: WritingDraftCreate) -> object:
+            return _make_draft(
+                novel_id=uuid.UUID(data.novel_id),
+                title=data.title,
+                content=data.content,
+            )
+
+        repo = MagicMock()
+        repo.create = AsyncMock(side_effect=_create)
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+        unsafe_data = sample_draft_data.model_copy(
+            update={
+                "title": "A < B",
+                "content": (
+                    "A < B\n<script>alert(1)</script>正文"
+                    "<b>加粗</b><br>下一行 &lt;safe&gt;"
+                ),
+            }
+        )
+
+        resp = await service.create_draft(db, unsafe_data)
+
+        passed = repo.create.await_args.args[1]
+        assert passed.title == "A < B"
+        assert passed.content == "A < B\n正文加粗\n下一行 &lt;safe&gt;"
+        assert resp.content == "A < B\n正文加粗\n下一行 &lt;safe&gt;"
+        assert "alert" not in resp.content
+        assert "<script>" not in resp.content
+        assert "<b>" not in resp.content
+
+    @pytest.mark.asyncio
     async def test_get_draft(
         self,
         sample_draft_data: WritingDraftCreate,
@@ -691,6 +753,78 @@ class TestWritingDraftService:
 
         assert resp.title == "更新后的标题"
         repo.update.assert_awaited_once_with(db, draft, update_data)
+
+    @pytest.mark.asyncio
+    async def test_update_draft_sanitizes_html_before_repo(
+        self,
+        sample_draft_data: WritingDraftCreate,
+    ) -> None:
+        draft = _make_draft(novel_id=uuid.UUID(sample_draft_data.novel_id))
+
+        async def _update(
+            _db: object,
+            _draft: object,
+            data: WritingDraftUpdate,
+        ) -> object:
+            return _make_draft(
+                id=draft.id,
+                novel_id=draft.novel_id,
+                title=data.title,
+                content=data.content,
+            )
+
+        repo = MagicMock()
+        repo.get = AsyncMock(return_value=draft)
+        repo.get_latest_by_chapter = AsyncMock(return_value=draft)
+        repo.update = AsyncMock(side_effect=_update)
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
+        resp = await service.update_draft(
+            db,
+            str(draft.id),
+            WritingDraftUpdate(
+                title="<i>更新</i>",
+                content="A < B<script>alert(1)</script>正文<b>加粗</b>",
+            ),
+            sample_draft_data.novel_id,
+        )
+
+        passed = repo.update.await_args.args[2]
+        assert passed.title == "更新"
+        assert passed.content == "A < B正文加粗"
+        assert resp.content == "A < B正文加粗"
+        assert "alert" not in resp.content
+
+    @pytest.mark.asyncio
+    async def test_publish_draft_deduplicates_using_sanitized_content(
+        self,
+        sample_draft_data: WritingDraftCreate,
+    ) -> None:
+        latest = _make_draft(
+            novel_id=uuid.UUID(sample_draft_data.novel_id),
+            title="第一章",
+            content="正文加粗",
+            status="published",
+        )
+        repo = MagicMock()
+        repo.get_latest_by_chapter = AsyncMock(return_value=latest)
+        repo.create_with_status = AsyncMock()
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
+        resp = await service.publish_draft(
+            db,
+            WritingDraftCreate(
+                novel_id=sample_draft_data.novel_id,
+                chapter_index=1,
+                title="<b>第一章</b>",
+                content="正文<b>加粗</b>",
+            ),
+        )
+
+        assert resp.id == str(latest.id)
+        repo.create_with_status.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_update_draft_conflict_detection(
@@ -1191,6 +1325,96 @@ async def test_split_chapter_at_offset_syncs_scene_chunks(
     assert new_item.scene_index == source_item.scene_index + 1
 
 
+@pytest.mark.asyncio
+async def test_split_chapter_at_offset_uses_injected_scene_chunk_splitter(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = str(uuid.uuid4())
+    calls: list[dict[str, object]] = []
+
+    async def fake_split_scene_chunk_to_new_chapter(
+        db: AsyncSession,
+        passed_novel_id: str,
+        *,
+        source_scene_id: str,
+        source_chapter_id: str,
+        source_chapter_index: int,
+        new_chapter_id: str,
+        new_chapter_index: int,
+        split_pos: int,
+        new_chapter_length: int,
+    ) -> list[dict[str, object]]:
+        calls.append(
+            {
+                "db": db,
+                "novel_id": passed_novel_id,
+                "source_scene_id": source_scene_id,
+                "source_chapter_id": source_chapter_id,
+                "source_chapter_index": source_chapter_index,
+                "new_chapter_id": new_chapter_id,
+                "new_chapter_index": new_chapter_index,
+                "split_pos": split_pos,
+                "new_chapter_length": new_chapter_length,
+            }
+        )
+        return [
+            {
+                "id": "fake-scene-2",
+                "novel_id": passed_novel_id,
+                "scene_index": 2,
+                "title": "Injected Scene",
+                "scene_chunks": [
+                    {
+                        "chapter_id": new_chapter_id,
+                        "chapter_index": new_chapter_index,
+                        "start_pos": 0,
+                        "end_pos": new_chapter_length,
+                    }
+                ],
+                "chapter_ids": [new_chapter_id],
+            }
+        ]
+
+    service = WritingDraftService(
+        split_scene_chunk_to_new_chapter=fake_split_scene_chunk_to_new_chapter
+    )
+    await service.create_draft(
+        db_session,
+        WritingDraftCreate(
+            novel_id=novel_id,
+            chapter_index=1,
+            title="第一章",
+            content="abcdEFGH",
+        ),
+    )
+
+    result = await service.split_chapter_at_offset(
+        db_session,
+        novel_id=novel_id,
+        chapter_index=1,
+        split_pos=4,
+        source_scene_id="fake-scene-1",
+    )
+
+    assert calls == [
+        {
+            "db": db_session,
+            "novel_id": novel_id,
+            "source_scene_id": "fake-scene-1",
+            "source_chapter_id": "1",
+            "source_chapter_index": 1,
+            "new_chapter_id": "2",
+            "new_chapter_index": 2,
+            "split_pos": 4,
+            "new_chapter_length": 4,
+        }
+    ]
+    assert result.source_draft.content == "abcd"
+    assert result.new_draft.content == "EFGH"
+    assert result.scenes[0].id == "fake-scene-2"
+    assert result.scenes[0].scene_chunks[0]["end_pos"] == 4
+
+
 # ============================================================
 # Facade 测试
 # ============================================================
@@ -1211,6 +1435,7 @@ class TestWritingFacade:
             sample_draft_data.content or "",
         )
         assert draft.id is not None
+        assert isinstance(draft, WritingDraftContract)
         assert task_id is not None  # 发布任务也应创建
         assert draft.title == "第一章：开端"
         assert draft.chapter_index == 1
@@ -1305,6 +1530,74 @@ class TestWritingFacade:
         assert [draft.chapter_index for draft in drafts] == [1, 3]
         assert [draft.title for draft in drafts] == ["第一章 v2", "第三章"]
         assert [draft.content for draft in drafts] == ["新内容", "第三章内容"]
+        assert [draft.version_number for draft in drafts] == [2, 1]
+        assert [draft.status for draft in drafts] == ["published", "published"]
+        assert all(isinstance(draft, WritingDraftContract) for draft in drafts)
+        assert all(draft.id for draft in drafts)
+        assert all(draft.created_at is not None for draft in drafts)
+        assert all(draft.updated_at is not None for draft in drafts)
+
+    @pytest.mark.asyncio
+    async def test_list_latest_drafts_for_chapters_truncates_latest_content(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        service = WritingDraftService()
+        await service.create_published_draft(
+            db_session,
+            WritingDraftCreate(
+                novel_id=novel_id,
+                chapter_index=1,
+                title="第一章 v1",
+                content="old-contents",
+            ),
+        )
+        latest = await service.create_published_draft(
+            db_session,
+            WritingDraftCreate(
+                novel_id=novel_id,
+                chapter_index=1,
+                title="第一章 v2",
+                content="new-contents",
+                provenance_json={"source": "projection-test"},
+            ),
+        )
+        await service.set_conflict_check_snapshot(
+            db_session,
+            latest.id,
+            novel_id,
+            {"source": {"module": "writing-test"}},
+        )
+        await service.create_published_draft(
+            db_session,
+            WritingDraftCreate(
+                novel_id=novel_id,
+                chapter_index=2,
+                title="第二章",
+                content="chapter-two",
+            ),
+        )
+
+        drafts = await list_latest_drafts_for_chapters(
+            db_session,
+            novel_id,
+            [2, 1],
+            content_limit=4,
+        )
+
+        assert [draft.chapter_index for draft in drafts] == [1, 2]
+        assert [draft.title for draft in drafts] == ["第一章 v2", "第二章"]
+        assert [draft.content for draft in drafts] == ["new-", "chap"]
+        assert [draft.version_number for draft in drafts] == [2, 1]
+        assert [draft.status for draft in drafts] == ["published", "published"]
+        assert drafts[0].id == latest.id
+        assert drafts[0].provenance_json == {"source": "projection-test"}
+        assert drafts[0].conflict_check_snapshot_json == {
+            "source": {"module": "writing-test"}
+        }
+        assert drafts[0].created_at is not None
+        assert drafts[0].updated_at is not None
 
     @pytest.mark.asyncio
     async def test_list_chapter_indices(
@@ -1407,6 +1700,55 @@ class TestWritingSplitApi:
 
 
 class TestWritingPublishApi:
+    @pytest.mark.asyncio
+    async def test_autosave_update_and_publish_sanitize_html(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+
+        autosave = await async_client.post(
+            "/api/writing/drafts/autosave",
+            json={
+                "novel_id": novel_id,
+                "chapter_index": 1,
+                "title": "<b>草稿</b>",
+                "content": "A < B<script>alert(1)</script>正文<b>加粗</b>",
+            },
+        )
+        assert autosave.status_code == 201
+        saved = autosave.json()
+        assert saved["title"] == "草稿"
+        assert saved["content"] == "A < B正文加粗"
+
+        updated = await async_client.put(
+            f"/api/writing/drafts/{saved['id']}?novel_id={novel_id}",
+            json={
+                "title": "<i>暂存</i>",
+                "content": "普通 A < B<style>.x{}</style>正文<u>下划线</u>",
+            },
+        )
+        assert updated.status_code == 200
+        updated_data = updated.json()
+        assert updated_data["title"] == "暂存"
+        assert updated_data["content"] == "普通 A < B正文下划线"
+
+        published = await async_client.post(
+            "/api/writing/drafts",
+            json={
+                "novel_id": novel_id,
+                "chapter_index": 1,
+                "title": "<b>发布</b>",
+                "content": "正文<script>alert(1)</script><b>加粗</b>",
+            },
+        )
+        assert published.status_code == 201
+        published_draft = published.json()["draft"]
+        assert published_draft["title"] == "发布"
+        assert published_draft["content"] == "正文加粗"
+        assert "<script>" not in published_draft["content"]
+        assert "<b>" not in published_draft["content"]
+
     @pytest.mark.asyncio
     async def test_publish_draft_increments_version_and_enqueues_task(
         self,
@@ -1560,6 +1902,47 @@ async def test_writing_generation_creates_candidate_without_publish_task(
 
     tasks_result = await db_session.execute(select(AsyncTask))
     assert tasks_result.scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_writing_generation_sanitizes_candidate_html(
+    db_session: AsyncSession,
+) -> None:
+    from modules.context.facade import confirm_context
+    from modules.writing.services import WritingGenerationService
+
+    novel_id = "00000000-0000-0000-0000-00000000a209"
+    confirmation = await confirm_context(
+        db_session,
+        novel_id=novel_id,
+        action="writing.generate",
+        task="生成含 HTML 的候选正文",
+        scope="chapter",
+        chapter_index=9,
+    )
+    service = WritingGenerationService(
+        llm_client=FakePovLLMClient("<script>alert(1)</script>正文<b>加粗</b>")
+    )
+
+    draft = await service.generate_candidate(
+        db_session,
+        novel_id=novel_id,
+        chapter_index=9,
+        title="<b>第九章</b>",
+        instruction=None,
+        context_confirmation_id=confirmation.id,
+    )
+
+    assert draft.status == "candidate"
+    assert draft.title == "第九章"
+    assert draft.content == "正文加粗"
+    assert "<script>" not in draft.content
+    assert "<b>" not in draft.content
+    assert "alert" not in draft.content
+    assert draft.provenance_json["content_sanitization"] == {
+        "content_html_removed": True,
+        "title_html_removed": True,
+    }
 
 
 @pytest.mark.asyncio

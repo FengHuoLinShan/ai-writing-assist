@@ -9,6 +9,7 @@
 - LLM_PROXY_URL / LLM_TRUST_ENV: LLM HTTP 代理配置
 - LLM_HEALTH_REQUIRED / LLM_RETRY_*: LLM health 和重试运行参数
 - EMBEDDING_DIM: embedding 向量维度（默认 768）
+- IMPORT_MAX_CHAPTERS: 单次导入/深度导入最大章节数（默认 1000）
 - POOL_SIZE: 数据库连接池大小（默认 10）
 - MAX_OVERFLOW: 数据库连接池最大溢出（默认 20）
 - LOG_LEVEL: 日志级别（默认 INFO）
@@ -21,18 +22,26 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
-# 尝试加载 .env 文件（dev 环境）
-_env_path = Path(__file__).resolve().parent.parent / ".env"
-if _env_path.exists():
-    with open(_env_path, encoding="utf-8") as _f:
-        for _line in _f:
-            _line = _line.strip()
-            if not _line or _line.startswith("#") or "=" not in _line:
+
+def load_env_file(env_path: Path | None = None) -> None:
+    """Load backend .env values without overriding existing environment."""
+    path = env_path or Path(__file__).resolve().parent.parent / ".env"
+    if not path.exists():
+        return
+
+    with open(path, encoding="utf-8") as env_file:
+        for raw_line in env_file:
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
                 continue
-            _key, _value = _line.split("=", 1)
-            _key, _value = _key.strip(), _value.strip().strip("\"'")
-            if _key not in os.environ:
-                os.environ[_key] = _value
+            key, value = line.split("=", 1)
+            key, value = key.strip(), value.strip().strip("\"'")
+            if key not in os.environ:
+                os.environ[key] = value
+
+
+# 尝试加载 .env 文件（dev 环境）
+load_env_file()
 
 
 def _env(key: str, default: str = "") -> str:
@@ -58,6 +67,19 @@ def _env_float(key: str, default: float) -> float:
     if value is None:
         return default
     return float(value)
+
+
+_CORS_WILDCARD_ENVS = {"development", "test", "local"}
+
+
+def validate_cors_origins(app_env: str, origins: list[str]) -> None:
+    """Reject wildcard CORS in non-local runtime environments."""
+    normalized_env = app_env.strip().lower()
+    allows_wildcard = not origins or "*" in origins
+    if allows_wildcard and normalized_env not in _CORS_WILDCARD_ENVS:
+        raise RuntimeError(
+            "CORS wildcard origins are only allowed in development, test, or local"
+        )
 
 
 @dataclass(frozen=True)
@@ -102,6 +124,18 @@ class Settings:
     llm_retry_max_delay: float = field(
         default_factory=lambda: _env_float("LLM_RETRY_MAX_DELAY", 60.0)
     )
+    llm_max_concurrent_requests: int = field(
+        default_factory=lambda: _env_int("LLM_MAX_CONCURRENT_REQUESTS", 8)
+    )
+    llm_rate_limit_per_minute: int = field(
+        default_factory=lambda: _env_int("LLM_RATE_LIMIT_PER_MINUTE", 0)
+    )
+    llm_circuit_breaker_failure_threshold: int = field(
+        default_factory=lambda: _env_int("LLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD", 5)
+    )
+    llm_circuit_breaker_reset_seconds: float = field(
+        default_factory=lambda: _env_float("LLM_CIRCUIT_BREAKER_RESET_SECONDS", 60.0)
+    )
 
     # --- Embedding ---
     embedding_dim: int = int(_env("EMBEDDING_DIM", "768"))
@@ -138,6 +172,28 @@ class Settings:
     )
     inference_worker_timeout: float = float(_env("INFERENCE_WORKER_TIMEOUT", "30.0"))
     inference_worker_max_batch: int = int(_env("INFERENCE_WORKER_MAX_BATCH", "64"))
+    inference_worker_queue_maxsize: int = field(
+        default_factory=lambda: _env_int("INFERENCE_WORKER_QUEUE_MAXSIZE", 200)
+    )
+    embedding_batch_queue_delay_ms: int = field(
+        default_factory=lambda: _env_int("EMBEDDING_BATCH_QUEUE_DELAY_MS", 5)
+    )
+    embedding_batch_queue_max_items: int = field(
+        default_factory=lambda: _env_int(
+            "EMBEDDING_BATCH_QUEUE_MAX_ITEMS",
+            _env_int("INFERENCE_WORKER_MAX_BATCH", 64),
+        )
+    )
+
+    # --- Async task worker ---
+    task_worker_max_concurrent_tasks: int = field(
+        default_factory=lambda: _env_int("TASK_WORKER_MAX_CONCURRENT_TASKS", 2)
+    )
+
+    # --- Import ---
+    import_max_chapters: int = field(
+        default_factory=lambda: _env_int("IMPORT_MAX_CHAPTERS", 1000)
+    )
 
     # --- CORS ---
     allowed_origins: list[str] = field(

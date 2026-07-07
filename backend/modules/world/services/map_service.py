@@ -7,19 +7,21 @@ from this module for existing API routes and tests that depend on the historic
 
 from __future__ import annotations
 
-from modules.world.services.map_config_service import MapConfigService
-from modules.world.services.map_dynamic_service import MapDynamicFactService
-from modules.world.services.map_location_binding_service import MapLocationBindingService
-from modules.world.services.map_marker_service import MapMarkerService
-from modules.world.services.map_templates import (
+from modules.world.services.map.map_config_service import MapConfigService
+from modules.world.services.map.map_dynamic_service import MapDynamicFactService
+from modules.world.services.map.map_location_binding_service import (
+    MapLocationBindingService,
+)
+from modules.world.services.map.map_marker_service import MapMarkerService
+from modules.world.services.map.map_templates import (
     _generate_blank_tiles,
     _generate_continent_tiles,
     _generate_islands_tiles,
     generate_detail_tiles,
     generate_template_tiles,
 )
-from modules.world.services.map_territory_service import MapTerritoryService
-from modules.world.services.map_tile_service import MapTileService
+from modules.world.services.map.map_territory_service import MapTerritoryService
+from modules.world.services.map.map_tile_service import MapTileService
 
 __all__ = [
     "MapConfigService",

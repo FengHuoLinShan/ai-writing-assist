@@ -47,7 +47,7 @@ async def summarize_scene_map_for_writing(
     V1 checks default to canonical map context. include_candidates lets writing
     conflict checks opt into candidate/conflicted map observation evidence.
     """
-    from modules.world.services.map_scene_summary import MapSceneSummaryService
+    from modules.world.services.map.map_scene_summary import MapSceneSummaryService
 
     summary = await MapSceneSummaryService().summarize(
         db,

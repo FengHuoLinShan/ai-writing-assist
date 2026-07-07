@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query
 from fastapi import status as http_status
 
+from core.api_params import NovelIdQuery
 from core.dependencies import DbSession
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.context.facade import attach_result_ref, require_fresh_confirmation
@@ -118,7 +119,8 @@ async def _enqueue_confirmed_outline_task(
 async def api_create_thread(
     data: PlotThreadCreate,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     return await _thread_service.create(db, novel_id, data)
 
@@ -126,7 +128,8 @@ async def api_create_thread(
 @router.get("/threads", response_model=PlotThreadListResponse)
 async def api_list_threads(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     status: str | None = Query(None, description="状态过滤"),
     source: str | None = Query(None, description="来源过滤"),
     workflow_id: str | None = Query(None, description="深度导入 workflow ID"),
@@ -150,7 +153,8 @@ async def api_list_threads(
 async def api_get_thread(
     thread_id: str,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     return await _thread_service.get(db, thread_id, novel_id=novel_id)
 
@@ -160,7 +164,8 @@ async def api_update_thread(
     thread_id: str,
     data: PlotThreadUpdate,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     return await _thread_service.update(db, thread_id, data, novel_id=novel_id)
 
@@ -169,7 +174,8 @@ async def api_update_thread(
 async def api_delete_thread(
     thread_id: str,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     await _thread_service.delete(db, thread_id, novel_id=novel_id)
 
@@ -185,7 +191,8 @@ async def api_delete_thread(
 async def api_create_arc(
     data: OutlineArcCreate,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     return await _arc_service.create(db, novel_id, data)
 
@@ -193,7 +200,8 @@ async def api_create_arc(
 @router.get("/arcs", response_model=OutlineArcListResponse)
 async def api_list_arcs(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     status: str | None = Query(None, description="状态过滤"),
     source: str | None = Query(None, description="来源过滤"),
     workflow_id: str | None = Query(None, description="深度导入 workflow ID"),
@@ -217,7 +225,8 @@ async def api_list_arcs(
 async def api_get_arc(
     arc_id: str,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     return await _arc_service.get(db, arc_id, novel_id=novel_id)
 
@@ -227,7 +236,8 @@ async def api_update_arc(
     arc_id: str,
     data: OutlineArcUpdate,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     return await _arc_service.update(db, arc_id, data, novel_id=novel_id)
 
@@ -236,7 +246,8 @@ async def api_update_arc(
 async def api_delete_arc(
     arc_id: str,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     await _arc_service.delete(db, arc_id, novel_id=novel_id)
 
@@ -249,7 +260,8 @@ async def api_delete_arc(
 @router.get("/scene-workbench", response_model=SceneWorkbenchResponse)
 async def api_get_scene_workbench(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     selected_scene_id: str | None = Query(None, description="当前选中的 Scene ID"),
     status: str | None = Query(None, description="Scene 状态过滤"),
     source: str | None = Query(None, description="Scene 来源过滤"),
@@ -298,7 +310,8 @@ async def api_update_scene_workbench_mapping(
     scene_id: str,
     data: SceneMappingUpdate,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     try:
         return await _scene_workbench_service.update_mapping(
@@ -318,7 +331,8 @@ async def api_update_scene_workbench_mapping(
 async def api_preview_scene_merge(
     data: SceneMergeRequest,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     try:
         return await _scene_workbench_service.preview_merge(db, novel_id, data)
@@ -330,7 +344,8 @@ async def api_preview_scene_merge(
 async def api_merge_scene(
     data: SceneMergeRequest,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     try:
         return await _scene_workbench_service.merge(db, novel_id, data)
@@ -345,7 +360,8 @@ async def api_merge_scene(
 async def api_preview_scene_split(
     data: SceneSplitRequest,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     try:
         return await _scene_workbench_service.preview_split(db, novel_id, data)
@@ -357,7 +373,8 @@ async def api_preview_scene_split(
 async def api_split_scene(
     data: SceneSplitRequest,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     try:
         return await _scene_workbench_service.split(db, novel_id, data)
@@ -372,7 +389,8 @@ async def api_split_scene(
 async def api_preview_scene_fusion(
     data: SceneFusionPreviewRequest,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     try:
         return await _scene_workbench_service.preview_llm_fusion(db, novel_id, data)
@@ -387,7 +405,8 @@ async def api_preview_scene_fusion(
 async def api_save_scene_fusion(
     data: SceneFusionSaveRequest,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     try:
         return await _scene_workbench_service.save_llm_fusion(db, novel_id, data)
@@ -419,7 +438,8 @@ async def api_detect_cross_chapter_scenes(
 async def api_create_scene(
     data: SceneCreate,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     return await _scene_workbench_service.create_scene(db, novel_id, data)
 
@@ -427,7 +447,8 @@ async def api_create_scene(
 @router.get("/scenes", response_model=SceneListResponse)
 async def api_list_scenes(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
@@ -437,7 +458,8 @@ async def api_list_scenes(
 @router.get("/scenes/ordered", response_model=list[SceneResponse])
 async def api_list_scenes_ordered(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     contracts = await _scene_service.get_ordered(db, novel_id)
     return [SceneResponse.model_validate(c.__dict__) for c in contracts]
@@ -446,7 +468,8 @@ async def api_list_scenes_ordered(
 @router.get("/scenes/by-chapter", response_model=list[SceneResponse])
 async def api_list_scenes_by_chapter(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     chapter_index: int = Query(..., ge=1, description="章节索引"),
 ):
     contracts = await _scene_service.get_by_chapter(db, novel_id, chapter_index)
@@ -457,7 +480,8 @@ async def api_list_scenes_by_chapter(
 async def api_get_scene(
     scene_id: str,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     return await _scene_service.get(db, scene_id, novel_id=novel_id)
 
@@ -467,7 +491,8 @@ async def api_update_scene(
     scene_id: str,
     data: SceneUpdate,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     return await _scene_workbench_service.update_scene(db, novel_id, scene_id, data)
 
@@ -476,7 +501,8 @@ async def api_update_scene(
 async def api_delete_scene(
     scene_id: str,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     await _scene_workbench_service.delete_scene(db, novel_id, scene_id)
 
@@ -485,7 +511,8 @@ async def api_delete_scene(
 async def api_reorder_scenes(
     data: SceneReorderRequest,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     """批量重排 Scene 顺序，按 scene_ids 列表顺序从 0 重新编号"""
     return await _scene_workbench_service.reorder_scenes(db, novel_id, data.scene_ids)
@@ -495,7 +522,8 @@ async def api_reorder_scenes(
 async def api_split_chapters(
     data: SplitChaptersRequest,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     """断章：从 chapter_index 开始将章节从当前 Scene 移到目标 Scene"""
     return await _scene_workbench_service.split_chapters_legacy(
@@ -575,7 +603,8 @@ async def api_extract_chapter_scenes(
 async def api_create_foreshadowing(
     data: ForeshadowingPlanCreate,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     return await _foreshadowing_service.create(db, novel_id, data)
 
@@ -583,7 +612,8 @@ async def api_create_foreshadowing(
 @router.get("/foreshadowing", response_model=ForeshadowingPlanListResponse)
 async def api_list_foreshadowing(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     status: str | None = Query(None, description="状态过滤"),
     source: str | None = Query(None, description="来源过滤"),
     workflow_id: str | None = Query(None, description="深度导入 workflow ID"),
@@ -607,7 +637,8 @@ async def api_list_foreshadowing(
 async def api_get_foreshadowing(
     plan_id: str,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     return await _foreshadowing_service.get_foreshadowing_plan(db, plan_id, novel_id)
 
@@ -617,7 +648,8 @@ async def api_update_foreshadowing(
     plan_id: str,
     data: ForeshadowingPlanUpdate,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     return await _foreshadowing_service.update(db, plan_id, data, novel_id=novel_id)
 
@@ -629,7 +661,8 @@ async def api_update_foreshadowing(
 async def api_delete_foreshadowing(
     plan_id: str,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     await _foreshadowing_service.delete(db, plan_id, novel_id=novel_id)
 
@@ -647,7 +680,8 @@ async def api_delete_foreshadowing(
 async def api_create_reveal(
     data: RevealPlanCreate,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     return await _reveal_service.create(db, novel_id, data)
 
@@ -655,7 +689,8 @@ async def api_create_reveal(
 @router.get("/reveals", response_model=RevealPlanListResponse)
 async def api_list_reveals(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     status: str | None = Query(None, description="状态过滤"),
     source: str | None = Query(None, description="来源过滤"),
     workflow_id: str | None = Query(None, description="深度导入 workflow ID"),
@@ -679,7 +714,8 @@ async def api_list_reveals(
 async def api_get_reveal(
     plan_id: str,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     return await _reveal_service.get_reveal_plan(db, plan_id, novel_id)
 
@@ -689,7 +725,8 @@ async def api_update_reveal(
     plan_id: str,
     data: RevealPlanUpdate,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     return await _reveal_service.update(db, plan_id, data, novel_id=novel_id)
 
@@ -701,6 +738,7 @@ async def api_update_reveal(
 async def api_delete_reveal(
     plan_id: str,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     await _reveal_service.delete(db, plan_id, novel_id=novel_id)

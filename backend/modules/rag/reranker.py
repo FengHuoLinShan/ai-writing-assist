@@ -13,7 +13,11 @@ RAG 重排序器（可选模块）
 
 from __future__ import annotations
 
+import json
 import logging
+import math
+
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest
@@ -32,6 +36,28 @@ _RERANK_PROMPT = """你是一个小说创作助手的检索质量评估器。
 - 0.0: 完全不相关
 
 只输出 JSON，格式: {"scores": [0.85, 0.32, ...]}"""
+
+
+class _RerankerResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scores: list[float]
+
+    @field_validator("scores", mode="before")
+    @classmethod
+    def _validate_scores(cls, value: object) -> list[float]:
+        if not isinstance(value, list):
+            raise ValueError("scores must be a list")
+
+        scores: list[float] = []
+        for item in value:
+            if isinstance(item, bool) or not isinstance(item, int | float):
+                raise ValueError("scores entries must be JSON numbers")
+            score = float(item)
+            if not math.isfinite(score):
+                raise ValueError("scores entries must be finite")
+            scores.append(score)
+        return scores
 
 
 async def rerank(
@@ -65,7 +91,6 @@ async def rerank(
     from infrastructure.llm.schemas import LLMMessage
 
     client = LLMClient()
-    import json as _json
 
     try:
         request = LLMCallRequest(
@@ -80,11 +105,12 @@ async def rerank(
         )
 
         response = await client.generate(request)
-        data = _json.loads(response.content)
-        scores = data.get("scores", [])
+        data = json.loads(response.content)
+        parsed = _RerankerResponse.model_validate(data)
 
         # 补齐到原始长度
-        padded = list(scores) + [0.0] * (len(trimmed) - len(scores))
+        padded = parsed.scores[: len(trimmed)]
+        padded.extend([0.0] * (len(trimmed) - len(padded)))
         padded = [max(0.0, min(1.0, s)) for s in padded]
 
         # 对于被截断的候选，给默认评分 0.3

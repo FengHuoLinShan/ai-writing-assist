@@ -8,8 +8,10 @@
 
 - 入口：`index.html`
 - 全局状态：`state.js`
+- 状态切片 helper：`stateSlices.js`
 - 路由：`router.js`
 - API 封装：`api.js`
+- API 契约注册表：`apiContracts.js`
 - 视图：`views/*.js`
 - 通用交互：`shared/`、`ui/`
 
@@ -21,6 +23,7 @@
 - `map`
 - `rag`
 - `outline`
+- `scene`
 - `generate`
 - `settings`
 - `project-settings`
@@ -38,6 +41,7 @@
 | `mapWorkspaceView` | 地图一级工作台，总览、最近地图、地图树、图层开关、搜索、聚焦；世界动态总控台、活地图、叙事透镜切换、电影化播放 |
 | `mapView` | 具体地图渲染与编辑：地形、地点绑定、标记、势力范围；浏览态地点标签避让与聚合 |
 | `outlineView` | 剧情线、篇章纲、Scene、伏笔、揭示、结构生成 |
+| `sceneWorkbenchView` | `scene` 一级路由；Scene 管理、筛选、拆分/合并、复核与深度导入 Scene 整理 |
 | `ragView` | 检索、章节索引、索引重建 |
 | `generateView` | 生成中心 Chatbox：自由共创、粘贴外部对话、可选附带正文，并承担上下文任务预览 / 编译入口和手动生成世界对象数据库草稿 |
 | `globalSettingsView` | `settings` 路由；管理全局 LLM 默认、全局作者偏好、引用此默认的项目列表和本地偏好迁移；全局 LLM 默认不存 API Key |
@@ -47,11 +51,21 @@
 
 - `router.js` 维护 `_lastSubViewMap`，在主视图切换后恢复最后子标签
 - `writing` 与 `outline` 被标记为 KeepAlive 视图
+- `scene` 也是 KeepAlive 视图，承载 Scene 工作台的筛选、详情和复核状态
 - `map` 路由会解析 query 上下文，用于承接写作页和世界页跳转
 - `world/map` 仍保留入口，但现在会自动跳转到一级 `map`
 - `settings` 是无项目也可访问的全局设置页；`project-settings` 依赖当前项目，未进入项目时显示空态并提供返回全局设置
 - `llm` 是旧入口兼容别名：有当前项目时跳转 `project-settings`，否则跳转 `settings`
 - 旧 `context` hash 会重定向到 `generate?tab=task`；上下文任务预览和编译入口由生成中心承担
+
+## 开发与验证脚本
+
+- 开发服务器使用 Vite：`npm run dev`，默认端口 8080，可通过 `FRONTEND_PORT` 覆盖。
+- 单元测试使用 Vitest：`npm run test`；监听模式为 `npm run test:watch`。
+- 浏览器 E2E 使用 Playwright：`npm run test:e2e`；烟雾子集为 `npm run test:e2e:smoke`。
+- `npm run test:all` 先跑 Vitest，再跑 Playwright。
+- 当前 `package.json` 未定义前端构建脚本，也没有独立 lint/format 依赖；前端静态约束以现有测试和 `git diff --check` 为主。
+- 当前已落地 vanilla JS 共享 API 契约校验第一阶段，覆盖项目、设置、导入、上下文、世界/地图、写作冲突检查和 RAG 的高风险 wrapper 子集；TypeScript / OpenAPI codegen 仍是未来设计项，当前说明见 `docs/frontend/typescript-api-contracts.md`。
 
 ## 写作流补充
 
@@ -91,6 +105,7 @@
 ## API 封装风格
 
 - 统一 `request()` 处理超时、错误映射、FormData
+- 高风险 wrapper 的 method、path、必需参数和长耗时 timeout 由 `apiContracts.js` 注册，`api.js` 通过 helper 生成实际请求；这只校验请求契约，不覆盖响应字段级 schema drift
 - 按模块分组：`api.projects.*` / `api.world.*` / `api.outline.*` / `api.context.*`
 - 地图接口统一挂在 `api.world.*` 下，后端前缀仍是 `/api/world/maps`
 
@@ -99,3 +114,5 @@
 - 动态文本优先走 `textContent`
 - 必须插入 HTML 时先走 `esc()`
 - 不把用户/AI/API 返回的未转义内容直接写入 `innerHTML`
+- `index.html` 通过 CSP meta 建立 baseline：脚本仅允许本源和 ADR-0003 接受的 Leaflet CDN（`https://unpkg.com`），连接仅允许本源、本地 `localhost` 和 `127.0.0.1` 开发后端，并禁止 `object-src`
+- 现阶段 `style-src` 仍保留 `'unsafe-inline'`，用于兼容入口和现有静态模板中的 inline style；迁移 inline style 并收紧 `style-src` 留到下一批

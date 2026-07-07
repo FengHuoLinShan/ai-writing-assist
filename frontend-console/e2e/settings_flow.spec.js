@@ -7,6 +7,7 @@ import {
 
 const backendPort = process.env.BACKEND_PORT || "8000"
 const apiBase = `http://localhost:${backendPort}/api`
+const xhrHeaders = { "X-Requested-With": "XMLHttpRequest" }
 
 test.describe("设置流程", () => {
   let testProjectId = null
@@ -60,9 +61,11 @@ test.describe("设置流程", () => {
     testProjectId = proj.id
     const ctx = await request.newContext()
     await ctx.put(`${apiBase}/settings/author-preferences`, {
+      headers: xhrHeaders,
       data: { editor_font: "mono" },
     })
     await ctx.put(`${apiBase}/settings/projects/${testProjectId}/author-preferences`, {
+      headers: xhrHeaders,
       data: { editor_font: "serif" },
     })
     await ctx.dispose()
@@ -74,7 +77,10 @@ test.describe("设置流程", () => {
     await expect(page.locator("#author-editor-font")).toHaveValue("serif")
 
     const ctx2 = await request.newContext()
-    await ctx2.delete(`${apiBase}/settings/projects/${testProjectId}/author-preferences/field/editor_font`)
+    await ctx2.delete(
+      `${apiBase}/settings/projects/${testProjectId}/author-preferences/field/editor_font`,
+      { headers: xhrHeaders },
+    )
     await ctx2.dispose()
 
     await page.reload()
@@ -89,6 +95,7 @@ test.describe("设置流程", () => {
     testProjectId = proj.id
     const ctx = await request.newContext()
     await ctx.put(`${apiBase}/settings/llm-defaults`, {
+      headers: xhrHeaders,
       data: {
         provider_id: "openai-compatible",
         base_url: "https://api.openai.com/v1",

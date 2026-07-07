@@ -2,21 +2,41 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
-from types import MethodType
+from collections.abc import AsyncIterator
+from types import MethodType, SimpleNamespace
 
 import pytest
 from pydantic import BaseModel, Field
 
 from infrastructure.llm.client import LLMClient
-from infrastructure.llm.errors import LLMInvalidResponseError
+from infrastructure.llm.errors import LLMInvalidResponseError, LLMTimeoutError
+from infrastructure.llm.limits import (
+    LLMCircuitBreakerOpenError,
+    get_llm_limiter,
+    reset_llm_limiter_for_tests,
+)
 from infrastructure.llm.profiles import resolve_llm_profile
 from infrastructure.llm.schemas import (
     LLMCallRequest,
     LLMCallResponse,
     LLMMessage,
+    LLMStreamChunk,
     LLMUsage,
 )
+
+
+def _retry_settings(
+    *,
+    base_delay: float,
+    max_delay: float,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        llm_retry_max_attempts=1,
+        llm_retry_base_delay=base_delay,
+        llm_retry_max_delay=max_delay,
+    )
 
 
 class _StructuredPayload(BaseModel):
@@ -38,6 +58,28 @@ class _FakeEnvSettings:
     llm_model = "env-model"
     llm_timeout = 70
     llm_max_tokens = 1234
+
+
+def _limit_settings(
+    *,
+    max_concurrent_requests: int = 8,
+    rate_limit_per_minute: int = 0,
+    failure_threshold: int = 5,
+    reset_seconds: float = 60.0,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        llm_max_concurrent_requests=max_concurrent_requests,
+        llm_rate_limit_per_minute=rate_limit_per_minute,
+        llm_circuit_breaker_failure_threshold=failure_threshold,
+        llm_circuit_breaker_reset_seconds=reset_seconds,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _reset_process_limiter() -> None:
+    reset_llm_limiter_for_tests()
+    yield
+    reset_llm_limiter_for_tests()
 
 
 def test_resolve_llm_profile_uses_deepseek_code_defaults_without_env(monkeypatch) -> None:
@@ -177,6 +219,188 @@ def test_from_project_settings_uses_project_profile_defaults() -> None:
 
 
 @pytest.mark.asyncio
+async def test_generate_embedding_bge_error_does_not_call_remote_provider(
+    monkeypatch,
+) -> None:
+    client = LLMClient()
+    client._settings = _retry_settings(base_delay=0.0, max_delay=0.0)
+    remote_calls = 0
+
+    class RemoteProvider:
+        name = "remote"
+
+        async def generate_embedding(
+            self,
+            text: str | list[str],
+            model: str | None = None,
+        ) -> list[float]:
+            nonlocal remote_calls
+            remote_calls += 1
+            return [0.1, 0.2]
+
+    class FailingBgeClient:
+        async def generate_embedding(
+            self,
+            text: str | list[str],
+            *,
+            is_query: bool = False,
+        ) -> list[float] | list[list[float]]:
+            raise RuntimeError("bge down")
+
+    async def fake_get_instance() -> FailingBgeClient:
+        return FailingBgeClient()
+
+    monkeypatch.setattr(
+        "infrastructure.llm.client.get_settings",
+        lambda: SimpleNamespace(embedding_provider="bge_onnx"),
+    )
+    monkeypatch.setattr(
+        "infrastructure.embedding.client.BgeEmbeddingClient.get_instance",
+        staticmethod(fake_get_instance),
+    )
+    client._provider = RemoteProvider()  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError, match="bge down"):
+        await client.generate_embedding("测试文本")
+
+    assert remote_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_generate_uses_process_concurrency_limiter(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "infrastructure.llm.limits.get_settings",
+        lambda: _limit_settings(max_concurrent_requests=1),
+    )
+    client = LLMClient()
+    active = 0
+    max_active = 0
+    release_first = asyncio.Event()
+    first_started = asyncio.Event()
+
+    class FakeProvider:
+        name = "fake"
+
+        async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
+            nonlocal active, max_active
+            active += 1
+            max_active = max(max_active, active)
+            if not first_started.is_set():
+                first_started.set()
+                await release_first.wait()
+            active -= 1
+            return LLMCallResponse(content="ok", model="fake", provider="fake")
+
+    client._provider = FakeProvider()  # type: ignore[assignment]
+
+    first = asyncio.create_task(client.generate(LLMCallRequest(model="fake")))
+    await first_started.wait()
+    second = asyncio.create_task(client.generate(LLMCallRequest(model="fake")))
+    await asyncio.sleep(0)
+
+    assert max_active == 1
+    release_first.set()
+    await asyncio.gather(first, second)
+    assert max_active == 1
+
+
+@pytest.mark.asyncio
+async def test_limiter_breaker_counts_only_after_retry_exhaustion(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "infrastructure.llm.limits.get_settings",
+        lambda: _limit_settings(failure_threshold=1, reset_seconds=30.0),
+    )
+    client = LLMClient()
+    client._settings = SimpleNamespace(
+        llm_retry_max_attempts=2,
+        llm_retry_base_delay=0.0,
+        llm_retry_max_delay=0.0,
+    )
+    calls = 0
+
+    class FakeProvider:
+        name = "fake"
+
+        async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
+            nonlocal calls
+            calls += 1
+            raise LLMTimeoutError("timeout without prompt or secret", provider="fake")
+
+    client._provider = FakeProvider()  # type: ignore[assignment]
+
+    with pytest.raises(LLMTimeoutError):
+        await client.generate(
+            LLMCallRequest(
+                model="fake",
+                messages=[LLMMessage(role="user", content="raw prompt")],
+            )
+        )
+
+    assert calls == 2
+
+    with pytest.raises(LLMCircuitBreakerOpenError) as exc_info:
+        await client.generate(
+            LLMCallRequest(
+                model="fake",
+                messages=[LLMMessage(role="user", content="raw prompt")],
+            )
+        )
+
+    assert calls == 2
+    assert "raw prompt" not in str(exc_info.value)
+    assert "Authorization" not in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_generate_stream_holds_limiter_until_stream_consumed(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "infrastructure.llm.limits.get_settings",
+        lambda: _limit_settings(max_concurrent_requests=1),
+    )
+    client = LLMClient()
+    active_streams = 0
+    max_active_streams = 0
+    first_chunk_ready = asyncio.Event()
+    release_first_stream = asyncio.Event()
+
+    class FakeProvider:
+        name = "fake"
+
+        async def generate_stream(
+            self,
+            request: LLMCallRequest,
+        ) -> AsyncIterator[LLMStreamChunk]:
+            async def stream() -> AsyncIterator[LLMStreamChunk]:
+                nonlocal active_streams, max_active_streams
+                active_streams += 1
+                max_active_streams = max(max_active_streams, active_streams)
+                first_chunk_ready.set()
+                yield LLMStreamChunk(content="first")
+                await release_first_stream.wait()
+                active_streams -= 1
+
+            return stream()
+
+    client._provider = FakeProvider()  # type: ignore[assignment]
+
+    async def consume() -> list[str]:
+        return [
+            chunk.content
+            async for chunk in client.generate_stream(LLMCallRequest(model="fake"))
+        ]
+
+    first = asyncio.create_task(consume())
+    await first_chunk_ready.wait()
+    second = asyncio.create_task(consume())
+    await asyncio.sleep(0)
+
+    assert max_active_streams == 1
+    release_first_stream.set()
+    await asyncio.gather(first, second)
+    assert max_active_streams == 1
+
+
+@pytest.mark.asyncio
 async def test_generate_structured_retries_truncated_json_with_larger_budget() -> None:
     client = LLMClient()
     requests: list[LLMCallRequest] = []
@@ -259,6 +483,37 @@ async def test_generate_structured_validation_retry_keeps_existing_fix_path() ->
 
 
 @pytest.mark.asyncio
+async def test_generate_structured_validation_retry_uses_backoff(monkeypatch) -> None:
+    client = LLMClient()
+    client._settings = _retry_settings(base_delay=0.25, max_delay=1.0)
+    delays: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    async def fake_generate(self: LLMClient, request: LLMCallRequest) -> LLMCallResponse:
+        return LLMCallResponse(
+            content='{"value": ""}',
+            finish_reason="stop",
+            usage=LLMUsage(completion_tokens=5, total_tokens=5),
+            model="fake",
+            provider="fake",
+        )
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    client.generate = MethodType(fake_generate, client)  # type: ignore[method-assign]
+
+    with pytest.raises(LLMInvalidResponseError):
+        await client.generate_structured(
+            LLMCallRequest(model="fake", messages=[]),
+            _StructuredPayload,
+            max_fix_attempts=2,
+        )
+
+    assert delays == [0.25, 0.5]
+
+
+@pytest.mark.asyncio
 async def test_generate_structured_final_error_keeps_last_validation_detail() -> None:
     client = LLMClient()
 
@@ -327,6 +582,51 @@ async def test_generate_structured_can_bypass_transport_retries() -> None:
 
     assert result.value == "direct"
     assert len(requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_generate_structured_direct_provider_path_uses_limiter(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "infrastructure.llm.limits.get_settings",
+        lambda: _limit_settings(failure_threshold=1, reset_seconds=30.0),
+    )
+    client = LLMClient()
+    calls = 0
+
+    class FakeProvider:
+        name = "fake"
+
+        async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
+            nonlocal calls
+            calls += 1
+            return LLMCallResponse(
+                content='{"value": "direct"}',
+                finish_reason="stop",
+                usage=LLMUsage(completion_tokens=5, total_tokens=5),
+                model="fake",
+                provider="fake",
+            )
+
+    client._provider = FakeProvider()  # type: ignore[assignment]
+    limiter = get_llm_limiter()
+    await limiter.run(lambda: _async_noop())
+    await limiter.record_failure()
+
+    with pytest.raises(LLMCircuitBreakerOpenError):
+        await client.generate_structured(
+            LLMCallRequest(
+                model="fake",
+                messages=[LLMMessage(role="user", content="raw prompt")],
+            ),
+            _StructuredPayload,
+            transport_retries=False,
+        )
+
+    assert calls == 0
+
+
+async def _async_noop() -> None:
+    return None
 
 
 @pytest.mark.asyncio
@@ -585,6 +885,45 @@ async def test_generate_structured_format_repair_failure_keeps_detail() -> None:
     assert "Format repair failed" in str(exc_info.value)
     assert diagnostics[-1]["kind"] == "format_repair"
     assert diagnostics[-1]["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_generate_structured_format_repair_retry_uses_backoff(monkeypatch) -> None:
+    client = LLMClient()
+    client._settings = _retry_settings(base_delay=0.25, max_delay=0.4)
+    diagnostics: list[dict] = []
+    delays: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    async def fake_generate(self: LLMClient, request: LLMCallRequest) -> LLMCallResponse:
+        return LLMCallResponse(
+            content='{"value": ""}',
+            finish_reason="stop",
+            usage=LLMUsage(completion_tokens=5, total_tokens=5),
+            model="fake",
+            provider="fake",
+        )
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    client.generate = MethodType(fake_generate, client)  # type: ignore[method-assign]
+
+    with pytest.raises(LLMInvalidResponseError):
+        await client.generate_structured(
+            LLMCallRequest(model="fake", messages=[]),
+            _StructuredPayload,
+            max_fix_attempts=0,
+            format_repair_attempts=3,
+            diagnostics=diagnostics,
+        )
+
+    assert delays == [0.25, 0.4]
+    assert [d["attempt"] for d in diagnostics if d["kind"] == "format_repair"] == [
+        1,
+        2,
+        3,
+    ]
 
 
 @pytest.mark.asyncio

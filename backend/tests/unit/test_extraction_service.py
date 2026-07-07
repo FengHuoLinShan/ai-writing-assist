@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -12,7 +13,7 @@ from pydantic import BaseModel
 
 from core.errors import ValidationError as DomainValidationError
 from modules.world.schemas import DuplicateSuggestionResult, WorldContextBundle
-from modules.world.services.extraction_service import (
+from modules.world.services.core.extraction_service import (
     EntityExtractionService,
 )
 
@@ -20,7 +21,10 @@ pytestmark = [pytest.mark.asyncio]
 
 
 async def test_extraction_service_has_no_direct_http_exception_dependency() -> None:
-    source = Path("backend/modules/world/services/extraction_service.py").read_text()
+    backend_root = Path(__file__).resolve().parents[2]
+    source = (
+        backend_root / "modules/world/services/core/extraction_service.py"
+    ).read_text()
 
     assert "from fastapi import HTTPException" not in source
     assert "raise HTTPException" not in source
@@ -131,7 +135,16 @@ def _setup_llm(mock_llm_client, *, return_value=None):
     instance.generate_structured = mock.AsyncMock()
     instance.generate_structured.return_value = return_value or _TestOutput(entities=[])
     instance.generate_embedding = mock.AsyncMock()
-    instance.generate_embedding.return_value = [0.1, 0.2, 0.3]
+
+    async def _generate_embedding(text_or_texts, *, is_query=False):
+        if isinstance(text_or_texts, list):
+            return [
+                [float(idx) + 0.1, 0.2 if is_query else 0.4, 0.3]
+                for idx, _ in enumerate(text_or_texts)
+            ]
+        return [0.1, 0.2 if is_query else 0.4, 0.3]
+
+    instance.generate_embedding.side_effect = _generate_embedding
     return instance
 
 
@@ -239,7 +252,7 @@ class TestEntityExtractionService:
         assert result.total_created == expected_created
         assert result.total_skipped == expected_skipped
 
-    @mock.patch("modules.world.services.extraction_service.logger")
+    @mock.patch("modules.world.services.core.extraction_service.logger")
     @mock.patch("modules.world.facade.find_entity_id_by_name")
     @mock.patch("modules.world.facade.get_world_context")
     @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
@@ -351,6 +364,10 @@ class TestEntityExtractionService:
         assert result.total_skipped == 1
         assert result.total_created == 0
         assert service._entity_repo.create.call_count == 0
+        assert not any(
+            call.kwargs.get("is_query") is False
+            for call in mock_llm_client.return_value.generate_embedding.call_args_list
+        )
 
     @mock.patch("modules.world.facade.find_entity_id_by_name")
     @mock.patch("modules.world.facade.get_world_context")
@@ -405,6 +422,212 @@ class TestEntityExtractionService:
         # Assert
         assert result.total_skipped == 1
         assert result.total_created == 0
+
+        assert not any(
+            call.kwargs.get("is_query") is False
+            for call in mock_llm_client.return_value.generate_embedding.call_args_list
+        )
+
+    @mock.patch("modules.world.facade.find_entity_id_by_name")
+    @mock.patch("modules.world.facade.get_world_context")
+    @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
+    @mock.patch("infrastructure.llm.client.LLMClient")
+    async def test_multiple_create_new_entities_use_batched_embeddings(
+        self,
+        mock_llm_client,
+        mock_load_prompt,
+        mock_get_context,
+        mock_find_entity,
+        service,
+        default_llm_response,
+    ):
+        """Multiple create_new entities batch query and storage embeddings."""
+        # Arrange
+        instance = _setup_llm(mock_llm_client, return_value=default_llm_response)
+        mock_get_context.return_value = WorldContextBundle(
+            novel_id="test",
+            entities=[],
+        )
+        mock_load_prompt.return_value = "system prompt"
+        mock_find_entity.return_value = None
+        db = mock.AsyncMock()
+
+        # Act
+        result = await service.extract_entities_from_chapters(
+            db,
+            TEST_NOVEL_ID,
+            1,
+            1,
+        )
+
+        # Assert
+        assert result.total_created == 2
+        assert instance.generate_embedding.call_count == 2
+
+        query_call, storage_call = instance.generate_embedding.call_args_list
+        assert query_call.args[0] == ["白砚", "主角", "霜华剑", "神剑"]
+        assert query_call.kwargs == {"is_query": True}
+        assert storage_call.args[0] == ["白砚", "霜华剑"]
+        assert storage_call.kwargs == {"is_query": False}
+
+    @mock.patch("modules.world.facade.find_entity_id_by_name")
+    @mock.patch("modules.world.facade.get_world_context")
+    @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
+    @mock.patch("infrastructure.llm.client.LLMClient")
+    async def test_ignore_and_link_to_existing_do_not_enter_embedding_batches(
+        self,
+        mock_llm_client,
+        mock_load_prompt,
+        mock_get_context,
+        mock_find_entity,
+        service,
+    ):
+        """Only valid create_new entities contribute to chapter embedding batches."""
+        # Arrange
+        output = _TestOutput(
+            entities=[
+                _TestEntity(
+                    name="白砚",
+                    summary="主角",
+                    suggested_action="create_new",
+                ),
+                _TestEntity(
+                    name="路人甲",
+                    summary="不应向量化",
+                    suggested_action="ignore",
+                ),
+                _TestEntity(
+                    name="霜华剑别名",
+                    summary="不应向量化",
+                    suggested_action="link_to_existing",
+                    suggested_existing_entity_name="霜华剑",
+                ),
+            ]
+        )
+        instance = _setup_llm(mock_llm_client, return_value=output)
+        mock_get_context.return_value = WorldContextBundle(
+            novel_id="test",
+            entities=[],
+        )
+        mock_load_prompt.return_value = "system prompt"
+        mock_find_entity.return_value = str(uuid.uuid4())
+        db = mock.AsyncMock()
+
+        # Act
+        result = await service.extract_entities_from_chapters(
+            db,
+            TEST_NOVEL_ID,
+            1,
+            1,
+        )
+
+        # Assert
+        assert result.total_created == 1
+        assert result.total_skipped == 2
+        query_call, storage_call = instance.generate_embedding.call_args_list
+        assert query_call.args[0] == ["白砚", "主角"]
+        assert storage_call.args[0] == ["白砚"]
+
+    @mock.patch("modules.world.facade.find_entity_id_by_name")
+    @mock.patch("modules.world.facade.get_world_context")
+    @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
+    @mock.patch("infrastructure.llm.client.LLMClient")
+    async def test_embedding_batch_failure_still_creates_entity(
+        self,
+        mock_llm_client,
+        mock_load_prompt,
+        mock_get_context,
+        mock_find_entity,
+        service,
+    ):
+        """Batch embedding failure degrades to None and does not block creation."""
+        # Arrange
+        entity = _TestEntity(name="白砚", summary="主角", suggested_action="create_new")
+        instance = _setup_llm(
+            mock_llm_client, return_value=_TestOutput(entities=[entity])
+        )
+        instance.generate_embedding.side_effect = Exception("API error")
+        mock_get_context.return_value = WorldContextBundle(
+            novel_id="test",
+            entities=[],
+        )
+        mock_load_prompt.return_value = "system prompt"
+        mock_find_entity.return_value = None
+        db = mock.AsyncMock()
+
+        # Act
+        result = await service.extract_entities_from_chapters(
+            db,
+            TEST_NOVEL_ID,
+            1,
+            1,
+        )
+
+        # Assert
+        assert result.total_created == 1
+        assert result.total_skipped == 0
+        name_dedup_call = service._dedup_service.find_similar_entities.call_args_list[0]
+        assert name_dedup_call.kwargs["query_embedding"] is None
+
+    @mock.patch("modules.world.facade.find_entity_id_by_name")
+    @mock.patch("modules.world.facade.get_world_context")
+    @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
+    @mock.patch("infrastructure.llm.client.LLMClient")
+    async def test_embedding_batch_length_mismatch_does_not_misassign_vectors(
+        self,
+        mock_llm_client,
+        mock_load_prompt,
+        mock_get_context,
+        mock_find_entity,
+        service,
+        default_llm_response,
+    ):
+        """A mismatched batch result downgrades the whole batch to None."""
+        # Arrange
+        instance = _setup_llm(mock_llm_client, return_value=default_llm_response)
+
+        async def _mismatched_batch(text_or_texts, *, is_query=False):
+            if isinstance(text_or_texts, list):
+                return [[0.9, 0.8, 0.7]]
+            return [0.9, 0.8, 0.7]
+
+        instance.generate_embedding.side_effect = _mismatched_batch
+
+        created_entities: list[SimpleNamespace] = []
+
+        async def _create_entity(_db, _novel_id, entity_data):
+            entity = SimpleNamespace(
+                id=uuid.uuid4(),
+                name=entity_data.name,
+                entity_type=entity_data.entity_type,
+            )
+            created_entities.append(entity)
+            return entity
+
+        service._entity_repo.create.side_effect = _create_entity
+        mock_get_context.return_value = WorldContextBundle(
+            novel_id="test",
+            entities=[],
+        )
+        mock_load_prompt.return_value = "system prompt"
+        mock_find_entity.return_value = None
+        db = mock.AsyncMock()
+
+        # Act
+        result = await service.extract_entities_from_chapters(
+            db,
+            TEST_NOVEL_ID,
+            1,
+            1,
+        )
+
+        # Assert
+        assert result.total_created == 2
+        assert [
+            call.kwargs["query_embedding"]
+            for call in service._dedup_service.find_similar_entities.call_args_list
+        ] == [None, None]
+        assert all(not hasattr(entity, "embedding") for entity in created_entities)
 
     @mock.patch("modules.world.facade.find_entity_id_by_name")
     @mock.patch("modules.world.facade.get_world_context")

@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from modules.world.services.draft_provider import WritingDraftProvider
+from modules.world.services.core.draft_provider import WritingDraftProvider
 
 
 @pytest.mark.asyncio

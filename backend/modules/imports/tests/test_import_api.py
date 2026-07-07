@@ -8,13 +8,17 @@ Import API 层测试
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from infrastructure.tasks.models import AsyncTask
-from modules.imports.parsers import MAX_FILE_SIZE
+from modules.imports import api as import_api
+from modules.imports import services as import_services
+from modules.imports.schemas import ImportResponse
 
 
 @pytest.fixture
@@ -79,6 +83,44 @@ async def test_upload_txt_success(
 
 
 @pytest.mark.asyncio
+async def test_upload_passes_complete_bytes_to_service(
+    async_client: AsyncClient,
+    sample_project: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """上传 API 仍把完整 bytes 和 basename 后文件名传给 service。"""
+    novel_id = sample_project["id"]
+    content = b"first chunk\nsecond chunk"
+    service_response = ImportResponse(
+        id=str(uuid.uuid4()),
+        novel_id=novel_id,
+        file_name="book.txt",
+        file_type="txt",
+        file_size=len(content),
+        total_chapters=1,
+        imported_chapters=1,
+        status="done",
+    )
+    fake_service = SimpleNamespace(
+        upload_and_import=AsyncMock(return_value=service_response),
+    )
+    monkeypatch.setattr(import_api, "_service", fake_service)
+
+    resp = await async_client.post(
+        "/api/imports/upload",
+        data={"novel_id": novel_id},
+        files={"file": ("../../book.txt", content, "text/plain")},
+    )
+
+    assert resp.status_code == 201
+    fake_service.upload_and_import.assert_awaited_once()
+    args = fake_service.upload_and_import.await_args.args
+    assert args[1] == novel_id
+    assert args[2] == "book.txt"
+    assert args[3] == content
+
+
+@pytest.mark.asyncio
 async def test_upload_unsupported_format_returns_400(
     async_client: AsyncClient,
     sample_project: dict,
@@ -97,16 +139,26 @@ async def test_upload_unsupported_format_returns_400(
 async def test_upload_oversized_file_returns_413(
     async_client: AsyncClient,
     sample_project: dict,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """超过 50MB 的文件返回 413"""
-    large_data = b"x" * (MAX_FILE_SIZE + 1)
+    """超限上传通过 HTTP 返回 413，且不调用 service。"""
+    fake_service = SimpleNamespace(upload_and_import=AsyncMock())
+    monkeypatch.setattr(import_api, "_service", fake_service)
+    monkeypatch.setattr(import_api, "MAX_FILE_SIZE", 4)
+
     resp = await async_client.post(
         "/api/imports/upload",
         data={"novel_id": sample_project["id"]},
-        files={"file": ("large.txt", large_data, "text/plain")},
+        files={"file": ("large.txt", b"12345", "text/plain")},
     )
+
     assert resp.status_code == 413
-    assert "50MB" in resp.json()["detail"]
+    data = resp.json()
+    assert data["status_code"] == 413
+    assert data["error"] == "validation_error"
+    assert "50MB" in data["detail"]
+    assert "最大允许 4 bytes" in data["detail"]
+    fake_service.upload_and_import.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -135,6 +187,42 @@ async def test_upload_empty_file_records_failed(
     assert len(items) == 1
     assert items[0]["status"] == "failed"
     assert items[0]["error_message"] == "文件中未检测到有效章节"
+
+
+@pytest.mark.asyncio
+async def test_upload_chapter_count_limit_records_failed_without_writing(
+    async_client: AsyncClient,
+    sample_project: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """解析章节数超限返回 413，记录 failed 且不写入章节。"""
+    novel_id = sample_project["id"]
+    monkeypatch.setattr(
+        import_services,
+        "get_settings",
+        lambda: SimpleNamespace(import_max_chapters=1),
+    )
+    content = (
+        "第一章 开始\n这是第一章的内容。\n\n第二章 继续\n这是第二章的内容。\n"
+    ).encode()
+
+    resp = await async_client.post(
+        "/api/imports/upload",
+        data={"novel_id": novel_id},
+        files={"file": ("too-many.txt", content, "text/plain")},
+    )
+
+    assert resp.status_code == 413
+    assert "导入章节数 2 超过上限 1" in resp.json()["detail"]
+
+    chapters_resp = await async_client.get(f"/api/writing/chapters?novel_id={novel_id}")
+    assert chapters_resp.json()["chapter_indices"] == []
+
+    list_resp = await async_client.get(f"/api/imports?novel_id={novel_id}")
+    items = list_resp.json()["items"]
+    assert len(items) == 1
+    assert items[0]["status"] == "failed"
+    assert items[0]["error_message"] == "导入章节数 2 超过上限 1"
 
 
 @pytest.mark.asyncio
@@ -273,6 +361,60 @@ async def test_deep_import_explicit_range_valid(
     )
     assert resp.status_code == 422
     assert "end_chapter must be >= start_chapter" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_deep_import_range_limit_returns_400_without_task(
+    async_client: AsyncClient,
+    db_session,
+    sample_project: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """deep 显式章节范围超限返回 400，且不新增 AsyncTask。"""
+    novel_id = sample_project["id"]
+    monkeypatch.setattr(
+        import_api,
+        "get_settings",
+        lambda: SimpleNamespace(import_max_chapters=2),
+    )
+
+    resp = await async_client.post(
+        "/api/imports/deep",
+        json={"novel_id": novel_id, "start_chapter": 1, "end_chapter": 3},
+    )
+
+    assert resp.status_code == 400
+    assert "共 3 章" in resp.json()["detail"]
+    assert "超过上限 2" in resp.json()["detail"]
+    result = await db_session.execute(select(func.count()).select_from(AsyncTask))
+    assert result.scalar_one() == 0
+
+
+@pytest.mark.asyncio
+async def test_stage_range_limit_returns_400_without_task(
+    async_client: AsyncClient,
+    db_session,
+    sample_project: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """stage 入口复用章节范围上限校验，超限不新增 AsyncTask。"""
+    novel_id = sample_project["id"]
+    monkeypatch.setattr(
+        import_api,
+        "get_settings",
+        lambda: SimpleNamespace(import_max_chapters=2),
+    )
+
+    resp = await async_client.post(
+        "/api/imports/stages/scenes",
+        json={"novel_id": novel_id, "start_chapter": 4, "end_chapter": 6},
+    )
+
+    assert resp.status_code == 400
+    assert "共 3 章" in resp.json()["detail"]
+    assert "超过上限 2" in resp.json()["detail"]
+    result = await db_session.execute(select(func.count()).select_from(AsyncTask))
+    assert result.scalar_one() == 0
 
 
 @pytest.mark.asyncio

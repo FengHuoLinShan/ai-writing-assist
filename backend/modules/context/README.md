@@ -104,6 +104,22 @@ V1 复用 `excluded_asset_ids`，约定：
 - `manual` 保留给既有资产 ID 排除输入，V1 不把它解释为 section key。
 - V1 只支持 section 级控制，不做 item/entity 级事实编辑；更细粒度排除继续使用现有实体、人物、地点 ID 参数。
 
+## Loader 依赖注入
+
+`ContextCompiler` 的外部行为由 `SCOPE_LOADERS`、loader `name` 和 facade 入口保持稳定；loader 内部依赖统一通过构造函数注入 callable。生产默认 callable 仍委托既有 `project / world / memory / outline / rag` 稳定入口，测试可直接传入 fake callable，不需要在 `load()` 内 monkeypatch facade 或直接访问 DI container。
+
+`load()` 只使用 `self._...` 依赖：
+
+- `ProjectLoader(get_project_context_fn=...)`
+- `WorldEntitiesLoader(get_world_context_fn=...)`
+- `CharactersLoader(get_characters_context_fn=..., filter_context_by_character_knowledge_fn=..., get_scene_contract_fn=...)`
+- `EventsLoader(get_events_context_fn=...)`
+- `MemoryRecordsLoader(get_memory_panorama_fn=...)`
+- `RagChunksLoader(retrieve_fn=...)`
+- `SceneLoader(get_scene_contract_fn=...)`
+- `PlotThreadsLoader(get_active_threads_fn=...)`
+- `OutlineArcLoader(get_arc_by_chapter_fn=...)`
+
 ## 快照生命周期维护
 
 `context_snapshots` 的生命周期治理由 context 模块拥有，入口是 facade 和只读/维护 API：

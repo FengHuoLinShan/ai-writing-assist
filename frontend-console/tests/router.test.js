@@ -9,8 +9,30 @@ import sceneWorkbenchView from "../views/sceneWorkbenchView.js"
 beforeEach(() => {
   vi.clearAllMocks()
   document.body.replaceChildren()
-  window.location.hash = ""
+  localStorage.clear()
+  window.history.replaceState(null, "", "#")
+  state.currentProjectId = null
+  state.currentProject = null
+  state.currentView = "project"
+  state.currentSubView = null
+  state.selectedItem = null
+  state.selectedItems = []
 })
+
+function addWorkspace() {
+  const content = document.createElement("div")
+  content.id = "workspace-content"
+  document.body.append(content)
+  return content
+}
+
+function registerBasicView(name) {
+  window.router.registerView(name, {
+    async render() {
+      return `<p>${name}:${state.currentSubView || ""}</p>`
+    },
+  })
+}
 
 describe("renderCurrentView error handling", () => {
   it("escapes renderer error messages in the fallback UI", async () => {
@@ -109,6 +131,141 @@ describe("subview memory", () => {
   })
 })
 
+describe("route guard and normalization", () => {
+  it("redirects active project-scoped navigation to projects when no project is selected", async () => {
+    addWorkspace()
+    registerBasicView("project")
+    registerBasicView("writing")
+
+    await window.router.navigate("writing")
+
+    expect(state.currentView).toBe("project")
+    expect(state.currentSubView).toBeNull()
+    expect(window.location.hash).toBe("#project")
+    expect(window.location.hash).not.toContain("workbench")
+    expect(toast).toHaveBeenCalledTimes(1)
+    expect(toast).toHaveBeenCalledWith("请先选择项目后再进入该页面", "warning")
+  })
+
+  it("keeps active project-scoped navigation inside the selected workbench", async () => {
+    addWorkspace()
+    registerBasicView("writing")
+    state.currentProjectId = "p1"
+    state.currentProject = { id: "p1", title: "项目一" }
+
+    await window.router.navigate("writing")
+
+    expect(state.currentView).toBe("writing")
+    expect(state.currentSubView).toBeNull()
+    expect(window.location.hash).toBe("#workbench/p1/writing")
+    expect(toast).not.toHaveBeenCalled()
+  })
+
+  it("normalizes illegal fixed subviews to the route default on init", async () => {
+    addWorkspace()
+    registerBasicView("world")
+    api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
+    window.location.hash = "#workbench/p1/world/not-real"
+
+    await window.router.initRouter()
+
+    expect(state.currentProjectId).toBe("p1")
+    expect(state.currentView).toBe("world")
+    expect(state.currentSubView).toBe("objects")
+    expect(window.location.hash).toBe("#workbench/p1/world/objects")
+  })
+
+  it("keeps dynamic scene subviews on init", async () => {
+    addWorkspace()
+    registerBasicView("scene")
+    api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
+    window.location.hash = "#workbench/p1/scene/s1"
+
+    await window.router.initRouter()
+
+    expect(state.currentView).toBe("scene")
+    expect(state.currentSubView).toBe("s1")
+    expect(window.location.hash).toBe("#workbench/p1/scene/s1")
+  })
+
+  it("redirects legacy context routes without a project to projects", async () => {
+    addWorkspace()
+    registerBasicView("project")
+    registerBasicView("generate")
+    window.location.hash = "#context"
+
+    await window.router.initRouter()
+
+    expect(state.currentView).toBe("project")
+    expect(state.currentSubView).toBeNull()
+    expect(window.location.hash).toBe("#project")
+    expect(window.router.getCurrentQuery().get("tab")).toBeNull()
+    expect(toast).not.toHaveBeenCalled()
+  })
+
+  it("redirects legacy workbench context routes to the generate task tab", async () => {
+    addWorkspace()
+    registerBasicView("generate")
+    api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
+    window.location.hash = "#workbench/p1/context"
+    await window.router.initRouter()
+
+    expect(state.currentView).toBe("generate")
+    expect(state.currentSubView).toBeNull()
+    expect(window.location.hash).toBe("#workbench/p1/generate?tab=task")
+    expect(window.router.getCurrentQuery().get("tab")).toBe("task")
+  })
+
+  it("normalizes llm compatibility routes by project scope", async () => {
+    addWorkspace()
+    registerBasicView("settings")
+    registerBasicView("project-settings")
+    window.location.hash = "#llm"
+
+    await window.router.initRouter()
+
+    expect(state.currentView).toBe("settings")
+    expect(state.currentSubView).toBeNull()
+    expect(window.location.hash).toBe("#settings")
+
+    api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
+    window.location.hash = "#workbench/p1/llm"
+    await window.router.initRouter()
+
+    expect(state.currentProjectId).toBe("p1")
+    expect(state.currentView).toBe("project-settings")
+    expect(state.currentSubView).toBeNull()
+    expect(window.location.hash).toBe("#workbench/p1/project-settings")
+  })
+
+  it("keeps world candidates as a valid guarded subview", async () => {
+    addWorkspace()
+    registerBasicView("world")
+    api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
+    window.location.hash = "#workbench/p1/world/candidates"
+
+    await window.router.initRouter()
+
+    expect(state.currentView).toBe("world")
+    expect(state.currentSubView).toBe("candidates")
+    expect(window.location.hash).toBe("#workbench/p1/world/candidates")
+  })
+
+  it("normalizes restored project-scoped hashes into the current workbench", async () => {
+    addWorkspace()
+    registerBasicView("writing")
+    state.currentProjectId = "p1"
+    state.currentProject = { id: "p1", title: "项目一" }
+    window.location.hash = "#writing"
+
+    await window.router.initRouter()
+
+    expect(state.currentView).toBe("writing")
+    expect(state.currentSubView).toBeNull()
+    expect(window.location.hash).toBe("#workbench/p1/writing")
+  })
+})
+
 describe("refresh forces project sync", () => {
   it("re-fetches current project metadata even when project is unchanged", async () => {
     const content = document.createElement("div")
@@ -128,6 +285,55 @@ describe("refresh forces project sync", () => {
 
     expect(api.projects.get).toHaveBeenCalledWith("p1")
     expect(state.currentProject.title).toBe("New")
+  })
+
+  it("re-fetches full project metadata after restoring a legacy project object summary", async () => {
+    const { default: App } = await import("../app.js")
+    const content = document.createElement("div")
+    content.id = "workspace-content"
+    document.body.append(content)
+
+    localStorage.clear()
+    state.currentProjectId = null
+    state.currentProject = null
+    window.location.hash = "#workbench/p1/writing"
+    localStorage.setItem("novel_currentProjectId", "p1")
+    localStorage.setItem("novel_currentProject", JSON.stringify({
+      id: "p1",
+      title: "Stored",
+      name: "Stored Name",
+      genre: "leaky genre",
+      tone: "leaky tone",
+      current_stage: "writing",
+      target_length: "epic",
+      updated_at: "2026-07-07T00:00:00Z",
+    }))
+    api.projects.get.mockResolvedValue({
+      id: "p1",
+      title: "Fetched",
+      genre: "fantasy",
+      tone: "warm",
+    })
+    window.router.registerView("writing", { async render() { return "<p>写作台</p>" } })
+
+    App._restoreProjectState()
+
+    expect(state.currentProject).toEqual({
+      id: "p1",
+      title: "Stored",
+      name: "Stored Name",
+      summaryOnly: true,
+    })
+
+    await window.router.initRouter()
+
+    expect(api.projects.get).toHaveBeenCalledWith("p1")
+    expect(state.currentProject).toEqual({
+      id: "p1",
+      title: "Fetched",
+      genre: "fantasy",
+      tone: "warm",
+    })
   })
 })
 

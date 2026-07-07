@@ -29,10 +29,6 @@ from modules.project.schemas import (
     ProjectResponse,
     ProjectUpdate,
 )
-from modules.settings.schemas import (
-    EffectiveAuthorPrefsResponse,
-    EffectiveLLMSettingsResponse,
-)
 from modules.writing.contracts import WritingProjectStatsContract
 from modules.writing.facade import (
     get_project_writing_stats,
@@ -200,24 +196,6 @@ class ProjectService:
         )
         return ProjectLLMSettingsResponse.model_validate(profile)
 
-    async def get_effective_llm_settings(
-        self,
-        db: AsyncSession,
-        project_id: str,
-    ) -> EffectiveLLMSettingsResponse:
-        from modules.settings.facade import get_effective_llm_settings
-
-        return await get_effective_llm_settings(db, project_id)
-
-    async def get_effective_author_prefs(
-        self,
-        db: AsyncSession,
-        project_id: str,
-    ) -> EffectiveAuthorPrefsResponse:
-        from modules.settings.facade import get_effective_author_prefs
-
-        return await get_effective_author_prefs(db, project_id)
-
     async def reset_llm_settings_field(
         self,
         db: AsyncSession,
@@ -302,7 +280,6 @@ class ProjectService:
         project = await self._repo.get(db, pid)
         if project is None:
             return None
-        settings = await self._settings_with_effective_llm(db, project)
         return ProjectContext(
             novel_id=str(project.id),
             title=project.title,
@@ -312,7 +289,7 @@ class ProjectService:
             target_length=project.target_length,
             current_stage=project.current_stage,
             default_reveal_policy=project.default_reveal_policy,
-            settings=settings,
+            settings=dict(project.settings or {}),
         )
 
     async def _get_existing_project(self, db: AsyncSession, project_id: str):
@@ -321,33 +298,6 @@ class ProjectService:
         if project is None:
             raise NotFoundError(f"Project {project_id} not found")
         return project
-
-    async def _settings_with_effective_llm(self, db: AsyncSession, project) -> dict:
-        """Return project settings with LLM fields materialized from DB defaults.
-
-        Runtime callers receive a normal ``settings["llm"]`` profile, but its
-        non-secret fields come from the effective project > global > system
-        merge. API keys remain project-only and are copied from the raw project
-        JSON when present.
-        """
-        from modules.settings.constants import LLM_INHERITABLE_FIELDS
-        from modules.settings.facade import get_effective_llm_settings
-
-        settings = dict(project.settings or {})
-        raw_llm = get_llm_profile(settings)
-        effective = await get_effective_llm_settings(db, project.id)
-        llm_profile: dict[str, object] = {}
-        for field_name in LLM_INHERITABLE_FIELDS:
-            if field_name == DEEP_IMPORT_SETTINGS_KEY:
-                continue
-            field = getattr(effective, field_name, None)
-            if field is not None and field.value is not None and field.value != "":
-                llm_profile[field_name] = field.value
-        if raw_llm.get(LLM_API_KEY_FIELD):
-            llm_profile[LLM_API_KEY_FIELD] = raw_llm[LLM_API_KEY_FIELD]
-        if llm_profile:
-            settings[LLM_SETTINGS_KEY] = llm_profile
-        return settings
 
     async def _response_with_stats(
         self,

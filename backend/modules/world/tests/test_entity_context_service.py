@@ -9,7 +9,7 @@ import pytest
 
 from modules.project.schemas import ProjectContext
 from modules.world.models import CoreEntity
-from modules.world.services.entity_context_service import EntityContextService
+from modules.world.services.core.entity_context_service import EntityContextService
 
 
 @pytest.fixture

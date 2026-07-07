@@ -382,11 +382,14 @@ class TestGetProjectContextFacade:
     """get_project_context——供其他模块使用的项目上下文"""
 
     @patch("modules.project.repositories.ProjectRepository.get")
+    @patch("modules.settings.facade.materialize_effective_project_settings")
     async def test_found_returns_context(
         self,
+        mock_materialize_settings: MagicMock,
         mock_get: MagicMock,
     ) -> None:
         uid = uuid.uuid4()
+        mock_materialize_settings.return_value = {"llm": {"provider_id": "deepseek"}}
         mock_get.return_value = Project(
             id=uid,
             title="测试小说",
@@ -400,6 +403,7 @@ class TestGetProjectContextFacade:
         assert ctx.novel_id == str(uid)
         assert ctx.title == "测试小说"
         assert ctx.genre == "玄幻"
+        assert ctx.settings == {"llm": {"provider_id": "deepseek"}}
 
     @patch("modules.project.repositories.ProjectRepository.get")
     async def test_not_found_returns_none(

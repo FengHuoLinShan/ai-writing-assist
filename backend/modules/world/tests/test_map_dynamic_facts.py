@@ -10,7 +10,7 @@ from httpx import AsyncClient
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.world.services.map_open_target_service import MapOpenTargetService
+from modules.world.services.map.map_open_target_service import MapOpenTargetService
 from modules.world.tests.helpers import _create_entity, _create_project
 
 

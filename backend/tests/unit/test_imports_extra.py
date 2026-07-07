@@ -1,8 +1,7 @@
 """
 Import 模组补充单元测试
 
-覆盖模块内尚未被 test_imports.py / test_workflow.py / test_imports_facade.py
-覆盖的文件与分支：
+覆盖模块内尚未被 test_imports.py / test_workflow.py 覆盖的文件与分支：
 
   parsers.py:       detect_encoding, _looks_like_chapter, split_chapters 英文/数字模式,
                     parse_html, parse_file azw3 别名
@@ -10,6 +9,7 @@ Import 模组补充单元测试
   services.py:      _validate_file 各种场景, _get_extension 边界, _record_to_response,
                     upload_and_import 零章节 / ValueError / Exception 异常路径
   api.py:           API 端点 (upload / list / get / deep / resume)
+  facade.py:        deep import 重复确认、force 入队、恢复 / 放弃兼容语义
   repositories.py:  update_status 不存在的记录
   tasks.py:         任务处理器 (handle_deep_import / handle_deep_import_resume)
 
@@ -30,8 +30,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import DomainError
 from core.errors import ValidationError as DomainValidationError
+from infrastructure.tasks.models import AsyncTask
+from modules.imports.contracts import TaskNotFoundError
+from modules.imports.facade import (
+    abandon_deep_import,
+    resume_deep_import,
+    start_deep_import,
+)
 from modules.imports.parsers import (
-    CHUNK_SIZE,
+    ENCODING_DETECT_SAMPLE_SIZE,
     _looks_like_chapter,
     detect_encoding,
     parse_file,
@@ -51,6 +58,36 @@ from modules.imports.services import ImportService, _get_extension, _record_to_r
 
 # 只在需要 DB session 或异步 fixture 的类上加 pytest.mark.asyncio，
 # 纯函数测试不加，避免 pytest-asyncio deprecation warning。
+
+
+async def _create_recoverable_deep_import_task(
+    db_session: AsyncSession,
+    *,
+    task_type: str = "deep_import",
+    status: str = "running",
+    meta: dict | None = None,
+    result: dict | None = None,
+) -> AsyncTask:
+    """Create a recoverable deep_import task for facade compatibility tests."""
+    recovery_flags = {
+        "interrupted": True,
+        "recoverable": True,
+        "recovery_required": True,
+    }
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type=task_type,
+        status=status,
+        meta=(
+            meta
+            if meta is not None
+            else {"novel_id": str(uuid.uuid4()), **recovery_flags}
+        ),
+        result=result if result is not None else dict(recovery_flags),
+    )
+    db_session.add(task)
+    await db_session.flush()
+    return task
 
 # ====================================================================
 # parsers.py — 补充测试
@@ -80,9 +117,37 @@ class TestDetectEncoding:
         enc = detect_encoding(data)
         assert enc == "utf-8"
 
-    def test_uses_only_first_chunk(self):
-        """只读取前 CHUNK_SIZE 字节检测编码，不会因超大文件而耗时"""
-        data = b"A" * (CHUNK_SIZE + 500)
+    def test_uses_only_encoding_detect_sample(self):
+        """只把前 ENCODING_DETECT_SAMPLE_SIZE 字节传给 chardet"""
+        data = b"A" * ENCODING_DETECT_SAMPLE_SIZE + b"B" * 500
+        with patch("modules.imports.parsers.chardet.detect") as mock_detect:
+            mock_detect.return_value = {"encoding": "ascii", "confidence": 1.0}
+            enc = detect_encoding(data)
+
+        mock_detect.assert_called_once_with(data[:ENCODING_DETECT_SAMPLE_SIZE])
+        assert enc == "ascii"
+
+    def test_low_confidence_falls_back_to_utf8(self):
+        """chardet 低置信结果应回退到 utf-8"""
+        data = "第一章\n内容".encode("gbk")
+        with patch("modules.imports.parsers.chardet.detect") as mock_detect:
+            mock_detect.return_value = {"encoding": "GB2312", "confidence": 0.69}
+            enc = detect_encoding(data)
+
+        assert enc == "utf-8"
+
+    def test_missing_encoding_falls_back_to_utf8(self):
+        """chardet 缺失 encoding 时应回退到 utf-8"""
+        data = b"\x80\x81\x82"
+        with patch("modules.imports.parsers.chardet.detect") as mock_detect:
+            mock_detect.return_value = {"encoding": None, "confidence": 0.99}
+            enc = detect_encoding(data)
+
+        assert enc == "utf-8"
+
+    def test_large_input_returns_valid_encoding(self):
+        """大输入应返回有效编码"""
+        data = b"A" * (ENCODING_DETECT_SAMPLE_SIZE + 500)
         enc = detect_encoding(data)
         assert isinstance(enc, str)
 
@@ -693,6 +758,163 @@ class TestImportServiceErrors:
                 )
         assert exc.value.status_code == 400
         assert "custom error" in exc.value.detail
+
+
+# ====================================================================
+# facade.py — deep import 兼容语义
+# ====================================================================
+
+
+class TestImportFacadeDeepImportCompatibility:
+    """start/resume/abandon deep import facade compatibility."""
+
+    pytestmark = [pytest.mark.asyncio]
+
+    async def test_start_deep_import_duplicate_requires_confirmation_without_enqueue(
+        self,
+        db_session: AsyncSession,
+    ):
+        """重复导入默认只返回确认要求，不提前把 deep_import 任务入队。"""
+        warning = "第 1-5 章已有数据。重新导入将覆盖现有数据。是否继续？"
+        expected = {
+            "workflow_id": None,
+            "task_id": None,
+            "status": "requires_confirmation",
+            "requires_confirmation": True,
+            "warning": warning,
+            "message": warning,
+        }
+        novel_id = str(uuid.uuid4())
+
+        with patch("modules.imports.facade._orchestrator") as mock_orchestrator:
+            mock_orchestrator.start = AsyncMock(return_value=expected)
+
+            result = await start_deep_import(
+                db_session,
+                novel_id=novel_id,
+                start_chapter=1,
+                end_chapter=5,
+            )
+
+        assert result == expected
+        assert result["status"] == "requires_confirmation"
+        assert result["requires_confirmation"] is True
+        assert "覆盖现有数据" in result["warning"]
+        assert result["task_id"] is None
+        mock_orchestrator.start.assert_awaited_once_with(
+            db_session,
+            novel_id,
+            1,
+            5,
+            force=False,
+            high_quality=False,
+        )
+
+    async def test_start_deep_import_force_enqueues_after_duplicate_confirmation(
+        self,
+        db_session: AsyncSession,
+    ):
+        """用户确认覆盖后，force=True 才允许创建 deep_import 任务。"""
+        task_id = str(uuid.uuid4())
+        novel_id = str(uuid.uuid4())
+        expected = {
+            "workflow_id": task_id,
+            "task_id": task_id,
+            "status": "pending",
+            "requires_confirmation": False,
+            "message": "深度导入任务已提交（第1-5章）",
+        }
+
+        with patch("modules.imports.facade._orchestrator") as mock_orchestrator:
+            mock_orchestrator.start = AsyncMock(return_value=expected)
+
+            result = await start_deep_import(
+                db_session,
+                novel_id=novel_id,
+                start_chapter=1,
+                end_chapter=5,
+                force=True,
+            )
+
+        assert result == expected
+        assert result["task_id"] == task_id
+        assert result["status"] == "pending"
+        assert result["requires_confirmation"] is False
+        assert "warning" not in result
+        mock_orchestrator.start.assert_awaited_once_with(
+            db_session,
+            novel_id,
+            1,
+            5,
+            force=True,
+            high_quality=False,
+        )
+
+    async def test_resume_deep_import_with_valid_prev_task_reuses_original_task(
+        self,
+        db_session: AsyncSession,
+    ):
+        """恢复时复用原 deep_import 任务，不创建 resume 任务。"""
+        prev_task = await _create_recoverable_deep_import_task(
+            db_session,
+            meta={
+                "novel_id": str(uuid.uuid4()),
+                "start_chapter": 1,
+                "end_chapter": 5,
+                "recovery_required": True,
+                "recoverable": True,
+                "interrupted": True,
+            },
+        )
+        prev_task_id = str(prev_task.id)
+
+        result = await resume_deep_import(db_session, prev_task_id)
+
+        assert result["task_id"] == prev_task_id
+        assert result["workflow_id"] == prev_task_id
+        assert result["status"] == "pending"
+        assert prev_task.status == "pending"
+        assert prev_task.result["recovery_required"] is False
+        assert prev_task.meta["recovery_required"] is False
+
+    async def test_abandon_deep_import_with_valid_task_cancels_original_task(
+        self,
+        db_session: AsyncSession,
+    ):
+        """放弃恢复会取消原任务并返回 no-op 清理摘要。"""
+        prev_task = await _create_recoverable_deep_import_task(db_session)
+        prev_task_id = str(prev_task.id)
+
+        result = await abandon_deep_import(db_session, prev_task_id)
+
+        assert result["task_id"] == prev_task_id
+        assert result["status"] == "cancelled"
+        assert result["cleanup_summary"]["deprecated_scenes"] == 0
+        assert result["cleanup_summary"]["hard_deleted_assets"] == 0
+        assert prev_task.status == "cancelled"
+        assert prev_task.finished_at is not None
+
+    async def test_resume_deep_import_with_missing_prev_task_raises_404(
+        self,
+        db_session: AsyncSession,
+    ):
+        """prev_task_id 对应记录不存在时，应抛出 TaskNotFoundError。"""
+        missing_id = str(uuid.uuid4())
+
+        with pytest.raises(TaskNotFoundError) as excinfo:
+            await resume_deep_import(db_session, missing_id)
+
+        assert excinfo.value.task_id == missing_id
+
+    async def test_resume_deep_import_with_invalid_uuid_raises_422(
+        self,
+        db_session: AsyncSession,
+    ):
+        """prev_task_id 不是有效 UUID 时，parse_uuid 应抛出领域 422。"""
+        with pytest.raises(DomainValidationError) as excinfo:
+            await resume_deep_import(db_session, "not-a-valid-uuid")
+
+        assert excinfo.value.status_code == 422
 
 
 # ====================================================================

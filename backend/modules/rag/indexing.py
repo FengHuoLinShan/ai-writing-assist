@@ -279,13 +279,15 @@ class IndexingService:
                 candidates,
                 warning_prefix="embedding 重试失败",
             )
+            batch_succeeded = len(candidates) - embedding_result.failed_count
+            succeeded += batch_succeeded
+            warnings.extend(embedding_result.warnings)
+            if progress_callback is not None:
+                progress_callback(min(1.0, succeeded / max(initial_total, 1)))
+
             if embedding_result.failed_count == 0:
-                succeeded += len(candidates)
-                if progress_callback is not None:
-                    progress_callback(min(1.0, succeeded / max(initial_total, 1)))
                 continue
             failed += embedding_result.failed_count
-            warnings.extend(embedding_result.warnings)
             break
 
         remaining_retryable_count = await self._repo.count_retryable_embeddings(
@@ -295,7 +297,7 @@ class IndexingService:
             start_chapter=start_chapter,
             end_chapter=end_chapter,
         )
-        if remaining_retryable_count == 0:
+        if remaining_retryable_count == 0 and failed == 0:
             if progress_callback is not None:
                 progress_callback(1.0)
             await db.flush()

@@ -333,7 +333,9 @@ class ScenePhaseRunner:
         )
         await workflow._emit_progress(progress, 0.2, on_progress)
 
-        async def _on_phase1b_batch(completed: int, total: int, candidate_id: str) -> None:
+        async def _on_phase1b_batch(
+            completed: int, total: int, candidate_id: str
+        ) -> None:
             progress.current_scene_candidate_id = candidate_id
             progress.current_item = {
                 "kind": "scene_candidate",

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.schemas import SceneCreate
 from modules.outline.services import SceneService
-from modules.world.services.map_state_assembler import MapStateAssembler
+from modules.world.services.map.map_state_assembler import MapStateAssembler
 from modules.world.tests.helpers import _create_entity, _create_project
 
 

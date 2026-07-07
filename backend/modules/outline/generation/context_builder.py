@@ -11,6 +11,15 @@ from dataclasses import dataclass, field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.context import facade as context_facade
+from modules.outline.generation.context_renderer import (
+    _CHAPTER_TEXT_LIMIT,
+    _PromptTextGuard,
+    render_bundle_to_markdown,
+    render_chapter_text_sections,
+    render_scene_summary_card,
+    render_scene_summary_line,
+    render_warnings_to_markdown,
+)
 from modules.writing import facade as writing_facade
 
 
@@ -86,7 +95,9 @@ class PlotStructureContextBuilder:
             include_pending_objects=include_pending_objects,
         )
 
-        context_md = self._render_bundle_to_markdown(bundle)
+        warnings = list(bundle.warnings or [])
+        guard = _PromptTextGuard(warnings=warnings)
+        context_md = self._render_bundle_to_markdown(bundle, guard=guard)
 
         entity_name_to_id = {
             e["name"]: e["entity_id"]
@@ -106,6 +117,7 @@ class PlotStructureContextBuilder:
                 novel_id,
                 start_chapter,
                 end_chapter,
+                guard=guard,
             )
             if scenes_md:
                 context_md += "\n## 已生成 Scene 摘要\n" + scenes_md
@@ -116,58 +128,42 @@ class PlotStructureContextBuilder:
             else []
         )
         if chapter_texts:
-            context_md += "\n## 章节原文\n"
-            for chapter_index, text in chapter_texts:
-                truncated = text[:12000]
-                context_md += f"\n### 第{chapter_index}章\n{truncated}\n"
-                if len(text) > 12000:
-                    context_md += "\n（本章内容已截断）\n"
+            context_md += render_chapter_text_sections(chapter_texts, guard=guard)
+
+        generated_warnings = [
+            warning for warning in warnings if warning not in (bundle.warnings or [])
+        ]
+        if generated_warnings:
+            context_md += self._render_warnings_to_markdown(
+                "动态文本安全警告",
+                generated_warnings,
+                guard,
+            )
 
         return PlotStructureContext(
             markdown=context_md,
-            warnings=list(bundle.warnings or []),
+            warnings=warnings,
             entity_name_to_id=entity_name_to_id,
             character_name_to_id=character_name_to_id,
             scenes=scene_cards,
         )
 
-    def _render_bundle_to_markdown(self, bundle: object) -> str:
+    def _render_bundle_to_markdown(
+        self,
+        bundle: object,
+        *,
+        guard: _PromptTextGuard | None = None,
+    ) -> str:
         """将 StructureContextBundle 渲染为 Markdown 片段。"""
-        context_md = ""
-        if bundle.project:
-            context_md += f"## 项目\n{bundle.project}\n\n"
-        if bundle.world_entities:
-            context_md += "## 世界对象\n"
-            for e in bundle.world_entities:
-                context_md += (
-                    f"- {e.get('name', '?')} ({e.get('entity_type', '?')}): "
-                    f"{e.get('summary', '')}\n"
-                )
-        if bundle.characters:
-            context_md += "\n## 人物\n"
-            for c in bundle.characters:
-                context_md += (
-                    f"- {c.get('name', '?')} ({c.get('role', '?')}): "
-                    f"{c.get('desire', '')}\n"
-                )
-        if bundle.rag_chunks:
-            context_md += "\n## RAG 检索证据\n"
-            for chunk in bundle.rag_chunks:
-                if isinstance(chunk, dict):
-                    source = chunk.get("source_type", "?")
-                    chapter = chunk.get("chapter_index")
-                    prefix = f"- [{source}"
-                    if chapter is not None:
-                        prefix += f" / 第{chapter}章"
-                    text = str(chunk.get("text", "")).strip()
-                    context_md += f"{prefix}] {text}\n"
-                else:
-                    context_md += f"- {chunk}\n"
-        if bundle.warnings:
-            context_md += "\n## 上下文警告\n"
-            for warning in bundle.warnings:
-                context_md += f"- {warning}\n"
-        return context_md
+        return render_bundle_to_markdown(bundle, guard=guard)
+
+    def _render_warnings_to_markdown(
+        self,
+        title: str,
+        warnings: list[str],
+        guard: _PromptTextGuard,
+    ) -> str:
+        return render_warnings_to_markdown(title, warnings, guard)
 
     async def _load_scene_summaries(
         self,
@@ -175,10 +171,13 @@ class PlotStructureContextBuilder:
         novel_id: str,
         start_chapter: int,
         end_chapter: int,
+        *,
+        guard: _PromptTextGuard | None = None,
     ) -> SceneSummaryText:
         """加载指定章节范围内已有 Scene 的紧凑摘要。"""
         from modules.outline.services import SceneService
 
+        guard = guard or _PromptTextGuard(warnings=[])
         scenes = await SceneService().get_by_chapter_range_models(
             db,
             novel_id,
@@ -190,45 +189,9 @@ class PlotStructureContextBuilder:
         for scene in scenes:
             if scene.status == "deprecated":
                 continue
-            scene_id = getattr(scene, "id", None)
-            scene_index = getattr(scene, "scene_index", 0)
             chapter_indices = self._scene_chapter_indices(scene)
-            chapter_label = (
-                f"第{min(chapter_indices)}-{max(chapter_indices)}章"
-                if chapter_indices
-                else "章节未知"
-            )
-            summary_parts = [
-                getattr(scene, "goal", None),
-                getattr(scene, "core_conflict", None),
-                getattr(scene, "emotional_beat", None),
-            ]
-            summary = "；".join(str(part).strip() for part in summary_parts if part)
-            scene_label = (
-                f"{scene_id} / S{scene_index}"
-                if scene_id is not None
-                else f"S{scene_index}"
-            )
-            lines.append(
-                f"- {scene_label} {chapter_label}"
-                f"《{getattr(scene, 'title', None) or '未命名'}》"
-                f"：{summary[:240]}"
-            )
-            cards.append(
-                {
-                    "scene_id": str(scene_id or scene_index),
-                    "scene_index": scene_index,
-                    "title": getattr(scene, "title", None) or "",
-                    "goal": getattr(scene, "goal", None) or "",
-                    "core_conflict": getattr(scene, "core_conflict", None) or "",
-                    "emotional_beat": getattr(scene, "emotional_beat", None) or "",
-                    "must_happen": getattr(scene, "must_happen", None) or "",
-                    "must_not_happen": getattr(scene, "must_not_happen", None) or "",
-                    "narrative_tag": getattr(scene, "narrative_tag", None) or "",
-                    "start_chapter": min(chapter_indices) if chapter_indices else None,
-                    "end_chapter": max(chapter_indices) if chapter_indices else None,
-                }
-            )
+            lines.append(render_scene_summary_line(scene, chapter_indices, guard=guard))
+            cards.append(render_scene_summary_card(scene, chapter_indices))
         return SceneSummaryText("\n".join(lines) + ("\n" if lines else ""), cards)
 
     @staticmethod
@@ -264,6 +227,7 @@ class PlotStructureContextBuilder:
             db,
             novel_id,
             chapter_indices,
+            content_limit=_CHAPTER_TEXT_LIMIT + 1,
         )
         draft_by_chapter = {draft.chapter_index: draft for draft in drafts}
         results: list[tuple[int, str]] = []

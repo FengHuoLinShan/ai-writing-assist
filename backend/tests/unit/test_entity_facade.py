@@ -6,25 +6,102 @@ All external dependencies are mocked to keep tests fast and isolated.
 
 from __future__ import annotations
 
+import ast
 import uuid
+from pathlib import Path
 from unittest import mock
 
 import pytest
 from pydantic import ValidationError
 
+from modules.world import entity_facade, worldbuilding_facade
+from modules.world import facade as world_facade
 from modules.world.facade import (
+    apply_entity_fusion,
     backfill_entity_embeddings,
     create_relation,
     get_entity_relations,
     merge_candidate_into_entity,
+    preview_worldbuilding_activation,
+    suggest_entity_fusion,
     upsert_relation,
     upsert_relationship,
 )
-from modules.world.schemas import EntityRelationResponse
+from modules.world.schemas import EntityFusionApplyItem, EntityRelationResponse
 
 pytestmark = [pytest.mark.asyncio]
 
 TEST_NOVEL_ID = "00000000-0000-0000-0000-000000000001"
+
+
+async def test_root_world_facade_is_reexport_hub_without_async_functions():
+    """Root facade preserves imports but owns no async wrappers."""
+    source = Path(world_facade.__file__).read_text()
+    tree = ast.parse(source)
+
+    async_defs = [
+        node.name for node in ast.walk(tree) if isinstance(node, ast.AsyncFunctionDef)
+    ]
+
+    assert async_defs == []
+    assert world_facade.suggest_entity_fusion is entity_facade.suggest_entity_fusion
+    assert world_facade.apply_entity_fusion is entity_facade.apply_entity_fusion
+    assert suggest_entity_fusion is entity_facade.suggest_entity_fusion
+    assert apply_entity_fusion is entity_facade.apply_entity_fusion
+    assert (
+        world_facade.preview_worldbuilding_activation
+        is worldbuilding_facade.preview_worldbuilding_activation
+    )
+    assert (
+        preview_worldbuilding_activation
+        is worldbuilding_facade.preview_worldbuilding_activation
+    )
+    assert (
+        world_facade.mark_worldbuilding_context_stale
+        is worldbuilding_facade.mark_worldbuilding_context_stale
+    )
+
+
+async def test_apply_entity_fusion_converts_dict_suggestions_before_service(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Dict payloads remain accepted by the public facade import path."""
+    service = mock.Mock()
+    service.apply = mock.AsyncMock(return_value={"applied": 1})
+    monkeypatch.setattr(
+        "modules.world.entity_fusion.WorldEntityFusionService",
+        lambda: service,
+    )
+    db = mock.AsyncMock()
+    source_id = str(uuid.uuid4())
+    target_id = str(uuid.uuid4())
+
+    result = await apply_entity_fusion(
+        db,
+        TEST_NOVEL_ID,
+        confirmed=True,
+        suggestions=[
+            {
+                "action": "alias_only",
+                "source_entity_id": source_id,
+                "target_entity_id": target_id,
+                "alias": "旧称",
+            }
+        ],
+    )
+
+    assert result == {"applied": 1}
+    service.apply.assert_awaited_once()
+    _, kwargs = service.apply.call_args
+    assert kwargs["novel_id"] == TEST_NOVEL_ID
+    assert kwargs["confirmed"] is True
+    assert len(kwargs["suggestions"]) == 1
+    suggestion = kwargs["suggestions"][0]
+    assert isinstance(suggestion, EntityFusionApplyItem)
+    assert suggestion.action == "alias_only"
+    assert suggestion.source_entity_id == source_id
+    assert suggestion.target_entity_id == target_id
+    assert suggestion.alias == "旧称"
 
 
 # ---------------------------------------------------------------------------

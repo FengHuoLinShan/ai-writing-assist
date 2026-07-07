@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -17,6 +18,7 @@ from modules.rag.circuit_breaker import (
     CircuitBreaker,
     State,
     get_circuit_breaker,
+    reset_circuit_breakers_for_tests,
 )
 from modules.rag.contracts import RagChunkContract
 from modules.rag.mappers import chunk_orm_to_contract
@@ -182,6 +184,29 @@ class TestCircuitBreaker:
         # Assert
         assert a is b
 
+    def test_get_circuit_breaker_returns_same_instance_per_novel(self):
+        reset_circuit_breakers_for_tests()
+        novel_id = uuid.uuid4()
+
+        a = get_circuit_breaker(novel_id)
+        b = get_circuit_breaker(str(novel_id))
+
+        assert a is b
+
+    def test_get_circuit_breaker_isolates_state_by_novel(self):
+        reset_circuit_breakers_for_tests()
+        novel_a = uuid.uuid4()
+        novel_b = uuid.uuid4()
+
+        breaker_a = get_circuit_breaker(novel_a)
+        breaker_b = get_circuit_breaker(novel_b)
+        breaker_a._failure_threshold = 1
+        breaker_a.record_failure()
+
+        assert breaker_a is not breaker_b
+        assert breaker_a.state == State.OPEN
+        assert breaker_b.state == State.CLOSED
+
 
 # ============================================================
 # Reranker
@@ -234,6 +259,53 @@ class TestReranker:
         assert len(result) == 2
         assert result[0] == 0.8
         assert result[1] == 0.0  # padded
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "scores",
+        [
+            ["0.8"],
+            [True],
+        ],
+    )
+    async def test_rerank_rejects_non_json_number_scores(self, scores):
+        # Arrange
+        candidates = [
+            {"text": "片段一"},
+            {"text": "片段二"},
+        ]
+        with patch("modules.rag.reranker.LLMClient") as mock_client:
+            instance = mock_client.return_value
+            instance._settings.llm_model = "m"
+            instance.generate = AsyncMock(
+                return_value=MagicMock(content=json.dumps({"scores": scores}))
+            )
+
+            # Act
+            result = await rerank("q", candidates)
+
+        # Assert
+        assert result == [0.5, 0.5]
+
+    @pytest.mark.asyncio
+    async def test_rerank_truncates_extra_scores_to_trimmed_length(self):
+        # Arrange
+        candidates = [
+            {"text": "片段一"},
+            {"text": "片段二"},
+        ]
+        with patch("modules.rag.reranker.LLMClient") as mock_client:
+            instance = mock_client.return_value
+            instance._settings.llm_model = "m"
+            instance.generate = AsyncMock(
+                return_value=MagicMock(content=json.dumps({"scores": [0.2, 0.4, 0.6]}))
+            )
+
+            # Act
+            result = await rerank("q", candidates)
+
+        # Assert
+        assert result == [0.2, 0.4]
 
     @pytest.mark.asyncio
     async def test_rerank_truncated_candidates_get_default_score(self):

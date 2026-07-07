@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.models import CoreEntity
-from modules.world.services.entity_embedding_service import EntityEmbeddingService
+from modules.world.services.core.entity_embedding_service import EntityEmbeddingService
 
 
 @pytest.fixture
@@ -71,7 +71,7 @@ async def test_bge_unavailable_returns_zero(
     db = _mock_db_execute([entity])
 
     with patch(
-        "modules.world.services.entity_embedding_service.BgeEmbeddingClient.get_instance",
+        "modules.world.services.core.entity_embedding_service.BgeEmbeddingClient.get_instance",
         side_effect=RuntimeError("BGE not found"),
     ):
         count = await embedding_service.backfill_embeddings(db, novel_id)
@@ -102,7 +102,7 @@ async def test_happy_path_backfills_in_batches(
     ]
 
     with patch(
-        "modules.world.services.entity_embedding_service.BgeEmbeddingClient.get_instance",
+        "modules.world.services.core.entity_embedding_service.BgeEmbeddingClient.get_instance",
         return_value=bge_mock,
     ):
         count = await embedding_service.backfill_embeddings(db, novel_id, batch_size=4)
@@ -131,7 +131,7 @@ async def test_skips_empty_name_entities(
     bge_mock.generate_embedding.return_value = [[0.1, 0.2]]
 
     with patch(
-        "modules.world.services.entity_embedding_service.BgeEmbeddingClient.get_instance",
+        "modules.world.services.core.entity_embedding_service.BgeEmbeddingClient.get_instance",
         return_value=bge_mock,
     ):
         count = await embedding_service.backfill_embeddings(db, novel_id)
@@ -166,7 +166,7 @@ async def test_batch_failure_continues_to_next_batch(
     bge_mock.generate_embedding.side_effect = _generate
 
     with patch(
-        "modules.world.services.entity_embedding_service.BgeEmbeddingClient.get_instance",
+        "modules.world.services.core.entity_embedding_service.BgeEmbeddingClient.get_instance",
         return_value=bge_mock,
     ):
         count = await embedding_service.backfill_embeddings(db, novel_id, batch_size=2)

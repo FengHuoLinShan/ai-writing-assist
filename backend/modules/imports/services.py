@@ -12,6 +12,7 @@ import logging
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import get_settings
 from core.errors import DomainError, NotFoundError
 from core.errors import ValidationError as DomainValidationError
 from infrastructure.tasks.enqueuer import enqueue_task
@@ -74,6 +75,13 @@ class ImportService:
                 if total == 0:
                     raise _NoEffectiveChaptersError()
 
+                max_chapters = get_settings().import_max_chapters
+                if total > max_chapters:
+                    raise DomainValidationError(
+                        f"导入章节数 {total} 超过上限 {max_chapters}",
+                        status_code=413,
+                    )
+
                 # 逐章创建已发布 WritingDraft + 排发布任务；发布任务统一负责 RAG 索引。
                 imported = 0
                 imported_chapters: list[ImportChapterItem] = []
@@ -109,6 +117,15 @@ class ImportService:
                 error_message=NO_EFFECTIVE_CHAPTERS_MESSAGE,
             )
             raise DomainValidationError(NO_EFFECTIVE_CHAPTERS_MESSAGE)
+        except DomainValidationError as exc:
+            error_message = exc.message[:1000]
+            await self._repo.update_status(
+                db,
+                record.id,
+                status="failed",
+                error_message=error_message,
+            )
+            raise
         except ValueError as exc:
             logger.warning("导入参数错误: %s", exc)
             error_message = str(exc)[:1000]

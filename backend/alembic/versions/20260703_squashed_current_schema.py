@@ -24,11 +24,28 @@ import modules.world.models  # noqa: F401
 import modules.writing.models  # noqa: F401
 from alembic import op
 from core.base import Base
+from core.config import Settings
 
 revision: str = "20260703_scene_chapter_links"
 down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
+
+_ALLOWED_VECTOR_INDEX_TYPES = {"hnsw", "ivfflat"}
+_ALLOWED_VECTOR_INDEX_TARGETS = {
+    (
+        "ix_rag_chunks_embedding",
+        "rag_chunks",
+        "embedding",
+        "vector_ip_ops",
+    ),
+    (
+        "ix_core_entities_embedding",
+        "core_entities",
+        "embedding",
+        "vector_cosine_ops",
+    ),
+}
 
 
 def upgrade() -> None:
@@ -55,21 +72,33 @@ def downgrade() -> None:
 def _create_postgresql_only_indexes() -> None:
     _assert_no_postgresql_duplicate_keys()
     op.execute(
-        """
-        CREATE INDEX IF NOT EXISTS ix_rag_chunks_embedding_hnsw
-        ON rag_chunks USING hnsw (embedding vector_ip_ops)
-        """
+        _create_vector_index_sql(
+            "ix_rag_chunks_embedding",
+            "rag_chunks",
+            "embedding",
+            "vector_ip_ops",
+        )
     )
     op.execute(
-        """
-        CREATE INDEX IF NOT EXISTS ix_core_entities_embedding_hnsw
-        ON core_entities USING hnsw (embedding vector_ip_ops)
-        """
+        _create_vector_index_sql(
+            "ix_core_entities_embedding",
+            "core_entities",
+            "embedding",
+            "vector_cosine_ops",
+        )
     )
     op.execute(
         """
         CREATE INDEX IF NOT EXISTS ix_core_entities_search_trgm
         ON core_entities USING gin (search_text gin_trgm_ops)
+        """
+    )
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS ix_core_entities_auto_ingested_recent
+        ON core_entities (novel_id, created_at DESC, id DESC)
+        WHERE status = 'canonical'
+          AND (CAST(((content_json -> '_meta') ->> 'auto_ingested') AS BOOLEAN) IS TRUE)
         """
     )
     op.execute(
@@ -130,6 +159,32 @@ def _create_postgresql_only_indexes() -> None:
         WHERE reveal_chapter_index IS NULL
         """
     )
+
+
+def _vector_index_type(settings: Settings | None = None) -> str:
+    configured = (settings or Settings()).vector_index_type.strip().lower()
+    if configured not in _ALLOWED_VECTOR_INDEX_TYPES:
+        raise ValueError("VECTOR_INDEX_TYPE must be one of: hnsw, ivfflat")
+    return configured
+
+
+def _create_vector_index_sql(
+    index_base_name: str,
+    table: str,
+    column: str,
+    opclass: str,
+    *,
+    settings: Settings | None = None,
+) -> str:
+    target = (index_base_name, table, column, opclass)
+    if target not in _ALLOWED_VECTOR_INDEX_TARGETS:
+        raise ValueError("Unsupported vector index target")
+    index_type = _vector_index_type(settings)
+    index_name = f"{index_base_name}_{index_type}"
+    return f"""
+        CREATE INDEX IF NOT EXISTS {index_name}
+        ON {table} USING {index_type} ({column} {opclass})
+        """
 
 
 def _assert_no_postgresql_duplicate_keys() -> None:

@@ -9,6 +9,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.imports.service_progress_limits import trim_progress_diagnostics
 from modules.imports.service_progress_logs import record_progress_event
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 
@@ -143,6 +144,7 @@ class DeepImportProgressTracker:
 
     @classmethod
     def refresh_diagnostic_counts(cls, progress: DeepImportProgress) -> None:
+        trim_progress_diagnostics(progress)
         scene_commit = progress.quality_stats.get("scene_commit") or {}
         phase2 = progress.quality_stats.get("phase2") or {}
         phase3 = progress.quality_stats.get("phase3") or {}

@@ -50,8 +50,8 @@ from modules.world.services import (
     EventService,
     WorldEntityService,
 )
-from modules.world.services.dedup_service import EntityDedupService
-from modules.world.services.entity_relation_service import EntityRelationService
+from modules.world.services.core.dedup_service import EntityDedupService
+from modules.world.services.core.entity_relation_service import EntityRelationService
 
 
 @pytest.mark.asyncio
@@ -1100,7 +1100,7 @@ async def test_merge_entity_api_service_marks_candidate_merged(
         ),
     )
 
-    from modules.world.services.dedup_service import EntityDedupService
+    from modules.world.services.core.dedup_service import EntityDedupService
 
     result = await EntityDedupService().merge_candidate_into_entity(
         db_session,
@@ -1489,6 +1489,59 @@ class TestUpsertRelationship:
         assert total == 0
         assert rels == []
         assert await rel_repo.get(db_session, rel.id) is not None
+
+    @pytest.mark.asyncio
+    async def test_duplicate_and_all_for_entity_eager_load_endpoint_names(
+        self,
+        db_session: AsyncSession,
+        entity_repo: CoreEntityRepository,
+        rel_repo: EntityRelationRepository,
+        novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=novel_id)
+        source = await entity_repo.create_raw(
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="克莱恩",
+            status="canonical",
+        )
+        target = await entity_repo.create_raw(
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="伦纳德",
+            status="canonical",
+        )
+        await rel_repo.create(
+            db_session,
+            nid,
+            EntityRelationCreate(
+                source_id=str(source.id),
+                target_id=str(target.id),
+                relation_type="ally_of",
+                status="canonical",
+            ),
+        )
+
+        duplicate = await rel_repo.find_duplicate_relation(
+            db_session,
+            nid,
+            source.id,
+            target.id,
+            "ally_of",
+        )
+        all_for_source = await rel_repo.get_all_for_entity(
+            db_session,
+            nid,
+            source.id,
+        )
+
+        assert duplicate is not None
+        assert duplicate.source.name == "克莱恩"
+        assert duplicate.target.name == "伦纳德"
+        assert all_for_source[0].source.name == "克莱恩"
+        assert all_for_source[0].target.name == "伦纳德"
 
     @pytest.mark.asyncio
     async def test_upsert_relationship_concurrent_calls_are_idempotent(self) -> None:

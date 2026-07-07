@@ -8,7 +8,7 @@ Project 模块测试
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -21,7 +21,8 @@ from core.errors import NotFoundError
 from core.errors import ValidationError as DomainValidationError
 from infrastructure.tasks.models import AsyncTask
 from modules.project.contracts import ProjectContext
-from modules.project.facade import get_project_context
+from modules.project.facade import get_project_context, list_active_project_summaries
+from modules.project.models import Project
 from modules.project.repositories import ProjectRepository
 from modules.project.schemas import (
     ProjectCreate,
@@ -715,3 +716,27 @@ class TestProjectFacade:
         """测试 facade 获取不存在的项目"""
         ctx = await get_project_context(db_session, str(uuid.uuid4()))
         assert ctx is None
+
+    @pytest.mark.asyncio
+    async def test_list_active_project_summaries_filters_orders_and_excludes(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        base = datetime(2026, 1, 1, tzinfo=UTC)
+        old = await _repo.create(db_session, ProjectCreate(title="old"))
+        deleted = await _repo.create(db_session, ProjectCreate(title="deleted"))
+        new = await _repo.create(db_session, ProjectCreate(title="new"))
+        old.created_at = base
+        deleted.created_at = base + timedelta(days=1)
+        new.created_at = base + timedelta(days=2)
+        db_session.add_all([old, deleted, new])
+        await db_session.flush()
+        await _repo.soft_delete(db_session, deleted.id)
+
+        items, total = await list_active_project_summaries(
+            db_session,
+            exclude_project_ids=select(Project.id).where(Project.id == old.id),
+        )
+
+        assert total == 1
+        assert [item.title for item in items] == ["new"]

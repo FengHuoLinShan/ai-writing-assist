@@ -105,6 +105,16 @@ POST   /api/outline/generate
 - `get_scenes_by_novel()`
 - `get_scenes_by_chapter()`
 
+## 与 writing 的依赖方向
+
+outline 可以只读依赖 `modules.writing.facade` / `modules.writing.contracts` 加载最新
+草稿和章节索引，供结构生成上下文、Scene 工作台和跨章 Scene 检测使用；outline 不直接
+访问 writing 的 model / repository / service。
+
+writing 侧不在服务模块顶层依赖 outline facade。断章同步 Scene chunk 和冲突检查读取
+Scene contract 都通过可注入 provider 完成；默认 provider 在调用时 lazy import
+`modules.outline.facade`，因此旧的用户流程、HTTP/API schema 和 wire shape 保持不变。
+
 ## Scene 设计要点
 
 - `scenes` 是当前最小叙事单元的权威表

@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.world.schemas import (
+    EntityFusionApplyItem,
     EntityRelationResponse,
     WorldContextBundle,
     WorldEntityContext,
@@ -19,7 +20,7 @@ from modules.world.services import (
     EntityStatsService,
     WorldEntityService,
 )
-from modules.world.services.dedup_service import EntityDedupService
+from modules.world.services.core.dedup_service import EntityDedupService
 
 _entity_service = WorldEntityService()
 _context_service = EntityContextService()
@@ -380,6 +381,49 @@ async def merge_candidate_into_entity(
         novel_id,
         candidate_id,
         target_entity_id,
+    )
+
+
+async def suggest_entity_fusion(
+    db,
+    novel_id: str,
+    *,
+    entity_type: str | None = None,
+    status: str | None = None,
+    limit: int = 200,
+    max_suggestions: int = 50,
+    progress_callback=None,
+) -> dict:
+    """Generate world entity duplicate suggestions."""
+    from modules.world.entity_fusion import WorldEntityFusionService
+
+    return await WorldEntityFusionService().suggest(
+        db,
+        novel_id=novel_id,
+        entity_type=entity_type,
+        status=status,
+        limit=limit,
+        max_suggestions=max_suggestions,
+        progress_callback=progress_callback,
+    )
+
+
+async def apply_entity_fusion(
+    db,
+    novel_id: str,
+    *,
+    confirmed: bool,
+    suggestions: list[dict],
+) -> dict:
+    """Apply user-confirmed entity fusion suggestions."""
+    from modules.world.entity_fusion import WorldEntityFusionService
+
+    items = [EntityFusionApplyItem(**item) for item in suggestions]
+    return await WorldEntityFusionService().apply(
+        db,
+        novel_id=novel_id,
+        confirmed=confirmed,
+        suggestions=items,
     )
 
 

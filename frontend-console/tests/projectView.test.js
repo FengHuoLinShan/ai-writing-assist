@@ -66,6 +66,7 @@ describe("projectView", () => {
         currentChapter: 1,
         currentContent: "旧项目章节正文",
       }
+      localStorage.setItem("novel_currentProjectId", "p1")
       localStorage.setItem("novel_currentProject", JSON.stringify(state.currentProject))
 
       await projectView.onEnter()

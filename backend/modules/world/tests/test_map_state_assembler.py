@@ -17,13 +17,13 @@ from modules.world.map_schemas import (
     MapTerritoryCreate,
     TerritoryHex,
 )
+from modules.world.services.map.map_state_assembler import MapStateAssembler
 from modules.world.services.map_service import (
     MapConfigService,
     MapLocationBindingService,
     MapMarkerService,
     MapTerritoryService,
 )
-from modules.world.services.map_state_assembler import MapStateAssembler
 from modules.world.tests.helpers import _create_entity, _create_project
 
 

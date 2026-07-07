@@ -24,6 +24,7 @@ CHAPTER_PATTERNS = [
 ]
 
 CHUNK_SIZE = 500 * 1024
+ENCODING_DETECT_SAMPLE_SIZE = 64 * 1024
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 
 ALLOWED_EXTENSIONS: set[str] = {".txt", ".epub", ".html", ".htm", ".mobi", ".azw3"}
@@ -31,8 +32,12 @@ ALLOWED_EXTENSIONS: set[str] = {".txt", ".epub", ".html", ".htm", ".mobi", ".azw
 
 def detect_encoding(data: bytes) -> str:
     """检测文本编码"""
-    result = chardet.detect(data[:CHUNK_SIZE])
-    return result.get("encoding", "utf-8") or "utf-8"
+    result = chardet.detect(data[:ENCODING_DETECT_SAMPLE_SIZE])
+    encoding = result.get("encoding")
+    confidence = result.get("confidence") or 0
+    if not encoding or confidence < 0.7:
+        return "utf-8"
+    return encoding
 
 
 def split_chapters(text: str) -> list[dict[str, str]]:

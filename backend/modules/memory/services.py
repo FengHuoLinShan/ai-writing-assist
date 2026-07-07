@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import ValidationError
 from modules.memory.contracts import (
     MemoryContinuityEvidenceContract,
     MemoryDeltaEventIngest,
@@ -38,6 +40,9 @@ from shared.utils import parse_uuid
 logger = logging.getLogger(__name__)
 
 _SNAPSHOT_INTERVAL = 10  # K=10
+MEMORY_REPLAY_EVENT_BATCH_SIZE = 500
+MAX_MEMORY_EVENTS_PER_CHAPTER = 500
+MAX_MEMORY_EVENT_PAYLOAD_CHARS = 20000
 
 
 class MemoryService:
@@ -66,6 +71,19 @@ class MemoryService:
 
         events 格式: [{"event_type": "entity_created", "entity_id": ..., ...}, ...]
         """
+        if len(events) > MAX_MEMORY_EVENTS_PER_CHAPTER:
+            raise ValidationError(
+                "Too many memory events for chapter: "
+                f"count={len(events)}, max={MAX_MEMORY_EVENTS_PER_CHAPTER}"
+            )
+        for index, evt in enumerate(events, start=1):
+            serialized = json.dumps(evt, ensure_ascii=False, default=str)
+            if len(serialized) > MAX_MEMORY_EVENT_PAYLOAD_CHARS:
+                raise ValidationError(
+                    "Memory event payload exceeds limit: "
+                    f"event_index={index}, max_chars={MAX_MEMORY_EVENT_PAYLOAD_CHARS}"
+                )
+
         nid = parse_uuid(novel_id)
         rows = [
             {
@@ -127,10 +145,13 @@ class MemoryService:
             start_chapter = 1
 
         if start_chapter <= chapter_index:
-            events = await self._event_repo.get_by_chapter_range(
-                db, nid, start_chapter, chapter_index
+            state, _ = await self._apply_events_in_range(
+                db,
+                nid,
+                start_chapter,
+                chapter_index,
+                state,
             )
-            state = self._apply_events(state, events)
 
         return state
 
@@ -156,15 +177,17 @@ class MemoryService:
         # 获取当前世界完整状态
         full_state = await get_full_state(db, novel_id)
 
-        # 计算该快照覆盖的事件数
-        events = await self._event_repo.get_by_chapter_range(db, nid, 1, chapter_index)
+        # 计算该快照覆盖的事件数，不加载完整事件流
+        events_until = await self._event_repo.count_by_chapter_range(
+            db, nid, 1, chapter_index
+        )
 
         snapshot = await self._snapshot_repo.create(
             db,
             novel_id=nid,
             chapter_index=chapter_index,
             full_state=full_state,
-            events_until=len(events),
+            events_until=events_until,
         )
 
         return SnapshotResponse.model_validate(snapshot)
@@ -297,26 +320,23 @@ class MemoryService:
             state = dict(nearest.full_state)
             start_chapter = nearest.chapter_index + 1
             if start_chapter <= chapter_index:
-                events = await self._event_repo.get_by_chapter_range(
-                    db, nid, start_chapter, chapter_index
+                state, _ = await self._apply_events_in_range(
+                    db,
+                    nid,
+                    start_chapter,
+                    chapter_index,
+                    state,
                 )
-                state = self._apply_events(state, events)
         else:
             # 没有任何快照 — 检查是否有事件可重放
-            events = await self._event_repo.get_by_chapter_range(
-                db, nid, 1, chapter_index
+            state, events_seen = await self._apply_events_in_range(
+                db,
+                nid,
+                1,
+                chapter_index,
+                self._empty_replay_state(),
             )
-            if events:
-                state = self._apply_events(
-                    {
-                        "entities": {},
-                        "relations": [],
-                        "character_locations": {},
-                        "character_knowledge": [],
-                    },
-                    events,
-                )
-            else:
+            if not events_seen:
                 # 完全没有数据，回退到 world 当前状态
                 state = await get_full_state(db, novel_id)
 
@@ -339,10 +359,10 @@ class MemoryService:
         nid = parse_uuid(novel_id)
         nearest = await self._snapshot_repo.get_nearest(db, nid, previous_chapter)
         if not nearest:
-            events = await self._event_repo.get_by_chapter_range(
+            event_count = await self._event_repo.count_by_chapter_range(
                 db, nid, 1, previous_chapter
             )
-            if not events:
+            if event_count == 0:
                 return None
         panorama = await self.get_panorama(db, novel_id, previous_chapter)
         character_locations = getattr(panorama, "character_locations", None) or {}
@@ -527,12 +547,10 @@ class MemoryService:
             await self.record_events(db, novel_id, from_chapter, all_events)
 
         # 重建快照（每 K 章一个，加上最新章）
-        all_events_after = await self._event_repo.get_by_chapter_range(
+        max_chapter = await self._event_repo.get_max_chapter_in_range(
             db, nid, from_chapter, 999999
         )
-        final_chapter = max(
-            (e.chapter_index for e in all_events_after), default=from_chapter
-        )
+        final_chapter = max_chapter or from_chapter
 
         rebuilt_count = 0
         for ch in range(from_chapter, final_chapter + 1):
@@ -550,40 +568,104 @@ class MemoryService:
     # 内部方法
     # ============================================================
 
+    @staticmethod
+    def _empty_replay_state() -> dict[str, Any]:
+        return {
+            "entities": {},
+            "relations": [],
+            "character_locations": {},
+            "character_knowledge": [],
+        }
+
+    async def _apply_events_in_range(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        from_chapter: int,
+        to_chapter: int,
+        state: dict[str, Any],
+    ) -> tuple[dict[str, Any], int]:
+        replay_state = self._normalize_replay_state(state)
+        cursor: tuple[int, int, uuid.UUID] | None = None
+        events_seen = 0
+
+        while True:
+            page = await self._event_repo.get_by_chapter_range_page_after(
+                db,
+                novel_id,
+                from_chapter,
+                to_chapter,
+                after=cursor,
+                limit=MEMORY_REPLAY_EVENT_BATCH_SIZE,
+            )
+            if not page:
+                break
+            for event in page:
+                self._apply_event_to_replay_state(replay_state, event)
+            events_seen += len(page)
+            last = page[-1]
+            cursor = (last.chapter_index, last.sequence, last.id)
+            if len(page) < MEMORY_REPLAY_EVENT_BATCH_SIZE:
+                break
+
+        return self._finalize_replay_state(replay_state), events_seen
+
     def _apply_events(self, state: dict[str, Any], events: list[Any]) -> dict[str, Any]:
         """应用事件序列到状态上"""
-        state = {
-            "entities": {e["id"]: e for e in state.get("entities", [])},
+        replay_state = self._normalize_replay_state(state)
+
+        for event in events:
+            self._apply_event_to_replay_state(replay_state, event)
+
+        return self._finalize_replay_state(replay_state)
+
+    def _normalize_replay_state(self, state: dict[str, Any]) -> dict[str, Any]:
+        entities = state.get("entities", {})
+        if isinstance(entities, dict):
+            entity_map = dict(entities)
+        else:
+            entity_map = {
+                e["id"]: e
+                for e in entities
+                if isinstance(e, dict) and e.get("id") is not None
+            }
+        return {
+            "entities": entity_map,
             "relations": list(state.get("relations", [])),
             "character_locations": dict(state.get("character_locations", {})),
             "character_knowledge": list(state.get("character_knowledge", [])),
         }
 
-        for event in events:
-            etype = event.event_type
-            after = event.snapshot_after or {}
-            eid = str(event.entity_id) if event.entity_id else None
+    def _apply_event_to_replay_state(
+        self,
+        state: dict[str, Any],
+        event: Any,
+    ) -> None:
+        etype = event.event_type
+        after = event.snapshot_after or {}
+        eid = str(event.entity_id) if event.entity_id else None
 
-            if etype == EventType.entity_created and eid:
-                state["entities"][eid] = after
-            elif etype == EventType.entity_updated and eid:
-                if eid in state["entities"]:
-                    state["entities"][eid].update(after)
-            elif etype == EventType.entity_removed and eid:
-                state["entities"].pop(eid, None)
-            elif etype == EventType.entity_moved and eid:
-                state["character_locations"][eid] = after
-            elif etype == EventType.relation_established:
-                state["relations"].append(after)
-            elif etype == EventType.relation_ended:
-                rel_id = after.get("relation_id") or after.get("id")
-                state["relations"] = [
-                    r for r in state["relations"] if r.get("id") != rel_id
-                ]
-            elif etype == EventType.knowledge_changed:
-                state["character_knowledge"].append(after)
+        if etype == EventType.entity_created and eid:
+            state["entities"][eid] = after
+        elif etype == EventType.entity_updated and eid:
+            if eid in state["entities"]:
+                state["entities"][eid].update(after)
+        elif etype == EventType.entity_removed and eid:
+            state["entities"].pop(eid, None)
+        elif etype == EventType.entity_moved and eid:
+            state["character_locations"][eid] = after
+        elif etype == EventType.relation_established:
+            state["relations"].append(after)
+        elif etype == EventType.relation_ended:
+            rel_id = after.get("relation_id") or after.get("id")
+            state["relations"] = [
+                r for r in state["relations"] if r.get("id") != rel_id
+            ]
+        elif etype == EventType.knowledge_changed:
+            state["character_knowledge"].append(after)
 
-        # 将 entities 恢复为列表格式
+    @staticmethod
+    def _finalize_replay_state(state: dict[str, Any]) -> dict[str, Any]:
         state["entities"] = list(state["entities"].values())
         return state
 

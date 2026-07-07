@@ -13,6 +13,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import "../apiContracts.js"
 import "../api.js"
 
 // ---- 镜像 api.js 的失效实现 ----
@@ -311,5 +312,73 @@ describe("api.js cache behavior", () => {
 
     await expect(promise).rejects.toThrow("请求已取消")
     expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("api.js request headers", () => {
+  const originalFetch = globalThis.fetch
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.api.clearCache()
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  function mockJsonResponse(payload = {}) {
+    globalThis.fetch = vi.fn(() => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(payload),
+    }))
+  }
+
+  it("does not force X-Requested-With on GET requests", async () => {
+    mockJsonResponse({ ok: true })
+
+    await window.api.request("/settings/llm-defaults")
+
+    const init = globalThis.fetch.mock.calls[0][1]
+    expect(init.headers["X-Requested-With"]).toBeUndefined()
+  })
+
+  it("adds X-Requested-With to PUT, POST, and DELETE requests", async () => {
+    for (const method of ["PUT", "POST", "DELETE"]) {
+      mockJsonResponse({ ok: true })
+
+      await window.api.request(`/settings/header-check-${method}`, { method })
+
+      const init = globalThis.fetch.mock.calls[0][1]
+      expect(init.headers["X-Requested-With"]).toBe("XMLHttpRequest")
+    }
+  })
+
+  it("lets callers override X-Requested-With", async () => {
+    mockJsonResponse({ ok: true })
+
+    await window.api.request("/settings/llm-defaults", {
+      method: "PUT",
+      headers: { "X-Requested-With": "CustomClient" },
+    })
+
+    const init = globalThis.fetch.mock.calls[0][1]
+    expect(init.headers["X-Requested-With"]).toBe("CustomClient")
+  })
+
+  it("keeps FormData Content-Type unset while adding X-Requested-With", async () => {
+    mockJsonResponse({ ok: true })
+    const form = new FormData()
+    form.append("file", new Blob(["demo"]), "demo.txt")
+
+    await window.api.request("/imports/upload", {
+      method: "POST",
+      body: form,
+    })
+
+    const init = globalThis.fetch.mock.calls[0][1]
+    expect(init.headers["X-Requested-With"]).toBe("XMLHttpRequest")
+    expect(init.headers["Content-Type"]).toBeUndefined()
   })
 })

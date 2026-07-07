@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import and_, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -192,6 +192,76 @@ class EventRepository:
                 MemoryEvent.chapter_index <= to_chapter,
             )
             .order_by(MemoryEvent.chapter_index, MemoryEvent.sequence, MemoryEvent.id)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def count_by_chapter_range(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        from_chapter: int,
+        to_chapter: int,
+    ) -> int:
+        stmt = select(func.count(MemoryEvent.id)).where(
+            MemoryEvent.novel_id == novel_id,
+            MemoryEvent.chapter_index >= from_chapter,
+            MemoryEvent.chapter_index <= to_chapter,
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one()
+
+    async def get_max_chapter_in_range(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        from_chapter: int,
+        to_chapter: int,
+    ) -> int | None:
+        stmt = select(func.max(MemoryEvent.chapter_index)).where(
+            MemoryEvent.novel_id == novel_id,
+            MemoryEvent.chapter_index >= from_chapter,
+            MemoryEvent.chapter_index <= to_chapter,
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one()
+
+    async def get_by_chapter_range_page_after(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        from_chapter: int,
+        to_chapter: int,
+        *,
+        after: tuple[int, int, uuid.UUID] | None,
+        limit: int,
+    ) -> list[MemoryEvent]:
+        conditions = [
+            MemoryEvent.novel_id == novel_id,
+            MemoryEvent.chapter_index >= from_chapter,
+            MemoryEvent.chapter_index <= to_chapter,
+        ]
+        if after is not None:
+            after_chapter, after_sequence, after_id = after
+            conditions.append(
+                or_(
+                    MemoryEvent.chapter_index > after_chapter,
+                    and_(
+                        MemoryEvent.chapter_index == after_chapter,
+                        MemoryEvent.sequence > after_sequence,
+                    ),
+                    and_(
+                        MemoryEvent.chapter_index == after_chapter,
+                        MemoryEvent.sequence == after_sequence,
+                        MemoryEvent.id > after_id,
+                    ),
+                )
+            )
+        stmt = (
+            select(MemoryEvent)
+            .where(*conditions)
+            .order_by(MemoryEvent.chapter_index, MemoryEvent.sequence, MemoryEvent.id)
+            .limit(limit)
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())

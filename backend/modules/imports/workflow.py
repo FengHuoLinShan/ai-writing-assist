@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 import logging
 from collections.abc import Awaitable, Callable
@@ -20,28 +19,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
 from core.container import get as _container_get
-from modules.imports.legacy_scene_pipeline import (
-    require_legacy_scene_pipeline_enabled,
-)
+from modules.imports.chapter_loader import load_chapter_range
 from modules.imports.service_phase_artifacts import coverage_summary
-from modules.imports.workflow_entity_phase import (
-    EntityExtractionPhaseRunner,
-    phase2_quality_stats,
-)
+from modules.imports.workflow_entity_phase import EntityExtractionPhaseRunner
 from modules.imports.workflow_llm_adapters import (
     DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS,
     DEEP_IMPORT_STRUCTURED_TIMEOUT_GRACE_SECONDS,
     PHASE1B_COMPACT_TEXT_LIMIT,
-    PHASE1B_SMALL_SAMPLE_MAX_TOKENS,
-    PHASE1B_SMALL_SAMPLE_TIMEOUT_SECONDS,
-    _Phase0SceneCandidateLLM,
-    _Phase1aSceneCandidateLLM,
     _Phase1aSceneSlicingLLM,
     _Phase1bSceneEnrichmentLLM,
-    _Phase1bSceneFusionLLM,
     _Phase2WorldExtractionLLM,
     _project_settings_for_novel,
-    _SingleChapterSceneCandidateLLM,
 )
 from modules.imports.workflow_llm_adapters import (
     _compact_phase1b_payload as _compact_phase1b_payload,
@@ -60,15 +48,9 @@ from modules.imports.workflow_structure_phase import (
     SMALL_SAMPLE_STRUCTURE_TARGET_COUNT,
     StructureAnalysisPhaseRunner,
     ensure_minimum_structure_outputs,
-    fallback_thread_type,
     minimum_structure_category_targets,
-    phase3_quality_stats,
-    select_fallback_reveal_target,
-    structure_category_counts,
-    structure_output_count,
 )
 from shared.deep_import_settings import (
-    deep_import_bool_setting,
     deep_import_int_setting,
 )
 
@@ -80,8 +62,6 @@ __all__ = [
     "DeepImportWorkflow",
     "PHASE0_422_RECOMMENDATION",
     "PHASE1B_COMPACT_TEXT_LIMIT",
-    "PHASE1B_SMALL_SAMPLE_MAX_TOKENS",
-    "PHASE1B_SMALL_SAMPLE_TIMEOUT_SECONDS",
     "PHASE3_STRUCTURE_TIMEOUT_SECONDS",
     "SMALL_SAMPLE_STRUCTURE_TARGET_COUNT",
     "minimum_structure_category_targets",
@@ -99,24 +79,6 @@ def _accepts_keyword(callable_obj: Any, keyword: str) -> bool:
         if parameter.name == keyword:
             return True
     return False
-
-
-def _phase1b_use_llm(
-    *,
-    start_chapter: int,
-    end_chapter: int,
-    project_settings: dict[str, Any] | None = None,
-) -> bool:
-    configured = deep_import_bool_setting(
-        project_settings,
-        "phase1b",
-        "use_llm",
-        env_name="PHASE1B_USE_LLM",
-        default=None,
-    )
-    if configured is not None:
-        return configured
-    return end_chapter - start_chapter + 1 <= 7
 
 
 def _dummy_chapters(start_chapter: int, end_chapter: int) -> list[dict[str, Any]]:
@@ -362,87 +324,6 @@ class DeepImportWorkflow:
             default=PHASE3_STRUCTURE_TIMEOUT_SECONDS,
         )
 
-    @staticmethod
-    async def _run_phase0_prefetch(
-        db: AsyncSession,
-        novel_id: str,
-        start_chapter: int,
-        end_chapter: int,
-    ):
-        """Deprecated legacy wrapper; default Scene flow uses _run_phase0_plan."""
-
-        require_legacy_scene_pipeline_enabled("DeepImportWorkflow._run_phase0_prefetch")
-        from modules.imports.scene_prefetch import Phase0ScenePrefetcher
-
-        if end_chapter - start_chapter + 1 <= 7:
-            return DeepImportWorkflow._small_sample_phase0_skip_result(
-                start_chapter,
-                end_chapter,
-            )
-
-        project_settings = await _project_settings_for_novel(db, novel_id)
-        prefetcher = Phase0ScenePrefetcher(
-            llm=_Phase0SceneCandidateLLM(
-                db,
-                novel_id,
-                timeout_seconds=None,
-                project_settings=project_settings,
-            ),
-        )
-        return await prefetcher.run(
-            db,
-            novel_id=novel_id,
-            start_chapter=start_chapter,
-            end_chapter=end_chapter,
-        )
-
-    @staticmethod
-    def _small_sample_phase0_skip_result(start_chapter: int, end_chapter: int):
-        from modules.imports.scene_candidates import (
-            ScenePrefetchResult,
-            build_scene_candidate_quality_stats,
-        )
-        from modules.imports.scene_prefetch import build_phase0_prefetch_batches
-
-        batches = build_phase0_prefetch_batches(start_chapter, end_chapter)
-        diagnostics = [
-            {
-                "attempts": 0,
-                "final_status": "skipped",
-                "final_error_type": None,
-                "chapter_index": None,
-                "source_batch_id": batch.batch_id,
-                "diagnostics": [
-                    {
-                        "error_type": None,
-                        "message": (
-                            "small sample bypassed Phase 0; Phase 1a single "
-                            "chapter extraction is authoritative"
-                        ),
-                    }
-                ],
-            }
-            for batch in batches
-        ]
-        quality_stats = build_scene_candidate_quality_stats(
-            [],
-            total_batches=len(batches),
-            completed_batches=len(batches),
-        )
-        quality_stats.update(
-            {
-                "skipped": len(batches),
-                "skipped_for_small_sample": True,
-            }
-        )
-        return ScenePrefetchResult(
-            candidates=[],
-            quality_stats=quality_stats,
-            diagnostics=diagnostics,
-            blocked=False,
-            block_reason=None,
-        )
-
     async def _run_phase0_plan(
         self,
         db: AsyncSession,
@@ -451,16 +332,16 @@ class DeepImportWorkflow:
         end_chapter: int,
     ):
         from modules.imports.scene_planning import build_scene_import_plan
-        from modules.imports.scene_segmentation import SceneSegmentationService
 
         if db is None or isinstance(db, Mock):
             chapters = _dummy_chapters(start_chapter, end_chapter)
         else:
-            chapters = await SceneSegmentationService()._load_chapters(
+            chapters = await load_chapter_range(
                 db,
                 novel_id,
                 start_chapter,
                 end_chapter,
+                include_missing=False,
             )
         project_settings = getattr(self, "_agent_project_settings", None)
         if project_settings is None and db is not None and not isinstance(db, Mock):
@@ -538,259 +419,6 @@ class DeepImportWorkflow:
         return result
 
     @staticmethod
-    async def _load_chapters_for_reinforcement(
-        db: AsyncSession,
-        novel_id: str,
-        start_chapter: int,
-        end_chapter: int,
-    ) -> list[dict]:
-        from modules.imports.scene_segmentation import SceneSegmentationService
-
-        return await SceneSegmentationService()._load_chapters(
-            db,
-            novel_id,
-            start_chapter,
-            end_chapter,
-        )
-
-    async def _run_phase1a_reinforcement(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        start_chapter: int,
-        end_chapter: int,
-        phase0_candidates,
-    ):
-        """Deprecated legacy wrapper; default Scene flow uses scene slicing."""
-
-        require_legacy_scene_pipeline_enabled(
-            "DeepImportWorkflow._run_phase1a_reinforcement"
-        )
-        from modules.imports.scene_reinforcement import Phase1aSceneReinforcer
-
-        chapters = await self._load_chapters_for_reinforcement(
-            db,
-            novel_id,
-            start_chapter,
-            end_chapter,
-        )
-        project_settings = await _project_settings_for_novel(db, novel_id)
-        return await Phase1aSceneReinforcer(
-            llm=_Phase1aSceneCandidateLLM(project_settings=project_settings),
-        ).run(
-            phase0_candidates=phase0_candidates,
-            chapters=chapters,
-        )
-
-    @staticmethod
-    async def _run_phase1a_single_chapter_fallback(
-        db: AsyncSession,
-        novel_id: str,
-        start_chapter: int,
-        end_chapter: int,
-        *,
-        only_chapters: list[int] | None = None,
-    ):
-        from modules.imports.deep_import_retry import run_deep_import_llm_with_retry
-        from modules.imports.llm_schemas import SceneSegmentationOutput
-        from modules.imports.scene_candidates import (
-            SceneCandidate,
-            SceneCandidateBatch,
-            SceneReinforcementResult,
-            build_scene_candidate_quality_stats,
-        )
-        from modules.imports.scene_segmentation import SceneSegmentationService
-
-        chapters = await SceneSegmentationService()._load_chapters(
-            db,
-            novel_id,
-            start_chapter,
-            end_chapter,
-        )
-        wanted_chapters = set(only_chapters or [])
-        if wanted_chapters:
-            chapters = [
-                chapter
-                for chapter in chapters
-                if int(chapter["chapter_index"]) in wanted_chapters
-            ]
-        semaphore = asyncio.Semaphore(50)
-        project_settings = await _project_settings_for_novel(db, novel_id)
-        llm = _SingleChapterSceneCandidateLLM(project_settings=project_settings)
-
-        async def process(chapter: dict[str, Any]) -> SceneCandidate:
-            chapter_index = int(chapter["chapter_index"])
-            batch = SceneCandidateBatch(
-                batch_id=f"S-{chapter_index:04d}",
-                round_name="A",
-                batch_index=chapter_index,
-                chapter_indices=[chapter_index],
-            )
-            async with semaphore:
-                retry_result = await run_deep_import_llm_with_retry(
-                    lambda: llm(chapter),
-                    is_empty_result=lambda output: not output.scenes,
-                    max_retries=1,
-                )
-            diagnostics = retry_result.model_dump(mode="json", exclude={"value"})
-            diagnostics["chapter_index"] = chapter_index
-            diagnostics["source_batch_id"] = batch.batch_id
-            if retry_result.final_status != "success":
-                return SceneCandidate(
-                    candidate_id=f"phase1a-single-{chapter_index}",
-                    source_round="A",
-                    source_batch_id=batch.batch_id,
-                    source_batch_index=batch.batch_index,
-                    source_chapter_indices=[chapter_index],
-                    quality="failed",
-                    payload={},
-                    diagnostics=diagnostics,
-                )
-
-            output = retry_result.value
-            if not isinstance(output, SceneSegmentationOutput):
-                output = SceneSegmentationOutput.model_validate(output)
-            return SceneCandidate(
-                candidate_id=f"phase1a-single-{chapter_index}",
-                source_round="A",
-                source_batch_id=batch.batch_id,
-                source_batch_index=batch.batch_index,
-                source_chapter_indices=[chapter_index],
-                quality="high",
-                payload={
-                    "scenes": [scene.model_dump(mode="json") for scene in output.scenes],
-                    "boundary_status": "complete",
-                    "boundary_reason": "single chapter fallback",
-                    "confidence": 0.65,
-                    "source_round": "A",
-                    "source_batch_id": batch.batch_id,
-                    "source_chapter_indices": [chapter_index],
-                },
-                diagnostics=diagnostics,
-            )
-
-        candidates = await asyncio.gather(*(process(chapter) for chapter in chapters))
-        quality_stats = build_scene_candidate_quality_stats(
-            candidates,
-            total_batches=len(chapters),
-        )
-        return SceneReinforcementResult(
-            candidates=candidates,
-            quality_stats=quality_stats,
-            diagnostics=[
-                candidate.diagnostics
-                for candidate in candidates
-                if candidate.diagnostics
-            ],
-            blocked=False,
-            block_reason=None,
-        )
-
-    @staticmethod
-    def _missing_phase1a_chapters(
-        candidates,
-        start_chapter: int,
-        end_chapter: int,
-    ) -> list[int]:
-        covered = {
-            int(chapter)
-            for candidate in candidates
-            if candidate.quality != "failed"
-            for chapter in candidate.source_chapter_indices
-            if start_chapter <= int(chapter) <= end_chapter
-        }
-        return [
-            chapter
-            for chapter in range(start_chapter, end_chapter + 1)
-            if chapter not in covered
-        ]
-
-    @staticmethod
-    def _should_use_single_chapter_phase1a(
-        phase0_result,
-        *,
-        start_chapter: int,
-        end_chapter: int,
-    ) -> bool:
-        chapter_count = end_chapter - start_chapter + 1
-        if chapter_count > 7:
-            return False
-        stats = getattr(phase0_result, "quality_stats", {}) or {}
-        if stats.get("skipped_for_small_sample"):
-            return False
-        return int(stats.get("failed", 0)) > 0
-
-    @staticmethod
-    def _merge_phase1a_results(primary, fallback):
-        from modules.imports.scene_candidates import SceneReinforcementResult
-
-        count_keys = {
-            "total_batches",
-            "completed_batches",
-            "success",
-            "failed",
-            "high_quality",
-            "low_quality",
-            "empty_result",
-            "schema_error",
-            "timeout",
-            "network",
-            "rate_limit",
-            "quality_gate",
-            "http_error",
-            "unknown",
-            "final_422",
-        }
-        quality_stats = {
-            **primary.quality_stats,
-            "fallback_chapter_count": int(
-                primary.quality_stats.get("fallback_chapter_count", 0)
-            )
-            + len(fallback.candidates),
-        }
-        for key in count_keys:
-            quality_stats[key] = int(primary.quality_stats.get(key, 0)) + int(
-                fallback.quality_stats.get(key, 0)
-            )
-        total_batches = int(quality_stats.get("total_batches", 0))
-        quality_stats["final_422_rate"] = (
-            int(quality_stats.get("final_422", 0)) / total_batches
-            if total_batches
-            else 0.0
-        )
-        return SceneReinforcementResult(
-            candidates=[*primary.candidates, *fallback.candidates],
-            quality_stats=quality_stats,
-            diagnostics=[*primary.diagnostics, *fallback.diagnostics],
-            blocked=primary.blocked or fallback.blocked,
-            block_reason=primary.block_reason or fallback.block_reason,
-            did_merge_rounds=primary.did_merge_rounds or fallback.did_merge_rounds,
-        )
-
-    async def _run_phase1b_fusion(
-        self,
-        phase1a_candidates,
-        *,
-        start_chapter: int,
-        end_chapter: int,
-    ):
-        from modules.imports.scene_fusion import Phase1bSceneFusion
-
-        project_settings = getattr(self, "_agent_project_settings", None)
-        return await Phase1bSceneFusion(
-            llm=_Phase1bSceneFusionLLM(project_settings=project_settings),
-            use_llm=_phase1b_use_llm(
-                start_chapter=start_chapter,
-                end_chapter=end_chapter,
-                project_settings=project_settings,
-            ),
-        ).run(
-            phase1a_candidates=phase1a_candidates,
-            start_chapter=start_chapter,
-            end_chapter=end_chapter,
-        )
-
-    @staticmethod
     async def _commit_fused_scenes(
         db: AsyncSession,
         novel_id: str,
@@ -864,26 +492,6 @@ class DeepImportWorkflow:
                 break
         return samples
 
-    @staticmethod
-    def _phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
-        return phase2_quality_stats(phase2_result)
-
-    @staticmethod
-    def _phase3_quality_stats(
-        phase3_result: dict[str, Any],
-        *,
-        failed: bool,
-    ) -> dict[str, Any]:
-        return phase3_quality_stats(phase3_result, failed=failed)
-
-    @staticmethod
-    def _now_iso() -> str:
-        return DeepImportProgressTracker.now_iso()
-
-    @staticmethod
-    def _short_message(message: Any) -> str:
-        return DeepImportProgressTracker.short_message(message)
-
     @classmethod
     def _start_phase(
         cls,
@@ -919,34 +527,6 @@ class DeepImportWorkflow:
             error_kind=error_kind,
             error_message=error_message,
         )
-
-    @staticmethod
-    def _duration_seconds(started_at: Any, ended_at: str) -> float | None:
-        return DeepImportProgressTracker.duration_seconds(started_at, ended_at)
-
-    @classmethod
-    def _set_last_error(
-        cls,
-        progress: DeepImportProgress,
-        *,
-        phase: str,
-        error_kind: str | None,
-        message: Any,
-    ) -> None:
-        DeepImportProgressTracker.set_last_error(
-            progress,
-            phase=phase,
-            error_kind=error_kind,
-            message=message,
-        )
-
-    @classmethod
-    def _refresh_diagnostic_counts(cls, progress: DeepImportProgress) -> None:
-        DeepImportProgressTracker.refresh_diagnostic_counts(progress)
-
-    @staticmethod
-    def _checkpoint_summary(checkpoints: dict[str, Any] | None) -> dict[str, Any]:
-        return DeepImportProgressTracker.checkpoint_summary(checkpoints)
 
     @staticmethod
     async def _emit_progress(
@@ -1085,37 +665,6 @@ class DeepImportWorkflow:
         await self._emit_progress(progress, 1.0, on_progress)
         return progress
 
-    @staticmethod
-    def _scene_overlaps_chapter_range(
-        scene: dict[str, Any],
-        start_chapter: int,
-        end_chapter: int,
-    ) -> bool:
-        chapter_ids = scene.get("chapter_ids") or []
-        for chapter_id in chapter_ids:
-            try:
-                chapter_index = int(chapter_id)
-            except (TypeError, ValueError):
-                continue
-            if start_chapter <= chapter_index <= end_chapter:
-                return True
-        return False
-
-    async def _has_scenes_in_range(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        start_chapter: int,
-        end_chapter: int,
-    ) -> bool:
-        coverage = await self._scene_chapter_coverage(
-            db,
-            novel_id,
-            start_chapter,
-            end_chapter,
-        )
-        return bool(coverage["covered_chapters"])
-
     async def _scene_chapter_coverage(
         self,
         db: AsyncSession,
@@ -1175,36 +724,6 @@ class DeepImportWorkflow:
         )
 
     # ------------------------------------------------------------------
-    # Phase 1: Scene 切分
-    # ------------------------------------------------------------------
-
-    async def _segment_scenes(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        start_chapter: int,
-        end_chapter: int,
-        on_batch_progress: Callable[[int, int], Awaitable[None]] | None = None,
-    ) -> dict[str, Any]:
-        from modules.imports.scene_segmentation import SceneSegmentationService
-
-        service = SceneSegmentationService()
-        result = await service.segment_chapters(
-            db,
-            novel_id,
-            start_chapter,
-            end_chapter,
-            on_batch_progress=on_batch_progress,
-        )
-        logger.info(
-            "Phase 1 complete: %d scenes, %d failed batches, degraded=%s",
-            result.get("total_scenes", 0),
-            len(result.get("failed_batches", [])),
-            result.get("degraded", False),
-        )
-        return result
-
-    # ------------------------------------------------------------------
     # Phase 2: 实体增量提取
     # ------------------------------------------------------------------
 
@@ -1231,7 +750,7 @@ class DeepImportWorkflow:
             )
 
         from modules.imports.phase2_world_extraction import Phase2WorldExtractor
-        from modules.imports.scene_entity_config import (
+        from modules.imports.entity_extraction.scene_entity_config import (
             phase2_project_settings_context,
         )
 
@@ -1299,7 +818,7 @@ class DeepImportWorkflow:
             result["high_quality"] = high_quality
             if high_quality:
                 result["model_override"] = "deepseek-v4-pro"
-            result = await self._ensure_minimum_structure_outputs(
+            result = await ensure_minimum_structure_outputs(
                 db,
                 novel_id,
                 start_chapter,
@@ -1324,41 +843,3 @@ class DeepImportWorkflow:
                 "error_kind": getattr(exc, "error_kind", "phase_error"),
                 "error_message": str(exc)[:300],
             }
-
-    async def _ensure_minimum_structure_outputs(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        start_chapter: int,
-        end_chapter: int,
-        result: dict[str, Any],
-        *,
-        workflow_id: str | None,
-    ) -> dict[str, Any]:
-        return await ensure_minimum_structure_outputs(
-            db,
-            novel_id,
-            start_chapter,
-            end_chapter,
-            result,
-            workflow_id=workflow_id,
-        )
-
-    @staticmethod
-    def _structure_category_counts(result: dict[str, Any]) -> dict[str, int]:
-        return structure_category_counts(result)
-
-    @staticmethod
-    def _structure_output_count(result: dict[str, Any]) -> int:
-        return structure_output_count(result)
-
-    @staticmethod
-    def _fallback_thread_type(index: int) -> str:
-        return fallback_thread_type(index)
-
-    @staticmethod
-    async def _select_fallback_reveal_target(
-        db: AsyncSession,
-        novel_id: str,
-    ) -> dict[str, Any] | None:
-        return await select_fallback_reveal_target(db, novel_id)

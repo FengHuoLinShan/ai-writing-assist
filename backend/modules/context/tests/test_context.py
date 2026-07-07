@@ -1731,7 +1731,6 @@ class TestContextCompiler:
     async def test_rag_loader_propagates_retrieval_warnings(
         self,
         db_session: AsyncSession,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """RAG 检索降级应进入 Context Compiler warnings。"""
         from dataclasses import dataclass, field
@@ -1751,7 +1750,6 @@ class TestContextCompiler:
                 degraded=True,
             )
 
-        monkeypatch.setattr("modules.rag.facade.retrieve", _fake_retrieve)
         bundle = StructureContextBundle(
             novel_id="00000000-0000-0000-0000-000000000399",
             task="测试 RAG warning",
@@ -1763,7 +1761,11 @@ class TestContextCompiler:
             scope=bundle.scope,
         )
 
-        await RagChunksLoader().load(db_session, options, bundle)
+        await RagChunksLoader(retrieve_fn=_fake_retrieve).load(
+            db_session,
+            options,
+            bundle,
+        )
 
         assert "embedding 生成失败，本次检索已降级" in bundle.warnings
         assert "RAG 检索降级" in bundle.warnings

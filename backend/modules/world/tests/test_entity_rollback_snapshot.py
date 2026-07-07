@@ -119,7 +119,7 @@ async def test_create_snapshot_rejects_cross_novel_entity(
     """底层 snapshot 入口也必须校验 entity 归属。"""
     from modules.project.models import Project
     from modules.world.models import CoreEntity
-    from modules.world.services.entity_revision_service import EntityRevisionService
+    from modules.world.services.core.entity_revision_service import EntityRevisionService
 
     novel_id = uuid.uuid4()
     other_novel_id = uuid.uuid4()

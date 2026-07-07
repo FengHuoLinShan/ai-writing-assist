@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from core.csrf import require_xhr_request
 from core.dependencies import DbSession
 from modules.settings.schemas import (
     GlobalAuthorPrefsResponse,
@@ -25,7 +26,11 @@ async def api_get_global_llm_defaults(db: DbSession) -> GlobalLLMDefaultsRespons
     return await _service.get_global_llm_defaults(db)
 
 
-@router.put("/llm-defaults", response_model=GlobalLLMDefaultsResponse)
+@router.put(
+    "/llm-defaults",
+    response_model=GlobalLLMDefaultsResponse,
+    dependencies=[Depends(require_xhr_request)],
+)
 async def api_put_global_llm_defaults(
     db: DbSession,
     data: GlobalLLMDefaultsUpdate,
@@ -43,7 +48,11 @@ async def api_get_global_author_prefs(db: DbSession) -> GlobalAuthorPrefsRespons
     return await _service.get_global_author_prefs(db)
 
 
-@router.put("/author-preferences", response_model=GlobalAuthorPrefsResponse)
+@router.put(
+    "/author-preferences",
+    response_model=GlobalAuthorPrefsResponse,
+    dependencies=[Depends(require_xhr_request)],
+)
 async def api_put_global_author_prefs(
     db: DbSession,
     data: GlobalAuthorPrefsUpdate,
@@ -59,10 +68,12 @@ async def api_list_projects_using_defaults(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> ProjectsUsingDefaultsResponse:
-    return await _service.list_projects_using_defaults(db, limit=limit, offset=offset)
+    from modules.settings.facade import list_projects_using_defaults
+
+    return await list_projects_using_defaults(db, limit=limit, offset=offset)
 
 
-@router.post("/refresh")
+@router.post("/refresh", dependencies=[Depends(require_xhr_request)])
 async def api_refresh_settings() -> dict:
     """调试端点：触发客户端刷新（D16）。"""
     return {"ok": True}
@@ -82,6 +93,7 @@ async def api_get_project_author_prefs(
 @router.put(
     "/projects/{project_id}/author-preferences",
     response_model=ProjectAuthorPrefsResponse,
+    dependencies=[Depends(require_xhr_request)],
 )
 async def api_put_project_author_prefs(
     db: DbSession,
@@ -91,7 +103,10 @@ async def api_put_project_author_prefs(
     return await _service.upsert_project_author_prefs(db, project_id, data.model_dump())
 
 
-@router.delete("/projects/{project_id}/author-preferences/field/{field_name}")
+@router.delete(
+    "/projects/{project_id}/author-preferences/field/{field_name}",
+    dependencies=[Depends(require_xhr_request)],
+)
 async def api_reset_project_author_prefs_field(
     db: DbSession,
     project_id: str,

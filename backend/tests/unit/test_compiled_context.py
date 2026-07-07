@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from infrastructure.llm.token_estimation import estimate_token_count
 from modules.context.services.compiled_context import (
     CompiledContext,
     ContextSection,
@@ -79,6 +80,46 @@ def test_enforce_budget_p2_per_item_truncation():
     kept_items = p2.content.split("\n")
     assert len(kept_items) < len(items)
     assert result.total_tokens <= ctx.budget_tokens
+
+
+def test_enforce_budget_p2_truncation_counts_tokens_with_tokenizer():
+    core_content = "core"
+    items = [
+        "今天天气很好。" * 5,
+        "alpha beta gamma delta " * 10,
+        "结尾线索。" * 8,
+    ]
+    content = "\n".join(items)
+    first_item_tokens = estimate_token_count(items[0])
+    core_tokens = estimate_token_count(core_content)
+    budget = core_tokens + first_item_tokens
+    sections = [
+        ContextSection(
+            key="core",
+            tier=Tier.P0,
+            content=core_content,
+            token_count=core_tokens,
+        ),
+        ContextSection(
+            key="events",
+            tier=Tier.P2,
+            content=content,
+            token_count=estimate_token_count(content),
+            truncatable_per_item=True,
+        ),
+    ]
+    ctx = CompiledContext(
+        sections=sections,
+        total_tokens=sum(s.token_count for s in sections),
+        budget_tokens=budget,
+    )
+
+    result = ctx.enforce_budget()
+
+    assert result.total_tokens <= budget
+    events_section = next(s for s in result.sections if s.key == "events")
+    assert events_section.content == items[0]
+    assert events_section.token_count == first_item_tokens
 
 
 def test_enforce_budget_never_evicts_p0():

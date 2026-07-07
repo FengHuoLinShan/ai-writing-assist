@@ -147,6 +147,92 @@ class TestEventRepository:
         assert len(result) == 3
         assert sorted(r.chapter_index for r in result) == [2, 3, 4]
 
+    async def test_count_and_max_chapter_in_range(
+        self,
+        event_repo: EventRepository,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        eid = uuid.uuid4()
+        sequence_by_chapter: dict[int, int] = {}
+        for ch in (1, 2, 2, 5):
+            sequence_by_chapter[ch] = sequence_by_chapter.get(ch, 0) + 1
+            await event_repo.create(
+                db_with_project,
+                novel_id=sample_novel_id,
+                chapter_index=ch,
+                sequence=sequence_by_chapter[ch],
+                event_type="entity_created",
+                snapshot_after={"ch": ch},
+                entity_id=eid,
+            )
+
+        count = await event_repo.count_by_chapter_range(
+            db_with_project, sample_novel_id, 2, 4
+        )
+        max_chapter = await event_repo.get_max_chapter_in_range(
+            db_with_project, sample_novel_id, 2, 4
+        )
+        empty_max = await event_repo.get_max_chapter_in_range(
+            db_with_project, sample_novel_id, 6, 9
+        )
+
+        assert count == 2
+        assert max_chapter == 2
+        assert empty_max is None
+
+    async def test_get_by_chapter_range_page_after_orders_across_boundaries(
+        self,
+        event_repo: EventRepository,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        eid = uuid.uuid4()
+        for chapter, sequence in [(1, 1), (1, 2), (2, 1), (3, 1), (3, 2)]:
+            await event_repo.create(
+                db_with_project,
+                novel_id=sample_novel_id,
+                chapter_index=chapter,
+                sequence=sequence,
+                event_type="entity_created",
+                snapshot_after={"chapter": chapter, "sequence": sequence},
+                entity_id=eid,
+            )
+
+        first = await event_repo.get_by_chapter_range_page_after(
+            db_with_project,
+            sample_novel_id,
+            1,
+            3,
+            after=None,
+            limit=2,
+        )
+        second = await event_repo.get_by_chapter_range_page_after(
+            db_with_project,
+            sample_novel_id,
+            1,
+            3,
+            after=(first[-1].chapter_index, first[-1].sequence, first[-1].id),
+            limit=2,
+        )
+        third = await event_repo.get_by_chapter_range_page_after(
+            db_with_project,
+            sample_novel_id,
+            1,
+            3,
+            after=(second[-1].chapter_index, second[-1].sequence, second[-1].id),
+            limit=2,
+        )
+
+        ordered = [
+            (event.chapter_index, event.sequence)
+            for event in [*first, *second, *third]
+        ]
+        assert ordered == [(1, 1), (1, 2), (2, 1), (3, 1), (3, 2)]
+        assert len(first) == 2
+        assert len(second) == 2
+        assert len(third) == 1
+
     async def test_get_by_entity(
         self,
         event_repo: EventRepository,

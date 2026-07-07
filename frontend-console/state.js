@@ -87,6 +87,16 @@ function onStateChange(listener) {
   }
 }
 
+const stateSliceHelpers = globalThis.stateSlices
+if (!stateSliceHelpers) {
+  throw new Error("stateSlices.js must load before state.js")
+}
+
+const stateController = stateSliceHelpers.createStateController({
+  listeners: _stateListeners,
+  updateUIForState,
+})
+
 /**
  * 状态代理 — 拦截 set 操作触发通知
  */
@@ -97,34 +107,9 @@ const state = new Proxy(appState, {
 
     target[key] = value
 
-    // 自动保存项目选择到 localStorage
-    if (key === "currentProjectId") {
-      if (target.viewStates?.writing && oldValue !== value) {
-        delete target.viewStates.writing
-      }
-      try {
-        if (value) localStorage.setItem("novel_currentProjectId", value)
-        else localStorage.removeItem("novel_currentProjectId")
-      } catch {}
-    }
-    if (key === "currentProject") {
-      try {
-        if (value) localStorage.setItem("novel_currentProject", JSON.stringify(value))
-        else localStorage.removeItem("novel_currentProject")
-      } catch {}
-    }
-
-    // 触发监听器
-    for (const listener of _stateListeners) {
-      try {
-        listener(key, value, oldValue)
-      } catch (e) {
-        console.error("State listener error:", e)
-      }
-    }
-
-    // 更新 UI 元素
-    updateUIForState(key, value)
+    stateController.applyStateSideEffects({ key, value, oldValue, target })
+    stateController.notifyStateListeners(key, value, oldValue)
+    stateController.syncStateDom(key, value)
 
     return true
   },
@@ -284,15 +269,10 @@ function updateRightPanelForView(viewName) {
 window.appState = state
 window.onStateChange = onStateChange
 window.updateRightPanelForView = updateRightPanelForView
+window.projectStorageSummary = stateSliceHelpers.projectStorageSummary
 
 // D21: 监听跨标签页 global_settings_cache_version 变更，失效本标签的缓存
-if (typeof window !== "undefined") {
-  window.addEventListener("storage", (e) => {
-    if (e.key === "global_settings_cache_version") {
-      if (typeof state !== "undefined") state.globalSettingsCache = null
-    }
-  })
-}
+stateSliceHelpers.installGlobalSettingsCacheStorageHandler(state)
 
 /**
  * D20-D22: 一次性迁移 localStorage 旧作者偏好到后端项目覆盖。

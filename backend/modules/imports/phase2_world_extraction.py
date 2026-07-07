@@ -11,6 +11,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.imports.chapter_loader import load_chapter_range
 from modules.imports.deep_import_retry import (
     DeepImportRetryResult,
     run_deep_import_llm_with_retry,
@@ -25,8 +26,8 @@ from modules.imports.llm_schemas import (
     Phase2WorldRelation,
     Phase2WorldUncertainItem,
 )
-from modules.imports.scene_entity_config import current_phase2_project_settings
-from modules.imports.scene_entity_extraction import SceneEntityExtractionService
+from modules.imports.entity_extraction.scene_entity_config import current_phase2_project_settings
+from modules.imports.entity_extraction.scene_entity_extraction import SceneEntityExtractionService
 from modules.imports.scene_planning import (
     PHASE0_MAX_MAX_TOKENS,
     PHASE0_TARGET_INPUT_CHARS,
@@ -789,22 +790,13 @@ async def _load_chapters(
     chapter_start: int,
     chapter_end: int,
 ) -> list[dict[str, Any]]:
-    from modules.writing.facade import list_latest_drafts_for_chapters
-
-    chapter_indices = list(range(chapter_start, chapter_end + 1))
-    drafts = await list_latest_drafts_for_chapters(db, novel_id, chapter_indices)
-    draft_by_chapter = {int(draft.chapter_index): draft for draft in drafts}
-    chapters: list[dict[str, Any]] = []
-    for chapter_index in chapter_indices:
-        draft = draft_by_chapter.get(chapter_index)
-        chapters.append(
-            {
-                "chapter_index": chapter_index,
-                "title": getattr(draft, "title", None) or f"第{chapter_index}章",
-                "content": getattr(draft, "content", "") or "",
-            }
-        )
-    return chapters
+    return await load_chapter_range(
+        db,
+        novel_id,
+        chapter_start,
+        chapter_end,
+        include_missing=True,
+    )
 
 
 def _normalize_world_output(

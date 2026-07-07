@@ -11,52 +11,74 @@
  *   window.errorLog.latestId          → 最新错误编号
  */
 ;(function () {
-  const STORAGE_KEY = "_errorLog"
+  const LEGACY_STORAGE_KEY = "_errorLog"
+  const STORAGE_PREFIX = "_errorLog:"
   const MAX_ENTRIES = 50
-  let _idCounter = 0
   let _isUnloading = false
 
-  // ── 从 localStorage 恢复计数器 ──
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY)
-    if (saved) {
-      const entries = JSON.parse(saved)
-      if (Array.isArray(entries) && entries.length > 0) {
-        _idCounter = Math.max(...entries.map((e) => e.id || 0))
+  function _currentProjectId() {
+    return (typeof state !== "undefined" && state.currentProjectId) || null
+  }
+
+  function _scopeId() {
+    return _currentProjectId() || "global"
+  }
+
+  function _storageKey(scopeId = _scopeId()) {
+    return `${STORAGE_PREFIX}${scopeId}`
+  }
+
+  function _latestId(entries = _read()) {
+    if (!Array.isArray(entries) || entries.length === 0) return null
+    return Math.max(...entries.map((e) => Number(e?.id) || 0)) || null
+  }
+
+  function _migrateLegacyLog() {
+    try {
+      const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY)
+      if (!legacyRaw) return
+      const legacyEntries = JSON.parse(legacyRaw)
+      if (Array.isArray(legacyEntries) && legacyEntries.length > 0) {
+        const globalEntries = _read("global")
+        _write([...globalEntries, ...legacyEntries], "global")
       }
+      localStorage.removeItem(LEGACY_STORAGE_KEY)
+    } catch {
+      try { localStorage.removeItem(LEGACY_STORAGE_KEY) } catch {}
     }
-  } catch {}
+  }
 
   // ── 内部读写 ──
-  function _read() {
+  function _read(scopeId = _scopeId()) {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      return raw ? JSON.parse(raw) : []
+      const raw = localStorage.getItem(_storageKey(scopeId))
+      const parsed = raw ? JSON.parse(raw) : []
+      return Array.isArray(parsed) ? parsed : []
     } catch {
       return []
     }
   }
 
-  function _write(entries) {
+  function _write(entries, scopeId = _scopeId()) {
     // 只保留最近的 MAX_ENTRIES 条
     const trimmed = entries.slice(-MAX_ENTRIES)
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed))
+      localStorage.setItem(_storageKey(scopeId), JSON.stringify(trimmed))
     } catch {}
-    _updateBadge(trimmed.length)
+    if (scopeId === _scopeId()) _updateBadge(trimmed.length)
     return trimmed
   }
 
   function _add(entry) {
-    _idCounter++
+    const entries = _read()
     const full = {
-      id: _idCounter,
+      id: (_latestId(entries) || 0) + 1,
       timestamp: new Date().toISOString(),
       view: (typeof state !== "undefined" && state.currentView) || "",
       subView: (typeof state !== "undefined" && state.currentSubView) || "",
       ...entry,
+      projectId: _currentProjectId(),
     }
-    const entries = _read()
     entries.push(full)
     _write(entries)
     _syncToBackend(full)
@@ -246,6 +268,10 @@
     onStateChange((key, value) => {
       if (key === "toast") _recordToastError(value?.message, value?.type)
       if (key === "error" && value) _recordToastError(String(value), "error")
+      if (key === "currentProjectId") {
+        _hidePanel()
+        _updateBadge(_read().length)
+      }
     })
   }
 
@@ -284,17 +310,17 @@
     getAll() { return _read() },
     getById(id) { return _read().find((e) => e.id === id) || null },
     clear() {
-      try { localStorage.removeItem(STORAGE_KEY) } catch {}
-      _idCounter = 0
+      try { localStorage.removeItem(_storageKey()) } catch {}
       _updateBadge(0)
       _hidePanel()
     },
-    get latestId() { return _idCounter || null },
+    get latestId() { return _latestId() },
     // 内部跨模块数据通道（api.js 写入请求上下文）
     _lastApiError: null,
   }
 
   // ── 初始化 ──
+  _migrateLegacyLog()
   _installToastStateListener()
 
   const count = _pruneNonErrorEntries().length

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,9 +18,23 @@ from modules.context.services.protocol import Loader
 
 logger = logging.getLogger(__name__)
 
+_GetWorldContextFn = Callable[..., Awaitable[Any]]
+
+
+async def _default_get_world_context(*args: Any, **kwargs: Any) -> Any:
+    from modules.world.facade import get_world_context
+
+    return await get_world_context(*args, **kwargs)
+
 
 class WorldEntitiesLoader(Loader):
     """加载世界对象，按重要性排序并受 budget 限制"""
+
+    def __init__(
+        self,
+        get_world_context_fn: _GetWorldContextFn = _default_get_world_context,
+    ) -> None:
+        self._get_world_context = get_world_context_fn
 
     @property
     def name(self) -> str:
@@ -34,11 +50,9 @@ class WorldEntitiesLoader(Loader):
         normal_limit = CONTEXT_BUDGET.get("normal_entities", 8)
 
         if options.entity_ids:
-            from modules.world.facade import get_world_context
-
             all_limit = core_limit + normal_limit
             limited_ids = options.entity_ids[:all_limit]
-            ctx = await get_world_context(
+            ctx = await self._get_world_context(
                 db,
                 options.novel_id,
                 entity_ids=limited_ids,
@@ -50,9 +64,7 @@ class WorldEntitiesLoader(Loader):
             bundle.budget_used["core_entities"] = min(len(entities), core_limit)
             bundle.budget_used["normal_entities"] = max(0, len(entities) - core_limit)
         else:
-            from modules.world.facade import get_world_context
-
-            ctx = await get_world_context(
+            ctx = await self._get_world_context(
                 db,
                 options.novel_id,
                 reveal_mode=options.reveal_mode,

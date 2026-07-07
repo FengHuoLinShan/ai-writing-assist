@@ -7,10 +7,12 @@ Writing API 路由
 from __future__ import annotations
 
 import logging
+from dataclasses import asdict
 
 from fastapi import APIRouter, Path, Query
 from pydantic import BaseModel, Field
 
+from core.api_params import NovelIdQuery
 from core.dependencies import DbSession
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.context.facade import (
@@ -89,7 +91,8 @@ async def create_conflict_check(
 )
 async def list_conflict_checks(
     db: DbSession,
-    novel_id: str = Query(..., description="小说项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     chapter_index: int = Query(..., ge=1, description="章节索引"),
     scene_id: str | None = Query(None, description="Scene ID"),
     limit: int = Query(10, ge=1, le=50, description="返回条数"),
@@ -111,7 +114,8 @@ async def list_conflict_checks(
 async def get_conflict_check(
     db: DbSession,
     check_id: str = Path(..., description="检查记录 ID"),
-    novel_id: str = Query(..., description="小说项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> WritingConflictCheckResponse:
     """获取单次冲突检查详情。"""
     return await _conflict_service.get_check(
@@ -186,7 +190,8 @@ async def update_conflict_item(
     db: DbSession,
     data: WritingConflictItemUpdate,
     item_id: str = Path(..., description="问题项 ID"),
-    novel_id: str = Query(..., description="小说项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> WritingConflictItemResponse:
     """更新单条问题处理状态。"""
     return await _conflict_service.update_item(
@@ -224,13 +229,14 @@ async def create_autosaved_draft(
     data: WritingDraftAutosaveCreate,
 ) -> WritingDraftResponse:
     """创建纯草稿版本，不触发发布/RAG 任务。"""
-    return await _create_draft_only(
+    draft = await _create_draft_only(
         db,
         novel_id=data.novel_id,
         chapter_index=data.chapter_index,
         title=data.title,
         content=data.content or "",
     )
+    return WritingDraftResponse.model_validate(asdict(draft))
 
 
 @router.post(
@@ -321,7 +327,8 @@ async def create_draft(
 async def get_draft(
     db: DbSession,
     draft_id: str = Path(..., description="草稿 ID"),
-    novel_id: str = Query(..., description="小说项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> WritingDraftResponse:
     """获取指定草稿"""
     return await _service.get_draft(db, draft_id, novel_id)
@@ -332,7 +339,8 @@ async def update_draft(
     db: DbSession,
     draft_id: str = Path(..., description="草稿 ID"),
     data: WritingDraftUpdate = ...,
-    novel_id: str = Query(..., description="小说项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> WritingDraftResponse:
     """暂存草稿 — 原地更新最新版本内容，不创建新版本，无副作用"""
     return await _service.update_draft(db, draft_id, data, novel_id)
@@ -342,7 +350,8 @@ async def update_draft(
 async def delete_draft(
     db: DbSession,
     draft_id: str = Path(..., description="草稿 ID"),
-    novel_id: str = Query(..., description="小说项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> None:
     """删除单个版本（至少保留 1 个版本）"""
     await _service.delete_draft(db, draft_id, novel_id)
@@ -352,7 +361,8 @@ async def delete_draft(
 async def delete_chapter(
     db: DbSession,
     chapter_index: int = Path(..., ge=1, description="章节索引"),
-    novel_id: str = Query(..., description="小说项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> DeleteChapterResponse:
     """删除整章所有版本"""
     count = await _service.delete_chapter(db, novel_id, chapter_index)
@@ -369,7 +379,8 @@ async def delete_chapter(
 async def get_latest_chapter_draft(
     db: DbSession,
     chapter_index: int = Path(..., ge=1, description="章节索引"),
-    novel_id: str = Query(..., description="小说项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> WritingDraftResponse:
     """获取指定章节的最新草稿"""
     return await _service.get_latest_draft(db, novel_id, chapter_index)
@@ -382,7 +393,8 @@ async def get_latest_chapter_draft(
 async def get_chapter_version_history(
     db: DbSession,
     chapter_index: int = Path(..., ge=1, description="章节索引"),
-    novel_id: str = Query(..., description="小说项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> VersionHistoryResponse:
     """获取指定章节的版本历史"""
     return await _service.get_version_history(db, novel_id, chapter_index)
@@ -394,7 +406,8 @@ async def get_chapter_version_history(
 )
 async def list_chapters(
     db: DbSession,
-    novel_id: str = Query(..., description="小说项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> ChapterIndicesResponse:
     """列出该小说所有有草稿的章节索引（去重、升序）"""
     chapters = await _service.list_chapter_summaries(db, novel_id)
@@ -412,7 +425,8 @@ async def split_chapter(
     db: DbSession,
     data: ChapterSplitRequest,
     chapter_index: int = Path(..., ge=1, description="章节索引"),
-    novel_id: str = Query(..., description="小说项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> ChapterSplitResponse:
     return await _service.split_chapter_at_offset(
         db,

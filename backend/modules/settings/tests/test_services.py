@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from modules.settings.constants import (
@@ -9,6 +11,7 @@ from modules.settings.constants import (
     SOURCE_PROJECT,
     SOURCE_SYSTEM,
 )
+from modules.settings.facade import list_projects_using_defaults
 from modules.settings.services import SettingsService
 
 
@@ -77,6 +80,70 @@ async def test_get_effective_author_prefs_layering(db_session, factory):
 
 
 @pytest.mark.asyncio
+async def test_get_effective_llm_settings_for_raw_project_settings_layers_values(
+    db_session,
+):
+    svc = SettingsService()
+    await svc.upsert_global_llm_defaults(
+        db_session,
+        {
+            "provider_id": "kimi",
+            "base_url": "https://api.moonshot.cn/v1",
+            "model": "kimi-k2.6",
+            "top_p": 0.7,
+        },
+    )
+
+    resp = await svc.get_effective_llm_settings_for_project_settings(
+        db_session,
+        {
+            "llm": {
+                "model": "project-model",
+                "api_key": "sk-secret",
+            },
+            "deep_import": {"global": {"structured_max_fix_attempts": 7}},
+        },
+    )
+
+    assert resp.provider_id.source == SOURCE_GLOBAL
+    assert resp.provider_id.value == "kimi"
+    assert resp.model.source == SOURCE_PROJECT
+    assert resp.model.value == "project-model"
+    assert resp.top_p.source == SOURCE_GLOBAL
+    assert resp.top_p.value == 0.7
+    assert resp.api_key_configured.source == SOURCE_PROJECT
+    assert resp.api_key_configured.value is True
+    assert resp.deep_import.source == SOURCE_PROJECT
+    assert resp.deep_import.value["global"]["structured_max_fix_attempts"] == 7
+
+
+@pytest.mark.asyncio
+async def test_materialize_effective_project_settings_keeps_project_api_key(
+    db_session,
+):
+    svc = SettingsService()
+    await svc.upsert_global_llm_defaults(
+        db_session,
+        {
+            "provider_id": "kimi",
+            "base_url": "https://api.moonshot.cn/v1",
+            "model": "kimi-k2.6",
+        },
+    )
+
+    settings = await svc.materialize_effective_project_settings(
+        db_session,
+        {"llm": {"api_key": "sk-secret"}},
+    )
+
+    assert settings["llm"]["provider_id"] == "kimi"
+    assert settings["llm"]["base_url"] == "https://api.moonshot.cn/v1"
+    assert settings["llm"]["model"] == "kimi-k2.6"
+    assert settings["llm"]["api_key"] == "sk-secret"
+    assert "deep_import" not in settings["llm"]
+
+
+@pytest.mark.asyncio
 async def test_reset_field_rejects_unknown_field(db_session, factory):
     svc = SettingsService()
     pid = await factory.create_project()
@@ -87,16 +154,17 @@ async def test_reset_field_rejects_unknown_field(db_session, factory):
 @pytest.mark.asyncio
 async def test_projects_using_defaults_aggregation(db_session, factory):
     svc = SettingsService()
-    p_full = await factory.create_project(title="full-override")
-    await factory.create_project(title="inheriting")
-    # p_full 仅设了 daily_goal；editor_font 和 default_focus_mode 仍 NULL → 仍在列表
-    # p_null 全 NULL（行不存在）→ 也在列表
+    p_partial = await factory.create_project(title="partial-override")
+    await factory.create_project(title="missing-prefs")
+    await svc.upsert_project_author_prefs(db_session, p_partial, {"daily_goal": 1000})
+
+    # p_partial 仅设了 daily_goal；editor_font 和 default_focus_mode 仍 NULL → 仍在列表
+    # missing-prefs 全 NULL（行不存在）→ 也在列表
     # D18: 任一字段 NULL 或行不存在即视为继承默认
-    await svc.upsert_project_author_prefs(db_session, p_full, {"daily_goal": 1000})
-    resp = await svc.list_projects_using_defaults(db_session)
+    resp = await list_projects_using_defaults(db_session)
     titles = [item.title for item in resp.items]
-    assert "inheriting" in titles
-    assert "full-override" in titles
+    assert "missing-prefs" in titles
+    assert "partial-override" in titles
 
 
 @pytest.mark.asyncio
@@ -109,6 +177,53 @@ async def test_projects_using_defaults_excludes_fully_overridden(db_session, fac
         "editor_font": "serif",
         "default_focus_mode": True,
     })
-    resp = await svc.list_projects_using_defaults(db_session)
+    resp = await list_projects_using_defaults(db_session)
     titles = [item.title for item in resp.items]
     assert "fully-own" not in titles
+
+
+@pytest.mark.asyncio
+async def test_projects_using_defaults_paginates_in_project_sort_order(
+    db_session,
+    factory,
+):
+    base = datetime(2026, 1, 1, tzinfo=UTC)
+    await factory.create_project(title="old", created_at=base)
+    await factory.create_project(title="middle", created_at=base + timedelta(days=1))
+    await factory.create_project(title="new", created_at=base + timedelta(days=2))
+
+    resp = await list_projects_using_defaults(db_session, limit=1, offset=1)
+
+    assert resp.total == 3
+    assert [item.title for item in resp.items] == ["middle"]
+
+
+@pytest.mark.asyncio
+async def test_projects_using_defaults_excludes_soft_deleted_projects(
+    db_session,
+    factory,
+):
+    await factory.create_project(title="active")
+    await factory.create_project(title="deleted", deleted_at=datetime.now(UTC))
+
+    resp = await list_projects_using_defaults(db_session)
+
+    titles = [item.title for item in resp.items]
+    assert "active" in titles
+    assert "deleted" not in titles
+    assert resp.total == 1
+
+
+@pytest.mark.asyncio
+async def test_projects_using_defaults_total_and_truncated_over_100(
+    db_session,
+    factory,
+):
+    for i in range(101):
+        await factory.create_project(title=f"inheriting-{i:03d}")
+
+    resp = await list_projects_using_defaults(db_session, limit=5)
+
+    assert resp.total == 101
+    assert len(resp.items) == 5
+    assert resp.truncated is True

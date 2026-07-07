@@ -11,6 +11,7 @@ import uuid
 from collections.abc import Sequence
 
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.writing.conflict_evidence import snapshot_location
@@ -264,7 +265,9 @@ class WritingDraftRepository:
         db: AsyncSession,
         novel_id: uuid.UUID,
         chapter_indices: list[int],
-    ) -> Sequence[WritingDraft]:
+        *,
+        content_limit: int | None = None,
+    ) -> Sequence[WritingDraft] | Sequence[RowMapping]:
         """按章节集合列出最新版本草稿。"""
         requested = sorted({idx for idx in chapter_indices if idx >= 1})
         if not requested:
@@ -281,6 +284,36 @@ class WritingDraftRepository:
             .group_by(WritingDraft.chapter_index)
             .subquery()
         )
+        if content_limit is not None:
+            stmt = (
+                select(
+                    WritingDraft.id.label("id"),
+                    WritingDraft.novel_id.label("novel_id"),
+                    WritingDraft.chapter_index.label("chapter_index"),
+                    WritingDraft.title.label("title"),
+                    func.substr(WritingDraft.content, 1, content_limit).label(
+                        "content"
+                    ),
+                    WritingDraft.version_number.label("version_number"),
+                    WritingDraft.status.label("status"),
+                    WritingDraft.conflict_check_snapshot_json.label(
+                        "conflict_check_snapshot_json"
+                    ),
+                    WritingDraft.provenance_json.label("provenance_json"),
+                    WritingDraft.created_at.label("created_at"),
+                    WritingDraft.updated_at.label("updated_at"),
+                )
+                .join(
+                    latest_versions,
+                    (WritingDraft.chapter_index == latest_versions.c.chapter_index)
+                    & (WritingDraft.version_number == latest_versions.c.version_number),
+                )
+                .where(WritingDraft.novel_id == novel_id)
+                .order_by(WritingDraft.chapter_index)
+            )
+            result = await db.execute(stmt)
+            return result.mappings().all()
+
         stmt = (
             select(WritingDraft)
             .join(

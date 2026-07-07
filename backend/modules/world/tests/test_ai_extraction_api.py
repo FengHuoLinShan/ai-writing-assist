@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.models import AsyncTask
 from modules.context.facade import attach_result_ref, require_confirmation
-from modules.world.services.extraction_service import ExtractionResult
+from modules.world.services.core.extraction_service import ExtractionResult
 
 
 @pytest.mark.asyncio
@@ -164,7 +164,7 @@ async def test_world_entity_extraction_task_attaches_created_entity_refs(
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from modules.world.services.extraction_service import EntityExtractionService
+    from modules.world.services.core.extraction_service import EntityExtractionService
     from modules.world.tasks import handle_world_entity_extraction
 
     project_resp = await async_client.post("/api/projects", json={"title": "世界补抽"})

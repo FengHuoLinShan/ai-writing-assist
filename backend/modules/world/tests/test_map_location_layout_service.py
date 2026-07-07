@@ -13,9 +13,9 @@ from modules.world.map_schemas import (
     MapLocationLayoutItem,
     MapLocationLayoutReplaceRequest,
 )
-from modules.world.services.map_location_layout import MapLocationLayoutService
+from modules.world.services.map.map_location_layout import MapLocationLayoutService
+from modules.world.services.map.map_state_assembler import MapStateAssembler
 from modules.world.services.map_service import MapConfigService
-from modules.world.services.map_state_assembler import MapStateAssembler
 from modules.world.tests.helpers import (
     _create_location_entity,
     _create_project,

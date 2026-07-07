@@ -19,11 +19,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.imports.parsers import parse_txt
 from modules.project.models import Project
-from modules.world.services.extraction_service import EntityExtractionService
+from modules.world.services.core.extraction_service import EntityExtractionService
 from modules.writing.facade import get_latest_draft_for_chapter
 from modules.writing.models import WritingDraft
 from shared.protocols import DraftProvider
-from tests.utils import _mock_analyze, _mock_extract, _mock_segment
+from tests.utils import _mock_analyze, _mock_extract
 
 REAL_FILE_PATH = Path("/Users/tywww/Desktop/项目/wirting skill/诡秘之主_第一部 小丑.txt")
 FIRST_10_CHAPTER_COUNT = 10
@@ -349,14 +349,151 @@ class TestRealWorkflowStep1:
 
         await db_session.flush()
 
+        from modules.imports.llm_schemas import SceneChunk
+        from modules.imports.scene_commit import SceneCommitResult
+        from modules.imports.scene_enrichment import Phase1bEnrichmentResult
+        from modules.imports.scene_fusion import FinalSceneCandidate
+        from modules.imports.scene_planning import ScenePlanResult, SceneWindowPlan
+        from modules.imports.scene_slicing import SceneSliceCandidate, SceneSlicingResult
         from modules.imports.workflow import DeepImportWorkflow
         from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 
         workflow = DeepImportWorkflow()
         progress = DeepImportProgress()
 
+        async def _mock_phase0_plan(_db, _novel_id, start_chapter, end_chapter):
+            chapters = [
+                {
+                    "chapter_index": chapter,
+                    "title": f"第{chapter}章",
+                    "content": "正文",
+                }
+                for chapter in range(start_chapter, end_chapter + 1)
+            ]
+            return ScenePlanResult(
+                chapters=chapters,
+                windows=[
+                    SceneWindowPlan(
+                        window_index=1,
+                        window_id="B0001-1-5-owned-1-5",
+                        covered_start=start_chapter,
+                        covered_end=end_chapter,
+                        owned_start=start_chapter,
+                        owned_end=end_chapter,
+                        chapter_indices=list(range(start_chapter, end_chapter + 1)),
+                        owned_chapter_indices=list(
+                            range(start_chapter, end_chapter + 1)
+                        ),
+                        input_chars=5000,
+                        max_tokens=13_000,
+                        batch_size=end_chapter - start_chapter + 1,
+                        overlap=0,
+                    )
+                ],
+                quality_stats={
+                    "total_chapters": len(chapters),
+                    "total_batches": 1,
+                    "completed_batches": 1,
+                    "window_count": 1,
+                    "llm_calls": 0,
+                },
+            )
+
+        async def _mock_phase1a_slicing(
+            _db,
+            _novel_id,
+            start_chapter,
+            end_chapter,
+            _phase0_plan,
+            **_kwargs,
+        ):
+            candidates = [
+                SceneSliceCandidate(
+                    candidate_id=f"phase1a-{chapter}",
+                    source_window_id="B0001",
+                    source_window_index=1,
+                    title=f"第{chapter}章 Scene",
+                    goal="推进章节事件。",
+                    core_conflict="章节冲突。",
+                    start_chapter=chapter,
+                    end_chapter=chapter,
+                    boundary_status="complete",
+                    source_chapter_indices=[chapter],
+                )
+                for chapter in range(start_chapter, end_chapter + 1)
+            ]
+            return SceneSlicingResult(
+                candidates=candidates,
+                quality_stats={
+                    "total_batches": 1,
+                    "completed_batches": 1,
+                    "success": 1,
+                    "failed": 0,
+                    "fallback_count": 0,
+                    "scene_count": len(candidates),
+                },
+            )
+
+        async def _mock_phase1b_enrichment(
+            _db,
+            _novel_id,
+            _phase1a_candidates,
+            *,
+            start_chapter,
+            end_chapter,
+            **_kwargs,
+        ):
+            candidates = [
+                FinalSceneCandidate(
+                    phase="phase1b_enrichment",
+                    title=f"第{chapter}章 Scene",
+                    goal="提交测试 Scene。",
+                    core_conflict="章节冲突。",
+                    emotional_beat="测试情绪节拍。",
+                    narrative_tag="imported",
+                    scene_chunks=[SceneChunk(chapter_index=chapter)],
+                    source_candidate_ids=[f"phase1a-{chapter}"],
+                    source_rounds=["A"],
+                    source_chapter_indices=[chapter],
+                    operation="kept",
+                    confidence=0.9,
+                    boundary_status="complete",
+                    boundary_reason="mocked workflow test",
+                )
+                for chapter in range(start_chapter, end_chapter + 1)
+            ]
+            return Phase1bEnrichmentResult(
+                candidates=candidates,
+                quality_stats={
+                    "total_windows": len(candidates),
+                    "completed_windows": len(candidates),
+                    "total_scenes": len(candidates),
+                    "completed": len(candidates),
+                    "failed": 0,
+                    "fallback_count": 0,
+                },
+            )
+
+        async def _mock_commit(_db, _novel_id, _candidates, *, workflow_id):
+            return SceneCommitResult(created_count=5)
+
         with (
-            mock.patch.object(workflow, "_segment_scenes", side_effect=_mock_segment),
+            mock.patch.object(
+                workflow,
+                "_run_phase0_plan",
+                side_effect=_mock_phase0_plan,
+            ),
+            mock.patch.object(
+                workflow,
+                "_run_phase1a_scene_slicing",
+                side_effect=_mock_phase1a_slicing,
+            ),
+            mock.patch.object(
+                workflow,
+                "_run_phase1b_enrichment",
+                side_effect=_mock_phase1b_enrichment,
+            ),
+            mock.patch.object(workflow, "_commit_fused_scenes", side_effect=_mock_commit),
             mock.patch.object(
                 workflow,
                 "_extract_entities_by_scene",

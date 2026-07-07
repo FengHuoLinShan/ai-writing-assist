@@ -4,8 +4,9 @@ Project API Router
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from core.csrf import require_xhr_request
 from core.dependencies import DbSession
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.project.schemas import (
@@ -84,7 +85,11 @@ async def api_get_project_llm_settings(
     return await _service.get_llm_settings(db, project_id)
 
 
-@router.put("/{project_id}/llm-settings", response_model=ProjectLLMSettingsResponse)
+@router.put(
+    "/{project_id}/llm-settings",
+    response_model=ProjectLLMSettingsResponse,
+    dependencies=[Depends(require_xhr_request)],
+)
 async def api_update_project_llm_settings(
     db: DbSession,
     project_id: str,
@@ -103,7 +108,9 @@ async def api_get_effective_llm_settings(
     project_id: str,
 ) -> EffectiveLLMSettingsResponse:
     """获取项目级 LLM 配置的 effective 视图（项目 > 全局 > 系统）"""
-    return await _service.get_effective_llm_settings(db, project_id)
+    from modules.settings.facade import get_effective_llm_settings
+
+    return await get_effective_llm_settings(db, project_id)
 
 
 @router.get(
@@ -115,12 +122,15 @@ async def api_get_effective_author_prefs(
     project_id: str,
 ) -> EffectiveAuthorPrefsResponse:
     """获取项目级作者偏好的 effective 视图（项目 > 全局 > 系统）"""
-    return await _service.get_effective_author_prefs(db, project_id)
+    from modules.settings.facade import get_effective_author_prefs
+
+    return await get_effective_author_prefs(db, project_id)
 
 
 @router.delete(
     "/{project_id}/llm-settings/field/{field_name}",
     response_model=LLMFieldResetResponse,
+    dependencies=[Depends(require_xhr_request)],
 )
 async def api_reset_llm_settings_field(
     db: DbSession,

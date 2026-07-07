@@ -3,7 +3,10 @@ import { readFileSync, readdirSync } from "node:fs"
 import { dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import "../apiContracts.js"
+
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)))
+const { API_CONTRACTS, contractPath, getApiContract } = globalThis.apiContracts
 
 function viewFiles() {
   const viewsDir = join(projectRoot, "views")
@@ -24,6 +27,15 @@ function definedApiMethods() {
     const block = apiSource.slice(start, end)
     for (const match of block.matchAll(/\n\s{4}(?:\/\*\*[\s\S]*?\*\/\s*)?(?:async\s+)?([a-zA-Z0-9_]+)\s*[\(=:]/g)) {
       methods.add(`${group}.${match[1]}`)
+    }
+  }
+
+  const settingsStart = apiSource.indexOf("const settingsApi = {")
+  const settingsEnd = apiSource.indexOf("api.settings = settingsApi")
+  if (settingsStart >= 0 && settingsEnd > settingsStart) {
+    const settingsBlock = apiSource.slice(settingsStart, settingsEnd)
+    for (const match of settingsBlock.matchAll(/\n\s{2}([a-zA-Z0-9_]+):\s*\(?/g)) {
+      methods.add(`settings.${match[1]}`)
     }
   }
 
@@ -163,6 +175,55 @@ function formatMissingApiMethods(used, defined) {
 }
 
 describe("前后端 API 契约", () => {
+  it("index.html 在 api.js 之前加载 apiContracts.js", () => {
+    const html = readFileSync(join(projectRoot, "index.html"), "utf8")
+    const scripts = [...html.matchAll(/<script[^>]+src="([^"]+)"/g)].map((match) => match[1])
+
+    expect(scripts.indexOf("apiContracts.js")).toBeGreaterThanOrEqual(0)
+    expect(scripts.indexOf("apiContracts.js")).toBeLessThan(scripts.indexOf("api.js"))
+  })
+
+  it("API_CONTRACTS 注册的 wrapper 必须在 api.js 中存在", () => {
+    const defined = definedApiMethods()
+    const missing = Object.keys(API_CONTRACTS).filter((key) => !defined.has(key))
+
+    expect(missing).toEqual([])
+  })
+
+  it("高风险契约暴露代表性 method/path/timeout", () => {
+    expect(getApiContract("world.getEntity").method).toBe("GET")
+    expect(contractPath("world.getEntity", { id: "entity-1" }, { novel_id: "novel-1" }))
+      .toBe("/world/entities/entity-1?novel_id=novel-1")
+
+    expect(contractPath("imports.startStage", { stage: "scenes" }))
+      .toBe("/imports/stages/scenes")
+    expect(contractPath("imports.startStage", { stage: "world_objects" }))
+      .toBe("/imports/stages/world-objects")
+    expect(contractPath("imports.startStage", { stage: "plot_structure" }))
+      .toBe("/imports/stages/plot-structure")
+
+    expect(getApiContract("context.confirm")).toMatchObject({
+      method: "POST",
+      timeoutKind: "contextConfirm",
+      timeout: 90000,
+    })
+    expect(getApiContract("rag.search")).toMatchObject({
+      method: "POST",
+      timeoutKind: "ragSearch",
+      timeout: 60000,
+    })
+    expect(getApiContract("rag.prewarm")).toMatchObject({
+      method: "POST",
+      timeoutKind: "ragPrewarm",
+      timeout: 75000,
+    })
+
+    expect(contractPath("writing.runConflictAiReview", { checkId: "check-1" }))
+      .toBe("/writing/conflict-checks/check-1/ai-review")
+    expect(contractPath("writing.enqueueConflictAiReview", { checkId: "check-1" }))
+      .toBe("/writing/conflict-checks/check-1/ai-review-task")
+  })
+
   it("视图调用的 api.* 方法必须在 api.js 中定义", () => {
     const defined = definedApiMethods()
     const missing = formatMissingApiMethods(usedApiMethods(), defined)

@@ -40,17 +40,20 @@ from modules.world.schemas import (
     EntityRelationUpdate,
     WorldEntityContext,
 )
-from modules.world.services.character_knowledge_service import (
+from modules.world.services.core.character_knowledge_service import (
     CharacterKnowledgeService,
 )
-from modules.world.services.character_service import CharacterService
-from modules.world.services.entity_relation_service import EntityRelationService
+from modules.world.services.core.character_service import CharacterService
+from modules.world.services.core.entity_relation_service import EntityRelationService
 
 pytestmark = [pytest.mark.asyncio]
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 
 async def test_character_service_has_no_direct_http_exception_dependency() -> None:
-    source = Path("backend/modules/world/services/character_service.py").read_text()
+    source = (
+        BACKEND_ROOT / "modules/world/services/core/character_service.py"
+    ).read_text()
 
     assert "from fastapi import HTTPException" not in source
     assert "raise HTTPException" not in source

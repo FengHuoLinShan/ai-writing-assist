@@ -11,6 +11,7 @@ LLMClient 是 Infrastructure 层的核心入口，封装：
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -22,6 +23,7 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from core.config import get_settings
 from infrastructure.llm.errors import LLMInvalidResponseError
+from infrastructure.llm.limits import get_llm_limiter
 from infrastructure.llm.profiles import default_llm_profile, resolve_llm_profile
 from infrastructure.llm.providers import get_provider
 from infrastructure.llm.redaction import redact_diagnostic
@@ -63,6 +65,17 @@ def _expanded_token_budget(max_tokens: int | None) -> int:
     if max_tokens is None or max_tokens <= 0:
         return _TRUNCATION_RETRY_MAX_TOKENS
     return min(max_tokens * 2, _TRUNCATION_RETRY_MAX_TOKENS)
+
+
+def _structured_retry_delay(
+    *,
+    attempt: int,
+    base_delay: float,
+    max_delay: float,
+) -> float:
+    if base_delay <= 0 or max_delay <= 0:
+        return 0.0
+    return min(base_delay * (2 ** attempt), max_delay)
 
 
 def _schema_list_field(schema: type[BaseModel], field_name: str) -> str | None:
@@ -374,12 +387,15 @@ class LLMClient:
         Raises:
             LLMError: 所有重试均失败
         """
-        return await retry_with_backoff(
-            self._provider.generate,
-            max_attempts=self._settings.llm_retry_max_attempts,
-            base_delay=self._settings.llm_retry_base_delay,
-            max_delay=self._settings.llm_retry_max_delay,
-            request=request,
+        limiter = get_llm_limiter()
+        return await limiter.run(
+            lambda: retry_with_backoff(
+                self._provider.generate,
+                max_attempts=self._settings.llm_retry_max_attempts,
+                base_delay=self._settings.llm_retry_base_delay,
+                max_delay=self._settings.llm_retry_max_delay,
+                request=request,
+            )
         )
 
     async def generate_stream(
@@ -396,15 +412,17 @@ class LLMClient:
         """
         # 流式调用也包装重试，但只在开始前重试
         # 一旦流开始后断掉，由上层处理
-        stream = await retry_with_backoff(
-            self._provider.generate_stream,
-            max_attempts=self._settings.llm_retry_max_attempts,
-            base_delay=self._settings.llm_retry_base_delay,
-            max_delay=self._settings.llm_retry_max_delay,
-            request=request,
-        )
-        async for chunk in stream:
-            yield chunk
+        limiter = get_llm_limiter()
+        async with limiter.scope():
+            stream = await retry_with_backoff(
+                self._provider.generate_stream,
+                max_attempts=self._settings.llm_retry_max_attempts,
+                base_delay=self._settings.llm_retry_base_delay,
+                max_delay=self._settings.llm_retry_max_delay,
+                request=request,
+            )
+            async for chunk in stream:
+                yield chunk
 
     async def generate_structured(
         self,
@@ -458,7 +476,9 @@ class LLMClient:
                 if transport_retries:
                     response = await self.generate(req)
                 else:
-                    response = await self._provider.generate(req)
+                    response = await get_llm_limiter().run(
+                        lambda: self._provider.generate(req)
+                    )
                 finish_reason = getattr(response, "finish_reason", "")
                 completion_tokens = getattr(response.usage, "completion_tokens", 0)
                 max_tokens = req.max_tokens
@@ -547,6 +567,13 @@ class LLMClient:
                 )
 
             if attempt < max_fix_attempts:
+                delay = _structured_retry_delay(
+                    attempt=attempt,
+                    base_delay=self._settings.llm_retry_base_delay,
+                    max_delay=self._settings.llm_retry_max_delay,
+                )
+                if delay > 0:
+                    await asyncio.sleep(delay)
                 if error_kind == "truncated_json":
                     original_budget = req.max_tokens
                     req.max_tokens = _expanded_token_budget(req.max_tokens)
@@ -647,7 +674,9 @@ class LLMClient:
                 if transport_retries:
                     response = await self.generate(repair_req)
                 else:
-                    response = await self._provider.generate(repair_req)
+                    response = await get_llm_limiter().run(
+                        lambda: self._provider.generate(repair_req)
+                    )
                 last_raw_response = redact_diagnostic(response.content)
                 truncated_like = _looks_truncated_response(
                     finish_reason=getattr(response, "finish_reason", ""),
@@ -688,6 +717,14 @@ class LLMClient:
                         "error": str(exc)[:500],
                     },
                 )
+                if attempt < attempts:
+                    delay = _structured_retry_delay(
+                        attempt=attempt - 1,
+                        base_delay=self._settings.llm_retry_base_delay,
+                        max_delay=self._settings.llm_retry_max_delay,
+                    )
+                    if delay > 0:
+                        await asyncio.sleep(delay)
 
         raise LLMInvalidResponseError(
             f"Format repair failed after {attempts} attempts: {last_error}",
@@ -740,7 +777,7 @@ class LLMClient:
 
         根据 EMBEDDING_PROVIDER 配置自动路由：
         - bge_onnx → 本地 BGE ONNX/sentence-transformers worker
-        - openai → OpenAI API (保留为 fallback)
+        - openai / 其他远程 provider → provider.generate_embedding
 
         Args:
             text: 单文本或文本列表
@@ -757,17 +794,19 @@ class LLMClient:
             try:
                 return await client.generate_embedding(text, is_query=is_query)
             except Exception:
-                logger.warning("BGE embedding failed, falling back to OpenAI")
+                logger.warning("BGE embedding failed")
                 raise
 
-        # OpenAI / 其他远程 API
-        return await retry_with_backoff(
-            self._provider.generate_embedding,
-            max_attempts=self._settings.llm_retry_max_attempts,
-            base_delay=self._settings.llm_retry_base_delay,
-            max_delay=self._settings.llm_retry_max_delay,
-            text=text,
-            model=model,
+        # OpenAI / 其他远程 provider
+        return await get_llm_limiter().run(
+            lambda: retry_with_backoff(
+                self._provider.generate_embedding,
+                max_attempts=self._settings.llm_retry_max_attempts,
+                base_delay=self._settings.llm_retry_base_delay,
+                max_delay=self._settings.llm_retry_max_delay,
+                text=text,
+                model=model,
+            )
         )
 
     async def get_usage_stats(self) -> dict[str, Any]:

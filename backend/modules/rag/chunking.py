@@ -278,41 +278,41 @@ class ChunkingService:
         # 优先级: 1=场景转换关键词, 2=地点转换, 3=段落边界, 4=句子边界
 
         # 1) 场景转换关键词（最高优先级）
-        for pattern in cls.SCENE_TRANSITION_PATTERNS:
-            pos = text.rfind(pattern, min_end, hard_end)
-            if pos >= min_end:
-                dist = abs(pos - target_end)
-                candidates.append((pos, 1, dist))
+        candidates.extend(
+            cls._scene_transition_boundary_candidates(
+                text,
+                min_end=min_end,
+                hard_end=hard_end,
+                target_end=target_end,
+            )
+        )
+
+        paragraph_boundary = cls._last_paragraph_boundary(text, min_end, hard_end)
 
         # 2) 地点转换（段落开头出现地点动词）
-        for verb in cls.LOCATION_TRANSITION_VERBS:
-            # 在段落开头搜索
-            para_start = text.rfind("\n\n", min_end, hard_end)
-            if para_start < 0:
-                para_start = text.rfind("\n", min_end, hard_end)
-            if para_start >= min_end:
-                para_text = text[para_start:hard_end]
+        if paragraph_boundary is not None:
+            para_start = paragraph_boundary[0]
+            para_text = text[para_start:hard_end]
+            for verb in cls.LOCATION_TRANSITION_VERBS:
                 if verb in para_text[:20]:
                     dist = abs(para_start - target_end)
                     candidates.append((para_start, 2, dist))
 
         # 3) 段落边界
-        para_pos = text.rfind("\n\n", min_end, hard_end)
-        if para_pos >= min_end:
+        if paragraph_boundary is not None:
+            para_pos, separator_len = paragraph_boundary
             dist = abs(para_pos - target_end)
-            candidates.append((para_pos + 2, 3, dist))
-        else:
-            para_pos = text.rfind("\n", min_end, hard_end)
-            if para_pos >= min_end:
-                dist = abs(para_pos - target_end)
-                candidates.append((para_pos + 1, 3, dist))
+            candidates.append((para_pos + separator_len, 3, dist))
 
         # 4) 句子边界
-        for punct in ("。", "！", "？", "”", "」"):
-            pos = text.rfind(punct, min_end, hard_end)
-            if pos >= min_end:
-                dist = abs(pos - target_end)
-                candidates.append((pos + 1, 4, dist))
+        candidates.extend(
+            cls._sentence_boundary_candidates(
+                text,
+                min_end=min_end,
+                hard_end=hard_end,
+                target_end=target_end,
+            )
+        )
 
         # 按优先级排序，同优先级按距离
         if candidates:
@@ -321,7 +321,73 @@ class ChunkingService:
 
         # 无可用边界，硬截断到 target_end
         return min(target_end, hard_end)
-        return hard_end
+
+    @staticmethod
+    def _last_pattern_positions(
+        text: str,
+        patterns: list[str] | tuple[str, ...],
+        min_end: int,
+        hard_end: int,
+    ) -> list[tuple[str, int]]:
+        """Return one candidate per pattern: its last occurrence in the window."""
+        positions: list[tuple[str, int]] = []
+        for pattern in patterns:
+            pos = text.rfind(pattern, min_end, hard_end)
+            if pos >= min_end:
+                positions.append((pattern, pos))
+        return positions
+
+    @classmethod
+    def _scene_transition_boundary_candidates(
+        cls,
+        text: str,
+        *,
+        min_end: int,
+        hard_end: int,
+        target_end: int,
+    ) -> list[tuple[int, int, float]]:
+        return [
+            (pos, 1, abs(pos - target_end))
+            for _pattern, pos in cls._last_pattern_positions(
+                text,
+                cls.SCENE_TRANSITION_PATTERNS,
+                min_end,
+                hard_end,
+            )
+        ]
+
+    @staticmethod
+    def _last_paragraph_boundary(
+        text: str,
+        min_end: int,
+        hard_end: int,
+    ) -> tuple[int, int] | None:
+        para_pos = text.rfind("\n\n", min_end, hard_end)
+        if para_pos >= min_end:
+            return para_pos, 2
+        para_pos = text.rfind("\n", min_end, hard_end)
+        if para_pos >= min_end:
+            return para_pos, 1
+        return None
+
+    @classmethod
+    def _sentence_boundary_candidates(
+        cls,
+        text: str,
+        *,
+        min_end: int,
+        hard_end: int,
+        target_end: int,
+    ) -> list[tuple[int, int, float]]:
+        return [
+            (pos + 1, 4, abs(pos - target_end))
+            for _punct, pos in cls._last_pattern_positions(
+                text,
+                ("。", "！", "？", "”", "」"),
+                min_end,
+                hard_end,
+            )
+        ]
 
     @staticmethod
     def _choose_cn_boundary(

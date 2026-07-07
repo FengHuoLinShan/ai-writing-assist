@@ -18,6 +18,7 @@ from infrastructure.llm.errors import (
     LLMRateLimitError,
     LLMTimeoutError,
 )
+from modules.imports.chapter_loader import build_chapters_text, load_chapter_range
 from modules.imports.llm_schemas import SceneSegmentationOutput
 from shared.utils import parse_llm_json
 
@@ -203,23 +204,13 @@ class SceneSegmentationService:
         start: int,
         end: int,
     ) -> list[dict]:
-        from modules.writing.facade import list_latest_drafts_for_chapters
-
-        chapter_indices = list(range(start, end + 1))
-        drafts = await list_latest_drafts_for_chapters(db, novel_id, chapter_indices)
-        draft_by_chapter = {draft.chapter_index: draft for draft in drafts}
-        chapters: list[dict] = []
-        for idx in chapter_indices:
-            draft = draft_by_chapter.get(idx)
-            if draft and draft.content:
-                chapters.append(
-                    {
-                        "chapter_index": idx,
-                        "title": draft.title or f"第{idx}章",
-                        "content": draft.content,
-                    }
-                )
-        return chapters
+        return await load_chapter_range(
+            db,
+            novel_id,
+            start,
+            end,
+            include_missing=False,
+        )
 
     def _split_into_batches(self, chapters: list[dict]) -> list[list[dict]]:
         batches: list[list[dict]] = []
@@ -472,13 +463,7 @@ class SceneSegmentationService:
 
     @staticmethod
     def _build_chapters_text(chapters: list[dict]) -> str:
-        parts: list[str] = []
-        for ch in chapters:
-            title = ch.get("title") or f"第{ch['chapter_index']}章"
-            parts.append(
-                f"## 第{ch['chapter_index']}章 {title}\n\n{ch.get('content', '')}"
-            )
-        return "\n\n".join(parts)
+        return build_chapters_text(chapters)
 
     @staticmethod
     def _load_prompt() -> str:

@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from infrastructure.llm.token_estimation import estimate_token_count
+
 
 def text_hash(value: str) -> str:
     """Stable SHA-256 hash for prompt/context text."""
@@ -12,8 +14,8 @@ def text_hash(value: str) -> str:
 
 
 def estimate_tokens(value: str) -> int:
-    """Cheap, deterministic token estimate used for audit metadata."""
-    return max(1, len(value) // 4) if value else 0
+    """Tiktoken-based token estimate used for audit metadata."""
+    return estimate_token_count(value)
 
 
 def build_phase2_snapshot_payload(
@@ -45,7 +47,7 @@ def build_phase2_snapshot_payload(
         {
             "key": key,
             "char_count": len(content),
-            "token_estimate": estimate_tokens(content),
+            "token_estimate": estimate_token_count(content, model=model),
             "hash": text_hash(content),
         }
         for key, content in sections.items()

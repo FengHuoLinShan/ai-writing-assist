@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from modules.imports import scene_entity_text
+from modules.imports.entity_extraction import scene_entity_text
 from modules.writing.contracts import WritingDraftContract
 
 

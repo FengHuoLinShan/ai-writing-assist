@@ -20,7 +20,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from core.container import register, reset
 from modules.context.contracts import (
     AUTHOR_ONLY_WARNING,
     CONTEXT_BUDGET,
@@ -101,6 +100,21 @@ class TestLoaderProtocol:
             assert loader.name == expected_name, (
                 f"{type(loader).__name__}.name != {expected_name}"
             )
+
+    def test_default_loader_names_are_stable(self) -> None:
+        """ContextCompiler 默认 loader 名称不应漂移。"""
+        loaders = ContextCompiler._default_loaders()
+        assert [loader.name for loader in loaders] == [
+            "project",
+            "world_entities",
+            "characters",
+            "events",
+            "memory_records",
+            "rag_chunks",
+            "plot_threads",
+            "outline_arc",
+            "scene",
+        ]
 
     def test_all_loaders_available(self) -> None:
         """所有 loader 都应被注册为可用"""
@@ -707,36 +721,30 @@ class TestProjectLoader:
         mock_ctx = MagicMock()
         mock_ctx.model_dump.return_value = {"title": "测试小说", "genre": "科幻"}
 
-        loader = ProjectLoader()
+        get_project_context = AsyncMock(return_value=mock_ctx)
+        loader = ProjectLoader(get_project_context_fn=get_project_context)
         bundle = StructureContextBundle(novel_id="id", task="t", scope="project")
 
-        with patch(
-            "modules.context.services.loaders.project_loader.get_project_context",
-            AsyncMock(return_value=mock_ctx),
-        ):
-            await loader.load(
-                db=MagicMock(), options=MagicMock(novel_id="id"), bundle=bundle
-            )
+        await loader.load(db=MagicMock(), options=MagicMock(novel_id="id"), bundle=bundle)
 
+        get_project_context.assert_awaited_once()
         assert bundle.project == {"title": "测试小说", "genre": "科幻"}
+        assert bundle.budget_used["project"] == 1
 
     @pytest.mark.asyncio
     async def test_load_project_not_found_adds_warning(self) -> None:
         """项目不存在应添加警告"""
-        loader = ProjectLoader()
+        loader = ProjectLoader(get_project_context_fn=AsyncMock(return_value=None))
         bundle = StructureContextBundle(novel_id="nonexistent", task="t", scope="project")
 
-        with patch(
-            "modules.context.services.loaders.project_loader.get_project_context",
-            AsyncMock(return_value=None),
-        ):
-            await loader.load(
-                db=MagicMock(),
-                options=MagicMock(novel_id="nonexistent"),
-                bundle=bundle,
-            )
+        await loader.load(
+            db=MagicMock(),
+            options=MagicMock(novel_id="nonexistent"),
+            bundle=bundle,
+        )
 
         assert bundle.project is None
+        assert bundle.budget_used["project"] == 0
         assert any("不存在" in w for w in bundle.warnings)
 
 
@@ -756,7 +764,9 @@ class TestWorldEntitiesLoader:
         mock_ctx = MagicMock()
         mock_ctx.entities = [mock_entity]
 
-        loader = WorldEntitiesLoader()
+        loader = WorldEntitiesLoader(
+            get_world_context_fn=AsyncMock(return_value=mock_ctx),
+        )
         bundle = StructureContextBundle(
             novel_id="id",
             task="t",
@@ -769,11 +779,7 @@ class TestWorldEntitiesLoader:
             enable_geo_filter=False,
         )
 
-        with patch(
-            "modules.world.facade.get_world_context",
-            AsyncMock(return_value=mock_ctx),
-        ):
-            await loader.load(db=MagicMock(), options=options, bundle=bundle)
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert len(bundle.world_entities) == 1
         assert bundle.budget_used["core_entities"] == 1
@@ -800,7 +806,9 @@ class TestWorldEntitiesLoader:
                 }
             ),
         ]
-        loader = WorldEntitiesLoader()
+        loader = WorldEntitiesLoader(
+            get_world_context_fn=AsyncMock(return_value=mock_ctx),
+        )
         bundle = StructureContextBundle(novel_id="id", task="t", scope="world")
         options = MagicMock(
             novel_id="id",
@@ -809,11 +817,7 @@ class TestWorldEntitiesLoader:
             enable_geo_filter=False,
         )
 
-        with patch(
-            "modules.world.facade.get_world_context",
-            AsyncMock(return_value=mock_ctx),
-        ):
-            await loader.load(db=MagicMock(), options=options, bundle=bundle)
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert len(bundle.world_entities) == 2
         assert bundle.world_entities[0]["name"] == "高重要性"
@@ -835,7 +839,9 @@ class TestWorldEntitiesLoader:
                 }
             ),
         ]
-        loader = WorldEntitiesLoader()
+        loader = WorldEntitiesLoader(
+            get_world_context_fn=AsyncMock(return_value=mock_ctx),
+        )
         bundle = StructureContextBundle(novel_id="id", task="t", scope="world")
         options = MagicMock(
             novel_id="id",
@@ -844,11 +850,7 @@ class TestWorldEntitiesLoader:
             enable_geo_filter=False,
         )
 
-        with patch(
-            "modules.world.facade.get_world_context",
-            AsyncMock(return_value=mock_ctx),
-        ):
-            await loader.load(db=MagicMock(), options=options, bundle=bundle)
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert AUTHOR_ONLY_WARNING in bundle.world_entities[0]["hidden_truth"]
 
@@ -868,7 +870,9 @@ class TestCharactersLoader:
         mock_ctx = MagicMock()
         mock_ctx.characters = [mock_char]
 
-        loader = CharactersLoader()
+        loader = CharactersLoader(
+            get_characters_context_fn=AsyncMock(return_value=mock_ctx),
+        )
         bundle = StructureContextBundle(novel_id="id", task="t", scope="world_character")
         options = MagicMock(
             novel_id="id",
@@ -877,11 +881,7 @@ class TestCharactersLoader:
             scope="world_character",
         )
 
-        with patch(
-            "modules.world.facade.get_characters_context",
-            AsyncMock(return_value=mock_ctx),
-        ):
-            await loader.load(db=MagicMock(), options=options, bundle=bundle)
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert len(bundle.characters) == 1
         assert bundle.characters[0]["name"] == "主角"
@@ -905,6 +905,44 @@ class TestCharactersLoader:
         assert bundle.characters == []
 
     @pytest.mark.asyncio
+    async def test_infer_prefers_existing_bundle_scene_pov(self) -> None:
+        """bundle.scene 已有 POV 时不应重复查询 Scene contract"""
+        mock_char = MagicMock()
+        mock_char.model_dump.return_value = {
+            "name": "主角",
+            "role": "protagonist",
+            "character_id": "c1",
+        }
+        mock_ctx = MagicMock()
+        mock_ctx.characters = [mock_char]
+        get_scene_contract = AsyncMock(return_value={"pov_character_id": "other"})
+        get_characters_context = AsyncMock(return_value=mock_ctx)
+
+        loader = CharactersLoader(
+            get_characters_context_fn=get_characters_context,
+            get_scene_contract_fn=get_scene_contract,
+        )
+        bundle = StructureContextBundle(
+            novel_id="id",
+            task="t",
+            scope="chapter",
+            scene={"id": "s1", "pov_character_id": "c1"},
+        )
+        options = MagicMock(
+            novel_id="id",
+            reveal_mode="author_safe",
+            character_ids=None,
+            scene_id="s1",
+            scope="chapter",
+        )
+
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
+
+        get_scene_contract.assert_not_awaited()
+        assert len(bundle.characters) == 1
+        assert bundle.characters[0]["character_id"] == "c1"
+
+    @pytest.mark.asyncio
     async def test_infer_from_scene_pov(self) -> None:
         """未指定 character_ids 时应从 Scene POV 推断人物"""
         mock_char = MagicMock()
@@ -916,7 +954,10 @@ class TestCharactersLoader:
         mock_ctx = MagicMock()
         mock_ctx.characters = [mock_char]
 
-        loader = CharactersLoader()
+        loader = CharactersLoader(
+            get_characters_context_fn=AsyncMock(return_value=mock_ctx),
+            get_scene_contract_fn=AsyncMock(return_value={"pov_character_id": "c1"}),
+        )
         bundle = StructureContextBundle(novel_id="id", task="t", scope="chapter")
         options = MagicMock(
             novel_id="id",
@@ -926,20 +967,47 @@ class TestCharactersLoader:
             scope="chapter",
         )
 
-        with (
-            patch(
-                "modules.outline.facade.get_scene_contract",
-                AsyncMock(return_value={"pov_character_id": "c1"}),
-            ),
-            patch(
-                "modules.world.facade.get_characters_context",
-                AsyncMock(return_value=mock_ctx),
-            ),
-        ):
-            await loader.load(db=MagicMock(), options=options, bundle=bundle)
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert len(bundle.characters) == 1
         assert bundle.characters[0]["name"] == "主角"
+
+    @pytest.mark.asyncio
+    async def test_infer_falls_back_when_bundle_scene_has_no_pov(self) -> None:
+        """bundle.scene 没有 POV 时仍应 fallback 查询 Scene contract"""
+        mock_char = MagicMock()
+        mock_char.model_dump.return_value = {
+            "name": "主角",
+            "role": "protagonist",
+            "character_id": "c1",
+        }
+        mock_ctx = MagicMock()
+        mock_ctx.characters = [mock_char]
+        get_scene_contract = AsyncMock(return_value={"pov_character_id": "c1"})
+
+        loader = CharactersLoader(
+            get_characters_context_fn=AsyncMock(return_value=mock_ctx),
+            get_scene_contract_fn=get_scene_contract,
+        )
+        bundle = StructureContextBundle(
+            novel_id="id",
+            task="t",
+            scope="chapter",
+            scene={"id": "s1"},
+        )
+        options = MagicMock(
+            novel_id="id",
+            reveal_mode="author_safe",
+            character_ids=None,
+            scene_id="s1",
+            scope="chapter",
+        )
+
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
+
+        get_scene_contract.assert_awaited_once()
+        assert len(bundle.characters) == 1
+        assert bundle.characters[0]["character_id"] == "c1"
 
     @pytest.mark.asyncio
     async def test_infer_from_world_entities(self) -> None:
@@ -953,7 +1021,9 @@ class TestCharactersLoader:
         mock_ctx = MagicMock()
         mock_ctx.characters = [mock_char]
 
-        loader = CharactersLoader()
+        loader = CharactersLoader(
+            get_characters_context_fn=AsyncMock(return_value=mock_ctx),
+        )
         bundle = StructureContextBundle(
             novel_id="id",
             task="t",
@@ -970,11 +1040,7 @@ class TestCharactersLoader:
             scope="world",
         )
 
-        with patch(
-            "modules.world.facade.get_characters_context",
-            AsyncMock(return_value=mock_ctx),
-        ):
-            await loader.load(db=MagicMock(), options=options, bundle=bundle)
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert len(bundle.characters) == 1
         assert bundle.characters[0]["name"] == "配角"
@@ -991,7 +1057,10 @@ class TestCharactersLoader:
         mock_ctx = MagicMock()
         mock_ctx.characters = [mock_char]
 
-        loader = CharactersLoader()
+        loader = CharactersLoader(
+            get_characters_context_fn=AsyncMock(return_value=mock_ctx),
+            filter_context_by_character_knowledge_fn=AsyncMock(return_value=[]),
+        )
         bundle = StructureContextBundle(
             novel_id="id",
             task="t",
@@ -1006,19 +1075,42 @@ class TestCharactersLoader:
             scope="world_character",
         )
 
-        with (
-            patch(
-                "modules.world.facade.get_characters_context",
-                AsyncMock(return_value=mock_ctx),
-            ),
-            patch(
-                "modules.world.facade.filter_context_by_character_knowledge",
-                AsyncMock(return_value=[]),
-            ),
-        ):
-            await loader.load(db=MagicMock(), options=options, bundle=bundle)
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert bundle.world_entities == []
+
+    @pytest.mark.asyncio
+    async def test_character_knowledge_filter_failure_keeps_entities(self) -> None:
+        """知识边界过滤失败不应中断人物加载或清空世界对象。"""
+        mock_char = MagicMock()
+        mock_char.model_dump.return_value = {"name": "主角", "character_id": "c1"}
+        mock_ctx = MagicMock()
+        mock_ctx.characters = [mock_char]
+
+        loader = CharactersLoader(
+            get_characters_context_fn=AsyncMock(return_value=mock_ctx),
+            filter_context_by_character_knowledge_fn=AsyncMock(
+                side_effect=RuntimeError("filter failed"),
+            ),
+        )
+        bundle = StructureContextBundle(
+            novel_id="id",
+            task="t",
+            scope="world_character",
+            world_entities=[{"name": "秘密", "entity_type": "secret"}],
+        )
+        options = MagicMock(
+            novel_id="id",
+            reveal_mode="character",
+            viewpoint_character_id="c1",
+            character_ids=["c1"],
+            scope="world_character",
+        )
+
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
+
+        assert bundle.characters == [{"name": "主角", "character_id": "c1"}]
+        assert bundle.world_entities == [{"name": "秘密", "entity_type": "secret"}]
 
 
 class TestSceneLoader:
@@ -1027,61 +1119,61 @@ class TestSceneLoader:
     @pytest.mark.asyncio
     async def test_load_without_scene_id_skips(self) -> None:
         """未提供 scene_id 时应直接返回"""
-        loader = SceneLoader()
+        loader = SceneLoader(get_scene_contract_fn=AsyncMock(return_value=None))
         bundle = StructureContextBundle(novel_id="id", task="t", scope="chapter")
         options = MagicMock(scene_id=None)
 
         await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert bundle.scene is None
+        assert bundle.budget_used["scene"] == 0
         assert bundle.warnings == []
 
     @pytest.mark.asyncio
     async def test_load_missing_scene_adds_warning(self) -> None:
         """Scene 不存在时应添加警告"""
-        loader = SceneLoader()
+        loader = SceneLoader(get_scene_contract_fn=AsyncMock(return_value=None))
         bundle = StructureContextBundle(novel_id="id", task="t", scope="chapter")
         options = MagicMock(scene_id="missing", viewpoint_character_id=None)
 
-        with patch(
-            "modules.outline.facade.get_scene_contract",
-            AsyncMock(return_value=None),
-        ):
-            await loader.load(db=MagicMock(), options=options, bundle=bundle)
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert bundle.scene is None
+        assert bundle.budget_used["scene"] == 0
         assert any("missing" in w for w in bundle.warnings)
 
     @pytest.mark.asyncio
     async def test_load_populates_scene(self) -> None:
         """加载成功应设置 bundle.scene"""
-        loader = SceneLoader()
+        loader = SceneLoader(
+            get_scene_contract_fn=AsyncMock(
+                return_value={"id": "s1", "pov_character_id": "c1"},
+            ),
+        )
         bundle = StructureContextBundle(novel_id="id", task="t", scope="chapter")
         options = MagicMock(scene_id="s1", viewpoint_character_id=None)
 
-        with patch(
-            "modules.outline.facade.get_scene_contract",
-            AsyncMock(return_value={"id": "s1", "pov_character_id": "c1"}),
-        ):
-            await loader.load(db=MagicMock(), options=options, bundle=bundle)
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert bundle.scene == {"id": "s1", "pov_character_id": "c1"}
+        assert bundle.budget_used["scene"] == 1
         assert any("POV" in w for w in bundle.warnings)
 
     @pytest.mark.asyncio
     async def test_load_with_viewpoint_no_warning(self) -> None:
         """已指定视角人物时不应产生 POV 警告"""
-        loader = SceneLoader()
+        loader = SceneLoader(
+            get_scene_contract_fn=AsyncMock(
+                return_value={"id": "s1", "pov_character_id": "c1"},
+            ),
+        )
         bundle = StructureContextBundle(novel_id="id", task="t", scope="chapter")
         options = MagicMock(scene_id="s1", viewpoint_character_id="c1")
 
-        with patch(
-            "modules.outline.facade.get_scene_contract",
-            AsyncMock(return_value={"id": "s1", "pov_character_id": "c1"}),
-        ):
-            await loader.load(db=MagicMock(), options=options, bundle=bundle)
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert bundle.scene == {"id": "s1", "pov_character_id": "c1"}
+        assert bundle.budget_used["scene"] == 1
         assert not any("POV" in w for w in bundle.warnings)
 
 
@@ -1100,15 +1192,11 @@ class TestEventsLoader:
         mock_ctx = MagicMock()
         mock_ctx.events = [mock_event]
 
-        loader = EventsLoader()
+        loader = EventsLoader(get_events_context_fn=AsyncMock(return_value=mock_ctx))
         bundle = StructureContextBundle(novel_id="id", task="t", scope="full")
         options = MagicMock(novel_id="id", entity_ids=None)
 
-        with patch(
-            "modules.world.facade.get_events_context",
-            AsyncMock(return_value=mock_ctx),
-        ):
-            await loader.load(db=MagicMock(), options=options, bundle=bundle)
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert len(bundle.timeline_events) == 1
         assert bundle.timeline_events[0]["title"] == "大战"
@@ -1125,15 +1213,13 @@ class TestMemoryRecordsLoader:
         mock_panorama.model_dump.return_value = {"entities": [], "relations": []}
         mock_panorama.entities = []
 
-        loader = MemoryRecordsLoader()
+        loader = MemoryRecordsLoader(
+            get_memory_panorama_fn=AsyncMock(return_value=mock_panorama),
+        )
         bundle = StructureContextBundle(novel_id="id", task="t", scope="full")
         options = MagicMock(novel_id="id", chapter_index=3)
 
-        with patch(
-            "modules.memory.services.MemoryService.get_panorama",
-            AsyncMock(return_value=mock_panorama),
-        ):
-            await loader.load(db=MagicMock(), options=options, bundle=bundle)
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert isinstance(bundle.memory_records, dict)
         assert bundle.budget_used["memory"] == 0
@@ -1141,15 +1227,15 @@ class TestMemoryRecordsLoader:
     @pytest.mark.asyncio
     async def test_load_panorama_failure_graceful(self) -> None:
         """加载失败应优雅降级为空列表"""
-        loader = MemoryRecordsLoader()
+        loader = MemoryRecordsLoader(
+            get_memory_panorama_fn=AsyncMock(
+                side_effect=RuntimeError("DB connection failed"),
+            ),
+        )
         bundle = StructureContextBundle(novel_id="id", task="t", scope="full")
         options = MagicMock(novel_id="id", chapter_index=1)
 
-        with patch(
-            "modules.memory.services.MemoryService.get_panorama",
-            AsyncMock(side_effect=RuntimeError("DB connection failed")),
-        ):
-            await loader.load(db=MagicMock(), options=options, bundle=bundle)
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert bundle.memory_records == []
         assert bundle.budget_used["memory"] == 0
@@ -1170,7 +1256,7 @@ class TestRagChunksLoader:
         mock_result = MagicMock()
         mock_result.chunks = [mock_chunk]
 
-        loader = RagChunksLoader()
+        loader = RagChunksLoader(retrieve_fn=AsyncMock(return_value=mock_result))
         bundle = StructureContextBundle(novel_id="id", task="t", scope="full")
         options = MagicMock(
             novel_id="id",
@@ -1182,11 +1268,7 @@ class TestRagChunksLoader:
             top_k=8,
         )
 
-        with patch(
-            "modules.rag.facade.retrieve",
-            AsyncMock(return_value=mock_result),
-        ):
-            await loader.load(db=MagicMock(), options=options, bundle=bundle)
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert len(bundle.rag_chunks) == 1
         assert bundle.rag_chunks[0]["score"] == 0.85
@@ -1198,7 +1280,8 @@ class TestRagChunksLoader:
         mock_result = MagicMock()
         mock_result.chunks = []
 
-        loader = RagChunksLoader()
+        retrieve = AsyncMock(return_value=mock_result)
+        loader = RagChunksLoader(retrieve_fn=retrieve)
         bundle = StructureContextBundle(novel_id="id", task="t", scope="full")
         options = MagicMock(
             novel_id="id",
@@ -1210,13 +1293,9 @@ class TestRagChunksLoader:
             top_k=8,
         )
 
-        with patch(
-            "modules.rag.facade.retrieve",
-            AsyncMock(return_value=mock_result),
-        ) as mock_retrieve:
-            await loader.load(db=MagicMock(), options=options, bundle=bundle)
-            _, kwargs = mock_retrieve.call_args
-            assert kwargs.get("visibility") == "reader_known"
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
+        _, kwargs = retrieve.call_args
+        assert kwargs.get("visibility") == "reader_known"
 
     @pytest.mark.asyncio
     async def test_top_k_caps_chunks(self) -> None:
@@ -1229,7 +1308,7 @@ class TestRagChunksLoader:
         mock_result = MagicMock()
         mock_result.chunks = chunks
 
-        loader = RagChunksLoader()
+        loader = RagChunksLoader(retrieve_fn=AsyncMock(return_value=mock_result))
         bundle = StructureContextBundle(novel_id="id", task="t", scope="full")
         options = MagicMock(
             novel_id="id",
@@ -1241,11 +1320,7 @@ class TestRagChunksLoader:
             top_k=2,
         )
 
-        with patch(
-            "modules.rag.facade.retrieve",
-            AsyncMock(return_value=mock_result),
-        ):
-            await loader.load(db=MagicMock(), options=options, bundle=bundle)
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert len(bundle.rag_chunks) == 2
         assert bundle.budget_used["rag_chunks"] == 2
@@ -1253,12 +1328,6 @@ class TestRagChunksLoader:
 
 class TestPlotThreadsLoader:
     """测试 PlotThreadsLoader"""
-
-    def setup_method(self):
-        reset()
-
-    def teardown_method(self):
-        reset()
 
     @pytest.mark.asyncio
     async def test_load_plot_threads(self) -> None:
@@ -1277,11 +1346,9 @@ class TestPlotThreadsLoader:
         mock_thread.author_known_state = ""
         mock_thread.status = "active"
 
-        mock_svc = MagicMock()
-        mock_svc.get_active = AsyncMock(return_value=[mock_thread])
-        register("outline.thread_service", mock_svc)
-
-        loader = PlotThreadsLoader()
+        loader = PlotThreadsLoader(
+            get_active_threads_fn=AsyncMock(return_value=[mock_thread]),
+        )
         bundle = StructureContextBundle(novel_id="id", task="t", scope="full")
         options = MagicMock(novel_id="id", chapter_index=5)
 
@@ -1290,16 +1357,11 @@ class TestPlotThreadsLoader:
         assert len(bundle.plot_threads) == 1
         assert bundle.plot_threads[0]["name"] == "主线"
         assert bundle.plot_threads[0]["thread_type"] == "main"
+        assert bundle.budget_used["plot_threads"] == 1
 
 
 class TestOutlineArcLoader:
     """测试 OutlineArcLoader"""
-
-    def setup_method(self):
-        reset()
-
-    def teardown_method(self):
-        reset()
 
     @pytest.mark.asyncio
     async def test_load_arc_with_chapter(self) -> None:
@@ -1320,11 +1382,9 @@ class TestOutlineArcLoader:
         mock_arc.next_hook = ""
         mock_arc.status = "active"
 
-        mock_svc = MagicMock()
-        mock_svc.get_by_chapter = AsyncMock(return_value=mock_arc)
-        register("outline.arc_service", mock_svc)
-
-        loader = OutlineArcLoader()
+        loader = OutlineArcLoader(
+            get_arc_by_chapter_fn=AsyncMock(return_value=mock_arc),
+        )
         bundle = StructureContextBundle(novel_id="id", task="t", scope="full")
         options = MagicMock(novel_id="id", chapter_index=5)
 
@@ -1333,6 +1393,7 @@ class TestOutlineArcLoader:
         assert bundle.outline_arc is not None
         assert bundle.outline_arc["title"] == "第一卷"
         assert bundle.outline_arc["arc_goal"] == "建立世界观"
+        assert bundle.budget_used["outline_arc"] == 1
 
     @pytest.mark.asyncio
     async def test_load_arc_no_chapter_returns_none(self) -> None:
@@ -1344,6 +1405,21 @@ class TestOutlineArcLoader:
         await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert bundle.outline_arc is None
+        assert bundle.budget_used["outline_arc"] == 0
+
+    @pytest.mark.asyncio
+    async def test_load_arc_missing_returns_none(self) -> None:
+        """章节无匹配篇章时应记录预算 0"""
+        loader = OutlineArcLoader(
+            get_arc_by_chapter_fn=AsyncMock(return_value=None),
+        )
+        bundle = StructureContextBundle(novel_id="id", task="t", scope="full")
+        options = MagicMock(novel_id="id", chapter_index=5)
+
+        await loader.load(db=MagicMock(), options=options, bundle=bundle)
+
+        assert bundle.outline_arc is None
+        assert bundle.budget_used["outline_arc"] == 0
 
 
 # ============================================================
@@ -1435,6 +1511,19 @@ class TestMarkdownRendererEdgeCases:
         md = render_context_markdown(bundle)
         assert "预算已用尽" in md
         assert "core_entities" in md
+
+    def test_render_singleton_budget_used_without_budget_warnings(self) -> None:
+        """singleton 资源的 budget_used 不应触发预算用尽噪声"""
+        bundle = StructureContextBundle(
+            novel_id="test-id",
+            task="测试",
+            scope="full",
+            budget_used={"project": 1, "scene": 1, "outline_arc": 1},
+        )
+
+        md = render_context_markdown(bundle)
+
+        assert "预算已用尽" not in md
 
     def test_render_with_hidden_plot_threads_in_forbidden(self) -> None:
         """hidden 类型的剧情线应在禁止事项中列出"""

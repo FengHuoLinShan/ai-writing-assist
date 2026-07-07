@@ -7,9 +7,13 @@ Project Facade — 对外入口
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import Select
 
+from modules.project.contracts import ProjectSummary
 from modules.project.models import Project
 from modules.project.repositories import ProjectRepository
 from modules.project.schemas import ProjectContext
@@ -24,7 +28,14 @@ async def get_project_context(
     novel_id: str,
 ) -> ProjectContext | None:
     """获取项目上下文（供其他模块使用）"""
-    return await _service.get_project_context(db, novel_id)
+    context = await _service.get_project_context(db, novel_id)
+    if context is None:
+        return None
+
+    from modules.settings.facade import materialize_effective_project_settings
+
+    settings = await materialize_effective_project_settings(db, context.settings)
+    return context.model_copy(update={"settings": settings})
 
 
 async def get_project_by_id(
@@ -44,3 +55,37 @@ async def list_active_projects(db: AsyncSession) -> list[Project]:
     """
     items, _ = await _repo.list(db, skip=0, limit=100000)
     return items
+
+
+async def list_active_project_summaries(
+    db: AsyncSession,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    exclude_project_ids: Select[tuple[Any, ...]] | None = None,
+) -> tuple[list[ProjectSummary], int]:
+    """List active project summaries with project-owned filtering and sorting.
+
+    ``exclude_project_ids`` lets caller-owned modules provide a DB-side project-id
+    subquery without importing project internals.
+    """
+    conditions = [Project.deleted_at.is_(None)]
+    if exclude_project_ids is not None:
+        conditions.append(Project.id.not_in(exclude_project_ids))
+
+    count_stmt = select(func.count(Project.id)).where(*conditions)
+    total = (await db.execute(count_stmt)).scalar() or 0
+
+    stmt = (
+        select(Project.id, Project.title)
+        .where(*conditions)
+        .order_by(Project.created_at.desc(), Project.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    items = [
+        ProjectSummary(project_id=row.id, title=row.title)
+        for row in result.all()
+    ]
+    return items, total

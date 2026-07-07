@@ -1,17 +1,37 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.container import get as _container_get
 from modules.context.contracts import CompileOptions, StructureContextBundle
 from modules.context.services.protocol import Loader
 
 logger = logging.getLogger(__name__)
 
+_GetActiveThreadsFn = Callable[[AsyncSession, str, int], Awaitable[Any]]
+
+
+async def _default_get_active_threads(
+    db: AsyncSession,
+    novel_id: str,
+    chapter: int,
+) -> Any:
+    from core.container import get
+
+    thread_svc = get("outline.thread_service")
+    return await thread_svc.get_active(db, novel_id, chapter)
+
 
 class PlotThreadsLoader(Loader):
+    def __init__(
+        self,
+        get_active_threads_fn: _GetActiveThreadsFn = _default_get_active_threads,
+    ) -> None:
+        self._get_active_threads = get_active_threads_fn
+
     @property
     def name(self) -> str:
         return "plot_threads"
@@ -23,8 +43,7 @@ class PlotThreadsLoader(Loader):
         bundle: StructureContextBundle,
     ) -> None:
         chapter = options.chapter_index or 1
-        thread_svc = _container_get("outline.thread_service")
-        threads = await thread_svc.get_active(
+        threads = await self._get_active_threads(
             db,
             options.novel_id,
             chapter,
@@ -46,3 +65,4 @@ class PlotThreadsLoader(Loader):
             }
             for t in threads
         ]
+        bundle.budget_used["plot_threads"] = len(bundle.plot_threads)

@@ -29,6 +29,11 @@ python scripts/check_llm.py      # Sanitized LLM connectivity check
 cd frontend-console
 npm install
 npm run dev                      # Vite dev server with hot reload (port 8080)
+npm run test                     # Vitest unit/component tests
+npm run test:watch               # Vitest watch mode
+npm run test:e2e                 # Playwright E2E
+npm run test:e2e:smoke           # Playwright smoke subset
+npm run test:all                 # Vitest, then Playwright
 
 # Database
 make db                          # docker compose up -d
@@ -41,14 +46,18 @@ make doctor-json                 # Same diagnostics as stable JSON
 make doctor-llm                  # Explicitly includes remote LLM provider connectivity
 
 # Testing & linting
-make test                        # All tests
-make test-v                      # Verbose, stop on first failure
+make test                        # Backend tests
+make test-v                      # Backend tests, verbose, stop on first failure
 make test ARGS="-k test_create"  # Filter by test name
+make test-frontend FRONTEND_ARGS="stateTopbarHelp.test.js"  # Frontend Vitest
+make test-all                    # Backend tests, then frontend tests
 make lint                        # ruff check
 make lint-fix                    # ruff --fix
 make format                      # ruff format --check
 make format-fix                  # ruff format
 ```
+
+Frontend currently has no build script and no independent lint/format dependency in `frontend-console/package.json`; frontend validation remains the Vitest/Playwright scripts above plus `git diff --check`.
 
 ## Three-Layer Architecture
 
@@ -104,7 +113,7 @@ Modules choose files by responsibility. Do not create empty contracts or pass-th
 
 ## Core Infrastructure
 
-- **`core/`**: Config (`config.py`, frozen dataclass, `get_settings()` singleton), Database lifecycle (`database.py`, `DatabaseManager`, `get_db()` dependency), ORM base (`base.py`, UUID/Timestamp/Status mixins), Dependency injection (`dependencies.py`, `DbSession`/`AppSettings` type aliases)
+- **`core/`**: Config (`config.py`, frozen dataclass, `get_settings()` singleton), Database lifecycle (`database.py`, `DatabaseManager`, `get_db()` dependency), ORM base (`base.py`, UUID/Timestamp/Status mixins), Dependency injection (`container.py` process singleton/transient scopes and shutdown, `dependencies.py` `DbSession`/`AppSettings` type aliases)
 - **`infrastructure/llm/`**: LLM client with OpenAI-compatible provider, project-level profile helpers, explicit HTTP transport/proxy controls, retry with exponential backoff, structured JSON output with Pydantic schema validation, streaming support, and sanitized health checks (`GET /api/health/llm`)
 - **`infrastructure/tasks/`**: Async task system with `@task_handler` registry, status tracking, heartbeat, FOR UPDATE SKIP LOCKED for worker safety
 - **`shared/`**: Global enums (`enums.py`), constants (`constants.py`), types (`types.py`), utilities (`utils.py`)

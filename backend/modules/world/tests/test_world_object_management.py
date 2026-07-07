@@ -16,6 +16,7 @@ from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import (
     CharacterKnowledgeCreate,
     EntityRelationCreate,
+    EntityRelationUpdate,
     WorldEntityCreate,
 )
 from modules.world.services import (
@@ -308,6 +309,48 @@ class TestRelationValidation:
         assert result.total == 1
         assert result.items[0].source_name == "克莱恩"
         assert result.items[0].target_name == "邓恩"
+
+    @pytest.mark.asyncio
+    async def test_get_and_update_relation_include_endpoint_names(
+        self,
+        db_session: AsyncSession,
+        relation_service: EntityRelationService,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        await _create_project(db_session, novel_id)
+        entity_service = WorldEntityService()
+        source = await entity_service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(entity_type="character", name="克莱恩"),
+        )
+        target = await entity_service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(entity_type="character", name="伦纳德"),
+        )
+        created = await relation_service.create(
+            db_session,
+            novel_id,
+            EntityRelationCreate(
+                source_id=source.id,
+                target_id=target.id,
+                relation_type="ally_of",
+            ),
+        )
+
+        fetched = await relation_service.get(db_session, created.id, novel_id=novel_id)
+        updated = await relation_service.update(
+            db_session,
+            created.id,
+            EntityRelationUpdate(description="并肩调查"),
+            novel_id=novel_id,
+        )
+
+        assert fetched.source_name == "克莱恩"
+        assert fetched.target_name == "伦纳德"
+        assert updated.source_name == "克莱恩"
+        assert updated.target_name == "伦纳德"
 
     @pytest.mark.asyncio
     async def test_create_relation_self_loop_rejected(

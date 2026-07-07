@@ -54,8 +54,9 @@
 
 ## 跨模块边界
 
-- `modules.settings.facade` 暴露 `get_effective_llm_settings` / `get_effective_author_prefs` 供 `modules.project` 调用。
-- `modules.project.facade` 暴露 `get_project_by_id` / `list_active_projects` 供 `modules.settings` 调用。
+- `modules.settings.services` 拥有 effective settings 计算规则，接收 raw project settings dict，不直接读取 project 模块。
+- `modules.settings.facade` 暴露 `get_effective_llm_settings` / `get_effective_author_prefs` / `materialize_effective_project_settings` 供 `modules.project` 调用。
+- 跨模块聚合（如 `/api/settings/projects-using-defaults`）只在 `modules.settings.facade` 薄编排：通过 `modules.project.facade` 读取项目摘要，再委托 settings service 组装 response。
 - 不允许直接 import 对方模块的 `services.py` / `repositories.py` / `models.py`。
 
 ## D 决策索引

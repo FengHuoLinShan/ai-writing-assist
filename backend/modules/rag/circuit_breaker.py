@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import uuid
 from enum import Enum
 
 logger = logging.getLogger(__name__)
@@ -110,9 +111,33 @@ class CircuitBreaker:
             }
 
 
-# 全局单例
+# Legacy 全局单例：保留给旧调用方和运行状态 API。
 _circuit_breaker = CircuitBreaker()
+_novel_circuit_breakers: dict[str, CircuitBreaker] = {}
+_circuit_breakers_lock = threading.Lock()
 
 
-def get_circuit_breaker() -> CircuitBreaker:
+def _novel_key(novel_id: uuid.UUID | str) -> str:
+    return str(novel_id if isinstance(novel_id, uuid.UUID) else uuid.UUID(str(novel_id)))
+
+
+def get_circuit_breaker(novel_id: uuid.UUID | str | None = None) -> CircuitBreaker:
+    if novel_id is None:
+        return _circuit_breaker
+    key = _novel_key(novel_id)
+    with _circuit_breakers_lock:
+        breaker = _novel_circuit_breakers.get(key)
+        if breaker is None:
+            breaker = CircuitBreaker()
+            _novel_circuit_breakers[key] = breaker
+        return breaker
+
+
+def reset_circuit_breakers_for_tests() -> None:
+    _circuit_breaker.reset()
+    with _circuit_breakers_lock:
+        _novel_circuit_breakers.clear()
+
+
+def get_legacy_circuit_breaker() -> CircuitBreaker:
     return _circuit_breaker

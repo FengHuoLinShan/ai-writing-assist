@@ -67,6 +67,62 @@ import {
   recordDragHex,
 } from "./mapState.js"
 
+const LEAFLET_VERSION = "1.9.4"
+const LEAFLET_CSS_ID = "leaflet-css-dynamic"
+const LEAFLET_JS_ID = "leaflet-js-dynamic"
+const LEAFLET_CSS_URL = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.css`
+const LEAFLET_JS_URL = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.js`
+const LEAFLET_CSS_INTEGRITY = "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+const LEAFLET_JS_INTEGRITY = "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+
+let leafletLoadPromise = null
+
+function ensureLeafletStylesheet() {
+  if (document.getElementById(LEAFLET_CSS_ID)) return
+  const link = document.createElement("link")
+  link.id = LEAFLET_CSS_ID
+  link.dataset.leafletDynamic = "true"
+  link.rel = "stylesheet"
+  link.href = LEAFLET_CSS_URL
+  link.integrity = LEAFLET_CSS_INTEGRITY
+  link.crossOrigin = ""
+  document.head.appendChild(link)
+}
+
+function loadLeafletForMapView() {
+  ensureLeafletStylesheet()
+  if (window.L) return Promise.resolve(window.L)
+  if (leafletLoadPromise) return leafletLoadPromise
+
+  leafletLoadPromise = new Promise((resolve, reject) => {
+    const existing = document.getElementById(LEAFLET_JS_ID)
+    if (existing) existing.remove()
+
+    const script = document.createElement("script")
+    script.id = LEAFLET_JS_ID
+    script.dataset.leafletDynamic = "true"
+    script.src = LEAFLET_JS_URL
+    script.integrity = LEAFLET_JS_INTEGRITY
+    script.crossOrigin = ""
+    script.async = true
+    script.onload = () => {
+      if (window.L) {
+        resolve(window.L)
+      } else {
+        reject(new Error("Leaflet script loaded without window.L"))
+      }
+    }
+    script.onerror = () => reject(new Error("Leaflet script failed to load"))
+    document.head.appendChild(script)
+  }).catch((err) => {
+    leafletLoadPromise = null
+    document.getElementById(LEAFLET_JS_ID)?.remove()
+    throw err
+  })
+
+  return leafletLoadPromise
+}
+
 const mapView = {
   /** @type {any|null} Leaflet map 实例 */
   _leaflet: null,
@@ -123,11 +179,6 @@ const mapView = {
   async mount(rootId, context = {}) {
     this._mountRootId = rootId
     this._mountContext = context || {}
-    if (!window.L) {
-      const root = document.getElementById(rootId)
-      if (root) root.innerHTML = `<div class="empty-state"><div class="empty-icon" style="color:var(--danger);">&#9888;</div><p>地图引擎加载失败</p><p style="color:var(--text-dim);font-size:12px;">Leaflet 未加载，请检查网络连接（ADR-0003）</p></div>`
-      return
-    }
     await this._loadMaps()
     if (context.mapId) {
       await this._loadMapState(context.mapId, context.sceneId || null)
@@ -611,9 +662,19 @@ const mapView = {
   // Leaflet 初始化 + canvas overlay
   // ============================================================
 
-  _initLeaflet() {
-    const container = document.getElementById("map-leaflet")
-    if (!container || !this._state || typeof window.L === "undefined") return
+  async _initLeaflet() {
+    let container = document.getElementById("map-leaflet")
+    if (!container || !this._state || this._leaflet) return
+
+    try {
+      await loadLeafletForMapView()
+    } catch {
+      this._renderLeafletLoadFailure(container)
+      return
+    }
+
+    container = document.getElementById("map-leaflet")
+    if (!container || !this._state || this._leaflet || typeof window.L === "undefined") return
 
     const cfg = this._state.map
     // 用一个 CRS.Simple 投影，把 hex 像素坐标当世界坐标
@@ -672,6 +733,10 @@ const mapView = {
     this._canvas.addEventListener("mousedown", (e) => this._handleCanvasMouseDown(e))
     this._canvas.addEventListener("mouseup", () => this._handleCanvasMouseUp())
     this._canvas.addEventListener("mouseleave", () => this._handleCanvasMouseUp())
+  },
+
+  _renderLeafletLoadFailure(container) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon" style="color:var(--danger);">&#9888;</div><p>地图引擎加载失败</p><p style="color:var(--text-dim);font-size:12px;">Leaflet 未加载，请检查网络连接（ADR-0003）</p></div>`
   },
 
   _scheduleRedraw() {

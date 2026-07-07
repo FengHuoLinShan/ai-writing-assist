@@ -69,6 +69,8 @@ context 本身不拥有业务事实，但当前**有自己的确认与审计记�
 | `OutlineArcLoader` / `SceneLoader` / `PlotThreadsLoader` | `outline` 服务与 facade |
 | `RagChunksLoader` | `rag.facade.retrieve()` |
 
+loader 的外部调度契约仍由 `SCOPE_LOADERS` 与各 loader `name` 决定；具体依赖统一为构造函数注入 callable。默认 callable 委托上表既有来源，因此 API、schema、bundle shape 和 ContextCompiler 外部行为不变。测试可直接传入 fake callable；`load()` 内不做 facade local import，也不直接访问 DI container。
+
 ## AI 参考资料确认
 
 手动 AI 操作在 world / outline / writing / generate 等入口发起前，可先创建确认记录：
@@ -140,7 +142,10 @@ Lifecycle v1 为快照提供显式维护入口：
 - `timeline`
 - `geo_relations`
 - `relationship_edges`
+- `plot_threads`（8，用作风险提示阈值，不截断剧情线列表）
 - `rag_chunks`
+
+`project`、`scene`、`outline_arc` 属于 singleton 上下文，不进入 `CONTEXT_BUDGET` 预算表，避免把“最多 1 条”的结构信息误报为预算裁剪对象；对应 loader 仍会写入 `budget_used`，用于渲染和审计展示当前是否实际加载。
 
 ## API
 

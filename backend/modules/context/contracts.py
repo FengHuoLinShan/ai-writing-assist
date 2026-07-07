@@ -187,6 +187,7 @@ CONTEXT_BUDGET: dict[str, int] = {
     "timeline": 8,
     "geo_relations": 10,
     "relationship_edges": 12,
+    "plot_threads": 8,
     "rag_chunks": 8,
 }
 

@@ -4,7 +4,7 @@
 
 ## 快速启动
 
-开发时使用 Vite dev server，支持 CSS 热更新和 JS/HTML 自动刷新。地图视图会从 CDN 加载 Leaflet，因此离线使用时需要确保浏览器可访问该资源。
+开发时使用 Vite dev server，支持 CSS 热更新和 JS/HTML 自动刷新。地图视图首次初始化时会按需从固定 CDN 加载 Leaflet，因此离线使用时需要确保浏览器可访问该资源。
 
 ```bash
 cd frontend-console
@@ -12,6 +12,18 @@ npm install
 npm run dev
 # 打开 http://localhost:8080
 ```
+
+常用验证脚本：
+
+```bash
+npm run test
+npm run test:watch
+npm run test:e2e
+npm run test:e2e:smoke
+npm run test:all
+```
+
+当前 `package.json` 未定义前端构建脚本，也没有独立 lint/format 依赖；前端验证以 Vitest、Playwright 和仓库级 diff 检查为主。
 
 ## 后端连接
 
@@ -42,7 +54,9 @@ frontend-console/
 ├── index.html              # 单页应用入口
 ├── styles.css              # 完整样式表（浅色主题 + 暗色模式，设计 Token 驱动）
 ├── state.js                # 全局响应式状态管理
+├── stateSlices.js          # 状态副作用、listener 通知、DOM 同步调度 helper
 ├── api.js                  # API 封装（projects/world/rag/context/writing/imports/tasks）
+├── apiContracts.js         # vanilla JS 共享 API 契约注册表（高风险 wrapper 子集）
 ├── router.js               # Hash 路由系统
 ├── commands.js             # 命令系统（全中文帮助）
 ├── app.js                  # 应用主入口（快捷键绑定）
@@ -77,8 +91,9 @@ frontend-console/
 │   ├── mapEditPanel.js     # 地图编辑面板
 │   ├── mapRouteContext.js  # 地图路由上下文
 │   ├── outlineView.js      # 剧情结构
+│   ├── sceneWorkbenchView.js # Scene 一级工作台
 │   ├── ragView.js          # RAG 检索
-│   ├── contextView.js      # 上下文编译
+│   ├── contextView.js      # 旧上下文页代码；当前 hash 入口重定向到生成中心任务页
 │   └── generateView.js     # 生成中心
 ├── tests/                  # 测试目录
 │   ├── writing/            # 写作台子模块单元测试
@@ -89,9 +104,23 @@ frontend-console/
 ## 技术栈
 
 - 纯原生 HTML + CSS + JavaScript
-- 无前端框架；地图视口使用 Leaflet（ADR-0003）
+- 无前端框架；地图视口按需加载 Leaflet（ADR-0003）
 - 所有 UI 文字为中文
 - 浅色主题（#F5F5F7）为主，支持暗色模式
+
+## 路由与设置
+
+- 一级路由包含 `project`、`writing`、`world`、`map`、`outline`、`scene`、`rag`、`generate`、`settings`、`project-settings`。
+- `settings` 是无项目也可访问的全局设置页；`project-settings` 管理当前项目的 LLM 主配置、深度导入参数和作者偏好。
+- 旧 `llm` 入口会按当前项目状态跳转到 `project-settings` 或 `settings`。
+- 旧 `context` hash 不再是一级页面，路由层会重定向到 `generate?tab=task`。
+
+## 安全与契约
+
+- `index.html` 配置 CSP meta baseline：脚本仅允许本源和 Leaflet CDN，连接仅允许本源及本地开发后端；`style-src` 暂保留 inline style 兼容。
+- 动态内容默认使用 `textContent`；必须拼 HTML 时先走 `esc()`。
+- 当前已落地 vanilla JS 共享 API 契约校验第一阶段：`apiContracts.js` 注册高风险 wrapper 的 method/path/query/body/timeout，`api.js` 对应 wrapper 消费该 registry，Vitest 覆盖加载顺序与代表 endpoint 映射。
+- TypeScript / OpenAPI codegen 仍是未来设计项；当前契约层不覆盖响应字段级 schema drift，设计记录见 `docs/frontend/typescript-api-contracts.md`。
 
 ## 快捷键
 

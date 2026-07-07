@@ -232,14 +232,16 @@ class BgeOnnxWorker:
         quantization: str = "int8",
         max_batch: int = 64,
         timeout: float = 5.0,
+        queue_maxsize: int = 200,
     ) -> None:
         self._model_path = model_path
         self._device = device
         self._quantization = quantization
         self._max_batch = max_batch
         self._timeout = timeout
+        self._queue_maxsize = max(1, queue_maxsize)
 
-        self._task_queue: mp.Queue = mp.Queue(maxsize=200)
+        self._task_queue: mp.Queue = mp.Queue(maxsize=self._queue_maxsize)
         self._result_queue: mp.Queue = mp.Queue()
         self._process: mp.Process | None = None
         self._healthy = False

@@ -5,8 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from app.main import domain_error_handler
-from core.errors import ConflictError, NotFoundError, ValidationError
+from app.main import app, domain_error_handler
+from core.errors import ConflictError, DomainError, NotFoundError, ValidationError
+
+
+def _backend_path(*parts: str) -> Path:
+    backend_root = Path(__file__).resolve().parents[2]
+    return backend_root.joinpath(*parts)
 
 
 @pytest.mark.asyncio
@@ -50,3 +55,15 @@ def test_non_api_backend_code_has_no_fastapi_http_exception_dependency() -> None
                 offenders.append(path.as_posix())
 
     assert offenders == []
+
+
+def test_legacy_application_error_handler_is_not_registered_in_main() -> None:
+    source = _backend_path("app", "main.py").read_text()
+    legacy_error_name = "App" + "Error"
+
+    assert f"class {legacy_error_name}" not in source
+    assert f"exception_handler({legacy_error_name})" not in source
+
+
+def test_domain_error_handler_is_registered() -> None:
+    assert app.exception_handlers[DomainError] is domain_error_handler

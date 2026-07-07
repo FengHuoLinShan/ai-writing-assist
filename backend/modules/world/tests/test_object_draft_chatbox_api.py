@@ -54,7 +54,7 @@ async def test_object_draft_chat_does_not_create_entity(
 ) -> None:
     fake = _FakeLLMClient()
     monkeypatch.setattr(
-        "modules.world.services.object_draft_generation_service."
+        "modules.world.services.worldbuilding.object_draft_generation_service."
         "LLMClient.from_project_settings",
         lambda _settings: fake,
     )
@@ -87,7 +87,7 @@ async def test_generate_object_draft_creates_draft_entity_with_pro_model(
 ) -> None:
     fake = _FakeLLMClient()
     monkeypatch.setattr(
-        "modules.world.services.object_draft_generation_service."
+        "modules.world.services.worldbuilding.object_draft_generation_service."
         "LLMClient.from_project_settings",
         lambda _settings: fake,
     )
@@ -132,7 +132,7 @@ async def test_generate_object_draft_accepts_custom_template_prompt(
 ) -> None:
     fake = _FakeLLMClient()
     monkeypatch.setattr(
-        "modules.world.services.object_draft_generation_service."
+        "modules.world.services.worldbuilding.object_draft_generation_service."
         "LLMClient.from_project_settings",
         lambda _settings: fake,
     )
@@ -170,7 +170,7 @@ async def test_generate_object_draft_rejects_other_project_chapter(
 ) -> None:
     fake = _FakeLLMClient()
     monkeypatch.setattr(
-        "modules.world.services.object_draft_generation_service."
+        "modules.world.services.worldbuilding.object_draft_generation_service."
         "LLMClient.from_project_settings",
         lambda _settings: fake,
     )
@@ -205,7 +205,7 @@ async def test_generate_object_draft_with_builtin_template_id(
 ) -> None:
     fake = _FakeLLMClient()
     monkeypatch.setattr(
-        "modules.world.services.object_draft_generation_service."
+        "modules.world.services.worldbuilding.object_draft_generation_service."
         "LLMClient.from_project_settings",
         lambda _settings: fake,
     )
@@ -244,7 +244,7 @@ async def test_generate_object_draft_rejects_archived_template_id(
 ) -> None:
     fake = _FakeLLMClient()
     monkeypatch.setattr(
-        "modules.world.services.object_draft_generation_service."
+        "modules.world.services.worldbuilding.object_draft_generation_service."
         "LLMClient.from_project_settings",
         lambda _settings: fake,
     )

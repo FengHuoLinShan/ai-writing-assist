@@ -248,7 +248,7 @@ class TestImportService:
 
     @pytest.mark.asyncio
     async def test_import_service_has_no_direct_http_exception_dependency(self):
-        source = Path("backend/modules/imports/services.py").read_text()
+        source = Path(__file__).resolve().parents[1].joinpath("services.py").read_text()
 
         assert "from fastapi import HTTPException" not in source
         assert "raise HTTPException" not in source

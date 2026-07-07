@@ -462,8 +462,9 @@
 | `backend/modules/world/map_models.py` | ORM 模型（地图基础表 + 动态事实表） |
 | `backend/modules/world/map_schemas.py` | Pydantic Schema / 白名单（含 dashboard / playback 派生响应） |
 | `backend/modules/world/map_repositories.py` | 数据访问层 |
-| `backend/modules/world/services/map_service.py` | 业务服务（Config / Tile / Binding / Marker / Territory / DynamicFact） |
-| `backend/modules/world/services/map_context.py` | 共享上下文守卫（novel 隔离 / hex 越界 / entity 类型校验） |
+| `backend/modules/world/services/map_service.py` | 历史兼容导出层（Config / Tile / Binding / Marker / Territory / DynamicFact） |
+| `backend/modules/world/services/map/` | 地图业务服务实现子包 |
+| `backend/modules/world/services/map/map_context.py` | 共享上下文守卫（novel 隔离 / hex 越界 / entity 类型校验） |
 | `backend/modules/world/map_api.py` | FastAPI 路由 |
 | `backend/modules/world/map_facade.py` | 跨模块地图动态入口（deep import delta → observation） |
 | `backend/modules/world/tests/test_map_*.py` | 测试套件 |

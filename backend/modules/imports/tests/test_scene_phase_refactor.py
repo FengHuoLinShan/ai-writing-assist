@@ -173,7 +173,7 @@ def test_phase2_world_parser_filters_invalid_and_overlap_only_refs() -> None:
         }
     )
 
-    normalized, invalid_refs, overlap_only = _normalize_world_output(
+    normalized, invalid_refs, overlap_only, diagnostic = _normalize_world_output(
         output,
         scenes_by_id={
             "s-owned": {"id": "s-owned"},
@@ -187,8 +187,9 @@ def test_phase2_world_parser_filters_invalid_and_overlap_only_refs() -> None:
     assert normalized.relations[0].needs_review is True
     assert normalized.relations[0].supporting_scene_ids == ["s-owned"]
     assert normalized.deltas == []
-    assert invalid_refs == 3
+    assert invalid_refs == 2
     assert overlap_only == 1
+    assert diagnostic["total"] == 2
 
 
 @pytest.mark.asyncio

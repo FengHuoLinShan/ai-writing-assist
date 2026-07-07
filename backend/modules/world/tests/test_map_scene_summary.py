@@ -22,7 +22,7 @@ from modules.world.map_schemas import (
     MapTerritoryCreate,
     TerritoryHex,
 )
-from modules.world.services.map_quick_create import MapQuickCreateService
+from modules.world.services.map.map_quick_create import MapQuickCreateService
 from modules.world.services.map_service import (
     MapConfigService,
     MapLocationBindingService,
@@ -37,7 +37,7 @@ async def test_scene_summary_batches_territory_lookup_for_marker_hexes(
     db_session: AsyncSession,
 ) -> None:
     """Scene 摘要应批量查询 marker 所在 hex 的势力范围，避免 per-marker 查询。"""
-    from modules.world.services.map_scene_summary import MapSceneSummaryService
+    from modules.world.services.map.map_scene_summary import MapSceneSummaryService
 
     novel_id = uuid.uuid4()
     map_id = uuid.uuid4()
@@ -90,7 +90,7 @@ async def test_scene_summary_batches_primary_location_binding_lookup(
     db_session: AsyncSession,
 ) -> None:
     """主地点只应批量查询 marker 所在 hex 的可见地点绑定。"""
-    from modules.world.services.map_scene_summary import MapSceneSummaryService
+    from modules.world.services.map.map_scene_summary import MapSceneSummaryService
 
     novel_id = uuid.uuid4()
     map_id = uuid.uuid4()
@@ -162,7 +162,7 @@ async def test_scene_summary_loads_marker_entities_once(
     db_session: AsyncSession,
 ) -> None:
     """marker 状态和展示名称应复用同一次实体加载结果。"""
-    from modules.world.services.map_scene_summary import MapSceneSummaryService
+    from modules.world.services.map.map_scene_summary import MapSceneSummaryService
 
     novel_id = uuid.uuid4()
     scene_id = uuid.uuid4()

@@ -21,7 +21,7 @@ from modules.world.schemas import (
     CharacterKnowledgeCreate,
     CharacterKnowledgeUpdate,
 )
-from modules.world.services.character_service import CharacterService
+from modules.world.services.core.character_service import CharacterService
 
 
 def _make_knowledge(**kwargs: object) -> CharacterKnowledge:

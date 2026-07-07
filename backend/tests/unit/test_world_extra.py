@@ -21,6 +21,7 @@ from pathlib import Path
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 
 from core.errors import ConflictError, NotFoundError
 from core.errors import ValidationError as DomainValidationError
@@ -39,18 +40,25 @@ from modules.world.schemas import (
     CoreEntityCreate,
     CoreEntityUpdate,
     EntityPromoteRequest,
+    ExtractedEntity,
 )
-from modules.world.services.dedup_scorer import DedupSignals
-from modules.world.services.dedup_service import EntityDedupService
-from modules.world.services.entity_context_service import (
+from modules.world.services.core.dedup_scorer import DedupSignals
+from modules.world.services.core.dedup_service import EntityDedupService
+from modules.world.services.core.entity_context_service import (
     EntityContextService,
     _entity_to_context,
 )
-from modules.world.services.entity_embedding_service import EntityEmbeddingService
-from modules.world.services.entity_service import WorldEntityService
-from modules.world.services.entity_types import is_entity_type_valid, map_entity_type
+from modules.world.services.core.entity_embedding_service import EntityEmbeddingService
+from modules.world.services.core.entity_service import WorldEntityService
+from modules.world.services.core.entity_types import (
+    is_entity_type_valid,
+    map_entity_type,
+    normalize_entity_type,
+)
 from modules.world.tasks import handle_world_entity_extraction
 from shared.enums import CandidateAction
+
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 # ============================================================
 # entity_types.py — pure function mapping
@@ -68,9 +76,10 @@ class TestMapEntityType:
             ("角色", "character"),
             ("地点", "location"),
             ("场所", "location"),
-            ("组织", "faction"),
+            ("组织", "organization"),
             ("势力", "faction"),
             ("物品", "item"),
+            ("物体", "object"),
             ("事件", "event"),
             ("规则", "rule"),
             ("力量体系", "power_system"),
@@ -81,7 +90,8 @@ class TestMapEntityType:
             ("生物", "creature"),
             ("怪物", "creature"),
             ("技能", "skill"),
-            ("能力", "skill"),
+            ("能力", "ability"),
+            ("神器", "artifact"),
             ("其他", "other"),
         ],
     )
@@ -99,14 +109,16 @@ class TestMapEntityType:
 
 
 class TestIsEntityTypeValid:
-    """is_entity_type_valid: regex validation"""
+    """is_entity_type_valid: whitelist validation"""
 
     def test_valid_types_return_true(self) -> None:
         for t in (
             "character",
             "location",
             "faction",
+            "organization",
             "item",
+            "object",
             "event",
             "rule",
             "power_system",
@@ -116,6 +128,8 @@ class TestIsEntityTypeValid:
             "concept",
             "creature",
             "skill",
+            "ability",
+            "artifact",
             "other",
         ):
             assert is_entity_type_valid(t) is True
@@ -126,9 +140,70 @@ class TestIsEntityTypeValid:
     def test_empty_string_returns_false(self) -> None:
         assert is_entity_type_valid("") is False
 
-    def test_none_raises_type_error(self) -> None:
-        with pytest.raises(TypeError):
-            is_entity_type_valid(None)  # type: ignore[arg-type]
+    def test_relation_is_not_core_entity_type(self) -> None:
+        assert is_entity_type_valid("relation") is False
+
+
+class TestNormalizeEntityType:
+    """normalize_entity_type: schema-facing normalization."""
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            (" 人物 ", "character"),
+            (" CHARACTER ", "character"),
+            ("character_ref", "character"),
+            ("组织", "organization"),
+            ("物体", "object"),
+            ("能力", "ability"),
+            ("神器", "artifact"),
+        ],
+    )
+    def test_normalizes_supported_types(self, raw: str, expected: str) -> None:
+        assert normalize_entity_type(raw) == expected
+
+    @pytest.mark.parametrize(
+        "raw",
+        ["organization", "object", "ability", "artifact"],
+    )
+    def test_compatible_types_are_not_remapped(self, raw: str) -> None:
+        assert normalize_entity_type(raw) == raw
+
+    def test_invalid_type_raises_value_error(self) -> None:
+        with pytest.raises(ValueError, match="Unsupported entity_type"):
+            normalize_entity_type("corgi")
+
+
+class TestEntityTypeSchemaValidation:
+    """Pydantic schemas normalize and validate supported entity types."""
+
+    def test_core_entity_create_normalizes_type(self) -> None:
+        model = CoreEntityCreate(entity_type=" CHARACTER ", name="Hero")
+        assert model.entity_type == "character"
+
+    def test_core_entity_create_rejects_invalid_type(self) -> None:
+        with pytest.raises(PydanticValidationError):
+            CoreEntityCreate(entity_type="corgi", name="Hero")
+
+    def test_core_entity_update_allows_none_entity_type(self) -> None:
+        model = CoreEntityUpdate(entity_type=None)
+        assert model.entity_type is None
+
+    def test_core_entity_update_normalizes_type(self) -> None:
+        model = CoreEntityUpdate(entity_type="character_ref")
+        assert model.entity_type == "character"
+
+    def test_core_entity_update_rejects_invalid_type(self) -> None:
+        with pytest.raises(PydanticValidationError):
+            CoreEntityUpdate(entity_type="corgi")
+
+    def test_extracted_entity_normalizes_type(self) -> None:
+        model = ExtractedEntity(entity_type="能力", name="Magic")
+        assert model.entity_type == "ability"
+
+    def test_extracted_entity_rejects_invalid_type(self) -> None:
+        with pytest.raises(PydanticValidationError):
+            ExtractedEntity(entity_type="corgi", name="Unknown")
 
 
 # ============================================================
@@ -167,7 +242,9 @@ class TestEntityServiceList:
     """WorldEntityService.list — override with filters + ListResponse wrapper"""
 
     async def test_entity_service_has_no_direct_http_exception_dependency(self) -> None:
-        source = Path("backend/modules/world/services/entity_service.py").read_text()
+        source = (
+            BACKEND_ROOT / "modules/world/services/core/entity_service.py"
+        ).read_text()
 
         assert "from fastapi import HTTPException" not in source
         assert "raise HTTPException" not in source
@@ -275,7 +352,7 @@ class TestEntityServiceList:
             mock_repo.get = AsyncMock(return_value=existing)
             mock_repo.update = AsyncMock(return_value=existing)
             with patch(
-                "modules.world.services.entity_revision_service."
+                "modules.world.services.core.entity_revision_service."
                 "EntityRevisionService.create_snapshot",
                 new_callable=AsyncMock,
             ):
@@ -565,7 +642,7 @@ class TestEntityEmbeddingServiceBackfillEmbeddings:
         assert result == 0
 
     @patch(
-        "modules.world.services.entity_embedding_service.BgeEmbeddingClient.get_instance"
+        "modules.world.services.core.entity_embedding_service.BgeEmbeddingClient.get_instance"
     )
     async def test_bge_unavailable_returns_zero(self, mock_get_instance) -> None:
         mock_get_instance.side_effect = RuntimeError("BGE not available")
@@ -574,7 +651,7 @@ class TestEntityEmbeddingServiceBackfillEmbeddings:
         assert result == 0
 
     @patch(
-        "modules.world.services.entity_embedding_service.BgeEmbeddingClient.get_instance"
+        "modules.world.services.core.entity_embedding_service.BgeEmbeddingClient.get_instance"
     )
     async def test_happy_path_backfills_in_batches(self, mock_get_instance) -> None:
         bge = AsyncMock()
@@ -593,7 +670,7 @@ class TestEntityEmbeddingServiceBackfillEmbeddings:
             assert e.embedding_text == e.name
 
     @patch(
-        "modules.world.services.entity_embedding_service.BgeEmbeddingClient.get_instance"
+        "modules.world.services.core.entity_embedding_service.BgeEmbeddingClient.get_instance"
     )
     async def test_skips_empty_name_entities(self, mock_get_instance) -> None:
         bge = AsyncMock()
@@ -611,7 +688,7 @@ class TestEntityEmbeddingServiceBackfillEmbeddings:
         assert valid.embedding == [0.5]
 
     @patch(
-        "modules.world.services.entity_embedding_service.BgeEmbeddingClient.get_instance"
+        "modules.world.services.core.entity_embedding_service.BgeEmbeddingClient.get_instance"
     )
     async def test_batch_failure_continues_to_next_batch(self, mock_get_instance) -> None:
         bge = AsyncMock()
@@ -1178,7 +1255,7 @@ class TestDedupSyncCharacterOnMerge:
         char_repo = AsyncMock()
         char_repo.get.return_value = None
         with patch(
-            "modules.world.services.dedup_service.CharacterRepository",
+            "modules.world.services.core.dedup_service.CharacterRepository",
             return_value=char_repo,
         ):
             result = await svc._sync_character_on_merge(
@@ -1220,7 +1297,7 @@ class TestDedupSyncCharacterOnMerge:
         char_repo.update = AsyncMock()
 
         with patch(
-            "modules.world.services.dedup_service.CharacterRepository",
+            "modules.world.services.core.dedup_service.CharacterRepository",
             return_value=char_repo,
         ):
             result = await svc._sync_character_on_merge(
@@ -1253,7 +1330,9 @@ class TestDedupMergeCandidate:
     """EntityDedupService.merge_candidate_into_entity — error boundaries"""
 
     async def test_dedup_service_has_no_direct_http_exception_dependency(self) -> None:
-        source = Path("backend/modules/world/services/dedup_service.py").read_text()
+        source = (
+            BACKEND_ROOT / "modules/world/services/core/dedup_service.py"
+        ).read_text()
 
         assert "from fastapi import HTTPException" not in source
         assert "raise HTTPException" not in source

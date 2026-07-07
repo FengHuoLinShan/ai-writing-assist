@@ -50,6 +50,40 @@ import {
 import mapView from "../views/mapView.js"
 import renderEditPanel, { updatePendingCount, updateBindingPendingCount, toggleToolSections } from "../views/mapEditPanel.js"
 
+async function importFreshMapView() {
+  vi.resetModules()
+  return (await import("../views/mapView.js")).default
+}
+
+function interceptLeafletResourceAppend() {
+  const originalAppendChild = document.head.appendChild
+  const originalGetElementById = document.getElementById
+  const appended = []
+
+  document.head.appendChild = vi.fn((node) => {
+    if (node?.id === "leaflet-css-dynamic" || node?.id === "leaflet-js-dynamic") {
+      node.remove = vi.fn(() => {
+        node.dataset.removed = "true"
+      })
+      appended.push(node)
+      return node
+    }
+    return originalAppendChild.call(document.head, node)
+  })
+  document.getElementById = vi.fn((id) => {
+    const intercepted = appended.find((node) => node.id === id && node.dataset.removed !== "true")
+    return intercepted || originalGetElementById.call(document, id)
+  })
+
+  return {
+    appended,
+    restore() {
+      document.head.appendChild = originalAppendChild
+      document.getElementById = originalGetElementById
+    },
+  }
+}
+
 beforeEach(() => {
   // 防御：单文件运行时 setup.js 可能未在同一 worker 执行，兜底初始化全局
   if (!globalThis.state) {
@@ -61,6 +95,9 @@ beforeEach(() => {
   resetMapState()
   mapView._maps = []
   mapView._mapsLoadError = null
+  document.getElementById("leaflet-css-dynamic")?.remove()
+  document.getElementById("leaflet-js-dynamic")?.remove()
+  delete window.L
 })
 
 // ============================================================
@@ -583,7 +620,8 @@ describe("mapView 列表渲染", () => {
 })
 
 describe("mapView Leaflet overlay alignment", () => {
-  it("mounts the canvas as a fixed container overlay, not inside a movable Leaflet pane", () => {
+  it("mounts the canvas as a fixed container overlay, not inside a movable Leaflet pane", async () => {
+    const resources = interceptLeafletResourceAppend()
     const overlayPane = document.createElement("div")
     overlayPane.className = "leaflet-overlay-pane"
     const container = document.createElement("div")
@@ -623,7 +661,7 @@ describe("mapView Leaflet overlay alignment", () => {
     }
 
     try {
-      mapView._initLeaflet()
+      await mapView._initLeaflet()
 
       expect(mapView._canvas?.parentElement).toBe(container)
       expect(overlayPane.contains(mapView._canvas)).toBe(false)
@@ -631,8 +669,152 @@ describe("mapView Leaflet overlay alignment", () => {
       mapView._teardownInteractiveSurface()
       mapView._state = null
       HTMLCanvasElement.prototype.getContext = originalGetContext
+      resources.restore()
       delete window.L
     }
+  })
+
+  it("loads Leaflet CSS and JS on demand when window.L is absent", async () => {
+    const freshMapView = await importFreshMapView()
+    const resources = interceptLeafletResourceAppend()
+    const container = document.createElement("div")
+    container.id = "map-leaflet"
+    Object.defineProperty(container, "clientWidth", { value: 640, configurable: true })
+    Object.defineProperty(container, "clientHeight", { value: 420, configurable: true })
+    document.body.appendChild(container)
+
+    const originalGetContext = HTMLCanvasElement.prototype.getContext
+    HTMLCanvasElement.prototype.getContext = vi.fn(() => createCanvasMock({
+      methods: ["setTransform", "clearRect", "translate", "scale"],
+    }))
+    const leafletMap = {
+      fitBounds: vi.fn(),
+      on: vi.fn(),
+      off: vi.fn(function () { return this }),
+      getZoom: vi.fn(() => 0),
+      latLngToContainerPoint: vi.fn(() => ({ x: 24, y: 36 })),
+      eachLayer: vi.fn(),
+      removeLayer: vi.fn(),
+      getContainer: vi.fn(() => container),
+      remove: vi.fn(),
+    }
+    freshMapView._state = {
+      map: { id: "m1", hex_size: 30, grid_width: 5, grid_height: 5 },
+      tiles: [],
+      location_bindings: [],
+      markers: [],
+      territories: [],
+    }
+
+    try {
+      const init = freshMapView._initLeaflet()
+      const link = document.getElementById("leaflet-css-dynamic")
+      const script = document.getElementById("leaflet-js-dynamic")
+
+      expect(link?.getAttribute("href")).toBe("https://unpkg.com/leaflet@1.9.4/dist/leaflet.css")
+      expect(script?.getAttribute("src")).toBe("https://unpkg.com/leaflet@1.9.4/dist/leaflet.js")
+      expect(script?.getAttribute("integrity")).toBe("sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=")
+
+      window.L = {
+        CRS: { Simple: {} },
+        map: vi.fn(() => leafletMap),
+        latLngBounds: vi.fn((bounds) => bounds),
+      }
+      script.onload()
+      await init
+
+      expect(window.L.map).toHaveBeenCalledWith(container, expect.objectContaining({
+        crs: window.L.CRS.Simple,
+        attributionControl: false,
+      }))
+      expect(freshMapView._leaflet).toBe(leafletMap)
+    } finally {
+      freshMapView._teardownInteractiveSurface()
+      freshMapView._state = null
+      HTMLCanvasElement.prototype.getContext = originalGetContext
+      resources.restore()
+      delete window.L
+    }
+  })
+
+  it("reuses the in-flight Leaflet loader and does not inject duplicate resources", async () => {
+    const freshMapView = await importFreshMapView()
+    const resources = interceptLeafletResourceAppend()
+    const container = document.createElement("div")
+    container.id = "map-leaflet"
+    Object.defineProperty(container, "clientWidth", { value: 640, configurable: true })
+    Object.defineProperty(container, "clientHeight", { value: 420, configurable: true })
+    document.body.appendChild(container)
+
+    const originalGetContext = HTMLCanvasElement.prototype.getContext
+    HTMLCanvasElement.prototype.getContext = vi.fn(() => createCanvasMock({
+      methods: ["setTransform", "clearRect", "translate", "scale"],
+    }))
+    freshMapView._state = {
+      map: { id: "m1", hex_size: 30, grid_width: 5, grid_height: 5 },
+      tiles: [],
+      location_bindings: [],
+      markers: [],
+      territories: [],
+    }
+
+    try {
+      const first = freshMapView._initLeaflet()
+      const second = freshMapView._initLeaflet()
+      expect(resources.appended.filter((node) => node.id === "leaflet-css-dynamic")).toHaveLength(1)
+      expect(resources.appended.filter((node) => node.id === "leaflet-js-dynamic")).toHaveLength(1)
+
+      const script = document.getElementById("leaflet-js-dynamic")
+      window.L = {
+        CRS: { Simple: {} },
+        map: vi.fn(() => ({
+          fitBounds: vi.fn(),
+          on: vi.fn(),
+          off: vi.fn(function () { return this }),
+          getZoom: vi.fn(() => 0),
+          latLngToContainerPoint: vi.fn(() => ({ x: 24, y: 36 })),
+          eachLayer: vi.fn(),
+          removeLayer: vi.fn(),
+          getContainer: vi.fn(() => container),
+          remove: vi.fn(),
+        })),
+        latLngBounds: vi.fn((bounds) => bounds),
+      }
+      script.onload()
+      await Promise.all([first, second])
+
+      expect(window.L.map).toHaveBeenCalledTimes(1)
+    } finally {
+      freshMapView._teardownInteractiveSurface()
+      freshMapView._state = null
+      HTMLCanvasElement.prototype.getContext = originalGetContext
+      resources.restore()
+      delete window.L
+    }
+  })
+
+  it("renders the existing failure state when Leaflet cannot load", async () => {
+    const freshMapView = await importFreshMapView()
+    const resources = interceptLeafletResourceAppend()
+    const container = document.createElement("div")
+    container.id = "map-leaflet"
+    document.body.appendChild(container)
+    freshMapView._state = {
+      map: { id: "m1", hex_size: 30, grid_width: 5, grid_height: 5 },
+      tiles: [],
+      location_bindings: [],
+      markers: [],
+      territories: [],
+    }
+
+    const init = freshMapView._initLeaflet()
+    const script = document.getElementById("leaflet-js-dynamic")
+    script.onerror()
+    await init
+
+    expect(container.textContent).toContain("地图引擎加载失败")
+    expect(freshMapView._leaflet).toBeNull()
+    resources.restore()
   })
 
   it("throttles viewport redraws through requestAnimationFrame", () => {

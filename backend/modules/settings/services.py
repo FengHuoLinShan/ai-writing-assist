@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import Select
 
-from infrastructure.llm.profiles import get_llm_profile
-from modules.project.facade import get_project_by_id, list_active_projects
+from infrastructure.llm.profiles import (
+    LLM_API_KEY_FIELD,
+    LLM_SETTINGS_KEY,
+    get_llm_profile,
+)
+from modules.project.contracts import ProjectSummary
 from modules.settings.constants import (
     AUTHOR_PREFS_DEFAULTS,
     AUTHOR_PREFS_FIELDS,
@@ -196,16 +203,12 @@ class SettingsService:
             default_focus_mode=pack("default_focus_mode"),
         )
 
-    async def get_effective_llm_settings(
-        self, db: AsyncSession, project_id: uuid.UUID | str
+    async def get_effective_llm_settings_for_project_settings(
+        self, db: AsyncSession, project_settings: dict | None
     ) -> EffectiveLLMSettingsResponse:
-        pid = project_id if isinstance(project_id, uuid.UUID) else uuid.UUID(project_id)
-        project = await get_project_by_id(db, pid)
-        if project is None:
-            raise LookupError(f"project {project_id} not found")
-        proj_profile = get_llm_profile(project.settings) if project.settings else {}
+        proj_profile = get_llm_profile(project_settings)
         # deep_import 是 settings 顶层 sibling，不在 settings["llm"] 内（D6 atomic）
-        proj_deep_import = (project.settings or {}).get(DEEP_IMPORT_SETTINGS_KEY)
+        proj_deep_import = (project_settings or {}).get(DEEP_IMPORT_SETTINGS_KEY)
         glob_row = await self._llm_repo.get(db, _current_owner_id())
         glob_profile = (
             {f: getattr(glob_row, f) for f in LLM_INHERITABLE_FIELDS} if glob_row else {}
@@ -258,44 +261,50 @@ class SettingsService:
             ),
         )
 
-    # ----- aggregation -----
-    async def list_projects_using_defaults(
-        self,
-        db: AsyncSession,
-        limit: int = 50,
-        offset: int = 0,
-    ) -> ProjectsUsingDefaultsResponse:
-        """D18: 仅统计作者偏好默认；任一字段为 NULL 或行不存在即视为继承默认。"""
-        from sqlalchemy import select
-
-        all_projects = await list_active_projects(db)
-        prefs_rows = await db.execute(select(ProjectAuthorPreferences))
-        prefs_by_pid = {row.project_id: row for row in prefs_rows.scalars().all()}
-
-        inheriting: list[uuid.UUID] = []
-        for proj in all_projects:
-            row = prefs_by_pid.get(proj.id)
-            if row is None:
-                inheriting.append(proj.id)
+    async def materialize_effective_project_settings(
+        self, db: AsyncSession, project_settings: dict | None
+    ) -> dict:
+        """Materialize runtime settings from raw project settings JSON."""
+        settings = dict(project_settings or {})
+        raw_llm = get_llm_profile(settings)
+        effective = await self.get_effective_llm_settings_for_project_settings(
+            db, settings
+        )
+        llm_profile: dict[str, object] = {}
+        for field_name in LLM_INHERITABLE_FIELDS:
+            if field_name == DEEP_IMPORT_SETTINGS_KEY:
                 continue
-            if (
-                row.daily_goal is None
-                or row.editor_font is None
-                or row.default_focus_mode is None
-            ):
-                inheriting.append(proj.id)
+            field = getattr(effective, field_name, None)
+            if field is not None and field.value is not None and field.value != "":
+                llm_profile[field_name] = field.value
+        if raw_llm.get(LLM_API_KEY_FIELD):
+            llm_profile[LLM_API_KEY_FIELD] = raw_llm[LLM_API_KEY_FIELD]
+        if llm_profile:
+            settings[LLM_SETTINGS_KEY] = llm_profile
+        return settings
 
-        total = len(inheriting)
+    # ----- aggregation -----
+    def fully_overridden_project_ids_subquery(self) -> Select[tuple[uuid.UUID]]:
+        """D18: 仅统计作者偏好默认；任一字段为 NULL 或行不存在即视为继承默认。"""
+        return select(ProjectAuthorPreferences.project_id).where(
+            ProjectAuthorPreferences.daily_goal.is_not(None),
+            ProjectAuthorPreferences.editor_font.is_not(None),
+            ProjectAuthorPreferences.default_focus_mode.is_not(None),
+        )
+
+    def build_projects_using_defaults_response(
+        self,
+        projects: Sequence[ProjectSummary],
+        total: int,
+    ) -> ProjectsUsingDefaultsResponse:
         truncated = total > 100
-        page = inheriting[offset : offset + limit]
-        title_by_id = {p.id: p.title for p in all_projects}
         items = [
             ProjectsUsingDefaultsItem(
-                project_id=str(pid),
-                title=title_by_id.get(pid, ""),
+                project_id=str(project.project_id),
+                title=project.title,
                 inherited_fields=[],
             )
-            for pid in page
+            for project in projects
         ]
         return ProjectsUsingDefaultsResponse(
             items=items, total=total, truncated=truncated

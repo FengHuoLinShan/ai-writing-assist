@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import DomainError
 from modules.world.map_models import MapConfig
-from modules.world.services.map_context import MapContext
+from modules.world.services.map.map_context import MapContext
 from modules.world.tests.helpers import _create_entity, _create_map_config
 
 

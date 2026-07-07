@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from core.errors import ConflictError, NotFoundError
-from modules.world.services.entity_alias_service import EntityAliasService
+from modules.world.services.core.entity_alias_service import EntityAliasService
 
 
 @pytest.fixture
@@ -24,7 +24,9 @@ def alias_service() -> EntityAliasService:
 
 @pytest.mark.asyncio
 async def test_entity_alias_service_has_no_direct_http_exception_dependency() -> None:
-    source = Path("backend/modules/world/services/entity_alias_service.py").read_text()
+    source = (
+        Path(__file__).parents[1] / "services/core/entity_alias_service.py"
+    ).read_text()
 
     assert "from fastapi import HTTPException" not in source
     assert "raise HTTPException" not in source

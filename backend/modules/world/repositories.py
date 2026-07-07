@@ -618,16 +618,11 @@ class CoreEntityRepository:
         通过 content_json['_meta']['auto_ingested'] 过滤。
         支持 PostgreSQL JSONB 和 SQLite。
         """
-        from sqlalchemy import Text, cast
-
         conditions = [
             CoreEntity.novel_id == novel_id,
             CoreEntity.status == "canonical",
+            CoreEntity.content_json["_meta"]["auto_ingested"].as_boolean().is_(True),
         ]
-        # 通过 JSON 文本包含来判断
-        conditions.append(
-            cast(CoreEntity.content_json, Text).contains('"auto_ingested": true')
-        )
 
         if since:
             conditions.append(CoreEntity.created_at >= since)
@@ -822,6 +817,12 @@ class EventRepository:
 class EntityRelationRepository:
     """关系数据访问"""
 
+    def _with_endpoint_loads(self, stmt):
+        return stmt.options(
+            selectinload(EntityRelation.source),
+            selectinload(EntityRelation.target),
+        )
+
     async def create(
         self,
         db: AsyncSession,
@@ -853,7 +854,9 @@ class EntityRelationRepository:
         db: AsyncSession,
         rel_id: uuid.UUID,
     ) -> EntityRelation | None:
-        stmt = select(EntityRelation).where(EntityRelation.id == rel_id)
+        stmt = self._with_endpoint_loads(
+            select(EntityRelation).where(EntityRelation.id == rel_id)
+        )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -870,11 +873,7 @@ class EntityRelationRepository:
             EntityRelation.status != "deprecated",
         ]
         stmt = (
-            select(EntityRelation)
-            .options(
-                selectinload(EntityRelation.source),
-                selectinload(EntityRelation.target),
-            )
+            self._with_endpoint_loads(select(EntityRelation))
             .where(*conditions)
             .offset(skip)
             .limit(limit)
@@ -919,11 +918,7 @@ class EntityRelationRepository:
             conditions.append(EntityRelation.relation_type == relation_type)
 
         stmt = (
-            select(EntityRelation)
-            .options(
-                selectinload(EntityRelation.source),
-                selectinload(EntityRelation.target),
-            )
+            self._with_endpoint_loads(select(EntityRelation))
             .where(*conditions)
             .limit(limit)
             .order_by(EntityRelation.strength.desc(), EntityRelation.id.asc())
@@ -950,11 +945,7 @@ class EntityRelationRepository:
             conditions.append(EntityRelation.relation_type == relation_type)
 
         stmt = (
-            select(EntityRelation)
-            .options(
-                selectinload(EntityRelation.source),
-                selectinload(EntityRelation.target),
-            )
+            self._with_endpoint_loads(select(EntityRelation))
             .where(*conditions)
             .limit(limit)
             .order_by(EntityRelation.strength.desc(), EntityRelation.id.asc())
@@ -971,11 +962,7 @@ class EntityRelationRepository:
     ) -> list[EntityRelation]:
         """获取某章节建立的所有可追溯关系"""
         stmt = (
-            select(EntityRelation)
-            .options(
-                selectinload(EntityRelation.source),
-                selectinload(EntityRelation.target),
-            )
+            self._with_endpoint_loads(select(EntityRelation))
             .where(
                 EntityRelation.novel_id == novel_id,
                 EntityRelation.source_chapter_id == chapter_id,
@@ -1240,12 +1227,14 @@ class EntityRelationRepository:
         entity_id: uuid.UUID,
     ) -> list[EntityRelation]:
         """获取某实体参与的所有关系（作为 source 或 target）。"""
-        stmt = select(EntityRelation).where(
-            EntityRelation.novel_id == novel_id,
-            or_(
-                EntityRelation.source_id == entity_id,
-                EntityRelation.target_id == entity_id,
-            ),
+        stmt = self._with_endpoint_loads(
+            select(EntityRelation).where(
+                EntityRelation.novel_id == novel_id,
+                or_(
+                    EntityRelation.source_id == entity_id,
+                    EntityRelation.target_id == entity_id,
+                ),
+            )
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -1280,7 +1269,7 @@ class EntityRelationRepository:
     ) -> EntityRelation | None:
         """查找已存在的同类型同方向关系。"""
         stmt = (
-            select(EntityRelation)
+            self._with_endpoint_loads(select(EntityRelation))
             .where(
                 EntityRelation.novel_id == novel_id,
                 EntityRelation.source_id == source_id,
@@ -1597,22 +1586,19 @@ class CharacterRepository:
         stmt = select(Character).where(
             Character.novel_id == novel_id,
             Character.status == "canonical",
+            Character.meta["location_id"].as_string() == str(location_id),
         )
         result = await db.execute(stmt)
         characters: Sequence[Character] = result.scalars().all()
 
-        items: list[dict[str, Any]] = []
-        for c in characters:
-            meta = c.meta or {}
-            if str(meta.get("location_id", "")) == str(location_id):
-                items.append(
-                    {
-                        "id": str(c.entity_id),
-                        "name": c.name,
-                        "current_state": c.current_state,
-                    }
-                )
-        return items
+        return [
+            {
+                "id": str(c.entity_id),
+                "name": c.name,
+                "current_state": c.current_state,
+            }
+            for c in characters
+        ]
 
     async def get_character_location_id(
         self,

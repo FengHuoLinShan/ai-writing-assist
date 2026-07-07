@@ -10,6 +10,7 @@ from __future__ import annotations  # noqa: I001
 
 import asyncio
 import logging
+import re
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -20,7 +21,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from core.config import get_settings
+from core import container
+from core.config import get_settings, validate_cors_origins
 from core.database import get_manager
 from core.errors import DomainError
 from infrastructure.embedding.client import (
@@ -37,6 +39,40 @@ def _register_container_services() -> None:
 _register_container_services()
 
 logger = logging.getLogger(__name__)
+
+_REQUEST_PATH_LOG_MAX_LENGTH = 160
+_UUID_PATH_SEGMENT_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+_LONG_HEX_PATH_SEGMENT_RE = re.compile(r"^[0-9a-fA-F]{16,}$")
+_LONG_HASH_PATH_SEGMENT_RE = re.compile(r"^(?=.*\d)[A-Za-z0-9_-]{24,}$")
+
+
+def _redact_request_path(path: str) -> str:
+    """Redact dynamic identifiers from request paths before logging."""
+    path_only, separator, _query = path.partition("?")
+    redacted_segments = [
+        "<id>" if _should_redact_path_segment(segment) else segment
+        for segment in path_only.split("/")
+    ]
+    redacted_path = "/".join(redacted_segments)
+    if separator:
+        redacted_path = f"{redacted_path}?<redacted>"
+    if len(redacted_path) <= _REQUEST_PATH_LOG_MAX_LENGTH:
+        return redacted_path
+    return f"{redacted_path[: _REQUEST_PATH_LOG_MAX_LENGTH - 3]}..."
+
+
+def _should_redact_path_segment(segment: str) -> bool:
+    if not segment:
+        return False
+    return (
+        segment.isdigit()
+        or _UUID_PATH_SEGMENT_RE.fullmatch(segment) is not None
+        or _LONG_HEX_PATH_SEGMENT_RE.fullmatch(segment) is not None
+        or _LONG_HASH_PATH_SEGMENT_RE.fullmatch(segment) is not None
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +146,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # --- 关闭清理 ---
     logger.info("Shutting down — closing database connections...")
+    await container.shutdown()
     await BgeEmbeddingClient.close_instance()
     await manager.close()
     logger.info("Application shutdown complete.")
@@ -171,7 +208,7 @@ class _TimingMiddleware:
             elapsed = time.perf_counter() - start
             logger.error(
                 "%s — unhandled exception after %.1fms",
-                scope.get("path", ""),
+                _redact_request_path(scope.get("path", "")),
                 round(elapsed * 1000, 1),
             )
             raise
@@ -182,7 +219,9 @@ app.add_middleware(_TimingMiddleware)
 
 # CORS 配置：开发环境允许前端本地文件 + localhost
 # 生产环境请通过 ALLOWED_ORIGINS 环境变量设置具体域名
-_origins = get_settings().allowed_origins
+_settings = get_settings()
+_origins = _settings.allowed_origins
+validate_cors_origins(_settings.app_env, _origins)
 if not _origins or _origins == ["*"]:
     app.add_middleware(
         CORSMiddleware,
@@ -204,28 +243,6 @@ else:
 # ---------------------------------------------------------------------------
 # 异常处理器
 # ---------------------------------------------------------------------------
-
-
-class AppError(Exception):
-    """应用级业务异常基类"""
-
-    def __init__(self, message: str, status_code: int = 400) -> None:
-        self.message = message
-        self.status_code = status_code
-        super().__init__(message)
-
-
-@app.exception_handler(AppError)
-async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
-    """业务异常 → JSON 错误响应"""
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "error": exc.__class__.__name__,
-            "message": exc.message,
-            "status_code": exc.status_code,
-        },
-    )
 
 
 @app.exception_handler(DomainError)

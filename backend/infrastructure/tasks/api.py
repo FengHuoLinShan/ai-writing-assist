@@ -12,10 +12,11 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from core.api_params import NovelIdQuery
 from core.dependencies import DbSession
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
@@ -130,17 +131,21 @@ async def submit_task(
 async def get_task_status(
     task_id: uuid.UUID,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> TaskStatusResponse:
     """查询任务状态
 
     （Bug L3: task_id 改为原生 UUID 类型，由 FastAPI 自动校验）
     """
-    stmt = select(AsyncTask).where(AsyncTask.id == task_id)
+    stmt = select(AsyncTask).where(
+        AsyncTask.id == task_id,
+        AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+    )
     result = await db.execute(stmt)
     task = result.scalar_one_or_none()
 
-    if task is None or not _task_belongs_to_novel(task, novel_id):
+    if task is None:
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
 
     return TaskStatusResponse(
@@ -161,17 +166,21 @@ async def get_task_status(
 async def cancel_task(
     task_id: uuid.UUID,
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> TaskCancelResponse:
     """取消一个 pending 或 running 的任务
 
     （Bug L3: task_id 改为原生 UUID 类型）
     """
-    stmt = select(AsyncTask).where(AsyncTask.id == task_id)
+    stmt = select(AsyncTask).where(
+        AsyncTask.id == task_id,
+        AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+    )
     result = await db.execute(stmt)
     task = result.scalar_one_or_none()
 
-    if task is None or not _task_belongs_to_novel(task, novel_id):
+    if task is None:
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
 
     if task.status not in ("pending", "running"):
@@ -188,7 +197,3 @@ async def cancel_task(
         status=str(task.status),
         cancelled=True,
     )
-
-
-def _task_belongs_to_novel(task: AsyncTask, novel_id: str) -> bool:
-    return str((task.meta or {}).get("novel_id") or "") == str(novel_id)

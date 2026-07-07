@@ -33,9 +33,11 @@
 ### 3. CDN 加载而非 vendor 本地化
 
 加载方式：
-```html
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+```js
+// frontend-console/views/mapView.js
+// 首次初始化地图视图时按需注入固定版本 CDN 资源。
+const LEAFLET_CSS_URL = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+const LEAFLET_JS_URL = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
 ```
 
 **理由**：
@@ -53,8 +55,8 @@ Leaflet 是本功能唯一新增前端依赖。后续若需要其他库（如图
 
 ## 影响
 
-- `frontend-console/index.html` 新增 1 个 `<link>` + 1 个 `<script>`（CDN）。
-- `frontend-console/views/mapView.js` 等模块通过全局 `window.L` 访问 Leaflet。
+- `frontend-console/index.html` 保留 CSP 对 `https://unpkg.com` 的许可，但不在非地图视图全局请求 Leaflet 资源。
+- `frontend-console/views/mapView.js` 在地图视图首次初始化时按需注入 1 个 `<link>` + 1 个 `<script>`（固定版本 CDN + SRI），加载完成后通过全局 `window.L` 访问 Leaflet。
 - 项目 README 的"零外部依赖"声明需更新为"零构建依赖、零 node_modules 运行时依赖；地图视图通过 CDN 加载 Leaflet"。
 - 地图子视图在网络不可用时降级，world 其他子视图不受影响。
 

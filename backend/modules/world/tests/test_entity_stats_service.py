@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.world.services.entity_stats_service import EntityStatsService
+from modules.world.services.core.entity_stats_service import EntityStatsService
 
 
 @pytest.fixture

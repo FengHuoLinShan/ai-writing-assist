@@ -88,7 +88,7 @@ GET /api/health/llm
 | `rag_reindex_novel` | rag | 全量/范围重建项目索引 |
 | `publish_chapter` | writing | 发布章节草稿并触发后续索引/记忆流程 |
 | `deep_import` | imports | 深度导入流水线（Scene 切分 → 实体提取 → 结构分析） |
-| `deep_import_resume` | imports | 已废弃的兼容 handler；候选管理移除后直接返回完成状态 |
+| `deep_import_resume` | imports | 生产兼容恢复 handler；由 `/api/imports/deep/resume` 在用户确认后继续原 deep_import 或 stage task |
 
 ### API
 

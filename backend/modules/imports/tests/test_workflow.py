@@ -14,7 +14,9 @@ import pytest
 from sqlalchemy import select
 
 from infrastructure.tasks.models import AsyncTask
-from modules.imports.deep_import_retry import DeepImportRetryResult
+from modules.imports.entity_extraction.scene_entity_extraction import (
+    SceneEntityExtractionService,
+)
 from modules.imports.llm_schemas import (
     AliasRelationExtractionOutput,
     ExtractedEntity,
@@ -22,7 +24,6 @@ from modules.imports.llm_schemas import (
     SceneCandidateOutput,
     SceneChunk,
     SceneEntityExtractionOutput,
-    SceneItem,
     SceneSegmentationOutput,
 )
 from modules.imports.orchestrator import DeepImportOrchestrator
@@ -31,35 +32,33 @@ from modules.imports.phase2_world_extraction import (
     Phase2WorldExtractor,
     _normalize_world_output,
 )
-from modules.imports.scene_candidates import (
-    SceneCandidate,
-    SceneCandidateBatch,
-    ScenePrefetchResult,
-    SceneReinforcementResult,
-)
+from modules.imports.scene_candidates import SceneCandidate, SceneCandidateBatch
 from modules.imports.scene_commit import SceneCommitResult
 from modules.imports.scene_enrichment import Phase1bEnrichmentResult
-from modules.imports.scene_entity_extraction import SceneEntityExtractionService
-from modules.imports.scene_fusion import FinalSceneCandidate, Phase1bFusionResult
+from modules.imports.scene_fusion import FinalSceneCandidate
 from modules.imports.scene_planning import ScenePlanResult, SceneWindowPlan
 from modules.imports.scene_segmentation import SceneSegmentationService
 from modules.imports.scene_slicing import SceneSliceCandidate, SceneSlicingResult
 from modules.imports.service_phase_artifacts import add_phase_artifact, coverage_summary
-from modules.imports.service_progress_logs import record_progress_event
+from modules.imports.service_progress_logs import (
+    record_acceptance_check,
+    record_progress_event,
+)
 from modules.imports.workflow import (
     DeepImportWorkflow,
     _compact_phase1b_payload,
+)
+from modules.imports.workflow_entity_phase import phase2_quality_stats
+from modules.imports.workflow_llm_adapters import (
+    _materialize_phase1b_decision_output,
     _Phase0SceneCandidateLLM,
     _Phase1aSceneCandidateLLM,
-    _phase1b_use_llm,
+    _Phase1bDecisionOutput,
     _Phase1bSceneFusionLLM,
     _run_deep_import_structured_call,
 )
-from modules.imports.workflow_llm_adapters import (
-    _materialize_phase1b_decision_output,
-    _Phase1bDecisionOutput,
-)
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
+from modules.imports.workflow_structure_phase import ensure_minimum_structure_outputs
 from modules.writing.contracts import WritingDraftContract
 from shared.deep_import_settings import DEEP_IMPORT_DEFAULT_SETTINGS
 
@@ -143,46 +142,6 @@ def test_alias_relation_output_accepts_single_alias_and_relation() -> None:
     assert output.aliases[0].quote == "自称；新身份"
     assert output.aliases[0].confidence == 0.9
     assert len(output.relations) == 1
-
-
-def test_phase1b_workflow_uses_deterministic_reducer_for_large_samples_by_default(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("PHASE1B_USE_LLM", raising=False)
-
-    assert _phase1b_use_llm(start_chapter=1, end_chapter=60) is False
-    assert _phase1b_use_llm(start_chapter=1, end_chapter=7) is True
-
-    monkeypatch.setenv("PHASE1B_USE_LLM", "1")
-    assert _phase1b_use_llm(start_chapter=1, end_chapter=60) is True
-
-    monkeypatch.setenv("PHASE1B_USE_LLM", "0")
-    assert _phase1b_use_llm(start_chapter=1, end_chapter=7) is False
-
-
-def _phase0_prefetch_result(
-    quality_stats: dict | None = None,
-    *,
-    blocked: bool = False,
-    block_reason: str | None = None,
-) -> ScenePrefetchResult:
-    return ScenePrefetchResult(
-        candidates=[] if blocked else [_scene_candidate("phase0-candidate-1")],
-        quality_stats={
-            "total_batches": 1,
-            "completed_batches": 1,
-            "success": 1,
-            "failed": 0,
-            "empty_result": 0,
-            "schema_error": 0,
-            "timeout": 0,
-            "final_422": 0,
-            "final_422_rate": 0.0,
-            **(quality_stats or {}),
-        },
-        blocked=blocked,
-        block_reason=block_reason,
-    )
 
 
 def _phase0_plan_result(
@@ -277,31 +236,6 @@ def _scene_candidate(
             "confidence": 0.9,
         },
         diagnostics={},
-    )
-
-
-def _phase1a_reinforcement_result(
-    quality_stats: dict | None = None,
-    *,
-    blocked: bool = False,
-    block_reason: str | None = None,
-) -> SceneReinforcementResult:
-    stats = {
-        "total_batches": 1,
-        "completed_batches": 1,
-        "success": 1 if not blocked else 0,
-        "failed": 0 if not blocked else 1,
-        "final_422": 0,
-        "final_422_rate": 0.0,
-        **(quality_stats or {}),
-    }
-    return SceneReinforcementResult(
-        candidates=[]
-        if blocked or int(stats.get("success", 0) or 0) <= 0
-        else [_scene_candidate("phase1a-candidate-1")],
-        quality_stats=stats,
-        blocked=blocked,
-        block_reason=block_reason,
     )
 
 
@@ -421,36 +355,6 @@ def _phase1b_enrichment_result(
         },
         degraded=degraded,
         block_reason="phase1b_enrichment_fallback" if degraded else None,
-    )
-
-
-def _phase1b_fusion_result(
-    quality_stats: dict | None = None,
-    *,
-    degraded: bool = False,
-    phase1a_fallback: bool = False,
-    source_chapter_indices: list[int] | None = None,
-) -> Phase1bFusionResult:
-    chapters = source_chapter_indices or list(range(1, 91))
-    return Phase1bFusionResult(
-        candidates=[
-            _final_scene_candidate(
-                phase="phase1a_fallback" if phase1a_fallback else "phase1b_fusion",
-                fallback_required=phase1a_fallback,
-                source_chapter_indices=chapters,
-            )
-        ],
-        quality_stats={
-            "total_windows": 1,
-            "completed_windows": 1,
-            "success": 1 if not degraded else 0,
-            "failed": 0 if not degraded else 1,
-            "final_422": 0 if not degraded else 1,
-            "final_422_rate": 0.0 if not degraded else 1.0,
-            **(quality_stats or {}),
-        },
-        degraded=degraded,
-        phase1a_fallback=phase1a_fallback,
     )
 
 
@@ -610,7 +514,8 @@ def test_compact_phase1b_payload_uses_project_compact_text_limit():
 async def test_phase0_small_sample_adapter_passes_timeout_budget(monkeypatch):
     captured: dict[str, object] = {}
 
-    async def fake_load_chapters(_self, _db, _novel_id, _start, _end):
+    async def fake_load_chapters(_db, _novel_id, _start, _end, *, include_missing=False):
+        assert include_missing is False
         return [
             {
                 "chapter_index": 1,
@@ -626,11 +531,11 @@ async def test_phase0_small_sample_adapter_passes_timeout_budget(monkeypatch):
         return {"scenes": [{"title": "候选", "scene_chunks": [{"chapter_index": 1}]}]}
 
     monkeypatch.setattr(
-        "modules.imports.scene_segmentation.SceneSegmentationService._load_chapters",
+        "modules.imports.workflow_llm_adapters.load_chapter_range",
         fake_load_chapters,
     )
     monkeypatch.setattr(
-        "modules.imports.workflow._run_deep_import_structured_call",
+        "modules.imports.workflow_llm_adapters._run_deep_import_structured_call",
         fake_structured_call,
     )
 
@@ -662,7 +567,8 @@ async def test_phase0_small_sample_adapter_passes_timeout_budget(monkeypatch):
 async def test_phase0_adapter_uses_phase0_budget_by_default(monkeypatch):
     captured: dict[str, object] = {}
 
-    async def fake_load_chapters(_self, _db, _novel_id, _start, _end):
+    async def fake_load_chapters(_db, _novel_id, _start, _end, *, include_missing=False):
+        assert include_missing is False
         return [
             {
                 "chapter_index": 1,
@@ -679,11 +585,11 @@ async def test_phase0_adapter_uses_phase0_budget_by_default(monkeypatch):
 
     monkeypatch.setenv("PHASE01_SCENE_MAX_TOKENS", "8192")
     monkeypatch.setattr(
-        "modules.imports.scene_segmentation.SceneSegmentationService._load_chapters",
+        "modules.imports.workflow_llm_adapters.load_chapter_range",
         fake_load_chapters,
     )
     monkeypatch.setattr(
-        "modules.imports.workflow._run_deep_import_structured_call",
+        "modules.imports.workflow_llm_adapters._run_deep_import_structured_call",
         fake_structured_call,
     )
 
@@ -707,7 +613,8 @@ async def test_phase0_adapter_uses_phase0_budget_by_default(monkeypatch):
 async def test_phase0_adapter_allows_explicit_phase0_budget_override(monkeypatch):
     captured: dict[str, object] = {}
 
-    async def fake_load_chapters(_self, _db, _novel_id, _start, _end):
+    async def fake_load_chapters(_db, _novel_id, _start, _end, *, include_missing=False):
+        assert include_missing is False
         return [
             {
                 "chapter_index": 1,
@@ -723,11 +630,11 @@ async def test_phase0_adapter_allows_explicit_phase0_budget_override(monkeypatch
 
     monkeypatch.setenv("PHASE0_SCENE_MAX_TOKENS", "3072")
     monkeypatch.setattr(
-        "modules.imports.scene_segmentation.SceneSegmentationService._load_chapters",
+        "modules.imports.workflow_llm_adapters.load_chapter_range",
         fake_load_chapters,
     )
     monkeypatch.setattr(
-        "modules.imports.workflow._run_deep_import_structured_call",
+        "modules.imports.workflow_llm_adapters._run_deep_import_structured_call",
         fake_structured_call,
     )
 
@@ -759,7 +666,7 @@ async def test_phase1a_adapter_uses_controlled_prompt_and_budget(monkeypatch):
     monkeypatch.setenv("PHASE01_SCENE_MAX_TOKENS", "8192")
     monkeypatch.delenv("PHASE1A_SCENE_MAX_TOKENS", raising=False)
     monkeypatch.setattr(
-        "modules.imports.workflow._run_deep_import_structured_call",
+        "modules.imports.workflow_llm_adapters._run_deep_import_structured_call",
         fake_structured_call,
     )
 
@@ -855,78 +762,6 @@ async def test_deep_import_structured_call_uses_configured_fix_attempts(monkeypa
     assert captured["format_repair_attempts"] == 1
 
 
-@pytest.mark.asyncio
-async def test_phase1a_single_chapter_diagnostics_include_chapter(monkeypatch):
-    async def fake_load_chapters(_self, _db, _novel_id, _start, _end):
-        return [
-            {
-                "chapter_index": 3,
-                "title": "第三章",
-                "content": "正文",
-            }
-        ]
-
-    async def fake_retry(operation, *, is_empty_result, max_retries):
-        del operation, is_empty_result
-        assert max_retries == 1
-        return DeepImportRetryResult(
-            attempts=1,
-            final_status="success",
-            value=SceneSegmentationOutput(
-                scenes=[
-                    SceneItem(
-                        title="单章 Scene",
-                        goal="保留定位",
-                        scene_chunks=[SceneChunk(chapter_index=3)],
-                    )
-                ]
-            ),
-        )
-
-    monkeypatch.setattr(
-        "modules.imports.scene_segmentation.SceneSegmentationService._load_chapters",
-        fake_load_chapters,
-    )
-    monkeypatch.setattr(
-        "modules.imports.deep_import_retry.run_deep_import_llm_with_retry",
-        fake_retry,
-    )
-    monkeypatch.setattr(
-        "modules.imports.workflow.run_deep_import_llm_with_retry",
-        fake_retry,
-        raising=False,
-    )
-
-    result = await DeepImportWorkflow._run_phase1a_single_chapter_fallback(
-        None,
-        "novel-1",
-        1,
-        7,
-        only_chapters=[3],
-    )
-
-    assert result.quality_stats["success"] == 1
-    assert result.candidates[0].source_chapter_indices == [3]
-    assert result.diagnostics[0]["chapter_index"] == 3
-    assert result.diagnostics[0]["source_batch_id"] == "S-0003"
-
-
-def test_small_sample_phase0_skip_result_does_not_count_timeouts():
-    result = DeepImportWorkflow._small_sample_phase0_skip_result(1, 7)
-
-    assert result.candidates == []
-    assert result.quality_stats["total_batches"] == 3
-    assert result.quality_stats["skipped"] == 3
-    assert result.quality_stats["failed"] == 0
-    assert result.quality_stats["timeout"] == 0
-    assert result.quality_stats["skipped_for_small_sample"] is True
-    assert DeepImportWorkflow._should_use_single_chapter_phase1a(
-        result,
-        start_chapter=1,
-        end_chapter=7,
-    ) is False
-
-
 def test_diagnostic_samples_keep_chapter_locator_fields():
     samples = DeepImportWorkflow._diagnostic_samples(
         [
@@ -970,7 +805,7 @@ async def test_phase1b_llm_prompt_requires_compact_scene_contract(monkeypatch):
         return {"scenes": []}
 
     monkeypatch.setattr(
-        "modules.imports.workflow._run_deep_import_structured_call",
+        "modules.imports.workflow_llm_adapters._run_deep_import_structured_call",
         fake_structured_call,
     )
 
@@ -1036,7 +871,7 @@ async def test_phase1b_llm_uses_compact_budget_for_regular_window(monkeypatch):
     monkeypatch.delenv("PHASE1B_REDUCER_MAX_TOKENS", raising=False)
     monkeypatch.delenv("PHASE1B_REDUCER_TIMEOUT_SECONDS", raising=False)
     monkeypatch.setattr(
-        "modules.imports.workflow._run_deep_import_structured_call",
+        "modules.imports.workflow_llm_adapters._run_deep_import_structured_call",
         fake_structured_call,
     )
 
@@ -1155,7 +990,7 @@ async def test_phase1b_llm_decision_schema_failure_repairs_to_primary_round(
         raise ValueError("truncated decision")
 
     monkeypatch.setattr(
-        "modules.imports.workflow._run_deep_import_structured_call",
+        "modules.imports.workflow_llm_adapters._run_deep_import_structured_call",
         fake_structured_call,
     )
 
@@ -1240,36 +1075,38 @@ async def _create_recoverable_deep_import_task(
 
 @pytest.fixture(autouse=True)
 def _stub_resilient_scene_pipeline(monkeypatch):
-    async def _prefetch(_db, _novel_id, _start_chapter, _end_chapter):
-        return _phase0_prefetch_result()
+    async def _plan(_self, _db, _novel_id, start_chapter, end_chapter):
+        return _phase0_plan_result(start_chapter=start_chapter, end_chapter=end_chapter)
 
-    async def _reinforce(
+    async def _slice(
         _self,
         _db,
         _novel_id,
-        _start_chapter,
-        _end_chapter,
-        _phase0_candidates,
+        start_chapter,
+        end_chapter,
+        _phase0_plan,
+        **_kwargs,
     ):
-        return _phase1a_reinforcement_result()
+        return _phase1a_slicing_result(list(range(start_chapter, end_chapter + 1)))
 
-    async def _fuse(_phase1a_candidates, *, start_chapter, end_chapter):
-        return _phase1b_fusion_result()
+    async def _enrich(
+        _self,
+        _db,
+        _novel_id,
+        _phase1a_candidates,
+        *,
+        start_chapter,
+        end_chapter,
+        **_kwargs,
+    ):
+        return _phase1b_enrichment_result(list(range(start_chapter, end_chapter + 1)))
 
     async def _commit(_db, _novel_id, _candidates, *, workflow_id):
         return _scene_commit_result()
 
-    monkeypatch.setattr(
-        DeepImportWorkflow,
-        "_run_phase0_prefetch",
-        staticmethod(_prefetch),
-    )
-    monkeypatch.setattr(DeepImportWorkflow, "_run_phase1a_reinforcement", _reinforce)
-    monkeypatch.setattr(
-        DeepImportWorkflow,
-        "_run_phase1b_fusion",
-        staticmethod(_fuse),
-    )
+    monkeypatch.setattr(DeepImportWorkflow, "_run_phase0_plan", _plan)
+    monkeypatch.setattr(DeepImportWorkflow, "_run_phase1a_scene_slicing", _slice)
+    monkeypatch.setattr(DeepImportWorkflow, "_run_phase1b_enrichment", _enrich)
     monkeypatch.setattr(
         DeepImportWorkflow,
         "_commit_fused_scenes",
@@ -1412,13 +1249,74 @@ class TestDeepImportSchema:
         assert details["nested"] == {"safe_count": 1}
         assert details["api_key"] == "<redacted>"
 
+    def test_progress_phase_timeline_is_capped_with_recent_entries(self):
+        progress = DeepImportProgress()
+        progress.phase_timeline = [
+            {"phase": f"phase-{index}", "status": "done"}
+            for index in range(125)
+        ]
+
+        from modules.imports.workflow_progress import DeepImportProgressTracker
+
+        DeepImportProgressTracker.refresh_diagnostic_counts(progress)
+
+        assert len(progress.phase_timeline) == 120
+        assert progress.phase_timeline[0]["phase"] == "phase-5"
+        assert progress.phase_timeline[0]["truncated"] is True
+        assert progress.phase_timeline[0]["dropped_phase_timeline_count"] == 5
+        assert progress.phase_timeline[-1]["phase"] == "phase-124"
+
+    def test_acceptance_checks_are_capped_when_recorded_and_accumulate_drops(self):
+        progress = DeepImportProgress()
+        progress.acceptance_checks = [
+            {
+                "name": "previous-boundary",
+                "ok": True,
+                "dropped_acceptance_check_count": 3,
+            }
+        ]
+
+        for index in range(205):
+            record_acceptance_check(
+                progress,
+                f"check-{index}",
+                ok=True,
+                details={"index": index},
+            )
+
+        assert len(progress.acceptance_checks) == 200
+        assert progress.acceptance_checks[0]["name"] == "check-5"
+        assert progress.acceptance_checks[0]["truncated"] is True
+        assert progress.acceptance_checks[0]["dropped_acceptance_check_count"] == 9
+        assert progress.acceptance_checks[-1]["name"] == "check-204"
+
+    def test_phase_errors_are_capped_by_result_payload_fallback(self):
+        progress = DeepImportProgress()
+        progress.phase_errors = [
+            {
+                "phase": f"phase-{index}",
+                "error_kind": "phase_failed",
+                "message": "failed",
+                "details": {"index": index},
+            }
+            for index in range(125)
+        ]
+
+        result = DeepImportOrchestrator._result_from_progress(progress)
+
+        assert len(result["phase_errors"]) == 120
+        assert result["phase_errors"][0]["phase"] == "phase-5"
+        assert result["phase_errors"][0]["truncated"] is True
+        assert result["phase_errors"][0]["dropped_phase_error_count"] == 5
+        assert result["phase_errors"][0]["details"] == {"index": 5}
+        assert result["phase_errors"][-1]["phase"] == "phase-124"
+
 
 class TestDeepImportWorkflowAutoRun:
     """测试全自动三步流程"""
 
-    def test_phase2_quality_stats_include_batch_boundary_and_action_counts(self):
-        workflow = DeepImportWorkflow()
-        stats = workflow._phase2_quality_stats(
+    def test_phase2_stats_include_batch_boundary_and_action_counts(self):
+        stats = phase2_quality_stats(
             {
                 "total_created": 3,
                 "total_relations": 2,
@@ -1583,9 +1481,8 @@ class TestDeepImportWorkflowAutoRun:
         assert "description" not in sample
         assert "raw_output" not in sample
 
-    def test_phase2_quality_stats_keep_only_aggregated_diagnostics(self):
-        workflow = DeepImportWorkflow()
-        stats = workflow._phase2_quality_stats(
+    def test_phase2_stats_keep_only_aggregated_diagnostics(self):
+        stats = phase2_quality_stats(
             {
                 "phase2_world_window_concurrency": 20,
                 "phase2_batch_concurrency": 20,
@@ -1677,7 +1574,9 @@ class TestDeepImportWorkflowAutoRun:
         assert invalid_sample == {"raw_ids": ["1"]}
 
     def test_phase2_world_window_concurrency_defaults_and_overrides(self, monkeypatch):
-        from modules.imports.scene_entity_config import phase2_project_settings_context
+        from modules.imports.entity_extraction.scene_entity_config import (
+            phase2_project_settings_context,
+        )
 
         monkeypatch.delenv("PHASE2_WORLD_WINDOW_CONCURRENCY", raising=False)
 
@@ -1793,13 +1692,6 @@ class TestDeepImportWorkflowAutoRun:
         workflow = DeepImportWorkflow()
         progress = DeepImportProgress()
 
-        workflow._segment_scenes = AsyncMock(
-            return_value={
-                "total_scenes": 5,
-                "failed_batches": [],
-                "degraded": False,
-            }
-        )
         workflow._extract_entities_by_scene = AsyncMock(
             return_value={
                 "total_created": 3,
@@ -1865,15 +1757,6 @@ class TestDeepImportWorkflowAutoRun:
             workflow_type="scene_auto_extraction",
             stage="scenes",
         )
-        workflow._run_phase0_prefetch = AsyncMock(
-            return_value=_phase0_prefetch_result()
-        )
-        workflow._run_phase1a_reinforcement = AsyncMock(
-            return_value=_phase1a_reinforcement_result()
-        )
-        workflow._run_phase1b_fusion = AsyncMock(
-            return_value=_phase1b_fusion_result()
-        )
         workflow._commit_fused_scenes = AsyncMock(
             return_value=_scene_commit_result(created_count=2)
         )
@@ -1935,12 +1818,6 @@ class TestDeepImportWorkflowAutoRun:
         progress = DeepImportProgress(
             workflow_type="scene_auto_extraction",
             stage="scenes",
-        )
-        workflow._run_phase0_prefetch = AsyncMock(
-            return_value=_phase0_prefetch_result()
-        )
-        workflow._run_phase1a_reinforcement = AsyncMock(
-            return_value=_phase1a_reinforcement_result()
         )
         workflow._run_phase1b_enrichment = AsyncMock(
             return_value=_phase1b_enrichment_result(source_chapter_indices=[1])
@@ -2244,12 +2121,8 @@ class TestDeepImportWorkflowAutoRun:
         workflow = DeepImportWorkflow()
         progress = DeepImportProgress()
 
-        workflow._segment_scenes = AsyncMock(
-            return_value={
-                "total_scenes": 1,
-                "failed_batches": [],
-                "degraded": False,
-            }
+        workflow._commit_fused_scenes = AsyncMock(
+            return_value=_scene_commit_result(created_count=1)
         )
         workflow._extract_entities_by_scene = AsyncMock(
             return_value={
@@ -2375,9 +2248,9 @@ class TestDeepImportWorkflowAutoRun:
             )
         )
         workflow._is_llm_health_required = Mock(return_value=True)
-        workflow._segment_scenes = AsyncMock()
-        workflow._run_phase1a_reinforcement = AsyncMock()
-        workflow._run_phase1b_fusion = AsyncMock()
+        workflow._run_phase0_plan = AsyncMock()
+        workflow._run_phase1a_scene_slicing = AsyncMock()
+        workflow._run_phase1b_enrichment = AsyncMock()
         workflow._commit_fused_scenes = AsyncMock()
 
         result = await workflow.run_step(
@@ -2393,9 +2266,9 @@ class TestDeepImportWorkflowAutoRun:
         assert result.current_step is None
         assert result.phase_errors[0]["phase"] == "preflight"
         assert result.phase_errors[0]["error_kind"] == "proxy_error"
-        workflow._segment_scenes.assert_not_awaited()
-        workflow._run_phase1a_reinforcement.assert_not_awaited()
-        workflow._run_phase1b_fusion.assert_not_awaited()
+        workflow._run_phase0_plan.assert_not_awaited()
+        workflow._run_phase1a_scene_slicing.assert_not_awaited()
+        workflow._run_phase1b_enrichment.assert_not_awaited()
         workflow._commit_fused_scenes.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -2602,7 +2475,6 @@ class TestDeepImportWorkflowAutoRun:
         workflow._commit_fused_scenes = AsyncMock(side_effect=commit)
         workflow._extract_entities_by_scene = AsyncMock(side_effect=phase2)
         workflow._analyze_structure = AsyncMock(side_effect=phase3)
-        workflow._segment_scenes = AsyncMock()
 
         result = await workflow.run_step(
             db=None,
@@ -2617,7 +2489,6 @@ class TestDeepImportWorkflowAutoRun:
         assert result.phase1_total_batches == 4
         assert result.phase1_completed_batches == 4
         assert result.quality_stats["scene_commit"]["created_count"] == 2
-        workflow._segment_scenes.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_run_step_sets_current_chapter_range_and_invokes_batch_callbacks(self):
@@ -2629,9 +2500,6 @@ class TestDeepImportWorkflowAutoRun:
         async def _record_progress(_progress, value):
             emitted_values.append(value)
             chapter_ranges.add(_progress.current_chapter_range)
-
-        phase1a_callbacks: list[tuple[int, int, str]] = []
-        phase1b_callbacks: list[tuple[int, int, str]] = []
 
         async def phase1a(_db, _novel_id, _s, _e, phase0_plan, **kwargs):
             cb = kwargs["on_batch_progress"]
@@ -2714,15 +2582,6 @@ class TestDeepImportWorkflowAutoRun:
             }
         }
 
-        workflow._run_phase0_prefetch = AsyncMock(
-            return_value=_phase0_prefetch_result()
-        )
-        workflow._run_phase1a_reinforcement = AsyncMock(
-            return_value=_phase1a_reinforcement_result()
-        )
-        workflow._run_phase1b_fusion = AsyncMock(
-            return_value=_phase1b_fusion_result()
-        )
         workflow._commit_fused_scenes = AsyncMock(
             return_value=_scene_commit_result(created_count=1)
         )
@@ -2763,8 +2622,6 @@ class TestDeepImportWorkflowAutoRun:
 
     @pytest.mark.asyncio
     async def test_small_sample_structure_fallback_balances_categories(self):
-        workflow = DeepImportWorkflow()
-
         def _response(**kwargs):
             return Mock(id=uuid.uuid4(), **kwargs)
 
@@ -2832,7 +2689,7 @@ class TestDeepImportWorkflowAutoRun:
             "modules.imports.workflow._container_get",
             side_effect=lambda name: services[name],
         ):
-            updated = await workflow._ensure_minimum_structure_outputs(
+            updated = await ensure_minimum_structure_outputs(
                 db=Mock(),
                 novel_id=str(uuid.uuid4()),
                 start_chapter=1,
@@ -2880,7 +2737,6 @@ class TestDeepImportWorkflowAutoRun:
         self,
         monkeypatch,
     ):
-        workflow = DeepImportWorkflow()
         monkeypatch.setattr(
             "modules.imports.workflow.SMALL_SAMPLE_STRUCTURE_TARGET_COUNT",
             2,
@@ -2946,7 +2802,7 @@ class TestDeepImportWorkflowAutoRun:
             "modules.imports.workflow._container_get",
             side_effect=lambda name: services[name],
         ):
-            updated = await workflow._ensure_minimum_structure_outputs(
+            updated = await ensure_minimum_structure_outputs(
                 db=Mock(),
                 novel_id=str(uuid.uuid4()),
                 start_chapter=1,
@@ -2970,8 +2826,6 @@ class TestDeepImportWorkflowAutoRun:
 
     @pytest.mark.asyncio
     async def test_large_sample_structure_fallback_uses_long_form_minimums(self):
-        workflow = DeepImportWorkflow()
-
         def _response(**kwargs):
             return Mock(id=uuid.uuid4(), **kwargs)
 
@@ -3036,7 +2890,7 @@ class TestDeepImportWorkflowAutoRun:
             "modules.imports.workflow._container_get",
             side_effect=lambda name: services[name],
         ):
-            updated = await workflow._ensure_minimum_structure_outputs(
+            updated = await ensure_minimum_structure_outputs(
                 db=Mock(),
                 novel_id=str(uuid.uuid4()),
                 start_chapter=1,
@@ -3067,13 +2921,6 @@ class TestDeepImportWorkflowAutoRun:
         workflow = DeepImportWorkflow()
         progress = DeepImportProgress()
 
-        workflow._segment_scenes = AsyncMock(
-            return_value={
-                "total_scenes": 5,
-                "failed_batches": [],
-                "degraded": False,
-            }
-        )
         workflow._extract_entities_by_scene = AsyncMock(
             return_value={
                 "total_created": 0,
@@ -3117,15 +2964,6 @@ class TestDeepImportWorkflowAutoRun:
         workflow = DeepImportWorkflow()
         progress = DeepImportProgress()
 
-        workflow._run_phase0_prefetch = AsyncMock(
-            return_value=_phase0_prefetch_result()
-        )
-        workflow._run_phase1a_reinforcement = AsyncMock(
-            return_value=_phase1a_reinforcement_result()
-        )
-        workflow._run_phase1b_fusion = AsyncMock(
-            return_value=_phase1b_fusion_result()
-        )
         workflow._commit_fused_scenes = AsyncMock(
             return_value=_scene_commit_result(created_count=0, skipped_count=0)
         )
@@ -3183,13 +3021,6 @@ class TestDeepImportWorkflowAutoRun:
         workflow = DeepImportWorkflow()
         progress = DeepImportProgress()
 
-        workflow._segment_scenes = AsyncMock(
-            return_value={
-                "total_scenes": 5,
-                "failed_batches": [],
-                "degraded": False,
-            }
-        )
         workflow._extract_entities_by_scene = AsyncMock(
             side_effect=RuntimeError("cannot insert generated column")
         )
@@ -3292,13 +3123,6 @@ class TestDeepImportWorkflowAutoRun:
         workflow = DeepImportWorkflow()
         progress = DeepImportProgress()
 
-        workflow._segment_scenes = AsyncMock(
-            return_value={
-                "total_scenes": 3,
-                "failed_batches": [],
-                "degraded": False,
-            }
-        )
         workflow._extract_entities_by_scene = AsyncMock(
             return_value={
                 "total_created": 2,
@@ -3363,13 +3187,6 @@ class TestDeepImportWorkflowAutoRun:
         progress = DeepImportProgress()
         emitted: list[tuple[float, str, str | None, str | None, list[str]]] = []
 
-        workflow._segment_scenes = AsyncMock(
-            return_value={
-                "total_scenes": 5,
-                "failed_batches": [],
-                "degraded": False,
-            }
-        )
         workflow._extract_entities_by_scene = AsyncMock(
             return_value={
                 "total_created": 3,
@@ -4421,7 +4238,9 @@ class TestSceneEntityExtractionProgress:
         assert windows[1]["right_batch_index"] == 2
 
     def test_phase2_boundary_windows_use_project_boundary_size(self):
-        from modules.imports.scene_entity_config import phase2_project_settings_context
+        from modules.imports.entity_extraction.scene_entity_config import (
+            phase2_project_settings_context,
+        )
 
         service = SceneEntityExtractionService()
         batches = [
@@ -4654,7 +4473,7 @@ class TestSceneEntityExtractionProgress:
             workflow_id="wf",
             existing_checkpoints={},
         )
-        stats = DeepImportWorkflow._phase2_quality_stats(result)
+        stats = phase2_quality_stats(result)
 
         assert result["phase2_batch_size_scenes"] == 8
         assert result["phase2_batch_concurrency"] == 8
@@ -4691,7 +4510,7 @@ class TestSceneEntityExtractionProgress:
         monkeypatch,
     ):
         monkeypatch.setattr(
-            "modules.imports.scene_entity_extraction."
+            "modules.imports.entity_extraction.scene_entity_extraction."
             "_phase2_config.phase2_boundary_supplement_enabled",
             lambda: True,
         )
@@ -4740,7 +4559,7 @@ class TestSceneEntityExtractionProgress:
         monkeypatch,
     ):
         monkeypatch.setattr(
-            "modules.imports.scene_entity_extraction."
+            "modules.imports.entity_extraction.scene_entity_extraction."
             "_phase2_config.phase2_boundary_supplement_enabled",
             lambda: True,
         )
@@ -4771,7 +4590,7 @@ class TestSceneEntityExtractionProgress:
     @pytest.mark.asyncio
     async def test_phase2_boundary_timeout_degrades_remaining_windows(self, monkeypatch):
         monkeypatch.setattr(
-            "modules.imports.scene_entity_extraction."
+            "modules.imports.entity_extraction.scene_entity_extraction."
             "_phase2_config.phase2_boundary_supplement_enabled",
             lambda: True,
         )
@@ -4793,7 +4612,7 @@ class TestSceneEntityExtractionProgress:
             }
 
         monkeypatch.setattr(
-            "modules.imports.scene_entity_extraction."
+            "modules.imports.entity_extraction.scene_entity_extraction."
             "_phase2_config.phase2_boundary_total_timeout_seconds",
             lambda: 0.01,
         )
@@ -4955,22 +4774,6 @@ class TestHandleDeepImportTaskResult:
         mock_db = AsyncMock()
 
         with (
-            patch.object(
-                DeepImportWorkflow,
-                "_run_phase0_prefetch",
-                new_callable=AsyncMock,
-                return_value=_phase0_prefetch_result(),
-            ),
-            patch.object(
-                DeepImportWorkflow,
-                "_segment_scenes",
-                new_callable=AsyncMock,
-                return_value={
-                    "total_scenes": 5,
-                    "failed_batches": [],
-                    "degraded": False,
-                },
-            ),
             patch.object(
                 DeepImportWorkflow,
                 "_extract_entities_by_scene",

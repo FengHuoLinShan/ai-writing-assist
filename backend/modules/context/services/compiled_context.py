@@ -10,6 +10,8 @@ from enum import IntEnum
 
 from pydantic import BaseModel, Field
 
+from infrastructure.llm.token_estimation import estimate_token_count
+
 
 class Tier(IntEnum):
     """Context section priority tiers.
@@ -120,16 +122,16 @@ class CompiledContext(BaseModel):
                 if s.tier == Tier.P2 and s.truncatable_per_item and budget_for_p2 > 0:
                     items = s.content.split("\n")
                     kept: list[str] = []
-                    used = 0
                     for item in items:
-                        item_tokens = len(item) // 4 + 1
-                        if used + item_tokens <= budget_for_p2:
+                        candidate = "\n".join([*kept, item])
+                        candidate_tokens = estimate_token_count(candidate)
+                        if candidate_tokens <= budget_for_p2:
                             kept.append(item)
-                            used += item_tokens
                         else:
                             break
                     if kept:
                         content = "\n".join(kept)
+                        used = estimate_token_count(content)
                         truncated_reason = "超过预算后按条目裁剪"
                         new_sections.append(
                             ContextSection(
@@ -170,49 +172,52 @@ class CompiledContext(BaseModel):
         if current > self.budget_tokens:
             new_sections = []
             for s in sections:
-                if s.tier == Tier.P1:
+                if s.tier == Tier.P1 and current > self.budget_tokens:
+                    available_for_section = max(
+                        0,
+                        self.budget_tokens - (current - s.token_count),
+                    )
                     items = s.content.split("\n")
-                    compressed = False
-                    for limit in (15, 10):
-                        if len(items) > limit:
-                            kept = items[:limit]
-                            content = "\n".join(kept)
-                            used = len(content) // 4 + 1
-                            new_sections.append(
-                                ContextSection(
-                                    key=s.key,
-                                    tier=s.tier,
-                                    content=content,
-                                    token_count=used,
-                                    truncatable_per_item=s.truncatable_per_item,
-                                    max_items=s.max_items,
-                                    title=s.title,
-                                    preview=s.preview,
-                                    status=s.status,
-                                    activation_reason=s.activation_reason,
-                                    sources=s.sources,
-                                    can_exclude=s.can_exclude,
-                                    excluded=s.excluded,
-                                    truncated_reason="超过预算后保留前段摘要",
-                                )
-                            )
-                            compressed = True
+                    kept: list[str] = []
+                    for item in items:
+                        candidate = "\n".join([*kept, item])
+                        if estimate_token_count(candidate) <= available_for_section:
+                            kept.append(item)
+                        else:
                             break
-                    if not compressed:
-                        new_sections.append(s)
-                    if compressed and s.key not in truncated_keys:
-                        truncated_keys.append(s.key)
-                    if compressed:
-                        budget_events.append(
-                            ContextBudgetEvent(
-                                section_key=s.key,
-                                event_type="truncated",
-                                reason="超过预算后保留前段摘要",
-                                before_tokens=s.token_count,
-                                after_tokens=new_sections[-1].token_count,
-                                tier=int(s.tier),
-                            )
+                    content = "\n".join(kept)
+                    used = estimate_token_count(content)
+                    current = current - s.token_count + used
+                    new_sections.append(
+                        ContextSection(
+                            key=s.key,
+                            tier=s.tier,
+                            content=content,
+                            token_count=used,
+                            truncatable_per_item=s.truncatable_per_item,
+                            max_items=s.max_items,
+                            title=s.title,
+                            preview=s.preview,
+                            status=s.status,
+                            activation_reason=s.activation_reason,
+                            sources=s.sources,
+                            can_exclude=s.can_exclude,
+                            excluded=s.excluded,
+                            truncated_reason="超过预算后保留前段摘要",
                         )
+                    )
+                    if s.key not in truncated_keys:
+                        truncated_keys.append(s.key)
+                    budget_events.append(
+                        ContextBudgetEvent(
+                            section_key=s.key,
+                            event_type="truncated",
+                            reason="超过预算后保留前段摘要",
+                            before_tokens=s.token_count,
+                            after_tokens=used,
+                            tier=int(s.tier),
+                        )
+                    )
                 else:
                     new_sections.append(s)
             sections = new_sections

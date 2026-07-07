@@ -6,9 +6,17 @@ core/config.py 单元测试
 仅 field(default_factory=...) 字段可在实例化时响应环境变量变化。
 """
 
+import os
+
 import pytest
 
-from core.config import Settings, _env, get_settings
+from core.config import (
+    Settings,
+    _env,
+    get_settings,
+    load_env_file,
+    validate_cors_origins,
+)
 
 
 class TestSettingsEffectiveDefaults:
@@ -38,11 +46,17 @@ class TestSettingsEffectiveDefaults:
     def test_effective_inference_max_batch(self):
         assert Settings().inference_worker_max_batch == 64
 
+    def test_effective_inference_worker_queue_maxsize(self):
+        assert Settings().inference_worker_queue_maxsize == 200
+
     def test_effective_reranker(self):
         assert Settings().reranker_enabled is False
 
     def test_effective_rag_prewarm_on_startup(self):
         assert Settings().rag_prewarm_on_startup is False
+
+    def test_effective_import_max_chapters(self):
+        assert Settings().import_max_chapters == 1000
 
     def test_effective_debug(self):
         assert Settings().debug is False
@@ -174,6 +188,40 @@ class TestSettingsFromEnvFactoryFields:
         monkeypatch.setenv("RAG_PREWARM_ON_STARTUP", "true")
         assert Settings().rag_prewarm_on_startup is True
 
+    def test_inference_worker_queue_maxsize_from_env(self, monkeypatch):
+        monkeypatch.setenv("INFERENCE_WORKER_QUEUE_MAXSIZE", "37")
+        assert Settings().inference_worker_queue_maxsize == 37
+
+    def test_import_max_chapters_from_env(self, monkeypatch):
+        monkeypatch.setenv("IMPORT_MAX_CHAPTERS", "12")
+        assert Settings().import_max_chapters == 12
+
+
+class TestCorsOriginValidation:
+    """CORS wildcard is local-only."""
+
+    @pytest.mark.parametrize("app_env", ["development", "test", "local", " TEST "])
+    @pytest.mark.parametrize("origins", [[], ["*"], ["https://x.com", "*"]])
+    def test_local_env_allows_empty_or_wildcard_origins(self, app_env, origins):
+        validate_cors_origins(app_env, origins)
+
+    @pytest.mark.parametrize("app_env", ["production", "prod", "staging"])
+    @pytest.mark.parametrize("origins", [[], ["*"], ["https://x.com", "*"]])
+    def test_non_local_env_rejects_empty_or_wildcard_origins(
+        self,
+        app_env,
+        origins,
+    ):
+        with pytest.raises(RuntimeError) as exc_info:
+            validate_cors_origins(app_env, origins)
+
+        assert "CORS wildcard origins" in str(exc_info.value)
+        assert "https://x.com" not in str(exc_info.value)
+
+    @pytest.mark.parametrize("app_env", ["production", "staging"])
+    def test_non_local_env_allows_specific_origins(self, app_env):
+        validate_cors_origins(app_env, ["https://example.com"])
+
 
 class TestSettingsFrozen:
     """Settings 是不可变对象"""
@@ -211,3 +259,38 @@ class TestEnvHelper:
     def test_reads_env_var(self, monkeypatch):
         monkeypatch.setenv("TEST_HELPER_KEY", "test-value")
         assert _env("TEST_HELPER_KEY") == "test-value"
+
+
+class TestLoadEnvFile:
+    """load_env_file() loads .env-style files without overriding env."""
+
+    def test_loads_custom_env_file(self, tmp_path, monkeypatch):
+        env_file = tmp_path / ".env"
+        env_file.write_text(
+            "\n".join(
+                [
+                    "# comment",
+                    "",
+                    "CUSTOM_ENV_FILE_KEY='from-file'",
+                    'CUSTOM_SPACED_KEY = " spaced value "',
+                    "IGNORED_LINE_WITHOUT_EQUALS",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.delenv("CUSTOM_ENV_FILE_KEY", raising=False)
+        monkeypatch.delenv("CUSTOM_SPACED_KEY", raising=False)
+
+        load_env_file(env_file)
+
+        assert os.environ["CUSTOM_ENV_FILE_KEY"] == "from-file"
+        assert os.environ["CUSTOM_SPACED_KEY"] == " spaced value "
+
+    def test_load_env_file_does_not_override_existing_env(self, tmp_path, monkeypatch):
+        env_file = tmp_path / ".env"
+        env_file.write_text("CUSTOM_EXISTING_KEY=from-file\n", encoding="utf-8")
+        monkeypatch.setenv("CUSTOM_EXISTING_KEY", "existing")
+
+        load_env_file(env_file)
+
+        assert os.environ["CUSTOM_EXISTING_KEY"] == "existing"

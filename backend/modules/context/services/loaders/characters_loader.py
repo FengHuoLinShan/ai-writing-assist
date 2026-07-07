@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,9 +18,50 @@ from modules.context.services.protocol import Loader
 
 logger = logging.getLogger(__name__)
 
+_GetCharactersContextFn = Callable[..., Awaitable[Any]]
+_FilterContextByKnowledgeFn = Callable[..., Awaitable[Any]]
+_GetSceneContractFn = Callable[..., Awaitable[Any]]
+
+
+async def _default_get_characters_context(*args: Any, **kwargs: Any) -> Any:
+    from modules.world.facade import get_characters_context
+
+    return await get_characters_context(*args, **kwargs)
+
+
+async def _default_filter_context_by_character_knowledge(
+    *args: Any,
+    **kwargs: Any,
+) -> Any:
+    from modules.world.facade import filter_context_by_character_knowledge
+
+    return await filter_context_by_character_knowledge(*args, **kwargs)
+
+
+async def _default_get_scene_contract(*args: Any, **kwargs: Any) -> Any:
+    from modules.outline.facade import get_scene_contract
+
+    return await get_scene_contract(*args, **kwargs)
+
 
 class CharactersLoader(Loader):
     """加载人物信息，对首个人物执行知识边界过滤"""
+
+    def __init__(
+        self,
+        get_characters_context_fn: _GetCharactersContextFn = (
+            _default_get_characters_context
+        ),
+        filter_context_by_character_knowledge_fn: _FilterContextByKnowledgeFn = (
+            _default_filter_context_by_character_knowledge
+        ),
+        get_scene_contract_fn: _GetSceneContractFn = _default_get_scene_contract,
+    ) -> None:
+        self._get_characters_context = get_characters_context_fn
+        self._filter_context_by_character_knowledge = (
+            filter_context_by_character_knowledge_fn
+        )
+        self._get_scene_contract = get_scene_contract_fn
 
     @property
     def name(self) -> str:
@@ -38,9 +81,7 @@ class CharactersLoader(Loader):
             limited_ids = await self._infer_character_ids(db, options, bundle, char_limit)
 
         if limited_ids:
-            from modules.world.facade import get_characters_context
-
-            ctx = await get_characters_context(
+            ctx = await self._get_characters_context(
                 db,
                 options.novel_id,
                 character_ids=limited_ids,
@@ -56,8 +97,6 @@ class CharactersLoader(Loader):
             and bundle.world_entities
             and options.scope != "project"
         ):
-            from modules.world.facade import filter_context_by_character_knowledge
-
             filter_character_id = options.viewpoint_character_id or limited_ids[0]
             if not options.viewpoint_character_id:
                 logger.warning(
@@ -84,7 +123,7 @@ class CharactersLoader(Loader):
                     mapped["target_id"] = ent.get("entity_id", "") or ent.get("id", "")
                     filter_input.append(mapped)
 
-                filtered = await filter_context_by_character_knowledge(
+                filtered = await self._filter_context_by_character_knowledge(
                     db,
                     options.novel_id,
                     filter_character_id,
@@ -124,10 +163,18 @@ class CharactersLoader(Loader):
         ids: list[str] = []
 
         # 1. Scene POV character
-        if options.scene_id:
-            from modules.outline.facade import get_scene_contract
-
-            scene_contract = await get_scene_contract(
+        scene = (
+            bundle.scene
+            if isinstance(bundle.scene, dict)
+            else asdict(bundle.scene)
+            if bundle.scene is not None
+            else None
+        )
+        pov = scene.get("pov_character_id") if scene else None
+        if pov:
+            ids.append(pov)
+        elif options.scene_id:
+            scene_contract = await self._get_scene_contract(
                 db,
                 options.novel_id,
                 options.scene_id,

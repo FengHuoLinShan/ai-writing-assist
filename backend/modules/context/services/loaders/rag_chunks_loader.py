@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,9 +18,20 @@ from modules.context.services.protocol import Loader
 
 logger = logging.getLogger(__name__)
 
+_RetrieveFn = Callable[..., Awaitable[Any]]
+
+
+async def _default_retrieve(*args: Any, **kwargs: Any) -> Any:
+    from modules.rag.facade import retrieve
+
+    return await retrieve(*args, **kwargs)
+
 
 class RagChunksLoader(Loader):
     """加载 RAG 检索片段"""
+
+    def __init__(self, retrieve_fn: _RetrieveFn = _default_retrieve) -> None:
+        self._retrieve = retrieve_fn
 
     @property
     def name(self) -> str:
@@ -36,14 +49,12 @@ class RagChunksLoader(Loader):
         if options.reveal_mode == "reader":
             rag_visibility = "reader_known"
 
-        from modules.rag.facade import retrieve
-
         strict_scene_filter = (
             options.reveal_mode == "character" and options.scene_id is not None
         )
         # In character reveal, scene_id is both the current Scene anchor and the
         # RAG scene boundary. Full as-of-scene cursors are deferred to a later pass.
-        result = await retrieve(
+        result = await self._retrieve(
             db,
             options.novel_id,
             query=options.task,

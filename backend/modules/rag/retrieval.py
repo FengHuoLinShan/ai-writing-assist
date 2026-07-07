@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable, Callable
+from inspect import signature
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,7 +27,8 @@ from modules.rag.scoring import Scorer, keyword_query_terms, smart_tokenize_chin
 EmbedderFn = Callable[..., Awaitable[list[float]]]
 RerankerFn = Callable[..., Awaitable[list[tuple]]]
 MetricsFn = Callable[[], object]
-CircuitBreakerFn = Callable[[], object]
+CircuitBreakerFn = Callable[..., object]
+CircuitBreakerProviderFn = Callable[[uuid.UUID | str | None], object]
 
 _MAX_TOP_K = 50
 
@@ -48,6 +50,28 @@ def _is_rerank_enabled(mode: str) -> bool:
     if mode not in ("extraction",):
         return False
     return get_settings().reranker_enabled
+
+
+def _wrap_circuit_breaker_provider(
+    provider: CircuitBreakerFn,
+) -> CircuitBreakerProviderFn:
+    try:
+        params = signature(provider).parameters.values()
+    except (TypeError, ValueError):
+        return provider  # type: ignore[return-value]
+
+    accepts_positional = any(
+        param.kind
+        in (
+            param.POSITIONAL_ONLY,
+            param.POSITIONAL_OR_KEYWORD,
+            param.VAR_POSITIONAL,
+        )
+        for param in params
+    )
+    if accepts_positional:
+        return provider  # type: ignore[return-value]
+    return lambda _novel_id=None: provider()
 
 
 class RetrievalOrchestrator:
@@ -74,7 +98,9 @@ class RetrievalOrchestrator:
         self._reranker_fn = reranker_fn or rerank_results
         self._embedder_fn = embedder_fn or _default_embedder
         self._metrics = metrics or get_metrics
-        self._circuit_breaker = circuit_breaker or get_circuit_breaker
+        self._circuit_breaker = _wrap_circuit_breaker_provider(
+            circuit_breaker or get_circuit_breaker
+        )
 
     async def hybrid_search(
         self,
@@ -388,7 +414,7 @@ class RetrievalOrchestrator:
         degraded = False
         query_embedding: list[float] | None = None
 
-        cb = self._circuit_breaker()
+        cb = self._circuit_breaker(novel_id)
         if await self._repo.has_embeddings(db, novel_id):
             if cb.allow_request():
                 try:

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
 from infrastructure.llm.client import LLMClient
+from infrastructure.llm.token_estimation import estimate_token_count
 from modules.outline.generation.context_builder import PlotStructureContextBuilder
 from modules.outline.generation.parser import PlotStructureParser
 from modules.outline.generation.persister import PlotStructurePersister
@@ -221,7 +222,7 @@ class PlotStructureGenerator:
     ) -> str:
         from modules.context.facade import create_context_snapshot
 
-        token_estimate = max(1, len(markdown) // 4) if markdown else 0
+        token_estimate = estimate_token_count(markdown, model=model)
         snapshot = await create_context_snapshot(
             db,
             novel_id=novel_id,

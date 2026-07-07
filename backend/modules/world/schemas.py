@@ -34,6 +34,13 @@ def _optional_uuid_validator(v: object) -> str | None:
     return _uuid_validator(v)
 
 
+def _normalize_entity_type(v: str) -> str:
+    """Lazy import to avoid schemas <-> services package initialization cycles."""
+    from modules.world.services.core.entity_types import normalize_entity_type
+
+    return normalize_entity_type(v)
+
+
 # ============================================================
 # AI 提取契约
 # ============================================================
@@ -44,7 +51,7 @@ class ExtractedEntity(BaseModel):
 
     entity_type: str = Field(
         ...,
-        description="实体类型（自由字符串，如 character/faction/item）",
+        description="受支持实体类型（如 character/faction/item）",
     )
     name: str = Field(
         ...,
@@ -64,6 +71,11 @@ class ExtractedEntity(BaseModel):
         default_factory=dict,
         description="扩展属性 JSON",
     )
+
+    @field_validator("entity_type")
+    @classmethod
+    def normalize_entity_type_field(cls, v: str) -> str:
+        return _normalize_entity_type(v)
 
 
 class ExtractedRelationship(BaseModel):
@@ -351,7 +363,7 @@ class CoreEntityCreate(BaseModel):
         ...,
         min_length=1,
         max_length=64,
-        description="实体类型（自由字符串）",
+        description="受支持实体类型",
     )
     name: str = Field(
         ...,
@@ -407,11 +419,19 @@ class CoreEntityCreate(BaseModel):
         description="强制创建，跳过去重检查（当前 create 不主动去重）",
     )
 
+    @field_validator("entity_type")
+    @classmethod
+    def normalize_entity_type_field(cls, v: str) -> str:
+        return _normalize_entity_type(v)
+
 
 class CoreEntityUpdate(BaseModel):
     """更新核心实体请求（所有字段可选）"""
 
-    entity_type: Annotated[str | None, Field(None, min_length=1, max_length=64)]
+    entity_type: Annotated[
+        str | None,
+        Field(None, min_length=1, max_length=64, description="受支持实体类型"),
+    ]
     name: Annotated[str | None, Field(None, min_length=1, max_length=255)]
     summary: Annotated[str | None, Field(None)]
     public_info: Annotated[str | None, Field(None)]
@@ -422,6 +442,13 @@ class CoreEntityUpdate(BaseModel):
     reveal_level: Annotated[str | None, Field(None, max_length=16)]
     status: Annotated[str | None, Field(None, max_length=32)]
     approved_by: Annotated[str | None, Field(None, max_length=64)]
+
+    @field_validator("entity_type")
+    @classmethod
+    def normalize_entity_type_field(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return _normalize_entity_type(v)
 
 
 class CoreEntityResponse(BaseModel):

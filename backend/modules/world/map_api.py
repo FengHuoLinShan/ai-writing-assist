@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query
 
+from core.api_params import NovelIdQuery
 from core.dependencies import DbSession
 from modules.world.map_schemas import (
     MapBatchActionRequest,
@@ -56,9 +57,10 @@ from modules.world.map_schemas import (
     MapTileBatchUpdate,
     MapTileResponse,
 )
-from modules.world.services.map_location_layout import MapLocationLayoutService
-from modules.world.services.map_quick_create import MapQuickCreateService
-from modules.world.services.map_scene_summary import MapSceneSummaryService
+from modules.world.services.map.map_location_layout import MapLocationLayoutService
+from modules.world.services.map.map_quick_create import MapQuickCreateService
+from modules.world.services.map.map_scene_summary import MapSceneSummaryService
+from modules.world.services.map.map_terrain import MapTerrainService
 from modules.world.services.map_service import (
     MapConfigService,
     MapDynamicFactService,
@@ -67,7 +69,6 @@ from modules.world.services.map_service import (
     MapTerritoryService,
     MapTileService,
 )
-from modules.world.services.map_terrain import MapTerrainService
 
 router = APIRouter(prefix="/api/world/maps", tags=["world-map"])
 
@@ -91,7 +92,8 @@ _terrain_service = MapTerrainService()
 @router.get("", response_model=MapConfigListResponse)
 async def list_maps(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     parent_map_id: str | None = Query(None, description="父地图 ID（空=顶层）"),
 ) -> MapConfigListResponse:
     return await _map_config_service.list(db, novel_id, parent_map_id=parent_map_id)
@@ -100,7 +102,8 @@ async def list_maps(
 @router.post("", response_model=MapConfigResponse, status_code=201)
 async def create_map(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     data: MapConfigCreate = ...,
 ) -> MapConfigResponse:
     return await _map_config_service.create(db, novel_id, data)
@@ -109,7 +112,8 @@ async def create_map(
 @router.get("/scene-summary", response_model=MapSceneSummaryResponse)
 async def get_scene_summary(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     scene_id: str = Query(..., description="Scene ID"),
 ) -> MapSceneSummaryResponse:
     """写作页 Scene 地图摘要。"""
@@ -119,7 +123,8 @@ async def get_scene_summary(
 @router.get("/open-target", response_model=MapOpenTarget)
 async def get_map_open_target(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     scene_id: str | None = Query(None, description="Scene ID"),
     focus_entity_id: str | None = Query(None, description="聚焦对象 ID"),
 ) -> MapOpenTarget:
@@ -135,7 +140,8 @@ async def get_map_open_target(
 @router.get("/quick-create/context", response_model=MapQuickCreateContextResponse)
 async def get_quick_create_context(
     db: DbSession,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     include_candidates: bool = Query(False, description="是否包含待确认候选"),
 ) -> MapQuickCreateContextResponse:
     return await _quick_create_service.context(
@@ -149,7 +155,8 @@ async def get_quick_create_context(
 async def preview_quick_create_map(
     db: DbSession,
     data: MapQuickCreatePreviewRequest,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> MapQuickCreatePreviewResponse:
     return await _quick_create_service.preview(db, novel_id, data)
 
@@ -162,7 +169,8 @@ async def preview_quick_create_map(
 async def confirm_quick_create_map(
     db: DbSession,
     data: MapQuickCreateConfirmRequest,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> MapQuickCreateConfirmResponse:
     return await _quick_create_service.confirm(db, novel_id, data)
 
@@ -171,7 +179,8 @@ async def confirm_quick_create_map(
 async def get_map(
     db: DbSession,
     map_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> MapConfigResponse:
     return await _map_config_service.get(db, map_id, novel_id=novel_id)
 
@@ -181,7 +190,8 @@ async def update_map(
     db: DbSession,
     map_id: str,
     data: MapConfigUpdate,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> MapConfigResponse:
     return await _map_config_service.update(db, map_id, data, novel_id=novel_id)
 
@@ -190,7 +200,8 @@ async def update_map(
 async def delete_map(
     db: DbSession,
     map_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> None:
     await _map_config_service.delete(db, map_id, novel_id=novel_id)
 
@@ -199,7 +210,8 @@ async def delete_map(
 async def generate_map_terrain(
     db: DbSession,
     map_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> MapStateResponse:
     """快速生成详图地形（中心 city + 外 road + 随机 grassland/forest）。"""
     return await _map_config_service.generate(db, novel_id, map_id)
@@ -214,7 +226,8 @@ async def generate_map_terrain(
 async def get_map_state(
     db: DbSession,
     map_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     scene_id: str | None = Query(None, description="Scene ID"),
     filter_types: str = Query("all", description="筛选类型：all / location"),
 ) -> MapStateResponse:
@@ -227,7 +240,8 @@ async def get_map_state(
 async def get_map_dynamic_state(
     db: DbSession,
     map_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     scene_id: str | None = Query(None, description="Scene ID"),
 ) -> MapDynamicStateResponse:
     return await _map_config_service.get_dynamic_state(
@@ -242,7 +256,8 @@ async def get_map_dynamic_state(
 async def get_map_dashboard(
     db: DbSession,
     map_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     scene_id: str | None = Query(None, description="Scene ID"),
     focus_entity_id: str | None = Query(None, description="聚焦对象 ID"),
     focus_item_id: str | None = Query(None, description="聚焦动态项 ID"),
@@ -261,7 +276,8 @@ async def get_map_dashboard(
 async def get_map_playback(
     db: DbSession,
     map_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     scene_id: str | None = Query(None, description="Scene ID"),
     focus_entity_id: str | None = Query(None, description="聚焦对象 ID"),
     include_candidates: bool = Query(True, description="是否包含候选观察"),
@@ -288,7 +304,8 @@ async def get_map_playback(
 async def list_location_layouts(
     db: DbSession,
     map_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> MapLocationLayoutListResponse:
     return await _layout_service.list(db, novel_id, map_id)
 
@@ -301,7 +318,8 @@ async def replace_location_layouts(
     db: DbSession,
     map_id: str,
     data: MapLocationLayoutReplaceRequest,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> MapLocationLayoutListResponse:
     return await _layout_service.replace(db, novel_id, map_id, data)
 
@@ -316,7 +334,8 @@ async def batch_update_tiles(
     db: DbSession,
     map_id: str,
     data: MapTileBatchUpdate,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> list[MapTileResponse]:
     return await _map_tile_service.batch_update(db, novel_id, map_id, data)
 
@@ -330,7 +349,8 @@ async def batch_update_tiles(
 async def get_terrain_state(
     db: DbSession,
     map_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> MapTerrainStateResponse:
     return await _terrain_service.get_state(db, novel_id, map_id)
 
@@ -344,7 +364,8 @@ async def replace_terrain_layer_patches(
     map_id: str,
     layer_id: str,
     data: MapTerrainPatchReplaceRequest,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> MapTerrainStateResponse:
     return await _terrain_service.replace_layer_patches(
         db,
@@ -365,7 +386,8 @@ async def create_terrain_binding(
     map_id: str,
     region_id: str,
     data: MapTerrainBindingCreate,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> MapTerrainBindingResponse:
     payload = data.model_copy(update={"region_id": region_id})
     return await _terrain_service.create_binding(db, novel_id, map_id, payload)
@@ -380,7 +402,8 @@ async def update_terrain_binding(
     map_id: str,
     binding_id: str,
     data: MapTerrainBindingUpdate,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> MapTerrainBindingResponse:
     return await _terrain_service.update_binding(
         db,
@@ -405,7 +428,8 @@ async def create_location_bindings(
     db: DbSession,
     map_id: str,
     data: MapLocationBindingCreate,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> list[MapLocationBindingResponse]:
     return await _map_binding_service.batch_create(db, novel_id, map_id, data)
 
@@ -419,7 +443,8 @@ async def update_location_binding(
     map_id: str,
     binding_id: str,
     data: MapLocationBindingUpdate,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> MapLocationBindingResponse:
     return await _map_binding_service.update(db, novel_id, binding_id, data)
 
@@ -432,7 +457,8 @@ async def delete_location_binding(
     db: DbSession,
     map_id: str,
     binding_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> None:
     await _map_binding_service.delete(db, novel_id, binding_id)
 
@@ -446,7 +472,8 @@ async def delete_location_binding(
 async def list_markers(
     db: DbSession,
     map_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     scene_id: str | None = Query(None, description="Scene ID"),
 ):
     markers = await _marker_service.list(db, novel_id, map_id, scene_id)
@@ -458,7 +485,8 @@ async def create_marker(
     db: DbSession,
     map_id: str,
     data: MapMarkerCreate,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     marker = await _marker_service.create(db, novel_id, map_id, data)
     return MapMarkerResponse.model_validate(marker)
@@ -470,7 +498,8 @@ async def update_marker(
     map_id: str,
     marker_id: str,
     data: MapMarkerUpdate,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     marker = await _marker_service.update(db, novel_id, marker_id, data)
     return MapMarkerResponse.model_validate(marker)
@@ -481,7 +510,8 @@ async def delete_marker(
     db: DbSession,
     map_id: str,
     marker_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     await _marker_service.delete(db, novel_id, marker_id)
 
@@ -495,7 +525,8 @@ async def delete_marker(
 async def list_territories(
     db: DbSession,
     map_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     territories = await _territory_service.list(db, novel_id, map_id)
     return [MapTerritoryResponse.model_validate(t) for t in territories]
@@ -506,7 +537,8 @@ async def create_territories(
     db: DbSession,
     map_id: str,
     data: MapTerritoryCreate,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     territories = await _territory_service.create(db, novel_id, map_id, data)
     return [MapTerritoryResponse.model_validate(t) for t in territories]
@@ -518,7 +550,8 @@ async def update_territory(
     map_id: str,
     territory_id: str,
     data: MapTerritoryUpdate,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ):
     territory = await _territory_service.update(db, novel_id, territory_id, data)
     return MapTerritoryResponse.model_validate(territory)
@@ -529,7 +562,8 @@ async def delete_territory(
     db: DbSession,
     map_id: str,
     territory_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> None:
     await _territory_service.delete(db, novel_id, territory_id)
 
@@ -539,7 +573,8 @@ async def delete_territories_by_faction(
     db: DbSession,
     map_id: str,
     faction_entity_id: str = Query(..., description="组织实体 ID"),
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> None:
     await _territory_service.delete_by_faction(db, novel_id, map_id, faction_entity_id)
 
@@ -553,13 +588,14 @@ async def delete_territories_by_faction(
 async def get_focus_mode(
     db: DbSession,
     map_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     faction_entity_id: str = Query(..., description="组织实体 ID"),
 ) -> MapStateResponse:
     """聚焦模式：返回完整地图状态，但只包含指定组织的势力范围。"""
     state = await _map_config_service.get_state(db, novel_id, map_id)
     # Filter territories to only the requested faction
-    from modules.world.services.helpers import parse_uuid
+    from modules.world.services.common import parse_uuid
 
     fid = parse_uuid(faction_entity_id, "faction_entity_id")
     state.territories = [t for t in state.territories if t.faction_entity_id == str(fid)]
@@ -575,7 +611,8 @@ async def get_focus_mode(
 async def list_map_observations(
     db: DbSession,
     map_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     review_state: str | None = Query(None, description="candidate / confirmed / ignored"),
 ) -> MapObservationListResponse:
     return await _dynamic_fact_service.list_observations(
@@ -595,7 +632,8 @@ async def create_map_observation(
     db: DbSession,
     map_id: str,
     data: MapObservationCreate,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> MapObservationResponse:
     return await _dynamic_fact_service.create_observation(
         db,
@@ -614,7 +652,8 @@ async def update_map_observation_review(
     map_id: str,
     observation_id: str,
     data: MapObservationReviewUpdate,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> MapObservationResponse:
     return await _dynamic_fact_service.update_observation_review(
         db,
@@ -633,7 +672,8 @@ async def batch_review_map_observations(
     db: DbSession,
     map_id: str,
     data: MapObservationBatchReviewRequest,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> MapObservationBatchReviewResponse:
     return await _dynamic_fact_service.batch_review_observations(
         db,
@@ -651,7 +691,8 @@ async def confirm_map_observation(
     db: DbSession,
     map_id: str,
     observation_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> MapFactResponse:
     return await _dynamic_fact_service.confirm_observation(
         db,
@@ -669,7 +710,8 @@ async def ignore_map_observation(
     db: DbSession,
     map_id: str,
     observation_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> MapObservationResponse:
     return await _dynamic_fact_service.ignore_observation(
         db,
@@ -684,7 +726,8 @@ async def run_map_batch_action(
     db: DbSession,
     map_id: str,
     data: MapBatchActionRequest,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> MapBatchActionResponse:
     return await _dynamic_fact_service.run_batch_action(
         db,
@@ -698,7 +741,8 @@ async def run_map_batch_action(
 async def list_map_facts(
     db: DbSession,
     map_id: str,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
     fact_status: str | None = Query("confirmed", description="confirmed / rolled_back"),
 ) -> MapFactListResponse:
     return await _dynamic_fact_service.list_facts(
@@ -715,7 +759,8 @@ async def update_map_fact_status(
     map_id: str,
     fact_id: str,
     data: MapFactStatusUpdate,
-    novel_id: str = Query(..., description="项目 ID"),
+    *,
+    novel_id: NovelIdQuery,
 ) -> MapFactResponse:
     return await _dynamic_fact_service.update_fact_status(
         db,

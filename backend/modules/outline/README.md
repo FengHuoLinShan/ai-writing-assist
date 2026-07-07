@@ -147,6 +147,16 @@ facade 只保留跨模块稳定函数名和返回形状。Scene 读取继续通�
 调用；Scene mutation 统一归 Workbench service 拥有，API/facade 不直接拼装
 Scene 业务规则。
 
+## 与 writing 的依赖方向
+
+outline 可以通过 `modules.writing.facade` / `modules.writing.contracts` 只读消费
+正文草稿和章节索引，用于结构生成上下文、Scene 工作台健康项和跨章 Scene 检测；不得
+直接访问 writing 的 model / repository / service。
+
+writing 对 outline 的同步操作不再在服务模块顶层 import outline facade。写作断章和
+冲突检查通过可注入 provider 调用 outline split / Scene contract 能力，默认 provider
+在运行时 lazy import outline facade，保持旧行为和 wire shape 不变。
+
 ## 测试
 
 ```bash

@@ -22,6 +22,8 @@ memory 模块维护世界状态变化历史，而不是维护另一份正史对�
 
 `memory_events` 使用 `(novel_id, chapter_index, sequence)` 作为章内幂等键。重建某章事件时，`MemoryService.record_events` 通过仓储层逐条 upsert 并清理新事件流之外的尾部事件，避免并发 delete-then-insert 交错。
 
+全景重放优先从最近快照开始，只对后续事件做 keyset 分页增量应用；快照事件数和重建终点使用聚合查询计算，避免大世界长章节范围一次性加载全部 `memory_events`。
+
 ## API
 
 ```http

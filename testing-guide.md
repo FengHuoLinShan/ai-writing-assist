@@ -79,6 +79,12 @@ Key points:
 - `WritingDraft` references `chapter_cards.id` → import `modules.outline.models`
 - Each test gets a fresh DB (tables created per session)
 
+### Future subpackage test paths
+
+`imports` and `world` may later split large internal service directories into subpackages such as `imports/parsing/`, `imports/workflow/`, `imports/entity_extraction/`, `imports/scene/` or `world/services/core/`, `world/services/map/`, `world/services/worldbuilding/`. When that happens, tests may follow the owning subpackage path to keep fixtures close to the implementation.
+
+This does not relax module boundaries: cross-module behavior tests still go through facade/contracts/API/DI port, and production code still must not import another module's repositories/services/models directly.
+
 ## Key Integration Tests (in `tests/integration/`)
 
 1. **Candidate/proposal review**: input text → generate candidates/proposals → dedup → confirm alias or preserve canonical auto-ingest provenance

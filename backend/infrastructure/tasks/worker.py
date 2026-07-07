@@ -26,6 +26,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bootstrap import register_container_services
+from core.config import get_settings
 from core.database import DatabaseManager, get_manager
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
@@ -71,7 +72,7 @@ def _public_task_error_message(exc: Exception) -> str:
 
 
 def _register_container_services() -> None:
-    """Register worker DI services without replacing existing container objects."""
+    """Register worker process-singleton DI services without replacing objects."""
     register_container_services(ignore_existing=True)
 
 
@@ -101,9 +102,13 @@ class TaskWorker:
         self._poll_interval = poll_interval
         self._heartbeat_interval = heartbeat_interval
         self._max_heartbeat_gap = max_heartbeat_gap
+        self._max_concurrent_tasks = max(
+            1,
+            int(get_settings().task_worker_max_concurrent_tasks),
+        )
         self._running = False
-        self._current_task: AsyncTask | None = None
-        self._heartbeat_task: asyncio.Task[None] | None = None
+        self._running_task_ids: set[Any] = set()
+        self._heartbeat_tasks: dict[Any, asyncio.Task[None]] = {}
         self._last_stale_scan_at: float | None = None
         self._stats: dict[str, int] = {
             "processed": 0,
@@ -136,10 +141,13 @@ class TaskWorker:
         _register_container_services()
         self._running = True
         logger.info(
-            "TaskWorker started — poll_interval=%.1fs, heartbeat_interval=%.1fs",
+            "TaskWorker started — poll_interval=%.1fs, heartbeat_interval=%.1fs, "
+            "max_concurrent_tasks=%d",
             self._poll_interval,
             self._heartbeat_interval,
+            self._max_concurrent_tasks,
         )
+        in_flight: set[asyncio.Task[None]] = set()
 
         try:
             try:
@@ -147,18 +155,37 @@ class TaskWorker:
             except Exception as e:
                 logger.error("TaskWorker startup stale scan failed: %s", e, exc_info=True)
 
-            while self._running:
+            while self._running or in_flight:
                 try:
-                    async with self._db_manager.session_factory() as session:
-                        task = await self._claim_task(session)
-                        if task is None:
+                    while self._running and len(in_flight) < self._max_concurrent_tasks:
+                        runner = await self._claim_task_runner()
+                        if runner is None:
+                            break
+                        in_flight.add(runner)
+
+                    if in_flight:
+                        timeout = self._poll_interval if self._running else None
+                        done, pending = await asyncio.wait(
+                            in_flight,
+                            timeout=timeout,
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        in_flight = pending
+                        self._log_finished_task_runners(done)
+                        if not done and self._running:
                             await self._maybe_recover_stale_tasks()
-                            await asyncio.sleep(self._poll_interval)
-                            continue
-                        await self._execute_task(task, session)
+                        continue
+
+                    if self._running:
+                        await self._maybe_recover_stale_tasks()
+                        await asyncio.sleep(self._poll_interval)
                 except asyncio.CancelledError:
                     logger.info("TaskWorker received cancel signal, shutting down...")
                     self._running = False
+                    for runner in in_flight:
+                        runner.cancel()
+                    await asyncio.gather(*in_flight, return_exceptions=True)
+                    in_flight.clear()
                     break
                 except Exception as e:
                     logger.error("TaskWorker loop error: %s", e, exc_info=True)
@@ -178,6 +205,36 @@ class TaskWorker:
         """停止 worker 循环"""
         self._running = False
 
+    async def _claim_task_runner(self) -> asyncio.Task[None] | None:
+        """Claim one task and return a runner that owns its DB session."""
+        session_context = self._db_manager.session_factory()
+        session = await session_context.__aenter__()
+        try:
+            task = await self._claim_task(session)
+            if task is None:
+                await session_context.__aexit__(None, None, None)
+                return None
+        except BaseException as exc:
+            await session_context.__aexit__(type(exc), exc, exc.__traceback__)
+            raise
+
+        async def runner() -> None:
+            try:
+                await self._execute_task(task, session)
+            finally:
+                await session_context.__aexit__(None, None, None)
+
+        return asyncio.create_task(runner())
+
+    def _log_finished_task_runners(self, done: set[asyncio.Task[None]]) -> None:
+        for runner in done:
+            try:
+                runner.result()
+            except asyncio.CancelledError:
+                logger.info("Task runner cancelled")
+            except Exception as exc:
+                logger.error("Task runner failed unexpectedly: %s", exc, exc_info=True)
+
     async def _claim_task(self, session: AsyncSession) -> AsyncTask | None:
         """使用 FOR UPDATE SKIP LOCKED 领取一个 pending 任务"""
         stmt = (
@@ -192,7 +249,7 @@ class TaskWorker:
         if task is not None:
             task.mark_running()
             await session.commit()
-            self._current_task = task
+            self._running_task_ids.add(task.id)
             logger.info("Task claimed: %s (type=%s)", task.id, task.task_type)
         return task
 
@@ -201,9 +258,9 @@ class TaskWorker:
         self._stats["processed"] += 1
 
         # 启动心跳协程（使用独立 session，避免与主执行共享连接）
-        self._heartbeat_task = asyncio.create_task(
-            self._heartbeat_loop(task.id),
-        )
+        self._running_task_ids.add(task.id)
+        heartbeat_task = asyncio.create_task(self._heartbeat_loop(task.id))
+        self._heartbeat_tasks[task.id] = heartbeat_task
 
         try:
             handler = self._registry.get_handler(task.task_type)
@@ -252,11 +309,14 @@ class TaskWorker:
             )
 
         finally:
-            self._current_task = None
-            # 取消心跳协程
-            if self._heartbeat_task is not None:
-                self._heartbeat_task.cancel()
-                self._heartbeat_task = None
+            self._running_task_ids.discard(task.id)
+            heartbeat_task = self._heartbeat_tasks.pop(task.id, None)
+            if heartbeat_task is not None:
+                heartbeat_task.cancel()
+                try:
+                    await heartbeat_task
+                except asyncio.CancelledError:
+                    pass
 
     async def _heartbeat_loop(self, task_id: Any) -> None:
         """定期更新心跳（使用独立 session，避免与主执行共享）"""

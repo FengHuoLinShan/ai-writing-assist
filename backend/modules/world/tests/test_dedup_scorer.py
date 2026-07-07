@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from modules.world.services.dedup_scorer import DedupScorer, DedupSignals
-from modules.world.services.dedup_service import EntityDedupService
+from modules.world.services.core.dedup_scorer import DedupScorer, DedupSignals
+from modules.world.services.core.dedup_service import EntityDedupService
 
 
 @pytest.fixture
@@ -213,7 +213,7 @@ class TestCascadeScore:
 
     @pytest.fixture
     def dedup_svc(self) -> EntityDedupService:
-        from modules.world.services.dedup_service import EntityDedupService
+        from modules.world.services.core.dedup_service import EntityDedupService
 
         return EntityDedupService()
 

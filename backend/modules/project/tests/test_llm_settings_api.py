@@ -13,6 +13,8 @@ from httpx import AsyncClient
 
 from modules.project.facade import get_project_context
 
+XHR_HEADERS = {"X-Requested-With": "XMLHttpRequest"}
+
 
 @pytest.fixture
 async def sample_project(async_client: AsyncClient) -> dict:
@@ -55,6 +57,28 @@ async def test_llm_provider_templates_include_common_suppliers(
 
 
 @pytest.mark.asyncio
+async def test_get_project_llm_settings_does_not_require_xhr_header(
+    async_client: AsyncClient,
+    sample_project: dict,
+) -> None:
+    resp = await async_client.get(f"/api/projects/{sample_project['id']}/llm-settings")
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_update_project_llm_settings_requires_xhr_header(
+    async_client: AsyncClient,
+    sample_project: dict,
+) -> None:
+    resp = await async_client.put(
+        f"/api/projects/{sample_project['id']}/llm-settings",
+        json={"provider_id": "deepseek"},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "Missing X-Requested-With header"
+
+
+@pytest.mark.asyncio
 async def test_update_and_get_project_llm_settings_masks_api_key(
     async_client: AsyncClient,
     sample_project: dict,
@@ -63,6 +87,7 @@ async def test_update_and_get_project_llm_settings_masks_api_key(
 
     resp = await async_client.put(
         f"/api/projects/{pid}/llm-settings",
+        headers=XHR_HEADERS,
         json={
             "provider_id": "deepseek",
             "base_url": "https://api.deepseek.com/v1",
@@ -120,6 +145,7 @@ async def test_update_project_llm_settings_preserves_existing_key_when_empty(
     pid = sample_project["id"]
     first = await async_client.put(
         f"/api/projects/{pid}/llm-settings",
+        headers=XHR_HEADERS,
         json={
             "provider_id": "deepseek",
             "base_url": "https://api.deepseek.com/v1",
@@ -131,6 +157,7 @@ async def test_update_project_llm_settings_preserves_existing_key_when_empty(
 
     second = await async_client.put(
         f"/api/projects/{pid}/llm-settings",
+        headers=XHR_HEADERS,
         json={
             "provider_id": "kimi",
             "base_url": "https://api.moonshot.cn/v1",
@@ -184,6 +211,7 @@ async def test_effective_llm_settings_global_then_project(async_client, factory)
     pid = await factory.create_project()
     await async_client.put(
         "/api/settings/llm-defaults",
+        headers=XHR_HEADERS,
         json={
             "provider_id": "deepseek",
             "base_url": "https://api.deepseek.com/v1",
@@ -196,6 +224,7 @@ async def test_effective_llm_settings_global_then_project(async_client, factory)
     assert body["provider_id"]["value"] == "deepseek"
     await async_client.put(
         f"/api/projects/{pid}/llm-settings",
+        headers=XHR_HEADERS,
         json={
             "provider_id": "deepseek",
             "base_url": "https://api.deepseek.com/v1",
@@ -213,17 +242,23 @@ async def test_effective_llm_settings_global_then_project(async_client, factory)
 async def test_reset_llm_field_restores_global(async_client, factory):
     pid = await factory.create_project()
     await async_client.put(
-        "/api/settings/llm-defaults", json={"provider_id": "openai-compatible"}
+        "/api/settings/llm-defaults",
+        headers=XHR_HEADERS,
+        json={"provider_id": "openai-compatible"},
     )
     await async_client.put(
         f"/api/projects/{pid}/llm-settings",
+        headers=XHR_HEADERS,
         json={
             "provider_id": "deepseek",
             "base_url": "https://api.deepseek.com/v1",
             "model": "deepseek-chat",
         },
     )
-    r = await async_client.delete(f"/api/projects/{pid}/llm-settings/field/provider_id")
+    r = await async_client.delete(
+        f"/api/projects/{pid}/llm-settings/field/provider_id",
+        headers=XHR_HEADERS,
+    )
     assert r.status_code == 200
     r2 = await async_client.get(f"/api/projects/{pid}/effective-llm-settings")
     assert r2.json()["provider_id"]["source"] == "global"
@@ -233,7 +268,10 @@ async def test_reset_llm_field_restores_global(async_client, factory):
 @pytest.mark.asyncio
 async def test_reset_llm_field_rejects_unknown(async_client, factory):
     pid = await factory.create_project()
-    r = await async_client.delete(f"/api/projects/{pid}/llm-settings/field/malicious")
+    r = await async_client.delete(
+        f"/api/projects/{pid}/llm-settings/field/malicious",
+        headers=XHR_HEADERS,
+    )
     assert r.status_code == 400
 
 
@@ -243,6 +281,7 @@ async def test_put_llm_settings_with_nulls_inherits_global(async_client, factory
     pid = await factory.create_project()
     await async_client.put(
         "/api/settings/llm-defaults",
+        headers=XHR_HEADERS,
         json={
             "provider_id": "deepseek",
             "base_url": "https://api.deepseek.com/v1",
@@ -251,6 +290,7 @@ async def test_put_llm_settings_with_nulls_inherits_global(async_client, factory
     )
     r = await async_client.put(
         f"/api/projects/{pid}/llm-settings",
+        headers=XHR_HEADERS,
         json={
             "provider_id": None,
             "base_url": None,
@@ -285,6 +325,7 @@ async def test_effective_deep_import_atomic_unit(async_client, factory):
     }
     r1 = await async_client.put(
         f"/api/projects/{pid}/llm-settings",
+        headers=XHR_HEADERS,
         json={
             "provider_id": "deepseek",
             "base_url": "https://api.deepseek.com/v1",
@@ -312,6 +353,7 @@ async def test_reset_deep_import_field_restores_system(async_client, factory):
     pid = await factory.create_project()
     await async_client.put(
         f"/api/projects/{pid}/llm-settings",
+        headers=XHR_HEADERS,
         json={
             "provider_id": "deepseek",
             "base_url": "https://api.deepseek.com/v1",
@@ -320,7 +362,8 @@ async def test_reset_deep_import_field_restores_system(async_client, factory):
         },
     )
     r = await async_client.delete(
-        f"/api/projects/{pid}/llm-settings/field/deep_import"
+        f"/api/projects/{pid}/llm-settings/field/deep_import",
+        headers=XHR_HEADERS,
     )
     assert r.status_code == 200
     r2 = await async_client.get(f"/api/projects/{pid}/effective-llm-settings")
@@ -335,6 +378,7 @@ async def test_put_llm_settings_empty_deep_import_clears_key(async_client, facto
     # 先保存一个非空 deep_import
     await async_client.put(
         f"/api/projects/{pid}/llm-settings",
+        headers=XHR_HEADERS,
         json={
             "provider_id": "deepseek",
             "base_url": "https://api.deepseek.com/v1",
@@ -345,6 +389,7 @@ async def test_put_llm_settings_empty_deep_import_clears_key(async_client, facto
     # 再传空 dict 清除
     r = await async_client.put(
         f"/api/projects/{pid}/llm-settings",
+        headers=XHR_HEADERS,
         json={
             "provider_id": "deepseek",
             "base_url": "https://api.deepseek.com/v1",
@@ -378,6 +423,7 @@ async def test_project_context_materializes_effective_llm_without_env(
 
     await async_client.put(
         "/api/settings/llm-defaults",
+        headers=XHR_HEADERS,
         json={
             "provider_id": "kimi",
             "base_url": "https://api.moonshot.cn/v1",

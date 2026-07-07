@@ -10,6 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query
 from fastapi import status as http_status
 
+from core.api_params import NovelIdQuery
 from core.dependencies import DbSession
 from modules.context.facade import compile_with_tiers
 from modules.context.facade import confirm_context as _confirm_context
@@ -194,7 +195,8 @@ async def confirm_context(
 @router.get("/activation-preview", response_model=ContextActivationPreviewResponse)
 async def activation_preview(
     db: DbSession,
-    novel_id: str,
+    *,
+    novel_id: NovelIdQuery,
     entity_ids: list[str] | None = Query(None),
     map_id: str | None = None,
     scene_id: str | None = None,
@@ -218,7 +220,8 @@ async def activation_preview(
 @router.get("/snapshots", response_model=ContextSnapshotListResponse)
 async def list_context_snapshots(
     db: DbSession,
-    novel_id: str,
+    *,
+    novel_id: NovelIdQuery,
     workflow_id: str | None = None,
     task_id: str | None = None,
     limit: int = Query(50, ge=1, le=200),
@@ -272,7 +275,8 @@ async def maintain_context_snapshots(
 async def get_context_snapshot(
     db: DbSession,
     snapshot_id: str,
-    novel_id: str,
+    *,
+    novel_id: NovelIdQuery,
 ) -> ContextSnapshotResponse:
     """读取单条上下文快照；必须匹配 novel_id。"""
     try:

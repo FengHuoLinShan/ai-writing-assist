@@ -110,7 +110,9 @@ modules/<name>/
 
 `project`, `imports`, `world`, `memory`, `outline`, `rag`, `context`, `writing`
 
-已移除：`geo`, `review`, `character`, `timeline`。Character 功能合并到 `modules/world`。
+已移除：`geo`, `review`, `character`, `timeline`。Character 不再是活跃独立模块；人物能力合并到 `world`，权威入口是 `docs/modules/02_world.md`、world facade 和 `/api/world/characters`。
+
+`imports` 后续可以按内部阶段拆分子包，但稳定入口、跨模块依赖规则和对外 wire contract 不因此改变。
 
 ### 跨模块依赖
 
@@ -184,8 +186,9 @@ modules/<name>/
 | 停止全部服务 | `make kill` |
 | 后端测试 | `make test` 或 `make test-v` |
 | 单个测试 | `make test ARGS="-k test_name -xvs"` |
-| 前端测试 | `(cd frontend-console && npm test)` |
-| Lint / 格式化 | `make lint` / `make format` |
+| 前端测试 | `make test-frontend FRONTEND_ARGS="stateTopbarHelp.test.js"` |
+| 全量测试 | `make test-all` |
+| 后端 Lint / 格式化 | `make lint` / `make format` |
 | DB 启动 + 迁移 | `make db && make migrate` |
 | 安装后端 | `pip install -e ".[dev]"`（在 `backend/` 中） |
 

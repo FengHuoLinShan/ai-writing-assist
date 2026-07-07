@@ -16,6 +16,7 @@ from modules.imports.agent_step_harness import (
     StepExecutionStatus,
     StepToolEnvelope,
 )
+from modules.imports.chapter_loader import build_chapters_text, load_chapter_range
 from modules.imports.env_helpers import positive_int_env
 from shared.deep_import_settings import (
     deep_import_int_setting,
@@ -326,9 +327,7 @@ def _deepseek_request_extra(
 
 
 def _chapters_text(chapters: list[dict[str, Any]]) -> str:
-    from modules.imports.scene_segmentation import SceneSegmentationService
-
-    return SceneSegmentationService._build_chapters_text(chapters)
+    return build_chapters_text(chapters)
 
 
 def _phase2_overlap_text(window: dict[str, Any]) -> str:
@@ -358,14 +357,13 @@ class _Phase0SceneCandidateLLM:
     async def __call__(self, batch) -> Any:
         from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
         from modules.imports.llm_schemas import SceneCandidateOutput
-        from modules.imports.scene_segmentation import SceneSegmentationService
 
-        service = SceneSegmentationService()
-        chapters = await service._load_chapters(
+        chapters = await load_chapter_range(
             self.db,
             self.novel_id,
             min(batch.chapter_indices),
             max(batch.chapter_indices),
+            include_missing=False,
         )
         wanted = set(batch.chapter_indices)
         chapters = [ch for ch in chapters if ch.get("chapter_index") in wanted]
@@ -409,7 +407,7 @@ class _Phase0SceneCandidateLLM:
                     content=(
                         "请为以下章节生成轻量候选锚点。按章节顺序输出，优先覆盖每章"
                         "最关键的叙事推进；不要展开成细粒度 Scene。\n\n"
-                        f"{service._build_chapters_text(chapters)}"
+                        f"{build_chapters_text(chapters)}"
                     ),
                 ),
             ],
@@ -663,7 +661,7 @@ class _SingleChapterSceneCandidateLLM:
                         "包含 title、goal、core_conflict、emotional_beat、"
                         "must_happen、must_not_happen、narrative_tag、"
                         "scene_chunks。\n\n"
-                        f"{service._build_chapters_text([chapter])}"
+                        f"{build_chapters_text([chapter])}"
                     ),
                 ),
             ],
@@ -1674,7 +1672,12 @@ async def _run_deep_import_structured_call(
     return result.output
 
 
+_DEFAULT_DEEP_IMPORT_STRUCTURED_CALL = _run_deep_import_structured_call
+
+
 async def _call_structured(*args, **kwargs):
+    if _run_deep_import_structured_call is not _DEFAULT_DEEP_IMPORT_STRUCTURED_CALL:
+        return await _run_deep_import_structured_call(*args, **kwargs)
     workflow_module = import_module("modules.imports.workflow")
     runner = getattr(
         workflow_module,

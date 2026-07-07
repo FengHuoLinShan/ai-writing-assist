@@ -7,21 +7,21 @@
 
 /**
  * 路由配置
- * 每个路由包含：标题、视图对象、子视图列表
- * @type {Object<string, {title:string, subViews:string[]}>}
+ * 每个路由包含：标题、视图对象、子视图列表、项目作用域
+ * @type {Object<string, {title:string, subViews:string[], requiresProject?: boolean, defaultSubView?: string, dynamicSubView?: boolean}>}
  */
 const routes = {
-  project: { title: "项目", subViews: [] },
-  world: { title: "世界对象", subViews: ["objects", "relations", "aliases", "bible", "map"], subViewTitles: { objects: "对象库", relations: "关系", aliases: "别名", bible: "世界书", map: "地图" } },
-  rag: { title: "RAG 检索", subViews: ["status", "search"], subViewTitles: { status: "索引状态", search: "搜索测试" } },
-  outline: { title: "大纲", subViews: ["scenes", "threads", "arcs", "foreshadowing", "reveals"], subViewTitles: { scenes: "场景卡", threads: "剧情线", arcs: "篇章纲", foreshadowing: "伏笔", reveals: "揭示" } },
-  scene: { title: "场景", subViews: [] },
-  writing: { title: "写作台", subViews: [] },
-  map: { title: "地图", subViews: [] },
-  generate: { title: "生成中心", subViews: [] },
-  llm: { title: "LLM 设置", subViews: [] },
-  settings: { title: "全局设置", subViews: [] },
-  "project-settings": { title: "项目设置", subViews: [] },
+  project: { title: "项目", subViews: [], requiresProject: false },
+  world: { title: "世界对象", requiresProject: true, defaultSubView: "objects", subViews: ["objects", "candidates", "relations", "aliases", "bible", "map"], subViewTitles: { objects: "对象库", candidates: "候选清洗", relations: "关系", aliases: "别名", bible: "世界书", map: "地图" } },
+  rag: { title: "RAG 检索", requiresProject: true, defaultSubView: "status", subViews: ["status", "search"], subViewTitles: { status: "索引状态", search: "搜索测试" } },
+  outline: { title: "大纲", requiresProject: true, defaultSubView: "scenes", subViews: ["scenes", "threads", "arcs", "foreshadowing", "reveals"], subViewTitles: { scenes: "场景卡", threads: "剧情线", arcs: "篇章纲", foreshadowing: "伏笔", reveals: "揭示" } },
+  scene: { title: "场景", subViews: [], requiresProject: true, dynamicSubView: true },
+  writing: { title: "写作台", subViews: [], requiresProject: true },
+  map: { title: "地图", subViews: [], requiresProject: true },
+  generate: { title: "生成中心", subViews: [], requiresProject: true },
+  llm: { title: "LLM 设置", subViews: [], requiresProject: false },
+  settings: { title: "全局设置", subViews: [], requiresProject: false },
+  "project-settings": { title: "项目设置", subViews: [], requiresProject: true },
 }
 
 /**
@@ -117,10 +117,11 @@ function _viewCacheKey(viewName, subView = null, projectId = state.currentProjec
  * 有项目时: #workbench/:pid/:view[/:subView]
  * 无项目时: #:view[/:subView]
  */
-function _buildHash(viewName, subView, query = null) {
+function _buildHash(viewName, subView, query = null, projectId = state.currentProjectId) {
   let base
-  if (state.currentProjectId && viewName !== "project") {
-    base = `workbench/${state.currentProjectId}/${viewName}`
+  const route = routes[viewName]
+  if (projectId && route?.requiresProject) {
+    base = `workbench/${projectId}/${viewName}`
     if (subView) base += `/${subView}`
   } else {
     base = subView ? `${viewName}/${subView}` : viewName
@@ -165,6 +166,82 @@ function _parseHash(hash) {
   }
 }
 
+function _projectRedirectResult(query = new URLSearchParams()) {
+  return {
+    projectId: null,
+    viewName: "project",
+    subView: null,
+    query,
+    redirectedToProject: true,
+  }
+}
+
+function _normalizeRoute({ projectId = null, viewName = "project", subView = null, query = new URLSearchParams() }) {
+  let targetProjectId = projectId || null
+  let targetView = viewName || "project"
+  let targetSubView = subView || null
+  let targetQuery = query || new URLSearchParams()
+
+  if (targetView === "context") {
+    targetView = "generate"
+    targetSubView = null
+    targetQuery = new URLSearchParams(targetQuery)
+    targetQuery.set("tab", "task")
+  }
+
+  if (targetView === "llm") {
+    const effectiveProjectId = targetProjectId || state.currentProjectId || null
+    targetView = effectiveProjectId ? "project-settings" : "settings"
+    targetProjectId = effectiveProjectId
+    targetSubView = null
+  }
+
+  let route = routes[targetView]
+  if (!route) {
+    targetProjectId = null
+    targetView = "project"
+    targetSubView = null
+    targetQuery = new URLSearchParams()
+    route = routes.project
+  }
+
+  if (route.requiresProject) {
+    targetProjectId = targetProjectId || state.currentProjectId || null
+    if (!targetProjectId) {
+      return _projectRedirectResult(new URLSearchParams())
+    }
+  } else {
+    targetProjectId = null
+  }
+
+  if (route.subViews && route.subViews.length > 0) {
+    if (!targetSubView || !route.subViews.includes(targetSubView)) {
+      targetSubView = route.defaultSubView || route.subViews[0]
+    }
+  } else if (!route.dynamicSubView) {
+    targetSubView = null
+  }
+
+  return {
+    projectId: targetProjectId,
+    viewName: targetView,
+    subView: targetSubView,
+    query: targetQuery,
+    redirectedToProject: false,
+  }
+}
+
+function _hashForRoute(routeState) {
+  return "#" + _buildHash(routeState.viewName, routeState.subView, routeState.query, routeState.projectId)
+}
+
+async function _applyRoute(routeState) {
+  await _syncCurrentProject(routeState.projectId)
+  state.currentView = routeState.viewName
+  state.currentSubView = routeState.subView
+  _currentQuery = routeState.query || new URLSearchParams()
+}
+
 /**
  * 获取视图最后访问的子标签
  * @param {string} viewName
@@ -197,8 +274,12 @@ async function _syncCurrentProject(projectId, force) {
     state.currentProject = null
   }
 
+  const hasCompleteProject = state.currentProject
+    && state.currentProject.id === projectId
+    && !state.currentProject.summaryOnly
+
   // 当前项目对象已存在且 ID 一致时避免重复请求，refresh() 可通过 force 强制刷新
-  if (!changed && state.currentProject && !force) {
+  if (!changed && hasCompleteProject && !force) {
     return
   }
 
@@ -305,22 +386,25 @@ async function renderCurrentView() {
 }
 
 async function navigate(viewName, subView = null, pushHistory = true, query = null) {
-  if (!routes[viewName]) {
-    console.warn(`未知路由: ${viewName}`)
-    return
+  const routeState = _normalizeRoute({
+    projectId: state.currentProjectId || null,
+    viewName,
+    subView,
+    query: query || new URLSearchParams(),
+  })
+
+  if (routeState.redirectedToProject) {
+    toast("请先选择项目后再进入该页面", "warning")
   }
 
   if (state.currentView) {
-    if (state.currentView !== viewName || state.currentSubView !== subView) {
+    if (state.currentView !== routeState.viewName || state.currentSubView !== routeState.subView) {
       _rememberSubView(state.currentView, state.currentSubView)
     }
   }
 
-  const isSameView = state.currentView === viewName
-
-  state.currentView = viewName
-  state.currentSubView = subView
-  _currentQuery = query || new URLSearchParams()
+  const isSameView = state.currentView === routeState.viewName
+  await _applyRoute(routeState)
 
   if (!isSameView) {
     state.selectedItem = null
@@ -329,9 +413,9 @@ async function navigate(viewName, subView = null, pushHistory = true, query = nu
 
   // 更新 URL hash
   if (pushHistory) {
-    const hash = "#" + _buildHash(viewName, subView)
+    const hash = _hashForRoute(routeState)
     if (window.location.hash !== hash) {
-      window.history.pushState({ view: viewName, subView, projectId: state.currentProjectId }, "", hash)
+      window.history.pushState({ view: routeState.viewName, subView: routeState.subView, projectId: routeState.projectId }, "", hash)
     }
   }
 
@@ -358,58 +442,27 @@ async function refresh() {
 async function initRouter() {
   let hash = window.location.hash.slice(1) || "project"
   let parsed = _parseHash(hash)
-  _currentQuery = parsed.query || new URLSearchParams()
-
-  // 旧上下文路由重定向到生成中心的任务标签
-  if (parsed.viewName === "context") {
-    const base = parsed.projectId ? `workbench/${parsed.projectId}/generate` : "generate"
-    const newQuery = new URLSearchParams({ tab: "task" })
-    const newHash = `#${base}?${newQuery.toString()}`
-    window.history.replaceState({ view: "generate", subView: null, projectId: parsed.projectId }, "", newHash)
-    parsed = _parseHash(newHash.slice(1))
-    _currentQuery = parsed.query || newQuery
+  let routeState = _normalizeRoute(parsed)
+  let canonicalHash = _hashForRoute(routeState)
+  if (window.location.hash !== canonicalHash) {
+    window.history.replaceState({ view: routeState.viewName, subView: routeState.subView, projectId: routeState.projectId }, "", canonicalHash)
   }
-
-  await _syncCurrentProject(parsed.projectId)
-
-  if (routes[parsed.viewName]) {
-    state.currentView = parsed.viewName
-    state.currentSubView = parsed.subView
-  } else {
-    state.currentView = "project"
-  }
+  await _applyRoute(routeState)
 
   // 监听浏览器前进/后退
   window.addEventListener("popstate", async (e) => {
     const hash = window.location.hash.slice(1) || "project"
     const parsed = _parseHash(hash)
-    _currentQuery = parsed.query || new URLSearchParams()
-
-    const projectId = parsed.projectId || (e.state && e.state.projectId) || null
-    await _syncCurrentProject(projectId)
-
-    let targetView = (e.state && e.state.view) ? e.state.view : parsed.viewName
-    let targetSubView = (e.state && e.state.subView !== undefined) ? e.state.subView : parsed.subView
-
-    // 旧上下文路由重定向
-    if (targetView === "context") {
-      const base = parsed.projectId ? `workbench/${parsed.projectId}/generate` : "generate"
-      const newQuery = new URLSearchParams({ tab: "task" })
-      const newHash = `#${base}?${newQuery.toString()}`
-      window.history.replaceState({ view: "generate", subView: null, projectId }, "", newHash)
-      targetView = "generate"
-      targetSubView = null
-      _currentQuery = newQuery
+    const routeState = _normalizeRoute(parsed)
+    const canonicalHash = _hashForRoute(routeState)
+    if (window.location.hash !== canonicalHash) {
+      window.history.replaceState({ view: routeState.viewName, subView: routeState.subView, projectId: routeState.projectId }, "", canonicalHash)
     }
-
-    if (routes[targetView]) {
-      state.currentView = targetView
-      state.currentSubView = targetSubView
-      renderCurrentView()
-    }
+    await _applyRoute(routeState)
+    await renderCurrentView()
   })
 
-  renderCurrentView()
+  await renderCurrentView()
 }
 
 // 导出

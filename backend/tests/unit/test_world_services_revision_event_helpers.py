@@ -15,16 +15,16 @@ import pytest
 
 from core.container import register, reset
 from core.errors import NotFoundError
-from modules.world.services.draft_provider import WritingDraftProvider
-from modules.world.services.entity_revision_service import EntityRevisionService
-from modules.world.services.event_service import EventService
-from modules.world.services.helpers import (
+from modules.world.services.common import (
     find_alias_in_entity,
     find_alias_in_list,
     merge_text_field,
     normalize_name,
     world_entity_types_compatible,
 )
+from modules.world.services.core.draft_provider import WritingDraftProvider
+from modules.world.services.core.entity_revision_service import EntityRevisionService
+from modules.world.services.core.event_service import EventService
 
 # ============================================================
 # Factory helpers
@@ -113,7 +113,7 @@ class TestEntityRevisionService:
     async def test_entity_revision_service_has_no_direct_http_exception_dependency(self):
         service_path = (
             Path(__file__).parents[2]
-            / "modules/world/services/entity_revision_service.py"
+            / "modules/world/services/core/entity_revision_service.py"
         )
         source = service_path.read_text()
 

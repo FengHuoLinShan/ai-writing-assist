@@ -77,6 +77,67 @@ async def test_embedding_writer_updates_loaded_chunks_without_refetching() -> No
 
 
 @pytest.mark.asyncio
+async def test_embedding_writer_falls_back_per_chunk_after_batch_failure() -> None:
+    """批量 embedding 失败后应逐片挽救，且清理旧状态。"""
+    from modules.rag.embedding_writer import EmbeddingWriter
+
+    class Repo:
+        pass
+
+    class DB:
+        def __init__(self) -> None:
+            self.flush_count = 0
+
+        async def flush(self) -> None:
+            self.flush_count += 1
+
+    class FallbackLLM:
+        async def generate_embedding(self, value):  # type: ignore[no-untyped-def]
+            if isinstance(value, list):
+                raise RuntimeError("batch down")
+            if value == "可恢复片段":
+                return [0.1, 0.2]
+            raise RuntimeError("single down")
+
+    success_chunk = SimpleNamespace(
+        id=uuid.uuid4(),
+        text="可恢复片段",
+        embedding=[0.9, 0.9],
+        embedding_status="failed",
+        embedding_error="old error",
+        index_warnings=["old warning"],
+    )
+    failed_chunk = SimpleNamespace(
+        id=uuid.uuid4(),
+        text="仍失败片段",
+        embedding=[0.8, 0.8],
+        embedding_status="failed",
+        embedding_error="old error",
+        index_warnings=["old warning"],
+    )
+
+    result = await EmbeddingWriter(Repo(), FallbackLLM()).write_batch(  # type: ignore[arg-type]
+        DB(),  # type: ignore[arg-type]
+        [success_chunk, failed_chunk],  # type: ignore[list-item]
+        warning_prefix="章节 embedding 失败",
+    )
+
+    assert result.failed_count == 1
+    assert result.warnings[0] == "章节 embedding 失败: batch down"
+    assert result.warnings[1] == (
+        "本章 1/2 个片段 embedding 失败，检索将降级为关键词匹配"
+    )
+    assert success_chunk.embedding == [0.1, 0.2]
+    assert success_chunk.embedding_status == "succeeded"
+    assert success_chunk.embedding_error is None
+    assert success_chunk.index_warnings == []
+    assert failed_chunk.embedding is None
+    assert failed_chunk.embedding_status == "failed"
+    assert failed_chunk.embedding_error == "single down"
+    assert failed_chunk.index_warnings == ["embedding 生成失败: single down"]
+
+
+@pytest.mark.asyncio
 async def test_collect_annotation_sources_uses_chapter_scene_lookup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1130,6 +1191,157 @@ async def test_retry_embeddings_task_updates_failed_chunks(
     assert refreshed.embedding is not None
     assert refreshed.embedding_error is None
     assert skipped.embedding_status == "failed"
+
+
+@pytest.mark.asyncio
+async def test_retry_embeddings_task_counts_partial_batch_fallback(
+    db_session: AsyncSession,
+    repo: RagChunkRepository,
+    test_project_id: str,  # noqa: F811
+):
+    """批量路径降级后部分成功时，应统计成功数并清理失败 stale embedding。"""
+    from unittest.mock import AsyncMock, patch
+
+    from infrastructure.tasks.models import AsyncTask
+    from modules.rag.tasks import handle_rag_retry_embeddings
+
+    nid_uuid = uuid.UUID(hex=test_project_id)
+    success_chunk = await repo.create(
+        db_session,
+        nid_uuid,
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=1,
+            chunk_index=0,
+            text="可恢复片段",
+            embedding_status="failed",
+            embedding_error="old error",
+            index_warnings=["old warning"],
+        ),
+    )
+    failed_chunk = await repo.create(
+        db_session,
+        nid_uuid,
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=1,
+            chunk_index=1,
+            text="仍失败片段",
+            embedding_status="failed",
+            embedding_error="old error",
+            index_warnings=["old warning"],
+        ),
+    )
+    success_chunk.embedding = [0.9] * 768  # type: ignore[assignment]
+    failed_chunk.embedding = [0.8] * 768  # type: ignore[assignment]
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="rag_retry_embeddings",
+        status="running",
+        meta={"novel_id": test_project_id},
+        progress=0.0,
+    )
+    db_session.add(task)
+    await db_session.flush()
+
+    fake_embedding = [0.1] * 768
+
+    async def _fake_embedding(value):
+        if isinstance(value, list):
+            raise RuntimeError("batch down")
+        if value == "可恢复片段":
+            return fake_embedding
+        raise RuntimeError("single down")
+
+    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.generate_embedding = AsyncMock(side_effect=_fake_embedding)
+        mock_client_cls.return_value = mock_client
+
+        result = await handle_rag_retry_embeddings(db_session, task)
+
+    refreshed_success = await repo.get(db_session, success_chunk.id)
+    refreshed_failed = await repo.get(db_session, failed_chunk.id)
+    assert result["total"] == 2
+    assert result["succeeded"] == 1
+    assert result["failed"] == 1
+    assert result["remaining_retryable_count"] == 1
+    assert task.progress == 0.5
+    assert result["warnings"][0] == "embedding 重试失败: batch down"
+    assert result["warnings"][1] == (
+        "本章 1/2 个片段 embedding 失败，检索将降级为关键词匹配"
+    )
+    assert refreshed_success.embedding_status == "succeeded"
+    assert refreshed_success.embedding_error is None
+    assert refreshed_success.index_warnings == []
+    assert refreshed_failed.embedding is None
+    assert refreshed_failed.embedding_status == "failed"
+    assert refreshed_failed.embedding_error == "single down"
+
+
+@pytest.mark.asyncio
+async def test_retry_embeddings_task_keeps_batch_warning_after_full_fallback_success(
+    db_session: AsyncSession,
+    repo: RagChunkRepository,
+    test_project_id: str,  # noqa: F811
+):
+    """批量路径降级后逐片全成功时，也不能丢失 batch warning。"""
+    from unittest.mock import AsyncMock, patch
+
+    from infrastructure.tasks.models import AsyncTask
+    from modules.rag.tasks import handle_rag_retry_embeddings
+
+    nid_uuid = uuid.UUID(hex=test_project_id)
+    for index, text in enumerate(["可恢复片段 A", "可恢复片段 B"]):
+        await repo.create(
+            db_session,
+            nid_uuid,
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                chunk_index=index,
+                text=text,
+                embedding_status="failed",
+                embedding_error="old error",
+                index_warnings=["old warning"],
+            ),
+        )
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="rag_retry_embeddings",
+        status="running",
+        meta={"novel_id": test_project_id},
+        progress=0.0,
+    )
+    db_session.add(task)
+    await db_session.flush()
+
+    fake_embedding = [0.1] * 768
+
+    async def _fake_embedding(value):
+        if isinstance(value, list):
+            raise RuntimeError("batch down")
+        return fake_embedding
+
+    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.generate_embedding = AsyncMock(side_effect=_fake_embedding)
+        mock_client_cls.return_value = mock_client
+
+        result = await handle_rag_retry_embeddings(db_session, task)
+
+    remaining = await repo.count_retryable_embeddings(
+        db_session,
+        nid_uuid,
+        statuses=["failed", "pending_vectorization"],
+    )
+    assert result["total"] == 2
+    assert result["succeeded"] == 2
+    assert result["failed"] == 0
+    assert result["remaining_retryable_count"] == 0
+    assert result["warnings"] == ["embedding 重试失败: batch down"]
+    assert task.progress == 1.0
+    assert remaining == 0
 
 
 @pytest.mark.asyncio

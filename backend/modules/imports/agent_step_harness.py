@@ -15,10 +15,11 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from math import ceil
 from typing import Any, TypeVar, get_origin
 
 from pydantic import BaseModel, ValidationError
+
+from infrastructure.llm.token_estimation import estimate_token_count
 
 
 class AgentPermissionLevel(StrEnum):
@@ -656,7 +657,7 @@ def _stable_text(value: Any) -> str:
 
 
 def _estimate_tokens(text: str) -> int:
-    return ceil(len(text) / 4)
+    return estimate_token_count(text)
 
 
 def _normalized_from_guard(result: OutputGuardResult) -> _NormalizedStepOutput:

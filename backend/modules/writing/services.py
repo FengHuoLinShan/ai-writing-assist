@@ -9,14 +9,15 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
-from modules.outline.facade import split_scene_chunk_to_new_chapter
 from modules.writing.conflict_ai import (
     AI_REVIEW_ACTION,
     ConflictCheckAiReviewService,
@@ -54,9 +55,70 @@ from modules.writing.schemas import (
     WritingDraftResponse,
     WritingDraftUpdate,
 )
+from modules.writing.text_sanitizer import sanitize_writing_text
 from shared.utils import parse_uuid as _shared_parse_uuid
 
 logger = logging.getLogger(__name__)
+
+SceneChunkSplitProvider = Callable[..., Awaitable[list[dict[str, Any]]]]
+SceneContractLoader = Callable[[AsyncSession, str, str], Awaitable[object | None]]
+
+
+async def _default_split_scene_chunk_to_new_chapter(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    source_scene_id: str,
+    source_chapter_id: str,
+    source_chapter_index: int,
+    new_chapter_id: str,
+    new_chapter_index: int,
+    split_pos: int,
+    new_chapter_length: int,
+) -> list[dict[str, Any]]:
+    from modules.outline.facade import split_scene_chunk_to_new_chapter
+
+    return await split_scene_chunk_to_new_chapter(
+        db,
+        novel_id,
+        source_scene_id=source_scene_id,
+        source_chapter_id=source_chapter_id,
+        source_chapter_index=source_chapter_index,
+        new_chapter_id=new_chapter_id,
+        new_chapter_index=new_chapter_index,
+        split_pos=split_pos,
+        new_chapter_length=new_chapter_length,
+    )
+
+
+async def _default_scene_contract_loader(
+    db: AsyncSession,
+    novel_id: str,
+    scene_id: str,
+) -> object | None:
+    from modules.outline.facade import get_scene_contract
+
+    return await get_scene_contract(db, novel_id, scene_id)
+
+
+def _sanitize_draft_create(
+    data: WritingDraftCreate,
+) -> tuple[WritingDraftCreate, dict[str, bool]]:
+    title = sanitize_writing_text(data.title)
+    content = sanitize_writing_text(data.content)
+    return data.model_copy(update={"title": title.text, "content": content.text}), {
+        "title_html_removed": title.html_removed,
+        "content_html_removed": content.html_removed,
+    }
+
+
+def _sanitize_draft_update(data: WritingDraftUpdate) -> WritingDraftUpdate:
+    updates: dict[str, str | None] = {}
+    if data.title is not None:
+        updates["title"] = sanitize_writing_text(data.title).text
+    if data.content is not None:
+        updates["content"] = sanitize_writing_text(data.content).text
+    return data.model_copy(update=updates) if updates else data
 
 
 def _parse_uuid(value: str, field_name: str = "id") -> uuid.UUID:
@@ -66,8 +128,16 @@ def _parse_uuid(value: str, field_name: str = "id") -> uuid.UUID:
 class WritingDraftService:
     """正文草稿业务服务"""
 
-    def __init__(self, repo: WritingDraftRepository | None = None) -> None:
+    def __init__(
+        self,
+        repo: WritingDraftRepository | None = None,
+        split_scene_chunk_to_new_chapter: SceneChunkSplitProvider | None = None,
+    ) -> None:
         self._repo = repo or WritingDraftRepository()
+        self._split_scene_chunk_to_new_chapter = (
+            split_scene_chunk_to_new_chapter
+            or _default_split_scene_chunk_to_new_chapter
+        )
 
     async def create_draft(
         self,
@@ -75,7 +145,8 @@ class WritingDraftService:
         data: WritingDraftCreate,
     ) -> WritingDraftResponse:
         """创建新草稿版本（发布）"""
-        draft = await self._repo.create(db, data)
+        sanitized_data, _summary = _sanitize_draft_create(data)
+        draft = await self._repo.create(db, sanitized_data)
         return WritingDraftResponse.model_validate(draft)
 
     async def create_published_draft(
@@ -84,8 +155,31 @@ class WritingDraftService:
         data: WritingDraftCreate,
     ) -> WritingDraftResponse:
         """创建已发布的正文版本。"""
-        draft = await self._repo.create_with_status(db, data, status="published")
+        sanitized_data, _summary = _sanitize_draft_create(data)
+        draft = await self._repo.create_with_status(
+            db,
+            sanitized_data,
+            status="published",
+        )
         return WritingDraftResponse.model_validate(draft)
+
+    async def create_draft_contract(
+        self,
+        db: AsyncSession,
+        data: WritingDraftCreate,
+    ) -> WritingDraftContract:
+        """创建草稿并返回跨模块契约。"""
+        draft = await self.create_draft(db, data)
+        return self._to_contract(draft)
+
+    async def create_published_draft_contract(
+        self,
+        db: AsyncSession,
+        data: WritingDraftCreate,
+    ) -> WritingDraftContract:
+        """创建已发布正文版本并返回跨模块契约。"""
+        draft = await self.create_published_draft(db, data)
+        return self._to_contract(draft)
 
     async def publish_draft(
         self,
@@ -93,17 +187,22 @@ class WritingDraftService:
         data: WritingDraftCreate,
     ) -> WritingDraftResponse:
         """发布章节正文；最新已发布内容相同时复用版本，避免重复版本膨胀。"""
-        nid = _parse_uuid(data.novel_id, "novel")
-        latest = await self._repo.get_latest_by_chapter(db, nid, data.chapter_index)
+        sanitized_data, _summary = _sanitize_draft_create(data)
+        nid = _parse_uuid(sanitized_data.novel_id, "novel")
+        latest = await self._repo.get_latest_by_chapter(
+            db,
+            nid,
+            sanitized_data.chapter_index,
+        )
         if (
             latest is not None
             and latest.status == "published"
-            and (latest.title or "") == (data.title or "")
-            and (latest.content or "") == (data.content or "")
+            and (latest.title or "") == (sanitized_data.title or "")
+            and (latest.content or "") == (sanitized_data.content or "")
         ):
             return WritingDraftResponse.model_validate(latest)
 
-        return await self.create_published_draft(db, data)
+        return await self.create_published_draft(db, sanitized_data)
 
     async def get_draft(
         self,
@@ -153,7 +252,8 @@ class WritingDraftService:
                 f"该章节已被其他会话更新（当前版本 v{latest_version}，"
                 f"期望版本 v{data.expected_version}）。请刷新后重新编辑。"
             )
-        updated = await self._repo.update(db, draft, data)
+        sanitized_data = _sanitize_draft_update(data)
+        updated = await self._repo.update(db, draft, sanitized_data)
         if updated is None:
             raise NotFoundError(f"Draft {draft_id} not found")
         return WritingDraftResponse.model_validate(updated)
@@ -287,25 +387,59 @@ class WritingDraftService:
         db: AsyncSession,
         novel_id: str,
         chapter_indices: list[int],
+        *,
+        content_limit: int | None = None,
     ) -> list[WritingDraftContract]:
         """批量获取章节最新草稿契约（供跨模块范围加载使用）。"""
+        if content_limit is not None and content_limit <= 0:
+            raise ValueError("content_limit must be a positive integer")
         nid = _parse_uuid(novel_id, "novel")
         requested = sorted({idx for idx in chapter_indices if idx >= 1})
         if not requested:
             return []
-        drafts = await self._repo.list_latest_by_chapters(db, nid, requested)
-        return [self._to_contract(draft) for draft in drafts]
+        drafts = await self._repo.list_latest_by_chapters(
+            db,
+            nid,
+            requested,
+            content_limit=content_limit,
+        )
+        if content_limit is None:
+            return [self._to_contract(draft) for draft in drafts]
+        return [self._projection_to_contract(draft) for draft in drafts]
 
     @staticmethod
     def _to_contract(draft: object) -> WritingDraftContract:
         """将 ORM draft 转为契约对象"""
         return WritingDraftContract(
+            id=str(draft.id) if getattr(draft, "id", None) is not None else None,
             novel_id=str(draft.novel_id),  # type: ignore[union-attr]
             chapter_index=draft.chapter_index,  # type: ignore[union-attr]
             title=draft.title,  # type: ignore[union-attr]
             content=draft.content,  # type: ignore[union-attr]
             version_number=draft.version_number,  # type: ignore[union-attr]
             status=draft.status,  # type: ignore[union-attr]
+            conflict_check_snapshot_json=draft.conflict_check_snapshot_json,  # type: ignore[union-attr]
+            provenance_json=draft.provenance_json,  # type: ignore[union-attr]
+            created_at=draft.created_at,  # type: ignore[union-attr]
+            updated_at=draft.updated_at,  # type: ignore[union-attr]
+        )
+
+    @staticmethod
+    def _projection_to_contract(row: object) -> WritingDraftContract:
+        """将最新草稿投影结果转为契约对象。"""
+        mapping = row._mapping if hasattr(row, "_mapping") else row  # noqa: SLF001
+        return WritingDraftContract(
+            id=str(mapping["id"]) if mapping["id"] is not None else None,  # type: ignore[index]
+            novel_id=str(mapping["novel_id"]),  # type: ignore[index]
+            chapter_index=mapping["chapter_index"],  # type: ignore[index]
+            title=mapping["title"],  # type: ignore[index]
+            content=mapping["content"],  # type: ignore[index]
+            version_number=mapping["version_number"],  # type: ignore[index]
+            status=mapping["status"],  # type: ignore[index]
+            conflict_check_snapshot_json=mapping["conflict_check_snapshot_json"],  # type: ignore[index]
+            provenance_json=mapping["provenance_json"],  # type: ignore[index]
+            created_at=mapping["created_at"],  # type: ignore[index]
+            updated_at=mapping["updated_at"],  # type: ignore[index]
         )
 
     async def list_chapter_indices(
@@ -413,7 +547,7 @@ class WritingDraftService:
 
         scenes: list[dict] = []
         if source_scene_id:
-            scenes = await split_scene_chunk_to_new_chapter(
+            scenes = await self._split_scene_chunk_to_new_chapter(
                 db,
                 novel_id,
                 source_scene_id=source_scene_id,
@@ -441,9 +575,13 @@ class WritingConflictCheckService:
         self,
         repo: WritingConflictCheckRepository | None = None,
         draft_repo: WritingDraftRepository | None = None,
+        scene_contract_loader: SceneContractLoader | None = None,
     ) -> None:
         self._repo = repo or WritingConflictCheckRepository()
         self._draft_repo = draft_repo or WritingDraftRepository()
+        self._scene_contract_loader = (
+            scene_contract_loader or _default_scene_contract_loader
+        )
         self._ai_review_service = ConflictCheckAiReviewService(self._repo)
         self._suggestion_service = ConflictSuggestionService(self._repo)
 
@@ -668,9 +806,7 @@ class WritingConflictCheckService:
 
     async def _load_scene(self, db: AsyncSession, novel_id: str, scene_id: str):
         try:
-            from modules.outline.facade import get_scene_contract
-
-            return await get_scene_contract(db, novel_id, scene_id)
+            return await self._scene_contract_loader(db, novel_id, scene_id)
         except Exception:
             logger.exception("Failed to load scene for conflict check")
             return None
@@ -1001,6 +1137,8 @@ class WritingGenerationService:
             content = parsed.content
             pov_view = parsed.pov_view
             parse_warnings = parsed.warnings
+            content_sanitized = sanitize_writing_text(content)
+            content = content_sanitized.text or ""
             guard_terms = await build_hidden_guard_context(
                 db,
                 confirmed_context=confirmed_context,
@@ -1011,6 +1149,12 @@ class WritingGenerationService:
                 guard_terms=guard_terms,
                 warnings=parse_warnings,
             )
+        else:
+            content_sanitized = sanitize_writing_text(content)
+            content = content_sanitized.text or ""
+
+        candidate_title = title or f"第{chapter_index}章 AI 候选"
+        title_sanitized = sanitize_writing_text(candidate_title)
 
         provenance = {
             "source": "writing_generate",
@@ -1027,13 +1171,17 @@ class WritingGenerationService:
             "model": model_name,
             "pov_view": pov_view,
             "pov_validation": pov_validation,
+            "content_sanitization": {
+                "content_html_removed": content_sanitized.html_removed,
+                "title_html_removed": title_sanitized.html_removed,
+            },
         }
         draft = await self._repo.create_with_status(
             db,
             WritingDraftCreate(
                 novel_id=novel_id,
                 chapter_index=chapter_index,
-                title=title or f"第{chapter_index}章 AI 候选",
+                title=title_sanitized.text,
                 content=content,
                 provenance_json=provenance,
             ),

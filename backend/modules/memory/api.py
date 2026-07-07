@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query
 
+from core.api_params import NovelIdPath
 from core.dependencies import DbSession
 from modules.memory.schemas import (
     ChapterPanorama,
@@ -30,7 +31,7 @@ _service = MemoryService()
 @router.get("/panorama", response_model=ChapterPanorama)
 async def get_panorama(
     db: DbSession,
-    novel_id: str,
+    novel_id: NovelIdPath,
     chapter_index: int = Query(..., ge=1, description="章节号"),
 ) -> ChapterPanorama:
     """获取指定章节的世界全景"""
@@ -45,7 +46,7 @@ async def get_panorama(
 @router.get("/events", response_model=EventListResponse)
 async def list_events(
     db: DbSession,
-    novel_id: str,
+    novel_id: NovelIdPath,
     from_chapter: int = Query(default=1, ge=1, description="起始章"),
     to_chapter: int = Query(default=999999, ge=1, description="结束章"),
 ) -> EventListResponse:
@@ -56,7 +57,7 @@ async def list_events(
 @router.get("/events/{entity_id}/timeline", response_model=EventListResponse)
 async def get_entity_timeline(
     db: DbSession,
-    novel_id: str,
+    novel_id: NovelIdPath,
     entity_id: str,
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=500),
@@ -79,7 +80,7 @@ async def get_entity_timeline(
 @router.post("/snapshots/capture", response_model=SnapshotResponse, status_code=201)
 async def trigger_capture(
     db: DbSession,
-    novel_id: str,
+    novel_id: NovelIdPath,
     chapter_index: int = Query(..., ge=1, description="章节号"),
 ) -> SnapshotResponse:
     """手动生成快照"""
@@ -89,7 +90,7 @@ async def trigger_capture(
 @router.get("/snapshots", response_model=SnapshotListResponse)
 async def list_snapshots(
     db: DbSession,
-    novel_id: str,
+    novel_id: NovelIdPath,
 ) -> SnapshotListResponse:
     """列出所有快照"""
     return await _service.list_snapshots(db, novel_id)
@@ -103,7 +104,7 @@ async def list_snapshots(
 @router.post("/rebuild")
 async def trigger_rebuild(
     db: DbSession,
-    novel_id: str,
+    novel_id: NovelIdPath,
     from_chapter: int = Query(..., ge=1, description="从哪一章开始重建"),
 ) -> dict:
     """从前文修正点全量重建后续事件和快照"""
@@ -118,7 +119,7 @@ async def trigger_rebuild(
 @router.get("/status", response_model=MemoryStatusResponse)
 async def get_status(
     db: DbSession,
-    novel_id: str,
+    novel_id: NovelIdPath,
 ) -> MemoryStatusResponse:
     """获取 memory 模块当前状态"""
     return await _service.get_status(db, novel_id)

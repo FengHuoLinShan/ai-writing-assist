@@ -10,8 +10,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+from core.errors import ValidationError
 from modules.memory.schemas import EventType
-from modules.memory.services import MemoryService
+from modules.memory.services import (
+    MAX_MEMORY_EVENT_PAYLOAD_CHARS,
+    MAX_MEMORY_EVENTS_PER_CHAPTER,
+    MemoryService,
+)
 
 
 # 构建 mock 事件对象的工厂
@@ -492,6 +497,63 @@ class TestRecordEvents:
     """record_events 方法测试 — repo 用 AsyncMock 替换"""
 
     @pytest.mark.asyncio
+    async def test_record_rejects_too_many_events_before_writes(self) -> None:
+        novel_id = str(uuid.uuid4())
+        event_repo = MagicMock()
+        event_repo.replace_chapter_events = AsyncMock()
+        snapshot_repo = MagicMock()
+        service = MemoryService(event_repo=event_repo, snapshot_repo=snapshot_repo)
+        db = AsyncMock()
+
+        with pytest.raises(ValidationError) as exc_info:
+            await service.record_events(
+                db,
+                novel_id,
+                3,
+                [
+                    {"event_type": "entity_created", "snapshot_after": {"name": "A"}}
+                    for _ in range(MAX_MEMORY_EVENTS_PER_CHAPTER + 1)
+                ],
+            )
+
+        assert str(MAX_MEMORY_EVENTS_PER_CHAPTER) in exc_info.value.message
+        event_repo.replace_chapter_events.assert_not_awaited()
+        db.flush.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_record_rejects_oversized_event_payload_before_writes(self) -> None:
+        novel_id = str(uuid.uuid4())
+        event_repo = MagicMock()
+        event_repo.replace_chapter_events = AsyncMock()
+        snapshot_repo = MagicMock()
+        service = MemoryService(event_repo=event_repo, snapshot_repo=snapshot_repo)
+        db = AsyncMock()
+        sentinel = "PAYLOAD_SENTINEL"
+
+        with pytest.raises(ValidationError) as exc_info:
+            await service.record_events(
+                db,
+                novel_id,
+                3,
+                [
+                    {
+                        "event_type": "entity_created",
+                        "snapshot_after": {
+                            "name": "A",
+                            "content": sentinel
+                            + ("x" * MAX_MEMORY_EVENT_PAYLOAD_CHARS),
+                        },
+                    }
+                ],
+            )
+
+        assert "event_index=1" in exc_info.value.message
+        assert str(MAX_MEMORY_EVENT_PAYLOAD_CHARS) in exc_info.value.message
+        assert sentinel not in exc_info.value.message
+        event_repo.replace_chapter_events.assert_not_awaited()
+        db.flush.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_record_batch(self) -> None:
         """记录 3 条事件，验证数量和 sequence"""
         novel_id = str(uuid.uuid4())
@@ -598,7 +660,10 @@ class TestReplayState:
         snapshot_repo = MagicMock()
         snapshot_repo.get_nearest = AsyncMock(return_value=None)
         event_repo = MagicMock()
-        event_repo.get_by_chapter_range = AsyncMock(return_value=[])
+        event_repo.get_by_chapter_range = AsyncMock(
+            side_effect=AssertionError("replay_state must page event replay")
+        )
+        event_repo.get_by_chapter_range_page_after = AsyncMock(return_value=[])
         service = MemoryService(event_repo=event_repo, snapshot_repo=snapshot_repo)
         db = MagicMock()
 
@@ -606,6 +671,7 @@ class TestReplayState:
 
         assert result["entities"] == []
         assert result["relations"] == []
+        event_repo.get_by_chapter_range.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_replay_events_only(self) -> None:
@@ -626,7 +692,10 @@ class TestReplayState:
         snapshot_repo = MagicMock()
         snapshot_repo.get_nearest = AsyncMock(return_value=None)
         event_repo = MagicMock()
-        event_repo.get_by_chapter_range = AsyncMock(return_value=events)
+        event_repo.get_by_chapter_range = AsyncMock(
+            side_effect=AssertionError("replay_state must page event replay")
+        )
+        event_repo.get_by_chapter_range_page_after = AsyncMock(return_value=events)
         service = MemoryService(event_repo=event_repo, snapshot_repo=snapshot_repo)
         db = MagicMock()
 
@@ -634,6 +703,216 @@ class TestReplayState:
 
         assert len(result["entities"]) == 1
         assert result["entities"][0]["name"] == "张三"
+        event_repo.get_by_chapter_range.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_replay_pages_events_without_repeated_full_load(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        eid = uuid.uuid4()
+        create_event = _make_memory_event(
+            id=uuid.uuid4(),
+            event_type="entity_created",
+            entity_id=eid,
+            chapter_index=1,
+            sequence=1,
+            snapshot_after={
+                "id": str(eid),
+                "name": "张三",
+                "entity_type": "character",
+            },
+        )
+        update_event = _make_memory_event(
+            id=uuid.uuid4(),
+            event_type="entity_updated",
+            entity_id=eid,
+            chapter_index=2,
+            sequence=1,
+            snapshot_after={"name": "张三 Updated"},
+        )
+        snapshot_repo = MagicMock()
+        snapshot_repo.get_nearest = AsyncMock(return_value=None)
+        event_repo = MagicMock()
+        event_repo.get_by_chapter_range = AsyncMock(
+            side_effect=AssertionError("replay_state must page event replay")
+        )
+        event_repo.get_by_chapter_range_page_after = AsyncMock(
+            side_effect=[[create_event], [update_event], []]
+        )
+        monkeypatch.setattr(
+            "modules.memory.services.MEMORY_REPLAY_EVENT_BATCH_SIZE",
+            1,
+        )
+        service = MemoryService(event_repo=event_repo, snapshot_repo=snapshot_repo)
+        db = MagicMock()
+
+        result = await service.replay_state(db, novel_id, 2)
+        expected = service._apply_events(
+            {
+                "entities": {},
+                "relations": [],
+                "character_locations": {},
+                "character_knowledge": [],
+            },
+            [create_event, update_event],
+        )
+
+        assert result == expected
+        assert result["entities"][0]["name"] == "张三 Updated"
+        assert event_repo.get_by_chapter_range_page_after.await_count == 3
+        event_repo.get_by_chapter_range.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_get_panorama_no_snapshot_no_events_keeps_world_fallback(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        snapshot_repo = MagicMock()
+        snapshot_repo.get_nearest = AsyncMock(return_value=None)
+        event_repo = MagicMock()
+        event_repo.get_by_chapter_range = AsyncMock(
+            side_effect=AssertionError("get_panorama must page event replay")
+        )
+        event_repo.get_by_chapter_range_page_after = AsyncMock(return_value=[])
+
+        get_full_state = AsyncMock(
+            return_value={
+                "entities": [],
+                "relations": [],
+                "character_locations": {},
+                "character_knowledge": [],
+            }
+        )
+        monkeypatch.setattr("modules.world.facade.get_full_state", get_full_state)
+        service = MemoryService(event_repo=event_repo, snapshot_repo=snapshot_repo)
+        db = MagicMock()
+
+        result = await service.get_panorama(db, novel_id, 3)
+
+        assert result.novel_id == novel_id
+        assert result.chapter_index == 3
+        get_full_state.assert_awaited_once_with(db, novel_id)
+        event_repo.get_by_chapter_range.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_continuity_evidence_uses_count_before_panorama(
+        self,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        snapshot_repo = MagicMock()
+        snapshot_repo.get_nearest = AsyncMock(return_value=None)
+        event_repo = MagicMock()
+        event_repo.count_by_chapter_range = AsyncMock(return_value=0)
+        event_repo.get_by_chapter_range = AsyncMock(
+            side_effect=AssertionError("continuity evidence must not full-load events")
+        )
+        service = MemoryService(event_repo=event_repo, snapshot_repo=snapshot_repo)
+        db = MagicMock()
+
+        result = await service.get_continuity_evidence_for_writing(
+            db,
+            novel_id,
+            5,
+            pov_character_id=str(uuid.uuid4()),
+            current_location_id="loc-new",
+        )
+
+        assert result is None
+        event_repo.count_by_chapter_range.assert_awaited_once_with(
+            db, uuid.UUID(novel_id), 1, 4
+        )
+        event_repo.get_by_chapter_range.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_capture_snapshot_counts_events_without_full_load(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        event_repo = MagicMock()
+        event_repo.count_by_chapter_range = AsyncMock(return_value=7)
+        event_repo.get_by_chapter_range = AsyncMock(
+            side_effect=AssertionError("capture_snapshot must not full-load events")
+        )
+        snapshot_repo = MagicMock()
+        snapshot_repo.create = AsyncMock(
+            return_value=_make_snapshot(
+                novel_id=uuid.UUID(novel_id),
+                chapter_index=10,
+                events_until=7,
+            )
+        )
+        monkeypatch.setattr(
+            "modules.world.facade.get_full_state",
+            AsyncMock(
+                return_value={
+                    "entities": [],
+                    "relations": [],
+                    "character_locations": {},
+                    "character_knowledge": [],
+                }
+            ),
+        )
+        service = MemoryService(event_repo=event_repo, snapshot_repo=snapshot_repo)
+        db = MagicMock()
+
+        result = await service.capture_snapshot(db, novel_id, 10)
+
+        assert result.events_until == 7
+        event_repo.count_by_chapter_range.assert_awaited_once_with(
+            db, uuid.UUID(novel_id), 1, 10
+        )
+        event_repo.get_by_chapter_range.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_full_rebuild_uses_max_chapter_without_full_load(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        event_repo = MagicMock()
+        event_repo.delete_from_chapter = AsyncMock(return_value=0)
+        event_repo.get_max_chapter_in_range = AsyncMock(return_value=12)
+        event_repo.count_by_chapter_range = AsyncMock(return_value=0)
+        event_repo.get_by_chapter_range = AsyncMock(
+            side_effect=AssertionError("full_rebuild must not full-load events")
+        )
+        snapshot_repo = MagicMock()
+        snapshot_repo.delete_stale = AsyncMock(return_value=0)
+        snapshot_repo.create = AsyncMock(
+            side_effect=[
+                _make_snapshot(novel_id=uuid.UUID(novel_id), chapter_index=10),
+                _make_snapshot(novel_id=uuid.UUID(novel_id), chapter_index=12),
+            ]
+        )
+        monkeypatch.setattr(
+            "modules.world.facade.get_full_state",
+            AsyncMock(
+                return_value={
+                    "entities": [],
+                    "relations": [],
+                    "character_locations": {},
+                    "character_knowledge": [],
+                }
+            ),
+        )
+        service = MemoryService(event_repo=event_repo, snapshot_repo=snapshot_repo)
+        db = MagicMock()
+
+        result = await service.full_rebuild(db, novel_id, 1)
+
+        assert result == {
+            "rebuilt_snapshots": 2,
+            "from_chapter": 1,
+            "final_chapter": 12,
+        }
+        event_repo.get_max_chapter_in_range.assert_awaited_once_with(
+            db, uuid.UUID(novel_id), 1, 999999
+        )
+        event_repo.get_by_chapter_range.assert_not_awaited()
 
 
 class TestMarkStale:

@@ -37,7 +37,7 @@ def phase2_delta_subject_to_map_target(contract_id: str) -> list[ContractIssue]:
 def generation_center_builtin_templates_validate(
     contract_id: str,
 ) -> list[ContractIssue]:
-    from modules.world.services.generation_prompt_template_service import (
+    from modules.world.services.worldbuilding.generation_prompt_template_service import (
         BUILTIN_GENERATION_TEMPLATES,
         validate_template,
     )
@@ -66,7 +66,7 @@ def generation_center_builtin_templates_validate(
 def generation_center_frontend_template_options_match(
     contract_id: str,
 ) -> list[ContractIssue]:
-    from modules.world.services.generation_prompt_template_service import (
+    from modules.world.services.worldbuilding.generation_prompt_template_service import (
         SUPPORTED_OBJECT_TEMPLATES,
     )
 

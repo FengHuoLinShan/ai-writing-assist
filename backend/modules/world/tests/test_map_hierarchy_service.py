@@ -7,6 +7,7 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.world.map_repositories import MapConfigRepository
 from modules.world.map_schemas import (
     MapConfigCreate,
     MapLocationBindingCreate,
@@ -55,7 +56,7 @@ class TestMapHierarchyService:
         assert detail.parent_entity_id == loc_id
 
     @pytest.mark.asyncio
-    async def test_breadcrumbs(self, db_session: AsyncSession):
+    async def test_breadcrumbs_three_level_chain(self, db_session: AsyncSession):
         nid = uuid.uuid4().hex
         await _create_project(db_session, nid)
         cfg_svc = MapConfigService()
@@ -77,11 +78,73 @@ class TestMapHierarchyService:
                 parent_entity_id=loc_id,
             ),
         )
+        inner_loc_id = await _create_location_entity(db_session, nid, "内城")
+        inner = await cfg_svc.create(
+            db_session,
+            nid,
+            MapConfigCreate(
+                name="内城",
+                map_type="region",
+                grid_width=5,
+                grid_height=5,
+                parent_map_id=city.id,
+                parent_entity_id=inner_loc_id,
+            ),
+        )
 
-        state = await cfg_svc.get_state(db_session, nid, city.id)
+        state = await cfg_svc.get_state(db_session, nid, inner.id)
         names = [b.name for b in state.breadcrumbs]
         # 顶层在前，当前在尾
-        assert names == ["世界", "洛阳"]
+        assert names == ["世界", "洛阳", "内城"]
+
+    @pytest.mark.asyncio
+    async def test_breadcrumbs_parent_cycle_stops_and_preserves_order(
+        self, db_session: AsyncSession
+    ):
+        nid = uuid.uuid4().hex
+        await _create_project(db_session, nid)
+        cfg_svc = MapConfigService()
+        world = await cfg_svc.create(
+            db_session,
+            nid,
+            MapConfigCreate(name="世界", map_type="world", grid_width=5, grid_height=5),
+        )
+        city_loc_id = await _create_location_entity(db_session, nid, "洛阳")
+        city = await cfg_svc.create(
+            db_session,
+            nid,
+            MapConfigCreate(
+                name="洛阳",
+                map_type="city",
+                grid_width=5,
+                grid_height=5,
+                parent_map_id=world.id,
+                parent_entity_id=city_loc_id,
+            ),
+        )
+        inner_loc_id = await _create_location_entity(db_session, nid, "内城")
+        inner = await cfg_svc.create(
+            db_session,
+            nid,
+            MapConfigCreate(
+                name="内城",
+                map_type="region",
+                grid_width=5,
+                grid_height=5,
+                parent_map_id=city.id,
+                parent_entity_id=inner_loc_id,
+            ),
+        )
+
+        repo = MapConfigRepository()
+        await repo.update(
+            db_session,
+            uuid.UUID(hex=world.id),
+            {"parent_map_id": uuid.UUID(hex=inner.id)},
+        )
+
+        breadcrumbs = await repo.get_breadcrumbs(db_session, uuid.UUID(hex=inner.id))
+        assert [b.name for b in breadcrumbs] == ["世界", "洛阳", "内城"]
 
     @pytest.mark.asyncio
     async def test_get_state_returns_tiles_and_bindings(self, db_session: AsyncSession):
