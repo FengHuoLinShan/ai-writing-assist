@@ -2,7 +2,40 @@
 
 - 日期：2026-07-07
 - 范围：全局设置页 + 项目级 LLM/深度导入配置页 重组
-- 状态：待评审
+- 状态：评审决策已收口
+- 评审版本：v2（含 2026-07-07 评审问题清单全部决策）
+
+## 0. 关键决策表（评审收口）
+
+|# |决策点|结论|
+|---|------|-----|
+|D1|source 分类|四类：`project` / `global` / `system` / `unset`|
+|D2|NULL 语义分层|项目字段 NULL = 继承全局；全局字段 NULL = 继承代码内置默认；既无项目也无全局值且无内置默认 = `unset`|
+|D3|项目覆盖字段 nullable 范围|`project_llm_settings` 所有非 Key 字段（含现有）全部改 nullable；Key 维持项目独有；demo 阶段 drop 重建该表|
+|D4|PUT/PATCH/DELETE 分工|`PUT` = 全量替换（缺失字段置 NULL = 恢复继承）；不引入 PATCH；`DELETE /<resource>/field/<field_name>` = 单字段恢复继承；`field_name` 服务端硬白名单，非白名单返回 400，不拼列名|
+|D5|LLM 设置也加字段级 DELETE|是。`DELETE /api/projects/<id>/llm-settings/field/<field_name>`|
+|D6|deep_import JSONB 覆盖粒度|整体覆盖，不做字段级合并。项目 NULL = 继承全局；有值 = 整体覆盖；UI「恢复到全局默认」按钮放在整个 Tab 而非每字段；子字段仍走 schema 校验|
+|D7|effective 接口稳定响应结构|`{ field: { value, source } }`；`source ∈ {project, global, system, unset}`；`deep_import` 整体作为一个单元返回|
+|D8|API Key 绑定安全|Key 永远项目级，source 永远 `project` 或 `unset`，从不 `global` / `system`；effective 接口仅返回 `api_key_configured: bool`，不留明文；继承的 provider/base_url 与项目 Key 在 UI 警告提示；后端 LLM 调用不阻断跨供应商 Key，日志记 `key_provider_mismatch` 审计字段|
+|D9|全局深度导入默认进 UI|**不进**。`global_llm_defaults.deep_import` 列保留但本期永不写入；深度导入 source 永远 `project` 或 `system`；项目级才有覆盖；避免全局页 40+ 字段臃肿；未来需要时单独开 issue|
+|D10|owner_id 类型|UUID，demo 用 nil UUID `00000000-0000-0000-0000-000000000000`；UI 仅显示 `local` 字样|
+|D11|项目级表 owner_id|不带。当前 `projects` 表无 `owner_id` 列，项目级新表仅 `project_id` 隔离；owner 隔离靠 `project → owner` 关系未来追加，避免双写冗余|
+|D12|全局作者偏好硬编码默认|`daily_goal = null (unset)`；`editor_font = "system"`；`default_focus_mode = false`|
+|D13|项目偏好行不存在返回|`GET` 返回全 NULL 空对象（不是 404）；effective 视图自动等同全继承全局|
+|D14|URL project id 权威|`#/projects/<id>/settings` 从 URL 取 project_id，不依赖内存 `currentProjectId`；选中后同步 state；保证深链书签可靠|
+|D15|`#/llm` 无项目时|跳到 `#/settings` 全局页 + toast「请先选择项目」|
+|D16|全局缓存失效|全局保存后本地缓存失效 + effective 重拉；切 owner 缓存清；多标签页用 `storage` event 通知刷新；新增 `POST /api/settings/refresh` 调试端点|
+|D17|未配 Key 时 UI 引导|Key 旁黄色提示「需配置项目 API Key 后才能实际调用 LLM」；保存项目配置 + 全局默认但 Key 空时 toast「Key 未配置，已保存其他字段」|
+|D18|`projects-using-defaults` 统计口径|只统计作者偏好默认（不统计 LLM 默认，避免误以为 LLM Key 复用）；任一字段在 `project_author_preferences` 为 NULL 即列出|
+|D19|聚合分页|本期不分页；接口预留 `?limit=50&offset=0`；超过 100 时前端展示前 50 + 「更多项目省略」|
+|D20|localStorage 旧偏好迁目标|迁为**项目覆盖**（不污染全局默认）；每个项目迁自己的，不存在跨项目冲突|
+|D21|首次打开才迁移|接受。文档说明「未再打开的项目其 localStorage 不会自动入库，清浏览器缓存会丢失」；全局设置页底部提供「手动迁移所有项目本地偏好」按钮遍历所有 `novel_author_preferences:*` 批量迁|
+|D22|localStorage 与后端冲突|后端有值优先：仅在项目偏好行不存在/全 NULL 时执行迁移；已有项目偏好值时跳过迁移并清旧 key（不覆盖）|
+|D23|全局 LLM 默认不存在时 effective|所有字段 source=`system`，回退代码内置默认（`provider_id="openai-compatible"`、`model=""`、`temperature=0.3` 等）；UI 提示「未配置全局默认，使用系统内置默认」|
+|D24|owner 隔离测试|pytest 直接构造两个虚拟 owner_id（fixture 注入），断言 owner A 看不到 owner B 的全局行；占位回归断言，账户接入时此测试不需改，仅加 authorizer 单测|
+|D25|表重建丢数据|接受（AGENTS.md 已明确 demo 阶段允许）。安全脚本不动；要求测试全部独立 seed|
+
+上述决策为契约性结论，后续章节若与之冲突以本表为准。
 
 ## 1. 背景与目标
 
@@ -79,22 +112,22 @@
 ```sql
 id              UUID PK
 owner_id        UUID NOT NULL UNIQUE  -- 预留账户；demo='00000000-0000-0000-0000-000000000000'
-provider_id     VARCHAR
-label           VARCHAR
-base_url        VARCHAR
-model           VARCHAR
-timeout         INT
-max_tokens      INT
-temperature     FLOAT
-top_p           FLOAT
-extra           JSONB
-creative_mode   VARCHAR   -- creative/precise/fast/custom
-deep_import     JSONB     -- 全套深度导入参数当默认值
+provider_id     VARCHAR NULL
+label           VARCHAR NULL
+base_url        VARCHAR NULL
+model           VARCHAR NULL
+timeout         INT NULL
+max_tokens      INT NULL
+temperature     FLOAT NULL
+top_p           FLOAT NULL
+extra           JSONB NULL
+creative_mode   VARCHAR NULL   -- creative/precise/fast/custom
+deep_import     JSONB NULL      -- 列保留但本期永不写入（D9）；永远 NULL，source 永远 system
 created_at      TIMESTAMPTZ
 updated_at      TIMESTAMPTZ
 ```
 
-不存 API Key — 全局默认只覆盖「接哪家供应商 + 走什么参数」。
+不存 API Key — 全局默认只覆盖「接哪家供应商 + 走什么参数」。所有字段(nullable) 的 NULL 语义 = 继承代码内置默认（D2）。
 
 ### 4.2 `global_author_preferences`
 
@@ -124,7 +157,7 @@ updated_at          TIMESTAMPTZ
 
 ### 4.4 现有 `project_llm_settings`
 
-新增字段允许 NULL，含义同上。Key 字段维持现状（项目独有）。
+**所有非 Key 字段全部改 nullable**（D3）：`provider_id`、`label`、`base_url`、`model`、`timeout`、`max_tokens`、`temperature`、`top_p`、`extra`、`creative_mode`、`deep_import`。Key 字段维持项目独有，不参与继承。demo 阶段直接 drop 重建该表。NULL 语义 = 继承全局；全局也无 = 继承系统内置默认（source=`system`）。
 
 ## 5. API 接口
 
@@ -144,13 +177,28 @@ updated_at          TIMESTAMPTZ
 
 | Method | Path | 说明 |
 |--------|------|------|
-| GET | `/api/projects/<id>/author-preferences` | 项目覆盖（可能全 NULL） |
-| PUT | `/api/projects/<id>/author-preferences` | upsert |
-| DELETE | `/api/projects/<id>/author-preferences/field/<field_name>` | 单字段重置回 NULL（恢复到全局默认） |
-| GET | `/api/projects/<id>/effective-llm-settings` | 合并视图：每字段带 source 标签 |
-| GET | `/api/projects/<id>/effective-author-preferences` | 合并视图：每字段带 source 标签 |
+| GET | `/api/projects/<id>/author-preferences` | 项目覆盖（可能全 NULL 空对象，不返回 404） |
+| PUT | `/api/projects/<id>/author-preferences` | 全量替换；缺失字段置 NULL（=恢复继承） |
+| DELETE | `/api/projects/<id>/author-preferences/field/<field_name>` | 单字段恢复继承；`field_name` 服务端硬白名单，非白名单返回 400，不拼列名 |
+| GET | `/api/projects/<id>/effective-llm-settings` | 合并视图：`{ field: { value, source } }`；source ∈ {project, global, system, unset} |
+| GET | `/api/projects/<id>/effective-author-preferences` | 合并视图：同上结构 |
+| PUT | `/api/projects/<id>/llm-settings` | 全量替换；缺失字段置 NULL（=恢复继承） |
+| DELETE | `/api/projects/<id>/llm-settings/field/<field_name>` | 单字段恢复继承；服务端硬白名单（不含 `api_key`，Key 永远项目独有） |
 
-现有 `GET /api/projects/<id>/llm-settings` 和 `PUT /api/projects/<id>/llm-settings` 保留不变；`PUT` 现在只提交用户改过的字段（其他置 NULL），由后端攒字段语义落地。
+**effective 响应结构（契约）**：
+
+```json
+{
+  "provider_id": { "value": "deepseek", "source": "global" },
+  "base_url":    { "value": "https://api.deepseek.com/v1", "source": "global" },
+  "model":       { "value": "deepseek-v4-flash", "source": "project" },
+  "api_key_configured": { "value": true, "source": "project" },
+  "deep_import": { "value": {...}, "source": "project" },
+  "temperature": { "value": 0.3, "source": "system" }
+}
+```
+
+`api_key_configured` 永远只返回 bool 不返回明文；`source` 永远 `project` 或 `unset`（D8）。
 
 ## 6. 前端视图与状态组织
 
@@ -175,7 +223,7 @@ frontend-console/views/settings/
 
 ### 6.2 视图职责
 
-- **`globalSettingsView`**：渲染顶部状态条 + 全局 LLM 默认 section + 全局作者偏好 section + 引用此默认的项目列表（只读）；保存走全局 PUT。
+- **`globalSettingsView`**：渲染顶部状态条 + 全局 LLM 默认 section + 全局作者偏好 section + 引用此默认的项目列表（只读）+ 底部「手动迁移所有项目本地偏好」按钮；保存走全局 PUT。不渲染深度导入（D9）。
 - **`projectSettingsView`**：渲染 Tab 切换 + 加载 effective 视图 + 把 source 元信息传给三个 Tab；保存走原项目 PUT，字段重置走单字段 DELETE。
 - **三个 Tab**：纯渲染 + 读取，不含路由与数据来源逻辑。
 - **`shared/*`**：渲染与读取单元，跨视图复用；`deepImportFields.js` 的 schema 是数据，未来可从后端下发，先抽离常量好接。
@@ -190,19 +238,34 @@ frontend-console/views/settings/
 
 ### 6.4 状态与迁移
 
-`state.js` 新增 `globalSettingsCache`（owner 级缓存）。localStorage 旧 key `novel_author_preferences:<projectId>` 在首次加载项目作者偏好覆盖时一次性迁移到后端，迁移后清掉旧 key；后端不可达时保留旧 key 不抛，下次再迁。
+`state.js` 新增 `globalSettingsCache`（owner 级缓存）。localStorage 旧 key `novel_author_preferences:<projectId>` 迁移规则（D20-D22）：
+
+- 仅在项目作者偏好后端行为空（行不存在或全字段 NULL）时迁移
+- 迁移目标为**项目覆盖**（不污染全局默认）
+- 后端已有项目偏好值时跳过迁移并清掉旧 key（不覆盖后端）
+- 后端不可达时保留旧 key 不抛，下次再迁
+- 全局页「手动迁移所有项目本地偏好」按钮遍历所有 `novel_author_preferences:*` 批量迁
+- 文档说明：未再打开的项目其 localStorage 不会自动入库，清浏览器缓存会丢失
+
+`#/projects/<id>/settings` 从 URL path 取 project_id（D14），不依赖内存 `currentProjectId`：保证深链与书签可靠。
 
 ## 7. 错误处理与边界
 
+- **URL 权威性**（D14）：`#/projects/<id>/settings` 从 URL path 取 project_id，不依赖内存 `currentProjectId`；选中后同步 state。
 - **未选项目访问项目设置**：渲染空态 + 「返回全局设置」按钮，不发起任何 API 调用。
-- **全局 LLM 默认尚不存在**：`GET /api/settings/llm-defaults` 返回 `null`，前端展示空白带「创建全局默认」按钮；首次保存即 upsert。
-- **项目从未配过 LLM 时 effective 视图**：所有字段 `source: "global"`，值回填自全局默认；Key 状态为「未配置」是已知可接受初始态。
-- **字段重置**：单字段 DELETE 把该列 UPDATE 为 NULL；前端从 effective 视图重读以拿新 source 和值。批量「恢复全部」作为危险操作走二次确认 modal。
-- **全局默认被改后影响范围**：所有 NULL 字段的项目自动继承新值（设计语义）；页面底部「引用此默认的项目列表」实时反映，无需对每个项目单独操作。
-- **深度导入 40+ 字段校验**：保留现有 `_readOptionalInt/Float` 的 min/max 校验链；失败给单字段 toast，整体保存中止。校验逻辑放 `deepImportFields.js` 全局默认页与项目页共用。
-- **迁移失败**：localStorage 旧 key 后端不可达时保留不抛；不阻塞 Tab 渲染（先读后端，读不到再 fallback 解析 localStorage）。
+- **`#/llm` 无项目时**（D15）：rewrite 到 `#/settings` 全局页 + toast「请先选择项目」。
+- **全局 LLM 默认尚不存在**：`GET /api/settings/llm-defaults` 返回 `null`，前端展示空白带「创建全局默认」按钮；首次保存即 upsert；effective 视图所有字段 source=`system`，UI 提示「未配置全局默认，使用系统内置默认」。
+- **项目从未配过 LLM 时 effective 视图**：所有非 Key 字段 `source: "global"` 或 `system`，值回填；Key 状态为「未配置」（source=`unset`），是已知可接受初始态，UI 黄色提示「需配置项目 API Key 后才能实际调用 LLM」。
+- **API Key 与继承 provider 的不一致警告**（D8）：项目 provider_id 或 base_url 来自 global/system 时，UI 在 Key 旁提示「当前供应商/BaseURL 来自全局默认，请确认 Key 与该供应商匹配」；后端调用 LLM 时不阻断，但日志记 `key_provider_mismatch: true` 审计字段。
+- **保存 Key 空时 toast**（D17）：保存项目配置 + 全局默认但 Key 空时返回成功 + toast「Key 未配置，已保存其他字段」。
+- **字段重置**：单字段 DELETE 把该列 UPDATE 为 NULL；前端从 effective 视图重读。批量「恢复全部」作为危险操作走二次确认 modal。`field_name` 服务端硬白名单，非白名单返回 400，不拼列名、不拼 JSON path。
+- **deep_import 整体覆盖语义**（D6）：项目 `deep_import` NULL = 继承全局；有值 = 整体覆盖；UI「恢复到全局默认」按钮放在整个 Tab 而非每字段；子字段仍走 schema min/max 校验，失败单字段 toast 整体保存中止。
+- **全局默认被改后影响范围**：所有 NULL 字段的项目自动继承新值（设计语义）；页面底部「引用此默认的项目列表」实时反映。
+- **`projects-using-defaults` 口径与分页**（D18/D19）：只统计作者偏好默认；任一字段在 `project_author_preferences` 为 NULL 即列出；本期不分页，接口预留 `?limit=50&offset=0`，超过 100 时前端展示前 50 + 「更多项目省略」。
+- **localStorage 迁移目标**（D20/D21/D22）：迁为**项目覆盖**；每项目迁自己的；仅在项目偏好行不存在/全 NULL 时执行迁移；后端已有值时跳过迁移并清旧 key（不覆盖）；首次打开迁，未再打开的不迁；全局页底部「手动迁移所有项目本地偏好」按钮遍历所有 `novel_author_preferences:*` 批量迁；清浏览器缓存仍会丢失未打开的项目旧偏好（已记录文档内）。
+- **全局缓存失效**（D16）：全局保存后本地缓存失效 + effective 重拉；切 owner 缓存清；多标签页 `storage` event 通知刷新；`POST /api/settings/refresh` 调试端点。
 - **novel_id 隔离**：所有 `/api/projects/<id>/...` 继续走现有 currentProjectId 校验中间件；`/api/settings/...` 靠 owner_id 隔离（demo 固定 `local`）。
-- **API Key 安全**：全局默认后端实体永远不接收、不存 Key；项目保存沿用现 `api_key_configured` 布尔回显模式，不留明文，不写日志。
+- **API Key 安全**：全局默认后端实体永远不接收、不存 Key；项目保存沿用现 `api_key_configured` 布尔回显，不留明文，不写日志。
 - **demo 阶段放宽项**：直接 drop 表重建；测试同步更新 schema、ORM、API、文档。
 
 ## 8. 测试
@@ -212,12 +275,19 @@ frontend-console/views/settings/
 ### 8.1 后端单测（pytest）
 
 - `test_global_llm_defaults_repo`：upsert、按 owner_id 隔离、Key 字段不存在
-- `test_global_author_preferences_repo`：字段 NULL 语义
+- `test_global_author_preferences_repo`：字段 NULL 语义；全局不存在时回退硬编码默认（`editor_font="system"`、`default_focus_mode=false`、`daily_goal=unset`）
 - `test_project_author_preferences_field_reset`：单字段 DELETE 后该列 NULL，其他列不变；UNIQUE(project_id) 保证一行
-- `test_effective_llm_settings_merge`：项目 NULL 字段回退全局默认；项目有值优先；Key 不来源全局
-- `test_effective_author_preferences_merge`：全局不存在时回退硬编码默认
-- `test_global_settings_owner_isolation`：demo owner='local'，断言两虚拟 owner 互不可见（为账户系统接入预留回归断言）
-- `test_projects_using_defaults_aggregation`：列出 NULL 字段项目，断言排序与去重
+- `test_project_author_preferences_row_not_exist`：`GET` 返回全 NULL 空对象（不是 404）
+- `test_effective_llm_settings_merge`：项目 NULL 字段回退全局默认；项目有值优先；Key source 永远 `project` 或 `unset`，从不 `global` / `system`
+- `test_effective_llm_settings_system_fallback`：全局默认不存在时所有非 Key 字段 source=`system`，回退代码内置默认
+- `test_effective_deep_import_atomic_unit`：项目 deep_import NULL → source=`global` 或 `system`；项目有值 → source=`project` 整体覆盖
+- `test_effective_author_preferences_merge`：同上语义
+- `test_llm_settings_field_delete`：单字段 DELETE 把该列 NULL；非白名单字段返回 400；`api_key` 不在白名单
+- `test_global_llm_defaults_rejects_api_key`：PUT payload 含 `api_key` 字段时后端拒绝/剔除，且不写入日志
+- `test_llm_key_provider_mismatch_logging`：调用 LLM 时若 provider 来源层级与 Key 来源层级不一致，日志记 `key_provider_mismatch: true`
+- `test_put_full_replace_semantics`：PUT 缺失字段置 NULL（=恢复继承），不做部分更新
+- `test_global_settings_owner_isolation`：fixture 注入两个虚拟 owner_id，断言 owner A 看不到 owner B 的全局行（为账户系统接入预留回归断言）
+- `test_projects_using_defaults_aggregation`：列出 NULL 字段项目；超过 100 时返回前 100 + 截断标记；断言排序与去重
 
 ### 8.2 前端单测（vitest）
 
@@ -257,8 +327,8 @@ frontend-console/views/settings/
 
 ## 10. 不引入与未来演化
 
-- **不引入账户系统**：`owner_id` 当前固定 `local`，未来账户接入后路由层加 authorizer，DB 无需改。
+- **不引入账户系统**：`owner_id` 当前用 nil UUID 占位（D10），未来账户接入后路由层加 authorizer，DB 无需改 schema；项目级表不带 owner_id（D11），靠 `project → owner` 关系未来追加。
 - **不引入后端 env 在线写**：`DATABASE_URL`、`CORS`、`pool_size`、`EMBEDDING_DIM` 等保持 `.env` 管理。
-- **不引入全局深度导入默认独立管理页**：`global_llm_defaults.deep_import` 字段存默认值但不单独暴露 UI，由全局 LLM 默认 section 内联查看（避免再开一个 tab）。如果未来发现需要单独调，可后续拆出。
+- **本期全局深度导入默认不进任何 UI**（D9）：`global_llm_defaults.deep_import` 列保留但本期永不写入；未来需要全局默认时单独开 issue 暴露该字段编辑入口。
 - **不引入多 owner 隔离运行时**：仅在测试预留断言，运行时 demo 阶段单 owner。
 - **`#/llm` 别名将长期保留**，作为稳定书签入口；未来可视为永久别名。
