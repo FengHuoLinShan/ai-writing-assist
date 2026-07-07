@@ -264,12 +264,7 @@ class SettingsService:
         limit: int = 50,
         offset: int = 0,
     ) -> ProjectsUsingDefaultsResponse:
-        """D18: 仅统计作者偏好默认；行不存在或全部字段为 NULL 即视为完全继承默认。
-
-        说明：spec 原文为「任一字段为 NULL 即列出」，但 plan 配套测试
-        ``test_projects_using_defaults_aggregation`` 期望「设置任意一个字段
-        即视为不再完全继承」——以测试为权威，采用「全字段 NULL 或行不存在」。
-        """
+        """D18: 仅统计作者偏好默认；任一字段为 NULL 或行不存在即视为继承默认。"""
         from sqlalchemy import select
 
         all_projects = await list_active_projects(db)
@@ -284,8 +279,8 @@ class SettingsService:
                 continue
             if (
                 row.daily_goal is None
-                and row.editor_font is None
-                and row.default_focus_mode is None
+                or row.editor_font is None
+                or row.default_focus_mode is None
             ):
                 inheriting.append(proj.id)
 

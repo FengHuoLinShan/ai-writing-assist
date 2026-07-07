@@ -251,14 +251,14 @@ class ProjectAuthorPreferences(Base, UUIDMixin, TimestampMixin):
 """create settings module tables
 
 Revision ID: 20260707_settings
-Revises: 20260703_squashed_current_schema
+Revises: 20260703_scene_chapter_links
 """
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 revision = "20260707_settings"
-down_revision = "20260703_squashed_current_schema"
+down_revision = "20260703_scene_chapter_links"
 branch_labels = None
 depends_on = None
 
@@ -838,7 +838,7 @@ async def test_projects_using_defaults_aggregation(db, factory):
     resp = await svc.list_projects_using_defaults(db)
     titles = [item.title for item in resp.items]
     assert "inheriting" in titles
-    assert "full-override" not in titles
+    assert "full-override" in titles   # D18: 仍有 editor_font/default_focus_mode 为 NULL
 ```
 
 - [ ] **Step 3: 写 `services.py`**

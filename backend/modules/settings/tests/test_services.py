@@ -89,9 +89,26 @@ async def test_projects_using_defaults_aggregation(db_session, factory):
     svc = SettingsService()
     p_full = await factory.create_project(title="full-override")
     await factory.create_project(title="inheriting")
-    # 仅 p_full 设了覆盖；p_null 全 NULL → 应在列表
+    # p_full 仅设了 daily_goal；editor_font 和 default_focus_mode 仍 NULL → 仍在列表
+    # p_null 全 NULL（行不存在）→ 也在列表
+    # D18: 任一字段 NULL 或行不存在即视为继承默认
     await svc.upsert_project_author_prefs(db_session, p_full, {"daily_goal": 1000})
     resp = await svc.list_projects_using_defaults(db_session)
     titles = [item.title for item in resp.items]
     assert "inheriting" in titles
-    assert "full-override" not in titles
+    assert "full-override" in titles
+
+
+@pytest.mark.asyncio
+async def test_projects_using_defaults_excludes_fully_overridden(db_session, factory):
+    """完全覆盖三个字段的项目不应在继承列表中。"""
+    svc = SettingsService()
+    pid = await factory.create_project(title="fully-own")
+    await svc.upsert_project_author_prefs(db_session, pid, {
+        "daily_goal": 1000,
+        "editor_font": "serif",
+        "default_focus_mode": True,
+    })
+    resp = await svc.list_projects_using_defaults(db_session)
+    titles = [item.title for item in resp.items]
+    assert "fully-own" not in titles
