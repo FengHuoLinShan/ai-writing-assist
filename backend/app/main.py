@@ -165,6 +165,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # --- 启动完成 ---
     if settings.rag_prewarm_on_startup:
+
         async def _background_prewarm() -> None:
             try:
                 await prewarm_embedding_worker()
@@ -420,6 +421,7 @@ from modules.memory import api as memory_api  # noqa: E402
 from modules.outline import api as outline_api  # noqa: E402
 from modules.project.api import router as project_router  # noqa: E402
 from modules.rag import api as rag_api  # noqa: E402
+from modules.settings.api import router as settings_router  # noqa: E402
 from modules.world import api as world_api  # noqa: E402
 from modules.world import map_api as world_map_api  # noqa: E402
 from modules.writing import api as writing_api  # noqa: E402
@@ -435,6 +437,7 @@ app.include_router(context_api.router)
 app.include_router(writing_api.router)
 app.include_router(tasks_api.router)
 app.include_router(debug_api.router)
+app.include_router(settings_router)
 
 
 # ---------------------------------------------------------------------------
