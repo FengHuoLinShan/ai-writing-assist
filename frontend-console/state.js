@@ -63,6 +63,9 @@ const appState = {
 
   /** @type {Object<string, any>} 各视图保存的状态（切回时恢复用） */
   viewStates: {},
+
+  /** @type {Object|null} 全局设置缓存（多标签同步失效） */
+  globalSettingsCache: null,
 }
 
 /**
@@ -282,3 +285,52 @@ function updateRightPanelForView(viewName) {
 window.appState = state
 window.onStateChange = onStateChange
 window.updateRightPanelForView = updateRightPanelForView
+
+// D21: 监听跨标签页 global_settings_cache_version 变更，失效本标签的缓存
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (e) => {
+    if (e.key === "global_settings_cache_version") {
+      if (typeof state !== "undefined") state.globalSettingsCache = null
+    }
+  })
+}
+
+/**
+ * D20-D22: 一次性迁移 localStorage 旧作者偏好到后端项目覆盖。
+ * 仅在后端项目偏好行不存在或全字段 NULL 时迁移；后端已有覆盖时跳过并清旧 key。
+ * 后端不可达时保留旧 key 不抛。
+ * @param {string} projectId
+ */
+async function tryMigrateLocalAuthorPreferences(projectId) {
+  if (!projectId) return
+  const key = `novel_author_preferences:${projectId}`
+  const raw = localStorage.getItem(key)
+  if (!raw) return
+  let parsed
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return
+  }
+  try {
+    const existing = await api.settings.getProjectAuthorPrefs(projectId)
+    if (
+      existing &&
+      (existing.daily_goal !== null ||
+        existing.editor_font !== null ||
+        existing.default_focus_mode !== null)
+    ) {
+      localStorage.removeItem(key)
+      return
+    }
+    await api.settings.updateProjectAuthorPrefs(projectId, {
+      daily_goal: parsed.dailyGoal ?? null,
+      editor_font: parsed.editorFont ?? null,
+      default_focus_mode: Boolean(parsed.defaultFocusMode ?? false),
+    })
+    localStorage.removeItem(key)
+  } catch {
+    // 后端不可达时保留旧 key
+  }
+}
+window.tryMigrateLocalAuthorPreferences = tryMigrateLocalAuthorPreferences

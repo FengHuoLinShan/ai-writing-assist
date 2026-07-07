@@ -24,6 +24,13 @@ const projectSettingsView = {
       return
     }
     try {
+      if (typeof tryMigrateLocalAuthorPreferences !== "undefined") {
+        try {
+          await tryMigrateLocalAuthorPreferences(this._projectId)
+        } catch (err) {
+          console.warn("本地偏好迁移失败:", err)
+        }
+      }
       const [llm, prefs, templates] = await Promise.all([
         api.settings.getEffectiveLLMSettings(this._projectId),
         api.settings.getEffectiveAuthorPrefs(this._projectId),
@@ -238,6 +245,21 @@ const projectSettingsView = {
 
 if (typeof router !== "undefined") {
   router.registerView("project-settings", projectSettingsView)
+
+  // #/llm 向后兼容别名（D15）
+  router.registerView("llm", {
+    async onEnter() {
+      if (state.currentProjectId) {
+        router.navigate("project-settings")
+      } else {
+        router.navigate("settings")
+        if (typeof toast !== "undefined") toast("请先选择项目", "warning")
+      }
+    },
+    async render() {
+      return ""
+    },
+  })
 }
 
 export default projectSettingsView

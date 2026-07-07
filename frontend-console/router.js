@@ -21,6 +21,8 @@ const routes = {
   map: { title: "地图", subViews: [] },
   generate: { title: "生成中心", subViews: [] },
   llm: { title: "LLM 设置", subViews: [] },
+  settings: { title: "全局设置", subViews: [] },
+  "project-settings": { title: "项目设置", subViews: [] },
 }
 
 /**
