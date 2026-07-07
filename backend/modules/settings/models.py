@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Boolean, Float, ForeignKey, Integer, String
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, TimestampMixin, UUIDMixin
@@ -34,9 +33,9 @@ class GlobalLLMDefaults(Base, UUIDMixin, TimestampMixin):
     max_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     temperature: Mapped[float | None] = mapped_column(Float, nullable=True)
     top_p: Mapped[float | None] = mapped_column(Float, nullable=True)
-    extra: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    extra: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     creative_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    deep_import: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    deep_import: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class GlobalAuthorPreferences(Base, UUIDMixin, TimestampMixin):
