@@ -198,18 +198,18 @@ class ProjectService:
         db: AsyncSession,
         project_id: str,
     ) -> EffectiveLLMSettingsResponse:
-        from modules.settings.services import SettingsService
+        from modules.settings.facade import get_effective_llm_settings
 
-        return await SettingsService().get_effective_llm_settings(db, project_id)
+        return await get_effective_llm_settings(db, project_id)
 
     async def get_effective_author_prefs(
         self,
         db: AsyncSession,
         project_id: str,
     ) -> EffectiveAuthorPrefsResponse:
-        from modules.settings.services import SettingsService
+        from modules.settings.facade import get_effective_author_prefs
 
-        return await SettingsService().get_effective_author_prefs(db, project_id)
+        return await get_effective_author_prefs(db, project_id)
 
     async def reset_llm_settings_field(
         self,
