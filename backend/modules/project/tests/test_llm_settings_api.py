@@ -159,3 +159,102 @@ async def test_project_update_response_sanitizes_llm_key(
     assert resp.status_code == 200
     assert "sk-from-generic-update" not in resp.text
     assert resp.json()["settings"]["llm"]["api_key_configured"] is True
+
+
+@pytest.mark.asyncio
+async def test_effective_llm_settings_all_system_when_no_config(async_client, factory):
+    pid = await factory.create_project()
+    r = await async_client.get(f"/api/projects/{pid}/effective-llm-settings")
+    assert r.status_code == 200
+    body = r.json()
+    for f in ("provider_id", "base_url", "model", "timeout", "max_tokens", "temperature"):
+        assert body[f]["source"] == "system"
+    assert body["api_key_configured"]["source"] == "unset"
+    assert body["api_key_configured"]["value"] is False
+
+
+@pytest.mark.asyncio
+async def test_effective_llm_settings_global_then_project(async_client, factory):
+    pid = await factory.create_project()
+    await async_client.put(
+        "/api/settings/llm-defaults",
+        json={
+            "provider_id": "deepseek",
+            "base_url": "https://api.deepseek.com/v1",
+            "model": "deepseek-v4-flash",
+        },
+    )
+    r = await async_client.get(f"/api/projects/{pid}/effective-llm-settings")
+    body = r.json()
+    assert body["provider_id"]["source"] == "global"
+    assert body["provider_id"]["value"] == "deepseek"
+    await async_client.put(
+        f"/api/projects/{pid}/llm-settings",
+        json={
+            "provider_id": "deepseek",
+            "base_url": "https://api.deepseek.com/v1",
+            "model": "deepseek-chat",
+        },
+    )
+    r2 = await async_client.get(f"/api/projects/{pid}/effective-llm-settings")
+    body2 = r2.json()
+    assert body2["model"]["source"] == "project"
+    assert body2["model"]["value"] == "deepseek-chat"
+    assert body2["provider_id"]["source"] == "project"
+
+
+@pytest.mark.asyncio
+async def test_reset_llm_field_restores_global(async_client, factory):
+    pid = await factory.create_project()
+    await async_client.put(
+        "/api/settings/llm-defaults", json={"provider_id": "openai-compatible"}
+    )
+    await async_client.put(
+        f"/api/projects/{pid}/llm-settings",
+        json={
+            "provider_id": "deepseek",
+            "base_url": "https://api.deepseek.com/v1",
+            "model": "deepseek-chat",
+        },
+    )
+    r = await async_client.delete(f"/api/projects/{pid}/llm-settings/field/provider_id")
+    assert r.status_code == 200
+    r2 = await async_client.get(f"/api/projects/{pid}/effective-llm-settings")
+    assert r2.json()["provider_id"]["source"] == "global"
+    assert r2.json()["provider_id"]["value"] == "openai-compatible"
+
+
+@pytest.mark.asyncio
+async def test_reset_llm_field_rejects_unknown(async_client, factory):
+    pid = await factory.create_project()
+    r = await async_client.delete(f"/api/projects/{pid}/llm-settings/field/malicious")
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_put_llm_settings_with_nulls_inherits_global(async_client, factory):
+    """D3: 项目 PUT 缺失字段（null）应继承全局默认，而非写入空字符串。"""
+    pid = await factory.create_project()
+    await async_client.put(
+        "/api/settings/llm-defaults",
+        json={
+            "provider_id": "deepseek",
+            "base_url": "https://api.deepseek.com/v1",
+            "model": "deepseek-v4-flash",
+        },
+    )
+    r = await async_client.put(
+        f"/api/projects/{pid}/llm-settings",
+        json={
+            "provider_id": None,
+            "base_url": None,
+            "model": "custom-model",
+        },
+    )
+    assert r.status_code == 200
+    r2 = await async_client.get(f"/api/projects/{pid}/effective-llm-settings")
+    body = r2.json()
+    assert body["model"]["source"] == "project"
+    assert body["model"]["value"] == "custom-model"
+    assert body["provider_id"]["source"] == "global"
+    assert body["base_url"]["source"] == "global"

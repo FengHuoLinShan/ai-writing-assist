@@ -4,11 +4,12 @@ Project API Router
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from core.dependencies import DbSession
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.project.schemas import (
+    LLMFieldResetResponse,
     LLMProviderTemplateListResponse,
     ProjectCreate,
     ProjectListResponse,
@@ -23,6 +24,10 @@ from modules.project.schemas import (
 )
 from modules.project.services import ProjectService
 from modules.project.smart_dedup import SmartDedupService
+from modules.settings.schemas import (
+    EffectiveAuthorPrefsResponse,
+    EffectiveLLMSettingsResponse,
+)
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -87,6 +92,46 @@ async def api_update_project_llm_settings(
 ) -> ProjectLLMSettingsResponse:
     """更新项目级 LLM 配置；api_key 为写入字段，响应中不会回显"""
     return await _service.update_llm_settings(db, project_id, data)
+
+
+@router.get(
+    "/{project_id}/effective-llm-settings",
+    response_model=EffectiveLLMSettingsResponse,
+)
+async def api_get_effective_llm_settings(
+    db: DbSession,
+    project_id: str,
+) -> EffectiveLLMSettingsResponse:
+    """获取项目级 LLM 配置的 effective 视图（项目 > 全局 > 系统）"""
+    return await _service.get_effective_llm_settings(db, project_id)
+
+
+@router.get(
+    "/{project_id}/effective-author-preferences",
+    response_model=EffectiveAuthorPrefsResponse,
+)
+async def api_get_effective_author_prefs(
+    db: DbSession,
+    project_id: str,
+) -> EffectiveAuthorPrefsResponse:
+    """获取项目级作者偏好的 effective 视图（项目 > 全局 > 系统）"""
+    return await _service.get_effective_author_prefs(db, project_id)
+
+
+@router.delete(
+    "/{project_id}/llm-settings/field/{field_name}",
+    response_model=LLMFieldResetResponse,
+)
+async def api_reset_llm_settings_field(
+    db: DbSession,
+    project_id: str,
+    field_name: str,
+) -> LLMFieldResetResponse:
+    """重置项目级 LLM 单字段为继承全局（D4 白名单）"""
+    try:
+        return await _service.reset_llm_settings_field(db, project_id, field_name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.post(

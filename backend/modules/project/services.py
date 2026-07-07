@@ -19,6 +19,7 @@ from infrastructure.llm.profiles import (
 )
 from modules.project.repositories import ProjectRepository
 from modules.project.schemas import (
+    LLMFieldResetResponse,
     LLMProviderTemplateListResponse,
     ProjectContext,
     ProjectCreate,
@@ -27,6 +28,10 @@ from modules.project.schemas import (
     ProjectLLMSettingsUpdate,
     ProjectResponse,
     ProjectUpdate,
+)
+from modules.settings.schemas import (
+    EffectiveAuthorPrefsResponse,
+    EffectiveLLMSettingsResponse,
 )
 from modules.writing.contracts import WritingProjectStatsContract
 from modules.writing.facade import (
@@ -146,12 +151,15 @@ class ProjectService:
         settings = dict(project.settings or {})
         existing_profile = get_llm_profile(settings)
 
-        next_profile = {
-            "provider_id": data.provider_id,
-            "label": data.label,
-            "base_url": data.base_url,
-            "model": data.model,
-        }
+        next_profile: dict[str, object] = {}
+        if data.provider_id is not None and data.provider_id != "":
+            next_profile["provider_id"] = data.provider_id
+        if data.label is not None:
+            next_profile["label"] = data.label
+        if data.base_url is not None and data.base_url != "":
+            next_profile["base_url"] = data.base_url
+        if data.model is not None and data.model != "":
+            next_profile["model"] = data.model
         if data.timeout is not None:
             next_profile["timeout"] = data.timeout
         if data.max_tokens is not None:
@@ -170,14 +178,11 @@ class ProjectService:
         elif existing_profile.get(LLM_API_KEY_FIELD):
             next_profile[LLM_API_KEY_FIELD] = existing_profile[LLM_API_KEY_FIELD]
 
-        settings[LLM_SETTINGS_KEY] = {
-            key: value
-            for key, value in next_profile.items()
-            if value is not None and value != ""
-        }
-        settings[DEEP_IMPORT_SETTINGS_KEY] = clean_deep_import_settings(
-            data.deep_import
-        )
+        if next_profile:
+            settings[LLM_SETTINGS_KEY] = next_profile
+        else:
+            settings.pop(LLM_SETTINGS_KEY, None)
+        settings[DEEP_IMPORT_SETTINGS_KEY] = clean_deep_import_settings(data.deep_import)
         update_data = ProjectUpdate(settings=settings)
         project = await self._repo.update(db, project, update_data)
         if project is None:
@@ -187,6 +192,47 @@ class ProjectService:
             project.settings
         )
         return ProjectLLMSettingsResponse.model_validate(profile)
+
+    async def get_effective_llm_settings(
+        self,
+        db: AsyncSession,
+        project_id: str,
+    ) -> EffectiveLLMSettingsResponse:
+        from modules.settings.services import SettingsService
+
+        return await SettingsService().get_effective_llm_settings(db, project_id)
+
+    async def get_effective_author_prefs(
+        self,
+        db: AsyncSession,
+        project_id: str,
+    ) -> EffectiveAuthorPrefsResponse:
+        from modules.settings.services import SettingsService
+
+        return await SettingsService().get_effective_author_prefs(db, project_id)
+
+    async def reset_llm_settings_field(
+        self,
+        db: AsyncSession,
+        project_id: str,
+        field_name: str,
+    ) -> LLMFieldResetResponse:
+        from modules.settings.constants import LLM_INHERITABLE_FIELDS
+
+        if field_name not in LLM_INHERITABLE_FIELDS:
+            raise ValueError(f"unknown llm field: {field_name}")
+        project = await self._get_existing_project(db, project_id)
+        settings = dict(project.settings or {})
+        llm = dict(settings.get(LLM_SETTINGS_KEY, {}))
+        if field_name in llm:
+            del llm[field_name]
+        if llm:
+            settings[LLM_SETTINGS_KEY] = llm
+        else:
+            settings.pop(LLM_SETTINGS_KEY, None)
+        update_data = ProjectUpdate(settings=settings)
+        await self._repo.update(db, project, update_data)
+        return LLMFieldResetResponse(field=field_name, reset=True)
 
     async def delete_project(self, db: AsyncSession, project_id: str) -> None:
         """软删除：标记项目为已删除（移至回收站）"""

@@ -175,10 +175,10 @@ class ProjectLLMSettingsUpdate(BaseModel):
     clear_api_key is true.
     """
 
-    provider_id: str = Field(default="openai-compatible", max_length=64)
+    provider_id: str | None = Field(default=None, max_length=64)
     label: str | None = Field(default=None, max_length=128)
-    base_url: str = Field(..., min_length=1, max_length=512)
-    model: str = Field(..., min_length=1, max_length=256)
+    base_url: str | None = Field(default=None, max_length=512)
+    model: str | None = Field(default=None, max_length=256)
     timeout: int | None = Field(default=None, ge=1, le=3600)
     max_tokens: int | None = Field(default=None, ge=1, le=200000)
     temperature: float | None = Field(default=None, ge=0, le=2)
@@ -258,3 +258,10 @@ class SmartDedupApplyResponse(BaseModel):
     skipped: int = 0
     results: dict[str, Any] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
+
+
+class LLMFieldResetResponse(BaseModel):
+    """Project LLM field-level reset response."""
+
+    field: str
+    reset: bool = True
