@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import ValidationError as DomainValidationError
 from modules.world.map_repositories import (
     MapConfigRepository,
     MapFactRepository,
@@ -272,6 +273,149 @@ async def test_quick_create_confirm_places_existing_draft_locations_and_facts(
     assert total == 2
     assert {item.dynamic_type for item in facts} == {"location"}
     assert all((item.spatial_anchor or {}).get("hex_q") is not None for item in facts)
+
+
+@pytest.mark.asyncio
+async def test_quick_create_confirm_empty_layouts_do_not_fall_back_to_all(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="location",
+        name="琉璃湾",
+        status="draft",
+    )
+    await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="location",
+        name="归潮塔群",
+        status="draft",
+    )
+
+    response = await MapQuickCreateService().confirm(
+        db_session,
+        novel_id,
+        MapQuickCreateConfirmRequest(name="空选择地图", layouts=[]),
+    )
+    facts, total = await MapFactRepository().list(
+        db_session,
+        uuid.UUID(hex=novel_id),
+        map_id=uuid.UUID(response.map.id),
+        fact_status="confirmed",
+        limit=20,
+    )
+
+    assert response.map.name == "空选择地图"
+    assert response.location_layouts == []
+    assert response.location_bindings == []
+    assert facts == []
+    assert total == 0
+
+
+@pytest.mark.asyncio
+async def test_quick_create_confirm_writes_only_submitted_layouts(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    bay = await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="location",
+        name="琉璃湾",
+        status="draft",
+    )
+    tower = await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="location",
+        name="归潮塔群",
+        status="draft",
+    )
+
+    response = await MapQuickCreateService().confirm(
+        db_session,
+        novel_id,
+        MapQuickCreateConfirmRequest(
+            name="单选地图",
+            layouts=[
+                {
+                    "location_entity_id": str(bay.id),
+                    "center_hex_q": 5,
+                    "center_hex_r": 6,
+                    "occupy_radius": 1,
+                },
+            ],
+        ),
+    )
+    facts, total = await MapFactRepository().list(
+        db_session,
+        uuid.UUID(hex=novel_id),
+        map_id=uuid.UUID(response.map.id),
+        fact_status="confirmed",
+        limit=20,
+    )
+
+    placed_ids = {item.location_entity_id for item in response.location_layouts}
+    binding_ids = {item.location_entity_id for item in response.location_bindings}
+    fact_ids = {str(item.target_entity_id) for item in facts}
+    assert placed_ids == {str(bay.id)}
+    assert binding_ids == {str(bay.id)}
+    assert fact_ids == {str(bay.id)}
+    assert str(tower.id) not in placed_ids
+    assert total == 1
+
+
+@pytest.mark.asyncio
+async def test_quick_create_confirm_rejects_layouts_outside_preview(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="location",
+        name="琉璃湾",
+        status="draft",
+    )
+    faction = await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="faction",
+        name="北府",
+        status="draft",
+    )
+
+    with pytest.raises(DomainValidationError) as exc_info:
+        await MapQuickCreateService().confirm(
+            db_session,
+            novel_id,
+            MapQuickCreateConfirmRequest(
+                name="越权地图",
+                layouts=[
+                    {
+                        "location_entity_id": str(faction.id),
+                        "center_hex_q": 5,
+                        "center_hex_r": 6,
+                        "occupy_radius": 1,
+                    },
+                ],
+            ),
+        )
+
+    maps, total_maps = await MapConfigRepository().get_by_novel(
+        db_session,
+        uuid.UUID(hex=novel_id),
+        limit=20,
+    )
+    assert exc_info.value.code == "invalid_quick_create_layout"
+    assert maps == []
+    assert total_maps == 0
 
 
 @pytest.mark.asyncio

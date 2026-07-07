@@ -92,6 +92,7 @@ MapInteractionEngine = 拖拽、锁定、+/-、撤销、命中查询
 - 拖拽地点。
 - `+ / -` 调整地点占用半径。
 - 锁定/解锁地点。
+- 勾选/取消勾选预览地点；默认全选，确认时只写入已选地点。
 - 开关候选数据。
 - 选择是否生成人物、组织、事件等结构化标记。
 - 前端 session 内 Undo/Redo。
@@ -99,8 +100,10 @@ MapInteractionEngine = 拖拽、锁定、+/-、撤销、命中查询
 
 确认创建时，对用户表现为一键完成，内部按两层写入：
 
-1. 必写：地图配置、地点布局、地点绑定。
+1. 必写：地图配置；地点布局、地点绑定只写入预览中已选地点。
 2. 可选：人物、组织、事件等结构化标记。默认勾选“生成人物等结构化标记”，允许取消。
+
+API 兼容旧调用：`confirm` 不传 `layouts` 时按完整预览落库；传入 `layouts` 时只按传入布局落库；传入 `layouts=[]` 时只创建或复用地图，不写地点布局、绑定或 quick-create facts。
 
 第一版预览草稿只存在前端本地状态，不新增后端草稿表。
 
@@ -753,6 +756,7 @@ E2E 验收：
 
 - 后端新增 `map_location_layouts`、`map_terrain_layers`、`map_terrain_regions`、`map_terrain_patches`、`map_terrain_bindings` ORM、仓库、schema、迁移和 service。
 - 后端新增快速创建 context / preview / confirm API；preview 不落库，confirm 一次只创建一张地图，默认只用 canonical，`include_candidates` 显式开启后才纳入候选；第一轮已让方向、远近、相邻和包含类地理关系参与地点布局，缺少关系时才回退为等距草稿并提示。
+- 快速创建预览支持地点多选；前端默认全选，确认时只提交选中布局。后端保留旧的未传 `layouts` 全量创建语义，并把 `layouts=[]` 解释为不写任何地点输出。
 - 后端新增 location layouts 与 terrain state / patch replace / binding API，并让 `MapStateResponse` 对旧地图返回空 layout/terrain 数组。
 - 地形 patch 覆盖保存已支持重复保存同一 region，不会因同一 `region_id` 再次保存而主键冲突。
 - 前端新增 quick-create modal 控制器、API 包装、GeoLayoutEngine、MapInteractionEngine、TerrainEditor、TerrainRenderer、TerrainAssets 和 StoryOverlay helper。

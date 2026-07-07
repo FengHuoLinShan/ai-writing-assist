@@ -375,7 +375,7 @@ cd frontend-console && BACKEND_PORT=18000 FRONTEND_PORT=18080 npx playwright tes
 | GET | `/api/world/maps/open-target` | 统一地图打开目标（scene / focus entity / fallback） |
 | GET | `/api/world/maps/quick-create/context` | 快速创建上下文（默认 canonical，可显式包含 candidate） |
 | POST | `/api/world/maps/quick-create/preview` | 快速创建预览草稿；不落库、不识别正文、不创建世界对象 |
-| POST | `/api/world/maps/quick-create/confirm` | 确认快速创建，一次只写入一张地图及其布局/绑定 |
+| POST | `/api/world/maps/quick-create/confirm` | 确认快速创建，一次只写入一张地图；未传 `layouts` 时写入全部预览地点，传入 `layouts` 时只写入选中地点，`layouts=[]` 不写地点布局/绑定/fact |
 | PATCH | `/api/world/maps/{map_id}` | 更新地图配置 |
 | DELETE | `/api/world/maps/{map_id}` | 删除地图（硬删，前端二次确认） |
 | POST | `/api/world/maps/{map_id}/generate` | 快速生成详图地形（中心 city + 外 road） |

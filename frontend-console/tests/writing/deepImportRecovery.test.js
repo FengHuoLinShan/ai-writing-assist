@@ -203,4 +203,68 @@ describe("createDeepImportRecovery", () => {
     expect(onStatusChange).toHaveBeenCalled()
     m.dispose()
   })
+
+  it("falls back to phase-based percent when task.progress is missing", async () => {
+    const api = createMockApi()
+    api.tasks.get.mockResolvedValue({
+      task_id: "d-fb",
+      task_type: "deep_import",
+      status: "running",
+      result: {
+        phase: "running",
+        current_phase: "entity_extraction",
+        phase2_completed_scenes: 5,
+        phase2_total_scenes: 10,
+        completed_steps: ["scene_segmentation"],
+      },
+    })
+    persistActiveWorkflow({
+      taskId: "d-fb",
+      workflowType: "deep_import",
+      label: "深度导入",
+      projectId: "p1",
+      view: "writing",
+    })
+    const onStatusChange = vi.fn()
+    const manager = createTestManager({ api, onStatusChange })
+
+    await manager.recover()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const html = manager.renderBar()
+    expect(html).toContain("60%")
+    manager.dispose()
+  })
+
+  it("shows indeterminate bar during structure_analysis phase", async () => {
+    const api = createMockApi()
+    api.tasks.get.mockResolvedValue({
+      task_id: "d-ind",
+      task_type: "deep_import",
+      status: "running",
+      progress: 0.8,
+      result: {
+        phase: "running",
+        current_phase: "structure_analysis",
+        current_step: "structure_analysis",
+      },
+    })
+    persistActiveWorkflow({
+      taskId: "d-ind",
+      workflowType: "deep_import",
+      label: "深度导入",
+      projectId: "p1",
+      view: "writing",
+    })
+    const onStatusChange = vi.fn()
+    const manager = createTestManager({ api, onStatusChange })
+
+    await manager.recover()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const html = manager.renderBar()
+    expect(html).toContain("workflow-progress--indeterminate")
+    expect(html).toContain("正在生成剧情结构")
+    manager.dispose()
+  })
 })

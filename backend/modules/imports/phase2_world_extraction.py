@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import re
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
@@ -22,6 +23,7 @@ from modules.imports.llm_schemas import (
     Phase2WorldExtractionOutput,
     Phase2WorldObject,
     Phase2WorldRelation,
+    Phase2WorldUncertainItem,
 )
 from modules.imports.scene_entity_config import current_phase2_project_settings
 from modules.imports.scene_entity_extraction import SceneEntityExtractionService
@@ -42,7 +44,13 @@ PHASE2_WORLD_PROMPT_LEVEL = "strict"
 PHASE2_WORLD_MAX_TOKENS_PER_SOURCE_CHAR = 0.36
 PHASE2_WORLD_MIN_MAX_TOKENS = 24_576
 PHASE2_WORLD_MAX_MAX_TOKENS = PHASE0_MAX_MAX_TOKENS
-PHASE2_WORLD_WINDOW_CONCURRENCY = 3
+PHASE2_WORLD_WINDOW_CONCURRENCY = 20
+INVALID_SCENE_REF_SAMPLE_LIMIT = 5
+WINDOW_DIAGNOSTIC_SAMPLE_LIMIT = 10
+UUID_LIKE_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
 Phase2WorldLLMCallable = Callable[[dict[str, Any]], Awaitable[Any]]
 
@@ -63,6 +71,7 @@ class _WindowWorldResult(BaseModel):
     final_status: str = "failed"
     final_error_type: str | None = None
     invalid_scene_ref_count: int = 0
+    invalid_scene_ref_diagnostics: dict[str, Any] = Field(default_factory=dict)
     overlap_only_count: int = 0
     owned_scene_ids: list[str] = Field(default_factory=list)
 
@@ -97,7 +106,7 @@ class Phase2WorldExtractor:
         novel_id: str,
         *,
         workflow_id: str | None = None,
-        on_scene_progress: Callable[[int, int], Awaitable[None]] | None = None,
+        on_scene_progress: Callable[..., Awaitable[None]] | None = None,
         existing_checkpoints: dict[str, Any] | None = None,
         start_chapter: int | None = None,
         end_chapter: int | None = None,
@@ -139,18 +148,22 @@ class Phase2WorldExtractor:
 
         total_owned_scenes = len(scenes)
         if on_scene_progress is not None:
-            await on_scene_progress(0, total_owned_scenes)
+            await on_scene_progress(
+                completed=0, total=total_owned_scenes, scene_id=None, chapter=None
+            )
 
-        window_results = await self._run_windows(plan.windows, plan.chapters, scenes)
+        window_results = await self._run_windows(
+            plan.windows,
+            plan.chapters,
+            scenes,
+            on_scene_progress=on_scene_progress,
+            total_owned_scenes=total_owned_scenes,
+        )
 
         completed_scene_ids: set[str] = set()
-        completed_units = 0
         for result in window_results:
             if result.final_status == "success":
                 completed_scene_ids.update(result.owned_scene_ids)
-                completed_units = min(total_owned_scenes, len(completed_scene_ids))
-            if on_scene_progress is not None:
-                await on_scene_progress(completed_units, total_owned_scenes)
 
         persist_result = await self._persist_outputs(
             db,
@@ -174,6 +187,7 @@ class Phase2WorldExtractor:
         failed_scene_ids = _failed_scene_ids(window_results)
         failed_scene_indices = _scene_indices_for_ids(scenes, failed_scene_ids)
         invalid_refs = sum(result.invalid_scene_ref_count for result in window_results)
+        invalid_ref_diagnostics = _merge_invalid_ref_diagnostics(window_results)
         overlap_only = sum(result.overlap_only_count for result in window_results)
         failed_windows = [
             result.window.window_id
@@ -227,6 +241,10 @@ class Phase2WorldExtractor:
             "structured_format_diagnostics": [
                 result.diagnostics for result in window_results
             ],
+            "phase2_window_diagnostics": _window_diagnostics_for_artifact(
+                window_results
+            ),
+            "phase2_invalid_scene_ref_diagnostics": invalid_ref_diagnostics,
             "alias_relation_skipped": True,
             "alias_relation_skip_reason": "phase2_world_window_v1_inline_output",
             "alias_relation_scenes": 0,
@@ -238,6 +256,7 @@ class Phase2WorldExtractor:
             ),
             "phase2_batch_size_scenes": 0,
             "phase2_batch_concurrency": self.concurrency,
+            "phase2_world_window_concurrency": self.concurrency,
             "phase2_failed_batches": failed_windows,
             "phase2_degraded_batches": failed_windows,
             "phase2_action_counts": persist_result["action_counts"],
@@ -266,15 +285,46 @@ class Phase2WorldExtractor:
         windows: Sequence[SceneWindowPlan],
         chapters: Sequence[dict[str, Any]],
         scenes: Sequence[dict[str, Any]],
+        *,
+        on_scene_progress: Callable[..., Awaitable[None]] | None = None,
+        total_owned_scenes: int = 0,
     ) -> list[_WindowWorldResult]:
         chapter_by_index = {
             int(chapter["chapter_index"]): chapter for chapter in chapters
         }
         semaphore = asyncio.Semaphore(self.concurrency)
+        completed_scene_ids: set[str] = set()
+        progress_lock = asyncio.Lock()
 
         async def process(window: SceneWindowPlan) -> _WindowWorldResult:
             async with semaphore:
-                return await self._process_window(window, chapter_by_index, scenes)
+                result = await self._process_window(window, chapter_by_index, scenes)
+            if on_scene_progress is not None:
+                async with progress_lock:
+                    if result.final_status == "success":
+                        completed_scene_ids.update(result.owned_scene_ids)
+                    completed = (
+                        min(total_owned_scenes, len(completed_scene_ids))
+                        if total_owned_scenes
+                        else 0
+                    )
+                    representative_scene_id = (
+                        result.owned_scene_ids[0]
+                        if result.owned_scene_ids
+                        else None
+                    )
+                    representative_chapter = (
+                        int(window.owned_start)
+                        if window.owned_start is not None
+                        else None
+                    )
+                    await on_scene_progress(
+                        completed=completed,
+                        total=total_owned_scenes,
+                        scene_id=representative_scene_id,
+                        chapter=representative_chapter,
+                    )
+            return result
 
         results = await asyncio.gather(*(process(window) for window in windows))
         return sorted(results, key=lambda result: result.window.window_index)
@@ -297,6 +347,10 @@ class Phase2WorldExtractor:
         ]
         scenes_by_id = {_scene_id(scene): scene for scene in selected_scenes}
         owned_scene_ids = {_scene_id(scene) for scene in owned_scenes}
+        scene_ref_context = _scene_ref_context(
+            selected_scenes,
+            owned_scene_ids=owned_scene_ids,
+        )
         chapters = [
             chapter_by_index[index]
             for index in window.chapter_indices
@@ -328,10 +382,21 @@ class Phase2WorldExtractor:
                 output = retry_result.value
                 if not isinstance(output, Phase2WorldExtractionOutput):
                     output = Phase2WorldExtractionOutput.model_validate(output)
-                normalized, invalid_refs, overlap_only = _normalize_world_output(
+                (
+                    normalized,
+                    invalid_refs,
+                    overlap_only,
+                    invalid_ref_diagnostics,
+                ) = _normalize_world_output(
                     output,
                     scenes_by_id=scenes_by_id,
                     owned_scene_ids=owned_scene_ids,
+                    diagnostics_context={
+                        **scene_ref_context,
+                        "window_id": window.window_id,
+                        "chapter_indices": window.chapter_indices,
+                        "owned_chapter_indices": window.owned_chapter_indices,
+                    },
                 )
                 return _WindowWorldResult(
                     window=window,
@@ -340,6 +405,7 @@ class Phase2WorldExtractor:
                     final_status="success",
                     final_error_type=None,
                     invalid_scene_ref_count=invalid_refs,
+                    invalid_scene_ref_diagnostics=invalid_ref_diagnostics,
                     overlap_only_count=overlap_only,
                     owned_scene_ids=sorted(owned_scene_ids),
                 )
@@ -501,6 +567,221 @@ def _window_payload(
     }
 
 
+def _scene_ref_context(
+    scenes: Sequence[dict[str, Any]],
+    *,
+    owned_scene_ids: set[str],
+) -> dict[str, Any]:
+    scene_index_values = {
+        str(_scene_index(scene)) for scene in scenes if _scene_index(scene) > 0
+    }
+    chapter_values = {
+        str(chapter) for scene in scenes for chapter in _scene_chapters(scene)
+    }
+    source_counts: dict[str, int] = {}
+    for scene in scenes:
+        source = _scene_id_source(scene)
+        source_counts[source] = source_counts.get(source, 0) + 1
+    return {
+        "available_scene_ids": [_scene_id(scene) for scene in scenes],
+        "owned_scene_ids": sorted(owned_scene_ids),
+        "scene_index_values": scene_index_values,
+        "chapter_values": chapter_values,
+        "available_id_source_counts": source_counts,
+    }
+
+
+def _new_invalid_ref_diagnostic(context: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "total": 0,
+        "category_counts": {},
+        "samples": [],
+        "sample_limit": INVALID_SCENE_REF_SAMPLE_LIMIT,
+        "truncated": False,
+        "available_id_source_counts": context.get("available_id_source_counts") or {},
+        "available_scene_ids_sample": list(context.get("available_scene_ids") or [])[
+            :INVALID_SCENE_REF_SAMPLE_LIMIT
+        ],
+        "owned_scene_ids_sample": list(context.get("owned_scene_ids") or [])[
+            :INVALID_SCENE_REF_SAMPLE_LIMIT
+        ],
+        "window_id": context.get("window_id"),
+        "chapter_indices": list(context.get("chapter_indices") or []),
+        "owned_chapter_indices": list(context.get("owned_chapter_indices") or []),
+    }
+
+
+def _record_invalid_ref_sample(
+    diagnostic: dict[str, Any],
+    *,
+    category: str,
+    item_type: str,
+    item_name: str,
+    raw_ids: list[str],
+    valid_ids: list[str],
+    invalid_ids: list[str],
+) -> None:
+    counts = diagnostic.setdefault("category_counts", {})
+    counts[category] = int(counts.get(category, 0) or 0) + 1
+    samples = diagnostic.setdefault("samples", [])
+    if len(samples) >= INVALID_SCENE_REF_SAMPLE_LIMIT:
+        diagnostic["truncated"] = True
+        return
+    samples.append(
+        {
+            "category": category,
+            "item_type": item_type,
+            "item_name": _short_diag_text(item_name),
+            "raw_ids": raw_ids[:INVALID_SCENE_REF_SAMPLE_LIMIT],
+            "valid_ids": valid_ids[:INVALID_SCENE_REF_SAMPLE_LIMIT],
+            "invalid_ids": invalid_ids[:INVALID_SCENE_REF_SAMPLE_LIMIT],
+            "window_id": diagnostic.get("window_id"),
+            "available_scene_ids_sample": diagnostic.get(
+                "available_scene_ids_sample",
+                [],
+            ),
+            "owned_scene_ids_sample": diagnostic.get("owned_scene_ids_sample", []),
+        }
+    )
+
+
+def _invalid_ref_category(scene_id: str, context: dict[str, Any]) -> str:
+    text = str(scene_id or "").strip()
+    if not text:
+        return "empty_after_normalize"
+    if text in set(context.get("scene_index_values") or set()):
+        return "scene_index_like"
+    if text in set(context.get("chapter_values") or set()):
+        return "chapter_index_like"
+    if UUID_LIKE_RE.match(text):
+        return "uuid_like_but_unknown"
+    if "-" in text or text.lower().startswith("scene"):
+        return "not_in_available_ids"
+    return "non_uuid_text"
+
+
+def _merge_invalid_ref_diagnostics(
+    window_results: Sequence[_WindowWorldResult],
+) -> dict[str, Any]:
+    merged = {
+        "total": 0,
+        "category_counts": {},
+        "samples": [],
+        "sample_limit": INVALID_SCENE_REF_SAMPLE_LIMIT,
+        "truncated": False,
+        "window_count": len(window_results),
+        "windows_with_invalid_refs": [],
+        "available_id_source_counts": {},
+    }
+    for result in window_results:
+        diagnostic = result.invalid_scene_ref_diagnostics or {}
+        total = int(diagnostic.get("total", 0) or 0)
+        merged["total"] += total
+        if total:
+            merged["windows_with_invalid_refs"].append(result.window.window_id)
+        for category, count in (diagnostic.get("category_counts") or {}).items():
+            counts = merged["category_counts"]
+            counts[category] = int(counts.get(category, 0) or 0) + int(count or 0)
+        for source, count in (diagnostic.get("available_id_source_counts") or {}).items():
+            sources = merged["available_id_source_counts"]
+            sources[source] = int(sources.get(source, 0) or 0) + int(count or 0)
+        for sample in diagnostic.get("samples") or []:
+            if len(merged["samples"]) >= INVALID_SCENE_REF_SAMPLE_LIMIT:
+                merged["truncated"] = True
+                break
+            merged["samples"].append(sample)
+        if diagnostic.get("truncated"):
+            merged["truncated"] = True
+    merged["sampled_count"] = len(merged["samples"])
+    return merged
+
+
+def _window_diagnostics_for_artifact(
+    window_results: Sequence[_WindowWorldResult],
+) -> dict[str, Any]:
+    diagnostics = [_safe_window_diagnostic(result) for result in window_results]
+    slowest = sorted(
+        diagnostics,
+        key=lambda item: int(item.get("elapsed_ms_total", 0) or 0),
+        reverse=True,
+    )[:WINDOW_DIAGNOSTIC_SAMPLE_LIMIT]
+    failed = [
+        item
+        for item in diagnostics
+        if str(item.get("final_status") or "") != "success"
+    ][:WINDOW_DIAGNOSTIC_SAMPLE_LIMIT]
+    sampled = diagnostics[:WINDOW_DIAGNOSTIC_SAMPLE_LIMIT]
+    return {
+        "total": len(diagnostics),
+        "sampled_count": len(sampled),
+        "truncated": len(diagnostics) > len(sampled),
+        "samples": sampled,
+        "slowest": slowest,
+        "failed": failed,
+    }
+
+
+def _safe_window_diagnostic(result: _WindowWorldResult) -> dict[str, Any]:
+    diagnostic = result.diagnostics or {}
+    token_attempts = [
+        _safe_retry_result(item) for item in diagnostic.get("token_attempts") or []
+    ]
+    return {
+        "source_batch_id": diagnostic.get("source_batch_id"),
+        "chapter_indices": diagnostic.get("chapter_indices") or [],
+        "owned_chapter_indices": diagnostic.get("owned_chapter_indices") or [],
+        "input_chars": int(diagnostic.get("input_chars", 0) or 0),
+        "max_tokens": int(diagnostic.get("max_tokens", 0) or 0),
+        "attempts": int(diagnostic.get("attempts", 0) or 0),
+        "final_status": diagnostic.get("final_status"),
+        "final_error_type": diagnostic.get("final_error_type"),
+        "elapsed_ms_total": sum(
+            int(item.get("elapsed_ms", 0) or 0)
+            for attempt in token_attempts
+            for item in attempt.get("diagnostics", [])
+        ),
+        "token_attempts": token_attempts,
+        "invalid_scene_ref_count": result.invalid_scene_ref_count,
+        "overlap_only_count": result.overlap_only_count,
+    }
+
+
+def _safe_retry_result(item: Any) -> dict[str, Any]:
+    if hasattr(item, "model_dump"):
+        item = item.model_dump(mode="json", exclude={"value"})
+    if not isinstance(item, dict):
+        return {}
+    attempts = [
+        _safe_attempt_diagnostic(attempt)
+        for attempt in item.get("diagnostics") or []
+        if isinstance(attempt, dict)
+    ]
+    return {
+        "attempts": int(item.get("attempts", 0) or 0),
+        "final_status": item.get("final_status"),
+        "final_error_type": item.get("final_error_type"),
+        "elapsed_ms_total": sum(
+            int(attempt.get("elapsed_ms", 0) or 0) for attempt in attempts
+        ),
+        "diagnostics": attempts,
+    }
+
+
+def _safe_attempt_diagnostic(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "attempt": item.get("attempt"),
+        "status": item.get("status"),
+        "error_type": item.get("error_type"),
+        "elapsed_ms": item.get("elapsed_ms"),
+        "retry_scheduled": bool(item.get("retry_scheduled")),
+    }
+
+
+def _short_diag_text(value: Any, *, limit: int = 80) -> str:
+    text = str(value or "").strip()
+    return text if len(text) <= limit else f"{text[:limit]}..."
+
+
 async def _load_chapters(
     db: AsyncSession,
     novel_id: str,
@@ -531,30 +812,65 @@ def _normalize_world_output(
     *,
     scenes_by_id: dict[str, dict[str, Any]],
     owned_scene_ids: set[str],
-) -> tuple[Phase2WorldExtractionOutput, int, int]:
+    diagnostics_context: dict[str, Any] | None = None,
+) -> tuple[Phase2WorldExtractionOutput, int, int, dict[str, Any]]:
     invalid_refs = 0
     overlap_only = 0
     objects: list[Phase2WorldObject] = []
     relations: list[Phase2WorldRelation] = []
     deltas: list[Phase2WorldDelta] = []
-    uncertain = list(output.uncertain_items)
+    uncertain: list[Phase2WorldUncertainItem] = []
+    diagnostic = _new_invalid_ref_diagnostic(diagnostics_context or {})
 
-    def normalize_ids(raw_ids: Sequence[str]) -> tuple[list[str], int]:
+    def normalize_ids(
+        raw_ids: Sequence[str],
+        *,
+        item_type: str,
+        item_name: str,
+    ) -> tuple[list[str], int]:
         valid: list[str] = []
         invalid = 0
-        for scene_id in raw_ids:
+        raw_values = [str(scene_id).strip() for scene_id in raw_ids if scene_id]
+        if not raw_values:
+            _record_invalid_ref_sample(
+                diagnostic,
+                category="empty_after_normalize",
+                item_type=item_type,
+                item_name=item_name,
+                raw_ids=[],
+                valid_ids=[],
+                invalid_ids=[],
+            )
+            return valid, 1
+        for scene_id in raw_values:
             if scene_id in scenes_by_id:
                 if scene_id not in valid:
                     valid.append(scene_id)
             else:
                 invalid += 1
+                category = _invalid_ref_category(
+                    scene_id,
+                    diagnostics_context or {},
+                )
+                _record_invalid_ref_sample(
+                    diagnostic,
+                    category=category,
+                    item_type=item_type,
+                    item_name=item_name,
+                    raw_ids=raw_values,
+                    valid_ids=valid,
+                    invalid_ids=[scene_id],
+                )
         return valid, invalid
 
     for item in output.objects:
-        scene_ids, invalid = normalize_ids(item.supporting_scene_ids)
+        scene_ids, invalid = normalize_ids(
+            item.supporting_scene_ids,
+            item_type="object",
+            item_name=item.name,
+        )
         invalid_refs += invalid
         if not scene_ids:
-            invalid_refs += 1
             continue
         if not any(scene_id in owned_scene_ids for scene_id in scene_ids):
             overlap_only += 1
@@ -568,10 +884,13 @@ def _normalize_world_output(
             )
         )
     for item in output.relations:
-        scene_ids, invalid = normalize_ids(item.supporting_scene_ids)
+        scene_ids, invalid = normalize_ids(
+            item.supporting_scene_ids,
+            item_type="relation",
+            item_name=f"{item.source_name}->{item.target_name}",
+        )
         invalid_refs += invalid
         if not scene_ids:
-            invalid_refs += 1
             continue
         if not any(scene_id in owned_scene_ids for scene_id in scene_ids):
             overlap_only += 1
@@ -585,10 +904,13 @@ def _normalize_world_output(
             )
         )
     for item in output.deltas:
-        scene_ids, invalid = normalize_ids(item.supporting_scene_ids)
+        scene_ids, invalid = normalize_ids(
+            item.supporting_scene_ids,
+            item_type="delta",
+            item_name=item.subject_name,
+        )
         invalid_refs += invalid
         if not scene_ids:
-            invalid_refs += 1
             continue
         if not any(scene_id in owned_scene_ids for scene_id in scene_ids):
             overlap_only += 1
@@ -601,6 +923,15 @@ def _normalize_world_output(
                 }
             )
         )
+    for item in output.uncertain_items:
+        scene_ids, invalid = normalize_ids(
+            item.supporting_scene_ids,
+            item_type="uncertain_item",
+            item_name="uncertain_item",
+        )
+        invalid_refs += invalid
+        uncertain.append(item.model_copy(update={"supporting_scene_ids": scene_ids}))
+    diagnostic["total"] = invalid_refs
     return (
         Phase2WorldExtractionOutput(
             objects=objects,
@@ -610,6 +941,7 @@ def _normalize_world_output(
         ),
         invalid_refs,
         overlap_only,
+        diagnostic,
     )
 
 
@@ -757,7 +1089,7 @@ def _ranges_overlap(a_start: int, a_end: int, b_start: int, b_end: int) -> bool:
 def _scene_card(scene: dict[str, Any]) -> dict[str, Any]:
     return {
         "scene_id": _scene_id(scene),
-        "scene_index": _scene_index(scene),
+        "display_index_do_not_use_as_supporting_scene_id": _scene_index(scene),
         "title": scene.get("title") or "",
         "goal": scene.get("goal") or "",
         "core_conflict": scene.get("core_conflict") or "",
@@ -772,6 +1104,14 @@ def _scene_card(scene: dict[str, Any]) -> dict[str, Any]:
 
 def _scene_id(scene: dict[str, Any]) -> str:
     return str(scene.get("id") or scene.get("scene_id") or _scene_index(scene))
+
+
+def _scene_id_source(scene: dict[str, Any]) -> str:
+    if scene.get("id"):
+        return "id"
+    if scene.get("scene_id"):
+        return "scene_id"
+    return "scene_index_fallback"
 
 
 def _scene_index(scene: dict[str, Any]) -> int:
@@ -945,6 +1285,7 @@ def _diagnostics(
     max_tokens: int,
 ) -> dict[str, Any]:
     final = retry_results[-1] if retry_results else None
+    token_attempts = [_safe_retry_result(result) for result in retry_results]
     return {
         "source_batch_id": window.window_id,
         "chapter_indices": window.chapter_indices,
@@ -954,9 +1295,12 @@ def _diagnostics(
         "attempts": sum(result.attempts for result in retry_results),
         "final_status": final.final_status if final else "failed",
         "final_error_type": final.final_error_type if final else "unknown",
-        "token_attempts": [
-            result.model_dump(mode="json", exclude={"value"})
-            for result in retry_results
-        ],
+        "elapsed_ms_total": sum(
+            int(item.get("elapsed_ms", 0) or 0)
+            for attempt in token_attempts
+            for item in attempt.get("diagnostics", [])
+        ),
+        "token_attempts": token_attempts,
         "target_input_chars": PHASE0_TARGET_INPUT_CHARS,
+        "diagnostic_type": "phase2_world_window",
     }

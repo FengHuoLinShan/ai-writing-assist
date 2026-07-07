@@ -479,6 +479,8 @@ class DeepImportWorkflow:
         start_chapter: int,
         end_chapter: int,
         phase0_plan,
+        *,
+        on_batch_progress: Callable[[int, int, str], Awaitable[None]] | None = None,
     ):
         del start_chapter, end_chapter
         if db is None or isinstance(db, Mock):
@@ -494,7 +496,7 @@ class DeepImportWorkflow:
                 project_settings=project_settings,
                 high_quality=high_quality,
             ),
-        ).run(phase0_plan)
+        ).run(phase0_plan, on_batch_progress=on_batch_progress)
         result.quality_stats["high_quality"] = high_quality
         if high_quality:
             result.quality_stats["model_override"] = "deepseek-v4-pro"
@@ -509,6 +511,7 @@ class DeepImportWorkflow:
         start_chapter: int,
         end_chapter: int,
         chapters,
+        on_batch_progress: Callable[[int, int, str], Awaitable[None]] | None = None,
     ):
         del start_chapter, end_chapter
         if db is None or isinstance(db, Mock):
@@ -527,6 +530,7 @@ class DeepImportWorkflow:
         ).run(
             scenes=phase1a_candidates,
             chapters=chapters,
+            on_batch_progress=on_batch_progress,
         )
         result.quality_stats["high_quality"] = high_quality
         if high_quality:
@@ -1209,7 +1213,7 @@ class DeepImportWorkflow:
         db: AsyncSession,
         novel_id: str,
         workflow_id: str | None = None,
-        on_scene_progress: Callable[[int, int], Awaitable[None]] | None = None,
+        on_scene_progress: Callable[..., Awaitable[None]] | None = None,
         existing_checkpoints: dict[str, Any] | None = None,
         start_chapter: int | None = None,
         end_chapter: int | None = None,

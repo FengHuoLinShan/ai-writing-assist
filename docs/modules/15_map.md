@@ -22,6 +22,7 @@
 | P0 | 地点绑定（location 实体 → 一个或多个 hex） | ✅ | `MapLocationBindingService` | 绑定工具 |
 | P0 | 地图聚合状态（map + breadcrumbs + tiles + bindings） | ✅ | `MapConfigService.get_state` | 主视图 |
 | P0 | 详图快速生成（中心 city + 外 road） | ✅ | `MapConfigService.generate` | 编辑工具栏 |
+| P0 | 快速创建地图预览与地点多选落库 | ✅ | `MapQuickCreateService` | `mapQuickCreateView.js` |
 | P0 | 地图观察事实候选与正式事实底座 | ✅ | `MapDynamicFactService` | 工作台动态事实摘要 |
 | P1 | 世界动态总控台（首屏层 / 动态队列 / 检查器 / 批量分组） | ✅ | `MapDynamicFactService.get_dashboard` | 工作台右侧总控台 |
 | P1 | 统一地图打开目标（写作页 / 世界对象页 / 默认地图入口） | ✅ | `GET /open-target` | `writingView.js` / `worldView.js` / `mapWorkspaceView.js` |
@@ -192,6 +193,14 @@
 | GET | `/{map_id}/focus?novel_id={}&faction_entity_id={}` | 聚焦模式（仅返回该组织势力范围） |
 
 `dashboard` 和 `playback` 是作者可见的只读派生视图。深度导入接入的通用 `delta_event` 必须在这里归一化为对象名、关系名、可读类型和来源摘要，不能把 `entity_created`、`entities[4]` 或原始 JSON 结构暴露给前端。
+
+### 快速创建
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/quick-create/context?novel_id={}&include_candidates={}` | 获取快速创建上下文，默认只含 canonical/draft 地点，显式开启后包含 candidate |
+| POST | `/quick-create/preview?novel_id={}` | 生成可调整预览，不落库、不识别正文、不创建世界对象 |
+| POST | `/quick-create/confirm?novel_id={}` | 确认创建或复用一张地图；未传 `layouts` 时写入完整预览，传 `layouts` 时只写入选中地点，`layouts=[]` 不写地点布局、绑定或 quick-create facts |
 
 ### 地形编辑
 

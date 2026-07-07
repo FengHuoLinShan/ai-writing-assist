@@ -15,6 +15,10 @@ describe("deepImportFields schema", () => {
     const p2 = DEEP_IMPORT_GROUPS.find((g) => g.id === "phase2")
     expect(p2.fields.find((f) => f.key === "boundary_supplement_enabled").type).toBe("bool")
   })
+  it("phase2 world window concurrency defaults to 20", () => {
+    const p2 = DEEP_IMPORT_GROUPS.find((g) => g.id === "phase2")
+    expect(p2.fields.find((f) => f.key === "world_window_concurrency").value).toBe(20)
+  })
   it("id encoding swaps underscores to dashes", () => {
     expect(deepImportFieldId("phase2", "boundary_scenes")).toBe("deep-import-phase2-boundary-scenes")
   })

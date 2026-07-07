@@ -25,7 +25,7 @@ from modules.outline.services import (
 
 
 def test_outline_facade_has_no_direct_http_exception_dependency() -> None:
-    source = Path("backend/modules/outline/facade.py").read_text()
+    source = (Path(__file__).resolve().parents[1] / "facade.py").read_text()
 
     assert "from fastapi import HTTPException" not in source
     assert "except HTTPException" not in source
@@ -94,6 +94,34 @@ async def test_get_scene_contract_returns_none_for_domain_not_found(monkeypatch)
     result = await get_scene_contract(MagicMock(), str(uuid.uuid4()), str(uuid.uuid4()))
 
     assert result is None
+
+
+def test_scene_to_contract_preserves_shape_and_defaults() -> None:
+    from modules.outline.contracts import SceneContract
+    from modules.outline.services import scene_to_contract
+
+    scene = _make_scene(
+        scene_id="11111111-1111-1111-1111-111111111111",
+        novel_id="22222222-2222-2222-2222-222222222222",
+        title="伏笔 Scene",
+        scene_index=7,
+        scene_chunks=None,
+        chapter_ids=None,
+        structure_meta=None,
+        status="canonical",
+    )
+
+    contract = scene_to_contract(scene)
+
+    assert isinstance(contract, SceneContract)
+    assert contract.id == "11111111-1111-1111-1111-111111111111"
+    assert contract.novel_id == "22222222-2222-2222-2222-222222222222"
+    assert contract.scene_index == 7
+    assert contract.title == "伏笔 Scene"
+    assert contract.scene_chunks == []
+    assert contract.chapter_ids == []
+    assert contract.structure_meta == {}
+    assert contract.status == "canonical"
 
 
 def _make_thread(

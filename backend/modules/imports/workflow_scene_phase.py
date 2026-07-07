@@ -89,6 +89,7 @@ class ScenePhaseRunner:
         progress.current_step = DeepImportStep.scene_segmentation
         progress.current_phase = "phase0_plan"
         progress.current_operation = "scene_plan"
+        progress.current_chapter_range = f"{start_chapter}-{end_chapter}"
         progress.message = "正在统计章节字数并规划 Scene 切分窗口..."
         workflow._start_phase(
             progress,
@@ -180,6 +181,7 @@ class ScenePhaseRunner:
         progress.current_step = DeepImportStep.scene_segmentation
         progress.current_phase = "phase1a_scene_slicing"
         progress.current_operation = "scene_slicing"
+        progress.current_chapter_range = f"{start_chapter}-{end_chapter}"
         progress.message = "正在按完整窗口切分 Scene 边界..."
         workflow._start_phase(
             progress,
@@ -195,12 +197,23 @@ class ScenePhaseRunner:
         )
         await workflow._emit_progress(progress, 0.1, on_progress)
 
+        async def _on_phase1a_batch(completed: int, total: int, window_id: str) -> None:
+            progress.current_window = window_id
+            progress.current_item = {
+                "kind": "window",
+                "completed": completed,
+                "total": total,
+            }
+            value = 0.0 + 0.1 * (completed / total) if total else 0.0
+            await workflow._emit_progress(progress, value, on_progress)
+
         phase1a_result = await workflow._run_phase1a_scene_slicing(
             db,
             novel_id,
             start_chapter,
             end_chapter,
             phase0_result,
+            on_batch_progress=_on_phase1a_batch,
         )
         progress.quality_stats["phase1a"] = phase1a_result.quality_stats
         if phase1a_diagnostics := workflow._diagnostic_samples(
@@ -304,6 +317,7 @@ class ScenePhaseRunner:
         # Phase 1b: per-Scene enrichment.
         progress.current_phase = "phase1b_enrichment"
         progress.current_operation = "scene_enrichment"
+        progress.current_chapter_range = f"{start_chapter}-{end_chapter}"
         progress.message = "正在逐 Scene 补充叙事字段..."
         workflow._start_phase(
             progress,
@@ -319,6 +333,16 @@ class ScenePhaseRunner:
         )
         await workflow._emit_progress(progress, 0.2, on_progress)
 
+        async def _on_phase1b_batch(completed: int, total: int, candidate_id: str) -> None:
+            progress.current_scene_candidate_id = candidate_id
+            progress.current_item = {
+                "kind": "scene_candidate",
+                "completed": completed,
+                "total": total,
+            }
+            value = 0.1 + 0.1 * (completed / total) if total else 0.1
+            await workflow._emit_progress(progress, value, on_progress)
+
         phase1b_result = await workflow._run_phase1b_enrichment(
             db,
             novel_id,
@@ -326,6 +350,7 @@ class ScenePhaseRunner:
             start_chapter=start_chapter,
             end_chapter=end_chapter,
             chapters=phase0_result.chapters,
+            on_batch_progress=_on_phase1b_batch,
         )
         progress.quality_stats["phase1b"] = phase1b_result.quality_stats
         if phase1b_diagnostics := workflow._diagnostic_samples(
@@ -431,6 +456,7 @@ class ScenePhaseRunner:
         # Scene commit: only this step writes formal Scene rows.
         progress.current_phase = "scene_commit"
         progress.current_operation = "scene_commit"
+        progress.current_chapter_range = f"{start_chapter}-{end_chapter}"
         progress.message = "正在提交 enriched 正式 Scene..."
         workflow._start_phase(
             progress,

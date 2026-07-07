@@ -35,6 +35,11 @@ AI 长篇小说结构化创作引擎 v2.0 — 多 Agent 协作开发规范。
 2. `CLAUDE.md` — 理解架构与开发流程
 3. 目标模块的稳定接口说明（`contracts.py` / `facade.py` / DI 注册说明，如存在）
 
+**Codex 计划模式补充**：
+- Codex 在 Plan mode 产出执行计划后，必须立即启动一个独立子代理对计划做只读 review，再把 review 结论反馈给主线程。
+- 子代理 review 重点检查：计划是否违反 `AGENTS.md` / `CLAUDE.md` 硬约束、是否遗漏受影响模块或测试、是否存在跨模块边界/API/schema/wire contract 风险、是否需要用户确认或 ADR。
+- 主线程必须根据子代理结论修订计划；若没有可用的子代理能力，必须明确说明限制，并改为执行同等维度的自审后再继续。
+
 ### 1.2 创作 Agent 的工作模式
 
 创作 Agent 是确定性的 Prompt 链，不是自治系统：

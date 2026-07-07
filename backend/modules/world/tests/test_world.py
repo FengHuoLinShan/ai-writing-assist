@@ -1458,6 +1458,39 @@ class TestUpsertRelationship:
         assert rels[0].description == "更新描述"
 
     @pytest.mark.asyncio
+    async def test_list_relationships_excludes_deprecated_relations(
+        self,
+        db_session: AsyncSession,
+        rel_repo: EntityRelationRepository,
+        novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=novel_id)
+        source_id = uuid.uuid4()
+        target_id = uuid.uuid4()
+
+        rel = await rel_repo.create(
+            db_session,
+            nid,
+            EntityRelationCreate(
+                source_id=str(source_id),
+                target_id=str(target_id),
+                relation_type="controls",
+                status="canonical",
+            ),
+        )
+        await rel_repo.update(
+            db_session,
+            rel.id,
+            EntityRelationUpdate(status="deprecated"),
+        )
+
+        rels, total = await rel_repo.get_by_novel(db_session, nid)
+
+        assert total == 0
+        assert rels == []
+        assert await rel_repo.get(db_session, rel.id) is not None
+
+    @pytest.mark.asyncio
     async def test_upsert_relationship_concurrent_calls_are_idempotent(self) -> None:
         from core.base import Base
         from modules.project.models import Project

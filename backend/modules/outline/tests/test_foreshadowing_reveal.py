@@ -86,6 +86,78 @@ async def test_reveal_update_reuses_loaded_plan(
     assert db.flush_count == 1
 
 
+async def test_get_active_foreshadowing_facade_filters_and_returns_shape(
+    db_session: AsyncSession,
+    test_project_id: str,
+) -> None:
+    from modules.outline.facade import get_active_foreshadowing
+    from modules.project.models import Project
+
+    other_project_id = uuid.uuid4()
+    db_session.add(
+        Project(
+            id=other_project_id,
+            title="另一本小说",
+            genre="奇幻",
+            tone="冷静",
+            language="zh",
+        )
+    )
+    repo = ForeshadowingPlanRepository()
+    active = await repo.create(
+        db_session,
+        uuid.UUID(hex=test_project_id),
+        {
+            "name": "戒指伏笔",
+            "summary": "主角捡到戒指",
+            "surface_meaning": "普通戒指",
+            "hidden_meaning": "王室信物",
+            "planned_seed_chapter": 2,
+            "planned_payoff_chapter": 9,
+            "planned_payoff_scene": 12,
+            "status": "seeded",
+        },
+    )
+    await repo.create(
+        db_session,
+        uuid.UUID(hex=test_project_id),
+        {"name": "草稿伏笔", "status": "draft"},
+    )
+    await repo.create(
+        db_session,
+        other_project_id,
+        {"name": "其他小说伏笔", "status": "seeded"},
+    )
+    await db_session.flush()
+
+    default_items = await get_active_foreshadowing(db_session, test_project_id)
+
+    assert default_items == [
+        {
+            "id": str(active.id),
+            "novel_id": test_project_id,
+            "name": "戒指伏笔",
+            "summary": "主角捡到戒指",
+            "surface_meaning": "普通戒指",
+            "hidden_meaning": "王室信物",
+            "status": "seeded",
+            "planned_seed_chapter": 2,
+            "planned_payoff_chapter": 9,
+            "planned_payoff_scene": 12,
+            "planned_reinforce_chapters": [],
+            "related_entity_ids": [],
+            "related_thread_ids": [],
+        }
+    ]
+
+    draft_items = await get_active_foreshadowing(
+        db_session,
+        test_project_id,
+        status="draft",
+    )
+    assert [item["name"] for item in draft_items] == ["草稿伏笔"]
+
+
 def _mock_llm_return_value() -> BaseModel:
     """构造 PlotStructureGenerator 需要的 LLM 输出模型。"""
 

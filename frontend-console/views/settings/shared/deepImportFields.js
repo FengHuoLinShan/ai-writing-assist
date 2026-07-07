@@ -49,7 +49,7 @@ const DEEP_IMPORT_GROUPS = [
       { key: "world_min_max_tokens", label: "世界抽取最小 tokens", type: "int", min: 1, max: 200000, value: 24576 },
       { key: "world_max_max_tokens", label: "世界抽取最大 tokens", type: "int", min: 1, max: 200000, value: 32768 },
       { key: "world_max_tokens_per_source_char", label: "世界 tokens / 字符", type: "float", min: 0.05, max: 2, step: "0.01", value: 0.36 },
-      { key: "world_window_concurrency", label: "世界窗口并发", type: "int", min: 1, max: 100, value: 3 },
+      { key: "world_window_concurrency", label: "世界窗口并发", type: "int", min: 1, max: 100, value: 20 },
       { key: "batch_size_scenes", label: "Scene / batch", type: "int", min: 1, max: 200, value: 12 },
       { key: "batch_concurrency", label: "Batch 并发", type: "int", min: 1, max: 100, value: 6 },
       { key: "boundary_scenes", label: "边界 Scene 数", type: "int", min: 1, max: 20, value: 2 },

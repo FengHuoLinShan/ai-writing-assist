@@ -865,7 +865,10 @@ class EntityRelationRepository:
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> list[EntityRelation]:
-        conditions = [EntityRelation.novel_id == novel_id]
+        conditions = [
+            EntityRelation.novel_id == novel_id,
+            EntityRelation.status != "deprecated",
+        ]
         stmt = (
             select(EntityRelation)
             .options(
@@ -889,7 +892,10 @@ class EntityRelationRepository:
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[EntityRelation], int]:
-        conditions = [EntityRelation.novel_id == novel_id]
+        conditions = [
+            EntityRelation.novel_id == novel_id,
+            EntityRelation.status != "deprecated",
+        ]
         count_stmt = select(func.count(EntityRelation.id)).where(*conditions)
         total = (await db.execute(count_stmt)).scalar() or 0
         items = await self.list_by_novel(db, novel_id, skip=skip, limit=limit)
@@ -907,6 +913,7 @@ class EntityRelationRepository:
         conditions = [
             EntityRelation.novel_id == novel_id,
             EntityRelation.source_id == source_id,
+            EntityRelation.status != "deprecated",
         ]
         if relation_type:
             conditions.append(EntityRelation.relation_type == relation_type)
@@ -937,6 +944,7 @@ class EntityRelationRepository:
         conditions = [
             EntityRelation.novel_id == novel_id,
             EntityRelation.target_id == target_id,
+            EntityRelation.status != "deprecated",
         ]
         if relation_type:
             conditions.append(EntityRelation.relation_type == relation_type)
@@ -971,6 +979,7 @@ class EntityRelationRepository:
             .where(
                 EntityRelation.novel_id == novel_id,
                 EntityRelation.source_chapter_id == chapter_id,
+                EntityRelation.status != "deprecated",
             )
             .order_by(EntityRelation.created_at, EntityRelation.id)
         )
@@ -1030,10 +1039,12 @@ class EntityRelationRepository:
         src_stmt = select(EntityRelation.target_id.label("related_id")).where(
             EntityRelation.novel_id == novel_id,
             EntityRelation.source_id == entity_id,
+            EntityRelation.status != "deprecated",
         )
         tgt_stmt = select(EntityRelation.source_id.label("related_id")).where(
             EntityRelation.novel_id == novel_id,
             EntityRelation.target_id == entity_id,
+            EntityRelation.status != "deprecated",
         )
         combined = union_all(src_stmt, tgt_stmt)
         result = await db.execute(combined)
@@ -1054,10 +1065,12 @@ class EntityRelationRepository:
         src_stmt = select(EntityRelation.target_id.label("related_id")).where(
             EntityRelation.novel_id == novel_id,
             EntityRelation.source_id.in_(unique_ids),
+            EntityRelation.status != "deprecated",
         )
         tgt_stmt = select(EntityRelation.source_id.label("related_id")).where(
             EntityRelation.novel_id == novel_id,
             EntityRelation.target_id.in_(unique_ids),
+            EntityRelation.status != "deprecated",
         )
         combined = union_all(src_stmt, tgt_stmt)
         result = await db.execute(combined)

@@ -38,6 +38,47 @@ function stageFromWorkflowType(workflowType) {
     .find(([, config]) => config.taskType === workflowType)?.[0] || "scenes"
 }
 
+function computeDeepImportPercent(task, result) {
+  if (typeof task.progress === "number") {
+    return task.progress <= 1
+      ? Math.round(task.progress * 100)
+      : Math.round(task.progress)
+  }
+  const phase = result.current_phase || ""
+  const p1Completed = Number(result.phase1_completed_batches || 0)
+  const p1Total = Number(result.phase1_total_batches || 0)
+  const p2Completed = Number(result.phase2_completed_scenes || 0)
+  const p2Total = Number(result.phase2_total_scenes || 0)
+  if (phase === "phase0_plan") {
+    return p1Total > 0 ? Math.min(10, Math.round((p1Completed / p1Total) * 10)) : 5
+  }
+  if (phase === "phase1a_scene_slicing") {
+    return p1Total > 0 ? 10 + Math.min(10, Math.round((p1Completed / p1Total) * 10)) : 15
+  }
+  if (phase === "phase1b_enrichment") {
+    return p1Total > 0 ? 20 + Math.min(10, Math.round((p1Completed / p1Total) * 10)) : 25
+  }
+  if (phase === "scene_commit") return 35
+  if (phase === "entity_extraction") {
+    return p2Total > 0 ? 40 + Math.min(40, Math.round((p2Completed / p2Total) * 40)) : 50
+  }
+  if (phase === "structure_analysis") return 80
+  if (result.phase === "done" || task.status === "done") return 100
+  return 0
+}
+
+function computeDeepImportStepLabel(result, currentLabel) {
+  const phase = result.current_phase || ""
+  if (phase === "phase0_plan") return "Phase 0/3: Scene 规划"
+  if (phase === "phase1a_scene_slicing") return "Phase 1/3: Scene 切分"
+  if (phase === "phase1b_enrichment") return "Phase 1/3: Scene 补全"
+  if (phase === "scene_commit") return "Phase 1/3: Scene 写入"
+  if (phase === "entity_extraction") return "Phase 2/3: 实体提取"
+  if (phase === "structure_analysis") return "Phase 3/3: 结构分析"
+  if (result.current_step) return `Phase: ${result.current_step}`
+  return currentLabel
+}
+
 export function createDeepImportRecovery({
   state,
   api,
@@ -149,18 +190,27 @@ export function createDeepImportRecovery({
     if (phaseErrorText && status !== "failed") warnings.push(`阶段错误：${phaseErrorText}`)
     if (p.phase1aFallback) warnings.push("自动整理失败，已使用质量补强结果继续导入")
 
+    const isStructureRunning = (
+      p.currentPhase === "structure_analysis" && status === "running"
+    )
+    const progressValue = isStructureRunning
+      ? null
+      : (typeof p.percent === "number" ? p.percent : null)
+
     return normalizeTaskProgress({
       task_id: taskId || "deep_import",
       task_type: p.workflowType || "deep_import",
       status,
-      progress: typeof p.percent === "number" ? p.percent : null,
+      progress: progressValue,
       error_message: status === "failed"
         ? (p.message || p.phaseError || phaseErrorText || "自动提取失败")
         : null,
       result: {
         message: needsRecovery
           ? "自动提取中断，需要选择继续或放弃恢复"
-          : p.stepLabel || p.message || "自动提取中...",
+          : isStructureRunning
+            ? "正在生成剧情结构（耗时较长，请耐心等待）..."
+            : p.stepLabel || p.message || "自动提取中...",
         warnings,
         summary: isPartial ? "部分完成" : p.degraded ? "部分降级完成" : null,
       },
@@ -230,16 +280,21 @@ export function createDeepImportRecovery({
       const result = task.result || {}
       const workflowType = result.workflow_type || task.task_type || workflow?.workflowType || "deep_import"
       const stage = result.stage || workflow?.meta?.stage || stageFromWorkflowType(workflowType)
+      const label = workflow?.label || stageConfig(stage).label
+      const recoveredPercent = computeDeepImportPercent(task, result)
+      const recoveredStepLabel = workflowType === "deep_import"
+        ? computeDeepImportStepLabel(result, label)
+        : (result.current_step ? `Phase: ${result.current_step}` : label)
       progress = {
-        ...buildProgressFromTask(task, result, result.phase === "running" ? 50 : 0, ""),
+        ...buildProgressFromTask(task, result, recoveredPercent, ""),
         workflowType,
         stage,
-        label: workflow?.label || stageConfig(stage).label,
+        label,
         phase: result.phase || "running",
         step: result.current_step || "",
-        message: result.message || `${workflow?.label || stageConfig(stage).label}中...`,
-        percent: result.phase === "running" ? 50 : 0,
-        stepLabel: result.current_step ? `Phase: ${result.current_step}` : "恢复进度中...",
+        message: result.message || `${label}中...`,
+        percent: recoveredPercent,
+        stepLabel: recoveredStepLabel,
         degraded: result.degraded || false,
         degradedBatches: result.degraded_batches || [],
         phaseError: result.phase_error || result.error || task.error_message || "",
@@ -319,25 +374,14 @@ export function createDeepImportRecovery({
         const currentStage = result.stage || progress?.stage || stageFromWorkflowType(currentWorkflowType)
         const currentLabel = progress?.label || stageConfig(currentStage).label
 
-        let percent = typeof task.progress === "number"
-          ? (task.progress <= 1 ? Math.round(task.progress * 100) : Math.round(task.progress))
-          : 0
+        let percent = computeDeepImportPercent(task, result)
         let stepLabel = ""
         if (currentWorkflowType !== "deep_import") {
           if (task.status === "done" || result.phase === "done") percent = 100
           stepLabel = result.current_step ? `Phase: ${result.current_step}` : currentLabel
-        } else if (!steps.includes("scene_segmentation")) {
-          stepLabel = "Phase 1/3: Scene 切分"
-          percent = Math.min(40, (result.phase1_completed_batches || 0) * 8)
-        } else if (!steps.includes("entity_extraction")) {
-          stepLabel = "Phase 2/3: 实体提取"
-          percent = 40 + Math.min(40, (result.phase2_completed_scenes || 0) * 4)
-        } else if (!steps.includes("structure_analysis")) {
-          stepLabel = "Phase 3/3: 结构分析"
-          percent = 80
         } else {
-          stepLabel = "完成"
-          percent = 100
+          stepLabel = computeDeepImportStepLabel(result, currentLabel)
+          if (task.status === "done" || result.phase === "done") percent = 100
         }
 
         progress = {

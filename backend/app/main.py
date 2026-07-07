@@ -11,16 +11,16 @@ from __future__ import annotations  # noqa: I001
 import asyncio
 import logging
 import time
-from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
+from app.bootstrap import register_container_services
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from core.config import get_settings
-from core.container import register as _register
 from core.database import get_manager
 from core.errors import DomainError
 from infrastructure.embedding.client import (
@@ -28,80 +28,10 @@ from infrastructure.embedding.client import (
     prewarm_embedding_worker,
 )
 
-from modules.context.facade import (
-    compile_structure_context as _ctx_compile,
-)
-from modules.memory.services import MemoryService as _MemorySvc  # noqa: N814
-from modules.outline.services import (
-    ForeshadowingPlanService as _FPS,  # noqa: N814
-    OutlineArcService as _OAS,  # noqa: N814
-    PlotStructureGenerator as _PSG,  # noqa: N814
-    PlotThreadService as _PTS,  # noqa: N814
-    RevealPlanService as _RPS,  # noqa: N814
-    SceneService as _SceneSvc,  # noqa: N814
-)
-from modules.imports.scene_entity_extraction import (
-    SceneEntityExtractionService as _SceneExtractSvc,
-)
-from modules.rag.facade import (
-    get_ordered_chapter_chunks as _rag_get_chunks,
-    index_chapter_with_report as _rag_index,
-)
-from modules.writing.facade import (
-    get_latest_draft_for_chapter as _writing_get_draft,
-    list_latest_drafts_for_chapters as _writing_list_latest_drafts,
-    list_chapter_indices as _writing_list_indices,
-)
-from modules.world.facade import (
-    create_character as _world_create_char,
-    get_character_id_by_world_entity as _world_get_char_id,
-    list_characters as _world_list_characters,
-    list_entities as _world_list_entities,
-    list_entity_terms as _world_list_entity_terms,
-    run_entity_extraction as _world_extract,
-)
-
-# 注册所有 ORM 模型到 Base.metadata（FK 依赖解析需要）
-import modules.context.models  # noqa: F401, I001
-import modules.imports.models  # noqa: F401, I001
-import modules.project.models  # noqa: F401, I001
-import modules.world.map_models  # noqa: F401, I001
-import modules.world.models  # noqa: F401, I001
-
 
 def _register_container_services() -> None:
-    """注册所有模块服务到 DI 容器。
-
-    抽成函数以便在应用启动和测试 fixture 中复用。
-    """
-    _register("world.list_characters", _world_list_characters)
-    _register("world.list_entity_terms", _world_list_entity_terms)
-    _register("world.run_entity_extraction", _world_extract)
-    _register("world.list_entities", _world_list_entities)
-    _register(
-        "world.run_scene_entity_extraction",
-        _SceneExtractSvc().extract_by_scenes,
-    )
-    _register(
-        "world.run_alias_relation_extraction",
-        _SceneExtractSvc().extract_alias_relations,
-    )
-    _register("world.create_character", _world_create_char)
-    _register("world.get_character_id_by_world_entity", _world_get_char_id)
-    _register("rag.index_chapter", _rag_index)
-    _register("rag.get_ordered_chapter_chunks", _rag_get_chunks)
-
-    _register("writing.list_chapter_indices", _writing_list_indices)
-    _register("writing.get_latest_draft_for_chapter", _writing_get_draft)
-    _register("writing.list_latest_drafts_for_chapters", _writing_list_latest_drafts)
-    _register("outline.generate_structure", _PSG().generate)
-    _register("outline.arc_service", _OAS())
-    _register("outline.thread_service", _PTS())
-    _register("outline.scene_service", _SceneSvc())
-    _register("outline.foreshadowing_service", _FPS())
-    _register("outline.reveal_service", _RPS())
-    _register("context.compile", _ctx_compile)
-    _register("memory.service", _MemorySvc())
+    """兼容测试 fixture 的旧入口，实际注册逻辑在 app.bootstrap。"""
+    register_container_services()
 
 
 _register_container_services()

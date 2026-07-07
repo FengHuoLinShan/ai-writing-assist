@@ -22,7 +22,11 @@
 - `rag`
 - `outline`
 - `generate`
-- `context`
+- `settings`
+- `project-settings`
+- `llm`（向后兼容别名，按当前项目状态跳转到项目设置或全局设置）
+
+旧 `context` hash 不再作为一级页面注册；路由初始化或浏览器前进/后退遇到它时，会重定向到 `generate?tab=task`。
 
 ## 当前页面职责
 
@@ -35,8 +39,9 @@
 | `mapView` | 具体地图渲染与编辑：地形、地点绑定、标记、势力范围；浏览态地点标签避让与聚合 |
 | `outlineView` | 剧情线、篇章纲、Scene、伏笔、揭示、结构生成 |
 | `ragView` | 检索、章节索引、索引重建 |
-| `contextView` | 编译上下文、渲染 Markdown、查看 tier 预算/驱逐结果 |
-| `generateView` | 生成中心 Chatbox：自由共创、粘贴外部对话、可选附带正文，并手动生成世界对象数据库草稿 |
+| `generateView` | 生成中心 Chatbox：自由共创、粘贴外部对话、可选附带正文，并承担上下文任务预览 / 编译入口和手动生成世界对象数据库草稿 |
+| `globalSettingsView` | `settings` 路由；管理全局 LLM 默认、全局作者偏好、引用此默认的项目列表和本地偏好迁移；全局 LLM 默认不存 API Key |
+| `projectSettingsView` | `project-settings` 路由；管理项目 LLM 主配置、深度导入参数和项目作者偏好；展示 effective source 并支持字段恢复继承 |
 
 ## 路由与状态特性
 
@@ -44,6 +49,9 @@
 - `writing` 与 `outline` 被标记为 KeepAlive 视图
 - `map` 路由会解析 query 上下文，用于承接写作页和世界页跳转
 - `world/map` 仍保留入口，但现在会自动跳转到一级 `map`
+- `settings` 是无项目也可访问的全局设置页；`project-settings` 依赖当前项目，未进入项目时显示空态并提供返回全局设置
+- `llm` 是旧入口兼容别名：有当前项目时跳转 `project-settings`，否则跳转 `settings`
+- 旧 `context` hash 会重定向到 `generate?tab=task`；上下文任务预览和编译入口由生成中心承担
 
 ## 写作流补充
 

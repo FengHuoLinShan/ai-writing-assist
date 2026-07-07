@@ -196,6 +196,46 @@ def _is_cleanup_eligible_deep_import_meta(
     return eligible
 
 
+def scene_to_contract(scene: Any) -> SceneContract:
+    """Convert Scene ORM/response objects to the stable cross-module contract."""
+    return SceneContract(
+        id=str(scene.id),
+        novel_id=str(scene.novel_id),
+        scene_index=scene.scene_index,
+        title=scene.title,
+        goal=scene.goal,
+        core_conflict=scene.core_conflict,
+        emotional_beat=scene.emotional_beat,
+        must_happen=scene.must_happen,
+        must_not_happen=scene.must_not_happen,
+        narrative_tag=scene.narrative_tag,
+        source=scene.source,
+        scene_chunks=scene.scene_chunks or [],
+        chapter_ids=scene.chapter_ids or [],
+        pov_character_id=scene.pov_character_id,
+        structure_meta=scene.structure_meta or {},
+        status=scene.status,
+    )
+
+
+def foreshadowing_plan_to_dict(plan: ForeshadowingPlan) -> dict[str, Any]:
+    return {
+        "id": str(plan.id),
+        "novel_id": str(plan.novel_id),
+        "name": plan.name,
+        "summary": plan.summary,
+        "surface_meaning": plan.surface_meaning,
+        "hidden_meaning": plan.hidden_meaning,
+        "status": plan.status,
+        "planned_seed_chapter": plan.planned_seed_chapter,
+        "planned_payoff_chapter": plan.planned_payoff_chapter,
+        "planned_payoff_scene": plan.planned_payoff_scene,
+        "planned_reinforce_chapters": plan.planned_reinforce_chapters or [],
+        "related_entity_ids": plan.related_entity_ids or [],
+        "related_thread_ids": plan.related_thread_ids or [],
+    }
+
+
 class PlotThreadService(
     StructureAssetFilterMixin,
     CrudService[PlotThread, PlotThreadCreate, PlotThreadUpdate, PlotThreadResponse]
@@ -384,6 +424,17 @@ class ForeshadowingPlanService(
             novel_id=novel_id,
         )
 
+    async def get_active_dicts(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        status: str = "seeded",
+    ) -> list[dict[str, Any]]:
+        nid = parse_uuid(novel_id, "novel_id")
+        plans = await self.repo.get_active_by_status(db, nid, status=status)
+        return [foreshadowing_plan_to_dict(plan) for plan in plans]
+
 
 class RevealPlanService(
     StructureAssetFilterMixin,
@@ -488,27 +539,7 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
     ) -> list[SceneContract]:
         nid = parse_uuid(novel_id, "novel_id")
         scenes = await self.repo.get_by_novel_ordered(db, nid)
-        return [
-            SceneContract(
-                id=str(s.id),
-                novel_id=str(s.novel_id),
-                scene_index=s.scene_index,
-                title=s.title,
-                goal=s.goal,
-                core_conflict=s.core_conflict,
-                emotional_beat=s.emotional_beat,
-                must_happen=s.must_happen,
-                must_not_happen=s.must_not_happen,
-                narrative_tag=s.narrative_tag,
-                source=s.source,
-                scene_chunks=s.scene_chunks or [],
-                chapter_ids=s.chapter_ids or [],
-                pov_character_id=s.pov_character_id,
-                structure_meta=s.structure_meta or {},
-                status=s.status,
-            )
-            for s in scenes
-        ]
+        return [scene_to_contract(scene) for scene in scenes]
 
     async def get_by_chapter_models(
         self,
@@ -678,27 +709,7 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
     ) -> list[SceneContract]:
         nid = parse_uuid(novel_id, "novel_id")
         scenes = await self.repo.get_by_chapter(db, nid, chapter_index)
-        return [
-            SceneContract(
-                id=str(s.id),
-                novel_id=str(s.novel_id),
-                scene_index=s.scene_index,
-                title=s.title,
-                goal=s.goal,
-                core_conflict=s.core_conflict,
-                emotional_beat=s.emotional_beat,
-                must_happen=s.must_happen,
-                must_not_happen=s.must_not_happen,
-                narrative_tag=s.narrative_tag,
-                source=s.source,
-                scene_chunks=s.scene_chunks or [],
-                chapter_ids=s.chapter_ids or [],
-                pov_character_id=s.pov_character_id,
-                structure_meta=s.structure_meta or {},
-                status=s.status,
-            )
-            for s in scenes
-        ]
+        return [scene_to_contract(scene) for scene in scenes]
 
     async def reorder(
         self,
@@ -787,27 +798,7 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
 
         # 返回更新后的 scenes
         scenes = await self.repo.get_by_novel_ordered(db, nid)
-        return [
-            SceneContract(
-                id=str(s.id),
-                novel_id=str(s.novel_id),
-                scene_index=s.scene_index,
-                title=s.title,
-                goal=s.goal,
-                core_conflict=s.core_conflict,
-                emotional_beat=s.emotional_beat,
-                must_happen=s.must_happen,
-                must_not_happen=s.must_not_happen,
-                narrative_tag=s.narrative_tag,
-                source=s.source,
-                scene_chunks=s.scene_chunks or [],
-                chapter_ids=s.chapter_ids or [],
-                pov_character_id=s.pov_character_id,
-                structure_meta=s.structure_meta or {},
-                status=s.status,
-            )
-            for s in scenes
-        ]
+        return [scene_to_contract(scene) for scene in scenes]
 
     async def split_scene_chunk_to_new_chapter(
         self,
@@ -939,6 +930,7 @@ __all__ = [
     "RevealPlanService",
     "SceneService",
     "OutlineStructureCleanupService",
+    "scene_to_contract",
 ]
 
 

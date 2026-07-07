@@ -46,9 +46,19 @@ class EntityExtractionPhaseRunner:
         )
         await workflow._emit_progress(progress, 0.4, on_progress)
 
-        async def _on_scene_progress(completed: int, total: int) -> None:
+        async def _on_scene_progress(
+            completed: int,
+            total: int,
+            *,
+            scene_id: str | None = None,
+            chapter: int | None = None,
+        ) -> None:
             progress.phase2_total_scenes = total
             progress.phase2_completed_scenes = completed
+            if scene_id is not None:
+                progress.current_scene_candidate_id = scene_id
+            if chapter is not None:
+                progress.current_chapter = chapter
             progress.current_item = {
                 "kind": "scene",
                 "completed": completed,
@@ -206,6 +216,7 @@ class EntityExtractionPhaseRunner:
             counts=_phase2_counts(phase2_result),
             repair_summary=repair_summary,
             checkpoint_summary=phase2_checkpoint_summary(progress.checkpoints),
+            diagnostics=_phase2_artifact_diagnostics(phase2_result),
             errors=[
                 error
                 for error in progress.phase_errors
@@ -306,9 +317,19 @@ class EntityExtractionPhaseRunner:
             await workflow._emit_progress(progress, 1.0, on_progress)
             return progress
 
-        async def _on_scene_progress(completed: int, total: int) -> None:
+        async def _on_scene_progress(
+            completed: int,
+            total: int,
+            *,
+            scene_id: str | None = None,
+            chapter: int | None = None,
+        ) -> None:
             progress.phase2_total_scenes = total
             progress.phase2_completed_scenes = completed
+            if scene_id is not None:
+                progress.current_scene_candidate_id = scene_id
+            if chapter is not None:
+                progress.current_chapter = chapter
             progress.current_item = {
                 "kind": "scene",
                 "completed": completed,
@@ -425,6 +446,7 @@ class EntityExtractionPhaseRunner:
             counts=_phase2_counts(phase2_result),
             repair_summary=repair_summary,
             checkpoint_summary=phase2_checkpoint_summary(progress.checkpoints),
+            diagnostics=_phase2_artifact_diagnostics(phase2_result),
             errors=[
                 error
                 for error in progress.phase_errors
@@ -501,6 +523,14 @@ def phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
     phase2_format = _format_diagnostic_summary(
         phase2_result.get("structured_format_diagnostics") or []
     )
+    phase2_window_format = _format_window_diagnostic_summary(
+        phase2_result.get("phase2_window_diagnostics")
+        or phase2_result.get("structured_format_diagnostics")
+        or []
+    )
+    invalid_ref_diagnostics = (
+        phase2_result.get("phase2_invalid_scene_ref_diagnostics") or {}
+    )
     phase2b_format = _format_diagnostic_summary(
         phase2_result.get("alias_relation_format_diagnostics") or []
     )
@@ -551,6 +581,11 @@ def phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
         "phase2_batch_concurrency": int(
             phase2_result.get("phase2_batch_concurrency", 0) or 0
         ),
+        "phase2_world_window_concurrency": int(
+            phase2_result.get("phase2_world_window_concurrency")
+            or phase2_result.get("phase2_batch_concurrency", 0)
+            or 0
+        ),
         "phase2_boundary_windows_total": int(
             phase2_result.get("phase2_boundary_windows_total", 0) or 0
         ),
@@ -560,6 +595,19 @@ def phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
         "phase2_action_counts": phase2_result.get("phase2_action_counts") or {},
         "phase2_dedup_counts": phase2_result.get("phase2_dedup_counts") or {},
         "structured_format_diagnostics": phase2_format,
+        "phase2_window_diagnostics": phase2_window_format,
+        "invalid_scene_ref_categories": (
+            invalid_ref_diagnostics.get("category_counts") or {}
+        ),
+        "invalid_scene_ref_sample_count": int(
+            invalid_ref_diagnostics.get("sampled_count", 0) or 0
+        ),
+        "invalid_scene_ref_truncated": bool(
+            invalid_ref_diagnostics.get("truncated")
+        ),
+        "available_id_source_counts": (
+            invalid_ref_diagnostics.get("available_id_source_counts") or {}
+        ),
         "alias_relation_format_diagnostics": phase2b_format,
         "phase2_boundary_supplement_counts": (
             phase2_result.get("phase2_boundary_supplement_counts") or {}
@@ -604,7 +652,7 @@ def _format_diagnostic_summary(diagnostics: list[Any]) -> dict[str, Any]:
     for entry in diagnostics:
         if not isinstance(entry, dict):
             continue
-        kind = str(entry.get("kind") or "unknown")
+        kind = str(entry.get("kind") or entry.get("diagnostic_type") or "unknown")
         kind_counts[kind] = kind_counts.get(kind, 0) + 1
         skipped_items += int(entry.get("skipped", 0) or 0)
         if kind == "format_repair" and entry.get("status") == "succeeded":
@@ -618,11 +666,78 @@ def _format_diagnostic_summary(diagnostics: list[Any]) -> dict[str, Any]:
             {
                 key: value
                 for key, value in entry.items()
-                if key in {"kind", "field", "strategy", "status", "kept", "skipped"}
+                if key
+                in {
+                    "kind",
+                    "diagnostic_type",
+                    "field",
+                    "strategy",
+                    "status",
+                    "kept",
+                    "skipped",
+                    "source_batch_id",
+                    "input_chars",
+                    "max_tokens",
+                    "attempts",
+                    "final_status",
+                    "final_error_type",
+                    "elapsed_ms_total",
+                }
             }
             for entry in diagnostics
             if isinstance(entry, dict)
         ][:5],
+    }
+
+
+def _format_window_diagnostic_summary(diagnostics: Any) -> dict[str, Any]:
+    if isinstance(diagnostics, dict):
+        items = diagnostics.get("samples") or []
+    else:
+        items = diagnostics or []
+    valid_items = [item for item in items if isinstance(item, dict)]
+    error_type_counts: dict[str, int] = {}
+    elapsed_values: list[int] = []
+    slow_windows: list[dict[str, Any]] = []
+    failed_windows: list[str] = []
+    for item in valid_items:
+        final_error = item.get("final_error_type")
+        if final_error:
+            key = str(final_error)
+            error_type_counts[key] = error_type_counts.get(key, 0) + 1
+        elapsed = int(item.get("elapsed_ms_total", 0) or 0)
+        elapsed_values.append(elapsed)
+        if item.get("final_status") != "success" and item.get("source_batch_id"):
+            failed_windows.append(str(item.get("source_batch_id")))
+        slow_windows.append(
+            {
+                "source_batch_id": item.get("source_batch_id"),
+                "elapsed_ms_total": elapsed,
+                "attempts": item.get("attempts"),
+                "final_status": item.get("final_status"),
+                "final_error_type": item.get("final_error_type"),
+            }
+        )
+    slow_windows.sort(
+        key=lambda item: int(item.get("elapsed_ms_total", 0) or 0),
+        reverse=True,
+    )
+    return {
+        "total": len(valid_items),
+        "error_type_counts": error_type_counts,
+        "elapsed_ms_total": sum(elapsed_values),
+        "elapsed_ms_max": max(elapsed_values) if elapsed_values else 0,
+        "slow_windows": slow_windows[:5],
+        "failed_window_ids": failed_windows[:10],
+    }
+
+
+def _phase2_artifact_diagnostics(phase2_result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "phase2_windows": phase2_result.get("phase2_window_diagnostics") or {},
+        "invalid_scene_refs": (
+            phase2_result.get("phase2_invalid_scene_ref_diagnostics") or {}
+        ),
     }
 
 

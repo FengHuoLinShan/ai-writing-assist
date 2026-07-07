@@ -83,21 +83,6 @@ function clampPercent(value) {
   return Math.max(0, Math.min(100, Math.round(scaled)))
 }
 
-function inferDeepImportPercent(result) {
-  const completedSteps = Array.isArray(result.completed_steps) ? result.completed_steps : []
-  const knownSteps = ["extract_entities", "sync_characters", "generate_outline"]
-  if (completedSteps.length > 0) {
-    return clampPercent(completedSteps.length / knownSteps.length)
-  }
-
-  const batch = safeObject(result.batch_progress)
-  const completed = Number(batch.completed || batch.completed_batches || 0)
-  const total = Number(batch.total || batch.total_batches || 0)
-  if (total > 0) return clampPercent(completed / total)
-
-  return null
-}
-
 function inferMessage({ status, workflowType, result, meta, percent }) {
   if (status === "failed") return "任务失败"
   if (status === "cancelled") return "任务已取消"
@@ -254,9 +239,6 @@ export function normalizeTaskProgress(task, workflowType = undefined) {
   const status = raw.status || "pending"
   let percent = clampPercent(raw.progress)
 
-  if (percent == null && type === "deep_import") {
-    percent = inferDeepImportPercent(result)
-  }
   if (status === "done") percent = 100
 
   const hasPercent = percent != null

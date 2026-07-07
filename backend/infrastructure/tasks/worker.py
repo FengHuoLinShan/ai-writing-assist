@@ -25,6 +25,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.bootstrap import register_container_services
 from core.database import DatabaseManager, get_manager
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
@@ -70,99 +71,8 @@ def _public_task_error_message(exc: Exception) -> str:
 
 
 def _register_container_services() -> None:
-    """注册 DI 容器服务（worker 进程不会经过 main.py，需独立注册）
-
-    所有 import 放在函数体内，避免模块级循环导入。
-    幂等调用：已注册的服务不会重复注册。
-    """
-    from core.container import register as _reg
-    from modules.context.facade import compile_structure_context as _ctx_compile
-    from modules.imports.scene_entity_extraction import (
-        SceneEntityExtractionService as _SceneExtSvc,
-    )
-    from modules.memory.services import MemoryService as _MemSvc
-    from modules.outline.services import (
-        ForeshadowingPlanService as _FPS,  # noqa: N814
-    )
-    from modules.outline.services import (
-        OutlineArcService as _OAS,  # noqa: N814
-    )
-    from modules.outline.services import (
-        PlotStructureGenerator as _PSG,  # noqa: N814
-    )
-    from modules.outline.services import (
-        PlotThreadService as _PTS,  # noqa: N814
-    )
-    from modules.outline.services import (
-        RevealPlanService as _RPS,  # noqa: N814
-    )
-    from modules.outline.services import (
-        SceneService as _SceneSvc,
-    )
-    from modules.rag.facade import (
-        get_ordered_chapter_chunks as _rag_get_chunks,
-    )
-    from modules.rag.facade import (
-        index_chapter_with_report as _rag_index,
-    )
-    from modules.world.facade import (
-        create_character as _w_create_char,
-    )
-    from modules.world.facade import (
-        get_character_id_by_world_entity as _w_get_char_id,
-    )
-    from modules.world.facade import (
-        list_characters as _w_list_chars,
-    )
-    from modules.world.facade import (
-        list_entities as _w_list_entities,
-    )
-    from modules.world.facade import (
-        list_entity_terms as _w_list_terms,
-    )
-    from modules.world.facade import (
-        run_entity_extraction as _w_extract,
-    )
-    from modules.writing.facade import (
-        get_latest_draft_for_chapter as _w_get_draft,
-    )
-    from modules.writing.facade import (
-        list_chapter_indices as _w_list_indices,
-    )
-    from modules.writing.facade import (
-        list_latest_drafts_for_chapters as _w_list_latest_drafts,
-    )
-
-    _svc_map = {
-        "world.list_characters": _w_list_chars,
-        "world.list_entity_terms": _w_list_terms,
-        "world.run_entity_extraction": _w_extract,
-        "world.list_entities": _w_list_entities,
-        "world.run_scene_entity_extraction": _SceneExtSvc().extract_by_scenes,
-        "world.run_alias_relation_extraction": _SceneExtSvc().extract_alias_relations,
-        "world.create_character": _w_create_char,
-        "world.get_character_id_by_world_entity": _w_get_char_id,
-        "rag.index_chapter": _rag_index,
-        "rag.get_ordered_chapter_chunks": _rag_get_chunks,
-        "writing.list_chapter_indices": _w_list_indices,
-        "writing.get_latest_draft_for_chapter": _w_get_draft,
-        "writing.list_latest_drafts_for_chapters": _w_list_latest_drafts,
-        "outline.generate_structure": _PSG().generate,
-        "outline.arc_service": _OAS(),
-        "outline.thread_service": _PTS(),
-        "outline.scene_service": _SceneSvc(),
-        "outline.foreshadowing_service": _FPS(),
-        "outline.reveal_service": _RPS(),
-        "context.compile": _ctx_compile,
-        "memory.service": _MemSvc(),
-        "memory.capture_snapshot": _MemSvc().capture_snapshot,
-    }
-
-    for name, svc in _svc_map.items():
-        try:
-            _reg(name, svc)
-        except ValueError:
-            pass  # 已在 main.py 中注册（测试/开发模式共用进程时）
+    """Register worker DI services without replacing existing container objects."""
+    register_container_services(ignore_existing=True)
 
 
 class TaskWorker:
@@ -447,12 +357,67 @@ class TaskWorker:
             last_heartbeat_at = (
                 task.heartbeat_at.isoformat() if task.heartbeat_at is not None else None
             )
+            progress_snapshot = (
+                result_data.get("progress")
+                if isinstance(result_data.get("progress"), dict)
+                else result_data
+            )
+            quality_stats = (
+                progress_snapshot.get("quality_stats") or {}
+                if isinstance(progress_snapshot, dict)
+                else {}
+            )
+            scene_commit_stats = (
+                quality_stats.get("scene_commit") or {}
+                if isinstance(quality_stats.get("scene_commit"), dict)
+                else {}
+            )
+            phase2_stats = (
+                quality_stats.get("phase2") or {}
+                if isinstance(quality_stats.get("phase2"), dict)
+                else {}
+            )
+            checkpoints = (
+                progress_snapshot.get("checkpoints") or {}
+                if isinstance(progress_snapshot, dict)
+                else {}
+            )
+            phase2_checkpoints = (
+                checkpoints.get("phase2") or {}
+                if isinstance(checkpoints.get("phase2"), dict)
+                else {}
+            )
+            phase2_checkpoint_scenes_raw = phase2_checkpoints.get("scenes")
+            phase2_checkpoint_scenes: list = (
+                phase2_checkpoint_scenes_raw
+                if isinstance(phase2_checkpoint_scenes_raw, list)
+                else []
+            )
+            pending_scene_candidates = sum(
+                1
+                for item in phase2_checkpoint_scenes
+                if isinstance(item, dict)
+                and str(item.get("status") or "")
+                not in {"succeeded", "completed", "success"}
+            )
             recovery_summary = {
                 "reason": "heartbeat_timeout",
                 "message": (
                     "Deep import worker heartbeat timed out; "
                     "user recovery required."
                 ),
+                "current_phase": progress_snapshot.get("current_phase")
+                if isinstance(progress_snapshot, dict)
+                else None,
+                "current_chapter": progress_snapshot.get("current_chapter")
+                if isinstance(progress_snapshot, dict)
+                else None,
+                "current_chapter_range": progress_snapshot.get("current_chapter_range")
+                if isinstance(progress_snapshot, dict)
+                else None,
+                "committed_scenes": int(scene_commit_stats.get("created_count", 0) or 0),
+                "committed_entities": int(phase2_stats.get("total_created", 0) or 0),
+                "pending_scene_candidates": pending_scene_candidates,
             }
             recovery_flags = {
                 "interrupted": True,

@@ -18,6 +18,7 @@ from modules.imports.deep_import_retry import DeepImportRetryResult
 from modules.imports.llm_schemas import (
     AliasRelationExtractionOutput,
     ExtractedEntity,
+    Phase2WorldExtractionOutput,
     SceneCandidateOutput,
     SceneChunk,
     SceneEntityExtractionOutput,
@@ -25,6 +26,11 @@ from modules.imports.llm_schemas import (
     SceneSegmentationOutput,
 )
 from modules.imports.orchestrator import DeepImportOrchestrator
+from modules.imports.phase2_world_extraction import (
+    PHASE2_WORLD_WINDOW_CONCURRENCY,
+    Phase2WorldExtractor,
+    _normalize_world_output,
+)
 from modules.imports.scene_candidates import (
     SceneCandidate,
     SceneCandidateBatch,
@@ -55,6 +61,7 @@ from modules.imports.workflow_llm_adapters import (
 )
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 from modules.writing.contracts import WritingDraftContract
+from shared.deep_import_settings import DEEP_IMPORT_DEFAULT_SETTINGS
 
 
 def test_scene_item_accepts_constraint_lists_from_llm() -> None:
@@ -1489,6 +1496,280 @@ class TestDeepImportWorkflowAutoRun:
             == "phase2_alias_relation_supplement_disabled"
         )
 
+    def test_phase2_world_normalize_classifies_invalid_scene_refs(self):
+        scene_a_id = str(uuid.uuid4())
+        scene_b_id = str(uuid.uuid4())
+        unknown_uuid = str(uuid.uuid4())
+        scenes_by_id = {
+            scene_a_id: {"id": scene_a_id, "scene_index": 11, "chapter_ids": ["1"]},
+            scene_b_id: {"id": scene_b_id, "scene_index": 22, "chapter_ids": ["2"]},
+        }
+        output = Phase2WorldExtractionOutput.model_validate(
+            {
+                "objects": [
+                    {
+                        "name": "灰雾空间",
+                        "entity_type": "location",
+                        "supporting_scene_ids": [f" {scene_a_id} ", "22"],
+                    },
+                    {
+                        "name": "空证据对象",
+                        "entity_type": "item",
+                        "supporting_scene_ids": [],
+                    },
+                ],
+                "relations": [
+                    {
+                        "source_name": "克莱恩",
+                        "target_name": "未知组织",
+                        "relation_type": "member_of",
+                        "supporting_scene_ids": [unknown_uuid],
+                    }
+                ],
+                "deltas": [
+                    {
+                        "subject_name": "灰雾空间",
+                        "category": "state",
+                        "field": "status",
+                        "new": "activated",
+                        "supporting_scene_ids": ["chapter-1"],
+                    }
+                ],
+                "uncertain_items": [
+                    {
+                        "description": "疑似一次性设定",
+                        "reason": "证据不足",
+                        "supporting_scene_ids": ["普通文本"],
+                    }
+                ],
+            }
+        )
+
+        normalized, invalid_count, overlap_only, diagnostics = _normalize_world_output(
+            output,
+            scenes_by_id=scenes_by_id,
+            owned_scene_ids={scene_a_id},
+            diagnostics_context={
+                "window_id": "W-1",
+                "chapter_indices": [1, 2],
+                "owned_chapter_indices": [1],
+                "available_scene_ids": [scene_a_id, scene_b_id],
+                "owned_scene_ids": [scene_a_id],
+                "scene_index_values": {"11", "22"},
+                "chapter_values": {"1", "2"},
+                "available_id_source_counts": {"id": 2},
+            },
+        )
+
+        assert invalid_count == 5
+        assert overlap_only == 0
+        assert [item.name for item in normalized.objects] == ["灰雾空间"]
+        assert normalized.objects[0].supporting_scene_ids == [scene_a_id]
+        assert normalized.objects[0].needs_review is True
+        assert normalized.relations == []
+        assert normalized.deltas == []
+        assert normalized.uncertain_items[0].supporting_scene_ids == []
+        assert diagnostics["category_counts"] == {
+            "scene_index_like": 1,
+            "empty_after_normalize": 1,
+            "uuid_like_but_unknown": 1,
+            "not_in_available_ids": 1,
+            "non_uuid_text": 1,
+        }
+        assert diagnostics["available_id_source_counts"] == {"id": 2}
+        sample = diagnostics["samples"][0]
+        assert sample["window_id"] == "W-1"
+        assert "summary" not in sample
+        assert "description" not in sample
+        assert "raw_output" not in sample
+
+    def test_phase2_quality_stats_keep_only_aggregated_diagnostics(self):
+        workflow = DeepImportWorkflow()
+        stats = workflow._phase2_quality_stats(
+            {
+                "phase2_world_window_concurrency": 20,
+                "phase2_batch_concurrency": 20,
+                "phase2_window_diagnostics": {
+                    "samples": [
+                        {
+                            "source_batch_id": "W-1",
+                            "elapsed_ms_total": 1200,
+                            "attempts": 1,
+                            "final_status": "success",
+                            "final_error_type": None,
+                        },
+                        {
+                            "source_batch_id": "W-2",
+                            "elapsed_ms_total": 3000,
+                            "attempts": 2,
+                            "final_status": "failed",
+                            "final_error_type": "timeout",
+                        },
+                    ]
+                },
+                "phase2_invalid_scene_ref_diagnostics": {
+                    "category_counts": {"scene_index_like": 2},
+                    "sampled_count": 1,
+                    "truncated": False,
+                    "available_id_source_counts": {"id": 3},
+                    "samples": [{"raw_ids": ["1"]}],
+                },
+            }
+        )
+
+        assert stats["phase2_world_window_concurrency"] == 20
+        assert stats["phase2_window_diagnostics"]["total"] == 2
+        assert stats["phase2_window_diagnostics"]["elapsed_ms_total"] == 4200
+        assert stats["phase2_window_diagnostics"]["failed_window_ids"] == ["W-2"]
+        assert stats["invalid_scene_ref_categories"] == {"scene_index_like": 2}
+        assert stats["invalid_scene_ref_sample_count"] == 1
+        assert stats["available_id_source_counts"] == {"id": 3}
+        assert "samples" not in stats["invalid_scene_ref_categories"]
+
+    def test_phase2_artifact_stores_budgeted_sanitized_diagnostics(self):
+        progress = DeepImportProgress()
+        artifact = add_phase_artifact(
+            progress,
+            "entity_extraction",
+            start_chapter=1,
+            end_chapter=2,
+            status="completed",
+            quality_stats={
+                "total_created": 1,
+                "phase2_window_diagnostics": {"total": 1},
+            },
+            diagnostics={
+                "phase2_windows": {
+                    "samples": [
+                        {
+                            "source_batch_id": "W-1",
+                            "token_attempts": [
+                                {
+                                    "attempts": 1,
+                                    "diagnostics": [
+                                        {
+                                            "attempt": 1,
+                                            "status": "success",
+                                            "message": "must not persist",
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                    "prompt": "must not persist",
+                    "content": "must not persist",
+                },
+                "invalid_scene_refs": {
+                    "samples": [{"raw_ids": ["1"], "body_text": "must not persist"}],
+                },
+            },
+        )
+
+        assert artifact["quality_stats"]["total_created"] == 1
+        assert "phase2_window_diagnostics" not in artifact["quality_stats"]
+        assert artifact["diagnostics"]["phase2_windows"]["samples"][0][
+            "source_batch_id"
+        ] == "W-1"
+        assert "prompt" not in artifact["diagnostics"]["phase2_windows"]
+        assert "content" not in artifact["diagnostics"]["phase2_windows"]
+        invalid_sample = artifact["diagnostics"]["invalid_scene_refs"]["samples"][0]
+        assert invalid_sample == {"raw_ids": ["1"]}
+
+    def test_phase2_world_window_concurrency_defaults_and_overrides(self, monkeypatch):
+        from modules.imports.scene_entity_config import phase2_project_settings_context
+
+        monkeypatch.delenv("PHASE2_WORLD_WINDOW_CONCURRENCY", raising=False)
+
+        assert PHASE2_WORLD_WINDOW_CONCURRENCY == 20
+        assert DEEP_IMPORT_DEFAULT_SETTINGS["phase2"]["world_window_concurrency"] == 20
+        assert Phase2WorldExtractor(lambda payload: payload).concurrency == 20
+
+        with phase2_project_settings_context(
+            {"deep_import": {"phase2": {"world_window_concurrency": 7}}}
+        ):
+            assert Phase2WorldExtractor(lambda payload: payload).concurrency == 7
+
+        monkeypatch.setenv("PHASE2_WORLD_WINDOW_CONCURRENCY", "5")
+        with phase2_project_settings_context(
+            {"deep_import": {"phase2": {"world_window_concurrency": 7}}}
+        ):
+            assert Phase2WorldExtractor(lambda payload: payload).concurrency == 5
+
+    @pytest.mark.asyncio
+    async def test_phase2_world_window_progress_callback_is_serialized(self):
+        scene_ids = [str(uuid.uuid4()) for _ in range(4)]
+        chapters = [
+            {"chapter_index": index, "title": f"第{index}章", "content": "正文"}
+            for index in range(1, 5)
+        ]
+        scenes = [
+            {
+                "id": scene_id,
+                "scene_index": index,
+                "chapter_ids": [str(index)],
+                "title": f"Scene {index}",
+            }
+            for index, scene_id in enumerate(scene_ids, start=1)
+        ]
+        windows = [
+            SceneWindowPlan(
+                window_index=index,
+                window_id=f"W-{index}",
+                covered_start=index,
+                covered_end=index,
+                owned_start=index,
+                owned_end=index,
+                chapter_indices=[index],
+                owned_chapter_indices=[index],
+                input_chars=100,
+            )
+            for index in range(1, 5)
+        ]
+        active_llm = 0
+        max_active_llm = 0
+        callback_active = False
+        callback_overlap = False
+
+        async def fake_llm(payload):
+            nonlocal active_llm, max_active_llm
+            active_llm += 1
+            max_active_llm = max(max_active_llm, active_llm)
+            await asyncio.sleep(0.01)
+            active_llm -= 1
+            return Phase2WorldExtractionOutput.model_validate(
+                {
+                    "objects": [
+                        {
+                            "name": f"对象{payload['window']['window_index']}",
+                            "entity_type": "other",
+                            "supporting_scene_ids": [payload["owned_scene_ids"][0]],
+                        }
+                    ]
+                }
+            )
+
+        async def on_scene_progress(**_kwargs):
+            nonlocal callback_active, callback_overlap
+            if callback_active:
+                callback_overlap = True
+            callback_active = True
+            await asyncio.sleep(0.01)
+            callback_active = False
+
+        extractor = Phase2WorldExtractor(fake_llm, concurrency=20)
+
+        await extractor._run_windows(
+            windows,
+            chapters,
+            scenes,
+            on_scene_progress=on_scene_progress,
+            total_owned_scenes=len(scenes),
+        )
+
+        assert max_active_llm > 1
+        assert callback_overlap is False
+
     @pytest.mark.asyncio
     async def test_extract_entities_by_scene_propagates_handler_errors(self):
         workflow = DeepImportWorkflow()
@@ -2286,9 +2567,11 @@ class TestDeepImportWorkflowAutoRun:
             _start_chapter,
             _end_chapter,
             phase0_plan,
+            **kwargs,
         ):
             calls.append("phase1a")
             assert phase0_plan.windows
+            assert "on_batch_progress" in kwargs
             return _phase1a_slicing_result([1, 2, 3])
 
         async def phase1b(_db, _novel_id, phase1a_candidates, **kwargs):
@@ -2296,6 +2579,7 @@ class TestDeepImportWorkflowAutoRun:
             assert phase1a_candidates
             assert (kwargs["start_chapter"], kwargs["end_chapter"]) == (1, 3)
             assert kwargs["chapters"]
+            assert "on_batch_progress" in kwargs
             return _phase1b_enrichment_result([1, 2, 3])
 
         async def commit(_db, _novel_id, candidates, *, workflow_id):
@@ -2334,6 +2618,67 @@ class TestDeepImportWorkflowAutoRun:
         assert result.phase1_completed_batches == 4
         assert result.quality_stats["scene_commit"]["created_count"] == 2
         workflow._segment_scenes.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_run_step_sets_current_chapter_range_and_invokes_batch_callbacks(self):
+        workflow = DeepImportWorkflow()
+        progress = DeepImportProgress(workflow_id="wf-progress")
+        emitted_values: list[float] = []
+        chapter_ranges: set[str | None] = set()
+
+        async def _record_progress(_progress, value):
+            emitted_values.append(value)
+            chapter_ranges.add(_progress.current_chapter_range)
+
+        phase1a_callbacks: list[tuple[int, int, str]] = []
+        phase1b_callbacks: list[tuple[int, int, str]] = []
+
+        async def phase1a(_db, _novel_id, _s, _e, phase0_plan, **kwargs):
+            cb = kwargs["on_batch_progress"]
+            for index, window in enumerate(phase0_plan.windows, start=1):
+                await cb(index, len(phase0_plan.windows), window.window_id)
+            return _phase1a_slicing_result([1, 2, 3])
+
+        async def phase1b(_db, _novel_id, candidates, **kwargs):
+            cb = kwargs["on_batch_progress"]
+            for index, scene in enumerate(candidates, start=1):
+                await cb(index, len(candidates), scene.candidate_id)
+            return _phase1b_enrichment_result([1, 2, 3])
+
+        async def phase0(_db, _novel_id, _s, _e):
+            return _phase0_plan_result(start_chapter=1, end_chapter=3)
+
+        async def commit(_db, _novel_id, _candidates, *, workflow_id):
+            return _scene_commit_result(created_count=2)
+
+        async def phase2(_db, _novel_id, **_kwargs):
+            return {"total_created": 1, "total_relations": 0, "total_deltas": 0}
+
+        async def phase3(_db, _novel_id, _s, _e, **_kwargs):
+            return {"total_threads": 1, "total_arcs": 1}
+
+        workflow._run_phase0_plan = AsyncMock(side_effect=phase0)
+        workflow._run_phase1a_scene_slicing = AsyncMock(side_effect=phase1a)
+        workflow._run_phase1b_enrichment = AsyncMock(side_effect=phase1b)
+        workflow._commit_fused_scenes = AsyncMock(side_effect=commit)
+        workflow._extract_entities_by_scene = AsyncMock(side_effect=phase2)
+        workflow._analyze_structure = AsyncMock(side_effect=phase3)
+
+        result = await workflow.run_step(
+            db=None,
+            novel_id=str(uuid.uuid4()),
+            start_chapter=1,
+            end_chapter=3,
+            progress=progress,
+            on_progress=_record_progress,
+        )
+
+        assert result.phase == "done"
+        assert "1-3" in chapter_ranges
+        assert None not in chapter_ranges
+        assert emitted_values, "progress should be emitted during phase1"
+        assert 0.0 in emitted_values or any(v <= 0.1 for v in emitted_values)
+        assert any(v >= 0.4 for v in emitted_values)
 
     @pytest.mark.asyncio
     async def test_run_step_passes_and_merges_phase2_checkpoints(self):

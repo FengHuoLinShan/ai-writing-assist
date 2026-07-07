@@ -45,7 +45,7 @@ DEEP_IMPORT_DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
         "world_min_max_tokens": 24_576,
         "world_max_max_tokens": 32_768,
         "world_max_tokens_per_source_char": 0.36,
-        "world_window_concurrency": 3,
+        "world_window_concurrency": 20,
         "batch_size_scenes": 12,
         "batch_concurrency": 6,
         "boundary_scenes": 2,

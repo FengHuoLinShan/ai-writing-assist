@@ -32,7 +32,7 @@ test.describe("世界对象 — 关系与别名", () => {
    * 关系管理 API 已就绪：POST /api/world/relations、DELETE /api/world/relations/:id
    * 前端 worldView.js 通过"关系"子标签提供创建/删除 UI。
    */
-  test("创建关系并显示在列表中", async ({ page }) => {
+  test("创建关系后可删除并从列表移除", async ({ page }) => {
     // Given: 已存在两个实体
     await page.locator("#btn-new-entity").click()
     await page.locator("#create-entity-name").fill("源对象")
@@ -74,6 +74,14 @@ test.describe("世界对象 — 关系与别名", () => {
     await page.locator(SEL.subnavItem("relations")).click()
     await expect(page.locator(SEL.dataTable)).toBeVisible()
     await expect(page.locator(SEL.dataTable)).toContainText("ally_of")
+
+    const relationRow = page.locator("tr", { hasText: "ally_of" })
+    await expect(relationRow).toHaveCount(1)
+    await relationRow.locator('[data-action="delete-relation"]').click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("确认操作")
+    await page.locator(SEL.modalFooter).getByRole("button", { name: "确认删除" }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("已删除", { timeout: 10000 })
+    await expect(page.locator(SEL.workspaceContent)).not.toContainText("ally_of")
   })
 
   /*

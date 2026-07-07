@@ -9,6 +9,8 @@ const mapQuickCreateView = {
   _preview: null,
   _activeLayouts: [],
   _layoutHistory: [],
+  _selectedLocationIds: new Set(),
+  _previousLayoutIds: new Set(),
   _includeCandidates: false,
   _target: "world",
   _onCreated: null,
@@ -18,6 +20,8 @@ const mapQuickCreateView = {
     this._includeCandidates = false
     this._activeLayouts = []
     this._layoutHistory = []
+    this._selectedLocationIds = new Set()
+    this._previousLayoutIds = new Set()
     this._target = "world"
     await this._loadContext()
     await this._loadPreview()
@@ -51,6 +55,7 @@ const mapQuickCreateView = {
       include_markers: false,
     }, state.currentProjectId)
     this._activeLayouts = this._computePreviewLayouts()
+    this._syncSelectionForLayouts(this._activeLayouts)
     this._layoutHistory = []
   },
 
@@ -91,27 +96,60 @@ const mapQuickCreateView = {
     return (preview.location_layouts || []).map((layout) => ({ ...layout }))
   },
 
+  _syncSelectionForLayouts(layouts) {
+    const nextIds = new Set((layouts || []).map((layout) => layout.location_entity_id))
+    const selected = new Set()
+    for (const id of this._selectedLocationIds || []) {
+      if (nextIds.has(id)) selected.add(id)
+    }
+    for (const id of nextIds) {
+      if (!this._previousLayoutIds.has(id)) selected.add(id)
+    }
+    this._selectedLocationIds = selected
+    this._previousLayoutIds = nextIds
+  },
+
+  _selectedLayouts() {
+    const selected = this._selectedLocationIds || new Set()
+    return (this._activeLayouts || []).filter((layout) => (
+      selected.has(layout.location_entity_id)
+    ))
+  },
+
+  _selectedCount() {
+    return this._selectedLayouts().length
+  },
+
   _renderRows() {
     const layouts = this._activeLayouts || []
-    return layouts.map((layout) => `
-      <tr>
+    const selectedIds = this._selectedLocationIds || new Set()
+    return layouts.map((layout) => {
+      const id = layout.location_entity_id
+      const selected = selectedIds.has(id)
+      const disabled = selected ? "" : "disabled"
+      return `
+      <tr class="${selected ? "" : "map-quick-row-unselected"}">
+        <td>
+          <input type="checkbox" data-action="map-quick-select" data-id="${esc(id)}" ${selected ? "checked" : ""} />
+        </td>
         <td>${esc(this._locationName(layout.location_entity_id))}</td>
         <td>${layout.center_hex_q}, ${layout.center_hex_r}</td>
         <td>
-          <button class="btn btn-sm" data-action="map-quick-radius" data-id="${esc(layout.location_entity_id)}" data-direction="decrease">-</button>
+          <button class="btn btn-sm" data-action="map-quick-radius" data-id="${esc(id)}" data-direction="decrease" ${disabled}>-</button>
           ${layout.occupy_radius}
-          <button class="btn btn-sm" data-action="map-quick-radius" data-id="${esc(layout.location_entity_id)}" data-direction="increase">+</button>
+          <button class="btn btn-sm" data-action="map-quick-radius" data-id="${esc(id)}" data-direction="increase" ${disabled}>+</button>
         </td>
-        <td>${layout.locked ? "已锁定" : "可调整"}</td>
+        <td>${selected ? (layout.locked ? "已锁定" : "可调整") : "未选择"}</td>
         <td>
-          <button class="btn btn-sm" data-action="map-quick-move" data-id="${esc(layout.location_entity_id)}" data-dq="-1" data-dr="0">←</button>
-          <button class="btn btn-sm" data-action="map-quick-move" data-id="${esc(layout.location_entity_id)}" data-dq="1" data-dr="0">→</button>
-          <button class="btn btn-sm" data-action="map-quick-move" data-id="${esc(layout.location_entity_id)}" data-dq="0" data-dr="-1">↑</button>
-          <button class="btn btn-sm" data-action="map-quick-move" data-id="${esc(layout.location_entity_id)}" data-dq="0" data-dr="1">↓</button>
-          <button class="btn btn-sm" data-action="map-quick-lock" data-id="${esc(layout.location_entity_id)}">${layout.locked ? "解锁" : "锁定"}</button>
+          <button class="btn btn-sm" data-action="map-quick-move" data-id="${esc(id)}" data-dq="-1" data-dr="0" ${disabled}>←</button>
+          <button class="btn btn-sm" data-action="map-quick-move" data-id="${esc(id)}" data-dq="1" data-dr="0" ${disabled}>→</button>
+          <button class="btn btn-sm" data-action="map-quick-move" data-id="${esc(id)}" data-dq="0" data-dr="-1" ${disabled}>↑</button>
+          <button class="btn btn-sm" data-action="map-quick-move" data-id="${esc(id)}" data-dq="0" data-dr="1" ${disabled}>↓</button>
+          <button class="btn btn-sm" data-action="map-quick-lock" data-id="${esc(id)}" ${disabled}>${layout.locked ? "解锁" : "锁定"}</button>
         </td>
       </tr>
-    `).join("")
+    `
+    }).join("")
   },
 
   _renderPreviewTable() {
@@ -119,14 +157,21 @@ const mapQuickCreateView = {
       `<div class="alert alert-warning">${esc(warning)}</div>`
     )).join("")
     const rows = this._renderRows()
+    const total = (this._activeLayouts || []).length
+    const selectedCount = this._selectedCount()
+    const allSelected = total > 0 && selectedCount === total
     return `
       ${warnings}
       <div class="map-toolbar">
         <button class="btn btn-sm" id="map-quick-undo" ${this._layoutHistory.length ? "" : "disabled"}>撤销</button>
+        <span class="text-muted">已选 ${selectedCount} / 共 ${total}</span>
       </div>
       <table class="data-table">
-        <thead><tr><th>地点</th><th>位置</th><th>半径</th><th>状态</th><th>调整</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="5">暂无可放置地点</td></tr>`}</tbody>
+        <thead><tr>
+          <th><input type="checkbox" id="map-quick-select-all" ${allSelected ? "checked" : ""} ${total ? "" : "disabled"} /></th>
+          <th>地点</th><th>位置</th><th>半径</th><th>状态</th><th>调整</th>
+        </tr></thead>
+        <tbody>${rows || `<tr><td colspan="6">暂无可放置地点</td></tr>`}</tbody>
       </table>
     `
   },
@@ -140,6 +185,19 @@ const mapQuickCreateView = {
     if (target) {
       target.onchange = () => this.setTarget(target.value)
     }
+    const selectAll = document.getElementById("map-quick-select-all")
+    if (selectAll) {
+      const total = (this._activeLayouts || []).length
+      const selectedCount = this._selectedCount()
+      selectAll.indeterminate = selectedCount > 0 && selectedCount < total
+      selectAll.onchange = () => this._setAllSelected(selectAll.checked)
+    }
+    document.querySelectorAll("[data-action='map-quick-select']").forEach((checkbox) => {
+      checkbox.onchange = () => this._toggleSelection(
+        checkbox.dataset.id,
+        checkbox.checked,
+      )
+    })
     document.querySelectorAll("[data-action='map-quick-radius']").forEach((button) => {
       button.onclick = () => this._resizeLocation(
         button.dataset.id,
@@ -158,6 +216,7 @@ const mapQuickCreateView = {
     })
     const undo = document.getElementById("map-quick-undo")
     if (undo) undo.onclick = () => this._undoLayout()
+    this._syncCreateButton()
   },
 
   _updatePreviewDom() {
@@ -165,6 +224,33 @@ const mapQuickCreateView = {
     if (!container) return
     container.innerHTML = this._renderPreviewTable()
     this._bindModalEvents()
+  },
+
+  _syncCreateButton() {
+    const footer = document.getElementById("modal-footer")
+    if (!footer) return
+    const createButton = Array.from(footer.querySelectorAll("button")).find(
+      (button) => button.textContent === "创建",
+    )
+    if (!createButton) return
+    const disabled = this._selectedCount() === 0
+    createButton.disabled = disabled
+    createButton.title = disabled ? "请至少选择一个地点" : ""
+  },
+
+  _setAllSelected(enabled) {
+    this._selectedLocationIds = new Set(
+      enabled ? (this._activeLayouts || []).map((layout) => layout.location_entity_id) : [],
+    )
+    this._updatePreviewDom()
+  },
+
+  _toggleSelection(locationId, selected) {
+    const next = new Set(this._selectedLocationIds || [])
+    if (selected) next.add(locationId)
+    else next.delete(locationId)
+    this._selectedLocationIds = next
+    this._updatePreviewDom()
   },
 
   _pushHistory() {
@@ -216,11 +302,17 @@ const mapQuickCreateView = {
   },
 
   async _confirm() {
+    const selectedLayouts = this._selectedLayouts()
+    if (!selectedLayouts.length) {
+      toast("请至少选择一个地点", "warning")
+      this._syncCreateButton()
+      return null
+    }
     const created = await api.world.confirmQuickCreateMap({
       target: this._target,
       include_candidates: this._includeCandidates,
       include_markers: false,
-      layouts: this._activeLayouts || [],
+      layouts: selectedLayouts,
     }, state.currentProjectId)
     closeModal()
     toast("地图已快速创建", "success")

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import ValidationError
 from modules.world.map_repositories import MapFactRepository
 from modules.world.map_schemas import (
     BindingHex,
@@ -164,6 +165,7 @@ class MapQuickCreateService:
         preview = await self.preview(db, novel_id, data)
         map_draft = preview.map
         map_name = data.name or map_draft["name"]
+        layouts = self._confirm_layouts(data, preview)
         parent_map_id = (
             parse_uuid(data.parent_map_id, "parent_map_id")
             if data.parent_map_id
@@ -192,7 +194,6 @@ class MapQuickCreateService:
             )
         else:
             created_map = MapConfigResponse.model_validate(existing_map)
-        layouts = data.layouts or preview.location_layouts
         layout_response = await self._layout_service.replace(
             db,
             novel_id,
@@ -236,6 +237,31 @@ class MapQuickCreateService:
             markers=[],
             warnings=preview.warnings,
         )
+
+    def _confirm_layouts(
+        self,
+        data: MapQuickCreateConfirmRequest,
+        preview: MapQuickCreatePreviewResponse,
+    ) -> list[MapLocationLayoutItem]:
+        layouts = (
+            data.layouts
+            if data.layouts is not None
+            else preview.location_layouts
+        )
+        allowed_location_ids = {
+            layout.location_entity_id for layout in preview.location_layouts
+        }
+        invalid_location_ids = [
+            layout.location_entity_id
+            for layout in layouts
+            if layout.location_entity_id not in allowed_location_ids
+        ]
+        if invalid_location_ids:
+            raise ValidationError(
+                "快速创建只能提交当前预览中的地点布局",
+                code="invalid_quick_create_layout",
+            )
+        return layouts
 
     async def _load_locations(
         self,

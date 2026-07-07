@@ -373,13 +373,16 @@ class TestTaskWorkerInitAndProps:
 
     def test_worker_registers_batched_writing_draft_provider_dependency(self) -> None:
         """Worker DI 注册集必须覆盖后台世界抽取需要的正文批量接口。"""
-        from core.container import get, reset
+        from core.container import get, register, reset
         from infrastructure.tasks.worker import _register_container_services
 
+        sentinel = object()
         reset()
         try:
+            register("memory.capture_snapshot", sentinel)
             _register_container_services()
             assert callable(get("writing.list_latest_drafts_for_chapters"))
+            assert get("memory.capture_snapshot") is sentinel
         finally:
             reset()
 
@@ -824,7 +827,24 @@ class TestTaskWorkerRecoverStale:
         task_mock.task_type = "deep_import"
         task_mock.status = "running"
         task_mock.heartbeat_at = heartbeat_at
-        task_mock.result = {"current_phase": "phase1b_fusion"}
+        task_mock.result = {
+            "current_phase": "entity_extraction",
+            "current_chapter": 7,
+            "current_chapter_range": "1-12",
+            "quality_stats": {
+                "scene_commit": {"created_count": 9},
+                "phase2": {"total_created": 14},
+            },
+            "checkpoints": {
+                "phase2": {
+                    "scenes": [
+                        {"scene_id": "s1", "status": "succeeded"},
+                        {"scene_id": "s2", "status": "failed"},
+                        {"scene_id": "s3", "status": "running"},
+                    ]
+                }
+            },
+        }
         task_mock.meta = {"novel_id": "novel-1"}
 
         deep_import_result = MagicMock()
@@ -856,6 +876,15 @@ class TestTaskWorkerRecoverStale:
         assert task_mock.result["last_heartbeat_at"] == heartbeat_at.isoformat()
         assert task_mock.result["interrupted_at"]
         assert task_mock.result["recovery_summary"]["reason"] == "heartbeat_timeout"
+        assert (
+            task_mock.result["recovery_summary"]["current_phase"]
+            == "entity_extraction"
+        )
+        assert task_mock.result["recovery_summary"]["current_chapter"] == 7
+        assert task_mock.result["recovery_summary"]["current_chapter_range"] == "1-12"
+        assert task_mock.result["recovery_summary"]["committed_scenes"] == 9
+        assert task_mock.result["recovery_summary"]["committed_entities"] == 14
+        assert task_mock.result["recovery_summary"]["pending_scene_candidates"] == 2
         assert task_mock.meta["interrupted"] is True
         assert task_mock.meta["recoverable"] is True
         assert task_mock.meta["recovery_required"] is True

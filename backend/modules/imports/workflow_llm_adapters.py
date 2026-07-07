@@ -1036,7 +1036,10 @@ class _Phase2WorldExtractionLLM:
                         "加入组织、获得物品、知识升级、秘密暴露、关系改变。\n"
                         "- 每条 objects / relations / deltas 都必须有 "
                         "supporting_scene_ids。\n"
-                        "- supporting_scene_ids 只能来自全部可用 Scene IDs。\n"
+                        "- supporting_scene_ids 只能逐字复制全部可用 Scene IDs "
+                        "列表中的完整 scene_id UUID。\n"
+                        "- 禁止把 display_index、scene_index、章节号、标题、序号"
+                        "或自造 ID 写进 supporting_scene_ids。\n"
                         "- 如果依据不足，放入 uncertain_items，不要硬编。\n"
                         "- 不要输出旁枝路人、普通菜品、普通马车、"
                         "一次性背景名词。\n"
@@ -1118,7 +1121,8 @@ class _Phase2WorldExtractionLLM:
                 "上一轮输出无法通过 Phase2WorldExtractionOutput 校验。"
                 "只输出 JSON object，只包含 objects、relations、deltas、"
                 "uncertain_items。每条 objects/relations/deltas 必须包含 "
-                "supporting_scene_ids，且只能使用给定 Scene ID。不要 Markdown。"
+                "supporting_scene_ids，且只能逐字复制给定 Scene ID UUID；"
+                "不要使用 display_index、章节号、标题或自造 ID。不要 Markdown。"
             ),
         )
 

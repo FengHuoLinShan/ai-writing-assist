@@ -39,7 +39,7 @@ context 本身不拥有业务事实，但当前**有自己的确认与审计记�
 
 ### 2. 分层编译器
 
-`CompiledContext` 是当前主路径，按 tier 组织内容并做预算裁剪。前端 `contextView`、AI 参考资料确认、outline 生成等都优先使用这一层。
+`CompiledContext` 是当前主路径，按 tier 组织内容并做预算裁剪。前端的生成中心任务页、AI 参考资料确认、outline 生成等都优先使用这一层；旧 `context` hash 入口已由路由层重定向到 `generate?tab=task`。
 
 每个 `ContextSection` 会携带审查台元数据：
 

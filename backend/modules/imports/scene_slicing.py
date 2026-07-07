@@ -99,7 +99,12 @@ class Phase1aSceneSlicer:
             ),
         )
 
-    async def run(self, plan: ScenePlanResult) -> SceneSlicingResult:
+    async def run(
+        self,
+        plan: ScenePlanResult,
+        *,
+        on_batch_progress: Callable[[int, int, str], Awaitable[None]] | None = None,
+    ) -> SceneSlicingResult:
         if plan.blocked or not plan.windows:
             return SceneSlicingResult(
                 quality_stats={
@@ -118,10 +123,19 @@ class Phase1aSceneSlicer:
             int(chapter["chapter_index"]): chapter for chapter in plan.chapters
         }
         semaphore = asyncio.Semaphore(self.concurrency)
+        total_windows = len(plan.windows)
+        completed = 0
+        progress_lock = asyncio.Lock()
 
         async def process(window: SceneWindowPlan) -> _WindowSliceResult:
+            nonlocal completed
             async with semaphore:
-                return await self._process_window(window, chapter_by_index)
+                result = await self._process_window(window, chapter_by_index)
+            async with progress_lock:
+                completed += 1
+                if on_batch_progress is not None:
+                    await on_batch_progress(completed, total_windows, window.window_id)
+            return result
 
         window_results = await asyncio.gather(
             *(process(window) for window in plan.windows)

@@ -151,6 +151,7 @@ def add_phase_artifact(
     errors: list[dict[str, Any]] | None = None,
     provider_summary: dict[str, Any] | None = None,
     checkpoint_summary: dict[str, Any] | None = None,
+    diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     artifact = {
         "phase": phase,
@@ -169,6 +170,7 @@ def add_phase_artifact(
         "repair": _sanitize(repair_summary or {"policy": repair_policy()}),
         "provider_summary": _sanitize(provider_summary or progress.llm_health or {}),
         "errors": _sanitize(errors or []),
+        "diagnostics": _sanitize(diagnostics or {}),
         "produced_at": now_iso(),
     }
     artifact = _enforce_artifact_budget(artifact)
@@ -455,7 +457,27 @@ def _enforce_artifact_budget(artifact: dict[str, Any]) -> dict[str, Any]:
         for key, value in (artifact.get("quality_stats") or {}).items()
         if isinstance(value, (int, float, bool, str)) or value is None
     }
+    compact["diagnostics"] = _compact_artifact_diagnostics(
+        artifact.get("diagnostics") or {}
+    )
     compact["errors"] = (artifact.get("errors") or [])[:5]
     compact["budget_truncated"] = True
     compact["error_kind"] = "artifact_over_budget"
+    return compact
+
+
+def _compact_artifact_diagnostics(diagnostics: Any) -> dict[str, Any]:
+    if not isinstance(diagnostics, dict):
+        return {}
+    compact: dict[str, Any] = {}
+    for key, value in diagnostics.items():
+        if not isinstance(value, dict):
+            compact[key] = value
+            continue
+        entry = dict(value)
+        for list_key in ("samples", "slowest", "failed"):
+            if isinstance(entry.get(list_key), list):
+                entry[list_key] = entry[list_key][:3]
+        entry["budget_truncated"] = True
+        compact[key] = entry
     return compact

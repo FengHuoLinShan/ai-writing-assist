@@ -79,7 +79,7 @@ class DeepImportProgress(BaseModel):
     )
     current_scene_candidate_id: str | None = Field(
         default=None,
-        description="当前处理的 Scene candidate 标识",
+        description="最近完成处理的 Scene candidate 标识（并发下为最近完成项）",
     )
     current_window: str | None = Field(
         default=None,

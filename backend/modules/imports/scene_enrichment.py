@@ -61,15 +61,27 @@ class Phase1bSceneEnricher:
         *,
         scenes: Sequence[SceneSliceCandidate],
         chapters: Sequence[dict[str, Any]],
+        on_batch_progress: Callable[[int, int, str], Awaitable[None]] | None = None,
     ) -> Phase1bEnrichmentResult:
         chapter_by_index = {
             int(chapter["chapter_index"]): chapter for chapter in chapters
         }
         semaphore = asyncio.Semaphore(self.concurrency)
+        total_scenes = len(scenes)
+        completed = 0
+        progress_lock = asyncio.Lock()
 
         async def process(index: int, scene: SceneSliceCandidate) -> _EnrichOneResult:
+            nonlocal completed
             async with semaphore:
-                return await self._process_scene(index, scene, chapter_by_index)
+                result = await self._process_scene(index, scene, chapter_by_index)
+            async with progress_lock:
+                completed += 1
+                if on_batch_progress is not None:
+                    await on_batch_progress(
+                        completed, total_scenes, scene.candidate_id
+                    )
+            return result
 
         results = await asyncio.gather(
             *(process(index, scene) for index, scene in enumerate(scenes, start=1))

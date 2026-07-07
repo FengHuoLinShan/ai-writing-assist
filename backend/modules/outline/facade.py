@@ -433,36 +433,13 @@ async def get_active_foreshadowing(
     status: str = "seeded",
 ) -> list[dict[str, Any]]:
     """获取活跃伏笔计划列表，返回 dict 列表。"""
-    from sqlalchemy import select
+    from modules.outline.services import ForeshadowingPlanService
 
-    from modules.outline.models import ForeshadowingPlan
-    from shared.utils import parse_uuid
-
-    nid = parse_uuid(novel_id, "novel_id")
-    stmt = select(ForeshadowingPlan).where(
-        ForeshadowingPlan.novel_id == nid,
-        ForeshadowingPlan.status == status,
+    return await ForeshadowingPlanService().get_active_dicts(
+        db,
+        novel_id,
+        status=status,
     )
-    result = await db.execute(stmt)
-    plans = result.scalars().all()
-    return [
-        {
-            "id": str(p.id),
-            "novel_id": str(p.novel_id),
-            "name": p.name,
-            "summary": p.summary,
-            "surface_meaning": p.surface_meaning,
-            "hidden_meaning": p.hidden_meaning,
-            "status": p.status,
-            "planned_seed_chapter": p.planned_seed_chapter,
-            "planned_payoff_chapter": p.planned_payoff_chapter,
-            "planned_payoff_scene": p.planned_payoff_scene,
-            "planned_reinforce_chapters": p.planned_reinforce_chapters or [],
-            "related_entity_ids": p.related_entity_ids or [],
-            "related_thread_ids": p.related_thread_ids or [],
-        }
-        for p in plans
-    ]
 
 
 # ============================================================
@@ -494,24 +471,9 @@ def _scene_to_dict(scene) -> dict[str, Any]:
 
 def _scene_to_contract(scene) -> SceneContract:
     """将 Scene ORM/response 对象转为稳定跨模块 contract。"""
-    return SceneContract(
-        id=str(scene.id),
-        novel_id=str(scene.novel_id),
-        scene_index=scene.scene_index,
-        title=scene.title,
-        goal=scene.goal,
-        core_conflict=scene.core_conflict,
-        emotional_beat=scene.emotional_beat,
-        must_happen=scene.must_happen,
-        must_not_happen=scene.must_not_happen,
-        narrative_tag=scene.narrative_tag,
-        source=scene.source,
-        scene_chunks=scene.scene_chunks or [],
-        chapter_ids=scene.chapter_ids or [],
-        pov_character_id=scene.pov_character_id,
-        structure_meta=scene.structure_meta or {},
-        status=scene.status,
-    )
+    from modules.outline.services import scene_to_contract
+
+    return scene_to_contract(scene)
 
 
 def _is_cleanup_eligible_deep_import_meta(
