@@ -1348,11 +1348,11 @@ const generateView = {
     if (!this._validateTaskForm(params)) return
     const output = document.getElementById("gen-task-output")
     if (!output) return
+    let controller = null
     try {
       this._setBusy(true)
-      const controller = this._trackRequestController()
+      controller = this._trackRequestController()
       const data = await api.context.render(params, { signal: controller.signal })
-      this._releaseRequestController(controller)
       if (data?.markdown) {
         this._lastContextMarkdown = data.markdown
         output.innerHTML = `<pre style="background:var(--bg);color:var(--text);padding:16px;border-radius:var(--radius-sm);border:1px solid var(--border);font-size:12px;line-height:1.6;overflow-x:auto;white-space:pre-wrap;word-break:break-word;">${esc(data.markdown)}</pre>`
@@ -1360,6 +1360,7 @@ const generateView = {
     } catch (err) {
       output.innerHTML = `<p style="color:var(--danger);font-size:13px;">渲染失败：${esc(err.message || "未知错误")}</p>`
     } finally {
+      this._releaseRequestController(controller)
       this._setBusy(false)
     }
   },
