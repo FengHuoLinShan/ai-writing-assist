@@ -182,7 +182,14 @@ class ProjectService:
             settings[LLM_SETTINGS_KEY] = next_profile
         else:
             settings.pop(LLM_SETTINGS_KEY, None)
-        settings[DEEP_IMPORT_SETTINGS_KEY] = clean_deep_import_settings(data.deep_import)
+        # D6: deep_import 是 atomic unit。空 dict 视为「恢复继承」，应清除 key；
+        # 非空才走 clean_deep_import_settings 写入整体覆盖。
+        if data.deep_import:
+            settings[DEEP_IMPORT_SETTINGS_KEY] = clean_deep_import_settings(
+                data.deep_import
+            )
+        else:
+            settings.pop(DEEP_IMPORT_SETTINGS_KEY, None)
         update_data = ProjectUpdate(settings=settings)
         project = await self._repo.update(db, project, update_data)
         if project is None:
@@ -223,13 +230,17 @@ class ProjectService:
             raise ValueError(f"unknown llm field: {field_name}")
         project = await self._get_existing_project(db, project_id)
         settings = dict(project.settings or {})
-        llm = dict(settings.get(LLM_SETTINGS_KEY, {}))
-        if field_name in llm:
-            del llm[field_name]
-        if llm:
-            settings[LLM_SETTINGS_KEY] = llm
+        # D6: deep_import 是 settings 顶层 sibling，不在 settings["llm"] 内
+        if field_name == "deep_import":
+            settings.pop(DEEP_IMPORT_SETTINGS_KEY, None)
         else:
-            settings.pop(LLM_SETTINGS_KEY, None)
+            llm = dict(settings.get(LLM_SETTINGS_KEY, {}))
+            if field_name in llm:
+                del llm[field_name]
+            if llm:
+                settings[LLM_SETTINGS_KEY] = llm
+            else:
+                settings.pop(LLM_SETTINGS_KEY, None)
         update_data = ProjectUpdate(settings=settings)
         await self._repo.update(db, project, update_data)
         return LLMFieldResetResponse(field=field_name, reset=True)

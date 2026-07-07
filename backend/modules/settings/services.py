@@ -36,6 +36,7 @@ from modules.settings.schemas import (
     ProjectsUsingDefaultsItem,
     ProjectsUsingDefaultsResponse,
 )
+from shared.deep_import_settings import DEEP_IMPORT_SETTINGS_KEY
 
 
 def _current_owner_id() -> uuid.UUID:
@@ -203,6 +204,8 @@ class SettingsService:
         if project is None:
             raise LookupError(f"project {project_id} not found")
         proj_profile = get_llm_profile(project.settings) if project.settings else {}
+        # deep_import 是 settings 顶层 sibling，不在 settings["llm"] 内（D6 atomic）
+        proj_deep_import = (project.settings or {}).get(DEEP_IMPORT_SETTINGS_KEY)
         glob_row = await self._llm_repo.get(db, _current_owner_id())
         glob_profile = (
             {f: getattr(glob_row, f) for f in LLM_INHERITABLE_FIELDS} if glob_row else {}
@@ -250,10 +253,8 @@ class SettingsService:
                 source=SOURCE_PROJECT if proj_profile.get("api_key") else SOURCE_UNSET,
             ),
             deep_import=FieldValueSource(
-                value=proj_profile.get("deep_import"),
-                source=SOURCE_PROJECT
-                if proj_profile.get("deep_import")
-                else SOURCE_SYSTEM,
+                value=proj_deep_import,
+                source=SOURCE_PROJECT if proj_deep_import else SOURCE_SYSTEM,
             ),
         )
 

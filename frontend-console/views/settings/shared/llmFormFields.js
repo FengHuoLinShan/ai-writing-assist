@@ -95,7 +95,7 @@ function renderKeyBlock(configured, v) {
         </label>
       </div>
       <div class="llm-status ${configured ? "success" : "muted"}">${configured ? "已保存" : "未保存"}</div>
-      ${configured && v && (v.provider_id_source === "global" || v.base_url_source === "global") ? "<p class='llm-key-mismatch-warning'>当前供应商/BaseURL 来自全局默认，请确认 Key 与该供应商匹配</p>" : ""}
+      ${configured && v && (v.provider_id_source === "global" || v.base_url_source === "global" || v.provider_id_source === "system" || v.base_url_source === "system") ? "<p class='llm-key-mismatch-warning'>当前供应商/BaseURL 来自全局或系统默认，请确认 Key 与该供应商匹配</p>" : ""}
     </div>
   `
 }

@@ -144,7 +144,15 @@ const projectSettingsView = {
         api_key: apiKey,
         clear_api_key: clearApiKey,
       })
-      toast("LLM 配置已保存", "success")
+      // D17: Key 未配置时给提示但仍报告其他字段已保存
+      const eff = this._effectiveLLM
+      const keyConfigured = eff?.api_key_configured?.value === true
+      const willHaveKey = Boolean(apiKey) || (keyConfigured && !clearApiKey)
+      if (willHaveKey) {
+        toast("LLM 配置已保存", "success")
+      } else {
+        toast("Key 未配置，已保存其他字段", "warning")
+      }
       await this._refreshEffective()
     } catch (err) {
       toast(err.message || "保存失败", "error")

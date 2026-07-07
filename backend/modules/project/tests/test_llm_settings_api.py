@@ -258,3 +258,95 @@ async def test_put_llm_settings_with_nulls_inherits_global(async_client, factory
     assert body["model"]["value"] == "custom-model"
     assert body["provider_id"]["source"] == "global"
     assert body["base_url"]["source"] == "global"
+
+
+@pytest.mark.asyncio
+async def test_effective_deep_import_atomic_unit(async_client, factory):
+    """D6: deep_import 是 atomic unit。项目保存后 effective 应反映 source=project
+    与完整 dict；未配置时 source=system。"""
+    pid = await factory.create_project()
+    # 未配置 → system
+    r0 = await async_client.get(f"/api/projects/{pid}/effective-llm-settings")
+    assert r0.json()["deep_import"]["source"] == "system"
+    assert r0.json()["deep_import"]["value"] is None
+    # 保存整体覆盖
+    di_payload = {
+        "global": {
+            "structured_timeout_grace_seconds": 30,
+            "structured_max_fix_attempts": 5,
+        },
+        "phase0": {"target_input_chars": 80000},
+    }
+    r1 = await async_client.put(
+        f"/api/projects/{pid}/llm-settings",
+        json={
+            "provider_id": "deepseek",
+            "base_url": "https://api.deepseek.com/v1",
+            "model": "deepseek-chat",
+            "deep_import": di_payload,
+        },
+    )
+    assert r1.status_code == 200
+    r2 = await async_client.get(f"/api/projects/{pid}/effective-llm-settings")
+    body = r2.json()
+    assert body["deep_import"]["source"] == "project"
+    assert body["deep_import"]["value"] is not None
+    assert (
+        body["deep_import"]["value"]["global"]["structured_timeout_grace_seconds"]
+        == 30
+    )
+    assert (
+        body["deep_import"]["value"]["phase0"]["target_input_chars"] == 80000
+    )
+
+
+@pytest.mark.asyncio
+async def test_reset_deep_import_field_restores_system(async_client, factory):
+    """D5/D6: DELETE deep_import 字段应清除项目覆盖，effective 回到 source=system。"""
+    pid = await factory.create_project()
+    await async_client.put(
+        f"/api/projects/{pid}/llm-settings",
+        json={
+            "provider_id": "deepseek",
+            "base_url": "https://api.deepseek.com/v1",
+            "model": "deepseek-chat",
+            "deep_import": {"global": {"structured_max_fix_attempts": 9}},
+        },
+    )
+    r = await async_client.delete(
+        f"/api/projects/{pid}/llm-settings/field/deep_import"
+    )
+    assert r.status_code == 200
+    r2 = await async_client.get(f"/api/projects/{pid}/effective-llm-settings")
+    assert r2.json()["deep_import"]["source"] == "system"
+    assert r2.json()["deep_import"]["value"] is None
+
+
+@pytest.mark.asyncio
+async def test_put_llm_settings_empty_deep_import_clears_key(async_client, factory):
+    """D4/D6: PUT 传 deep_import={} 应清除项目覆盖（恢复继承），不应写入完整默认。"""
+    pid = await factory.create_project()
+    # 先保存一个非空 deep_import
+    await async_client.put(
+        f"/api/projects/{pid}/llm-settings",
+        json={
+            "provider_id": "deepseek",
+            "base_url": "https://api.deepseek.com/v1",
+            "model": "deepseek-chat",
+            "deep_import": {"global": {"structured_max_fix_attempts": 7}},
+        },
+    )
+    # 再传空 dict 清除
+    r = await async_client.put(
+        f"/api/projects/{pid}/llm-settings",
+        json={
+            "provider_id": "deepseek",
+            "base_url": "https://api.deepseek.com/v1",
+            "model": "deepseek-chat",
+            "deep_import": {},
+        },
+    )
+    assert r.status_code == 200
+    r2 = await async_client.get(f"/api/projects/{pid}/effective-llm-settings")
+    assert r2.json()["deep_import"]["source"] == "system"
+    assert r2.json()["deep_import"]["value"] is None

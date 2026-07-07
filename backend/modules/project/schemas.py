@@ -196,6 +196,10 @@ class ProjectLLMSettingsUpdate(BaseModel):
     @field_validator("deep_import", mode="before")
     @classmethod
     def clean_deep_import(cls, v: object) -> dict[str, Any]:
+        # D4/D6: 空 dict 或 None 表示「恢复继承」，保留为空；非空才走 clean 填默认。
+        # 旧实现无论输入都返回完整默认，导致 PUT {} 实际写入全默认而非清除 key。
+        if not v:
+            return {}
         return clean_deep_import_settings(v)
 
 
