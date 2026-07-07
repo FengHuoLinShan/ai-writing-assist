@@ -11,7 +11,7 @@
 |---|------|-----|
 |D1|source 分类|四类：`project` / `global` / `system` / `unset`|
 |D2|NULL 语义分层|项目字段 NULL = 继承全局；全局字段 NULL = 继承代码内置默认；既无项目也无全局值且无内置默认 = `unset`|
-|D3|项目覆盖字段 nullable 范围|`project_llm_settings` 所有非 Key 字段（含现有）全部改 nullable；Key 维持项目独有；demo 阶段 drop 重建该表|
+|D3|项目覆盖字段 nullable 范围|项目 LLM 配置沿用 `Project.settings["llm"]` JSON 存储（非独立表）；非 Key 字段缺失或显式 null = 继承全局；Key 永远项目独有，source 永远 `project`/`unset`|
 |D4|PUT/PATCH/DELETE 分工|`PUT` = 全量替换（缺失字段置 NULL = 恢复继承）；不引入 PATCH；`DELETE /<resource>/field/<field_name>` = 单字段恢复继承；`field_name` 服务端硬白名单，非白名单返回 400，不拼列名|
 |D5|LLM 设置也加字段级 DELETE|是。`DELETE /api/projects/<id>/llm-settings/field/<field_name>`|
 |D6|deep_import JSONB 覆盖粒度|整体覆盖，不做字段级合并。项目 NULL = 继承全局；有值 = 整体覆盖；UI「恢复到全局默认」按钮放在整个 Tab 而非每字段；子字段仍走 schema 校验|
@@ -70,15 +70,15 @@
         └ localStorage 一次性迁移       （旧 author preferences key → 后端）
 ```
 
-后端新增三张表，所有表都带 `owner_id` 预留账户系统：
+后端新增三张表，新表带 `owner_id` 预留账户系统：
 
-| 表 | 作用域 | 隔离键 |
-|----|--------|--------|
-| `global_llm_defaults` | 全局 LLM 默认（按供应商完整期望，不含 Key） | owner_id |
-| `global_author_preferences` | 全局作者偏好默认 | owner_id |
-| `project_author_preferences` | 项目级作者偏好覆盖（字段 NULL = 用全局） | project_id |
+| 表 | 作用域 | 隔离键 | 存储形式 |
+|----|--------|--------|----------|
+| `global_llm_defaults` | 全局 LLM 默认（按供应商完整期望，不含 Key） | owner_id | 新 SQL 表 |
+| `global_author_preferences` | 全局作者偏好默认 | owner_id | 新 SQL 表 |
+| `project_author_preferences` | 项目级作者偏好覆盖（字段 NULL = 用全局） | project_id | 新 SQL 表 |
 
-现有 `project_llm_settings` 表保留不变，新字段允许 NULL 以表达「继承全局默认」。
+**项目 LLM 配置不引入新表**：现有实现将项目 LLM 配置存于 `Project.settings["llm"]` JSON 字段（见 `infrastructure/llm/profiles.py:LLM_SETTINGS_KEY`），深度导入存于 `Project.settings["deep_import"]`（`DEEP_IMPORT_SETTINGS_KEY`）。本设计沿用 JSON 存储：缺失/空 JSON key 表示「继承全局默认」（与 NULL 字段等价语义），无需 alembic 改表。
 
 ## 3. 路由与信息架构
 
@@ -155,9 +155,18 @@ updated_at          TIMESTAMPTZ
 
 所有字段允许 NULL，`NULL` 表示「使用全局默认」；覆盖时填值，恢复即 UPDATE 回 NULL。合并不 permit 硬删除（沿用正史保护准则）。
 
-### 4.4 现有 `project_llm_settings`
+### 4.4 现有项目 LLM 配置（`Project.settings` JSON）
 
-**所有非 Key 字段全部改 nullable**（D3）：`provider_id`、`label`、`base_url`、`model`、`timeout`、`max_tokens`、`temperature`、`top_p`、`extra`、`creative_mode`、`deep_import`。Key 字段维持项目独有，不参与继承。demo 阶段直接 drop 重建该表。NULL 语义 = 继承全局；全局也无 = 继承系统内置默认（source=`system`）。
+项目 LLM 配置与深度导入参数已存放于 `Project.settings` JSON 字段（`infrastructure/llm/profiles.py:LLM_SETTINGS_KEY="llm"`、`DEEP_IMPORT_SETTINGS_KEY="deep_import"`），**不是独立表**。
+
+本设计沿用 JSON 存储，**不改 alembic / 不 drop 任何项目 LLM 表**。继承语义通过「JSON key 缺失 = 继承全局」表达：
+
+- `settings["llm"]` 缺失或不含某字段 → 该字段继承全局默认
+- `settings["llm"]["api_key"]` 字段保留项目独有，Key 永远不参与继承（source 永远 `project` 或 `unset`）
+- `settings["llm"]["provider_id"]` 等显式置 `None` 时视为「恢复继承」语义，等价于缺失该 key
+- `settings["deep_import"]` 缺失 → 整组继承全局；有值 → 整体覆盖（D6 沿用）
+
+服务层 `update_llm_settings` 在 PUT 时若收到字段值为 `None`，需要主动删除该 JSON key（而非保留 null 字面值），保持存储一致。读取时 `get_llm_profile` 把缺失 key 与显式 null 视同「未覆盖」。
 
 ## 5. API 接口
 
