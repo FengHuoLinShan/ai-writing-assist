@@ -158,9 +158,13 @@ function buildPayload(options, excludedSectionKeys = new Set()) {
   if (options.arc_id) payload.arc_id = options.arc_id
   if (options.entity_ids) payload.entity_ids = options.entity_ids
   if (options.character_ids) payload.character_ids = options.character_ids
+  if (options.viewpoint_character_id) payload.viewpoint_character_id = options.viewpoint_character_id
+  if (options.location_ids) payload.location_ids = options.location_ids
   const excludedContextSections = Array.from(excludedSectionKeys)
-  if (excludedIds.length || excludedContextSections.length) {
-    payload.excluded_asset_ids = {}
+  const optionExcluded = options.excluded_asset_ids || {}
+  const hasOptionExcluded = Object.keys(optionExcluded).length > 0
+  if (hasOptionExcluded || excludedIds.length || excludedContextSections.length) {
+    payload.excluded_asset_ids = { ...optionExcluded }
     if (excludedIds.length) payload.excluded_asset_ids.manual = excludedIds
     if (excludedContextSections.length) payload.excluded_asset_ids.context_sections = excludedContextSections
   }

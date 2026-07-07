@@ -206,13 +206,13 @@ class ProjectLLMSettingsUpdate(BaseModel):
 class ProjectLLMSettingsResponse(BaseModel):
     """Project-level LLM settings response without secrets."""
 
-    provider_id: str = "openai-compatible"
-    label: str | None = None
-    base_url: str = ""
-    model: str = ""
-    timeout: int | None = None
-    max_tokens: int | None = None
-    temperature: float | None = None
+    provider_id: str = "deepseek"
+    label: str | None = "DeepSeek"
+    base_url: str = "https://api.deepseek.com"
+    model: str = "deepseek-v4-flash"
+    timeout: int | None = 180
+    max_tokens: int | None = 4096
+    temperature: float | None = 0.3
     top_p: float | None = None
     extra: dict[str, Any] = Field(default_factory=dict)
     deep_import: dict[str, Any] = Field(default_factory=dict)

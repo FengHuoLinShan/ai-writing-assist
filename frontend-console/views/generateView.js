@@ -15,6 +15,17 @@ const BUILTIN_TEMPLATE_PROMPTS = {
   rule: "聚焦规则设定：适用范围、运作机制、限制代价、例外、冲突点、已知误解和剧情可用性。",
 }
 
+const TEMPLATE_TYPE_OPTIONS = [
+  "none",
+  "character",
+  "event",
+  "item",
+  "location",
+  "faction",
+  "rule",
+  "custom",
+]
+
 const OBJECT_TEMPLATES = [
   { value: "none", label: "不带模板", hint: "不预设对象类型，按聊天内容自由收束", prompt: BUILTIN_TEMPLATE_PROMPTS.none },
   { value: "character", label: "人物", hint: "反派、主角、配角、导师", prompt: BUILTIN_TEMPLATE_PROMPTS.character },
@@ -25,6 +36,9 @@ const OBJECT_TEMPLATES = [
   { value: "rule", label: "规则设定", hint: "能力体系、禁忌、代价", prompt: BUILTIN_TEMPLATE_PROMPTS.rule },
 ]
 
+function normalizeObjectTemplateType(value) {
+  return TEMPLATE_TYPE_OPTIONS.includes(value) ? value : "custom"
+}
 
 const TASK_PRESETS = {
   plot: {
@@ -432,15 +446,16 @@ const generateView = {
   },
 
   _builtinTemplates() {
-    return [
-      { id: "builtin:none", value: "builtin:none", label: "不带模板", hint: "不预设对象类型，按聊天内容自由收束", prompt: BUILTIN_TEMPLATE_PROMPTS.none, object_template: "none", is_builtin: true, version_number: 1 },
-      { id: "builtin:character", value: "builtin:character", label: "人物", hint: "反派、主角、配角、导师", prompt: BUILTIN_TEMPLATE_PROMPTS.character, object_template: "character", is_builtin: true, version_number: 1 },
-      { id: "builtin:event", value: "builtin:event", label: "事件", hint: "转折、事故、阴谋、仪式", prompt: BUILTIN_TEMPLATE_PROMPTS.event, object_template: "event", is_builtin: true, version_number: 1 },
-      { id: "builtin:item", value: "builtin:item", label: "物品", hint: "法器、信物、线索、资源", prompt: BUILTIN_TEMPLATE_PROMPTS.item, object_template: "item", is_builtin: true, version_number: 1 },
-      { id: "builtin:location", value: "builtin:location", label: "地点", hint: "城市、秘境、据点、禁区", prompt: BUILTIN_TEMPLATE_PROMPTS.location, object_template: "location", is_builtin: true, version_number: 1 },
-      { id: "builtin:faction", value: "builtin:faction", label: "组织", hint: "宗门、公司、帮派、王朝", prompt: BUILTIN_TEMPLATE_PROMPTS.faction, object_template: "faction", is_builtin: true, version_number: 1 },
-      { id: "builtin:rule", value: "builtin:rule", label: "规则设定", hint: "能力体系、禁忌、代价", prompt: BUILTIN_TEMPLATE_PROMPTS.rule, object_template: "rule", is_builtin: true, version_number: 1 },
-    ]
+    return OBJECT_TEMPLATES.map((item) => ({
+      id: `builtin:${item.value}`,
+      value: `builtin:${item.value}`,
+      label: item.label,
+      hint: item.hint,
+      prompt: item.prompt,
+      object_template: item.value,
+      is_builtin: true,
+      version_number: 1,
+    }))
   },
 
   _normalizeTemplate(raw) {
@@ -450,7 +465,7 @@ const generateView = {
       label: raw.name || raw.label || "未命名模板",
       hint: raw.description || raw.hint || "",
       prompt: raw.prompt_text || raw.prompt || "",
-      object_template: raw.object_template || "custom",
+      object_template: normalizeObjectTemplateType(raw.object_template || "custom"),
       is_builtin: Boolean(raw.is_builtin),
       version_number: raw.version_number || 1,
     }

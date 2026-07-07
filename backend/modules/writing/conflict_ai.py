@@ -90,7 +90,7 @@ class ConflictCheckAiReviewService:
         try:
             output = await self._llm.generate_structured(
                 LLMCallRequest(
-                    model=getattr(self._llm, "model_name", "gpt-4o"),
+                    model=getattr(self._llm, "model_name", "deepseek-v4-flash"),
                     messages=[
                         LLMMessage(
                             role="system",
@@ -244,7 +244,7 @@ class ConflictSuggestionService:
         try:
             output = await self._llm.generate_structured(
                 LLMCallRequest(
-                    model=getattr(self._llm, "model_name", "gpt-4o"),
+                    model=getattr(self._llm, "model_name", "deepseek-v4-flash"),
                     messages=[
                         LLMMessage(
                             role="system",

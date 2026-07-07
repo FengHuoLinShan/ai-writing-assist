@@ -424,6 +424,121 @@ class TestRagChunkRepository:
         assert results[0].id == created.id
 
     @pytest.mark.asyncio
+    async def test_keyword_search_filters_by_scene_id(
+        self,
+        repo: RagChunkRepository,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        """同章不同 Scene 的 chunks，scene_id=A 时只返回 A。"""
+        scene_a = str(uuid.uuid4())
+        scene_b = str(uuid.uuid4())
+        chunk_a = await repo.create(
+            db_with_project,
+            sample_novel_id,
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                scene_id=scene_a,
+                text="警报声在主控室响起。",
+                importance=0.2,
+            ),
+        )
+        await repo.create(
+            db_with_project,
+            sample_novel_id,
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                scene_id=scene_b,
+                text="警报声在后续房间响起。",
+                importance=0.9,
+            ),
+        )
+        await repo.create(
+            db_with_project,
+            sample_novel_id,
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                text="警报声在无 Scene 标注片段中响起。",
+                importance=1.0,
+            ),
+        )
+        await db_with_project.flush()
+
+        results = await repo.keyword_search(
+            db_with_project,
+            sample_novel_id,
+            "警报声",
+            chapter_index=1,
+            scene_id=scene_a,
+            strict_scene_filter=True,
+        )
+
+        assert [chunk.id for chunk in results] == [chunk_a.id]
+
+    @pytest.mark.asyncio
+    async def test_vector_search_filters_by_scene_id_in_python_fallback(
+        self,
+        repo: RagChunkRepository,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        """vector path 也必须应用 scene_id metadata filter。"""
+        scene_a = str(uuid.uuid4())
+        scene_b = str(uuid.uuid4())
+        embedding = [1.0, *([0.0] * 767)]
+        chunk_a = await repo.create(
+            db_with_project,
+            sample_novel_id,
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                scene_id=scene_a,
+                text="主控室当前 Scene。",
+                embedding_status="succeeded",
+            ),
+        )
+        chunk_a.embedding = embedding
+        chunk_b = await repo.create(
+            db_with_project,
+            sample_novel_id,
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                scene_id=scene_b,
+                text="后续 Scene。",
+                embedding_status="succeeded",
+            ),
+        )
+        chunk_b.embedding = embedding
+        chunk_null = await repo.create(
+            db_with_project,
+            sample_novel_id,
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                text="无 Scene 标注片段。",
+                embedding_status="succeeded",
+            ),
+        )
+        chunk_null.embedding = embedding
+        await db_with_project.flush()
+
+        results = await repo.vector_search(
+            db_with_project,
+            sample_novel_id,
+            embedding,
+            chapter_index=1,
+            scene_id=scene_a,
+            strict_scene_filter=True,
+            top_k=5,
+        )
+
+        assert [chunk.id for chunk, _score in results] == [chunk_a.id]
+
+    @pytest.mark.asyncio
     async def test_keyword_search_prioritizes_chunks_matching_more_query_terms(
         self,
         repo: RagChunkRepository,

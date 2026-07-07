@@ -87,6 +87,8 @@ class RetrievalOrchestrator:
         character_ids: list[str] | None = None,
         thread_ids: list[str] | None = None,
         chapter_index: int | None = None,
+        scene_id: str | None = None,
+        strict_scene_filter: bool = False,
         visibility: str | None = None,
         mode: str = "search",
         top_k: int = 12,
@@ -109,7 +111,11 @@ class RetrievalOrchestrator:
         )
 
         relation_only = mode == "extraction" and bool(
-            entity_ids or character_ids or thread_ids or chapter_index is not None
+            entity_ids
+            or character_ids
+            or thread_ids
+            or chapter_index is not None
+            or scene_id is not None
         )
         repo_query = "" if relation_only else expanded_query
 
@@ -121,6 +127,8 @@ class RetrievalOrchestrator:
             character_ids=character_ids,
             thread_ids=thread_ids,
             chapter_index=chapter_index,
+            scene_id=scene_id,
+            strict_scene_filter=strict_scene_filter,
             visibility=visibility,
             limit=top_k * 2,
         )
@@ -137,13 +145,19 @@ class RetrievalOrchestrator:
                 character_ids=character_ids,
                 thread_ids=thread_ids,
                 chapter_index=chapter_index,
+                scene_id=scene_id,
+                strict_scene_filter=strict_scene_filter,
                 visibility=visibility,
                 top_k=top_k * 2,
             )
             candidate_chunks.extend(chunk for chunk, _score in vector_chunks)
 
         has_metadata_filter = bool(
-            entity_ids or character_ids or thread_ids or chapter_index is not None
+            entity_ids
+            or character_ids
+            or thread_ids
+            or chapter_index is not None
+            or scene_id is not None
         )
         if has_metadata_filter and not relation_only:
             metadata_chunks = await self._repo.keyword_search(
@@ -154,6 +168,8 @@ class RetrievalOrchestrator:
                 character_ids=character_ids,
                 thread_ids=thread_ids,
                 chapter_index=chapter_index,
+                scene_id=scene_id,
+                strict_scene_filter=strict_scene_filter,
                 visibility=visibility,
                 limit=top_k * 2,
             )
@@ -277,6 +293,7 @@ class RetrievalOrchestrator:
                 )
                 > 0
                 or (chapter_index is not None and chunk.chapter_index == chapter_index)
+                or (scene_id is not None and str(chunk.scene_id) == scene_id)
                 for chunk, _ in scored_chunks[:top_k]
             )
 
@@ -352,6 +369,8 @@ class RetrievalOrchestrator:
         character_ids: list[str] | None = None,
         thread_ids: list[str] | None = None,
         chapter_index: int | None = None,
+        scene_id: str | None = None,
+        strict_scene_filter: bool = False,
         visibility: str | None = None,
         mode: str = "search",
         top_k: int = 12,
@@ -409,6 +428,8 @@ class RetrievalOrchestrator:
             character_ids=character_ids,
             thread_ids=thread_ids,
             chapter_index=chapter_index,
+            scene_id=scene_id,
+            strict_scene_filter=strict_scene_filter,
             visibility=visibility,
             mode=mode,
             top_k=top_k,

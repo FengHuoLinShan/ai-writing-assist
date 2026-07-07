@@ -1,0 +1,21 @@
+{
+  "aliases": [
+    {
+      "entity_name": "克莱恩",
+      "alias": "周明瑞",
+      "alias_type": "former_name",
+      "quote": "他记得自己叫周明瑞",
+      "confidence": 0.9
+    }
+  ],
+  "relations": [
+    {
+      "source_name": "克莱恩",
+      "target_name": "廷根",
+      "relation_type": "located_at",
+      "description": "克莱恩身处廷根",
+      "quote": "陌生的房间",
+      "strength": 0.7
+    }
+  ]
+}

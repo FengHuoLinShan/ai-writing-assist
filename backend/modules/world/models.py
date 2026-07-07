@@ -703,6 +703,100 @@ class EntityProfileTemplate(Base, UUIDMixin, TimestampMixin, StatusMixin):
     display_schema_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
 
+class GenerationPromptTemplate(Base, UUIDMixin, TimestampMixin, StatusMixin):
+    __tablename__ = "generation_prompt_templates"
+    __table_args__ = (
+        Index(
+            "ix_generation_prompt_templates_novel_target_status_updated",
+            "novel_id",
+            "target_kind",
+            "status",
+            "updated_at",
+        ),
+        UniqueConstraint(
+            "novel_id",
+            "target_kind",
+            "template_key",
+            name="uq_generation_prompt_template_key",
+        ),
+        {"comment": "生成中心 Prompt 模板"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    target_kind: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="world_object", index=True
+    )
+    template_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    object_template: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="custom"
+    )
+    prompt_text: Mapped[str] = mapped_column(Text, nullable=False)
+    variables_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    validation_state: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="valid"
+    )
+    validation_issues_json: Mapped[list] = mapped_column(
+        JSON, nullable=False, default=list
+    )
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class GenerationPromptTemplateRevision(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "generation_prompt_template_revisions"
+    __table_args__ = (
+        Index(
+            "ix_generation_prompt_template_revisions_novel_template",
+            "novel_id",
+            "template_id",
+        ),
+        UniqueConstraint(
+            "template_id",
+            "version_number",
+            name="uq_generation_prompt_template_revision",
+        ),
+        {"comment": "生成中心 Prompt 模板版本"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    template_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("generation_prompt_templates.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    object_template: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="custom"
+    )
+    prompt_text: Mapped[str] = mapped_column(Text, nullable=False)
+    variables_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    validation_state: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="valid"
+    )
+    validation_issues_json: Mapped[list] = mapped_column(
+        JSON, nullable=False, default=list
+    )
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    snapshot_meta_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
+
 class GenericEntityProfile(Base, UUIDMixin, TimestampMixin, StatusMixin):
     __tablename__ = "generic_entity_profiles"
     __table_args__ = (

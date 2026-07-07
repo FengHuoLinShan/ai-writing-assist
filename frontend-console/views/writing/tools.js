@@ -35,6 +35,7 @@ export function createWritingTools({
           <div class="writing-tools-menu__group">
             <strong>生成</strong>
             <button class="btn btn-sm" data-action="ai-generate-draft" ${disabled} title="${disabled ? escapeHtml(disabledTitle) : "基于上下文生成当前章节草稿"}">AI 生成草稿</button>
+            <button class="btn btn-sm" data-action="ai-generate-pov-draft" ${disabled} title="${disabled ? escapeHtml(disabledTitle) : "基于当前 Scene 的 POV 角色有限认知生成候选草稿"}">AI 角色视角草稿</button>
           </div>
           ${currentProjectId() ? `<div class="writing-tools-menu__group">
             <strong>提取</strong>
@@ -74,6 +75,9 @@ export function createWritingTools({
     })
     container.querySelectorAll('[data-action="ai-generate-draft"]').forEach((btn) => {
       btn.addEventListener("click", () => generateDraft())
+    })
+    container.querySelectorAll('[data-action="ai-generate-pov-draft"]').forEach((btn) => {
+      btn.addEventListener("click", () => generatePovDraft())
     })
     container.querySelectorAll('[data-action="split-scene"]').forEach((btn) => {
       btn.addEventListener("click", () => showSplitSceneForm())
@@ -182,6 +186,60 @@ export function createWritingTools({
     }
   }
 
+  async function generatePovDraft() {
+    const projectId = currentProjectId()
+    const currentChapter = projectState._currentChapter
+    if (!projectId || !currentChapter) {
+      toast("请先选择章节", "warning")
+      return
+    }
+
+    const currentScene = findCurrentScene()
+    if (!currentScene) {
+      toast("当前章节未关联 Scene", "warning")
+      return
+    }
+
+    const viewpointCharacterId = currentScene.pov_character_id
+    if (!viewpointCharacterId) {
+      toast("当前 Scene 未设置 POV 角色", "warning")
+      return
+    }
+
+    const povInstruction = [
+      "请从当前 Scene 的 POV 角色有限认知出发生成正文候选草稿。",
+      "用户指令是作者意图，不等于角色知识。",
+      "角色判断、台词、内心和行动只能使用确认上下文中该角色可见的信息。",
+    ].join("\n")
+
+    try {
+      const confirmation = await confirmAiReference({
+        novel_id: projectId,
+        action: "writing.generate",
+        task: "基于当前 Scene 的 POV 角色有限认知，生成正文候选草稿",
+        scope: "chapter",
+        chapter_index: currentChapter,
+        scene_id: currentScene.id,
+        reveal_mode: "character",
+        viewpoint_character_id: viewpointCharacterId,
+        character_ids: [viewpointCharacterId],
+        include_pending_objects: true,
+      })
+      const userNote = confirmation.user_note ? `${confirmation.user_note}\n\n` : ""
+      const result = await api.writing.generate({
+        novel_id: projectId,
+        chapter_index: currentChapter,
+        title: projectState._currentTitle || `第 ${currentChapter} 章`,
+        instruction: `${userNote}${povInstruction}`,
+        context_confirmation_id: confirmation.id,
+      })
+      toast(`AI 角色视角草稿任务已提交：${result.task_id || result.id || ""}`, "success")
+    } catch (err) {
+      if (err.message && err.message.includes("取消")) return
+      toast(err.message || "AI 角色视角草稿失败", "error")
+    }
+  }
+
   function dispose() {
     // 无持久化资源
   }
@@ -192,6 +250,7 @@ export function createWritingTools({
     exportChapter,
     splitScene,
     generateDraft,
+    generatePovDraft,
     dispose,
   }
 }

@@ -156,6 +156,131 @@ ObjectDraftTemplate = Literal[
 ]
 
 ObjectDraftQualityMode = Literal["fast", "pro"]
+GenerationTemplateTargetKind = Literal["world_object"]
+GenerationTemplateStatus = Literal["active", "archived"]
+GenerationTemplateValidationState = Literal["valid", "warning", "invalid"]
+
+
+class PromptTemplateVariable(BaseModel):
+    name: str = Field(..., min_length=1, max_length=64)
+    label: str | None = Field(default=None, max_length=80)
+    type: str = Field(default="text", max_length=32)
+    required: bool = False
+    default: str | None = Field(default=None, max_length=2000)
+    help: str | None = Field(default=None, max_length=500)
+
+
+class PromptTemplateIssue(BaseModel):
+    severity: Literal["P1", "P2", "P3"]
+    code: str
+    message: str
+    path: str | None = None
+
+
+class GenerationPromptTemplateCreate(BaseModel):
+    novel_id: str
+    target_kind: GenerationTemplateTargetKind = "world_object"
+    name: str = Field(..., min_length=1, max_length=80)
+    description: str | None = Field(default=None, max_length=1000)
+    object_template: ObjectDraftTemplate = "custom"
+    prompt_text: str = Field(..., min_length=1, max_length=8000)
+    variables_json: list[PromptTemplateVariable] = Field(default_factory=list)
+    created_by: str | None = Field(default=None, max_length=64)
+
+
+class GenerationPromptTemplateUpdate(BaseModel):
+    template_version: int | None = Field(default=None, ge=1)
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    description: str | None = Field(default=None, max_length=1000)
+    object_template: ObjectDraftTemplate | None = None
+    prompt_text: str | None = Field(default=None, min_length=1, max_length=8000)
+    variables_json: list[PromptTemplateVariable] | None = None
+    status: GenerationTemplateStatus | None = None
+    updated_by: str | None = Field(default=None, max_length=64)
+
+
+class GenerationPromptTemplateResponse(BaseModel):
+    id: str
+    novel_id: str | None = None
+    target_kind: str = "world_object"
+    template_key: str
+    name: str
+    description: str | None = None
+    object_template: ObjectDraftTemplate = "custom"
+    prompt_text: str
+    variables_json: list[PromptTemplateVariable] = Field(default_factory=list)
+    status: str = "active"
+    is_builtin: bool = False
+    version_number: int = 1
+    content_hash: str = ""
+    validation_state: GenerationTemplateValidationState = "valid"
+    validation_issues: list[PromptTemplateIssue] = Field(default_factory=list)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class GenerationPromptTemplateListResponse(BaseModel):
+    items: list[GenerationPromptTemplateResponse]
+    total: int
+
+
+class GenerationPromptTemplateRevisionResponse(BaseModel):
+    id: str
+    template_id: str
+    novel_id: str
+    version_number: int
+    name: str
+    description: str | None = None
+    object_template: ObjectDraftTemplate = "custom"
+    prompt_text: str
+    variables_json: list[PromptTemplateVariable] = Field(default_factory=list)
+    validation_state: GenerationTemplateValidationState = "valid"
+    validation_issues: list[PromptTemplateIssue] = Field(default_factory=list)
+    content_hash: str
+    created_at: datetime | None = None
+
+
+class PromptTemplateValidateRequest(BaseModel):
+    novel_id: str | None = None
+    target_kind: GenerationTemplateTargetKind = "world_object"
+    object_template: ObjectDraftTemplate = "custom"
+    prompt_text: str = Field(..., min_length=1, max_length=8000)
+    variables_json: list[PromptTemplateVariable] = Field(default_factory=list)
+    template_variables: dict[str, Any] = Field(default_factory=dict)
+
+
+class PromptTemplateValidateResponse(BaseModel):
+    validation_state: GenerationTemplateValidationState
+    issues: list[PromptTemplateIssue] = Field(default_factory=list)
+    content_hash: str
+
+
+class PromptTemplatePreviewRequest(BaseModel):
+    novel_id: str
+    template_id: str | None = None
+    template_version: int | None = None
+    target_kind: GenerationTemplateTargetKind = "world_object"
+    object_template: ObjectDraftTemplate = "custom"
+    prompt_text: str | None = Field(default=None, max_length=8000)
+    variables_json: list[PromptTemplateVariable] = Field(default_factory=list)
+    template_variables: dict[str, Any] = Field(default_factory=dict)
+
+
+class PromptTemplatePreviewResponse(BaseModel):
+    rendered_template: str
+    rendered_template_summary: str
+    missing_variables: list[str] = Field(default_factory=list)
+    token_estimate: int = 0
+    validation_state: GenerationTemplateValidationState
+    issues: list[PromptTemplateIssue] = Field(default_factory=list)
+    content_hash: str
+    template_version: int | None = None
+
+
+class PromptTemplateCopyRequest(BaseModel):
+    novel_id: str
+    name: str | None = Field(default=None, max_length=80)
+    created_by: str | None = Field(default=None, max_length=64)
 
 
 class ObjectDraftChatMessage(BaseModel):
@@ -176,6 +301,9 @@ class ObjectDraftChatRequest(BaseModel):
     quality_mode: ObjectDraftQualityMode = "fast"
     template_name: str | None = Field(default=None, max_length=80)
     template_prompt: str | None = Field(default=None, max_length=8000)
+    template_id: str | None = Field(default=None, max_length=128)
+    template_version: int | None = Field(default=None, ge=1)
+    template_variables: dict[str, Any] = Field(default_factory=dict)
 
 
 class ObjectDraftChatResponse(BaseModel):
@@ -197,6 +325,9 @@ class ObjectDraftGenerateRequest(BaseModel):
     quality_mode: ObjectDraftQualityMode = "fast"
     template_name: str | None = Field(default=None, max_length=80)
     template_prompt: str | None = Field(default=None, max_length=8000)
+    template_id: str | None = Field(default=None, max_length=128)
+    template_version: int | None = Field(default=None, ge=1)
+    template_variables: dict[str, Any] = Field(default_factory=dict)
 
 
 class ObjectDraftGenerateResponse(BaseModel):

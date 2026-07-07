@@ -7,7 +7,6 @@ the UI gives users useful presets.
 
 from __future__ import annotations
 
-import os
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
@@ -18,28 +17,19 @@ LLM_API_KEY_FIELD = "api_key"
 
 LLM_SOURCE_PROJECT = "project"
 LLM_SOURCE_TEST_OVERRIDE = "test_override"
-LLM_SOURCE_ENV = "env"
 LLM_SOURCE_DEFAULT = "default"
 
 _DEFAULT_LLM_PROFILE: dict[str, Any] = {
-    "provider_id": "openai-compatible",
-    "label": "OpenAI-compatible",
+    "provider_id": "deepseek",
+    "label": "DeepSeek",
     LLM_API_KEY_FIELD: "",
-    "base_url": "https://api.openai.com/v1",
-    "model": "gpt-4o",
-    "timeout": 60,
+    "base_url": "https://api.deepseek.com",
+    "model": "deepseek-v4-flash",
+    "timeout": 180,
     "max_tokens": 4096,
     "temperature": 0.3,
     "top_p": None,
     "extra": {},
-}
-
-_ENV_FIELD_NAMES = {
-    LLM_API_KEY_FIELD: "LLM_API_KEY",
-    "base_url": "LLM_BASE_URL",
-    "model": "LLM_MODEL",
-    "timeout": "LLM_TIMEOUT",
-    "max_tokens": "LLM_MAX_TOKENS",
 }
 
 _NUMERIC_FIELDS = {"timeout", "max_tokens"}
@@ -270,8 +260,8 @@ PROVIDER_TEMPLATES: list[dict[str, Any]] = [
 class ResolvedLLMProfile:
     """Effective OpenAI-compatible LLM profile with field-level provenance."""
 
-    provider_id: str = "openai-compatible"
-    label: str = "OpenAI-compatible"
+    provider_id: str = "deepseek"
+    label: str = "DeepSeek"
     api_key: str = ""
     base_url: str = ""
     model: str = ""
@@ -329,6 +319,11 @@ def list_provider_templates() -> list[dict[str, Any]]:
     return deepcopy(PROVIDER_TEMPLATES)
 
 
+def default_llm_profile() -> dict[str, Any]:
+    """Return code-level defaults used when DB-backed config is missing."""
+    return deepcopy(_DEFAULT_LLM_PROFILE)
+
+
 def sanitize_project_settings(settings: dict[str, Any] | None) -> dict[str, Any]:
     """Remove write-only LLM secrets from a project settings payload."""
     cleaned = deepcopy(settings or {})
@@ -362,18 +357,13 @@ def resolve_llm_profile(
 ) -> ResolvedLLMProfile:
     """Resolve the effective business LLM profile.
 
-    Precedence is:
-    project ``settings["llm"]`` > explicit test overrides > legacy env settings
-    > code defaults.
-
-    ``env_settings`` accepts ``core.config.Settings`` or a duck-typed object for
-    tests. Env values only win when the matching legacy variable is configured,
-    so Settings defaults do not mask code defaults in provenance.
+    Precedence is: project ``settings["llm"]`` > explicit test overrides
+    > code defaults. ``env_settings`` is accepted only for older callers and is
+    intentionally ignored for business LLM profile fields.
     """
     values = deepcopy(_DEFAULT_LLM_PROFILE)
     sources = {field_name: LLM_SOURCE_DEFAULT for field_name in values}
 
-    _merge_env_profile(values, sources, env_settings)
     _merge_profile_values(
         values,
         sources,
@@ -388,11 +378,11 @@ def resolve_llm_profile(
     )
 
     return ResolvedLLMProfile(
-        provider_id=str(values.get("provider_id") or "openai-compatible"),
+        provider_id=str(values.get("provider_id") or "deepseek"),
         label=str(
             values.get("label")
             or _template_name(str(values.get("provider_id") or ""))
-            or "OpenAI-compatible"
+            or "DeepSeek"
         ),
         api_key=str(values.get(LLM_API_KEY_FIELD) or ""),
         base_url=str(values.get("base_url") or ""),
@@ -409,35 +399,6 @@ def resolve_llm_profile(
 def sanitize_resolved_llm_profile(profile: ResolvedLLMProfile) -> dict[str, Any]:
     """Return the standard API/log-safe summary for a resolved profile."""
     return profile.sanitized_summary()
-
-
-def _merge_env_profile(
-    values: dict[str, Any],
-    sources: dict[str, str],
-    env_settings: Any | None,
-) -> None:
-    if env_settings is None:
-        from core.config import get_settings
-
-        env_settings = get_settings()
-
-    env_values = {
-        LLM_API_KEY_FIELD: getattr(env_settings, "llm_api_key", None),
-        "base_url": getattr(env_settings, "llm_base_url", None),
-        "model": getattr(env_settings, "llm_model", None),
-        "timeout": getattr(env_settings, "llm_timeout", None),
-        "max_tokens": getattr(env_settings, "llm_max_tokens", None),
-    }
-    for field_name, env_var in _ENV_FIELD_NAMES.items():
-        if os.getenv(env_var) is None:
-            continue
-        _set_profile_field(
-            values,
-            sources,
-            field_name,
-            env_values.get(field_name),
-            LLM_SOURCE_ENV,
-        )
 
 
 def _normalize_override_payload(payload: dict[str, Any] | None) -> dict[str, Any]:

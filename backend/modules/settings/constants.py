@@ -23,10 +23,10 @@ AUTHOR_PREFS_DEFAULTS: dict[str, Any] = {
 
 # D23 系统内置 LLM 默认（global 行不存在时回退）
 LLM_DEFAULTS_SYSTEM: dict[str, Any] = {
-    "provider_id": "openai-compatible",
-    "label": None,
-    "base_url": "",
-    "model": "",
+    "provider_id": "deepseek",
+    "label": "DeepSeek",
+    "base_url": "https://api.deepseek.com",
+    "model": "deepseek-v4-flash",
     "timeout": 180,
     "max_tokens": 4096,
     "temperature": 0.3,

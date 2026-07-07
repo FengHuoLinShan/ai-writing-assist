@@ -11,6 +11,8 @@ from __future__ import annotations
 import pytest
 from httpx import AsyncClient
 
+from modules.project.facade import get_project_context
+
 
 @pytest.fixture
 async def sample_project(async_client: AsyncClient) -> dict:
@@ -169,6 +171,10 @@ async def test_effective_llm_settings_all_system_when_no_config(async_client, fa
     body = r.json()
     for f in ("provider_id", "base_url", "model", "timeout", "max_tokens", "temperature"):
         assert body[f]["source"] == "system"
+    assert body["provider_id"]["value"] == "deepseek"
+    assert body["base_url"]["value"] == "https://api.deepseek.com"
+    assert body["model"]["value"] == "deepseek-v4-flash"
+    assert body["timeout"]["value"] == 180
     assert body["api_key_configured"]["source"] == "unset"
     assert body["api_key_configured"]["value"] is False
 
@@ -350,3 +356,36 @@ async def test_put_llm_settings_empty_deep_import_clears_key(async_client, facto
     r2 = await async_client.get(f"/api/projects/{pid}/effective-llm-settings")
     assert r2.json()["deep_import"]["source"] == "system"
     assert r2.json()["deep_import"]["value"] is None
+
+
+@pytest.mark.asyncio
+async def test_project_context_materializes_effective_llm_without_env(
+    async_client,
+    db_session,
+    factory,
+    monkeypatch,
+):
+    monkeypatch.setenv("LLM_BASE_URL", "https://env.example/v1")
+    monkeypatch.setenv("LLM_MODEL", "env-model")
+    pid = await factory.create_project()
+
+    context = await get_project_context(db_session, str(pid))
+
+    assert context is not None
+    assert context.settings["llm"]["provider_id"] == "deepseek"
+    assert context.settings["llm"]["base_url"] == "https://api.deepseek.com"
+    assert context.settings["llm"]["model"] == "deepseek-v4-flash"
+
+    await async_client.put(
+        "/api/settings/llm-defaults",
+        json={
+            "provider_id": "kimi",
+            "base_url": "https://api.moonshot.cn/v1",
+            "model": "kimi-k2.6",
+        },
+    )
+    context_with_global = await get_project_context(db_session, str(pid))
+
+    assert context_with_global.settings["llm"]["provider_id"] == "kimi"
+    assert context_with_global.settings["llm"]["base_url"] == "https://api.moonshot.cn/v1"
+    assert context_with_global.settings["llm"]["model"] == "kimi-k2.6"

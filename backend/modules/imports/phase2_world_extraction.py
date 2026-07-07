@@ -650,6 +650,7 @@ def _to_delta_event(item: Phase2WorldDelta) -> DeltaEvent:
         new=item.new,
         meta={
             "subject_name": item.subject_name,
+            "target_name": item.subject_name,
             "description": item.description,
             "confidence": item.confidence,
             "needs_review": item.needs_review,

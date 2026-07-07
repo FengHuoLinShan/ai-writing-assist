@@ -29,11 +29,13 @@ from modules.context.services import (
 )
 from modules.context.services.compiled_context import CompiledContext
 from modules.context.services.confirmed_ai_action import ConfirmedAIActionService
+from modules.context.services.hidden_guard import HiddenGuardBuilder, HiddenGuardTerm
 
 _compiler = ContextCompiler()
 _confirmation_service = ContextConfirmationService()
 _confirmed_ai_action_service = ConfirmedAIActionService(_confirmation_service)
 _snapshot_service = ContextSnapshotService()
+_hidden_guard_builder = HiddenGuardBuilder()
 
 
 def render_context_markdown(context: StructureContextBundle) -> str:
@@ -282,6 +284,15 @@ async def prepare_confirmed_ai_action(
         action=action,
         confirmation_id=confirmation_id,
     )
+
+
+async def build_hidden_guard_context(
+    db: AsyncSession,
+    *,
+    confirmed_context: ConfirmedAIActionContext,
+) -> list[HiddenGuardTerm]:
+    """Build deterministic hidden guard terms for post-generation validation."""
+    return await _hidden_guard_builder.build(db, confirmed_context)
 
 
 async def compile_from_confirmation(

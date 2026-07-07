@@ -306,7 +306,7 @@ class PlotStructureParser:
             "      \"title\": \"主线标题\",\n"
             "      \"summary\": \"主线说明\",\n"
             "      \"thread_type\": \"main|subplot|mystery|relationship|world\",\n"
-            "      \"status\": \"active|resolved|paused\",\n"
+            "      \"current_stage\": \"active|resolved|paused\",\n"
             "      \"confidence\": 0.0,\n"
             "      \"needs_review\": false,\n"
             "      \"review_reason\": \"\",\n"
@@ -600,7 +600,7 @@ def _simple_structure_to_parsed(
             hidden_truth=None,
             start_chapter=_supported_start(item, scene_by_id, start_chapter),
             planned_payoff_chapter=_supported_end(item, scene_by_id, end_chapter),
-            current_stage=item.status or "active",
+            current_stage=item.current_stage or "active",
         )
         for index, item in enumerate(output.plot_threads, start=1)
         if item.title or item.summary
@@ -612,7 +612,7 @@ def _simple_structure_to_parsed(
             start_chapter=_supported_start(item, scene_by_id, start_chapter),
             end_chapter=_supported_end(item, scene_by_id, end_chapter),
             arc_goal=item.summary,
-            core_conflict=item.review_reason or None,
+            core_conflict=None,
             related_character_names=[item.character_name] if item.character_name else [],
         )
         for index, item in enumerate(output.arcs, start=1)

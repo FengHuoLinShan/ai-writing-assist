@@ -11,6 +11,7 @@ import sys
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -105,6 +106,111 @@ def update_data() -> WritingDraftUpdate:
 class FakeLLMClient:
     async def generate(self, request):
         return LLMCallResponse(content="这是 AI 生成的候选正文。")
+
+
+class FakePovLLMClient:
+    model_name = "fake-pov-model"
+
+    def __init__(self, content: str) -> None:
+        self.content = content
+        self.requests = []
+
+    async def generate(self, request):
+        self.requests.append(request)
+        return LLMCallResponse(content=self.content, model=self.model_name)
+
+
+def _fake_confirmed_context(
+    *,
+    action="writing.generate",
+    status="confirmed",
+    stale=None,
+    options=None,
+):
+    return SimpleNamespace(
+        confirmation=SimpleNamespace(
+            action=action,
+            result_status=status,
+            stale_reasons=stale or [],
+        ),
+        compile_options=options or {},
+    )
+
+
+def test_generation_profile_resolver_requires_valid_character_confirmation() -> None:
+    from modules.writing.pov_generation import (
+        GenerationProfile,
+        GenerationProfileResolver,
+    )
+
+    resolver = GenerationProfileResolver()
+    valid_options = {
+        "reveal_mode": "character",
+        "scene_id": "scene-1",
+        "viewpoint_character_id": "char-1",
+    }
+
+    assert resolver.resolve(_fake_confirmed_context(options=valid_options)).profile == (
+        GenerationProfile.POV_CHARACTER
+    )
+    invalid_cases = [
+        _fake_confirmed_context(action="world.extract", options=valid_options),
+        _fake_confirmed_context(status="pending", options=valid_options),
+        _fake_confirmed_context(stale=["context_changed"], options=valid_options),
+        _fake_confirmed_context(options={**valid_options, "scene_id": None}),
+        _fake_confirmed_context(
+            options={**valid_options, "viewpoint_character_id": None}
+        ),
+        _fake_confirmed_context(options={**valid_options, "reveal_mode": "author_safe"}),
+    ]
+    for context in invalid_cases:
+        assert resolver.resolve(context).profile == GenerationProfile.DEFAULT
+
+
+def test_pov_parser_repairs_common_json_wrapper() -> None:
+    from modules.writing.pov_generation import PovGenerationParser
+
+    parsed = PovGenerationParser().parse(
+        """```json
+        {"perception":"听见警报","draft_prose":"她停下脚步",}
+        ```"""
+    )
+
+    assert parsed.content == "她停下脚步"
+    assert parsed.pov_view["perception"] == "听见警报"
+    assert "json_repaired" in parsed.warnings
+
+
+def test_pov_parser_rejects_empty_response() -> None:
+    from modules.writing.pov_generation import PovGenerationParser
+
+    with pytest.raises(ValueError):
+        PovGenerationParser().parse("  ")
+
+
+def test_character_reveal_guard_matches_normalized_hidden_text() -> None:
+    from modules.writing.pov_generation import CharacterRevealGuard
+
+    term = SimpleNamespace(
+        phrase="林澈关闭了安全协议",
+        rule="hidden_truth_match",
+        severity="error",
+        source_type="core_entity",
+        source_id="entity-1",
+        source_label="已过滤的隐藏事实",
+    )
+    validation = CharacterRevealGuard().validate(
+        pov_view={
+            "unsaid": "林澈　关闭了 安全协议",
+            "dialogue_candidates": [{"line": "别动。"}],
+        },
+        draft_prose="正文",
+        guard_terms=[term],
+    )
+
+    assert validation["status"] == "failed"
+    assert validation["findings"][0]["field_path"] == "pov_view.unsaid"
+    assert "林澈关闭了安全协议" not in validation["findings"][0]["source_label"]
 
 
 # ============================================================
@@ -1440,13 +1546,17 @@ async def test_writing_generation_creates_candidate_without_publish_task(
     assert draft.chapter_index == 3
     assert draft.title == "第三章"
     assert draft.content == "这是 AI 生成的候选正文。"
-    assert draft.provenance_json == {
+    expected = {
         "source": "writing_generate",
         "source_confirmation_id": confirmation.id,
         "source_task_id": None,
         "context_action": "writing.generate",
         "context_result_refs": confirmation.result_refs,
     }
+    for key, value in expected.items():
+        assert draft.provenance_json[key] == value
+    assert draft.provenance_json["generation_profile"] == "default"
+    assert draft.provenance_json["pov_validation"]["status"] == "not_applicable"
 
     tasks_result = await db_session.execute(select(AsyncTask))
     assert tasks_result.scalars().all() == []
@@ -1492,13 +1602,224 @@ async def test_writing_generate_task_records_task_provenance(
         uuid.UUID(result["draft_id"]),
     )
     assert draft is not None
-    assert draft.provenance_json == {
+    expected = {
         "source": "writing_generate",
         "source_confirmation_id": confirmation.id,
         "source_task_id": str(task.id),
         "context_action": "writing.generate",
         "context_result_refs": confirmation.result_refs,
     }
+    for key, value in expected.items():
+        assert draft.provenance_json[key] == value
+    assert draft.provenance_json["generation_profile"] == "default"
+
+
+@pytest.mark.asyncio
+async def test_writing_generation_pov_profile_saves_structured_view_and_validation(
+    db_session: AsyncSession,
+) -> None:
+    """POV character confirmation writes structured view and validation provenance."""
+    from modules.context.facade import confirm_context
+    from modules.project.models import Project
+    from modules.world.models import Character, CharacterKnowledge, CoreEntity
+    from modules.writing.services import WritingGenerationService
+
+    novel_uuid = uuid.uuid4()
+    novel_id = str(novel_uuid)
+    char_id = uuid.uuid4()
+    target_id = uuid.uuid4()
+    db_session.add(Project(id=novel_uuid, title="测试小说", genre="悬疑", language="zh"))
+    db_session.add(
+        CoreEntity(
+            id=char_id,
+            novel_id=novel_uuid,
+            entity_type="character",
+            name="秦岚",
+            status="canonical",
+            public_info="调查员",
+            importance_level="core",
+        )
+    )
+    db_session.add(
+        Character(
+            entity_id=char_id,
+            novel_id=novel_uuid,
+            name="秦岚",
+            role="调查员",
+            status="canonical",
+        )
+    )
+    db_session.add(
+        CoreEntity(
+            id=target_id,
+            novel_id=novel_uuid,
+            entity_type="faction",
+            name="暗影组织",
+            public_info="城中传闻有暗影组织活动。",
+            hidden_truth="首领是国王",
+            status="canonical",
+            importance_level="core",
+        )
+    )
+    db_session.add(
+        CharacterKnowledge(
+            id=uuid.uuid4(),
+            novel_id=novel_uuid,
+            character_id=char_id,
+            target_type="entity",
+            target_id=target_id,
+            knowledge_level="unknown",
+        )
+    )
+    scene = await SceneRepository().create(
+        db_session,
+        novel_uuid,
+        SceneCreate(
+            scene_index=1,
+            title="主控室警报",
+            chapter_index=3,
+            pov_character_id=str(char_id),
+            must_happen="秦岚必须发现控制台日志异常",
+        ),
+    )
+    await db_session.flush()
+
+    confirmation = await confirm_context(
+        db_session,
+        novel_id=novel_id,
+        action="writing.generate",
+        task="基于当前 Scene 的 POV 角色有限认知，生成正文候选草稿",
+        scope="chapter",
+        chapter_index=3,
+        scene_id=str(scene.id),
+        reveal_mode="character",
+        viewpoint_character_id=str(char_id),
+        character_ids=[str(char_id)],
+        include_pending_objects=True,
+    )
+    llm = FakePovLLMClient(
+        """
+        {
+          "perception": "秦岚听见警报声。",
+          "interpretation": "她判断控制台被人动过。",
+          "inner_monologue": "她还不知道真正的幕后。",
+          "true_intention": "先稳住现场。",
+          "action": "她靠近控制台。",
+          "expression": "神色收紧。",
+          "dialogue_candidates": [
+            {"line": "别碰控制台。", "tone": "冷静", "subtext": "试探"}
+          ],
+          "subtext": "她在试探对方。",
+          "unsaid": "首领是国王",
+          "draft_prose": "秦岚听见警报声，抬手制止了靠近控制台的人。"
+        }
+        """
+    )
+    service = WritingGenerationService(llm_client=llm)
+
+    draft = await service.generate_candidate(
+        db_session,
+        novel_id=novel_id,
+        chapter_index=3,
+        title="第三章 POV",
+        instruction="保持克制",
+        context_confirmation_id=confirmation.id,
+    )
+
+    assert draft.status == "candidate"
+    assert draft.content == "秦岚听见警报声，抬手制止了靠近控制台的人。"
+    provenance = draft.provenance_json
+    assert provenance["generation_profile"] == "pov_character"
+    assert provenance["scene_id"] == str(scene.id)
+    assert provenance["viewpoint_character_id"] == str(char_id)
+    assert provenance["prompt_name"] == "writing_pov_character"
+    assert provenance["model"] == "fake-pov-model"
+    assert provenance["pov_view"]["unsaid"] == "首领是国王"
+    assert provenance["pov_validation"]["status"] == "failed"
+    finding = provenance["pov_validation"]["findings"][0]
+    assert finding["field_path"] == "pov_view.unsaid"
+    assert finding["source_type"] == "core_entity"
+    assert finding["source_id"] == str(target_id)
+    assert finding["redacted"] is True
+    assert "首领是国王" not in finding["source_label"]
+    prompt_text = llm.requests[0].messages[1].content
+    assert "首领是国王" not in prompt_text
+
+
+@pytest.mark.asyncio
+async def test_writing_generation_pov_parse_failure_keeps_raw_candidate(
+    db_session: AsyncSession,
+) -> None:
+    """Bad POV JSON still creates a raw candidate when LLM returned useful text."""
+    from modules.context.facade import confirm_context
+    from modules.project.models import Project
+    from modules.world.models import Character, CoreEntity
+    from modules.writing.services import WritingGenerationService
+
+    novel_uuid = uuid.uuid4()
+    novel_id = str(novel_uuid)
+    char_id = uuid.uuid4()
+    db_session.add(Project(id=novel_uuid, title="测试小说", genre="悬疑", language="zh"))
+    db_session.add(
+        CoreEntity(
+            id=char_id,
+            novel_id=novel_uuid,
+            entity_type="character",
+            name="秦岚",
+            status="canonical",
+            importance_level="core",
+        )
+    )
+    db_session.add(
+        Character(
+            entity_id=char_id,
+            novel_id=novel_uuid,
+            name="秦岚",
+            role="调查员",
+            status="canonical",
+        )
+    )
+    scene = await SceneRepository().create(
+        db_session,
+        novel_uuid,
+        SceneCreate(
+            scene_index=1,
+            title="主控室警报",
+            chapter_index=3,
+            pov_character_id=str(char_id),
+        ),
+    )
+    await db_session.flush()
+
+    confirmation = await confirm_context(
+        db_session,
+        novel_id=novel_id,
+        action="writing.generate",
+        task="基于当前 Scene 的 POV 角色有限认知，生成正文候选草稿",
+        scope="chapter",
+        chapter_index=3,
+        scene_id=str(scene.id),
+        reveal_mode="character",
+        viewpoint_character_id=str(char_id),
+        character_ids=[str(char_id)],
+    )
+    service = WritingGenerationService(
+        llm_client=FakePovLLMClient("这不是 JSON，但可以作为候选正文。")
+    )
+
+    draft = await service.generate_candidate(
+        db_session,
+        novel_id=novel_id,
+        chapter_index=3,
+        title="第三章 POV",
+        instruction=None,
+        context_confirmation_id=confirmation.id,
+    )
+
+    assert draft.content == "这不是 JSON，但可以作为候选正文。"
+    assert draft.provenance_json["pov_view"] is None
+    assert draft.provenance_json["pov_validation"]["status"] == "passed"
+    assert "pov_parse_failed" in draft.provenance_json["pov_validation"]["warnings"]
 
 
 @pytest.mark.asyncio

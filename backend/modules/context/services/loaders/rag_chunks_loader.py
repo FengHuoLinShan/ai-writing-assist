@@ -38,6 +38,11 @@ class RagChunksLoader(Loader):
 
         from modules.rag.facade import retrieve
 
+        strict_scene_filter = (
+            options.reveal_mode == "character" and options.scene_id is not None
+        )
+        # In character reveal, scene_id is both the current Scene anchor and the
+        # RAG scene boundary. Full as-of-scene cursors are deferred to a later pass.
         result = await retrieve(
             db,
             options.novel_id,
@@ -45,10 +50,19 @@ class RagChunksLoader(Loader):
             entity_ids=options.entity_ids,
             character_ids=options.character_ids,
             chapter_index=options.chapter_index,
+            scene_id=options.scene_id if strict_scene_filter else None,
+            strict_scene_filter=strict_scene_filter,
             visibility=rag_visibility,
             top_k=rag_limit,
             reference_chapter_index=options.chapter_index,
         )
+        if strict_scene_filter:
+            warning = (
+                "RAG 已按当前 Scene 严格过滤；无 Scene 标注或其它 Scene 的片段"
+                "不会进入角色视角上下文"
+            )
+            if warning not in bundle.warnings:
+                bundle.warnings.append(warning)
         for warning in getattr(result, "warnings", []) or []:
             if warning not in bundle.warnings:
                 bundle.warnings.append(warning)

@@ -141,6 +141,94 @@ class TestConfirmedAiAction:
                 confirmation_id="conf-1",
             )
 
+    @pytest.mark.asyncio
+    async def test_character_confirmation_materialization_filters_unknown_content(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        from modules.context.facade import confirm_context, prepare_confirmed_ai_action
+        from modules.project.models import Project
+        from modules.world.models import Character, CharacterKnowledge, CoreEntity
+
+        nid = uuid.uuid4()
+        novel_id = str(nid)
+        char_id = uuid.uuid4()
+        target_id = uuid.uuid4()
+
+        db_session.add(
+            Project(
+                id=nid,
+                title="测试小说",
+                genre="悬疑",
+                language="zh",
+            )
+        )
+        db_session.add(
+            CoreEntity(
+                id=char_id,
+                novel_id=nid,
+                entity_type="character",
+                name="POV角色",
+                status="canonical",
+            )
+        )
+        db_session.add(
+            Character(
+                entity_id=char_id,
+                novel_id=nid,
+                name="POV角色",
+                status="canonical",
+            )
+        )
+        db_session.add(
+            CoreEntity(
+                id=target_id,
+                novel_id=nid,
+                entity_type="artifact",
+                name="禁忌宝石",
+                summary="一枚普通宝石。",
+                hidden_truth="真实隐藏真相：宝石里封印着凶手记忆。",
+                status="canonical",
+                importance_level="core",
+            )
+        )
+        db_session.add(
+            CharacterKnowledge(
+                id=uuid.uuid4(),
+                novel_id=nid,
+                character_id=char_id,
+                target_type="entity",
+                target_id=target_id,
+                knowledge_level="unknown",
+            )
+        )
+        await db_session.flush()
+
+        confirmation = await confirm_context(
+            db_session,
+            novel_id=novel_id,
+            action="writing.generate",
+            task="基于当前 Scene 的 POV 角色有限认知，生成正文候选草稿",
+            scope="world_character",
+            character_ids=[str(char_id)],
+            reveal_mode="character",
+            viewpoint_character_id=str(char_id),
+            include_pending_objects=True,
+        )
+        prepared = await prepare_confirmed_ai_action(
+            db_session,
+            novel_id=novel_id,
+            action="writing.generate",
+            confirmation_id=confirmation.id,
+        )
+
+        assert confirmation.compile_options["reveal_mode"] == "character"
+        assert confirmation.compile_options["viewpoint_character_id"] == str(char_id)
+        assert prepared.compile_options["viewpoint_character_id"] == str(char_id)
+        assert "真实隐藏真相" not in prepared.rendered_markdown
+        assert "宝石里封印着凶手记忆" not in prepared.rendered_markdown
+        assert "禁忌宝石" not in prepared.rendered_markdown
+
 
 class TestContextReviewProjection:
     """测试 Context review projection 保持现有 API shape。"""
@@ -1963,11 +2051,11 @@ class TestContextCompiler:
         assert faction_entities[0]["summary"] == "一个神秘组织。"
 
     @pytest.mark.asyncio
-    async def test_compile_character_reveal_removes_entity_without_knowledge(
+    async def test_compile_character_reveal_allows_public_info_without_knowledge(
         self,
         db_session: AsyncSession,
     ) -> None:
-        """RED: character 视角下，无 knowledge 记录的世界对象应被过滤为 unknown 并移除"""
+        """character 视角下，无 knowledge 记录不等同 unknown，只保留公开最小视图。"""
         from modules.project.models import Project
         from modules.world.models import Character, CoreEntity
 
@@ -2008,7 +2096,8 @@ class TestContextCompiler:
                 novel_id=nid,
                 entity_type="faction",
                 name="暗影组织",
-                summary="一个神秘组织。",
+                summary="作者摘要：这个组织由国王秘密操纵。",
+                public_info="公开信息：城中传闻有暗影组织活动。",
                 hidden_truth="真实隐藏真相：首领是国王。",
                 status="canonical",
                 importance_level="core",
@@ -2029,9 +2118,141 @@ class TestContextCompiler:
         faction_entities = [
             e for e in bundle.world_entities if e.get("entity_type") == "faction"
         ]
-        assert len(faction_entities) == 0, (
-            "character reveal 模式下，无 knowledge 记录的实体应被当作 unknown 移除"
+        assert len(faction_entities) == 1
+        assert faction_entities[0]["public_info"] == "公开信息：城中传闻有暗影组织活动。"
+        assert faction_entities[0]["summary"] == "公开信息：城中传闻有暗影组织活动。"
+        assert faction_entities[0]["knowledge_level"] == "public_default"
+        assert "hidden_truth" not in faction_entities[0]
+        assert "国王秘密操纵" not in str(faction_entities[0])
+
+    def test_character_reveal_sections_split_role_and_director_context(self) -> None:
+        """character reveal 渲染角色可见面，不重复旧 scene_blueprint/pov_knowledge。"""
+        from modules.context.markdown_renderer import render_compiled_context
+        from modules.context.services.compiled_context import CompiledContext
+        from modules.context.services.context_compiler import ContextCompiler
+
+        scene_id = str(uuid.uuid4())
+        char_id = str(uuid.uuid4())
+        options = CompileOptions(
+            novel_id=str(uuid.uuid4()),
+            task="生成角色视角草稿",
+            scope="chapter",
+            chapter_index=2,
+            scene_id=scene_id,
+            character_ids=[char_id],
+            reveal_mode="character",
+            viewpoint_character_id=char_id,
         )
+        bundle = StructureContextBundle(
+            novel_id=options.novel_id,
+            task=options.task,
+            scope=options.scope,
+            chapter_index=2,
+            reveal_mode="character",
+            viewpoint_character_id=char_id,
+            characters=[
+                {
+                    "character_id": char_id,
+                    "name": "秦岚",
+                    "role": "调查员",
+                    "current_goal": "确认警报来源",
+                }
+            ],
+            world_entities=[
+                {
+                    "entity_id": "entity-public",
+                    "entity_type": "faction",
+                    "name": "暗影组织",
+                    "public_info": "公开信息：城中传闻有暗影组织活动。",
+                    "summary": "作者摘要：国王秘密操纵暗影组织。",
+                    "hidden_truth": "真实隐藏真相：首领是国王。",
+                    "knowledge_level": "public_default",
+                },
+                {
+                    "entity_id": "relation-secret",
+                    "entity_type": "relation",
+                    "name": "秘密同盟",
+                    "description": "隐藏关系描述：秦岚暗中背叛林澈。",
+                },
+            ],
+            scene={
+                "scene_id": scene_id,
+                "title": "主控室警报",
+                "scene_index": 3,
+                "pov_character_id": char_id,
+                "goal": "作者目标：让秦岚发现线索。",
+                "core_conflict": "作者冲突：林澈试图隐瞒。",
+                "must_happen": "必须发生：发现林澈撒谎。",
+                "must_not_happen": "不得发生：直接揭露凶手。",
+                "atmosphere": "警报声刺耳。",
+            },
+            rag_chunks=[
+                {
+                    "chunk_id": "rag-a",
+                    "scene_id": scene_id,
+                    "text": "秦岚听见警报声，看见主控台闪烁。",
+                    "summary": "隐藏摘要不应进入 source",
+                },
+                {
+                    "chunk_id": "rag-b",
+                    "scene_id": str(uuid.uuid4()),
+                    "text": "未来 Scene 泄漏内容。",
+                },
+                {
+                    "chunk_id": "rag-null",
+                    "scene_id": None,
+                    "text": "无 Scene 标注的章节 fallback 内容。",
+                },
+            ],
+            memory_records=[
+                {
+                    "id": "memory-1",
+                    "full_state": {"secret": "完整记忆快照隐藏内容"},
+                    "summary": "不应直接渲染完整快照。",
+                }
+            ],
+        )
+
+        sections = ContextCompiler()._build_sections(bundle, options)
+        keys = {section.key for section in sections}
+        assert {
+            "role_profile",
+            "role_visible_knowledge",
+            "role_relationship_context",
+            "role_scene_perception",
+            "scene_director_constraints",
+            "scene_time_boundary",
+        }.issubset(keys)
+        assert "scene_blueprint" not in keys
+        assert "pov_knowledge" not in keys
+
+        role_text = "\n".join(
+            section.content
+            for section in sections
+            if section.key.startswith("role_") or section.key == "current_scene_evidence"
+        )
+        assert "公开信息：城中传闻有暗影组织活动。" in role_text
+        assert "真实隐藏真相" not in role_text
+        assert "国王秘密操纵" not in role_text
+        assert "隐藏关系描述" not in role_text
+        assert "必须发生" not in role_text
+        assert "未来 Scene 泄漏内容" not in role_text
+        assert "无 Scene 标注的章节 fallback 内容" not in role_text
+
+        director = next(s for s in sections if s.key == "scene_director_constraints")
+        assert director.status == "director_only"
+        assert "DIRECTOR_ONLY" in director.content
+        assert "必须发生：发现林澈撒谎" in director.content
+
+        rendered = render_compiled_context(
+            CompiledContext(sections=sections, total_tokens=1, budget_tokens=4000)
+        )
+        source_text = "\n".join(
+            str(source) for section in sections for source in section.sources
+        )
+        assert "完整记忆快照隐藏内容" not in rendered
+        assert "完整记忆快照隐藏内容" not in source_text
+        assert "隐藏摘要不应进入 source" not in source_text
 
 
 # ============================================================

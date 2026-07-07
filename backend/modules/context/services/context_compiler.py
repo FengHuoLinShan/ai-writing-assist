@@ -258,6 +258,10 @@ class ContextCompiler:
                 )
             )
 
+        if options is not None and options.reveal_mode == "character":
+            sections.extend(self._build_character_reveal_sections(bundle, options))
+            return sections
+
         if bundle.scene:
             content = json.dumps(bundle.scene, ensure_ascii=False, indent=2)
             scene_id = options.scene_id if options else None
@@ -425,6 +429,435 @@ class ContextCompiler:
             )
 
         return sections
+
+    def _build_character_reveal_sections(
+        self,
+        bundle: StructureContextBundle,
+        options: CompileOptions,
+    ) -> list[ContextSection]:
+        """Build character-view sections without rendering legacy author context."""
+        sections: list[ContextSection] = []
+        status = options.context_mode
+
+        if bundle.characters:
+            content = self._format_role_profile(bundle.characters, options)
+            sections.append(
+                self._make_section(
+                    key="role_profile",
+                    tier=Tier.P0,
+                    title="POV 角色档案",
+                    content=content,
+                    status=status,
+                    activation_reason="character reveal 的视角人物资料",
+                    sources=self._safe_sources_from_items(
+                        bundle.characters,
+                        default_type="character",
+                        status=status,
+                    ),
+                    can_exclude=False,
+                )
+            )
+
+        visible_knowledge = self._format_role_visible_knowledge(bundle.world_entities)
+        if visible_knowledge:
+            sections.append(
+                self._make_section(
+                    key="role_visible_knowledge",
+                    tier=Tier.P1,
+                    title="角色可见知识",
+                    content=visible_knowledge,
+                    status=status,
+                    activation_reason="CharacterKnowledge 与默认可见性规则过滤后",
+                    sources=self._safe_sources_from_items(
+                        bundle.world_entities,
+                        default_type="world_entity",
+                        status=status,
+                    ),
+                )
+            )
+
+        relationship_content = (
+            "未显式公开或未由 relation 级 CharacterKnowledge 授权的关系描述已排除。"
+        )
+        sections.append(
+            self._make_section(
+                key="role_relationship_context",
+                tier=Tier.P1,
+                title="角色可见关系",
+                content=relationship_content,
+                status=status,
+                activation_reason="隐性关系描述默认不进入角色视角",
+                sources=[],
+            )
+        )
+
+        if bundle.scene:
+            scene_perception = self._format_role_scene_perception(bundle.scene, options)
+            sections.append(
+                self._make_section(
+                    key="role_scene_perception",
+                    tier=Tier.P0,
+                    title="当前 Scene 可感知信息",
+                    content=scene_perception,
+                    status=status,
+                    activation_reason="当前 Scene 中角色可感知的场面锚点",
+                    sources=self._safe_sources_from_items(
+                        [bundle.scene],
+                        default_type="scene",
+                        status=status,
+                    ),
+                    can_exclude=False,
+                )
+            )
+
+            director_constraints = self._format_scene_director_constraints(
+                bundle.scene
+            )
+            sections.append(
+                self._make_section(
+                    key="scene_director_constraints",
+                    tier=Tier.P0,
+                    title="Scene 导演约束",
+                    content=director_constraints,
+                    status="director_only",
+                    activation_reason="Scene goal/core_conflict/must/must_not 等作者约束",
+                    sources=self._safe_sources_from_items(
+                        [bundle.scene],
+                        default_type="scene",
+                        status="director_only",
+                    ),
+                    can_exclude=False,
+                )
+            )
+
+        time_boundary = self._format_scene_time_boundary(bundle, options)
+        sections.append(
+            self._make_section(
+                key="scene_time_boundary",
+                tier=Tier.P0,
+                title="Scene 时间边界",
+                content=time_boundary,
+                status="system",
+                activation_reason="说明 scene_id 在本次 character reveal 中的边界语义",
+                sources=[
+                    {
+                        "type": "scene_boundary",
+                        "id": str(options.scene_id or "current_scene"),
+                        "label": str(options.scene_id or "current_scene"),
+                        "status": "system",
+                    }
+                ],
+                can_exclude=False,
+            )
+        )
+
+        evidence = self._format_current_scene_evidence(bundle.rag_chunks, options)
+        if evidence:
+            sections.append(
+                self._make_section(
+                    key="current_scene_evidence",
+                    tier=Tier.P1,
+                    title="当前 Scene RAG 证据",
+                    content=evidence,
+                    status=status,
+                    activation_reason="RAG scene_id 严格过滤后的当前场景片段",
+                    sources=self._safe_sources_from_items(
+                        self._character_safe_rag_chunks(bundle.rag_chunks, options),
+                        default_type="rag",
+                        status=status,
+                    ),
+                    truncatable_per_item=True,
+                )
+            )
+
+        if bundle.memory_records:
+            content = (
+                f"已加载 {len(bundle.memory_records)} 条记忆记录；"
+                "character reveal 不渲染 memory_snapshots.full_state 或完整 JSON，"
+                "仅允许后续拆解过滤后的摘要/事件单位进入角色视角。"
+            )
+            sections.append(
+                self._make_section(
+                    key="historical_role_context",
+                    tier=Tier.P2,
+                    title="历史角色上下文",
+                    content=content,
+                    status=status,
+                    activation_reason="记忆记录已按角色视角阻断 raw full_state",
+                    sources=self._safe_sources_from_items(
+                        bundle.memory_records,
+                        default_type="memory",
+                        status=status,
+                    ),
+                    truncatable_per_item=True,
+                )
+            )
+
+        if bundle.project:
+            content = self._format_project_style(bundle.project)
+            sections.append(
+                self._make_section(
+                    key="style_assets",
+                    tier=Tier.P3,
+                    title="项目风格与基础设定",
+                    content=content,
+                    status="canonical",
+                    activation_reason="项目基础资料",
+                    sources=self._safe_sources_from_items(
+                        [bundle.project],
+                        default_type="project",
+                        status="canonical",
+                    ),
+                )
+            )
+
+        warnings = list(bundle.warnings)
+        if warnings:
+            content = "\n".join(f"- {w}" for w in warnings)
+            sections.append(
+                self._make_section(
+                    key="compiler_warnings",
+                    tier=Tier.P4,
+                    title="编译警告",
+                    content=content,
+                    status="system",
+                    activation_reason="编译过程产生的提示",
+                    sources=[
+                        {
+                            "type": "compiler",
+                            "id": "compiler_warnings",
+                            "label": "编译警告",
+                            "status": "system",
+                        }
+                    ],
+                    can_exclude=False,
+                )
+            )
+
+        return sections
+
+    @staticmethod
+    def _make_section(
+        *,
+        key: str,
+        tier: Tier,
+        title: str,
+        content: str,
+        status: str,
+        activation_reason: str,
+        sources: list[dict[str, str]],
+        can_exclude: bool = True,
+        truncatable_per_item: bool = False,
+    ) -> ContextSection:
+        return ContextSection(
+            key=key,
+            tier=tier,
+            content=content,
+            token_count=max(1, len(content) // 4),
+            truncatable_per_item=truncatable_per_item,
+            title=title,
+            preview=content[:160],
+            status=status,
+            activation_reason=activation_reason,
+            sources=sources,
+            can_exclude=can_exclude,
+        )
+
+    @staticmethod
+    def _format_role_profile(
+        characters: list,
+        options: CompileOptions,
+    ) -> str:
+        profile_lines: list[str] = []
+        for raw in characters or []:
+            item = raw if isinstance(raw, dict) else getattr(raw, "__dict__", {})
+            char_id = str(item.get("character_id") or item.get("entity_id") or "")
+            if (
+                options.viewpoint_character_id
+                and char_id != options.viewpoint_character_id
+            ):
+                continue
+            fields = [
+                ("姓名", item.get("name")),
+                ("角色", item.get("role")),
+                ("当前目标", item.get("current_goal")),
+                ("当前状态", item.get("current_state")),
+                ("当前情绪", item.get("current_emotion")),
+                ("立场", item.get("stance")),
+                ("语气", item.get("voice_style")),
+                ("行为规则", ", ".join(item.get("behavior_rules") or [])),
+            ]
+            profile_lines.extend(
+                f"- {label}: {value}" for label, value in fields if value
+            )
+        return "\n".join(profile_lines) or "未找到 POV 角色档案。"
+
+    @staticmethod
+    def _format_role_visible_knowledge(world_entities: list) -> str:
+        lines: list[str] = []
+        for item in world_entities or []:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name") or item.get("target_id") or item.get("id")
+            entity_type = item.get("entity_type") or item.get("target_type")
+            level = item.get("knowledge_level") or item.get("visibility_source")
+            if level == "unknown":
+                continue
+            text = (
+                item.get("misconception")
+                or item.get("character_known_content")
+                or item.get("content")
+                or item.get("public_info")
+            )
+            label_parts = [str(name)]
+            if entity_type:
+                label_parts.append(f"类型={entity_type}")
+            if level:
+                label_parts.append(f"认知={level}")
+            if text:
+                lines.append(f"- {'; '.join(label_parts)}: {text}")
+            elif name:
+                lines.append(f"- {'; '.join(label_parts)}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_role_scene_perception(
+        scene: dict,
+        options: CompileOptions,
+    ) -> str:
+        fields = [
+            ("Scene", scene.get("title") or scene.get("name") or options.scene_id),
+            ("章节", options.chapter_index),
+            ("Scene 序号", scene.get("scene_index")),
+            ("POV 角色", scene.get("pov_character_id") or options.viewpoint_character_id),
+            ("地点", scene.get("location") or scene.get("location_id")),
+            ("时间", scene.get("time_of_day") or scene.get("time")),
+            (
+                "在场对象",
+                scene.get("present_character_ids") or scene.get("character_ids"),
+            ),
+            ("可感知氛围", scene.get("atmosphere") or scene.get("mood")),
+        ]
+        lines = [f"- {label}: {value}" for label, value in fields if value]
+        lines.append(
+            "- 角色内心、判断、台词只能使用 role_* sections 中可见的信息；"
+            "Scene 导演约束不是角色已知事实。"
+        )
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_scene_director_constraints(scene: dict) -> str:
+        lines = [
+            "DIRECTOR_ONLY: 以下是作者创作约束，不是角色知识；"
+            "不得把这些内容写成角色已经知道、已经判断或会主动说出的事实。"
+        ]
+        for label, key in (
+            ("目标", "goal"),
+            ("核心冲突", "core_conflict"),
+            ("情绪节拍", "emotional_beat"),
+            ("必须发生", "must_happen"),
+            ("不得发生", "must_not_happen"),
+        ):
+            value = scene.get(key)
+            if value:
+                lines.append(f"- {label}: {value}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_scene_time_boundary(
+        bundle: StructureContextBundle,
+        options: CompileOptions,
+    ) -> str:
+        scene_index = bundle.scene.get("scene_index") if bundle.scene else None
+        return "\n".join(
+            [
+                f"- 当前 Scene 锚点: {options.scene_id or '未提供'}",
+                f"- 当前章节: {options.chapter_index or '未提供'}",
+                f"- 当前 Scene 序号: {scene_index or '未提供'}",
+                "- character reveal 中 scene_id 同时表示当前 Scene、"
+                "RAG 场景边界、POV 生成锚点。",
+                "- 安全边界由 compiler 的 metadata/time filter 执行，不依赖提示词自律。",
+            ]
+        )
+
+    @staticmethod
+    def _character_safe_rag_chunks(
+        rag_chunks: list,
+        options: CompileOptions,
+    ) -> list[dict]:
+        safe_chunks: list[dict] = []
+        for raw in rag_chunks or []:
+            if not isinstance(raw, dict):
+                continue
+            if options.scene_id:
+                chunk_scene_id = raw.get("scene_id")
+                if chunk_scene_id != options.scene_id:
+                    continue
+            safe_chunks.append(raw)
+        return safe_chunks
+
+    def _format_current_scene_evidence(
+        self,
+        rag_chunks: list,
+        options: CompileOptions,
+    ) -> str:
+        lines: list[str] = []
+        for item in self._character_safe_rag_chunks(rag_chunks, options):
+            text = item.get("text")
+            if text:
+                lines.append(f"- {text}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_project_style(project: dict) -> str:
+        fields = [
+            ("标题", project.get("title") or project.get("name")),
+            ("类型", project.get("genre")),
+            ("语言", project.get("language")),
+            ("风格", project.get("style") or project.get("tone")),
+        ]
+        return "\n".join(f"- {label}: {value}" for label, value in fields if value)
+
+    @staticmethod
+    def _safe_sources_from_items(
+        items,
+        *,
+        default_type: str,
+        status: str,
+    ) -> list[dict[str, str]]:
+        sources: list[dict[str, str]] = []
+        for index, item in enumerate(items or []):
+            if isinstance(item, dict):
+                source_id = (
+                    item.get("id")
+                    or item.get("entity_id")
+                    or item.get("character_id")
+                    or item.get("chunk_id")
+                    or item.get("scene_id")
+                    or item.get("novel_id")
+                    or f"{default_type}-{index + 1}"
+                )
+                label = item.get("name") or item.get("title") or str(source_id)
+                item_status = str(item.get("status") or status)
+                source_type = str(item.get("source_type") or default_type)
+                source = {
+                    "type": source_type,
+                    "id": str(source_id),
+                    "label": str(label)[:80],
+                    "status": item_status,
+                }
+                for field in ("chapter_index", "scene_id"):
+                    if item.get(field) is not None:
+                        source[field] = str(item.get(field))
+            else:
+                source = {
+                    "type": default_type,
+                    "id": f"{default_type}-{index + 1}",
+                    "label": f"{default_type}-{index + 1}",
+                    "status": status,
+                }
+            sources.append(source)
+        return sources
 
     @staticmethod
     def _sources_from_items(

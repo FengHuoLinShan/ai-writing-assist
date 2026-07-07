@@ -63,6 +63,7 @@ describe("createWritingTools", () => {
     expect(tools.exportChapter).toBeTypeOf("function")
     expect(tools.splitScene).toBeTypeOf("function")
     expect(tools.generateDraft).toBeTypeOf("function")
+    expect(tools.generatePovDraft).toBeTypeOf("function")
     expect(tools.dispose).toBeTypeOf("function")
   })
 
@@ -72,6 +73,7 @@ describe("createWritingTools", () => {
     const tools = createTestTools()
     const html = tools.renderToolsMenu(false)
     expect(html).toContain("AI 工具")
+    expect(html).toContain('data-action="ai-generate-pov-draft"')
     expect(html).toContain('data-action="auto-extract-stage"')
     expect(html).toContain('data-action="extract-cards"')
     expect(html).toContain('data-action="open-map"')
@@ -151,6 +153,90 @@ describe("createWritingTools", () => {
       context_confirmation_id: "conf-1",
     }))
     expect(toast).toHaveBeenCalledWith("AI 生成草稿任务已提交：task-1", "success")
+  })
+
+  it("generates AI POV draft from current Scene viewpoint character", async () => {
+    state.currentProjectId = "p1"
+    state._currentChapter = 1
+    state._currentTitle = "第一章"
+    state._scenes = [{
+      id: "scene-1",
+      title: "Scene 1",
+      chapter_ids: ["1"],
+      pov_character_id: "char-1",
+    }]
+    confirmAiReference.mockResolvedValue({ id: "conf-pov", user_note: "压低情绪" })
+    api.writing.generate.mockResolvedValue({ task_id: "task-pov" })
+
+    const tools = createTestTools()
+    await tools.generatePovDraft()
+
+    expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({
+      novel_id: "p1",
+      action: "writing.generate",
+      task: "基于当前 Scene 的 POV 角色有限认知，生成正文候选草稿",
+      scope: "chapter",
+      chapter_index: 1,
+      scene_id: "scene-1",
+      reveal_mode: "character",
+      viewpoint_character_id: "char-1",
+      character_ids: ["char-1"],
+      include_pending_objects: true,
+    }))
+    expect(api.writing.generate).toHaveBeenCalledWith(expect.objectContaining({
+      novel_id: "p1",
+      chapter_index: 1,
+      title: "第一章",
+      context_confirmation_id: "conf-pov",
+    }))
+    const instruction = api.writing.generate.mock.calls[0][0].instruction
+    expect(instruction).toContain("压低情绪")
+    expect(instruction).toContain("POV 角色有限认知")
+    expect(instruction).toContain("角色判断、台词、内心和行动只能使用确认上下文中该角色可见的信息")
+    expect(toast).toHaveBeenCalledWith("AI 角色视角草稿任务已提交：task-pov", "success")
+  })
+
+  it("stops POV draft generation when current Scene is unavailable", async () => {
+    state.currentProjectId = "p1"
+    state._currentChapter = 1
+    state._scenes = []
+
+    const tools = createTestTools()
+    await tools.generatePovDraft()
+
+    expect(toast).toHaveBeenCalledWith("当前章节未关联 Scene", "warning")
+    expect(confirmAiReference).not.toHaveBeenCalled()
+    expect(api.writing.generate).not.toHaveBeenCalled()
+  })
+
+  it("stops POV draft generation when current Scene has no POV character", async () => {
+    state.currentProjectId = "p1"
+    state._currentChapter = 1
+    state._scenes = [{ id: "scene-1", title: "Scene 1", chapter_ids: ["1"] }]
+
+    const tools = createTestTools()
+    await tools.generatePovDraft()
+
+    expect(toast).toHaveBeenCalledWith("当前 Scene 未设置 POV 角色", "warning")
+    expect(confirmAiReference).not.toHaveBeenCalled()
+    expect(api.writing.generate).not.toHaveBeenCalled()
+  })
+
+  it("does not submit POV draft when AI reference confirmation is cancelled", async () => {
+    state.currentProjectId = "p1"
+    state._currentChapter = 1
+    state._scenes = [{
+      id: "scene-1",
+      title: "Scene 1",
+      chapter_ids: ["1"],
+      pov_character_id: "char-1",
+    }]
+    confirmAiReference.mockRejectedValue(new Error("已取消 AI 参考资料确认"))
+
+    const tools = createTestTools()
+    await tools.generatePovDraft()
+
+    expect(api.writing.generate).not.toHaveBeenCalled()
   })
 
   it("warns when generating draft without chapter", async () => {

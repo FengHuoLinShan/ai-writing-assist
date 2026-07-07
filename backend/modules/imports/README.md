@@ -28,6 +28,7 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - Phase 3 完成后会通过 outline facade 生成结构去重建议；只自动应用同一 deep import workflow 内的高置信重复，跨已有资产的建议仅写入任务结果
 - 深度导入 Phase 2 拆为 Phase 2a 世界对象/Delta 抽取与 Phase 2b 别名/关系提取；Phase 2b 失败只降级，不丢弃已抽取对象
 - 深度导入 Phase 2/Phase 3 的真实 LLM 调用通过 `modules.context.facade` 写入 `context_snapshots` 审计记录
+- 深度导入 Phase 1/2/3 prompt、Pydantic schema、关键字段映射和目标表列通过 `make prompt-contracts` 做开发期漂移检查；该检查不调用真实 LLM、不访问数据库
 
 ## 不负责
 

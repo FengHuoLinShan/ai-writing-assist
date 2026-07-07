@@ -154,6 +154,90 @@ describe("createEditor", () => {
     expect(html).not.toContain("<script>alert(1)</script>")
   })
 
+  it("显示 POV 结构化候选与 failed 风险提示", () => {
+    const editor = createTestEditor()
+    editor.setState({
+      chapter: 1,
+      draftId: "d-pov",
+      title: "POV 候选",
+      content: "正文候选",
+      provenanceJson: {
+        generation_profile: "pov_character",
+        pov_view: {
+          perception: "秦岚听见警报声。",
+          interpretation: "她判断控制台被人动过。",
+          inner_monologue: "她先稳住现场。",
+          action: "她靠近控制台。",
+          expression: "神色收紧。",
+          dialogue_candidates: [
+            { line: "别碰控制台。", tone: "冷静", subtext: "试探" },
+          ],
+          unsaid: "她没有说出口。",
+        },
+        pov_validation: {
+          status: "failed",
+          findings: [{
+            rule: "hidden_truth_match",
+            severity: "error",
+            field_path: "pov_view.unsaid",
+            generated_excerpt: "疑似越权片段",
+            source_label: "已过滤的隐藏事实",
+            redacted: true,
+          }],
+          warnings: [],
+        },
+      },
+    })
+
+    const html = editor.render()
+
+    expect(html).toContain("角色视角候选")
+    expect(html).toContain("高风险")
+    expect(html).toContain("秦岚听见警报声。")
+    expect(html).toContain("别碰控制台。")
+    expect(html).toContain("仍然采用")
+    expect(html).toContain("疑似越权片段")
+    expect(html).toContain("已过滤的隐藏事实")
+    expect(html).not.toContain("hidden_source_text")
+  })
+
+  it("POV failed candidate requires explicit acknowledgement action", () => {
+    const editor = createTestEditor()
+    editor.setState({
+      chapter: 1,
+      content: "正文候选",
+      provenanceJson: {
+        generation_profile: "pov_character",
+        pov_validation: { status: "failed", findings: [], warnings: [] },
+      },
+    })
+    document.body.innerHTML = editor.render()
+
+    editor.bindEvents(document.body)
+    const button = document.querySelector('[data-action="ack-pov-validation-risk"]')
+    button.click()
+
+    expect(button.disabled).toBe(true)
+    expect(button.textContent).toBe("已确认风险")
+    expect(toast).toHaveBeenCalledWith(
+      "请人工复核该候选，确认无越权信息后再采用",
+      "warning",
+    )
+  })
+
+  it("普通 draft 没有 provenance_json 时不显示 POV panel", async () => {
+    state.currentProjectId = "p1"
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [{ id: "d1", version_number: 1 }],
+    })
+    api.writing.get.mockResolvedValue({ id: "d1", content: "正文", title: "第一章", version_number: 1 })
+
+    const editor = createTestEditor()
+    await editor.loadChapter(1)
+
+    expect(editor.render()).not.toContain("角色视角候选")
+  })
+
   it("dispose 清理计时器与事件监听", async () => {
     state.currentProjectId = "p1"
     api.writing.getVersionHistory.mockResolvedValue({

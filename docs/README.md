@@ -36,6 +36,10 @@
 
 1. `prompts/Prompt体系设计.md` — Prompt 体系总览
 
+## 验收基线
+
+1. [`acceptance/2026-07-07-single-character-pov-prose-acceptance-baseline.md`](acceptance/2026-07-07-single-character-pov-prose-acceptance-baseline.md) — 单角色 POV 正文候选生成能力（建议 1-4）最终验收对照基线
+
 ## 推荐阅读顺序
 
 如果要理解全局：

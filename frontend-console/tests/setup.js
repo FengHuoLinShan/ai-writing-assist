@@ -129,9 +129,6 @@ globalThis.api = {
     previewPromptTemplate: vi.fn(),
     objectDraftChat: vi.fn(),
     generateObjectDraft: vi.fn(),
-    worldCharacter: vi.fn(),
-    plotStructure: vi.fn(),
-    chapterScene: vi.fn(),
   },
   outline: {
     listScenes: vi.fn(),
@@ -193,6 +190,7 @@ globalThis.api = {
   },
   world: {
     listEntities: vi.fn(),
+    listCharacters: vi.fn(),
     getEntity: vi.fn(),
     listEntityBatches: vi.fn(),
     listRelationships: vi.fn(),

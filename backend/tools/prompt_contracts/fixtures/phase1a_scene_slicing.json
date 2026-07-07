@@ -1,0 +1,12 @@
+{
+  "scenes": [
+    {
+      "title": "苏醒",
+      "goal": "确认处境",
+      "core_conflict": "身份错位",
+      "start_chapter": 1,
+      "end_chapter": 1,
+      "boundary_status": "complete"
+    }
+  ]
+}

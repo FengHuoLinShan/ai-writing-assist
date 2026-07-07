@@ -45,7 +45,7 @@ stats = await llm.get_usage_stats()
 解析，优先级固定为：
 
 ```text
-project settings.llm > test override env > legacy env fallback > code default
+project settings.llm > test override > code default
 ```
 
 resolver 返回 effective api_key / base_url / model / timeout / max_tokens /
@@ -53,6 +53,10 @@ temperature / top_p / extra，并保留字段来源。日志、JSONL、health ch
 只能使用脱敏 summary：`provider_id`、`label`、`model`、`base_url_host`、
 `timeout`、`max_tokens`、`api_key_configured`、`sources`、`extra_keys`。API Key
 不得进入日志、错误信息、任务结果或前端响应。
+
+业务供应商 profile 不再从 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL` 等环境变量
+继承。项目上下文会物化项目 > 全局默认 > 系统默认的 LLM 设置；系统默认是官方
+DeepSeek：`https://api.deepseek.com` + `deepseek-v4-flash`。
 
 - `LLM_TRUST_ENV`：是否允许 httpx/OpenAI SDK 读取系统代理环境，默认 `false`
 - `LLM_PROXY_URL`：显式代理地址，默认空

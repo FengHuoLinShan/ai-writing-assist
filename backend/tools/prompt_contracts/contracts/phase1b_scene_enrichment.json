@@ -1,0 +1,30 @@
+{
+  "id": "phase1b_scene_enrichment",
+  "version": 1,
+  "owner": "imports",
+  "schema_model": "modules.imports.llm_schemas.SceneEnrichmentOutput",
+  "declared_prompt_fields": [
+    "emotional_beat",
+    "must_happen",
+    "must_not_happen",
+    "narrative_tag",
+    "confidence",
+    "needs_review",
+    "review_reason"
+  ],
+  "forbidden_fields": ["status"],
+  "required_evidence_field": null,
+  "strict_schema_coverage": false,
+  "required_mappings": [
+    {"source": "emotional_beat", "target": "scenes.emotional_beat"},
+    {"source": "must_happen", "target": "scenes.must_happen"},
+    {"source": "must_not_happen", "target": "scenes.must_not_happen"},
+    {"source": "narrative_tag", "target": "scenes.narrative_tag"},
+    {"source": "confidence", "target": "scenes.structure_meta.confidence"},
+    {"source": "needs_review", "target": "scenes.structure_meta.needs_review"},
+    {"source": "review_reason", "target": "scenes.structure_meta.review_reason"}
+  ],
+  "observed_fields": [],
+  "ignored_fields": [],
+  "probes": []
+}

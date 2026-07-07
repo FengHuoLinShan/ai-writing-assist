@@ -174,7 +174,8 @@ registerCommand("rag", async (args) => {
 }, "RAG 检索", "search <关键词>")
 
 registerCommand("context", async () => {
-  router.navigate("context")
+  const query = new URLSearchParams({ tab: "task" })
+  router.navigate("generate", null, true, query)
 }, "编译上下文")
 
 registerCommand("writing", async () => {

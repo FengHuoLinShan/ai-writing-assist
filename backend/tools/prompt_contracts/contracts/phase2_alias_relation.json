@@ -1,0 +1,23 @@
+{
+  "id": "phase2_alias_relation",
+  "version": 1,
+  "owner": "imports",
+  "schema_model": "modules.imports.llm_schemas.AliasRelationExtractionOutput",
+  "declared_prompt_fields": ["aliases", "relations"],
+  "forbidden_fields": ["status"],
+  "required_evidence_field": null,
+  "strict_schema_coverage": false,
+  "required_mappings": [
+    {"source": "aliases.entity_name", "target": "core_entities.name"},
+    {"source": "aliases.alias", "target": "core_entities.content_json.aliases"},
+    {"source": "aliases.alias_type", "target": "core_entities.content_json.aliases"},
+    {"source": "relations.source_name", "target": "entity_relations.source_id"},
+    {"source": "relations.target_name", "target": "entity_relations.target_id"},
+    {"source": "relations.relation_type", "target": "entity_relations.relation_type"},
+    {"source": "relations.description", "target": "entity_relations.description"},
+    {"source": "relations.strength", "target": "entity_relations.strength"}
+  ],
+  "observed_fields": ["aliases.confidence", "relations.quote"],
+  "ignored_fields": [],
+  "probes": []
+}

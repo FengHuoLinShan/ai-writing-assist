@@ -239,7 +239,7 @@ def _entity_to_context(
     reveal_mode: str,
 ) -> WorldEntityContext:
     hidden = None
-    if reveal_mode == "author_only":
+    if reveal_mode in {"author_only", "author_full"}:
         hidden = entity.hidden_truth
 
     return WorldEntityContext(

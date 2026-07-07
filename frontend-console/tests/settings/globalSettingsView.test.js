@@ -11,6 +11,7 @@ describe("globalSettingsView", () => {
     resetState()
     globalSettingsView._llmDefaults = {}
     globalSettingsView._authorPrefs = {}
+    globalSettingsView._templates = []
     globalSettingsView._projectsUsingDefaults = { items: [], total: 0, truncated: false }
   })
 
@@ -38,6 +39,8 @@ describe("globalSettingsView", () => {
     expect(html).toContain("全局设置")
     expect(html).toContain("owner: local")
     expect(html).toContain("LLM 全局默认")
+    expect(html).toContain("https://api.deepseek.com")
+    expect(html).toContain("deepseek-v4-flash")
     expect(html).toContain("作者偏好全局默认")
     expect(html).toContain("本地迁移")
     expect(html).toContain("进入当前项目")

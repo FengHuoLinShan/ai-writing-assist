@@ -21,7 +21,7 @@ class LLMMessage(BaseModel):
 class LLMCallRequest(BaseModel):
     """LLM 调用请求参数"""
 
-    model: str = "gpt-4o"
+    model: str = "deepseek-v4-flash"
     """模型名称"""
     messages: list[LLMMessage] = Field(default_factory=list)
     """对话消息列表"""

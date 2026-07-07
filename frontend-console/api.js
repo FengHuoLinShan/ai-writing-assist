@@ -368,6 +368,10 @@ const api = {
       return request(withQuery("/world/entities", params))
     },
 
+    async listCharacters(params = {}) {
+      return request(withQuery("/world/characters", params))
+    },
+
     async getEntity(id, novelId) {
       return request(withQuery(`/world/entities/${id}`, { novel_id: novelId }))
     },
@@ -874,18 +878,6 @@ const api = {
 
     async generateObjectDraft(payload, options = {}) {
       return post("/world/object-drafts/generate", payload, { timeout: LLM_GENERATE_TIMEOUT, ...options })
-    },
-
-    async worldCharacter(payload) {
-      return post("/world/entities/extract", payload)
-    },
-
-    async plotStructure(payload) {
-      return post("/outline/generate", payload)
-    },
-
-    async chapterScene(payload) {
-      return post("/outline/chapter-scenes/extract", payload)
     },
   },
 

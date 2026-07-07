@@ -76,7 +76,10 @@ text = await client.generate_simple(system, user)
 client = LLMClient.from_project_settings(project_context.settings)
 ```
 
-缺失字段会回退到 `core.config.Settings` 中的全局 `LLM_*` 环境配置，旧部署方式继续可用。
+缺失字段会回退到数据库全局默认或代码内置 DeepSeek 默认。业务 LLM Profile
+不会从 `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` 等环境变量继承；API Key
+只允许项目级配置。代理、重试和 health gate 等运行参数仍由 `core.config.Settings`
+管理。
 
 ## 不负责
 

@@ -22,7 +22,7 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from core.config import get_settings
 from infrastructure.llm.errors import LLMInvalidResponseError
-from infrastructure.llm.profiles import resolve_llm_profile
+from infrastructure.llm.profiles import default_llm_profile, resolve_llm_profile
 from infrastructure.llm.providers import get_provider
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.retry import retry_with_backoff
@@ -294,11 +294,17 @@ class LLMClient:
     """
 
     def __init__(self, provider_name: str = "openai", **provider_kwargs: Any) -> None:
+        defaults = default_llm_profile()
+        self._default_model = str(
+            provider_kwargs.pop("default_model", None) or defaults["model"]
+        )
+        self._default_max_tokens = int(
+            provider_kwargs.pop("default_max_tokens", None)
+            or defaults["max_tokens"]
+        )
+        provider_kwargs["default_model"] = self._default_model
         self._provider = get_provider(provider_name, **provider_kwargs)
         self._settings = get_settings()
-        self._default_model = (
-            provider_kwargs.get("default_model") or self._settings.llm_model
-        )
 
     @classmethod
     def from_project_settings(
@@ -308,13 +314,14 @@ class LLMClient:
     ) -> LLMClient:
         """Build an OpenAI-compatible client from ``project.settings["llm"]``.
 
-        Project-level settings override the global env defaults only when set.
-        Missing values still fall back to ``core.config.Settings`` inside the
-        provider, so legacy env-based deployments keep working.
+        Project-level settings override code defaults only when set. Business
+        LLM provider fields intentionally do not fall back to ``LLM_*`` env
+        vars; API keys are project-level.
         """
         profile = resolve_llm_profile(project_settings)
         merged_kwargs = {
             **profile.provider_kwargs(),
+            "default_max_tokens": profile.max_tokens,
             **provider_kwargs,
         }
         return cls(provider_name="openai", **merged_kwargs)
@@ -334,10 +341,16 @@ class LLMClient:
         """
         if hasattr(self, "_provider") and hasattr(self._provider, "close"):
             await self._provider.close()
-        self._provider = get_provider(provider_name, **provider_kwargs)
-        self._default_model = (
-            provider_kwargs.get("default_model") or self._settings.llm_model
+        defaults = default_llm_profile()
+        self._default_model = str(
+            provider_kwargs.pop("default_model", None) or defaults["model"]
         )
+        self._default_max_tokens = int(
+            provider_kwargs.pop("default_max_tokens", None)
+            or defaults["max_tokens"]
+        )
+        provider_kwargs["default_model"] = self._default_model
+        self._provider = get_provider(provider_name, **provider_kwargs)
 
     @property
     def provider(self) -> str:
@@ -705,13 +718,13 @@ class LLMClient:
             生成的文本内容
         """
         request = LLMCallRequest(
-            model=model or self._settings.llm_model,
+            model=model or self._default_model,
             messages=[
                 LLMMessage(role="system", content=system_prompt),
                 LLMMessage(role="user", content=user_prompt),
             ],
             temperature=temperature,
-            max_tokens=max_tokens or self._settings.llm_max_tokens,
+            max_tokens=max_tokens or self._default_max_tokens,
         )
         response = await self.generate(request)
         return response.content
@@ -765,6 +778,6 @@ class LLMClient:
         """
         return {
             "provider": self._provider.name,
-            "default_model": self._settings.llm_model,
-            "base_url": self._settings.llm_base_url,
+            "default_model": self._default_model,
+            "base_url": getattr(self._provider, "_base_url", ""),
         }

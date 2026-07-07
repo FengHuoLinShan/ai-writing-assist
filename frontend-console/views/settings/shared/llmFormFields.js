@@ -7,11 +7,25 @@ const CREATIVE_PRESETS = {
 
 export { CREATIVE_PRESETS }
 
+const SYSTEM_LLM_DEFAULTS = {
+  provider_id: "deepseek",
+  label: "DeepSeek",
+  base_url: "https://api.deepseek.com",
+  model: "deepseek-v4-flash",
+  timeout: 180,
+  max_tokens: 4096,
+  temperature: 0.3,
+  top_p: null,
+  extra: {},
+}
+
+export { SYSTEM_LLM_DEFAULTS }
+
 export function renderLLMFormFields({ values, templates, sourceMap = {}, withApiKey = true } = {}) {
   const v = values || {}
   const providerOptions = (templates || []).length
     ? (templates || []).map((t) => `<option value="${t.id}" ${t.id === (v.provider_id || "") ? "selected" : ""}>${t.name}</option>`).join("")
-    : `<option value="openai-compatible" selected>openai-compatible</option>`
+    : `<option value="deepseek" selected>DeepSeek</option>`
   const modelOptions = ((templates?.find((t) => t.id === (v.provider_id || ""))?.models) || []).map((m) => `<option value="${m}"></option>`).join("")
   const creativeMode = detectCreativeMode(v)
   return `

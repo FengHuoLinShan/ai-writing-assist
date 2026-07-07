@@ -14,7 +14,6 @@ const routes = {
   project: { title: "项目", subViews: [] },
   world: { title: "世界对象", subViews: ["objects", "relations", "aliases", "bible", "map"], subViewTitles: { objects: "对象库", relations: "关系", aliases: "别名", bible: "世界书", map: "地图" } },
   rag: { title: "RAG 检索", subViews: ["status", "search"], subViewTitles: { status: "索引状态", search: "搜索测试" } },
-  context: { title: "上下文", subViews: [] },
   outline: { title: "大纲", subViews: ["scenes", "threads", "arcs", "foreshadowing", "reveals"], subViewTitles: { scenes: "场景卡", threads: "剧情线", arcs: "篇章纲", foreshadowing: "伏笔", reveals: "揭示" } },
   scene: { title: "场景", subViews: [] },
   writing: { title: "写作台", subViews: [] },
@@ -106,6 +105,9 @@ const _viewDomCache = {}
 /** @type {Set<string>} 标记为 KeepAlive 的视图 */
 const _keepAliveViews = new Set(["writing", "outline", "scene"])
 
+/** @type {URLSearchParams} 当前 hash 的 query 参数 */
+let _currentQuery = new URLSearchParams()
+
 function _viewCacheKey(viewName, subView = null, projectId = state.currentProjectId) {
   return `${projectId || "global"}:${viewName}:${subView || ""}`
 }
@@ -115,12 +117,25 @@ function _viewCacheKey(viewName, subView = null, projectId = state.currentProjec
  * 有项目时: #workbench/:pid/:view[/:subView]
  * 无项目时: #:view[/:subView]
  */
-function _buildHash(viewName, subView) {
+function _buildHash(viewName, subView, query = null) {
+  let base
   if (state.currentProjectId && viewName !== "project") {
-    const base = `workbench/${state.currentProjectId}/${viewName}`
-    return subView ? `${base}/${subView}` : base
+    base = `workbench/${state.currentProjectId}/${viewName}`
+    if (subView) base += `/${subView}`
+  } else {
+    base = subView ? `${viewName}/${subView}` : viewName
   }
-  return subView ? `${viewName}/${subView}` : viewName
+  const q = query || _currentQuery
+  const qs = q && q.toString ? q.toString() : ""
+  return qs ? `${base}?${qs}` : base
+}
+
+/**
+ * 获取当前 hash 的 query 参数
+ * @returns {URLSearchParams}
+ */
+function getCurrentQuery() {
+  return _currentQuery
 }
 
 /**
@@ -129,19 +144,24 @@ function _buildHash(viewName, subView) {
  * - :view[/:subView]
  */
 function _parseHash(hash) {
-  const [path] = hash.split("?")
+  const queryIndex = hash.indexOf("?")
+  const path = queryIndex >= 0 ? hash.slice(0, queryIndex) : hash
+  const queryString = queryIndex >= 0 ? hash.slice(queryIndex + 1) : ""
+  const query = new URLSearchParams(queryString)
   const parts = path.split("/")
   if (parts[0] === "workbench" && parts.length >= 3) {
     return {
       projectId: parts[1],
       viewName: parts[2],
       subView: parts[3] || null,
+      query,
     }
   }
   return {
     projectId: null,
     viewName: parts[0] || "project",
     subView: parts[1] || null,
+    query,
   }
 }
 
@@ -284,7 +304,7 @@ async function renderCurrentView() {
   }
 }
 
-async function navigate(viewName, subView = null, pushHistory = true) {
+async function navigate(viewName, subView = null, pushHistory = true, query = null) {
   if (!routes[viewName]) {
     console.warn(`未知路由: ${viewName}`)
     return
@@ -300,6 +320,7 @@ async function navigate(viewName, subView = null, pushHistory = true) {
 
   state.currentView = viewName
   state.currentSubView = subView
+  _currentQuery = query || new URLSearchParams()
 
   if (!isSameView) {
     state.selectedItem = null
@@ -335,8 +356,19 @@ async function refresh() {
  * 根据当前 hash 初始化路由
  */
 async function initRouter() {
-  const hash = window.location.hash.slice(1) || "project"
-  const parsed = _parseHash(hash)
+  let hash = window.location.hash.slice(1) || "project"
+  let parsed = _parseHash(hash)
+  _currentQuery = parsed.query || new URLSearchParams()
+
+  // 旧上下文路由重定向到生成中心的任务标签
+  if (parsed.viewName === "context") {
+    const base = parsed.projectId ? `workbench/${parsed.projectId}/generate` : "generate"
+    const newQuery = new URLSearchParams({ tab: "task" })
+    const newHash = `#${base}?${newQuery.toString()}`
+    window.history.replaceState({ view: "generate", subView: null, projectId: parsed.projectId }, "", newHash)
+    parsed = _parseHash(newHash.slice(1))
+    _currentQuery = parsed.query || newQuery
+  }
 
   await _syncCurrentProject(parsed.projectId)
 
@@ -351,12 +383,24 @@ async function initRouter() {
   window.addEventListener("popstate", async (e) => {
     const hash = window.location.hash.slice(1) || "project"
     const parsed = _parseHash(hash)
+    _currentQuery = parsed.query || new URLSearchParams()
 
     const projectId = parsed.projectId || (e.state && e.state.projectId) || null
     await _syncCurrentProject(projectId)
 
-    const targetView = (e.state && e.state.view) ? e.state.view : parsed.viewName
-    const targetSubView = (e.state && e.state.subView !== undefined) ? e.state.subView : parsed.subView
+    let targetView = (e.state && e.state.view) ? e.state.view : parsed.viewName
+    let targetSubView = (e.state && e.state.subView !== undefined) ? e.state.subView : parsed.subView
+
+    // 旧上下文路由重定向
+    if (targetView === "context") {
+      const base = parsed.projectId ? `workbench/${parsed.projectId}/generate` : "generate"
+      const newQuery = new URLSearchParams({ tab: "task" })
+      const newHash = `#${base}?${newQuery.toString()}`
+      window.history.replaceState({ view: "generate", subView: null, projectId }, "", newHash)
+      targetView = "generate"
+      targetSubView = null
+      _currentQuery = newQuery
+    }
 
     if (routes[targetView]) {
       state.currentView = targetView
@@ -369,4 +413,4 @@ async function initRouter() {
 }
 
 // 导出
-window.router = { navigate, refresh, getCurrentView, getRoute, getSubViewTitle, registerView, onNavigate, initRouter, getLastSubView, renderCurrentView }
+window.router = { navigate, refresh, getCurrentView, getRoute, getSubViewTitle, registerView, onNavigate, initRouter, getLastSubView, renderCurrentView, getCurrentQuery }

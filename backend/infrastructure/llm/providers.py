@@ -35,6 +35,7 @@ from infrastructure.llm.errors import (
     LLMRateLimitError,
     LLMTimeoutError,
 )
+from infrastructure.llm.profiles import default_llm_profile
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import (
     LLMCallRequest,
@@ -78,9 +79,10 @@ class OpenAIProvider:
         proxy_url: str | None = None,
     ) -> None:
         settings = get_settings()
-        self._api_key = api_key or settings.llm_api_key
-        self._base_url = base_url or settings.llm_base_url
-        self._default_model = default_model or settings.llm_model
+        defaults = default_llm_profile()
+        self._api_key = api_key or ""
+        self._base_url = base_url or str(defaults["base_url"])
+        self._default_model = default_model or str(defaults["model"])
         self._timeout = timeout or settings.llm_timeout
         self._trust_env = settings.llm_trust_env if trust_env is None else trust_env
         self._proxy_url = settings.llm_proxy_url if proxy_url is None else proxy_url

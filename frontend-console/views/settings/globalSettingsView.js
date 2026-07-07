@@ -7,6 +7,7 @@
  * 依赖全局：api、state、router、toast、esc。
  */
 import {
+  SYSTEM_LLM_DEFAULTS,
   renderLLMFormFields,
   readLLMFormFields,
   validateLLMPayload,
@@ -20,23 +21,27 @@ import {
 const globalSettingsView = {
   _llmDefaults: null,
   _authorPrefs: null,
+  _templates: [],
   _projectsUsingDefaults: { items: [], total: 0, truncated: false },
 
   async onEnter() {
     try {
-      const [llm, prefs, projects] = await Promise.all([
+      const [llm, prefs, projects, templates] = await Promise.all([
         api.settings.listGlobalLLMDefaults(),
         api.settings.listGlobalAuthorPrefs(),
         api.settings.listProjectsUsingDefaults({ limit: 50 }),
+        api.projects.listLlmProviderTemplates(),
       ])
-      this._llmDefaults = llm || {}
+      this._llmDefaults = this._withSystemLLMDefaults(llm)
       this._authorPrefs = prefs || {}
+      this._templates = Array.isArray(templates) ? templates : (templates?.items || [])
       this._projectsUsingDefaults = projects || { items: [], total: 0, truncated: false }
     } catch (err) {
       console.error("加载全局设置失败:", err)
       toast("加载全局设置失败", "error")
-      this._llmDefaults = {}
+      this._llmDefaults = this._withSystemLLMDefaults(null)
       this._authorPrefs = {}
+      this._templates = []
       this._projectsUsingDefaults = { items: [], total: 0, truncated: false }
     }
   },
@@ -59,7 +64,7 @@ const globalSettingsView = {
         <section class="settings-section">
           <h3>LLM 全局默认</h3>
           <p class="settings-section-hint">不存 API Key；项目级才配置 Key。</p>
-          ${renderLLMFormFields({ values: this._llmDefaults, templates: [], withApiKey: false })}
+          ${renderLLMFormFields({ values: this._withSystemLLMDefaults(this._llmDefaults), templates: this._templates, withApiKey: false })}
           <button class="btn btn-primary" id="global-llm-save">保存 LLM 全局默认</button>
         </section>
 
@@ -85,6 +90,16 @@ const globalSettingsView = {
         </section>
       </div>
     `
+  },
+
+  _withSystemLLMDefaults(values) {
+    const merged = { ...SYSTEM_LLM_DEFAULTS }
+    for (const [key, value] of Object.entries(values || {})) {
+      if (value !== null && value !== undefined && value !== "") {
+        merged[key] = value
+      }
+    }
+    return merged
   },
 
   _renderProjectsUsingDefaults() {

@@ -241,12 +241,12 @@ class CharacterService(
             key = f"{item.get('target_type', '')}:{item.get('target_id', '')}"
             knowledge = knowledge_map.get(key)
 
-            # 设计选择：在 character reveal 模式下，调用方（characters_loader）
-            # 只在 reveal_mode == "character" 时才会进入本方法。因此此处缺失
-            # knowledge 记录代表该视角人物对这个实体没有任何认知边界信息，
-            # 按“未知”处理并 intentional 地从该人物的 compiled context 中移除。
             if knowledge is None:
-                removed_count += 1
+                filtered_item = self._public_character_visible_item(item)
+                if filtered_item is None:
+                    removed_count += 1
+                    continue
+                filtered_items.append(filtered_item)
                 continue
 
             level = knowledge["knowledge_level"]
@@ -260,6 +260,7 @@ class CharacterService(
                 filtered_item["content"] = (
                     knowledge["misconception"] or knowledge["known_content"] or ""
                 )
+                filtered_item["summary"] = filtered_item["content"]
                 filtered_item["knowledge_level"] = level
                 filtered_item["is_misconception"] = True
                 filtered_items.append(filtered_item)
@@ -271,20 +272,59 @@ class CharacterService(
                 if knowledge["known_content"]:
                     filtered_item["content"] = knowledge["known_content"]
                     filtered_item["summary"] = knowledge["known_content"]
+                else:
+                    filtered_item.pop("content", None)
+                    filtered_item.pop("summary", None)
                 filtered_items.append(filtered_item)
             elif level in {"partial", "rumor"}:
                 filtered_item = dict(item)
+                filtered_item.pop("hidden_truth", None)
                 filtered_item["knowledge_level"] = level
                 if knowledge["known_content"]:
                     filtered_item["character_known_content"] = knowledge["known_content"]
+                    filtered_item["content"] = knowledge["known_content"]
+                    filtered_item["summary"] = knowledge["known_content"]
+                else:
+                    filtered_item.pop("content", None)
+                    filtered_item.pop("summary", None)
                 filtered_items.append(filtered_item)
             else:
-                # full 等明确等级：按原样保留（包括 hidden_truth）
                 filtered_item = dict(item)
+                filtered_item.pop("author_notes", None)
+                filtered_item.pop("author_metadata", None)
                 filtered_item["knowledge_level"] = level
                 filtered_items.append(filtered_item)
 
         return filtered_items, removed_count, replaced_count
+
+    @staticmethod
+    def _public_character_visible_item(item: dict) -> dict | None:
+        """Return the minimal public view for an item without explicit knowledge."""
+        safe: dict = {}
+        for field in (
+            "target_type",
+            "target_id",
+            "id",
+            "entity_id",
+            "entity_type",
+            "name",
+            "status",
+            "importance_level",
+        ):
+            if field in item and item[field] is not None:
+                safe[field] = item[field]
+
+        public_info = item.get("public_info")
+        if public_info:
+            safe["public_info"] = public_info
+            safe["summary"] = public_info
+            safe["content"] = public_info
+
+        if not safe.get("name") and not safe.get("public_info"):
+            return None
+        safe["knowledge_level"] = "public_default"
+        safe["visibility_source"] = "public_info"
+        return safe
 
     # ============================================================
     # 跨模块 facade leak (PR 2)

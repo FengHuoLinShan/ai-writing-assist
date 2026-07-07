@@ -40,7 +40,7 @@ class _FakeEnvSettings:
     llm_max_tokens = 1234
 
 
-def test_resolve_llm_profile_uses_code_defaults_without_env(monkeypatch) -> None:
+def test_resolve_llm_profile_uses_deepseek_code_defaults_without_env(monkeypatch) -> None:
     for name in (
         "LLM_API_KEY",
         "LLM_BASE_URL",
@@ -52,14 +52,16 @@ def test_resolve_llm_profile_uses_code_defaults_without_env(monkeypatch) -> None
 
     profile = resolve_llm_profile(env_settings=_FakeEnvSettings())
 
-    assert profile.model == "gpt-4o"
-    assert profile.timeout == 60
+    assert profile.provider_id == "deepseek"
+    assert profile.base_url == "https://api.deepseek.com"
+    assert profile.model == "deepseek-v4-flash"
+    assert profile.timeout == 180
     assert profile.max_tokens == 4096
     assert profile.sources["model"] == "default"
     assert profile.sources["timeout"] == "default"
 
 
-def test_resolve_llm_profile_uses_legacy_env_when_configured(monkeypatch) -> None:
+def test_resolve_llm_profile_ignores_legacy_env_when_configured(monkeypatch) -> None:
     monkeypatch.setenv("LLM_API_KEY", "set")
     monkeypatch.setenv("LLM_BASE_URL", "set")
     monkeypatch.setenv("LLM_MODEL", "set")
@@ -68,16 +70,16 @@ def test_resolve_llm_profile_uses_legacy_env_when_configured(monkeypatch) -> Non
 
     profile = resolve_llm_profile(env_settings=_FakeEnvSettings())
 
-    assert profile.api_key == "sk-env"
-    assert profile.base_url == "https://env.example/v1"
-    assert profile.model == "env-model"
-    assert profile.timeout == 70
-    assert profile.max_tokens == 1234
-    assert profile.sources["api_key"] == "env"
-    assert profile.sources["base_url"] == "env"
+    assert profile.api_key == ""
+    assert profile.base_url == "https://api.deepseek.com"
+    assert profile.model == "deepseek-v4-flash"
+    assert profile.timeout == 180
+    assert profile.max_tokens == 4096
+    assert profile.sources["api_key"] == "default"
+    assert profile.sources["base_url"] == "default"
 
 
-def test_resolve_llm_profile_test_override_sits_between_project_and_env(
+def test_resolve_llm_profile_test_override_sits_between_project_and_default(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("LLM_MODEL", "set")
@@ -112,7 +114,7 @@ def test_resolve_llm_profile_test_override_sits_between_project_and_env(
     assert profile_without_project.sources["model"] == "test_override"
 
 
-def test_resolve_llm_profile_invalid_values_fall_back(monkeypatch) -> None:
+def test_resolve_llm_profile_invalid_overrides_fall_back(monkeypatch) -> None:
     monkeypatch.setenv("LLM_TIMEOUT", "set")
     monkeypatch.setenv("LLM_MAX_TOKENS", "set")
 
@@ -123,9 +125,12 @@ def test_resolve_llm_profile_invalid_values_fall_back(monkeypatch) -> None:
         llm_timeout = "bad"
         llm_max_tokens = 0
 
-    profile = resolve_llm_profile(env_settings=BadEnvSettings())
+    profile = resolve_llm_profile(
+        env_settings=BadEnvSettings(),
+        test_overrides={"LLM_TIMEOUT": "bad", "LLM_MAX_TOKENS": 0},
+    )
 
-    assert profile.timeout == 60
+    assert profile.timeout == 180
     assert profile.max_tokens == 4096
     assert profile.sources["timeout"] == "default"
     assert profile.sources["max_tokens"] == "default"

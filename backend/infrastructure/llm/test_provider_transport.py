@@ -37,6 +37,23 @@ def test_provider_disables_system_proxy_by_default(monkeypatch) -> None:
     get_settings.cache_clear()
 
 
+def test_provider_does_not_fall_back_to_llm_env_profile(monkeypatch) -> None:
+    """Business LLM API key/base/model must come from project profile, not env."""
+    monkeypatch.setenv("LLM_API_KEY", "sk-env-should-not-be-used")
+    monkeypatch.setenv("LLM_BASE_URL", "https://env.example/v1")
+    monkeypatch.setenv("LLM_MODEL", "env-model")
+    with (
+        patch("infrastructure.llm.providers.httpx.AsyncClient"),
+        patch("infrastructure.llm.providers.AsyncOpenAI") as openai_cls,
+    ):
+        provider = OpenAIProvider()
+
+    assert provider._api_key == ""
+    assert provider._base_url == "https://api.deepseek.com"
+    assert provider._default_model == "deepseek-v4-flash"
+    assert openai_cls.call_args.kwargs["api_key"] == ""
+
+
 def test_provider_uses_explicit_proxy_when_configured() -> None:
     """Explicit proxy configuration should be the only proxy path."""
     with (

@@ -11,8 +11,9 @@ project 模块是系统的根聚合。所有其他模块通过 novel_id 关联�
 ### settings 字段
 
 JSONB 配置字段，存储项目级可调参数，如 `temporary_entity_expiry_chapters` 等。
-其中 `settings.llm` 是项目级业务 LLM Profile，优先级高于测试 override 和旧版
-`LLM_*` 环境变量。典型字段：
+其中 `settings.llm` 是项目级业务 LLM Profile；业务调用只使用项目/全局数据库配置
+和代码内置默认，不从旧版 `LLM_*` 环境变量继承供应商、模型、Base URL 或 API Key。
+典型字段：
 
 - `provider_id` / `label`：供应商模板标识与显示名
 - `base_url` / `model`：OpenAI-compatible API 地址与默认模型

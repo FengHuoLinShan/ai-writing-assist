@@ -6,9 +6,8 @@
 
 支持的配置项（环境变量名）：
 - DATABASE_URL: PostgreSQL 连接字符串
-- LLM_API_KEY: LLM 服务 API 密钥
-- LLM_BASE_URL: LLM 服务基础地址
-- LLM_MODEL: 默认模型名称
+- LLM_PROXY_URL / LLM_TRUST_ENV: LLM HTTP 代理配置
+- LLM_HEALTH_REQUIRED / LLM_RETRY_*: LLM health 和重试运行参数
 - EMBEDDING_DIM: embedding 向量维度（默认 768）
 - POOL_SIZE: 数据库连接池大小（默认 10）
 - MAX_OVERFLOW: 数据库连接池最大溢出（默认 20）
@@ -77,16 +76,13 @@ class Settings:
     echo_sql: bool = _env("ECHO_SQL", "false").lower() == "true"
 
     # --- LLM ---
-    llm_api_key: str = field(default_factory=lambda: _env("LLM_API_KEY", ""))
-    llm_base_url: str = field(
-        default_factory=lambda: _env(
-            "LLM_BASE_URL",
-            "https://api.openai.com/v1",
-        )
-    )
-    llm_model: str = field(default_factory=lambda: _env("LLM_MODEL", "gpt-4o"))
-    llm_max_tokens: int = int(_env("LLM_MAX_TOKENS", "4096"))
-    llm_timeout: int = int(_env("LLM_TIMEOUT", "60"))
+    # Business LLM profile fields are DB-backed (project/global settings), not env-backed.
+    # These legacy attributes remain for old helpers and explicit test construction.
+    llm_api_key: str = ""
+    llm_base_url: str = "https://api.deepseek.com"
+    llm_model: str = "deepseek-v4-flash"
+    llm_max_tokens: int = 4096
+    llm_timeout: int = 180
     llm_trust_env: bool = field(
         default_factory=lambda: _env_bool("LLM_TRUST_ENV", False)
     )

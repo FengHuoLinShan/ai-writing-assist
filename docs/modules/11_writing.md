@@ -6,7 +6,7 @@ writing 模块不是核心 AI 正文生成模块，而是人工正文草稿和�
 
 ## 数据表
 
-- `writing_drafts` — chapter_index / title / content / version_number（UniqueConstraint: novel_id + chapter_index + version_number）
+- `writing_drafts` — chapter_index / title / content / version_number / status / provenance_json（UniqueConstraint: novel_id + chapter_index + version_number）
 - `writing_conflict_checks` — Scene 写作冲突检查记录，保存规则层结果、AI 软冲突状态和 `include_candidates`
 - `writing_conflict_items` — 单条检查问题，保存来源模块、证据摘要、可打开来源和处理状态
 
@@ -76,6 +76,20 @@ AI 能力是显式追加流程，不替代规则层结果：
 - `ai-review` 必须使用 action 为 `writing.conflict_check.ai_review` 的 `context_confirmation_id`。
 - `ai-suggestion` 必须使用 action 为 `writing.conflict_check.ai_suggestion` 的 `context_confirmation_id`。
 - AI 软冲突和建议只写入检查项，不修改正文、Scene、地图、世界对象、记忆或正史资产。
+
+## AI 正文候选来源追踪
+
+`POST /api/writing/generate` 只创建 `status="candidate"` 的候选草稿，不自动发布、不触发 RAG、不写正史。
+
+`writing_drafts.provenance_json` 保存 AI 生成来源追踪：
+
+- `source_confirmation_id` / `context_confirmation_id`：本次使用的 AI 参考资料确认记录
+- `generation_profile`：`default` 或 `pov_character`
+- `prompt_name` / `prompt_hash` / `model`：生成 prompt 与模型审计信息
+- `pov_view`：角色视角结构化结果（仅 `pov_character`）
+- `pov_validation`：角色视角 deterministic 泄漏诊断；`passed` 只表示“未发现明显越权”，不是绝对安全保证
+
+POV 角色视角候选即使诊断为 `failed` 仍保存为 candidate draft；前端必须标红提示，用户需显式确认后才可采用。
 
 ## 手动工作台
 

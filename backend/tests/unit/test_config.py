@@ -6,8 +6,6 @@ core/config.py 单元测试
 仅 field(default_factory=...) 字段可在实例化时响应环境变量变化。
 """
 
-import os
-
 import pytest
 
 from core.config import Settings, _env, get_settings
@@ -29,7 +27,7 @@ class TestSettingsEffectiveDefaults:
         assert Settings().llm_max_tokens == 4096
 
     def test_effective_llm_timeout(self):
-        assert Settings().llm_timeout == 60
+        assert Settings().llm_timeout == 180
 
     def test_effective_embedding_dim(self):
         assert Settings().embedding_dim == 768
@@ -55,10 +53,7 @@ class TestSettingsEffectiveDefaults:
         assert "postgresql+asyncpg" in Settings().database_url
 
     def test_effective_llm_base_url(self):
-        assert Settings().llm_base_url == os.environ.get(
-            "LLM_BASE_URL",
-            "https://api.deepseek.com",
-        )
+        assert Settings().llm_base_url == "https://api.deepseek.com"
 
     def test_effective_llm_model(self):
         assert Settings().llm_model == "deepseek-v4-flash"
@@ -134,17 +129,17 @@ class TestSettingsFromEnvFactoryFields:
         monkeypatch.setenv("DATABASE_URL", "postgresql://custom:5432/db")
         assert Settings().database_url == "postgresql://custom:5432/db"
 
-    def test_llm_api_key_from_env(self, monkeypatch):
+    def test_llm_api_key_ignores_env(self, monkeypatch):
         monkeypatch.setenv("LLM_API_KEY", "sk-test")
-        assert Settings().llm_api_key == "sk-test"
+        assert Settings().llm_api_key == ""
 
-    def test_llm_model_from_env(self, monkeypatch):
+    def test_llm_model_ignores_env(self, monkeypatch):
         monkeypatch.setenv("LLM_MODEL", "test-model")
-        assert Settings().llm_model == "test-model"
+        assert Settings().llm_model == "deepseek-v4-flash"
 
-    def test_llm_base_url_from_env(self, monkeypatch):
+    def test_llm_base_url_ignores_env(self, monkeypatch):
         monkeypatch.setenv("LLM_BASE_URL", "https://test.local/v1")
-        assert Settings().llm_base_url == "https://test.local/v1"
+        assert Settings().llm_base_url == "https://api.deepseek.com"
 
     def test_embedding_model_from_env(self, monkeypatch):
         monkeypatch.setenv("EMBEDDING_MODEL", "test-emb")

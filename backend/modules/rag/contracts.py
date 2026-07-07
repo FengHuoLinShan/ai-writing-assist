@@ -76,6 +76,10 @@ class RagQueryContract:
     """限制关联的剧情线 ID 列表"""
     chapter_index: int | None = None
     """限制关联章节索引"""
+    scene_id: str | None = None
+    """限制关联 Scene ID"""
+    strict_scene_filter: bool = False
+    """是否严格按 Scene 过滤，排除未标注 Scene 的片段"""
     mode: str = "search"
     """检索模式：search / context / extraction"""
     top_k: int = 12

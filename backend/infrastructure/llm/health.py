@@ -56,7 +56,7 @@ class LLMHealthChecker:
                 ok=False,
                 host=host,
                 error_kind="auth_error",
-                message="LLM_API_KEY is not configured",
+                message="Project LLM API key is not configured",
             )
 
         try:

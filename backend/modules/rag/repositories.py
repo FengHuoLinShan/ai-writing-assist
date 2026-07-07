@@ -37,6 +37,10 @@ class RagChunkRepository:
             return column.cast(JSONB).contains(values)
         return and_(*(column.contains(value) for value in values))
 
+    @staticmethod
+    def _parse_scene_id(scene_id: str | None) -> uuid.UUID | None:
+        return uuid.UUID(hex=scene_id) if scene_id else None
+
     # ============================================================
     # 基础 CRUD
     # ============================================================
@@ -519,6 +523,8 @@ class RagChunkRepository:
         character_ids: list[str] | None = None,
         thread_ids: list[str] | None = None,
         chapter_index: int | None = None,
+        scene_id: str | None = None,
+        strict_scene_filter: bool = False,
         visibility: str | None = None,
         limit: int = 20,
     ) -> list[RagChunk]:
@@ -558,6 +564,11 @@ class RagChunkRepository:
             )
         if chapter_index is not None:
             conditions.append(RagChunk.chapter_index == chapter_index)
+        scene_uuid = self._parse_scene_id(scene_id)
+        if scene_uuid is not None:
+            conditions.append(RagChunk.scene_id == scene_uuid)
+        elif strict_scene_filter:
+            conditions.append(RagChunk.scene_id.is_not(None))
         if visibility is not None:
             conditions.append(RagChunk.visibility == visibility)
 
@@ -595,6 +606,8 @@ class RagChunkRepository:
         character_ids: list[str] | None = None,
         thread_ids: list[str] | None = None,
         chapter_index: int | None = None,
+        scene_id: str | None = None,
+        strict_scene_filter: bool = False,
         visibility: str | None = None,
         top_k: int = 12,
         ef_search: int = 40,
@@ -617,6 +630,8 @@ class RagChunkRepository:
                 character_ids=character_ids,
                 thread_ids=thread_ids,
                 chapter_index=chapter_index,
+                scene_id=scene_id,
+                strict_scene_filter=strict_scene_filter,
                 visibility=visibility,
                 top_k=top_k,
             )
@@ -642,6 +657,11 @@ class RagChunkRepository:
             )
         if chapter_index is not None:
             conditions.append(RagChunk.chapter_index == chapter_index)
+        scene_uuid = self._parse_scene_id(scene_id)
+        if scene_uuid is not None:
+            conditions.append(RagChunk.scene_id == scene_uuid)
+        elif strict_scene_filter:
+            conditions.append(RagChunk.scene_id.is_not(None))
         if visibility is not None:
             conditions.append(RagChunk.visibility == visibility)
 
@@ -668,6 +688,8 @@ class RagChunkRepository:
         character_ids: list[str] | None = None,
         thread_ids: list[str] | None = None,
         chapter_index: int | None = None,
+        scene_id: str | None = None,
+        strict_scene_filter: bool = False,
         visibility: str | None = None,
         top_k: int = 12,
     ) -> list[tuple[RagChunk, float]]:
@@ -692,6 +714,11 @@ class RagChunkRepository:
             )
         if chapter_index is not None:
             conditions.append(RagChunk.chapter_index == chapter_index)
+        scene_uuid = self._parse_scene_id(scene_id)
+        if scene_uuid is not None:
+            conditions.append(RagChunk.scene_id == scene_uuid)
+        elif strict_scene_filter:
+            conditions.append(RagChunk.scene_id.is_not(None))
         if visibility is not None:
             conditions.append(RagChunk.visibility == visibility)
 

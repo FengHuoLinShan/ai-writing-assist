@@ -177,6 +177,8 @@ async def retrieve(
     character_ids: list[str] | None = None,
     thread_ids: list[str] | None = None,
     chapter_index: int | None = None,
+    scene_id: str | None = None,
+    strict_scene_filter: bool = False,
     visibility: str | None = None,
     mode: str = "search",
     top_k: int = 12,
@@ -192,6 +194,8 @@ async def retrieve(
         character_ids: 限制关联的人物 ID 列表
         thread_ids: 限制关联的剧情线 ID 列表
         chapter_index: 限制关联章节索引
+        scene_id: 限制关联 Scene ID
+        strict_scene_filter: 是否严格按 Scene 过滤，排除未标注 Scene 的片段
         top_k: 返回的最大结果数（最小为 1）
 
     Returns:
@@ -206,6 +210,8 @@ async def retrieve(
         character_ids=character_ids,
         thread_ids=thread_ids,
         chapter_index=chapter_index,
+        scene_id=scene_id,
+        strict_scene_filter=strict_scene_filter,
         visibility=visibility,
         mode=mode,
         top_k=top_k,

@@ -252,7 +252,6 @@ const topbarHelpTexts = {
   world: "管理小说中的人物、地点、物品等长期创作资产。",
   writing: "按章节撰写正文。支持暂存、发布、版本管理。",
   rag: "测试向量检索，验证知识库召回效果。",
-  context: "根据当前世界状态编译 LLM 上下文。",
 }
 
 function updateTopbarHelpForView(viewName) {

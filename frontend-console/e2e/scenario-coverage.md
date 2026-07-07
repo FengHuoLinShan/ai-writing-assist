@@ -45,7 +45,7 @@
 | `rag.spec.js` | A1 | 索引状态页面、搜索子标签、搜索空结果、真实 RAG chunk UI 召回、embedding 降级元数据与 warning、重建索引按钮；5/5 通过 |
 | `context.spec.js` | A2 | 上下文编译页面加载、未选择项目警告、编译并显示结果、角色揭示模式视角人物校验与提交契约；5/5 通过 |
 | `rag-context-chaos.spec.js` | A1/A2 | 🧭 Placeholder metadata only；不计入 RAG/Context 产品覆盖 |
-| `generate.spec.js` | — | 生成中心页面加载、选择生成类型、提交生成任务、未填写意图警告；未纳入本次运行 |
+| `generate.spec.js` | — | 生成中心页面加载、自由聊天不写库、粘贴外部对话生成草稿、模板库创建模板、未填写意图警告；通过 `make generate-e2e` 或 `cd frontend-console && BACKEND_PORT=18000 FRONTEND_PORT=18080 npx playwright test e2e/generate.spec.js` 运行 |
 
 ## 覆盖状态详细说明
 

@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 
 import "../app.js"
 import "../ui/modal.js"
-import contextView from "../views/contextView.js"
+import generateView from "../views/generateView.js"
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -51,10 +51,10 @@ describe("command suggestions", () => {
 describe("context compile result", () => {
   it("renders AI bundle data without injecting HTML", () => {
     const output = document.createElement("div")
-    output.id = "ctx-output"
+    output.id = "gen-task-output"
     document.body.append(output)
 
-    contextView._renderCompileResult({
+    output.innerHTML = generateView._renderCompileResult({
       total_tokens: 100,
       budget_tokens: 1000,
       scope: "<script>alert('scope')</script>",
@@ -76,17 +76,18 @@ describe("context compile result", () => {
 
 describe("context markdown output", () => {
   it("renders markdown as text not HTML", async () => {
+    state.currentProjectId = "p1"
     const output = document.createElement("div")
-    output.id = "ctx-output"
+    output.id = "gen-task-output"
     document.body.append(output)
 
-    contextView._lastBundle = { section_count: 1 }
+    generateView._lastContextRequestParams = { novel_id: "p1", task: "test", scope: "arc" }
     const originalRender = api.context.render
     api.context.render = vi.fn().mockResolvedValue({
       markdown: "<script>alert(1)</script>",
     })
 
-    await contextView.renderMarkdown()
+    await generateView._renderTaskMarkdown()
 
     expect(output.querySelector("script")).toBeNull()
     expect(output.textContent).toContain("<script>alert(1)</script>")

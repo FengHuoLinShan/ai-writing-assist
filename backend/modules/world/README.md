@@ -298,6 +298,15 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 | POST | `/api/world/entities` | 创建世界对象 |
 | POST | `/api/world/object-draft-chat` | 生成中心自由共创聊天；不写库 |
 | POST | `/api/world/object-drafts/generate` | 将生成中心聊天/粘贴内容收束为世界对象草稿 |
+| GET | `/api/world/generation-prompt-templates` | 生成中心 Prompt 模板列表（含内置模板） |
+| POST | `/api/world/generation-prompt-templates` | 创建用户自定义 Prompt 模板 |
+| POST | `/api/world/generation-prompt-templates/validate` | 校验模板变量、危险指令和输出契约 |
+| POST | `/api/world/generation-prompt-templates/preview` | 预览模板渲染结果；不调用 LLM、不写库 |
+| GET | `/api/world/generation-prompt-templates/{template_id}` | 模板详情 |
+| PUT | `/api/world/generation-prompt-templates/{template_id}` | 更新模板并生成版本记录 |
+| DELETE | `/api/world/generation-prompt-templates/{template_id}` | 软归档用户模板 |
+| GET | `/api/world/generation-prompt-templates/{template_id}/revisions` | 模板版本历史 |
+| POST | `/api/world/generation-prompt-templates/{template_id}/copy` | 复制内置模板为用户模板 |
 | POST | `/api/world/entities/extract` | 手动世界对象补抽；必须携带 `context_confirmation_id` |
 | GET | `/api/world/entities/{entity_id}` | 对象详情 |
 | PUT | `/api/world/entities/{entity_id}` | 更新对象 |
@@ -332,6 +341,24 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 - 生成中心 Chatbox 的自由聊天不创建确认记录，也不写库；只有
   `POST /api/world/object-drafts/generate` 会创建 `status="draft"` 的
   `core_entities` 草稿，正史提升仍走显式用户确认。
+- 生成中心 Prompt 模板按 `novel_id` 隔离；内置模板是只读虚拟模板，自定义模板支持
+  `version_number`、内容 hash 和 revision 历史。使用 `template_id` 生成时会在 LLM
+  调用前做 P1 阻断校验，并把模板版本/hash 写入草稿 `_meta`，用于提示模板漂移。
+- 模板 `validate` / `preview` 不调用 LLM、不写世界对象；preview 只回显模板片段，
+  长变量值会截断，避免完整正文或隐藏 prompt 泄漏。P1 会阻断保存和生成，P2/P3
+  仅提示。`template_version` 过期会返回 409
+  `template_version_conflict`，前端提示刷新或重新选择模板。
+- 软归档模板不会出现在默认列表中，也不能再按 id 读取、更新或用于生成；需要继续
+  编辑时应从内置模板或现有模板复制为新的自定义模板。
+
+生成中心前端 E2E 需要使用 `frontend-console/playwright.config.js`，不要从仓库根目录
+直接传 `frontend-console/e2e/generate.spec.js`。推荐命令：
+
+```bash
+make generate-e2e
+# 等价于：
+cd frontend-console && BACKEND_PORT=18000 FRONTEND_PORT=18080 npx playwright test e2e/generate.spec.js
+```
 
 | 方法 | 路径 | 用途 |
 |------|------|------|

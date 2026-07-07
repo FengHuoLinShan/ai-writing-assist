@@ -150,6 +150,14 @@ class RagQuery(BaseModel):
         ge=1,
         description="限制关联章节索引",
     )
+    scene_id: str | None = Field(
+        None,
+        description="限制关联 Scene ID (UUID hex string)",
+    )
+    strict_scene_filter: bool = Field(
+        False,
+        description="是否严格按 Scene 过滤，排除未标注 Scene 的片段",
+    )
     visibility: str | None = Field(
         None,
         description="可见性过滤（author_only / reader_known / public，不传则不限制）",

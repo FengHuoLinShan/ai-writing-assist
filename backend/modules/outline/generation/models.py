@@ -107,7 +107,7 @@ class SimpleSupportedStructureItem(BaseModel):
 
 class SimplePlotThread(SimpleSupportedStructureItem):
     thread_type: str = "main"
-    status: str = "active"
+    current_stage: str = "active"
 
 
 class SimpleCharacterArc(SimpleSupportedStructureItem):

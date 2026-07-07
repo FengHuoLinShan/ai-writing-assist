@@ -21,7 +21,7 @@ class FakeLLM:
                         "title": "穿越与值夜者主线",
                         "summary": "克莱恩从苏醒到加入值夜者。",
                         "thread_type": "main",
-                        "status": "active",
+                        "current_stage": "active",
                         "supporting_scene_ids": ["scene-1", "missing"],
                     }
                 ],
@@ -106,6 +106,8 @@ async def test_deep_import_simple_structure_parser_converts_probe_shape() -> Non
     assert request.max_tokens == 12_288
     assert request.messages[1].content.startswith("【Scene卡片 JSON】")
     assert "## 世界对象" in request.messages[1].content
+    assert '"current_stage": "active|resolved|paused"' in request.messages[1].content
+    assert '"status": "active|resolved|paused"' not in request.messages[1].content
 
 
 @pytest.mark.asyncio

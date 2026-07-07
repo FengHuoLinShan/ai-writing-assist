@@ -34,6 +34,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     _restoreSourceVersion: null,
     _lastPublishStatus: null,
     _draftStatus: "draft",
+    _currentProvenanceJson: null,
 
     // 自动保存与光标防抖
     _autoSaveTimer: null,
@@ -118,6 +119,14 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
         editor._cursorDebounceTimer = setTimeout(updateCursorScene, 150)
       }
     }
+
+    container.querySelectorAll('[data-action="ack-pov-validation-risk"]').forEach((btn) => {
+      btn.addEventListener("click", () => {
+        btn.disabled = true
+        btn.textContent = "已确认风险"
+        toast("请人工复核该候选，确认无越权信息后再采用", "warning")
+      })
+    })
   }
 
   async function autosave() {
@@ -256,6 +265,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     if (patch.draftStatus !== undefined) editor._draftStatus = patch.draftStatus || "draft"
     if (patch.lastSavedContent !== undefined) editor._lastSavedContent = patch.lastSavedContent
     if (patch.chapter !== undefined) editor._currentChapter = patch.chapter
+    if (patch.provenanceJson !== undefined) editor._currentProvenanceJson = patch.provenanceJson || null
     _notifyWordcountUpdate()
     _updateSaveStatus()
   }
@@ -433,6 +443,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
         <textarea id="writing-editor" class="novel-editor ${focusMode ? "novel-editor--focus" : ""}"
           placeholder="在此书写正文..." ${editor._isReadonly ? "readonly" : ""}>${editor._currentContent ? esc(editor._currentContent) : ""}</textarea>
         ${_renderWordcountBar()}
+        ${_renderPovCandidatePanel()}
         <div id="ai-suggestion-panel" class="ai-suggestion-panel hidden" aria-live="polite"></div>
       `
     } else {
@@ -482,6 +493,126 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     `
   }
 
+  function _renderPovCandidatePanel() {
+    const provenance = editor._currentProvenanceJson || {}
+    const validation = provenance.pov_validation || null
+    const povView = provenance.pov_view || null
+    const isPov = provenance.generation_profile === "pov_character" || povView || validation
+    if (!isPov) return ""
+
+    const status = validation?.status || "not_applicable"
+    const statusMeta = _povValidationStatusMeta(status)
+    const fields = [
+      ["perception", "感知"],
+      ["interpretation", "判断 / 误解"],
+      ["inner_monologue", "内心"],
+      ["true_intention", "真实意图"],
+      ["action", "动作"],
+      ["expression", "神态"],
+      ["subtext", "潜台词"],
+      ["unsaid", "未说出口"],
+    ]
+    const fieldHtml = povView
+      ? fields
+        .filter(([key]) => povView[key])
+        .map(([key, label]) => `
+          <div style="min-width:180px;">
+            <div style="font-size:11px;color:var(--text-dim);margin-bottom:2px;">${esc(label)}</div>
+            <div style="font-size:12px;line-height:1.55;">${esc(povView[key])}</div>
+          </div>
+        `)
+        .join("")
+      : `<div style="font-size:12px;color:var(--warning);">结构化角色视角解析失败，已保留原始候选文本。</div>`
+    const dialogueHtml = _renderPovDialogueCandidates(povView?.dialogue_candidates)
+    const warnings = Array.isArray(validation?.warnings) ? validation.warnings : []
+    const findings = Array.isArray(validation?.findings) ? validation.findings : []
+    const findingsHtml = findings.length
+      ? `<ul style="margin:8px 0 0;padding-left:18px;font-size:12px;line-height:1.5;">
+          ${findings.slice(0, 5).map((item) => `
+            <li>
+              ${esc(item.field_path || item.rule || "pov_view")}：
+              ${esc(item.generated_excerpt || "疑似越权片段")}
+              <span style="color:var(--text-dim);">（${esc(item.source_label || "已过滤来源")}）</span>
+            </li>
+          `).join("")}
+        </ul>`
+      : ""
+    const warningsHtml = warnings.length
+      ? `<div style="margin-top:8px;color:var(--warning);font-size:12px;">${warnings.map((item) => esc(item)).join(" · ")}</div>`
+      : ""
+    const riskButton = status === "failed"
+      ? `<button class="btn btn-sm btn-danger" data-action="ack-pov-validation-risk" type="button">仍然采用</button>`
+      : ""
+
+    return `
+      <section class="pov-candidate-panel" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-top:8px;background:var(--panel);">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;">
+          <div>
+            <div style="font-weight:600;font-size:13px;">角色视角候选</div>
+            <div style="font-size:11px;color:var(--text-dim);">该结果仍是候选草稿，正史变更需人工确认。</div>
+          </div>
+          <span style="font-size:12px;color:${esc(statusMeta.color)};">${esc(statusMeta.label)}</span>
+        </div>
+        <div style="border-left:3px solid ${esc(statusMeta.color)};padding:8px 10px;background:var(--bg);font-size:12px;line-height:1.5;">
+          ${esc(statusMeta.message)}
+          ${riskButton}
+          ${findingsHtml}
+          ${warningsHtml}
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:10px;">
+          ${fieldHtml}
+        </div>
+        ${dialogueHtml}
+      </section>
+    `
+  }
+
+  function _renderPovDialogueCandidates(candidates) {
+    if (!Array.isArray(candidates) || candidates.length === 0) return ""
+    return `
+      <div style="margin-top:10px;">
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">台词候选</div>
+        <div style="display:grid;gap:6px;">
+          ${candidates.slice(0, 4).map((item) => `
+            <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 8px;font-size:12px;">
+              <div>${esc(item?.line || item || "")}</div>
+              ${item?.tone || item?.subtext ? `<div style="color:var(--text-dim);margin-top:2px;">${esc([item.tone, item.subtext].filter(Boolean).join(" · "))}</div>` : ""}
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    `
+  }
+
+  function _povValidationStatusMeta(status) {
+    if (status === "failed") {
+      return {
+        color: "var(--danger, #ef4444)",
+        label: "高风险",
+        message: "该候选可能使用了 POV 角色当前不知道的信息。不会自动插入正文；采用前必须人工复核。",
+      }
+    }
+    if (status === "warning") {
+      return {
+        color: "var(--warning, #f59e0b)",
+        label: "有警告",
+        message: "该候选存在角色视角风险提示，采用前建议复核。",
+      }
+    }
+    if (status === "passed") {
+      return {
+        color: "var(--success, #22c55e)",
+        label: "未发现明显越权",
+        message: "deterministic 检查未发现明显越权；这不代表绝对无泄漏。",
+      }
+    }
+    return {
+      color: "var(--text-dim)",
+      label: "未检查",
+      message: "该候选没有可用的角色视角诊断结果。",
+    }
+  }
+
   // ============================================================
   // 加载与保存
   // ============================================================
@@ -496,6 +627,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     editor._isReadonly = false
     editor._restoreSourceVersion = null
     editor._lastPublishStatus = null
+    editor._currentProvenanceJson = null
 
     try {
       const history = await api.writing.getVersionHistory(chapterIndex, state.currentProjectId)
@@ -540,6 +672,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     editor._restoreSourceVersion = options.restoreSourceVersion || null
     editor._draftStatus = draftData.status || "draft"
     editor._lastPublishStatus = draftData.status === "published" ? "发布成功" : null
+    editor._currentProvenanceJson = draftData.provenance_json || null
   }
 
   async function _maybeRestoreBackup(chapterIndex) {

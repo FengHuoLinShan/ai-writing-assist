@@ -26,13 +26,30 @@
 | `extract_chapter_scene.md` | 从正文提取章节卡信息 | 写作/大纲辅助 |
 | `extract_character.md` | 从正文片段提取人物档案字段 | 人物信息补全 |
 
-## 3. 历史 Prompt
+## 3. Prompt Contract System
+
+深度导入链路和生成中心世界对象草稿链路使用 `backend/tools/prompt_contracts/` 做开发期漂移检查，覆盖
+Phase 1a Scene slicing、Phase 1b Scene enrichment、Phase 2 world extraction、
+Phase 2b alias/relation、Phase 3 simple structure，以及 Generation Center
+world object draft（`generation_center_world_object_draft`）。检查入口是
+`make prompt-contracts` 或 `cd backend && python -m tools.prompt_contracts check`。
+
+Contract 使用 JSON 声明 prompt 字段、Pydantic schema、关键持久化映射、目标表列和
+纯函数 probe。它不执行真实 LLM、不访问数据库、不扫描全仓库，也不允许任意 callable、
+shell、表达式或动态代码执行。默认只有 P0/P1 阻断；文档漂移先作为 P2 记录。
+
+生成中心的用户自定义模板另有运行时 validator：保存、预览和生成前校验
+`{{variable_name}}` 占位符、必填变量、模板长度、对象类型和危险指令。运行时 validator
+只渲染模板片段，不暴露完整正文、隐藏系统提示、API key 或 raw LLM payload；真正的
+结构化输出契约仍由后端固定 scaffold 和 Pydantic schema 控制。
+
+## 4. 历史 Prompt
 
 | 文件 | 状态 | 说明 |
 |------|------|------|
 | `structure_review_memory.md` | 已废弃 | `review` 模块已移除，保留文件仅作历史参考 |
 
-## 4. 当前设计约束
+## 5. 当前设计约束
 
 ### 结构生成类
 
@@ -71,7 +88,7 @@
 中按阶段组装，并通过 adapter、token budget 和 schema guard 输出中间候选或融合候选。
 `scene_segmentation.md` 仍用于正式 Scene 字段切分、小样本检测和单章恢复等受控路径。
 
-## 5. `shared_rules.md` 的权威地位
+## 6. `shared_rules.md` 的权威地位
 
 共享规则要求：
 

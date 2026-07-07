@@ -125,6 +125,134 @@ describe("aiReferenceModal", () => {
     expect(document.getElementById("ai-ref-summary")?.textContent).toContain("范围较大")
   })
 
+  it("character reveal 的 POV 字段在重新整理和确认使用时都不会丢失", async () => {
+    api.context.confirm.mockResolvedValue({
+      id: "confirm-pov",
+      context_mode: "canonical",
+      include_pending_objects: true,
+      scope: "chapter",
+      selected_asset_ids: {},
+      warnings: [],
+    })
+
+    const promise = confirmAiReference({
+      novel_id: "p1",
+      action: "writing.generate",
+      task: "基于当前 Scene 的 POV 角色有限认知，生成正文候选草稿",
+      scope: "chapter",
+      chapter_index: 2,
+      scene_id: "scene-1",
+      reveal_mode: "character",
+      viewpoint_character_id: "char-1",
+      character_ids: ["char-1"],
+      include_pending_objects: true,
+      excluded_asset_ids: { manual: ["asset-1"] },
+    })
+
+    document.querySelector("#modal-footer button")?.click()
+    await Promise.resolve()
+    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(api.context.confirm).toHaveBeenLastCalledWith(expect.objectContaining({
+      novel_id: "p1",
+      action: "writing.generate",
+      chapter_index: 2,
+      scene_id: "scene-1",
+      reveal_mode: "character",
+      viewpoint_character_id: "char-1",
+      character_ids: ["char-1"],
+      include_pending_objects: true,
+      excluded_asset_ids: { manual: ["asset-1"] },
+    }))
+
+    document.querySelectorAll("#modal-footer button")[1].click()
+    await promise
+
+    expect(api.context.confirm).toHaveBeenLastCalledWith(expect.objectContaining({
+      scene_id: "scene-1",
+      reveal_mode: "character",
+      viewpoint_character_id: "char-1",
+      character_ids: ["char-1"],
+      include_pending_objects: true,
+    }))
+  })
+
+  it("显示 character reveal 新 section，且锁定 section 不提供本次排除", async () => {
+    api.context.confirm.mockResolvedValue({
+      id: "confirm-pov",
+      context_mode: "canonical",
+      include_pending_objects: true,
+      scope: "chapter",
+      selected_asset_ids: {
+        context_sections: [
+          "role_profile",
+          "role_visible_knowledge",
+          "scene_director_constraints",
+        ],
+      },
+      sections: [
+        {
+          key: "role_profile",
+          title: "POV 角色档案",
+          status: "canonical",
+          token_count: 10,
+          activation_reason: "character reveal 的视角人物资料",
+          preview: "秦岚 / 调查员",
+          can_exclude: false,
+          sources: [{ type: "character", id: "char-1", label: "秦岚", status: "canonical" }],
+        },
+        {
+          key: "role_visible_knowledge",
+          title: "角色可见知识",
+          status: "canonical",
+          token_count: 20,
+          activation_reason: "CharacterKnowledge 与默认可见性规则过滤后",
+          preview: "公开信息：警报响起",
+          can_exclude: true,
+          sources: [{ type: "entity", id: "e1", label: "主控室", status: "canonical" }],
+        },
+        {
+          key: "scene_director_constraints",
+          title: "Scene 导演约束",
+          status: "director_only",
+          token_count: 15,
+          activation_reason: "作者约束",
+          preview: "DIRECTOR_ONLY",
+          can_exclude: false,
+          sources: [{ type: "scene", id: "scene-1", label: "主控室警报", status: "director_only" }],
+        },
+      ],
+      warnings: [],
+    })
+
+    confirmAiReference({
+      novel_id: "p1",
+      action: "writing.generate",
+      task: "基于当前 Scene 的 POV 角色有限认知，生成正文候选草稿",
+      scope: "chapter",
+      scene_id: "scene-1",
+      reveal_mode: "character",
+      viewpoint_character_id: "char-1",
+    }).catch(() => {})
+
+    document.querySelector("#modal-footer button")?.click()
+    await Promise.resolve()
+    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const summary = document.getElementById("ai-ref-summary")
+    expect(summary?.textContent).toContain("POV 角色档案")
+    expect(summary?.textContent).toContain("角色可见知识")
+    expect(summary?.textContent).toContain("Scene 导演约束")
+    expect(summary?.textContent).not.toContain("pov_knowledge")
+    expect(summary?.textContent).not.toContain("scene_blueprint")
+    expect(summary?.textContent).not.toContain("hidden truth")
+    expect(document.querySelector('[data-ai-ref-exclude-section="role_profile"]')).toBeNull()
+    expect(document.querySelector('[data-ai-ref-exclude-section="scene_director_constraints"]')).toBeNull()
+    expect(document.querySelector('[data-ai-ref-exclude-section="role_visible_knowledge"]')).not.toBeNull()
+  })
+
   it("点击 section 本次排除后重新整理并提交 context_sections 排除项", async () => {
     api.context.confirm
       .mockResolvedValueOnce({

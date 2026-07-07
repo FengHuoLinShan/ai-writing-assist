@@ -196,3 +196,93 @@ async def test_generate_object_draft_rejects_other_project_chapter(
 
     assert resp.status_code in {400, 422}, resp.text
     assert fake.models == []
+
+
+@pytest.mark.asyncio
+async def test_generate_object_draft_with_builtin_template_id(
+    async_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _FakeLLMClient()
+    monkeypatch.setattr(
+        "modules.world.services.object_draft_generation_service."
+        "LLMClient.from_project_settings",
+        lambda _settings: fake,
+    )
+    project_resp = await async_client.post("/api/projects", json={"title": "模板ID生成"})
+    assert project_resp.status_code == 201
+    novel_id = project_resp.json()["id"]
+
+    resp = await async_client.post(
+        "/api/world/object-drafts/generate",
+        json={
+            "novel_id": novel_id,
+            "template_id": "builtin:character",
+            "template_version": 1,
+            "messages": [{"role": "user", "content": "用人物模板生成"}],
+            "quality_mode": "fast",
+        },
+    )
+
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    entity = body["entity"]
+    assert entity["entity_type"] == "character"
+    meta = entity["content_json"]["_meta"]
+    assert meta["template"] == "character"
+    assert meta["template_id"] == "builtin:character"
+    assert meta["template_version"] == 1
+    assert meta["template_name"] == "人物"
+    assert "聚焦人物卡" in fake.requests[0].messages[1].content
+
+
+@pytest.mark.asyncio
+async def test_generate_object_draft_rejects_archived_template_id(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _FakeLLMClient()
+    monkeypatch.setattr(
+        "modules.world.services.object_draft_generation_service."
+        "LLMClient.from_project_settings",
+        lambda _settings: fake,
+    )
+    project_resp = await async_client.post(
+        "/api/projects",
+        json={"title": "归档模板测试"},
+    )
+    assert project_resp.status_code == 201
+    novel_id = project_resp.json()["id"]
+
+    template_resp = await async_client.post(
+        "/api/world/generation-prompt-templates",
+        json={
+            "novel_id": novel_id,
+            "name": "临时模板",
+            "object_template": "custom",
+            "prompt_text": "临时提示词",
+        },
+    )
+    assert template_resp.status_code == 201
+    template = template_resp.json()
+
+    archive_resp = await async_client.delete(
+        f"/api/world/generation-prompt-templates/{template['id']}",
+        params={"novel_id": novel_id},
+    )
+    assert archive_resp.status_code == 204
+
+    resp = await async_client.post(
+        "/api/world/object-drafts/generate",
+        json={
+            "novel_id": novel_id,
+            "template_id": template["id"],
+            "template_version": template["version_number"],
+            "messages": [{"role": "user", "content": "用已归档模板生成"}],
+            "quality_mode": "fast",
+        },
+    )
+
+    assert resp.status_code == 404, resp.text
+    assert fake.requests == []

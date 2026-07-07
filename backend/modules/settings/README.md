@@ -30,7 +30,7 @@
 |--------|------|
 | `project` | 项目字段有值（覆盖） |
 | `global` | 项目 NULL，全局有值（继承） |
-| `system` | 项目与全局都 NULL，回退代码内置默认 |
+| `system` | 项目与全局都 NULL，回退代码内置默认（官方 DeepSeek） |
 | `unset` | 项目与全局都 NULL，且无内置默认（如 Key、`daily_goal` 空时） |
 
 `api_key_configured` 永远只返回 bool 不返回明文；`source` 永远 `project` 或 `unset`（Key 永远项目独有，不参与继承）。

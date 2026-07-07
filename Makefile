@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-v lint lint-fix format format-fix help db migrate doctor doctor-json doctor-llm
+.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-v lint lint-fix format format-fix prompt-contracts prompt-contracts-json generate-e2e help db migrate doctor doctor-json doctor-llm
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BACKEND_DIR := $(ROOT_DIR)backend
@@ -47,6 +47,15 @@ format:  ## Check formatting
 
 format-fix:  ## Auto-format
 	cd $(BACKEND_DIR) && ruff format .
+
+prompt-contracts:  ## Check prompt contracts
+	cd $(BACKEND_DIR) && python -m tools.prompt_contracts check
+
+prompt-contracts-json:  ## Check prompt contracts with stable JSON output
+	cd $(BACKEND_DIR) && python -m tools.prompt_contracts check --json
+
+generate-e2e:  ## Run Generation Center Playwright E2E from frontend project config
+	cd $(FRONTEND_DIR) && BACKEND_PORT=18000 FRONTEND_PORT=18080 npx playwright test e2e/generate.spec.js
 
 # ─── Utilities ──────────────────────────────────────
 

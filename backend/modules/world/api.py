@@ -50,6 +50,11 @@ from modules.world.schemas import (
     EventListResponse,
     EventResponse,
     EventUpdate,
+    GenerationPromptTemplateCreate,
+    GenerationPromptTemplateListResponse,
+    GenerationPromptTemplateResponse,
+    GenerationPromptTemplateRevisionResponse,
+    GenerationPromptTemplateUpdate,
     KnowledgeTagExclusionRequest,
     KnowledgeTagExclusionResponse,
     ObjectDraftChatRequest,
@@ -57,6 +62,11 @@ from modules.world.schemas import (
     ObjectDraftGenerateRequest,
     ObjectDraftGenerateResponse,
     ProjectionRefreshResponse,
+    PromptTemplateCopyRequest,
+    PromptTemplatePreviewRequest,
+    PromptTemplatePreviewResponse,
+    PromptTemplateValidateRequest,
+    PromptTemplateValidateResponse,
     SuggestionDecisionResponse,
     TextArchiveSeedRequest,
     TextArchiveSeedResponse,
@@ -84,6 +94,10 @@ from modules.world.services import (
     WorldEntityService,
 )
 from modules.world.services.dedup_service import EntityDedupService
+from modules.world.services.generation_prompt_template_service import (
+    GenerationPromptTemplateService,
+    TemplateVersionConflictError,
+)
 from modules.world.services.object_draft_generation_service import (
     ObjectDraftGenerationService,
 )
@@ -116,6 +130,18 @@ _suggestion_service = SuggestionQueueService()
 _conflict_queue_service = ConflictQueueService()
 _knowledge_tag_service = KnowledgeTagService()
 _object_draft_service = ObjectDraftGenerationService()
+_generation_template_service = GenerationPromptTemplateService()
+
+
+def _template_version_conflict(exc: TemplateVersionConflictError) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "status": "template_version_conflict",
+            "expected_version": exc.expected,
+            "actual_version": exc.actual,
+        },
+    )
 
 
 # ============================================================
@@ -129,7 +155,10 @@ async def chat_object_draft(
     data: ObjectDraftChatRequest,
 ) -> ObjectDraftChatResponse:
     """自由共创聊天；不创建数据库对象。"""
-    return await _object_draft_service.chat(db, data)
+    try:
+        return await _object_draft_service.chat(db, data)
+    except TemplateVersionConflictError as exc:
+        raise _template_version_conflict(exc) from exc
 
 
 @router.post(
@@ -142,7 +171,126 @@ async def generate_object_draft(
     data: ObjectDraftGenerateRequest,
 ) -> ObjectDraftGenerateResponse:
     """将 Chatbox 上下文收束为 world object 数据库草稿。"""
-    return await _object_draft_service.generate(db, data)
+    try:
+        return await _object_draft_service.generate(db, data)
+    except TemplateVersionConflictError as exc:
+        raise _template_version_conflict(exc) from exc
+
+
+@router.get(
+    "/generation-prompt-templates",
+    response_model=GenerationPromptTemplateListResponse,
+)
+async def list_generation_prompt_templates(
+    db: DbSession,
+    novel_id: str = Query(..., description="项目 ID"),
+    target_kind: str = Query(default="world_object"),
+    include_archived: bool = Query(default=False),
+) -> GenerationPromptTemplateListResponse:
+    return await _generation_template_service.list(
+        db,
+        novel_id,
+        target_kind=target_kind,
+        include_archived=include_archived,
+    )
+
+
+@router.post(
+    "/generation-prompt-templates",
+    response_model=GenerationPromptTemplateResponse,
+    status_code=201,
+)
+async def create_generation_prompt_template(
+    db: DbSession,
+    data: GenerationPromptTemplateCreate,
+) -> GenerationPromptTemplateResponse:
+    return await _generation_template_service.create(db, data)
+
+
+@router.post(
+    "/generation-prompt-templates/validate",
+    response_model=PromptTemplateValidateResponse,
+)
+async def validate_generation_prompt_template(
+    data: PromptTemplateValidateRequest,
+) -> PromptTemplateValidateResponse:
+    return _generation_template_service.validate(data)
+
+
+@router.post(
+    "/generation-prompt-templates/preview",
+    response_model=PromptTemplatePreviewResponse,
+)
+async def preview_generation_prompt_template(
+    db: DbSession,
+    data: PromptTemplatePreviewRequest,
+) -> PromptTemplatePreviewResponse:
+    try:
+        return await _generation_template_service.preview(db, data)
+    except TemplateVersionConflictError as exc:
+        raise _template_version_conflict(exc) from exc
+
+
+@router.get(
+    "/generation-prompt-templates/{template_id}",
+    response_model=GenerationPromptTemplateResponse,
+)
+async def get_generation_prompt_template(
+    db: DbSession,
+    template_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> GenerationPromptTemplateResponse:
+    return await _generation_template_service.get(db, novel_id, template_id)
+
+
+@router.put(
+    "/generation-prompt-templates/{template_id}",
+    response_model=GenerationPromptTemplateResponse,
+)
+async def update_generation_prompt_template(
+    db: DbSession,
+    template_id: str,
+    data: GenerationPromptTemplateUpdate,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> GenerationPromptTemplateResponse:
+    try:
+        return await _generation_template_service.update(db, novel_id, template_id, data)
+    except TemplateVersionConflictError as exc:
+        raise _template_version_conflict(exc) from exc
+
+
+@router.delete("/generation-prompt-templates/{template_id}", status_code=204)
+async def archive_generation_prompt_template(
+    db: DbSession,
+    template_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> None:
+    await _generation_template_service.archive(db, novel_id, template_id)
+
+
+@router.get(
+    "/generation-prompt-templates/{template_id}/revisions",
+    response_model=list[GenerationPromptTemplateRevisionResponse],
+)
+async def list_generation_prompt_template_revisions(
+    db: DbSession,
+    template_id: str,
+    novel_id: str = Query(..., description="项目 ID"),
+) -> list[GenerationPromptTemplateRevisionResponse]:
+    return await _generation_template_service.revisions(db, novel_id, template_id)
+
+
+@router.post(
+    "/generation-prompt-templates/{template_id}/copy",
+    response_model=GenerationPromptTemplateResponse,
+    status_code=201,
+)
+async def copy_builtin_generation_prompt_template(
+    db: DbSession,
+    template_id: str,
+    data: PromptTemplateCopyRequest,
+) -> GenerationPromptTemplateResponse:
+    return await _generation_template_service.copy_builtin(db, template_id, data)
 
 
 # ============================================================

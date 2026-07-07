@@ -25,6 +25,15 @@ from modules.writing.conflict_ai import (
 )
 from modules.writing.conflict_evidence import evidence_location
 from modules.writing.contracts import WritingDraftContract, WritingProjectStatsContract
+from modules.writing.pov_generation import (
+    POV_PROMPT_NAME,
+    CharacterRevealGuard,
+    GenerationProfile,
+    GenerationProfileResolver,
+    PovGenerationParser,
+    build_pov_generation_prompt,
+    prompt_hash,
+)
 from modules.writing.repositories import (
     WritingConflictCheckRepository,
     WritingDraftRepository,
@@ -906,6 +915,9 @@ class WritingGenerationService:
     ) -> None:
         self._repo = repo or WritingDraftRepository()
         self._llm = llm_client or LLMClient()
+        self._profile_resolver = GenerationProfileResolver()
+        self._pov_parser = PovGenerationParser()
+        self._pov_guard = CharacterRevealGuard()
 
     async def generate_candidate(
         self,
@@ -918,7 +930,10 @@ class WritingGenerationService:
         context_confirmation_id: str,
         source_task_id: str | None = None,
     ) -> WritingDraftResponse:
-        from modules.context.facade import prepare_confirmed_ai_action
+        from modules.context.facade import (
+            build_hidden_guard_context,
+            prepare_confirmed_ai_action,
+        )
 
         confirmed_context = await prepare_confirmed_ai_action(
             db,
@@ -926,42 +941,101 @@ class WritingGenerationService:
             action="writing.generate",
             confirmation_id=context_confirmation_id,
         )
-        prompt = _build_writing_generation_prompt(
-            chapter_index=chapter_index,
-            instruction=instruction,
-            context_markdown=confirmed_context.rendered_markdown,
-        )
+        profile = self._profile_resolver.resolve(confirmed_context)
+        is_pov = profile.profile == GenerationProfile.POV_CHARACTER
+        if is_pov:
+            prompt = build_pov_generation_prompt(
+                chapter_index=chapter_index,
+                instruction=instruction,
+                context_markdown=confirmed_context.rendered_markdown,
+            )
+            system_prompt = (
+                "你是小说角色视角生成助手。必须输出合法 JSON object，"
+                "不要添加解释、标题栏或 Markdown 围栏。"
+            )
+            response_format = {"type": "json_object"}
+        else:
+            prompt = _build_writing_generation_prompt(
+                chapter_index=chapter_index,
+                instruction=instruction,
+                context_markdown=confirmed_context.rendered_markdown,
+            )
+            system_prompt = (
+                "你是小说正文生成助手。输出正文候选稿本身，"
+                "不要添加解释、标题栏或 Markdown 围栏。"
+            )
+            response_format = None
+
         response = await self._llm.generate(
             LLMCallRequest(
                 model=getattr(self._llm, "model_name", "gpt-4o"),
                 messages=[
                     LLMMessage(
                         role="system",
-                        content=(
-                            "你是小说正文生成助手。输出正文候选稿本身，"
-                            "不要添加解释、标题栏或 Markdown 围栏。"
-                        ),
+                        content=system_prompt,
                     ),
                     LLMMessage(role="user", content=prompt),
                 ],
                 temperature=0.7,
                 max_tokens=4096,
+                response_format=response_format,
             )
         )
+        model_name = response.model or getattr(
+            self._llm,
+            "model_name",
+            "gpt-4o",
+        )
+
+        pov_view = None
+        pov_validation = {"status": "not_applicable", "findings": [], "warnings": []}
+        content = response.content.strip()
+        generation_profile = "default"
+        prompt_name = "writing_default"
+        parse_warnings: list[str] = []
+
+        if is_pov:
+            generation_profile = "pov_character"
+            prompt_name = POV_PROMPT_NAME
+            parsed = self._pov_parser.parse(response.content)
+            content = parsed.content
+            pov_view = parsed.pov_view
+            parse_warnings = parsed.warnings
+            guard_terms = await build_hidden_guard_context(
+                db,
+                confirmed_context=confirmed_context,
+            )
+            pov_validation = self._pov_guard.validate(
+                pov_view=pov_view,
+                draft_prose=content,
+                guard_terms=guard_terms,
+                warnings=parse_warnings,
+            )
+
+        provenance = {
+            "source": "writing_generate",
+            "source_confirmation_id": context_confirmation_id,
+            "source_task_id": source_task_id,
+            "context_action": "writing.generate",
+            "context_result_refs": confirmed_context.result_refs,
+            "generation_profile": generation_profile,
+            "context_confirmation_id": context_confirmation_id,
+            "scene_id": profile.scene_id,
+            "viewpoint_character_id": profile.viewpoint_character_id,
+            "prompt_name": prompt_name,
+            "prompt_hash": prompt_hash(prompt),
+            "model": model_name,
+            "pov_view": pov_view,
+            "pov_validation": pov_validation,
+        }
         draft = await self._repo.create_with_status(
             db,
             WritingDraftCreate(
                 novel_id=novel_id,
                 chapter_index=chapter_index,
                 title=title or f"第{chapter_index}章 AI 候选",
-                content=response.content.strip(),
-                provenance_json={
-                    "source": "writing_generate",
-                    "source_confirmation_id": context_confirmation_id,
-                    "source_task_id": source_task_id,
-                    "context_action": "writing.generate",
-                    "context_result_refs": confirmed_context.result_refs,
-                },
+                content=content,
+                provenance_json=provenance,
             ),
             status="candidate",
         )
