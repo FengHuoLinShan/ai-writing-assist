@@ -833,6 +833,41 @@ const api = {
   // 生成中心
   // ============================================================
   generate: {
+    async listPromptTemplates(novelId, options = {}) {
+      return request(withQuery("/world/generation-prompt-templates", {
+        novel_id: novelId,
+        include_archived: options.include_archived || false,
+      }))
+    },
+
+    async createPromptTemplate(payload) {
+      return post("/world/generation-prompt-templates", payload)
+    },
+
+    async updatePromptTemplate(templateId, novelId, payload) {
+      return put(withQuery(`/world/generation-prompt-templates/${templateId}`, { novel_id: novelId }), payload)
+    },
+
+    async archivePromptTemplate(templateId, novelId) {
+      return deleteRequest(withQuery(`/world/generation-prompt-templates/${templateId}`, { novel_id: novelId }))
+    },
+
+    async copyPromptTemplate(templateId, payload) {
+      return post(`/world/generation-prompt-templates/${templateId}/copy`, payload)
+    },
+
+    async listPromptTemplateRevisions(templateId, novelId) {
+      return request(withQuery(`/world/generation-prompt-templates/${templateId}/revisions`, { novel_id: novelId }))
+    },
+
+    async validatePromptTemplate(payload) {
+      return post("/world/generation-prompt-templates/validate", payload)
+    },
+
+    async previewPromptTemplate(payload) {
+      return post("/world/generation-prompt-templates/preview", payload)
+    },
+
     async objectDraftChat(payload, options = {}) {
       return post("/world/object-draft-chat", payload, { timeout: LLM_GENERATE_TIMEOUT, ...options })
     },
@@ -1077,6 +1112,44 @@ const api = {
   // 底层请求入口（测试用，业务代码优先使用领域方法）
   request,
 }
+
+// Settings API — 全局默认 + 项目覆盖 + effective 视图（D1-D25 见 spec）
+const settingsApi = {
+  // 全局 LLM 默认（不含 Key）
+  listGlobalLLMDefaults: () => request("/settings/llm-defaults"),
+  updateGlobalLLMDefaults: (payload) => put("/settings/llm-defaults", payload),
+
+  // 全局作者偏好
+  listGlobalAuthorPrefs: () => request("/settings/author-preferences"),
+  updateGlobalAuthorPrefs: (payload) => put("/settings/author-preferences", payload),
+
+  // 引用此默认的项目聚合（D18/D19）
+  listProjectsUsingDefaults: (params = {}) =>
+    request(withQuery("/settings/projects-using-defaults", params)),
+
+  // 调试端点：通知客户端刷新（D16）
+  refreshSettings: () => post("/settings/refresh"),
+
+  // 项目级作者偏好覆盖
+  getProjectAuthorPrefs: (projectId) =>
+    request(`/settings/projects/${projectId}/author-preferences`),
+  updateProjectAuthorPrefs: (projectId, payload) =>
+    put(`/settings/projects/${projectId}/author-preferences`, payload),
+  resetProjectAuthorPrefsField: (projectId, field) =>
+    deleteRequest(`/settings/projects/${projectId}/author-preferences/field/${field}`),
+
+  // 项目 effective 视图（含 source 标签）
+  getEffectiveLLMSettings: (projectId) =>
+    request(`/projects/${projectId}/effective-llm-settings`),
+  getEffectiveAuthorPrefs: (projectId) =>
+    request(`/projects/${projectId}/effective-author-preferences`),
+
+  // 项目 LLM 字段级 reset
+  resetLLMSettingsField: (projectId, field) =>
+    deleteRequest(`/projects/${projectId}/llm-settings/field/${field}`),
+}
+
+api.settings = settingsApi
 
 // 导出到全局
 window.api = api
