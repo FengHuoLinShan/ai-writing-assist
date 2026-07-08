@@ -8,6 +8,10 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import NotFoundError, ValidationError
+from infrastructure.llm.agent_step_harness import (
+    run_managed_generate,
+    run_managed_structured,
+)
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.project.facade import get_project_context
@@ -64,13 +68,15 @@ class ObjectDraftGenerationService:
         )
         template = await self._resolve_template(db, data)
         client = self._client(project.settings)
-        response = await client.generate(
+        response = await run_managed_generate(
+            client,
             LLMCallRequest(
                 model=self._model_for(data.quality_mode),
                 messages=self._chat_messages(data, chapters, template),
                 temperature=0.8,
                 max_tokens=2048,
-            )
+            ),
+            step_name="world.object_draft.chat.generate",
         )
         return ObjectDraftChatResponse(
             reply=response.content.strip(),
@@ -94,7 +100,8 @@ class ObjectDraftGenerationService:
         )
         template = await self._resolve_template(db, data)
         client = self._client(project.settings)
-        response = await client.generate_structured(
+        response = await run_managed_structured(
+            client,
             LLMCallRequest(
                 model=self._model_for(data.quality_mode),
                 messages=self._structured_messages(data, chapters, template),
@@ -102,6 +109,7 @@ class ObjectDraftGenerationService:
                 max_tokens=4096,
             ),
             GeneratedObjectDraftOutput,
+            step_name="world.object_draft.generate.structured",
             max_fix_attempts=2,
         )
 

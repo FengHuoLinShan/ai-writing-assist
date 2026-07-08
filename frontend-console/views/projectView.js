@@ -473,18 +473,36 @@ const projectView = {
         document.getElementById("recycle-bulk-restore")?.addEventListener("click", async () => {
           const selected = selectedRecycleProjects()
           if (!selected.length) { toast("请先选择项目", "warning"); return }
-          const result = await runBulkAction(selected, async (project) => api.projects.restore(project.id))
-          toast(bulkResultMessage(result, "批量恢复项目", (item) => item.title || item.name || item.id), result.failed.length ? "warning" : "success")
-          router.refresh()
-          this.showRecycleBin()
+          try {
+            const result = await runBulkAction(selected, async (project) => api.projects.restore(project.id))
+            if (result.failed.length && result.success.length === 0) {
+              toast(`批量恢复失败：${result.failed[0]?.error?.message || "未知错误"}`, "error")
+            } else {
+              toast(bulkResultMessage(result, "批量恢复项目", (item) => item.title || item.name || item.id), result.failed.length ? "warning" : "success")
+            }
+            router.refresh()
+            this.showRecycleBin()
+          } catch (err) {
+            toast(`批量恢复失败：${err.message || "未知错误"}`, "error")
+          }
         })
         document.getElementById("recycle-bulk-delete")?.addEventListener("click", () => {
           const selected = selectedRecycleProjects()
           if (!selected.length) { toast("请先选择项目", "warning"); return }
           confirmAction(`确定永久删除选中的 ${selected.length} 个项目？此操作不可恢复。`, async () => {
-            const result = await runBulkAction(selected, async (project) => api.projects.permanentDelete(project.id))
-            toast(bulkResultMessage(result, "批量永久删除项目", (item) => item.title || item.name || item.id), result.failed.length ? "warning" : "success")
-            this.showRecycleBin()
+            try {
+              const result = await runBulkAction(selected, async (project) => api.projects.permanentDelete(project.id))
+              if (result.failed.length && result.success.length === 0) {
+                toast(`批量永久删除失败：${result.failed[0]?.error?.message || "未知错误"}`, "error")
+              } else {
+                toast(bulkResultMessage(result, "批量永久删除项目", (item) => item.title || item.name || item.id), result.failed.length ? "warning" : "success")
+              }
+              if (!result.failed.length) this.showRecycleBin()
+              return result.failed.length ? false : true
+            } catch (err) {
+              toast(`批量永久删除失败：${err.message || "未知错误"}`, "error")
+              return false
+            }
           }, "永久删除")
         })
         document.querySelectorAll(".restore-project-btn").forEach((btn) => {
@@ -509,8 +527,10 @@ const projectView = {
                   await api.projects.permanentDelete(pid)
                   toast("项目已永久删除", "success")
                   this.showRecycleBin()
+                  return true
                 } catch (err) {
-                  toast(`删除失败：${err.message}`, "error")
+                  toast(`永久删除失败：${err.message || "未知错误"}`, "error")
+                  return false
                 }
               },
               "永久删除",
@@ -765,6 +785,13 @@ const projectView = {
         }
         xhr.onerror = () => reject(new Error("网络错误"))
         xhr.open("POST", (typeof API_HOST !== "undefined" ? API_HOST : "http://localhost:8000") + "/api/imports/upload")
+        xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest")
+        const accessToken = typeof sessionStorage !== "undefined"
+          ? sessionStorage.getItem("novel_app_access_token")
+          : null
+        if (accessToken) {
+          xhr.setRequestHeader("Authorization", `Bearer ${accessToken}`)
+        }
         xhr.send(formData)
       })
 

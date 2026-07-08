@@ -144,9 +144,9 @@ class ParallelSceneEntityExtractor:
                 error_message = str(error)[:300]
                 failed_scene_indices.append(scene_index)
                 if snapshot_id is not None:
-                    from modules.context.facade import mark_context_snapshot_failed
+                    from modules.context.facade import fail_context_snapshot
 
-                    await mark_context_snapshot_failed(
+                    await fail_context_snapshot(
                         db,
                         snapshot_id=snapshot_id,
                         error_kind=error_kind,
@@ -218,9 +218,9 @@ class ParallelSceneEntityExtractor:
                     result_refs=result_refs,
                 )
                 if snapshot_id is not None:
-                    from modules.context.facade import mark_context_snapshot_succeeded
+                    from modules.context.facade import succeed_context_snapshot
 
-                    await mark_context_snapshot_succeeded(
+                    await succeed_context_snapshot(
                         db,
                         snapshot_id=snapshot_id,
                         result_refs=result_refs,
@@ -230,9 +230,9 @@ class ParallelSceneEntityExtractor:
                 error_message = str(exc)[:300]
                 failed_scene_indices.append(scene_index)
                 if snapshot_id is not None:
-                    from modules.context.facade import mark_context_snapshot_failed
+                    from modules.context.facade import fail_context_snapshot
 
-                    await mark_context_snapshot_failed(
+                    await fail_context_snapshot(
                         db,
                         snapshot_id=snapshot_id,
                         error_kind=error_kind,

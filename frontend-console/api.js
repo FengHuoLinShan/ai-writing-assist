@@ -12,6 +12,7 @@ const RAG_PREWARM_TIMEOUT = 75000
 const CONTEXT_CONFIRM_TIMEOUT = 90000
 const LLM_GENERATE_TIMEOUT = 90000
 const API_CACHE_TTL = 30000
+const API_ACCESS_TOKEN_KEY = "novel_app_access_token"
 
 const _apiCache = new Map()
 const _pendingRequests = new Map()
@@ -113,7 +114,7 @@ function _formatErrorDetail(rawDetail) {
  * @returns {Promise<any>}
  */
 async function request(path, options = {}) {
-  const { timeout, signal: externalSignal, ...fetchOptions } = options
+  const { timeout, signal: externalSignal, _retriedAuth, ...fetchOptions } = options
   const url = `${API_BASE_URL}${path}`
   const controller = new AbortController()
   const timeoutMs = timeout || API_TIMEOUT
@@ -179,6 +180,11 @@ async function request(path, options = {}) {
 
   const requestPromise = (async () => {
     try {
+      const storage = typeof sessionStorage !== "undefined" ? sessionStorage : null
+      const accessToken = storage?.getItem(API_ACCESS_TOKEN_KEY)
+      if (accessToken) {
+        headers["Authorization"] = `Bearer ${accessToken}`
+      }
       const resp = await fetch(url, {
         ...fetchOptions,
         headers: { ...headers, ...fetchOptions.headers },
@@ -186,6 +192,13 @@ async function request(path, options = {}) {
       })
 
       if (!resp.ok) {
+        if (resp.status === 401 && !_retriedAuth && typeof window !== "undefined" && typeof window.prompt === "function") {
+          const token = window.prompt("请输入封闭测试访问令牌")
+          if (token) {
+            storage?.setItem(API_ACCESS_TOKEN_KEY, token)
+            return request(path, { ...options, _retriedAuth: true })
+          }
+        }
         const errorMap = {
           400: "请求参数错误",
           401: "未授权，请检查后端认证配置",
@@ -457,6 +470,14 @@ const api = {
       return post(withQuery(`/world/bible/pages/${pageId}/organize`, { novel_id: novelId }))
     },
 
+    async generateBiblePageAi(pageId, payload, novelId, options = {}) {
+      return post(
+        withQuery(`/world/bible/pages/${pageId}/ai-generate`, { novel_id: novelId }),
+        payload,
+        { timeout: LLM_GENERATE_TIMEOUT, ...options },
+      )
+    },
+
     async listSuggestions(params = {}) {
       return request(withQuery("/world/suggestions", params))
     },
@@ -517,6 +538,10 @@ const api = {
       return put(withQuery(`/world/relations/${id}`, { novel_id: novelId }), payload)
     },
 
+    async reviewEditRelationship(id, payload, novelId) {
+      return patch(withQuery(`/world/relations/${id}/review-edit`, { novel_id: novelId }), payload)
+    },
+
     async deleteRelationship(id, params = {}) {
       return deleteRequest(withQuery(`/world/relations/${id}`, params))
     },
@@ -534,6 +559,11 @@ const api = {
       return patch(withQuery(`/world/entities/${entityId}/aliases`, params), payload)
     },
 
+    async editAlias(entityId, alias, payload, params = {}) {
+      params.alias = alias
+      return patch(withQuery(`/world/entities/${entityId}/aliases/edit`, params), payload)
+    },
+
     async deleteAlias(entityId, alias, params = {}) {
       params.alias = alias
       return deleteRequest(withQuery(`/world/entities/${entityId}/aliases`, params))
@@ -541,6 +571,10 @@ const api = {
 
     async mergeEntity(candidateId, targetEntityId, novelId) {
       return post(withQuery(`/world/entities/${candidateId}/merge`, { novel_id: novelId }), { target_entity_id: targetEntityId })
+    },
+
+    async resolveEntityAsAlias(candidateId, payload, novelId) {
+      return post(withQuery(`/world/entities/${candidateId}/resolve-as-alias`, { novel_id: novelId }), payload)
     },
 
     async createEntityFusionSuggestions(data) {

@@ -100,12 +100,30 @@ describe("onLeave", () => {
 // ============================================================
 
 describe("worldView render", () => {
-  it("渲染子标签导航（包含候选清洗）", async () => {
+  it("渲染子标签导航（包含待确认入口）", async () => {
     const html = await worldView.render()
     expect(html).toContain("对象库")
-    expect(html).toContain("候选清洗")
+    expect(html).toContain("待确认")
     expect(html).toContain("关系")
     expect(html).toContain("别名")
+  })
+
+  it("待确认入口渲染对象/别名/关系三子 tab", async () => {
+    state.currentSubView = "review-objects"
+    worldView._candidates = [{ id: "c1", name: "候选对象", entity_type: "item", status: "candidate" }]
+    const html = await worldView.render()
+    expect(html).toContain("对象")
+    expect(html).toContain("别名")
+    expect(html).toContain("关系")
+    expect(html).toContain("候选对象")
+  })
+
+  it("旧 candidates 子路由仍渲染待确认对象队列", async () => {
+    state.currentSubView = "candidates"
+    worldView._candidates = [{ id: "c1", name: "旧路由候选", entity_type: "item", status: "candidate" }]
+    const html = await worldView.render()
+    expect(html).toContain("旧路由候选")
+    expect(html).toContain("对象")
   })
 
   it("点击地图子标签直接导航到一级地图页", async () => {
@@ -132,6 +150,20 @@ describe("worldView render", () => {
     expect(spy).toHaveBeenCalledTimes(1)
     spy.mockRestore()
   })
+
+  it("对象库将 resolved_as alias 的 merged 对象显示为已确认为别名", () => {
+    worldView._entities = [{
+      id: "e1",
+      name: "黑荆棘安保公司",
+      entity_type: "organization",
+      status: "merged",
+      content_json: { resolved_as: "alias", merged_into: "target" },
+    }]
+
+    const html = worldView._renderEntityList()
+
+    expect(html).toContain("已确认为别名")
+  })
 })
 
 // ============================================================
@@ -156,6 +188,36 @@ describe("候选清洗", () => {
       expect(worldView._candidates[0].id).toBe("c1")
       expect(worldView._candidateTotal).toBe(2)
     })
+
+    it("待确认对象筛选参数传给 entities API", async () => {
+      state.currentProjectId = "p1"
+      worldView._candidateFilters = {
+        skip: 0,
+        limit: 20,
+        suggested_action: "link_to_existing",
+        source: "deep_import",
+        workflow_id: "wf1",
+        scene_index: "2",
+        source_chapter_index: "",
+        confidence_min: "0.8",
+        confidence_max: "",
+      }
+      api.world.listEntities.mockResolvedValue({ items: [], total: 0 })
+
+      await worldView._loadCandidates()
+
+      expect(api.world.listEntities).toHaveBeenCalledWith({
+        novel_id: "p1",
+        status: "candidate",
+        skip: 0,
+        limit: 20,
+        suggested_action: "link_to_existing",
+        source: "deep_import",
+        workflow_id: "wf1",
+        scene_index: 2,
+        confidence_min: 0.8,
+      })
+    })
   })
 
   describe("_renderCandidatesList", () => {
@@ -164,7 +226,7 @@ describe("候选清洗", () => {
       expect(html).toContain("没有待处理的候选对象")
     })
 
-    it("别名/合并候选显示目标对象名称", () => {
+    it("别名候选显示目标对象名称并提供确认为别名入口", () => {
       worldView._candidates = [{
         id: "c1",
         name: "岚姐",
@@ -182,7 +244,9 @@ describe("候选清洗", () => {
 
       expect(html).toContain("作为林岚别名")
       expect(html).toContain("candidate-action-badge")
-      expect(html).toContain('data-action="merge-entity"')
+      expect(html).toContain('data-action="resolve-candidate-alias"')
+      expect(html).toContain("确认为别名")
+      expect(html).not.toContain('data-action="merge-entity"')
       expect(html).toContain('data-target-name="林岚"')
     })
 
@@ -624,6 +688,48 @@ describe("关系", () => {
       expect(html).toContain("复核通过")
     })
 
+    it("待确认关系队列只请求 candidate 并显示编辑并确认", async () => {
+      state.currentProjectId = "p1"
+      api.world.listRelationships.mockResolvedValue({
+        items: [{
+          id: "r1",
+          source_id: "src",
+          source_name: "克莱恩",
+          target_id: "tgt",
+          target_name: "值夜者",
+          relation_type: "member_of",
+          status: "candidate",
+          quote: "证据文本",
+        }],
+        total: 1,
+      })
+
+      const html = await worldView._renderRelations({ reviewOnly: true })
+
+      expect(api.world.listRelationships).toHaveBeenCalledWith({ novel_id: "p1", skip: 0, limit: 20, status: "candidate" })
+      expect(html).toContain("编辑并确认")
+      expect(html).toContain("证据文本")
+    })
+
+    it("待确认关系筛选参数传给 API", async () => {
+      state.currentProjectId = "p1"
+      worldView._relationFilters = { skip: 0, limit: 20, q: "克莱恩", relation_type: "member_of", source_chapter_id: "ch1", strength_min: "0.7", strength_max: "" }
+      api.world.listRelationships.mockResolvedValue({ items: [], total: 0 })
+
+      await worldView._renderRelations({ reviewOnly: true })
+
+      expect(api.world.listRelationships).toHaveBeenCalledWith({
+        novel_id: "p1",
+        skip: 0,
+        limit: 20,
+        status: "candidate",
+        q: "克莱恩",
+        relation_type: "member_of",
+        source_chapter_id: "ch1",
+        strength_min: 0.7,
+      })
+    })
+
     it("关系超过一页时显示分页并支持翻页", async () => {
       state.currentProjectId = "p1"
       api.world.listRelationships.mockResolvedValue({
@@ -648,6 +754,53 @@ describe("关系", () => {
     })
   })
 
+  describe("showRelationReviewEditForm", () => {
+    it("关系编辑并确认只提交可编辑字段", async () => {
+      state.currentProjectId = "p1"
+      worldView._entities = [
+        { id: "e1", name: "克莱恩", entity_type: "character", status: "canonical" },
+        { id: "e2", name: "值夜者", entity_type: "faction", status: "canonical" },
+      ]
+      worldView._relations = [{
+        id: "r1",
+        source_id: "e1",
+        target_id: "e2",
+        relation_type: "member_of",
+        description: "旧描述",
+        strength: 0.5,
+        quote: "证据文本",
+        source_chapter_id: "ch1",
+        status: "candidate",
+      }]
+      api.world.reviewEditRelationship.mockResolvedValue({ affected_ids: ["r1"] })
+
+      worldView.showRelationReviewEditForm("r1")
+      const body = showModal.mock.calls[0][1].html
+      expect(body).toContain("证据文本")
+      const handler = captureModalHandler()
+      document.body.innerHTML = `
+        <select id="rel-review-source"><option value="e1" selected>克莱恩</option></select>
+        <select id="rel-review-target"><option value="e2" selected>值夜者</option></select>
+        <input id="rel-review-type" value="ally_of" />
+        <textarea id="rel-review-description">新描述</textarea>
+        <input id="rel-review-strength" value="0.8" />
+      `
+
+      await handler()
+
+      expect(api.world.reviewEditRelationship).toHaveBeenCalledWith("r1", {
+        source_id: "e1",
+        target_id: "e2",
+        relation_type: "ally_of",
+        description: "新描述",
+        strength: 0.8,
+        confirm_review: true,
+      }, "p1")
+      expect(api.world.reviewEditRelationship.mock.calls[0][1]).not.toHaveProperty("quote")
+      expect(api.world.reviewEditRelationship.mock.calls[0][1]).not.toHaveProperty("source_chapter_id")
+    })
+  })
+
   describe("deleteRelation", () => {
     it("deleteRelation 调用 confirmAction", () => {
       worldView.deleteRelation("r1")
@@ -657,7 +810,7 @@ describe("关系", () => {
     it("标记关系复核通过", async () => {
       state.currentProjectId = "p1"
       state.currentSubView = "relations"
-      api.world.updateRelationship.mockResolvedValue({})
+      api.world.reviewEditRelationship.mockResolvedValue({})
       api.world.listRelationships.mockResolvedValue({
         items: [{ id: "r1", source_name: "A", target_name: "B", relation_type: "ally_of", status: "canonical" }],
         total: 1,
@@ -667,10 +820,20 @@ describe("关系", () => {
 
       await worldView._markRelationReviewed("r1")
 
-      expect(api.world.updateRelationship).toHaveBeenCalledWith("r1", { status: "canonical" }, "p1")
+      expect(api.world.reviewEditRelationship).toHaveBeenCalledWith("r1", { confirm_review: true }, "p1")
       expect(toast).toHaveBeenCalledWith("关系已标记为已复核", "success")
       expect(router.refresh).not.toHaveBeenCalled()
       expect(document.getElementById("workspace-content").scrollTop).toBe(66)
+    })
+
+    it("关系复核失败显示反馈并消化 rejection", async () => {
+      state.currentProjectId = "p1"
+      api.world.reviewEditRelationship.mockRejectedValue(new Error("review failed"))
+
+      const result = await worldView._markRelationReviewed("r1")
+
+      expect(result).toBe(false)
+      expect(toast).toHaveBeenCalledWith("关系复核状态更新失败：review failed", "error")
     })
   })
 })
@@ -719,7 +882,29 @@ describe("别名", () => {
       expect(html).toContain("待确认")
       expect(html).toContain("深度导入")
       expect(html).toContain("91%")
+      expect(html).toContain('data-action="edit-alias-review"')
+      expect(html).toContain("编辑并确认")
       expect(html).toContain('data-action="mark-alias-reviewed"')
+    })
+
+    it("待确认别名队列请求 needs_review 并传递筛选", async () => {
+      state.currentProjectId = "p1"
+      worldView._aliasFilters = { skip: 0, limit: 20, q: "黑荆棘", source: "deep_import", workflow_id: "wf1", scene_index: "3", confidence_min: "0.8", confidence_max: "", source_chapter_index: "" }
+      api.world.listAliases.mockResolvedValue({ items: [], total: 0 })
+
+      await worldView._renderAliases({ reviewOnly: true })
+
+      expect(api.world.listAliases).toHaveBeenCalledWith({
+        novel_id: "p1",
+        skip: 0,
+        limit: 20,
+        needs_review: true,
+        q: "黑荆棘",
+        source: "deep_import",
+        workflow_id: "wf1",
+        scene_index: 3,
+        confidence_min: 0.8,
+      })
     })
 
     it("同一对象的多个别名聚合显示", async () => {
@@ -820,6 +1005,110 @@ describe("别名", () => {
       expect(toast).toHaveBeenCalledWith("别名已标记为已复核", "success")
       expect(router.refresh).not.toHaveBeenCalled()
       expect(document.getElementById("workspace-content").scrollTop).toBe(58)
+    })
+
+    it("别名复核失败显示反馈并消化 rejection", async () => {
+      state.currentProjectId = "p1"
+      api.world.updateAlias.mockRejectedValue(new Error("alias failed"))
+
+      const result = await worldView._markAliasReviewed("e1", "炎帝")
+
+      expect(result).toBe(false)
+      expect(toast).toHaveBeenCalledWith("别名复核状态更新失败：alias failed", "error")
+    })
+
+    it("编辑并确认别名只提交目标、文本、类型和确认标记", async () => {
+      state.currentProjectId = "p1"
+      worldView._entities = [
+        { id: "e1", name: "值夜者", entity_type: "faction", status: "canonical" },
+        { id: "e2", name: "黑荆棘安保公司", entity_type: "organization", status: "canonical" },
+      ]
+      worldView._aliases = [{
+        entity_id: "e1",
+        entity_name: "值夜者",
+        alias: "黑荆棘安保公司",
+        alias_type: "alias",
+        status: "candidate",
+        source: "deep_import",
+        workflow_id: "wf-1",
+        confidence: 0.95,
+        quote: "证据文本",
+        needs_review: true,
+      }]
+      api.world.editAlias.mockResolvedValue({ affected_ids: ["e1", "e2"] })
+
+      worldView.showAliasReviewEditForm("e1", "黑荆棘安保公司")
+      const body = showModal.mock.calls[0][1].html
+      expect(body).toContain("证据文本")
+      const handler = captureModalHandler()
+      document.body.innerHTML = `
+        <select id="alias-target-id"><option value="e2" selected>黑荆棘安保公司</option></select>
+        <input id="alias-edit-text" value="黑荆棘" />
+        <select id="alias-edit-type"><option value="name" selected>名称</option></select>
+      `
+
+      await handler()
+
+      expect(api.world.editAlias).toHaveBeenCalledWith("e1", "黑荆棘安保公司", {
+        target_entity_id: "e2",
+        alias: "黑荆棘",
+        alias_type: "name",
+        confirm_review: true,
+      }, { novel_id: "p1" })
+      expect(api.world.editAlias.mock.calls[0][2]).not.toHaveProperty("source")
+      expect(api.world.editAlias.mock.calls[0][2]).not.toHaveProperty("confidence")
+      expect(api.world.editAlias.mock.calls[0][2]).not.toHaveProperty("quote")
+    })
+
+    it("候选可改目标、文本、类型后确认为别名并按 affected ids 刷新", async () => {
+      state.currentProjectId = "p1"
+      state.currentSubView = "candidates"
+      worldView._entities = [
+        { id: "e1", name: "值夜者", entity_type: "faction", status: "canonical" },
+        { id: "e2", name: "黑荆棘安保公司", entity_type: "organization", status: "canonical" },
+      ]
+      worldView._candidates = [{
+        id: "c1",
+        name: "黑荆棘安保公司",
+        entity_type: "organization",
+        status: "candidate",
+        content_json: {
+          _meta: {
+            suggested_action: "link_to_existing",
+            suggested_existing_entity_name: "值夜者",
+            source: "deep_import",
+            workflow_id: "wf-1",
+            confidence: 0.95,
+            quote: "证据文本",
+          },
+        },
+      }]
+      worldView._candidateTotal = 1
+      api.world.resolveEntityAsAlias.mockResolvedValue({
+        affected_ids: ["c1", "e2"],
+        merged_ids: ["c1"],
+      })
+      api.world.listEntities.mockResolvedValue({ items: [], total: 0 })
+
+      worldView.showResolveAliasForm("c1")
+      const body = showModal.mock.calls[0][1].html
+      expect(body).toContain("证据文本")
+      const handler = captureModalHandler()
+      document.body.innerHTML = `
+        <select id="alias-target-id"><option value="e2" selected>黑荆棘安保公司</option></select>
+        <input id="alias-edit-text" value="黑荆棘" />
+        <select id="alias-edit-type"><option value="name" selected>名称</option></select>
+      `
+
+      await handler()
+
+      expect(api.world.resolveEntityAsAlias).toHaveBeenCalledWith("c1", {
+        target_entity_id: "e2",
+        alias: "黑荆棘",
+        alias_type: "name",
+      }, "p1")
+      expect(worldView._candidates).toEqual([])
+      expect(router.navigate).toHaveBeenCalledWith("world", "candidates")
     })
   })
 })
@@ -1195,6 +1484,18 @@ describe("批量操作", () => {
     expect(document.getElementById("workspace-content").scrollTop).toBe(88)
   })
 
+  it("对象复核失败显示反馈并消化 rejection", async () => {
+    state.currentProjectId = "p1"
+    worldView._entities = [{ id: "e1", name: "王都", content_json: { _meta: { needs_review: true } } }]
+    api.world.getEntity.mockResolvedValue({ id: "e1", name: "王都", content_json: { _meta: { needs_review: true } } })
+    api.world.updateEntity.mockRejectedValue(new Error("entity failed"))
+
+    const result = await worldView._markEntityReviewed("e1")
+
+    expect(result).toBe(false)
+    expect(toast).toHaveBeenCalledWith("世界对象复核状态更新失败：entity failed", "error")
+  })
+
   it("对象库批量复核调用现有更新 API", async () => {
     worldView._entities = [
       { id: "e1", name: "王都", content_json: { _meta: { source: "deep_import", needs_review: true } } },
@@ -1223,13 +1524,13 @@ describe("批量操作", () => {
     worldView._aliases = [{ entity_id: "e1", alias: "炎帝", status: "candidate", needs_review: true }]
     worldView._bulkSelections["world-relations"] = new Set(["r1"])
     worldView._bulkSelections["world-aliases"] = new Set(["e1::炎帝"])
-    api.world.updateRelationship.mockResolvedValue({})
+    api.world.reviewEditRelationship.mockResolvedValue({})
     api.world.updateAlias.mockResolvedValue({})
 
     await worldView._executeBulkAction("world-relations", "review-relations", worldView._itemsForBulkScope("world-relations"))
     await worldView._executeBulkAction("world-aliases", "review-aliases", worldView._itemsForBulkScope("world-aliases"))
 
-    expect(api.world.updateRelationship).toHaveBeenCalledWith("r1", { status: "canonical" }, "p1")
+    expect(api.world.reviewEditRelationship).toHaveBeenCalledWith("r1", { confirm_review: true }, "p1")
     expect(api.world.updateAlias).toHaveBeenCalledWith("e1", "炎帝", expect.objectContaining({
       status: "canonical",
       needs_review: false,

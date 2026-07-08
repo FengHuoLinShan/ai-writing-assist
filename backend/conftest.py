@@ -11,6 +11,10 @@ import os
 
 os.environ.setdefault("EMBEDDING_PROVIDER", "openai")
 os.environ.setdefault("LLM_HEALTH_REQUIRED", "false")
+os.environ.setdefault(
+    "LLM_SETTINGS_ENCRYPTION_KEY",
+    "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
+)
 
 from collections.abc import AsyncGenerator
 
@@ -42,6 +46,18 @@ from core.base import Base
 from core.dependencies import get_db
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+XHR_HEADERS = {"X-Requested-With": "XMLHttpRequest"}
+
+
+class XhrAsyncClient(AsyncClient):
+    """Test client that mirrors the frontend write-request CSRF marker."""
+
+    async def request(self, method: str, url, **kwargs):  # noqa: ANN001, ANN201
+        if method.upper() not in {"GET", "HEAD", "OPTIONS"}:
+            headers = dict(kwargs.pop("headers", {}) or {})
+            headers.setdefault("X-Requested-With", "XMLHttpRequest")
+            kwargs["headers"] = headers
+        return await super().request(method, url, **kwargs)
 
 
 @pytest_asyncio.fixture
@@ -66,6 +82,20 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 @pytest_asyncio.fixture
 async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     """FastAPI test client with SQLite db override."""
+
+    async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    async with XhrAsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
+    app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def raw_async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    """FastAPI test client without automatic write-request guard headers."""
 
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         yield db_session

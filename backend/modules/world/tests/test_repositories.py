@@ -198,6 +198,61 @@ async def test_find_characters_by_location_filters_in_database(
 
 
 @pytest.mark.asyncio
+async def test_has_embeddings_checks_current_novel_only(
+    db_session: AsyncSession,
+    repo: CoreEntityRepository,
+) -> None:
+    novel_id = uuid.uuid4()
+    other_novel_id = uuid.uuid4()
+    embedding = [0.1] * 768
+    db_session.add_all(
+        [
+            Project(
+                id=novel_id,
+                title="embedding gate",
+                genre="fantasy",
+                language="zh",
+                target_length="novel",
+                current_stage="worldbuilding",
+            ),
+            Project(
+                id=other_novel_id,
+                title="other embedding gate",
+                genre="fantasy",
+                language="zh",
+                target_length="novel",
+                current_stage="worldbuilding",
+            ),
+            CoreEntity(
+                id=uuid.uuid4(),
+                novel_id=other_novel_id,
+                entity_type="location",
+                name="其他 novel embedding",
+                status="canonical",
+                embedding=embedding,
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    assert await repo.has_embeddings(db_session, novel_id) is False
+
+    db_session.add(
+        CoreEntity(
+            id=uuid.uuid4(),
+            novel_id=novel_id,
+            entity_type="location",
+            name="当前 novel embedding",
+            status="canonical",
+            embedding=embedding,
+        )
+    )
+    await db_session.flush()
+
+    assert await repo.has_embeddings(db_session, novel_id) is True
+
+
+@pytest.mark.asyncio
 async def test_get_recent_auto_ingested_filters_json_bool_and_keeps_order_limit(
     db_session: AsyncSession,
     repo: CoreEntityRepository,

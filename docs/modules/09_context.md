@@ -119,6 +119,14 @@ V1 复用 `excluded_asset_ids`，新增约定：
 - 默认只保存摘要、资产 ID、hash 和 token/section metadata；完整 `rendered_context` 需要调用方显式开启，并由保留策略清理。
 - `context_snapshots` 不替代 `context_confirmations`，也不替代 `memory_snapshots`。
 
+生产调用使用 `ContextSnapshotRequest` + lifecycle facade：
+
+- `open_context_snapshot()`：创建 `running` 快照。
+- `succeed_context_snapshot()`：写入 `result_refs` 并标记成功。
+- `fail_context_snapshot()`：写入错误类型和摘要并标记失败。
+
+旧 `create_context_snapshot()` / `mark_context_snapshot_*()` 保留为兼容 wrapper。
+
 Lifecycle v1 为快照提供显式维护入口：
 
 - `build_snapshot_health_summary()`：按 `novel_id` 和可选 `workflow_id` 聚合快照健康摘要。
@@ -144,6 +152,11 @@ Lifecycle v1 为快照提供显式维护入口：
 - `relationship_edges`
 - `plot_threads`（8，用作风险提示阈值，不截断剧情线列表）
 - `rag_chunks`
+
+`timeline` / `geo_relations` 是历史命名的预算 key，仍属于当前
+`CONTEXT_BUDGET` 契约和 `budget_used` wire 字段；实际数据所有权已迁入
+`world` / `context`，不再表示存在独立的 timeline 或 geo 模块。不要只改文档
+重命名这两个 key；如需改为 `world_events` / `map_relations`，必须做兼容迁移。
 
 `project`、`scene`、`outline_arc` 属于 singleton 上下文，不进入 `CONTEXT_BUDGET` 预算表，避免把“最多 1 条”的结构信息误报为预算裁剪对象；对应 loader 仍会写入 `budget_used`，用于渲染和审计展示当前是否实际加载。
 

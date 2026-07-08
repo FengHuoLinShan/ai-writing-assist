@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -32,7 +33,7 @@ from modules.imports.phase2_world_extraction import (
     Phase2WorldExtractor,
     _normalize_world_output,
 )
-from modules.imports.scene_candidates import SceneCandidate, SceneCandidateBatch
+from modules.imports.scene_candidates import SceneCandidate
 from modules.imports.scene_commit import SceneCommitResult
 from modules.imports.scene_enrichment import Phase1bEnrichmentResult
 from modules.imports.scene_fusion import FinalSceneCandidate
@@ -45,14 +46,13 @@ from modules.imports.service_progress_logs import (
     record_progress_event,
 )
 from modules.imports.workflow import (
+    DeepImportPhaseRunners,
     DeepImportWorkflow,
     _compact_phase1b_payload,
 )
 from modules.imports.workflow_entity_phase import phase2_quality_stats
 from modules.imports.workflow_llm_adapters import (
     _materialize_phase1b_decision_output,
-    _Phase0SceneCandidateLLM,
-    _Phase1aSceneCandidateLLM,
     _Phase1bDecisionOutput,
     _Phase1bSceneFusionLLM,
     _run_deep_import_structured_call,
@@ -80,6 +80,303 @@ def test_scene_item_accepts_constraint_lists_from_llm() -> None:
     scene = output.scenes[0]
     assert scene.must_happen == "林澈拿到铜钥匙；发现北境航道"
     assert scene.must_not_happen == "钥匙丢失；航线图被毁"
+
+
+def test_phase_runner_request_defaults_and_required_fields() -> None:
+    from modules.imports.workflow_phase_runner import (
+        EntityFullPipelineRequest,
+        SceneFullPipelineRequest,
+        StructureStageRequest,
+    )
+
+    progress = DeepImportProgress()
+    scene_request = SceneFullPipelineRequest(
+        db=None,
+        novel_id="novel-1",
+        start_chapter=1,
+        end_chapter=2,
+        progress=progress,
+    )
+    structure_stage_request = StructureStageRequest(
+        db=None,
+        novel_id="novel-1",
+        start_chapter=1,
+        end_chapter=2,
+        progress=progress,
+    )
+
+    assert scene_request.workflow_id is None
+    assert scene_request.stop_after is None
+    assert scene_request.on_progress is None
+    assert structure_stage_request.context_mode == "working"
+    assert structure_stage_request.include_pending_objects is True
+    with pytest.raises(TypeError):
+        EntityFullPipelineRequest(
+            db=None,
+            novel_id="novel-1",
+            start_chapter=1,
+            end_chapter=2,
+            progress=progress,
+        )
+
+
+@pytest.mark.asyncio
+async def test_workflow_spine_uses_injected_phase_runner_protocols() -> None:
+    from modules.imports.workflow_phase_runner import (
+        EntityFullPipelineRequest,
+        EntityStageRequest,
+        SceneFullPipelineRequest,
+        StructureFullPipelineRequest,
+        StructureStageRequest,
+    )
+
+    calls: list[tuple[str, object]] = []
+
+    class FakeSceneFullRunner:
+        async def run_full_pipeline(self, request):
+            calls.append(("scene_full", request))
+            return SimpleNamespace(total_scenes=4, stopped=False)
+
+    class FakeEntityFullRunner:
+        async def run_full_pipeline(self, request):
+            calls.append(("entity_full", request))
+            return {"total_created": 7}
+
+    class FakeStructureFullRunner:
+        async def run_full_pipeline(self, request):
+            calls.append(("structure_full", request))
+            return {"total_threads": 2, "total_arcs": 3}
+
+    class FakeEntityStageRunner:
+        async def run_stage(self, request):
+            calls.append(("entity_stage", request))
+            request.progress.message = "entity-stage"
+            return request.progress
+
+    class FakeStructureStageRunner:
+        async def run_stage(self, request):
+            calls.append(("structure_stage", request))
+            request.progress.message = "structure-stage"
+            return request.progress
+
+    workflow = DeepImportWorkflow(
+        phase_runners=DeepImportPhaseRunners(
+            scene_full=FakeSceneFullRunner(),
+            entity_full=FakeEntityFullRunner(),
+            entity_stage=FakeEntityStageRunner(),
+            structure_full=FakeStructureFullRunner(),
+            structure_stage=FakeStructureStageRunner(),
+        )
+    )
+
+    with (
+        patch(
+            "modules.imports.workflow._project_settings_for_novel",
+            new=AsyncMock(return_value={}),
+        ),
+        patch.object(DeepImportWorkflow, "_is_llm_health_required", return_value=False),
+    ):
+        progress = await workflow.run_step(
+            None,
+            "novel-1",
+            1,
+            3,
+            DeepImportProgress(),
+            workflow_id="wf-protocol",
+    )
+
+    assert progress.phase == "done"
+    assert progress.message == (
+        "深度导入完成！共 4 个 Scene，7 个实体，2 条剧情线，3 个篇章纲。"
+    )
+    assert [name for name, _request in calls] == [
+        "scene_full",
+        "entity_full",
+        "structure_full",
+    ]
+    assert isinstance(calls[0][1], SceneFullPipelineRequest)
+    assert isinstance(calls[1][1], EntityFullPipelineRequest)
+    assert isinstance(calls[2][1], StructureFullPipelineRequest)
+
+    entity_progress = await workflow.run_entity_extraction_only(
+        None,
+        "novel-1",
+        1,
+        3,
+        DeepImportProgress(),
+    )
+    structure_progress = await workflow.run_structure_analysis_only(
+        None,
+        "novel-1",
+        1,
+        3,
+        DeepImportProgress(),
+    )
+
+    assert entity_progress.message == "entity-stage"
+    assert structure_progress.message == "structure-stage"
+    assert isinstance(calls[3][1], EntityStageRequest)
+    assert isinstance(calls[4][1], StructureStageRequest)
+
+
+@pytest.mark.asyncio
+async def test_phase_runner_old_methods_delegate_to_request_entrypoints() -> None:
+    from modules.imports.workflow_entity_phase import EntityExtractionPhaseRunner
+    from modules.imports.workflow_phase_runner import (
+        EntityFullPipelineRequest,
+        EntityStageRequest,
+        SceneFullPipelineRequest,
+        StructureFullPipelineRequest,
+        StructureStageRequest,
+    )
+    from modules.imports.workflow_scene_phase import (
+        ScenePhaseOutcome,
+        ScenePhaseRunner,
+    )
+    from modules.imports.workflow_structure_phase import StructureAnalysisPhaseRunner
+
+    progress = DeepImportProgress(workflow_id="wf-adapter")
+    scene_runner = ScenePhaseRunner(Mock())
+    entity_runner = EntityExtractionPhaseRunner(Mock())
+    structure_runner = StructureAnalysisPhaseRunner(Mock())
+    scene_runner.run_full_pipeline = AsyncMock(return_value=ScenePhaseOutcome(3))
+    entity_runner.run_full_pipeline = AsyncMock(return_value={"total_created": 1})
+    entity_runner.run_stage = AsyncMock(return_value=progress)
+    structure_runner.run_full_pipeline = AsyncMock(return_value={"total_threads": 1})
+    structure_runner.run_stage = AsyncMock(return_value=progress)
+
+    scene_result = await scene_runner.run(
+        None,
+        "novel-1",
+        1,
+        3,
+        progress,
+        workflow_id="wf-adapter",
+        on_progress=None,
+        stop_after=DeepImportStep.scene_segmentation,
+    )
+    await entity_runner.run_full_pipeline_phase(
+        None,
+        "novel-1",
+        1,
+        3,
+        progress,
+        workflow_id="wf-adapter",
+        total_scenes=3,
+        on_progress=None,
+    )
+    await entity_runner.run_stage_only(
+        None,
+        "novel-1",
+        1,
+        3,
+        progress,
+        workflow_id="wf-adapter",
+        on_progress=None,
+    )
+    await structure_runner.run_full_pipeline_phase(
+        None,
+        "novel-1",
+        1,
+        3,
+        progress,
+        workflow_id="wf-adapter",
+        context_mode="working",
+        include_pending_objects=True,
+        total_scenes=3,
+        on_progress=None,
+    )
+    await structure_runner.run_stage_only(
+        None,
+        "novel-1",
+        1,
+        3,
+        progress,
+        workflow_id="wf-adapter",
+        context_mode="working",
+        include_pending_objects=True,
+        on_progress=None,
+    )
+
+    assert scene_result.total_scenes == 3
+    assert isinstance(
+        scene_runner.run_full_pipeline.await_args.args[0],
+        SceneFullPipelineRequest,
+    )
+    assert isinstance(
+        entity_runner.run_full_pipeline.await_args.args[0],
+        EntityFullPipelineRequest,
+    )
+    assert entity_runner.run_full_pipeline.await_args.args[0].total_scenes == 3
+    assert isinstance(entity_runner.run_stage.await_args.args[0], EntityStageRequest)
+    assert isinstance(
+        structure_runner.run_full_pipeline.await_args.args[0],
+        StructureFullPipelineRequest,
+    )
+    assert structure_runner.run_full_pipeline.await_args.args[0].total_scenes == 3
+    assert isinstance(
+        structure_runner.run_stage.await_args.args[0],
+        StructureStageRequest,
+    )
+
+
+@pytest.mark.asyncio
+async def test_workflow_director_uses_phase_runner_request_entrypoints(monkeypatch):
+    from modules.imports.workflow_phase_runner import (
+        EntityFullPipelineRequest,
+        SceneFullPipelineRequest,
+        StructureFullPipelineRequest,
+    )
+    from modules.imports.workflow_scene_phase import ScenePhaseOutcome
+
+    seen: list[str] = []
+
+    async def scene_run(_self, request):
+        assert isinstance(request, SceneFullPipelineRequest)
+        assert request.workflow_id == "wf-request"
+        assert request.stop_after is None
+        seen.append("scene")
+        return ScenePhaseOutcome(total_scenes=2)
+
+    async def entity_run(_self, request):
+        assert isinstance(request, EntityFullPipelineRequest)
+        assert request.total_scenes == 2
+        assert request.workflow_id == "wf-request"
+        seen.append("entity")
+        return {"total_created": 1, "total_relations": 0, "total_deltas": 0}
+
+    async def structure_run(_self, request):
+        assert isinstance(request, StructureFullPipelineRequest)
+        assert request.total_scenes == 2
+        assert request.context_mode == "working"
+        assert request.include_pending_objects is True
+        seen.append("structure")
+        return {"total_threads": 1, "total_arcs": 1}
+
+    monkeypatch.setattr(
+        "modules.imports.workflow.ScenePhaseRunner.run_full_pipeline",
+        scene_run,
+    )
+    monkeypatch.setattr(
+        "modules.imports.workflow.EntityExtractionPhaseRunner.run_full_pipeline",
+        entity_run,
+    )
+    monkeypatch.setattr(
+        "modules.imports.workflow.StructureAnalysisPhaseRunner.run_full_pipeline",
+        structure_run,
+    )
+
+    result = await DeepImportWorkflow().run_step(
+        db=None,
+        novel_id=str(uuid.uuid4()),
+        start_chapter=1,
+        end_chapter=3,
+        progress=DeepImportProgress(),
+        workflow_id="wf-request",
+    )
+
+    assert result.phase == "done"
+    assert seen == ["scene", "entity", "structure"]
 
 
 def test_scene_entity_output_accepts_singletons_and_text_variants_from_llm() -> None:
@@ -510,190 +807,6 @@ def test_compact_phase1b_payload_uses_project_compact_text_limit():
     assert len(compact["candidates"][0]["scenes"][0]["title"]) <= 80
 
 
-@pytest.mark.asyncio
-async def test_phase0_small_sample_adapter_passes_timeout_budget(monkeypatch):
-    captured: dict[str, object] = {}
-
-    async def fake_load_chapters(_db, _novel_id, _start, _end, *, include_missing=False):
-        assert include_missing is False
-        return [
-            {
-                "chapter_index": 1,
-                "title": "第一章",
-                "content": "正文",
-            }
-        ]
-
-    async def fake_structured_call(client, request, schema, **kwargs):
-        del client, schema
-        captured["request"] = request
-        captured["kwargs"] = kwargs
-        return {"scenes": [{"title": "候选", "scene_chunks": [{"chapter_index": 1}]}]}
-
-    monkeypatch.setattr(
-        "modules.imports.workflow_llm_adapters.load_chapter_range",
-        fake_load_chapters,
-    )
-    monkeypatch.setattr(
-        "modules.imports.workflow_llm_adapters._run_deep_import_structured_call",
-        fake_structured_call,
-    )
-
-    batch = SceneCandidateBatch(
-        batch_id="A-0001-1-5",
-        round_name="A",
-        batch_index=1,
-        chapter_indices=[1],
-    )
-    await _Phase0SceneCandidateLLM(
-        None,
-        "novel-1",
-        timeout_seconds=35,
-    )(batch)
-
-    request = captured["request"]
-    system_content = request.messages[0].content
-    user_content = request.messages[1].content
-
-    assert "Phase 0 Scene 预取器" in system_content
-    assert "每章最多 1 个候选" in system_content
-    assert "每个 scene 只允许包含 title、goal、scene_chunks" in system_content
-    assert "不要输出正文摘录" in system_content
-    assert "请将以下章节正文切分为叙事 Scene" not in user_content
-    assert captured["kwargs"]["timeout_seconds"] == 35
-
-
-@pytest.mark.asyncio
-async def test_phase0_adapter_uses_phase0_budget_by_default(monkeypatch):
-    captured: dict[str, object] = {}
-
-    async def fake_load_chapters(_db, _novel_id, _start, _end, *, include_missing=False):
-        assert include_missing is False
-        return [
-            {
-                "chapter_index": 1,
-                "title": "第一章",
-                "content": "正文",
-            }
-        ]
-
-    async def fake_structured_call(client, request, schema, **kwargs):
-        del client, schema
-        captured["request"] = request
-        captured["kwargs"] = kwargs
-        return {"scenes": [{"title": "候选", "scene_chunks": [{"chapter_index": 1}]}]}
-
-    monkeypatch.setenv("PHASE01_SCENE_MAX_TOKENS", "8192")
-    monkeypatch.setattr(
-        "modules.imports.workflow_llm_adapters.load_chapter_range",
-        fake_load_chapters,
-    )
-    monkeypatch.setattr(
-        "modules.imports.workflow_llm_adapters._run_deep_import_structured_call",
-        fake_structured_call,
-    )
-
-    batch = SceneCandidateBatch(
-        batch_id="A-0001-1-5",
-        round_name="A",
-        batch_index=1,
-        chapter_indices=[1],
-    )
-    await _Phase0SceneCandidateLLM(
-        None,
-        "novel-1",
-    )(batch)
-
-    request = captured["request"]
-    assert request.max_tokens == 8192
-    assert captured["kwargs"]["timeout_seconds"] == 120
-
-
-@pytest.mark.asyncio
-async def test_phase0_adapter_allows_explicit_phase0_budget_override(monkeypatch):
-    captured: dict[str, object] = {}
-
-    async def fake_load_chapters(_db, _novel_id, _start, _end, *, include_missing=False):
-        assert include_missing is False
-        return [
-            {
-                "chapter_index": 1,
-                "title": "第一章",
-                "content": "正文",
-            }
-        ]
-
-    async def fake_structured_call(client, request, schema, **kwargs):
-        del client, schema, kwargs
-        captured["request"] = request
-        return {"scenes": [{"title": "候选", "scene_chunks": [{"chapter_index": 1}]}]}
-
-    monkeypatch.setenv("PHASE0_SCENE_MAX_TOKENS", "3072")
-    monkeypatch.setattr(
-        "modules.imports.workflow_llm_adapters.load_chapter_range",
-        fake_load_chapters,
-    )
-    monkeypatch.setattr(
-        "modules.imports.workflow_llm_adapters._run_deep_import_structured_call",
-        fake_structured_call,
-    )
-
-    batch = SceneCandidateBatch(
-        batch_id="A-0001-1-5",
-        round_name="A",
-        batch_index=1,
-        chapter_indices=[1],
-    )
-    await _Phase0SceneCandidateLLM(
-        None,
-        "novel-1",
-    )(batch)
-
-    request = captured["request"]
-    assert request.max_tokens == 3072
-
-
-@pytest.mark.asyncio
-async def test_phase1a_adapter_uses_controlled_prompt_and_budget(monkeypatch):
-    captured: dict[str, object] = {}
-
-    async def fake_structured_call(client, request, schema, **kwargs):
-        del client, schema
-        captured["request"] = request
-        captured["kwargs"] = kwargs
-        return {"scenes": [{"title": "候选", "scene_chunks": [{"chapter_index": 1}]}]}
-
-    monkeypatch.setenv("PHASE01_SCENE_MAX_TOKENS", "8192")
-    monkeypatch.delenv("PHASE1A_SCENE_MAX_TOKENS", raising=False)
-    monkeypatch.setattr(
-        "modules.imports.workflow_llm_adapters._run_deep_import_structured_call",
-        fake_structured_call,
-    )
-
-    await _Phase1aSceneCandidateLLM()(
-        {
-            "chapter_text": "## Chapter 1\n正文",
-            "phase0_references": {"strong": [], "weak": []},
-        }
-    )
-
-    request = captured["request"]
-    system_prompt = request.messages[0].content
-    user_prompt = request.messages[1].content
-    assert request.max_tokens == 8192
-    assert captured["kwargs"]["max_fix_attempts"] == 1
-    assert "正文级 Scene 候选补强器" in system_prompt
-    assert "不是最终 Scene 切分器" in system_prompt
-    assert "每个覆盖章节最多输出 1 个中间候选 Scene" in system_prompt
-    assert "每 5 章窗口最多 5 个" in system_prompt
-    assert "不追求最终完整切分" in system_prompt
-    assert "只允许包含 title、goal、scene_chunks、boundary_reason" in system_prompt
-    assert "goal 控制在约 30-60" in system_prompt
-    assert "禁止正文摘录、长摘要、人物列表" in system_prompt
-    assert "顶层不要输出 scenes 之外的字段" in system_prompt
-    assert "source_round/source_batch_id/source_chapter_indices" in user_prompt
-
-
 def test_phase1a_scene_max_tokens_env_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -722,6 +835,15 @@ def test_phase1a_structured_max_fix_attempts_env_override(
 
     monkeypatch.setenv("PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS", "2")
     assert workflow_llm_adapters._phase1a_structured_max_fix_attempts() == 2
+
+
+def test_deep_import_structured_call_old_workflow_paths_match() -> None:
+    from modules.imports import workflow, workflow_llm_adapters
+
+    assert (
+        workflow._run_deep_import_structured_call
+        is workflow_llm_adapters._run_deep_import_structured_call
+    )
 
 
 @pytest.mark.asyncio
@@ -1143,17 +1265,17 @@ class TestDeepImportSchema:
 
     def test_deep_import_progress_exposes_resilient_result_contract(self):
         progress = DeepImportProgress(workflow_id="task-1")
-        progress.current_phase = "phase0_prefetch"
+        progress.current_phase = "phase0_plan"
         progress.current_round = "A"
         progress.current_chapter_range = "1-5"
         progress.current_chapter = 3
         progress.current_scene_candidate_id = "scene-candidate-1"
         progress.current_window = "chapters:1-5"
-        progress.current_operation = "scene_prefetch"
+        progress.current_operation = "scene_planning"
         progress.current_item = {"kind": "batch", "batch_id": "A-0001"}
         progress.phase_timeline = [
             {
-                "phase": "phase0_prefetch",
+                "phase": "phase0_plan",
                 "status": "running",
                 "started_at": "2026-06-30T10:00:00+00:00",
             }
@@ -1161,20 +1283,20 @@ class TestDeepImportSchema:
         progress.progress_events = [
             {
                 "event": "phase_started",
-                "phase": "phase0_prefetch",
+                "phase": "phase0_plan",
                 "status": "running",
             }
         ]
         progress.acceptance_checks = [
             {
                 "name": "phase0_coverage",
-                "phase": "phase0_prefetch",
+                "phase": "phase0_plan",
                 "ok": True,
             }
         ]
         progress.diagnostic_counts = {"scene_count": 0}
         progress.last_error = {
-            "phase": "phase0_prefetch",
+            "phase": "phase0_plan",
             "error_kind": "network",
             "message": "connection failed",
         }
@@ -1198,15 +1320,15 @@ class TestDeepImportSchema:
         result = DeepImportOrchestrator._result_from_progress(progress)
 
         for payload in (dumped, result):
-            assert payload["current_phase"] == "phase0_prefetch"
+            assert payload["current_phase"] == "phase0_plan"
             assert payload["current_round"] == "A"
             assert payload["current_chapter_range"] == "1-5"
             assert payload["current_chapter"] == 3
             assert payload["current_scene_candidate_id"] == "scene-candidate-1"
             assert payload["current_window"] == "chapters:1-5"
-            assert payload["current_operation"] == "scene_prefetch"
+            assert payload["current_operation"] == "scene_planning"
             assert payload["current_item"]["batch_id"] == "A-0001"
-            assert payload["phase_timeline"][0]["phase"] == "phase0_prefetch"
+            assert payload["phase_timeline"][0]["phase"] == "phase0_plan"
             assert payload["progress_events"][0]["event"] == "phase_started"
             assert payload["acceptance_checks"][0]["name"] == "phase0_coverage"
             assert payload["diagnostic_counts"]["scene_count"] == 0

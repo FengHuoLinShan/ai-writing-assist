@@ -25,6 +25,7 @@ from infrastructure.llm.schemas import (
     LLMStreamChunk,
     LLMUsage,
 )
+from infrastructure.llm.secret_store import encrypt_secret
 
 
 def _retry_settings(
@@ -200,6 +201,25 @@ def test_resolve_llm_profile_sanitized_summary_redacts_api_key() -> None:
     assert summary["base_url_host"] == "opencode.ai"
     assert summary["api_key_configured"] is True
     assert "sk-secret" not in json.dumps(summary)
+
+
+def test_resolve_llm_profile_decrypts_encrypted_project_api_key() -> None:
+    encrypted = encrypt_secret("sk-encrypted")
+
+    profile = resolve_llm_profile(
+        {
+            "llm": {
+                "provider_id": "openai-compatible",
+                "api_key": encrypted,
+                "base_url": "https://opencode.ai/zen/go/v1",
+                "model": "deepseek-v4-flash",
+            }
+        },
+        env_settings=_FakeEnvSettings(),
+    )
+
+    assert profile.api_key == "sk-encrypted"
+    assert profile.sources["api_key"] == "project"
 
 
 def test_from_project_settings_uses_project_profile_defaults() -> None:

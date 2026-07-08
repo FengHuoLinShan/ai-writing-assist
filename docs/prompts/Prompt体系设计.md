@@ -47,7 +47,7 @@ shell、表达式或动态代码执行。默认只有 P0/P1 阻断；文档漂�
 
 | 文件 | 状态 | 说明 |
 |------|------|------|
-| `structure_review_memory.md` | 已废弃 | `review` 模块已移除，保留文件仅作历史参考 |
+| `structure_review_memory.md` | 已删除 | `review` 模块已移除，不再保留 Prompt 文件 |
 
 ## 5. 当前设计约束
 

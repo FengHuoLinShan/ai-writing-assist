@@ -10,7 +10,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.context.contracts import ContextSnapshotContract
+from modules.context.contracts import ContextSnapshotContract, ContextSnapshotRequest
 from modules.context.repositories import ContextSnapshotRepository
 from shared.utils import parse_uuid
 
@@ -47,37 +47,73 @@ class ContextSnapshotService:
         rendered_context: str | None = None,
         retain_rendered_context: bool = False,
     ) -> ContextSnapshotContract:
-        stored_rendered = rendered_context if retain_rendered_context else None
+        return await self.open_context_snapshot(
+            db,
+            ContextSnapshotRequest(
+                novel_id=novel_id,
+                task_id=task_id,
+                workflow_id=workflow_id,
+                phase=phase,
+                operation=operation,
+                scene_id=scene_id,
+                scene_index=scene_index,
+                chapter_index=chapter_index,
+                context_mode=context_mode,
+                include_pending_objects=include_pending_objects,
+                attempt=attempt,
+                prompt_name=prompt_name,
+                model=model,
+                compile_options=compile_options,
+                included_asset_ids=included_asset_ids,
+                excluded_asset_ids=excluded_asset_ids,
+                context_summary=context_summary,
+                section_metadata=section_metadata,
+                token_metadata=token_metadata,
+                rendered_context=rendered_context,
+                retain_rendered_context=retain_rendered_context,
+            ),
+        )
+
+    async def open_context_snapshot(
+        self,
+        db: AsyncSession,
+        request: ContextSnapshotRequest,
+    ) -> ContextSnapshotContract:
+        stored_rendered = (
+            request.rendered_context if request.retain_rendered_context else None
+        )
         expires_at = (
-            datetime.now(UTC) + timedelta(days=30) if retain_rendered_context else None
+            datetime.now(UTC) + timedelta(days=30)
+            if request.retain_rendered_context
+            else None
         )
         snapshot = await self._repo.create(
             db,
-            novel_id=parse_uuid(novel_id, "novel_id"),
-            task_id=task_id,
-            workflow_id=workflow_id,
-            phase=phase,
-            operation=operation,
-            scene_id=scene_id,
-            scene_index=scene_index,
-            chapter_index=chapter_index,
-            context_mode=context_mode,
-            include_pending_objects=include_pending_objects,
-            attempt=attempt,
+            novel_id=parse_uuid(request.novel_id, "novel_id"),
+            task_id=request.task_id,
+            workflow_id=request.workflow_id,
+            phase=request.phase,
+            operation=request.operation,
+            scene_id=request.scene_id,
+            scene_index=request.scene_index,
+            chapter_index=request.chapter_index,
+            context_mode=request.context_mode,
+            include_pending_objects=request.include_pending_objects,
+            attempt=request.attempt,
             prompt_hash=self._prompt_hash(
-                prompt_name=prompt_name,
-                rendered_context=rendered_context,
-                context_summary=context_summary,
-                section_metadata=section_metadata,
+                prompt_name=request.prompt_name,
+                rendered_context=request.rendered_context,
+                context_summary=request.context_summary,
+                section_metadata=request.section_metadata,
             ),
-            prompt_name=prompt_name,
-            model=model,
-            compile_options=compile_options,
-            included_asset_ids=included_asset_ids,
-            excluded_asset_ids=excluded_asset_ids or {},
-            context_summary=context_summary,
-            section_metadata=section_metadata,
-            token_metadata=token_metadata,
+            prompt_name=request.prompt_name,
+            model=request.model,
+            compile_options=request.compile_options,
+            included_asset_ids=request.included_asset_ids,
+            excluded_asset_ids=request.excluded_asset_ids or {},
+            context_summary=request.context_summary,
+            section_metadata=request.section_metadata,
+            token_metadata=request.token_metadata,
             rendered_context=stored_rendered,
             rendered_context_expires_at=expires_at,
         )
@@ -98,6 +134,19 @@ class ContextSnapshotService:
         )
         return self._to_contract(updated)
 
+    async def succeed_context_snapshot(
+        self,
+        db: AsyncSession,
+        *,
+        snapshot_id: str | uuid.UUID,
+        result_refs: list[dict],
+    ) -> ContextSnapshotContract:
+        return await self.mark_context_snapshot_succeeded(
+            db,
+            snapshot_id=snapshot_id,
+            result_refs=result_refs,
+        )
+
     async def mark_context_snapshot_failed(
         self,
         db: AsyncSession,
@@ -114,6 +163,21 @@ class ContextSnapshotService:
             error_message=error_message[:500],
         )
         return self._to_contract(updated)
+
+    async def fail_context_snapshot(
+        self,
+        db: AsyncSession,
+        *,
+        snapshot_id: str | uuid.UUID,
+        error_kind: str,
+        error_message: str,
+    ) -> ContextSnapshotContract:
+        return await self.mark_context_snapshot_failed(
+            db,
+            snapshot_id=snapshot_id,
+            error_kind=error_kind,
+            error_message=error_message,
+        )
 
     async def get_context_snapshot(
         self,

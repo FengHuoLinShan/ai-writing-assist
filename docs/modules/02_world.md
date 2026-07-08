@@ -9,16 +9,20 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 对象抽取不是 NER，而是长期创作资产识别
 - AI 抽取对象写入 `core_entities`，当前使用 `status="candidate"` 表达待清洗/待提升状态；不再使用独立 `entity_candidates` 表
 - 别名不建新对象，存储于 `core_entities.content_json.aliases` JSONB 字段
+- 待复核别名可在确认前修改目标对象、别名文本和别名类型；证据来源、workflow、Scene、引用和置信度保持只读
+- `link_to_existing` / `alias_of_existing` 候选可确认为已有对象别名，源候选标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不提升为正史
+- 世界对象 UI 的“待确认”入口按对象 / 别名 / 关系三个子 tab 管理复核队列；对象库、别名、关系页继续作为全量管理入口
+- 待确认关系可在确认前编辑源对象、目标对象、关系类型、描述和强度；来源章节、引用等证据只读，人工审计写入 `entity_relations.review_meta`
 - 对象分级：core / important / normal / temporary
 - 版本回滚基于 `TextArchive` 归档与 `EntityRevision` 兜底（活跃回滚路由优先查询 `TextArchive`，无归档时回退到最近 `EntityRevision` 快照）
-- `canonical` 关系边使用 `(novel_id, source_id, target_id, relation_type)` 作为数据库幂等键，关系写入由仓储层 upsert 兜底。
+- 关系状态为 `candidate` / `canonical` / `deprecated`；`candidate` 关系经用户复核后进入 `canonical`。`canonical` 关系边使用 `(novel_id, source_id, target_id, relation_type)` 作为数据库幂等键，关系写入由仓储层 upsert 兜底。
 - 候选合并响应可带 `affected_ids` / `merged_ids`，前端只按精确 ID 更新；缺少 affected ids 时刷新当前候选 tab。
 
 ## 数据表
 
 - `core_entities` — 共享核心实体表，公共字段（name / aliases JSONB / summary / public_info / hidden_truth / importance / embedding / search_text / pinyin_string）统一存储
 - `events` — 事件扩展表（entity_id PK+FK → core_entities.id）
-- `entity_relations` — 实体关系边（UUID FK → core_entities + 章节追溯字段）
+- `entity_relations` — 实体关系边（UUID FK → core_entities + 章节追溯字段 + `review_meta` 复核审计）
 - `entity_revisions` — 实体快照版本表（旧版快照；当前活跃回滚优先使用 `TextArchive`，无归档时回退到 `EntityRevision`）
 - `characters` — 人物档案（entity_id PK+FK → core_entities.id）
 - `character_knowledge` — 人物知识边界
@@ -65,6 +69,10 @@ helper 和历史兼容入口：
 - `services/core/`：核心实体、关系、事件、版本回滚、去重与抽取。
 - `services/map/`：动态地图、地图状态、标记、territory、observation/fact 和播放。
 - `services/worldbuilding/`：世界书、模板、投影和作者资料整理。
+  `worldbuilding_service.py` 仅作为旧 import path 兼容 hub；实现按概念拆到
+  `profile_service.py`、`world_bible_service.py`、`suggestion_queue_service.py`、
+  `knowledge_tag_service.py`、`reader_safety_service.py`、`conflict_queue_service.py`
+  和 `activation_preview_service.py`。
 - `services/common.py`：跨子包通用 helper，如 `parse_uuid`、`normalize_name`。
 - `services/map_service.py`：历史兼容导出层，不承载业务逻辑。
 
@@ -153,7 +161,9 @@ GET    /api/world/entities/{id}/relations
 # 别名（inline on CoreEntity）
 GET    /api/world/aliases
 POST   /api/world/aliases
+PATCH  /api/world/entities/{entity_id}/aliases/edit
 DELETE /api/world/entities/{entity_id}/aliases
+POST   /api/world/entities/{candidate_id}/resolve-as-alias
 
 # 实体批次
 GET    /api/world/entity-batches
@@ -162,6 +172,7 @@ GET    /api/world/entity-batches
 GET    /api/world/relations
 POST   /api/world/relations
 PUT    /api/world/relations/{rel_id}
+PATCH  /api/world/relations/{rel_id}/review-edit
 DELETE /api/world/relations/{rel_id}
 
 # 事件

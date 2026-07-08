@@ -7,7 +7,7 @@ Alembic 迁移环境配置
 import os
 from logging.config import fileConfig
 
-from sqlalchemy import pool
+from sqlalchemy import inspect, pool, text
 
 from alembic import context
 
@@ -41,6 +41,42 @@ target_metadata = Base.metadata
 load_env_file()
 
 
+def _ensure_version_table_capacity(connection) -> None:
+    """Allow descriptive revision IDs longer than Alembic's varchar(32) default."""
+    if connection.dialect.name != "postgresql":
+        return
+
+    inspector = inspect(connection)
+    if "alembic_version" not in inspector.get_table_names():
+        connection.execute(
+            text(
+                "CREATE TABLE alembic_version ("
+                "version_num VARCHAR(255) NOT NULL, "
+                "CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)"
+                ")"
+            )
+        )
+        connection.commit()
+        return
+
+    columns = {
+        column["name"]: column
+        for column in inspector.get_columns("alembic_version")
+    }
+    version_column = columns.get("version_num")
+    column_type = version_column["type"] if version_column else None
+    if getattr(column_type, "length", None) and column_type.length < 255:
+        connection.execute(
+            text(
+                "ALTER TABLE alembic_version "
+                "ALTER COLUMN version_num TYPE VARCHAR(255)"
+            )
+        )
+
+    if connection.in_transaction():
+        connection.commit()
+
+
 def _database_url() -> str:
     """Return the runtime database URL, falling back to alembic.ini."""
     return os.environ.get("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
@@ -62,6 +98,8 @@ def run_migrations_offline() -> None:
 
 def do_run_migrations(connection) -> None:
     """在线迁移：连接数据库执行迁移"""
+    _ensure_version_table_capacity(connection)
+
     context.configure(
         connection=connection,
         target_metadata=target_metadata,

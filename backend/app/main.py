@@ -9,6 +9,7 @@ AI 长篇小说结构化创作引擎 v2.0
 from __future__ import annotations  # noqa: I001
 
 import asyncio
+import hmac
 import logging
 import re
 import time
@@ -22,7 +23,11 @@ from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from core import container
-from core.config import get_settings, validate_cors_origins
+from core.config import (
+    get_settings,
+    validate_app_access_token_config,
+    validate_cors_origins,
+)
 from core.database import get_manager
 from core.errors import DomainError
 from infrastructure.embedding.client import (
@@ -47,6 +52,8 @@ _UUID_PATH_SEGMENT_RE = re.compile(
 )
 _LONG_HEX_PATH_SEGMENT_RE = re.compile(r"^[0-9a-fA-F]{16,}$")
 _LONG_HASH_PATH_SEGMENT_RE = re.compile(r"^(?=.*\d)[A-Za-z0-9_-]{24,}$")
+_STATE_CHANGING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+_API_SECURITY_EXEMPT_PATHS = {"/api/health", "/api/health/llm"}
 
 
 def _redact_request_path(path: str) -> str:
@@ -217,11 +224,63 @@ class _TimingMiddleware:
 app.add_middleware(_TimingMiddleware)
 
 
+class _ApiSecurityMiddleware:
+    """App-wide lightweight guard for same-origin console writes and closed tests."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = str(scope.get("path") or "")
+        method = str(scope.get("method") or "").upper()
+        if not path.startswith("/api/") or method == "OPTIONS":
+            await self.app(scope, receive, send)
+            return
+
+        headers = {
+            key.decode("latin1").lower(): value.decode("latin1")
+            for key, value in scope.get("headers", [])
+        }
+        settings = get_settings()
+
+        if settings.app_access_token and path not in _API_SECURITY_EXEMPT_PATHS:
+            expected = f"Bearer {settings.app_access_token}"
+            supplied = headers.get("authorization", "")
+            if not hmac.compare_digest(supplied, expected):
+                response = JSONResponse(
+                    status_code=401,
+                    content={"detail": "Missing or invalid access token"},
+                )
+                await response(scope, receive, send)
+                return
+
+        if (
+            method in _STATE_CHANGING_METHODS
+            and headers.get("x-requested-with") != "XMLHttpRequest"
+        ):
+            response = JSONResponse(
+                status_code=403,
+                content={"detail": "Missing X-Requested-With header"},
+            )
+            await response(scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(_ApiSecurityMiddleware)
+
+
 # CORS 配置：开发环境允许前端本地文件 + localhost
 # 生产环境请通过 ALLOWED_ORIGINS 环境变量设置具体域名
 _settings = get_settings()
 _origins = _settings.allowed_origins
 validate_cors_origins(_settings.app_env, _origins)
+validate_app_access_token_config(_settings.app_env, _settings.app_access_token)
 if not _origins or _origins == ["*"]:
     app.add_middleware(
         CORSMiddleware,

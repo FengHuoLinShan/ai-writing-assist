@@ -99,7 +99,8 @@ LLM 只生成建议；`smart-dedup/apply` 必须 `confirmed=true`。正史对象
 
 ### LLM 配置安全规则
 
-- `settings.llm.api_key` 是写入字段，`ProjectResponse` 和专用 LLM 设置响应只返回 `api_key_configured`
+- `settings.llm.api_key` 是加密写入字段；`ProjectResponse` 和专用 LLM 设置响应只返回 `api_key_configured`
+- 写入密钥需要配置 `LLM_SETTINGS_ENCRYPTION_KEY`；旧明文值可兼容读取，并会在后续保存时转为密文
 - 前端空提交 `api_key` 会保留已有密钥；`clear_api_key=true` 才清除
 - 供应商模板只提供可编辑预填值，不写入密钥
 

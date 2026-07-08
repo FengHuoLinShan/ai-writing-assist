@@ -27,8 +27,8 @@ imports 模块负责将本地小说文件解析并导入系统，创建 WritingD
 DeepImportWorkflow 将 Scene 提取、实体抽取和结构分析串成全自动流水线，
 直接入库无需用户中途确认。当前权威 Scene 阶段是
 `Phase 0 deterministic plan → Phase 1a scene slicing → Phase 1b scene enrichment → Scene commit`。
-旧 `scene_prefetch` / `scene_reinforcement` / `scene_fusion` 只保留为 legacy/repair 组件，
-默认不进入 Scene 自动提取路径。
+旧 `scene_prefetch` / `scene_reinforcement` legacy pipeline 已删除；
+`scene_fusion` 仍作为内部兼容/修复组件保留，默认不进入 Scene 自动提取主路径。
 `workflow.py` 不再保留旧 prefetch / reinforcement / single-chapter fallback / fusion wrapper；
 默认路径只通过 `workflow_scene_phase.py` 调用 plan / slicing / enrichment / commit seam。
 `workflow.py` 仅保留 `DeepImportWorkflowRuntime` 要求的活跃 phase runner seam；
@@ -56,7 +56,7 @@ DeepImportWorkflow 将 Scene 提取、实体抽取和结构分析串成全自动
 
 ### Phase 2a / 2b: 世界对象、Delta、别名与关系（40%）
 - Phase 2a 基于已提交 Scene 抽取世界对象与 Delta。
-- Phase 2 Scene 实体抽取实现位于 `entity_extraction/` 子包；顶层 `scene_entity_extraction.py` 只保留兼容 shell，不承载真实实现。
+- Phase 2 Scene 实体抽取实现位于 `entity_extraction/` 子包；`modules.imports.entity_extraction` 是稳定公共导出入口，旧顶层 `scene_entity_extraction.py` 兼容 hub 已删除。
 - Phase 2a 路由选择集中在 `entity_extraction/scene_entity_strategy.py`，只决定 empty、small-sample parallel、bulk、batched 或 checkpoint resume；LLM 调用、persistence、checkpoint、prompt、timeout 和返回契约仍由子包内执行模块负责。
 - Phase 2b 基于 Phase 2a 的对象索引补抽别名和关系；失败只降级，不丢弃已抽取对象。
 - 大量 Scene 使用 batch 间并发、batch 内 Scene 串行的调度；每个 batch 保留局部 rolling context。

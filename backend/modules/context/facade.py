@@ -14,6 +14,7 @@ from modules.context.contracts import (
     ConfirmedAIActionContext,
     ContextConfirmationContract,
     ContextSnapshotContract,
+    ContextSnapshotRequest,
     StructureContextBundle,
 )
 from modules.context.markdown_renderer import (
@@ -402,29 +403,41 @@ async def create_context_snapshot(
     rendered_context: str | None = None,
     retain_rendered_context: bool = False,
 ) -> ContextSnapshotContract:
-    return await _snapshot_service.create_context_snapshot(
+    return await open_context_snapshot(
         db,
-        novel_id=novel_id,
-        task_id=task_id,
-        workflow_id=workflow_id,
-        phase=phase,
-        operation=operation,
-        scene_id=scene_id,
-        scene_index=scene_index,
-        chapter_index=chapter_index,
-        context_mode=context_mode,
-        include_pending_objects=include_pending_objects,
-        attempt=attempt,
-        prompt_name=prompt_name,
-        model=model,
-        compile_options=compile_options,
-        included_asset_ids=included_asset_ids,
-        excluded_asset_ids=excluded_asset_ids,
-        context_summary=context_summary,
-        section_metadata=section_metadata,
-        token_metadata=token_metadata,
-        rendered_context=rendered_context,
-        retain_rendered_context=retain_rendered_context,
+        ContextSnapshotRequest(
+            novel_id=novel_id,
+            task_id=task_id,
+            workflow_id=workflow_id,
+            phase=phase,
+            operation=operation,
+            scene_id=scene_id,
+            scene_index=scene_index,
+            chapter_index=chapter_index,
+            context_mode=context_mode,
+            include_pending_objects=include_pending_objects,
+            attempt=attempt,
+            prompt_name=prompt_name,
+            model=model,
+            compile_options=compile_options,
+            included_asset_ids=included_asset_ids,
+            excluded_asset_ids=excluded_asset_ids,
+            context_summary=context_summary,
+            section_metadata=section_metadata,
+            token_metadata=token_metadata,
+            rendered_context=rendered_context,
+            retain_rendered_context=retain_rendered_context,
+        ),
+    )
+
+
+async def open_context_snapshot(
+    db: AsyncSession,
+    request: ContextSnapshotRequest,
+) -> ContextSnapshotContract:
+    return await _snapshot_service.open_context_snapshot(
+        db,
+        request,
     )
 
 
@@ -434,7 +447,20 @@ async def mark_context_snapshot_succeeded(
     snapshot_id: str,
     result_refs: list[dict],
 ) -> ContextSnapshotContract:
-    return await _snapshot_service.mark_context_snapshot_succeeded(
+    return await succeed_context_snapshot(
+        db,
+        snapshot_id=snapshot_id,
+        result_refs=result_refs,
+    )
+
+
+async def succeed_context_snapshot(
+    db: AsyncSession,
+    *,
+    snapshot_id: str,
+    result_refs: list[dict],
+) -> ContextSnapshotContract:
+    return await _snapshot_service.succeed_context_snapshot(
         db,
         snapshot_id=snapshot_id,
         result_refs=result_refs,
@@ -448,7 +474,22 @@ async def mark_context_snapshot_failed(
     error_kind: str,
     error_message: str,
 ) -> ContextSnapshotContract:
-    return await _snapshot_service.mark_context_snapshot_failed(
+    return await fail_context_snapshot(
+        db,
+        snapshot_id=snapshot_id,
+        error_kind=error_kind,
+        error_message=error_message,
+    )
+
+
+async def fail_context_snapshot(
+    db: AsyncSession,
+    *,
+    snapshot_id: str,
+    error_kind: str,
+    error_message: str,
+) -> ContextSnapshotContract:
+    return await _snapshot_service.fail_context_snapshot(
         db,
         snapshot_id=snapshot_id,
         error_kind=error_kind,

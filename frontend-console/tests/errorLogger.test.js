@@ -31,6 +31,7 @@ describe("errorLogger scoped buckets", () => {
   beforeEach(() => {
     document.body.replaceChildren()
     localStorage.clear()
+    sessionStorage.clear()
     globalThis.showToastNotification = vi.fn()
     state.currentProjectId = null
     state.currentProject = null
@@ -68,6 +69,18 @@ describe("errorLogger scoped buckets", () => {
     const payload = JSON.parse(fetch.mock.calls.at(-1)[1].body)
     expect(payload.projectId).toBeUndefined()
     expect(payload.frontendId).toBe(1)
+  })
+
+  it("sends closed-test access token when mirroring errors to backend", () => {
+    sessionStorage.setItem("novel_app_access_token", "closed-token")
+
+    recordToastError("closed deployment error")
+
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(fetch.mock.calls[0][1].headers).toEqual(expect.objectContaining({
+      "X-Requested-With": "XMLHttpRequest",
+      Authorization: "Bearer closed-token",
+    }))
   })
 
   it("clears only the current project bucket", () => {

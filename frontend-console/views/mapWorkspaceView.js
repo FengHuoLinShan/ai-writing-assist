@@ -1430,30 +1430,37 @@ const mapWorkspaceView = {
     const root = document.getElementById("workspace-content")
     if (!root) return
     this._bindViewModeControls()
+    const runAction = (fn) => {
+      Promise.resolve()
+        .then(fn)
+        .catch((err) => toast(`操作失败：${err.message || "未知错误"}`, "error"))
+    }
     root.onclick = (e) => {
       const target = e.target.closest("[data-action]")
       if (!target) return
       const action = target.dataset.action
-      if (action === "map-open-recent") this._openRecentMap()
-      if (action === "map-open") this._openMap(target.dataset.id, { viewMode: "live" })
-      if (action === "map-search-location") this._openLocation(target.dataset.id)
-      if (action === "map-quick-create") this._openQuickCreate()
-      if (action === "map-create-world") this._showCreateWorldForm()
-      if (action === "map-confirm-observation") this._confirmObservation(target.dataset.id)
-      if (action === "map-ignore-observation") this._ignoreObservation(target.dataset.id)
-      if (action === "map-view-mode") this._setViewMode(target.dataset.viewMode)
-      if (action === "map-playback-start") this._startPlayback()
-      if (action === "map-playback-stop") this._stopPlayback()
-      if (action === "map-batch-review") this._batchReviewGroup(target.dataset.group, target.dataset.reviewAction)
+      if (action === "map-open-recent") return runAction(() => this._openRecentMap())
+      if (action === "map-open") return runAction(() => this._openMap(target.dataset.id, { viewMode: "live" }))
+      if (action === "map-search-location") return runAction(() => this._openLocation(target.dataset.id))
+      if (action === "map-quick-create") return runAction(() => this._openQuickCreate())
+      if (action === "map-create-world") return runAction(() => this._showCreateWorldForm())
+      if (action === "map-confirm-observation") return runAction(() => this._confirmObservation(target.dataset.id))
+      if (action === "map-ignore-observation") return runAction(() => this._ignoreObservation(target.dataset.id))
+      if (action === "map-view-mode") return runAction(() => this._setViewMode(target.dataset.viewMode))
+      if (action === "map-playback-start") return runAction(() => this._startPlayback())
+      if (action === "map-playback-stop") return runAction(() => this._stopPlayback())
+      if (action === "map-batch-review") return runAction(() => this._batchReviewGroup(target.dataset.group, target.dataset.reviewAction))
       if (action === "map-open-dynamic-item") {
-        this._showDynamicObjectInfo(target.dataset.id)
+        return runAction(() => this._showDynamicObjectInfo(target.dataset.id))
       }
       if (action === "map-overview") {
-        this._mode = "overview"
-        this._activeMapId = null
-        this._resetDynamicSummary()
-        mapView.unmount()
-        router.refresh?.()
+        return runAction(() => {
+          this._mode = "overview"
+          this._activeMapId = null
+          this._resetDynamicSummary()
+          mapView.unmount()
+          router.refresh?.()
+        })
       }
     }
     root.querySelectorAll("[data-action='map-layer-toggle']").forEach((input) => {
@@ -1477,12 +1484,22 @@ const mapWorkspaceView = {
   },
 
   async _openQuickCreate() {
-    await mapQuickCreateView.open({
-      onCreated: async (map) => {
-        await this._loadData()
-        this._openMap(map.id, { viewMode: "live" })
-      },
-    })
+    if (!state.currentProjectId) {
+      toast("请先选择项目", "warning")
+      return null
+    }
+    try {
+      await mapQuickCreateView.open({
+        onCreated: async (map) => {
+          await this._loadData()
+          this._openMap(map.id, { viewMode: "live" })
+        },
+      })
+      return true
+    } catch (err) {
+      toast(`快速创建地图失败：${err.message || "未知错误"}`, "error")
+      return null
+    }
   },
 
   _showCreateWorldForm() {

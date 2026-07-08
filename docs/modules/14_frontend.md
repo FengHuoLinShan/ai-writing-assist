@@ -37,7 +37,7 @@
 |------|----------|
 | `projectView` | 项目 CRUD、回收站、导入入口 |
 | `writingView` | Scene 树 + 编辑器 + Scene 面板；版本历史；深度导入；Scene 地图摘要跳转 |
-| `worldView` | 对象库、候选清洗、关系、别名；`map` 子标签现在只做兼容跳转 |
+| `worldView` | 对象库、候选清洗、关系、别名；世界书支持编辑、图鉴和筛选三种内部展示；`map` 子标签现在只做兼容跳转 |
 | `mapWorkspaceView` | 地图一级工作台，总览、最近地图、地图树、图层开关、搜索、聚焦；世界动态总控台、活地图、叙事透镜切换、电影化播放 |
 | `mapView` | 具体地图渲染与编辑：地形、地点绑定、标记、势力范围；浏览态地点标签避让与聚合 |
 | `outlineView` | 剧情线、篇章纲、Scene、伏笔、揭示、结构生成 |
@@ -62,7 +62,7 @@
 
 - 开发服务器使用 Vite：`npm run dev`，默认端口 8080，可通过 `FRONTEND_PORT` 覆盖。
 - 单元测试使用 Vitest：`npm run test`；监听模式为 `npm run test:watch`。
-- 浏览器 E2E 使用 Playwright：`npm run test:e2e`；烟雾子集为 `npm run test:e2e:smoke`。
+- 浏览器 E2E 使用 Playwright：`npm run test:e2e`；烟雾子集为 `npm run test:e2e:smoke`。默认本地可复用已有 8000/8080 服务；涉及数据库 schema 的 E2E 使用 `PW_REUSE_EXISTING_SERVER=0` 强制 fresh server，让后端启动前执行 `APP_ENV=test alembic upgrade head`。如端口被旧服务占用，使用 `BACKEND_PORT=8010 FRONTEND_PORT=8090 PW_REUSE_EXISTING_SERVER=0`。
 - `npm run test:all` 先跑 Vitest，再跑 Playwright。
 - 当前 `package.json` 未定义前端构建脚本，也没有独立 lint/format 依赖；前端静态约束以现有测试和 `git diff --check` 为主。
 - 当前已落地 vanilla JS 共享 API 契约校验第一阶段，覆盖项目、设置、导入、上下文、世界/地图、写作冲突检查和 RAG 的高风险 wrapper 子集；TypeScript / OpenAPI codegen 仍是未来设计项，当前说明见 `docs/frontend/typescript-api-contracts.md`。

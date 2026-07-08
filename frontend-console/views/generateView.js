@@ -738,14 +738,22 @@ const generateView = {
       controller = this._trackRequestController()
       const response = await api.generate.generateObjectDraft(this._buildPayload(), { signal: controller.signal })
       this._lastEntity = response?.entity || null
-      if (resultEl) resultEl.innerHTML = this._lastEntity
-        ? this._renderEntityResult(this._lastEntity)
-        : '<p class="generate-empty-copy">生成完成，但未返回对象。</p>'
+      if (resultEl) {
+        resultEl.replaceChildren()
+        if (this._lastEntity) {
+          resultEl.append(this._renderEntityResultNode(this._lastEntity))
+        } else {
+          const empty = document.createElement("p")
+          empty.className = "generate-empty-copy"
+          empty.textContent = "生成完成，但未返回对象。"
+          resultEl.append(empty)
+        }
+      }
       this._persistState()
       toast("对象草稿已生成", "success")
     } catch (err) {
       if (resultEl) {
-        resultEl.innerHTML = `<p style="color:var(--danger);font-size:13px;">生成失败：${esc(err.message || "未知错误")}</p>`
+        resultEl.replaceChildren(this._renderInlineError(`生成失败：${err.message || "未知错误"}`))
       }
       toast(`生成失败：${err.message || "未知错误"}`, "error")
     } finally {
@@ -864,6 +872,54 @@ const generateView = {
         </div>
       </div>
     `
+  },
+
+  _renderEntityResultNode(entity) {
+    const card = document.createElement("div")
+    card.className = "generate-result-card"
+
+    const title = document.createElement("div")
+    title.className = "generate-result-title"
+    title.textContent = entity.name || "未命名对象"
+
+    const meta = document.createElement("div")
+    meta.className = "generate-result-meta"
+    meta.textContent = `${entity.entity_type || "-"} · ${entity.status || "draft"}`
+
+    const summary = document.createElement("p")
+    summary.style.cssText = "font-size:13px;line-height:1.6;margin:0;"
+    summary.textContent = entity.summary || "已生成数据库草稿。"
+
+    const actions = document.createElement("div")
+    actions.className = "generate-result-actions"
+    const buttons = [
+      ["open-generated-destination", "打开世界对象", "btn btn-sm btn-primary"],
+      ["continue-chat", "继续聊", "btn btn-sm"],
+      ["generate-another", "再生成一个", "btn btn-sm"],
+      ["view-generation-context", "查看上下文", "btn btn-sm"],
+    ]
+    for (const [action, label, className] of buttons) {
+      const button = document.createElement("button")
+      button.type = "button"
+      button.className = className
+      button.dataset.action = action
+      if (action === "open-generated-destination") {
+        button.dataset.targetView = "world"
+        button.dataset.targetSubview = "objects"
+      }
+      button.textContent = label
+      actions.append(button)
+    }
+
+    card.append(title, meta, summary, actions)
+    return card
+  },
+
+  _renderInlineError(message) {
+    const p = document.createElement("p")
+    p.style.cssText = "color:var(--danger);font-size:13px;"
+    p.textContent = message
+    return p
   },
 
   _buildPayload() {
@@ -1339,7 +1395,7 @@ const generateView = {
     } catch (err) {
       const message = `编译失败：${esc(err.message || "未知错误")}`
       if (output) {
-        output.innerHTML = `<p style="color:var(--danger);font-size:13px;">${message}</p>`
+        output.replaceChildren(this._renderInlineError(`编译失败：${err.message || "未知错误"}`))
       }
       if (!silent) {
         toast(message, "error")

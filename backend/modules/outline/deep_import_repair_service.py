@@ -79,7 +79,11 @@ class OutlineDeepImportRepairService:
         list_entities: ListEntities | None = None,
     ) -> None:
         self._service_resolver = service_resolver
-        self._list_entities = list_entities or default_list_entities
+        self._list_entities = (
+            list_entities
+            or self._resolve_optional_list_entities(service_resolver)
+            or default_list_entities
+        )
 
     async def reindex_scenes(self, db: AsyncSession, novel_id: str) -> int:
         nid = parse_uuid(novel_id, "novel_id")
@@ -424,6 +428,17 @@ class OutlineDeepImportRepairService:
             "outline.reveal_service": RevealPlanService(),
         }
         return defaults[name]
+
+    @staticmethod
+    def _resolve_optional_list_entities(
+        service_resolver: ServiceResolver | None,
+    ) -> ListEntities | None:
+        if service_resolver is None:
+            return None
+        try:
+            return service_resolver("world.list_entities")
+        except KeyError:
+            return None
 
     def _scene_chapter_sort_key(self, scene) -> int:
         chunks = scene.scene_chunks or []

@@ -76,6 +76,15 @@ async def test_persist_calls_services_in_order(
         scene_index=0,
         title="开场",
     )
+    persister._thread_service.create_batch.return_value = [
+        persister._thread_service.create.return_value
+    ]
+    persister._arc_service.create_batch.return_value = [
+        persister._arc_service.create.return_value
+    ]
+    persister._scene_service.batch_create_models_from_dicts.return_value = [
+        persister._scene_service.create.return_value
+    ]
 
     result = await persister.persist(
         db=mock.AsyncMock(),
@@ -90,9 +99,9 @@ async def test_persist_calls_services_in_order(
     assert result.total_threads == 1
     assert result.total_arcs == 1
     assert result.total_scenes == 1
-    persister._thread_service.create.assert_awaited()
-    persister._arc_service.create.assert_awaited()
-    persister._scene_service.create.assert_awaited()
+    persister._thread_service.create_batch.assert_awaited_once()
+    persister._arc_service.create_batch.assert_awaited_once()
+    persister._scene_service.batch_create_models_from_dicts.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -115,6 +124,9 @@ async def test_persist_sanitizes_invalid_arc_index(
         novel_id="n1",
         title="第一卷",
     )
+    persister._arc_service.create_batch.return_value = [
+        persister._arc_service.create.return_value
+    ]
 
     await persister.persist(
         db=mock.AsyncMock(),
@@ -126,7 +138,8 @@ async def test_persist_sanitizes_invalid_arc_index(
         character_name_to_id={},
     )
 
-    _db, _novel_id, arc_data = persister._arc_service.create.await_args.args
+    _db, _novel_id, arc_payloads = persister._arc_service.create_batch.await_args.args
+    arc_data = arc_payloads[0]
     assert arc_data.arc_index is None
 
 
@@ -159,6 +172,12 @@ async def test_persist_creates_foreshadowing_and_reveal(
         target_id="target",
         secret_summary="秘密",
     )
+    persister._foreshadowing_service.create_batch.return_value = [
+        persister._foreshadowing_service.create.return_value
+    ]
+    persister._reveal_service.create_batch.return_value = [
+        persister._reveal_service.create.return_value
+    ]
 
     result = await persister.persist(
         db=mock.AsyncMock(),
@@ -170,8 +189,8 @@ async def test_persist_creates_foreshadowing_and_reveal(
         character_name_to_id={},
     )
 
-    persister._foreshadowing_service.create.assert_awaited_once()
-    persister._reveal_service.create.assert_awaited_once()
+    persister._foreshadowing_service.create_batch.assert_awaited_once()
+    persister._reveal_service.create_batch.assert_awaited_once()
     assert len(result.extra_sections["foreshadowing_plans"]) == 1
     assert len(result.extra_sections["reveal_plans"]) == 1
 
@@ -204,6 +223,9 @@ async def test_persist_truncates_long_narrative_tag(
         scene_index=0,
         title="开场",
     )
+    persister._scene_service.batch_create_models_from_dicts.return_value = [
+        persister._scene_service.create.return_value
+    ]
 
     await persister.persist(
         db=mock.AsyncMock(),
@@ -215,5 +237,7 @@ async def test_persist_truncates_long_narrative_tag(
         character_name_to_id={},
     )
 
-    _db, _novel_id, scene_data = persister._scene_service.create.await_args.args
-    assert scene_data.narrative_tag == "daily_life_character_introductio"
+    _db, _novel_id, scene_payloads = (
+        persister._scene_service.batch_create_models_from_dicts.await_args.args
+    )
+    assert scene_payloads[0]["narrative_tag"] == "daily_life_character_introductio"

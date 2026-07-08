@@ -118,9 +118,9 @@ class PlotStructureGenerator:
 
         if parsed is None:
             if snapshot_id is not None:
-                from modules.context.facade import mark_context_snapshot_failed
+                from modules.context.facade import fail_context_snapshot
 
-                await mark_context_snapshot_failed(
+                await fail_context_snapshot(
                     db,
                     snapshot_id=snapshot_id,
                     error_kind="empty_output",
@@ -182,9 +182,9 @@ class PlotStructureGenerator:
             data = result.to_dict()
             if snapshot_id is not None:
                 refs = self._result_refs(data)
-                from modules.context.facade import mark_context_snapshot_succeeded
+                from modules.context.facade import succeed_context_snapshot
 
-                await mark_context_snapshot_succeeded(
+                await succeed_context_snapshot(
                     db,
                     snapshot_id=snapshot_id,
                     result_refs=refs,
@@ -220,70 +220,73 @@ class PlotStructureGenerator:
         context_mode: str,
         include_pending_objects: bool,
     ) -> str:
-        from modules.context.facade import create_context_snapshot
+        from modules.context.contracts import ContextSnapshotRequest
+        from modules.context.facade import open_context_snapshot
 
         token_estimate = estimate_token_count(markdown, model=model)
-        snapshot = await create_context_snapshot(
+        snapshot = await open_context_snapshot(
             db,
-            novel_id=novel_id,
-            task_id=workflow_id,
-            workflow_id=workflow_id,
-            phase="structure_analysis",
-            operation="plot_structure_generation",
-            chapter_index=start_chapter,
-            context_mode=context_mode,
-            include_pending_objects=include_pending_objects,
-            attempt=1,
-            prompt_name="structure_plot",
-            model=model,
-            compile_options={
-                "source": "deep_import_phase3_structure_context",
-                "scope": "full",
-                "start_chapter": start_chapter,
-                "end_chapter": end_chapter,
-                "context_mode": context_mode,
-                "include_pending_objects": include_pending_objects,
-            },
-            included_asset_ids={
-                "context_sections": ["structure_context"],
-                "chapters": [str(i) for i in range(start_chapter, end_chapter + 1)],
-            },
-            context_summary={
-                "chapter_range": {"start": start_chapter, "end": end_chapter},
-                "context_mode": context_mode,
-                "include_pending_objects": include_pending_objects,
-                "section_count": 1,
-                "total_tokens": token_estimate,
-                "evicted": [],
-                "truncated": [],
-                "warnings_count": len(warnings),
-            },
-            section_metadata={
-                "asset_id_visibility": (
-                    "current structure context does not expose complete asset ids"
-                ),
-                "warnings": warnings,
-                "sections": [
-                    {
-                        "key": "structure_context",
-                        "tier": 0,
-                        "token_count": token_estimate,
-                        "truncated": False,
-                        "hash": hashlib.sha256(
-                            markdown.encode("utf-8")
-                        ).hexdigest(),
-                    }
-                ],
-                "evicted": [],
-                "truncated": [],
-            },
-            token_metadata={
-                "total_tokens": token_estimate,
-                "budget_tokens": None,
-                "sections": {"structure_context": token_estimate},
-            },
-            rendered_context=markdown,
-            retain_rendered_context=False,
+            ContextSnapshotRequest(
+                novel_id=novel_id,
+                task_id=workflow_id,
+                workflow_id=workflow_id,
+                phase="structure_analysis",
+                operation="plot_structure_generation",
+                chapter_index=start_chapter,
+                context_mode=context_mode,
+                include_pending_objects=include_pending_objects,
+                prompt_name="structure_plot",
+                model=model,
+                compile_options={
+                    "source": "deep_import_phase3_structure_context",
+                    "scope": "full",
+                    "start_chapter": start_chapter,
+                    "end_chapter": end_chapter,
+                    "context_mode": context_mode,
+                    "include_pending_objects": include_pending_objects,
+                },
+                included_asset_ids={
+                    "context_sections": ["structure_context"],
+                    "chapters": [
+                        str(i) for i in range(start_chapter, end_chapter + 1)
+                    ],
+                },
+                context_summary={
+                    "chapter_range": {"start": start_chapter, "end": end_chapter},
+                    "context_mode": context_mode,
+                    "include_pending_objects": include_pending_objects,
+                    "section_count": 1,
+                    "total_tokens": token_estimate,
+                    "evicted": [],
+                    "truncated": [],
+                    "warnings_count": len(warnings),
+                },
+                section_metadata={
+                    "asset_id_visibility": (
+                        "current structure context does not expose complete asset ids"
+                    ),
+                    "warnings": warnings,
+                    "sections": [
+                        {
+                            "key": "structure_context",
+                            "tier": 0,
+                            "token_count": token_estimate,
+                            "truncated": False,
+                            "hash": hashlib.sha256(
+                                markdown.encode("utf-8")
+                            ).hexdigest(),
+                        }
+                    ],
+                    "evicted": [],
+                    "truncated": [],
+                },
+                token_metadata={
+                    "total_tokens": token_estimate,
+                    "budget_tokens": None,
+                    "sections": {"structure_context": token_estimate},
+                },
+                rendered_context=markdown,
+            ),
         )
         return snapshot.id
 
@@ -293,9 +296,9 @@ class PlotStructureGenerator:
         snapshot_id: str,
         exc: Exception,
     ) -> None:
-        from modules.context.facade import mark_context_snapshot_failed
+        from modules.context.facade import fail_context_snapshot
 
-        await mark_context_snapshot_failed(
+        await fail_context_snapshot(
             db,
             snapshot_id=snapshot_id,
             error_kind=exc.__class__.__name__,

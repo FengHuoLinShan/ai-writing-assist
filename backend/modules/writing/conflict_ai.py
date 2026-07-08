@@ -10,6 +10,7 @@ from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import NotFoundError, ValidationError
+from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.writing.repositories import WritingConflictCheckRepository
@@ -88,7 +89,8 @@ class ConflictCheckAiReviewService:
         )
 
         try:
-            output = await self._llm.generate_structured(
+            output = await run_managed_structured(
+                self._llm,
                 LLMCallRequest(
                     model=getattr(self._llm, "model_name", "deepseek-v4-flash"),
                     messages=[
@@ -109,6 +111,7 @@ class ConflictCheckAiReviewService:
                     max_tokens=WRITING_CONFLICT_AI_MAX_TOKENS,
                 ),
                 WritingConflictAiReviewRawOutput,
+                step_name="writing.conflict_check.ai_review.structured",
             )
             ai_items, discarded_count = _ai_review_items(
                 output,
@@ -242,7 +245,8 @@ class ConflictSuggestionService:
         )
 
         try:
-            output = await self._llm.generate_structured(
+            output = await run_managed_structured(
+                self._llm,
                 LLMCallRequest(
                     model=getattr(self._llm, "model_name", "deepseek-v4-flash"),
                     messages=[
@@ -264,6 +268,7 @@ class ConflictSuggestionService:
                     max_tokens=WRITING_CONFLICT_AI_MAX_TOKENS,
                 ),
                 WritingConflictSuggestionOutput,
+                step_name="writing.conflict_check.ai_suggestion.structured",
             )
             suggestion_text = output.suggestion.model_dump_json(ensure_ascii=False)
             updated = await self._repo.update_loaded_item_suggestion(

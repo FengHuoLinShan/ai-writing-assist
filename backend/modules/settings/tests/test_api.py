@@ -24,8 +24,10 @@ async def test_get_settings_does_not_require_xhr_header(async_client: AsyncClien
 
 
 @pytest.mark.asyncio
-async def test_put_global_llm_defaults_requires_xhr_header(async_client: AsyncClient):
-    r = await async_client.put(
+async def test_put_global_llm_defaults_requires_xhr_header(
+    raw_async_client: AsyncClient,
+):
+    r = await raw_async_client.put(
         "/api/settings/llm-defaults",
         json={"provider_id": "deepseek"},
     )

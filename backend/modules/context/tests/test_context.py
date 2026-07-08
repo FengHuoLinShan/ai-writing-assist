@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.context.contracts import (
     CONTEXT_BUDGET,
     ContextConfirmationContract,
+    ContextSnapshotRequest,
     StructureContextBundle,
 )
 from modules.context.facade import (
@@ -34,6 +35,38 @@ from modules.context.facade import (
 )
 from modules.context.markdown_renderer import render_context_markdown as render_md
 from modules.context.services import CompileOptions
+
+
+def _snapshot_request(
+    novel_id: str,
+    **overrides,
+) -> ContextSnapshotRequest:
+    payload = {
+        "phase": "entity_extraction",
+        "operation": "scene_entity_extraction",
+        "prompt_name": "scene_entity_extraction",
+        "model": "test-model",
+        "compile_options": {},
+        "included_asset_ids": {},
+        "context_summary": {},
+        "section_metadata": {},
+        "token_metadata": {},
+    }
+    payload.update(overrides)
+    return ContextSnapshotRequest(novel_id=novel_id, **payload)
+
+
+async def _open_snapshot(
+    db_session: AsyncSession,
+    novel_id: str,
+    **overrides,
+):
+    from modules.context.facade import open_context_snapshot
+
+    return await open_context_snapshot(
+        db_session,
+        _snapshot_request(novel_id, **overrides),
+    )
 
 # ============================================================
 # Context Confirmation 测试
@@ -294,17 +327,105 @@ class TestContextSnapshot:
     """测试自动 AI 调用上下文快照。"""
 
     @pytest.mark.asyncio
+    async def test_open_snapshot_request_defaults_and_legacy_equivalence(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        from modules.context.facade import (
+            create_context_snapshot,
+            fail_context_snapshot,
+            mark_context_snapshot_failed,
+            mark_context_snapshot_succeeded,
+            open_context_snapshot,
+        )
+
+        novel_id = "00000000-0000-0000-0000-000000000200"
+        request = ContextSnapshotRequest(
+            novel_id=novel_id,
+            phase="entity_extraction",
+            operation="scene_entity_extraction",
+            prompt_name="scene_entity_extraction",
+            model="test-model",
+            compile_options={"scope": "scene"},
+            included_asset_ids={"scenes": ["scene-1"]},
+            context_summary={"scene_index": 1},
+            section_metadata={"sections": []},
+            token_metadata={"total_tokens": 12},
+            rendered_context="full markdown should stay compact by default",
+        )
+
+        assert request.context_mode == "working"
+        assert request.include_pending_objects is True
+        assert request.attempt == 1
+        assert request.excluded_asset_ids is None
+        assert request.retain_rendered_context is False
+
+        opened = await open_context_snapshot(db_session, request)
+        legacy = await create_context_snapshot(
+            db_session,
+            novel_id=novel_id,
+            phase=request.phase,
+            operation=request.operation,
+            prompt_name=request.prompt_name,
+            model=request.model,
+            compile_options=request.compile_options,
+            included_asset_ids=request.included_asset_ids,
+            context_summary=request.context_summary,
+            section_metadata=request.section_metadata,
+            token_metadata=request.token_metadata,
+            rendered_context=request.rendered_context,
+        )
+
+        assert opened.status == "running"
+        assert opened.context_mode == "working"
+        assert opened.include_pending_objects is True
+        assert opened.rendered_context is None
+        assert opened.included_asset_ids == {"scenes": ["scene-1"]}
+        assert opened.prompt_hash == legacy.prompt_hash
+        legacy_done = await mark_context_snapshot_succeeded(
+            db_session,
+            snapshot_id=legacy.id,
+            result_refs=[{"type": "scene", "id": "scene-1"}],
+        )
+        assert legacy_done.status == "succeeded"
+        assert legacy_done.result_refs == [{"type": "scene", "id": "scene-1"}]
+
+        failed = await fail_context_snapshot(
+            db_session,
+            snapshot_id=opened.id,
+            error_kind="long_error",
+            error_message="x" * 800,
+        )
+        assert failed.status == "failed"
+        assert failed.error_kind == "long_error"
+        assert failed.error_message == "x" * 500
+        legacy_failed_target = await _open_snapshot(
+            db_session,
+            novel_id,
+            phase="structure_analysis",
+            operation="plot_structure_generation",
+            prompt_name="structure_plot",
+        )
+        legacy_failed = await mark_context_snapshot_failed(
+            db_session,
+            snapshot_id=legacy_failed_target.id,
+            error_kind="compat_timeout",
+            error_message="compat failed",
+        )
+        assert legacy_failed.status == "failed"
+        assert legacy_failed.error_kind == "compat_timeout"
+
+    @pytest.mark.asyncio
     async def test_create_snapshot_defaults_to_compact_storage(
         self,
         db_session: AsyncSession,
     ) -> None:
         """默认只保存摘要和 metadata，不保存完整 rendered_context。"""
-        from modules.context.facade import create_context_snapshot
 
         novel_id = "00000000-0000-0000-0000-000000000201"
-        snapshot = await create_context_snapshot(
+        snapshot = await _open_snapshot(
             db_session,
-            novel_id=novel_id,
+            novel_id,
             workflow_id="wf-1",
             phase="entity_extraction",
             operation="scene_entity_extraction",
@@ -335,11 +456,10 @@ class TestContextSnapshot:
         db_session: AsyncSession,
     ) -> None:
         """显式 retain_rendered_context 时保存完整上下文并设置过期时间。"""
-        from modules.context.facade import create_context_snapshot
 
-        snapshot = await create_context_snapshot(
+        snapshot = await _open_snapshot(
             db_session,
-            novel_id="00000000-0000-0000-0000-000000000202",
+            "00000000-0000-0000-0000-000000000202",
             workflow_id="wf-2",
             phase="structure_analysis",
             operation="plot_structure_generation",
@@ -364,16 +484,15 @@ class TestContextSnapshot:
     ) -> None:
         """快照可标记成功/失败，prune 只清空 full context。"""
         from modules.context.facade import (
-            create_context_snapshot,
-            mark_context_snapshot_failed,
-            mark_context_snapshot_succeeded,
+            fail_context_snapshot,
             prune_rendered_context,
+            succeed_context_snapshot,
         )
 
         novel_id = "00000000-0000-0000-0000-000000000203"
-        succeeded = await create_context_snapshot(
+        succeeded = await _open_snapshot(
             db_session,
-            novel_id=novel_id,
+            novel_id,
             workflow_id="wf-3",
             phase="entity_extraction",
             operation="scene_entity_extraction",
@@ -387,9 +506,9 @@ class TestContextSnapshot:
             rendered_context="debug markdown",
             retain_rendered_context=True,
         )
-        failed = await create_context_snapshot(
+        failed = await _open_snapshot(
             db_session,
-            novel_id=novel_id,
+            novel_id,
             workflow_id="wf-3",
             phase="structure_analysis",
             operation="plot_structure_generation",
@@ -402,12 +521,12 @@ class TestContextSnapshot:
             token_metadata={},
         )
 
-        done = await mark_context_snapshot_succeeded(
+        done = await succeed_context_snapshot(
             db_session,
             snapshot_id=succeeded.id,
             result_refs=[{"type": "core_entity", "id": "entity-1"}],
         )
-        errored = await mark_context_snapshot_failed(
+        errored = await fail_context_snapshot(
             db_session,
             snapshot_id=failed.id,
             error_kind="timeout",
@@ -526,13 +645,12 @@ class TestContextSceneIsolation:
         db_session: AsyncSession,
     ) -> None:
         """只读 API 必须按 novel_id 隔离。"""
-        from modules.context.facade import create_context_snapshot
 
         owner_novel = "00000000-0000-0000-0000-000000000204"
         other_novel = "00000000-0000-0000-0000-000000000205"
-        created = await create_context_snapshot(
+        created = await _open_snapshot(
             db_session,
-            novel_id=owner_novel,
+            owner_novel,
             workflow_id="wf-api",
             task_id="task-api",
             phase="entity_extraction",
@@ -574,12 +692,11 @@ class TestContextSceneIsolation:
         db_session: AsyncSession,
     ) -> None:
         """列表 API 不返回完整 rendered_context，并支持分页限制。"""
-        from modules.context.facade import create_context_snapshot
 
         novel_id = "00000000-0000-0000-0000-000000000206"
-        first = await create_context_snapshot(
+        first = await _open_snapshot(
             db_session,
-            novel_id=novel_id,
+            novel_id,
             workflow_id="wf-light",
             phase="entity_extraction",
             operation="scene_entity_extraction",
@@ -593,9 +710,9 @@ class TestContextSceneIsolation:
             rendered_context="retained markdown",
             retain_rendered_context=True,
         )
-        await create_context_snapshot(
+        await _open_snapshot(
             db_session,
-            novel_id=novel_id,
+            novel_id,
             workflow_id="wf-light",
             phase="structure_analysis",
             operation="plot_structure_generation",
@@ -634,17 +751,16 @@ class TestContextSceneIsolation:
         """健康摘要按 workflow 聚合状态、phase 和超时 running 计数。"""
         from modules.context.facade import (
             build_snapshot_health_summary,
-            create_context_snapshot,
-            mark_context_snapshot_failed,
-            mark_context_snapshot_succeeded,
+            fail_context_snapshot,
+            succeed_context_snapshot,
         )
         from modules.context.models import ContextSnapshot
 
         novel_id = "00000000-0000-0000-0000-000000000207"
         workflow_id = "wf-health"
-        stale = await create_context_snapshot(
+        stale = await _open_snapshot(
             db_session,
-            novel_id=novel_id,
+            novel_id,
             workflow_id=workflow_id,
             phase="entity_extraction",
             operation="scene_entity_extraction",
@@ -656,9 +772,9 @@ class TestContextSceneIsolation:
             section_metadata={},
             token_metadata={},
         )
-        succeeded = await create_context_snapshot(
+        succeeded = await _open_snapshot(
             db_session,
-            novel_id=novel_id,
+            novel_id,
             workflow_id=workflow_id,
             phase="structure_analysis",
             operation="plot_structure_generation",
@@ -672,9 +788,9 @@ class TestContextSceneIsolation:
             rendered_context="retained",
             retain_rendered_context=True,
         )
-        failed = await create_context_snapshot(
+        failed = await _open_snapshot(
             db_session,
-            novel_id=novel_id,
+            novel_id,
             workflow_id=workflow_id,
             phase="structure_analysis",
             operation="plot_structure_generation",
@@ -686,9 +802,9 @@ class TestContextSceneIsolation:
             section_metadata={},
             token_metadata={},
         )
-        await create_context_snapshot(
+        await _open_snapshot(
             db_session,
-            novel_id=novel_id,
+            novel_id,
             workflow_id="other-workflow",
             phase="entity_extraction",
             operation="scene_entity_extraction",
@@ -701,12 +817,12 @@ class TestContextSceneIsolation:
             token_metadata={},
         )
 
-        await mark_context_snapshot_succeeded(
+        await succeed_context_snapshot(
             db_session,
             snapshot_id=succeeded.id,
             result_refs=[{"type": "plot_thread", "id": "thread-1"}],
         )
-        await mark_context_snapshot_failed(
+        await fail_context_snapshot(
             db_session,
             snapshot_id=failed.id,
             error_kind="parse_empty",
@@ -748,7 +864,6 @@ class TestContextSceneIsolation:
     ) -> None:
         """maintenance 支持 dry-run，并只清理正文不删除 provenance metadata。"""
         from modules.context.facade import (
-            create_context_snapshot,
             get_context_snapshot,
             run_snapshot_maintenance,
         )
@@ -756,9 +871,9 @@ class TestContextSceneIsolation:
 
         novel_id = "00000000-0000-0000-0000-000000000208"
         workflow_id = "wf-maintenance"
-        stale = await create_context_snapshot(
+        stale = await _open_snapshot(
             db_session,
-            novel_id=novel_id,
+            novel_id,
             workflow_id=workflow_id,
             phase="entity_extraction",
             operation="scene_entity_extraction",
@@ -770,9 +885,9 @@ class TestContextSceneIsolation:
             section_metadata={},
             token_metadata={},
         )
-        retained = await create_context_snapshot(
+        retained = await _open_snapshot(
             db_session,
-            novel_id=novel_id,
+            novel_id,
             workflow_id=workflow_id,
             phase="structure_analysis",
             operation="plot_structure_generation",
@@ -786,9 +901,9 @@ class TestContextSceneIsolation:
             rendered_context="expired rendered context",
             retain_rendered_context=True,
         )
-        await create_context_snapshot(
+        await _open_snapshot(
             db_session,
-            novel_id="00000000-0000-0000-0000-000000000209",
+            "00000000-0000-0000-0000-000000000209",
             workflow_id=workflow_id,
             phase="entity_extraction",
             operation="scene_entity_extraction",
@@ -880,14 +995,13 @@ class TestContextSceneIsolation:
         db_session: AsyncSession,
     ) -> None:
         """maintenance API 只统计和修改请求 novel_id 下的快照。"""
-        from modules.context.facade import create_context_snapshot
         from modules.context.models import ContextSnapshot
 
         owner_novel = "00000000-0000-0000-0000-000000000210"
         other_novel = "00000000-0000-0000-0000-000000000211"
-        owner = await create_context_snapshot(
+        owner = await _open_snapshot(
             db_session,
-            novel_id=owner_novel,
+            owner_novel,
             workflow_id="wf-maint-api",
             phase="entity_extraction",
             operation="scene_entity_extraction",
@@ -899,9 +1013,9 @@ class TestContextSceneIsolation:
             section_metadata={},
             token_metadata={},
         )
-        other = await create_context_snapshot(
+        other = await _open_snapshot(
             db_session,
-            novel_id=other_novel,
+            other_novel,
             workflow_id="wf-maint-api",
             phase="entity_extraction",
             operation="scene_entity_extraction",
@@ -954,16 +1068,15 @@ class TestContextSceneIsolation:
     ) -> None:
         """workflow 过滤不能让每个 workflow 各自保留一批 full context。"""
         from modules.context.facade import (
-            create_context_snapshot,
             get_context_snapshot,
             prune_rendered_context,
         )
         from modules.context.models import ContextSnapshot
 
         novel_id = "00000000-0000-0000-0000-000000000212"
-        newest_other_workflow = await create_context_snapshot(
+        newest_other_workflow = await _open_snapshot(
             db_session,
-            novel_id=novel_id,
+            novel_id,
             workflow_id="wf-b",
             phase="entity_extraction",
             operation="scene_entity_extraction",
@@ -977,9 +1090,9 @@ class TestContextSceneIsolation:
             rendered_context="newest other workflow",
             retain_rendered_context=True,
         )
-        older_target_workflow = await create_context_snapshot(
+        older_target_workflow = await _open_snapshot(
             db_session,
-            novel_id=novel_id,
+            novel_id,
             workflow_id="wf-a",
             phase="structure_analysis",
             operation="plot_structure_generation",

@@ -8,6 +8,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
+from infrastructure.llm.agent_step_harness import (
+    run_managed_generate,
+    run_managed_structured,
+)
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.context import facade as context_facade
@@ -53,7 +57,8 @@ class OutlineAIWorkflowService:
         )
         markdown = context_facade.render_compiled_context(compiled)
         settings = get_settings()
-        response = await LLMClient().generate(
+        response = await run_managed_generate(
+            LLMClient(),
             LLMCallRequest(
                 model=settings.llm_model,
                 messages=[
@@ -75,7 +80,8 @@ class OutlineAIWorkflowService:
                     ),
                 ],
                 temperature=0.3,
-            )
+            ),
+            step_name="outline.ai_workflow.analyze.generate",
         )
 
         await context_facade.attach_result_ref(
@@ -145,7 +151,8 @@ class OutlineAIWorkflowService:
         markdown = context_facade.render_compiled_context(compiled)
         scene_instruction = instruction or "从参考资料中提取当前章节的 Scene 卡。"
         settings = get_settings()
-        extracted = await LLMClient().generate_structured(
+        extracted = await run_managed_structured(
+            LLMClient(),
             LLMCallRequest(
                 model=settings.llm_model,
                 messages=[
@@ -174,6 +181,7 @@ class OutlineAIWorkflowService:
                 temperature=0.2,
             ),
             _ExtractedScenesResponse,
+            step_name="outline.ai_workflow.chapter_scenes.structured",
             partial_list_fields={"scenes"},
             format_repair_attempts=1,
         )

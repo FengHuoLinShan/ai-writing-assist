@@ -526,7 +526,7 @@ async def api_split_chapters(
     novel_id: NovelIdQuery,
 ):
     """断章：从 chapter_index 开始将章节从当前 Scene 移到目标 Scene"""
-    return await _scene_workbench_service.split_chapters_legacy(
+    return await _scene_workbench_service.split_chapters_from_api(
         db,
         novel_id,
         data.chapter_index,

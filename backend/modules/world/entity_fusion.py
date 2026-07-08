@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
 from core.errors import DomainError, ValidationError
+from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.rag import facade as rag_facade
@@ -403,7 +404,8 @@ class WorldEntityFusionService:
             "evidence": evidence[:5],
         }
         try:
-            return await client.generate_structured(
+            return await run_managed_structured(
+                client,
                 LLMCallRequest(
                     model=settings.llm_model,
                     messages=[
@@ -427,6 +429,7 @@ class WorldEntityFusionService:
                     response_format={"type": "json_object"},
                 ),
                 EntityFusionDecision,
+                step_name="world.entity_fusion.decision.structured",
                 max_fix_attempts=1,
             )
         except Exception as exc:

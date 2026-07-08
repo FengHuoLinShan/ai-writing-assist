@@ -98,7 +98,13 @@ POST   /api/outline/generate
 
 ## 对外 facade
 
-跨模块调用优先走 `modules.outline.facade`，当前常用入口包括：
+跨模块调用优先走 `modules.outline.facade`。`facade.py` 是兼容 re-export hub，
+内部按 seam 拆到 `scene_facade.py`、`structure_dedup_facade.py`、
+`deep_import_repair_facade.py` 和 `foreshadowing_facade.py`。子 facade 只提升
+outline 内部 locality；旧 `modules.outline.facade.*` 仍是跨模块公共 seam 和测试
+monkeypatch 路径。
+
+当前常用入口包括：
 
 - `get_scene()`
 - `get_scene_contract()`

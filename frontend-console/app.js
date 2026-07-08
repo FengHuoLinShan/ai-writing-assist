@@ -78,7 +78,11 @@ const App = {
         const viewName = el.dataset.view
         const route = router.getRoute(viewName)
         const lastSub = router.getLastSubView(viewName)
-        await router.navigate(viewName, lastSub || (route && route.subViews.length > 0 ? route.subViews[0] : null))
+        try {
+          await router.navigate(viewName, lastSub || (route && route.subViews.length > 0 ? route.subViews[0] : null))
+        } catch (err) {
+          toast(`导航失败：${err.message || "未知错误"}`, "error")
+        }
       })
     })
 
@@ -172,11 +176,15 @@ const App = {
         input.value = ""
         this._hideCommandBar()
 
-        if (value) {
-          await commands.execute(value)
+        try {
+          if (value) {
+            await commands.execute(value)
+          }
+        } catch (err) {
+          toast(`命令执行失败：${err.message || "未知错误"}`, "error")
+        } finally {
+          document.getElementById("workspace")?.focus()
         }
-
-        document.getElementById("workspace")?.focus()
         return
       }
 
@@ -289,7 +297,8 @@ const App = {
             if (cmd) {
               input.value = ""
               this._hideCommandBar()
-              commands.execute(cmd)
+              Promise.resolve(commands.execute(cmd))
+                .catch((err) => toast(`命令执行失败：${err.message || "未知错误"}`, "error"))
             }
           })
           suggestionsEl.appendChild(row)
@@ -359,7 +368,8 @@ const App = {
           } else {
             if (state.currentSubView) {
               const route = router.getRoute(state.currentView)
-              router.navigate(state.currentView, null)
+              Promise.resolve(router.navigate(state.currentView, null))
+                .catch((err) => toast(`导航失败：${err.message || "未知错误"}`, "error"))
             }
           }
           break

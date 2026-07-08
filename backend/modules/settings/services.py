@@ -13,7 +13,9 @@ from infrastructure.llm.profiles import (
     LLM_API_KEY_FIELD,
     LLM_SETTINGS_KEY,
     get_llm_profile,
+    get_runtime_llm_profile,
 )
+from infrastructure.llm.secret_store import secret_configured
 from modules.project.contracts import ProjectSummary
 from modules.settings.constants import (
     AUTHOR_PREFS_DEFAULTS,
@@ -252,8 +254,10 @@ class SettingsService:
                 allow_unset=True,
             ),
             api_key_configured=FieldValueSource(
-                value=bool(proj_profile.get("api_key")),
-                source=SOURCE_PROJECT if proj_profile.get("api_key") else SOURCE_UNSET,
+                value=secret_configured(proj_profile.get("api_key")),
+                source=SOURCE_PROJECT
+                if secret_configured(proj_profile.get("api_key"))
+                else SOURCE_UNSET,
             ),
             deep_import=FieldValueSource(
                 value=proj_deep_import,
@@ -266,7 +270,7 @@ class SettingsService:
     ) -> dict:
         """Materialize runtime settings from raw project settings JSON."""
         settings = dict(project_settings or {})
-        raw_llm = get_llm_profile(settings)
+        raw_llm = get_runtime_llm_profile(settings)
         effective = await self.get_effective_llm_settings_for_project_settings(
             db, settings
         )

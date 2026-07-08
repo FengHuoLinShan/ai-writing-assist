@@ -76,6 +76,7 @@ describe("api.js cache behavior", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.api.clearCache()
+    sessionStorage.clear()
   })
 
   afterEach(() => {
@@ -380,5 +381,15 @@ describe("api.js request headers", () => {
     const init = globalThis.fetch.mock.calls[0][1]
     expect(init.headers["X-Requested-With"]).toBe("XMLHttpRequest")
     expect(init.headers["Content-Type"]).toBeUndefined()
+  })
+
+  it("adds Authorization when a closed-test token is stored in sessionStorage", async () => {
+    mockJsonResponse({ ok: true })
+    sessionStorage.setItem("novel_app_access_token", "test-token")
+
+    await window.api.request("/projects")
+
+    const init = globalThis.fetch.mock.calls[0][1]
+    expect(init.headers.Authorization).toBe("Bearer test-token")
   })
 })

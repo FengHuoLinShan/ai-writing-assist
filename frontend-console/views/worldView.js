@@ -45,6 +45,37 @@ const WORLD_LIST_DEFAULTS = {
   limit: 20,
 }
 
+const WORLD_CANDIDATE_FILTER_DEFAULTS = {
+  ...WORLD_LIST_DEFAULTS,
+  suggested_action: "",
+  source: "",
+  workflow_id: "",
+  scene_index: "",
+  source_chapter_index: "",
+  confidence_min: "",
+  confidence_max: "",
+}
+
+const WORLD_ALIAS_FILTER_DEFAULTS = {
+  ...WORLD_LIST_DEFAULTS,
+  q: "",
+  source: "",
+  workflow_id: "",
+  scene_index: "",
+  source_chapter_index: "",
+  confidence_min: "",
+  confidence_max: "",
+}
+
+const WORLD_RELATION_FILTER_DEFAULTS = {
+  ...WORLD_LIST_DEFAULTS,
+  relation_type: "",
+  q: "",
+  source_chapter_id: "",
+  strength_min: "",
+  strength_max: "",
+}
+
 const worldView = {
   /** @type {Array} */
   _entities: [],
@@ -58,11 +89,11 @@ const worldView = {
 
   _relations: [],
   _relationTotal: 0,
-  _relationFilters: { ...WORLD_LIST_DEFAULTS },
+  _relationFilters: { ...WORLD_RELATION_FILTER_DEFAULTS },
   _aliases: [],
   _aliasTotal: 0,
-  _aliasFilters: { ...WORLD_LIST_DEFAULTS },
-  _candidateFilters: { ...WORLD_LIST_DEFAULTS },
+  _aliasFilters: { ...WORLD_ALIAS_FILTER_DEFAULTS },
+  _candidateFilters: { ...WORLD_CANDIDATE_FILTER_DEFAULTS },
   _bulkSelections: {},
 
   _total: 0,
@@ -180,12 +211,20 @@ const worldView = {
     if (!state.currentProjectId) return
 
     try {
-      const data = await api.world.listEntities({
+      const params = {
         novel_id: state.currentProjectId,
         status: "candidate",
         skip: this._candidateFilters.skip,
         limit: this._candidateFilters.limit,
-      })
+      }
+      if (this._candidateFilters.suggested_action) params.suggested_action = this._candidateFilters.suggested_action
+      if (this._candidateFilters.source) params.source = this._candidateFilters.source
+      if (this._candidateFilters.workflow_id) params.workflow_id = this._candidateFilters.workflow_id
+      if (this._candidateFilters.scene_index != null && this._candidateFilters.scene_index !== "") params.scene_index = Number(this._candidateFilters.scene_index)
+      if (this._candidateFilters.source_chapter_index != null && this._candidateFilters.source_chapter_index !== "") params.source_chapter_index = Number(this._candidateFilters.source_chapter_index)
+      if (this._candidateFilters.confidence_min != null && this._candidateFilters.confidence_min !== "") params.confidence_min = Number(this._candidateFilters.confidence_min)
+      if (this._candidateFilters.confidence_max != null && this._candidateFilters.confidence_max !== "") params.confidence_max = Number(this._candidateFilters.confidence_max)
+      const data = await api.world.listEntities(params)
       this._candidates = this._uniqueEntitiesById(data.items || data || [])
       this._candidateTotal = Number(data.total ?? this._candidates.length) || 0
     } catch {
@@ -210,7 +249,7 @@ const worldView = {
 
     if (subView === "objects") {
       await this._reloadWorldLists()
-    } else if (subView === "candidates") {
+    } else if (this._normalizeReviewSubView(subView) === "review-objects") {
       await this._loadCandidates()
     }
 
@@ -237,6 +276,7 @@ const worldView = {
   async render() {
     this._eventsBound = false
     const subView = state.currentSubView || "objects"
+    const reviewSubView = this._normalizeReviewSubView(subView)
     if (this._lastRenderedSubView === "bible" && subView !== "bible") {
       worldBibleView.onLeave()
     }
@@ -246,7 +286,7 @@ const worldView = {
     html += `
       <div class="subnav">
         <span class="subnav-item ${subView === "objects" ? "active" : ""}" data-subview="objects" data-action="nav-objects">对象库</span>
-        <span class="subnav-item ${subView === "candidates" ? "active" : ""}" data-subview="candidates" data-action="nav-candidates">候选清洗</span>
+        <span class="subnav-item ${reviewSubView ? "active" : ""}" data-subview="review-objects" data-action="nav-review">待确认</span>
         <span class="subnav-item ${subView === "relations" ? "active" : ""}" data-subview="relations" data-action="nav-relations">关系</span>
         <span class="subnav-item ${subView === "aliases" ? "active" : ""}" data-subview="aliases" data-action="nav-aliases">别名</span>
         <span class="subnav-item ${subView === "bible" ? "active" : ""}" data-subview="bible" data-action="nav-bible">世界书</span>
@@ -256,8 +296,8 @@ const worldView = {
 
     if (subView === "objects") {
       html += this._renderEntityList()
-    } else if (subView === "candidates") {
-      html += this._renderCandidatesList()
+    } else if (reviewSubView) {
+      html += await this._renderReviewQueue(reviewSubView)
     } else if (subView === "relations") {
       html += await this._renderRelations()
     } else if (subView === "aliases") {
@@ -268,6 +308,28 @@ const worldView = {
 
     setTimeout(() => this._bindEvents(), 0)
     return html
+  },
+
+  _normalizeReviewSubView(subView = state.currentSubView || "") {
+    if (subView === "candidates") return "review-objects"
+    if (["review-objects", "review-aliases", "review-relations"].includes(subView)) {
+      return subView
+    }
+    return ""
+  },
+
+  async _renderReviewQueue(reviewSubView) {
+    const tab = reviewSubView || "review-objects"
+    const tabNav = `
+      <div class="subnav subnav-secondary" style="margin-bottom:12px;">
+        <span class="subnav-item ${tab === "review-objects" ? "active" : ""}" data-action="nav-review-objects">对象</span>
+        <span class="subnav-item ${tab === "review-aliases" ? "active" : ""}" data-action="nav-review-aliases">别名</span>
+        <span class="subnav-item ${tab === "review-relations" ? "active" : ""}" data-action="nav-review-relations">关系</span>
+      </div>
+    `
+    if (tab === "review-aliases") return tabNav + await this._renderAliases({ reviewOnly: true })
+    if (tab === "review-relations") return tabNav + await this._renderRelations({ reviewOnly: true })
+    return tabNav + this._renderCandidatesList({ reviewOnly: true })
   },
 
   // ============================================================
@@ -608,7 +670,7 @@ const worldView = {
       </div>
       ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_object_auto_extraction", "世界对象与别名/关系自动提取") : ""}
       <div style="margin-bottom:8px;text-align:center;">
-        <button class="btn btn-sm" data-action="nav-candidates">候选清洗（${this._candidateTotal || this._candidates.length}）</button>
+        <button class="btn btn-sm" data-action="nav-candidates">待确认（${this._candidateTotal || this._candidates.length}）</button>
       </div>
     `
 
@@ -787,6 +849,9 @@ const worldView = {
     for (const e of entities) {
       const statusClass = `badge-${e.status || "canonical"}`
       const statusText = { canonical: "正史", draft: "草稿", candidate: "候选", deprecated: "废弃", merged: "已合并" }
+      if (e.status === "merged" && e.content_json?.resolved_as === "alias") {
+        statusText.merged = "已确认为别名"
+      }
       const sourceText = { deep_import: "深度导入", manual: "手动", ai_generated: "AI 生成" }
       const needsReview = this._entityNeedsReview(e)
       const reviewText = needsReview ? "需复核" : "已复核"
@@ -853,6 +918,9 @@ const worldView = {
     const scope = "world-objects"
     const id = this._entityId(entity)
     const statusText = { canonical: "正史", draft: "草稿", candidate: "候选", deprecated: "废弃", merged: "已合并" }
+    if (entity.status === "merged" && entity.content_json?.resolved_as === "alias") {
+      statusText.merged = "已确认为别名"
+    }
     const typeLabel = this._entityTypes.find((item) => item.value === entity.entity_type)?.label || entity.entity_type || "-"
     const statusClass = `badge-${entity.status || "canonical"}`
     const isNew = showNewBadge ? '<span class="badge badge-new">新</span>' : ""
@@ -985,9 +1053,10 @@ const worldView = {
       || ""
   },
 
-  _renderCandidatesList() {
+  _renderCandidatesList({ reviewOnly = false } = {}) {
     if (this._candidates.length === 0) {
       return `
+        ${reviewOnly ? this._renderCandidateReviewFilters() : ""}
         <div class="empty-state">
           <div class="empty-icon">&#128269;</div>
           <p>没有待处理的候选对象。</p>
@@ -1009,6 +1078,7 @@ const worldView = {
       needs_user_decision: "需用户决定",
     }
     let html = `
+      ${reviewOnly ? this._renderCandidateReviewFilters() : ""}
       <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">
         以下是从文本中抽取的候选对象。请检查并决定如何处理。
       </p>
@@ -1020,6 +1090,7 @@ const worldView = {
             <th>类型</th>
             <th>重要度</th>
             <th>建议动作</th>
+            <th>证据</th>
             <th>操作</th>
           </tr>
         </thead>
@@ -1038,7 +1109,9 @@ const worldView = {
       }
       const isTemporary = action === "temporary_only"
       const canAccept = !["temporary_only", "ignore", "link_to_existing", "alias_of_existing", "merge_with_existing"].includes(action)
-      const canMerge = ["link_to_existing", "alias_of_existing", "merge_with_existing"].includes(action)
+      const canAlias = ["link_to_existing", "alias_of_existing"].includes(action)
+      const canMerge = action === "merge_with_existing"
+      const meta = this._candidateMeta(c)
       html += `
         <tr data-id="${esc(id)}">
           <td class="selection-cell">${renderSelectionCell(this, scope, id, `选择 ${c.name || "候选"}`)}</td>
@@ -1046,8 +1119,10 @@ const worldView = {
           <td data-label="类型" style="color:var(--accent-dim);font-family:var(--font-mono)">${esc(c.entity_type)}</td>
           <td data-label="重要度">${esc(c.importance || c.importance_score || "-")}</td>
           <td data-label="建议动作"><span class="candidate-action-badge candidate-action-badge--${esc(action)}">${esc(actionLabel)}</span></td>
+          <td data-label="证据" style="max-width:220px;color:var(--text-dim);font-size:12px;">${this._inlineEvidenceHtml(meta)}</td>
           <td data-label="操作"><div class="row-actions">
             ${canAccept ? `<button class="btn btn-sm btn-primary" data-action="accept-candidate" data-id="${esc(id)}">确认</button>` : ""}
+            ${canAlias ? `<button class="btn btn-sm btn-primary" data-action="resolve-candidate-alias" data-id="${esc(id)}" data-target-name="${esc(targetName)}">确认为别名</button>` : ""}
             ${canMerge ? `<button class="btn btn-sm" data-action="merge-entity" data-id="${esc(id)}" data-target-name="${esc(targetName)}">合并到</button>` : ""}
             <button class="btn btn-sm ${isTemporary ? "" : "btn-danger"}" data-action="ignore-candidate" data-id="${esc(id)}">${isTemporary ? "设为临时" : "忽略"}</button>
           </div></td>
@@ -1070,28 +1145,65 @@ const worldView = {
     return html
   },
 
-  async _renderRelations() {
+  _renderCandidateReviewFilters() {
+    return `
+      <div class="filter-bar" style="margin-bottom:12px;">
+        <select class="form-select" id="review-candidate-action" aria-label="建议动作筛选">
+          <option value="">全部动作</option>
+          ${["create_new", "link_to_existing", "alias_of_existing", "merge_with_existing", "temporary_only", "ignore", "needs_user_decision"].map((value) => `<option value="${esc(value)}" ${this._candidateFilters.suggested_action === value ? "selected" : ""}>${esc(value)}</option>`).join("")}
+        </select>
+        <input class="form-input" id="review-candidate-source" value="${esc(this._candidateFilters.source)}" placeholder="来源" />
+        <input class="form-input" id="review-candidate-workflow" value="${esc(this._candidateFilters.workflow_id)}" placeholder="Workflow" />
+        <input class="form-input" id="review-candidate-scene" value="${esc(this._candidateFilters.scene_index)}" placeholder="Scene" />
+        <input class="form-input" id="review-candidate-confidence-min" value="${esc(this._candidateFilters.confidence_min)}" placeholder="最低置信度" />
+        <button class="btn btn-sm" data-action="apply-candidate-review-filters">筛选</button>
+        <button class="btn btn-sm" data-action="reset-candidate-review-filters">清空</button>
+      </div>
+    `
+  },
+
+  _inlineEvidenceHtml(item = {}) {
+    const evidence = [
+      ["来源", item.source === "deep_import" ? "深度导入" : item.source],
+      ["Workflow", item.workflow_id],
+      ["章节", item.source_chapter_index],
+      ["Scene", item.scene_index || item.scene_id],
+      ["置信度", item.confidence != null ? `${(Number(item.confidence) * 100).toFixed(0)}%` : ""],
+      ["引用", item.quote],
+    ].filter(([, value]) => value != null && String(value).trim() !== "")
+    if (!evidence.length) return "-"
+    return evidence.map(([label, value]) => `<div><strong>${esc(label)}：</strong>${esc(value)}</div>`).join("")
+  },
+
+  async _renderRelations({ reviewOnly = false } = {}) {
     let html = `
       <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">
-        管理世界对象与人物之间的关系。
+        ${reviewOnly ? "复核 AI 抽取或导入产生的待确认关系。" : "管理世界对象与人物之间的关系。"}
       </p>
-      <div style="margin-bottom:8px;">
+      ${reviewOnly ? this._renderRelationReviewFilters() : `<div style="margin-bottom:8px;">
         <button class="btn btn-primary" data-action="create-relation">新建关系</button>
-      </div>
+      </div>`}
     `
     if (!state.currentProjectId) return html + '<div class="empty-state"><p>请先选择项目。</p></div>'
 
     try {
-      const data = await api.world.listRelationships({
+      const params = {
         novel_id: state.currentProjectId,
         skip: this._relationFilters.skip,
         limit: this._relationFilters.limit,
-      })
+      }
+      if (reviewOnly) params.status = "candidate"
+      if (reviewOnly && this._relationFilters.relation_type) params.relation_type = this._relationFilters.relation_type
+      if (reviewOnly && this._relationFilters.q) params.q = this._relationFilters.q
+      if (reviewOnly && this._relationFilters.source_chapter_id) params.source_chapter_id = this._relationFilters.source_chapter_id
+      if (reviewOnly && this._relationFilters.strength_min != null && this._relationFilters.strength_min !== "") params.strength_min = Number(this._relationFilters.strength_min)
+      if (reviewOnly && this._relationFilters.strength_max != null && this._relationFilters.strength_max !== "") params.strength_max = Number(this._relationFilters.strength_max)
+      const data = await api.world.listRelationships(params)
       const rels = data.items || data || []
       this._relations = rels
       this._relationTotal = Number(data.total ?? rels.length) || 0
       if (rels.length === 0) {
-      return html + '<div class="empty-state"><p>还没有建立人物关系。</p><p style="color:var(--text-dim);font-size:12px;">关系网可以帮助你梳理角色之间的恩怨情仇。</p></div>'
+        return html + `<div class="empty-state"><p>${reviewOnly ? "没有待确认关系。" : "还没有建立人物关系。"}</p><p style="color:var(--text-dim);font-size:12px;">关系网可以帮助你梳理角色之间的恩怨情仇。</p></div>`
       }
       const scope = "world-relations"
       const ids = rels.map((rel) => rel.id || rel.relationship_id).filter(Boolean)
@@ -1102,7 +1214,7 @@ const worldView = {
       ], { noun: "关系" })
       html += `
       <table class="data-table">
-        <thead><tr><th class="selection-cell">${renderSelectionHeader(this, scope, ids, "全选当前关系")}</th><th>源对象</th><th>关系类型</th><th>目标对象</th><th>状态</th><th>描述</th><th>操作</th></tr></thead>
+        <thead><tr><th class="selection-cell">${renderSelectionHeader(this, scope, ids, "全选当前关系")}</th><th>源对象</th><th>关系类型</th><th>目标对象</th><th>状态</th><th>描述</th><th>证据</th><th>操作</th></tr></thead>
         <tbody>
       `
       for (const r of rels) {
@@ -1120,8 +1232,10 @@ const worldView = {
           <td style="color:var(--accent-dim);font-size:12px;">${esc(targetName)}</td>
           <td><span class="badge ${statusClass}">${statusLabel}</span></td>
           <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-dim);font-size:12px;">${esc(r.description || "")}</td>
+          <td style="max-width:220px;color:var(--text-dim);font-size:12px;">${this._inlineRelationEvidenceHtml(r)}</td>
           <td>
             <div class="row-actions">
+              ${reviewOnly && r.status === "candidate" ? `<button class="btn btn-sm btn-primary" data-action="edit-relation-review" data-id="${esc(id)}">编辑并确认</button>` : ""}
               ${reviewAction}
               <button class="btn btn-sm btn-danger" data-action="delete-relation" data-id="${esc(r.id || r.relationship_id)}">删除</button>
             </div>
@@ -1138,6 +1252,29 @@ const worldView = {
       })
     } catch { html += '<div class="empty-state"><p>加载关系失败。</p></div>' }
     return html
+  },
+
+  _renderRelationReviewFilters() {
+    return `
+      <div class="filter-bar" style="margin-bottom:12px;">
+        <input class="form-input" id="review-relation-q" value="${esc(this._relationFilters.q)}" placeholder="搜索关系/对象" />
+        <input class="form-input" id="review-relation-type" value="${esc(this._relationFilters.relation_type)}" placeholder="关系类型" />
+        <input class="form-input" id="review-relation-chapter" value="${esc(this._relationFilters.source_chapter_id)}" placeholder="章节 ID" />
+        <input class="form-input" id="review-relation-strength-min" value="${esc(this._relationFilters.strength_min)}" placeholder="最低强度" />
+        <button class="btn btn-sm" data-action="apply-relation-review-filters">筛选</button>
+        <button class="btn btn-sm" data-action="reset-relation-review-filters">清空</button>
+      </div>
+    `
+  },
+
+  _inlineRelationEvidenceHtml(relation = {}) {
+    const evidence = [
+      ["章节", relation.source_chapter_id],
+      ["强度", relation.strength != null ? `${Math.round(Number(relation.strength) * 100)}%` : ""],
+      ["引用", relation.quote],
+    ].filter(([, value]) => value != null && String(value).trim() !== "")
+    if (!evidence.length) return "-"
+    return evidence.map(([label, value]) => `<div><strong>${esc(label)}：</strong>${esc(value)}</div>`).join("")
   },
 
   showRelationCreateForm() {
@@ -1188,6 +1325,67 @@ const worldView = {
     }])
   },
 
+  showRelationReviewEditForm(relationId) {
+    const relation = (this._relations || []).find((item) => (item.id || item.relationship_id) === relationId)
+    if (!relation) {
+      toast("未找到目标关系", "error")
+      return
+    }
+    const formHtml = `
+      <div class="form-group">
+        <label>源对象</label>
+        <select class="form-select" id="rel-review-source">${this._relationEntityOptionsHtml(relation.source_id)}</select>
+      </div>
+      <div class="form-group">
+        <label>关系类型</label>
+        <input class="form-input" id="rel-review-type" value="${esc(relation.relation_type || "")}" />
+      </div>
+      <div class="form-group">
+        <label>目标对象</label>
+        <select class="form-select" id="rel-review-target">${this._relationEntityOptionsHtml(relation.target_id)}</select>
+      </div>
+      <div class="form-group">
+        <label>描述</label>
+        <textarea class="form-textarea" id="rel-review-description" rows="3">${esc(relation.description || "")}</textarea>
+      </div>
+      <div class="form-group">
+        <label>强度</label>
+        <input class="form-input" id="rel-review-strength" type="number" min="0" max="1" step="0.01" value="${esc(relation.strength ?? 0.5)}" />
+      </div>
+      ${this._aliasEvidenceHtml({
+        source_chapter_index: relation.source_chapter_id,
+        confidence: relation.strength,
+        quote: relation.quote,
+      })}
+    `
+    showModalHtml("编辑并确认关系", formHtml, [{
+      text: "确认", class: "btn-primary", handler: async () => {
+        const sourceId = document.getElementById("rel-review-source")?.value || ""
+        const targetId = document.getElementById("rel-review-target")?.value || ""
+        const relationType = document.getElementById("rel-review-type")?.value?.trim() || ""
+        if (!sourceId || !targetId || !relationType) {
+          toast("请填写源对象、目标对象和关系类型", "warning")
+          return
+        }
+        try {
+          await api.world.reviewEditRelationship(relationId, {
+            source_id: sourceId,
+            target_id: targetId,
+            relation_type: relationType,
+            description: document.getElementById("rel-review-description")?.value?.trim() || "",
+            strength: Number(document.getElementById("rel-review-strength")?.value || 0.5),
+            confirm_review: true,
+          }, state.currentProjectId)
+          closeModal()
+          toast("关系已确认", "success")
+          await this._refreshCurrentSubViewInPlace()
+        } catch (err) {
+          toast(err.message || "确认关系失败", "error")
+        }
+      },
+    }])
+  },
+
   deleteRelation(relId) {
     confirmAction("确定删除此关系？", async () => {
       try {
@@ -1207,28 +1405,37 @@ const worldView = {
     return `<button class="btn btn-sm" data-action="mark-relation-unreviewed" data-id="${esc(id)}">取消复核</button>`
   },
 
-  async _renderAliases() {
+  async _renderAliases({ reviewOnly = false } = {}) {
     let html = `
       <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">
-        管理世界对象的别名、称号和化名。别名不独立创建对象。
+        ${reviewOnly ? "复核待确认别名。别名不独立创建对象。" : "管理世界对象的别名、称号和化名。别名不独立创建对象。"}
       </p>
-      <div style="margin-bottom:8px;">
+      ${reviewOnly ? this._renderAliasReviewFilters() : `<div style="margin-bottom:8px;">
         <button class="btn btn-primary" data-action="create-alias">新建别名</button>
-      </div>
+      </div>`}
     `
     if (!state.currentProjectId) return html + '<div class="empty-state"><p>请先选择项目。</p></div>'
 
     try {
-      const data = await api.world.listAliases({
+      const params = {
         novel_id: state.currentProjectId,
         skip: this._aliasFilters.skip,
         limit: this._aliasFilters.limit,
-      })
+      }
+      if (reviewOnly) params.needs_review = true
+      if (reviewOnly && this._aliasFilters.q) params.q = this._aliasFilters.q
+      if (reviewOnly && this._aliasFilters.source) params.source = this._aliasFilters.source
+      if (reviewOnly && this._aliasFilters.workflow_id) params.workflow_id = this._aliasFilters.workflow_id
+      if (reviewOnly && this._aliasFilters.scene_index != null && this._aliasFilters.scene_index !== "") params.scene_index = Number(this._aliasFilters.scene_index)
+      if (reviewOnly && this._aliasFilters.source_chapter_index != null && this._aliasFilters.source_chapter_index !== "") params.source_chapter_index = Number(this._aliasFilters.source_chapter_index)
+      if (reviewOnly && this._aliasFilters.confidence_min != null && this._aliasFilters.confidence_min !== "") params.confidence_min = Number(this._aliasFilters.confidence_min)
+      if (reviewOnly && this._aliasFilters.confidence_max != null && this._aliasFilters.confidence_max !== "") params.confidence_max = Number(this._aliasFilters.confidence_max)
+      const data = await api.world.listAliases(params)
       const aliases = data.items || data || []
       this._aliases = aliases
       this._aliasTotal = Number(data.total ?? aliases.length) || 0
       if (aliases.length === 0) {
-        return html + '<div class="empty-state"><p>还没有设置别名。</p><p style="color:var(--text-dim);font-size:12px;">别名可以帮助你管理角色的化名、称号和绰号。</p></div>'
+        return html + `<div class="empty-state"><p>${reviewOnly ? "没有待确认别名。" : "还没有设置别名。"}</p><p style="color:var(--text-dim);font-size:12px;">别名可以帮助你管理角色的化名、称号和绰号。</p></div>`
       }
       const typeMap = { name: "名称", title: "称号", nickname: "昵称", alias: "化名", translation: "译名" }
       const scope = "world-aliases"
@@ -1241,7 +1448,7 @@ const worldView = {
       const aliasGroups = this._groupAliasesByEntity(aliases)
       html += `
       <table class="data-table">
-        <thead><tr><th class="selection-cell">${renderSelectionHeader(this, scope, ids, "全选当前别名")}</th><th>对象</th><th>别名</th><th>类型</th><th>状态</th><th>来源</th><th>置信度</th><th>操作</th></tr></thead>
+        <thead><tr><th class="selection-cell">${renderSelectionHeader(this, scope, ids, "全选当前别名")}</th><th>对象</th><th>别名</th><th>类型</th><th>状态</th><th>来源</th><th>置信度</th><th>证据</th><th>操作</th></tr></thead>
         <tbody>
       `
       for (const group of aliasGroups) {
@@ -1263,6 +1470,7 @@ const worldView = {
           <td><span class="badge ${statusClass}">${statusLabel}</span></td>
           <td>${esc(sourceLabel)}</td>
           <td>${a.confidence ? (a.confidence * 100).toFixed(0) + "%" : "-"}</td>
+          <td style="max-width:220px;color:var(--text-dim);font-size:12px;">${this._inlineEvidenceHtml(a)}</td>
           <td>
             <div class="row-actions">
               ${reviewAction}
@@ -1284,6 +1492,20 @@ const worldView = {
     return html
   },
 
+  _renderAliasReviewFilters() {
+    return `
+      <div class="filter-bar" style="margin-bottom:12px;">
+        <input class="form-input" id="review-alias-q" value="${esc(this._aliasFilters.q)}" placeholder="搜索别名/对象" />
+        <input class="form-input" id="review-alias-source" value="${esc(this._aliasFilters.source)}" placeholder="来源" />
+        <input class="form-input" id="review-alias-workflow" value="${esc(this._aliasFilters.workflow_id)}" placeholder="Workflow" />
+        <input class="form-input" id="review-alias-scene" value="${esc(this._aliasFilters.scene_index)}" placeholder="Scene" />
+        <input class="form-input" id="review-alias-confidence-min" value="${esc(this._aliasFilters.confidence_min)}" placeholder="最低置信度" />
+        <button class="btn btn-sm" data-action="apply-alias-review-filters">筛选</button>
+        <button class="btn btn-sm" data-action="reset-alias-review-filters">清空</button>
+      </div>
+    `
+  },
+
   _aliasKey(alias) {
     if (!alias) return ""
     return `${alias.entity_id || ""}::${alias.alias || ""}`
@@ -1293,7 +1515,10 @@ const worldView = {
     if (!alias?.entity_id || !alias?.alias) return ""
     const attrs = `data-entity-id="${esc(alias.entity_id)}" data-alias="${esc(alias.alias)}"`
     if (alias.status === "candidate" || alias.needs_review) {
-      return `<button class="btn btn-sm btn-primary" data-action="mark-alias-reviewed" ${attrs}>复核通过</button>`
+      return `
+        <button class="btn btn-sm btn-primary" data-action="edit-alias-review" ${attrs}>编辑并确认</button>
+        <button class="btn btn-sm" data-action="mark-alias-reviewed" ${attrs}>复核通过</button>
+      `
     }
     return `<button class="btn btn-sm" data-action="mark-alias-unreviewed" ${attrs}>取消复核</button>`
   },
@@ -1316,6 +1541,79 @@ const worldView = {
       group.aliases.push(alias)
     }
     return groups
+  },
+
+  _aliasTypeOptionsHtml(selected = "alias") {
+    const types = [
+      ["name", "名称"],
+      ["title", "称号"],
+      ["nickname", "昵称"],
+      ["alias", "化名"],
+      ["translation", "译名"],
+      ["abbreviation", "简称"],
+    ]
+    return types
+      .map(([value, label]) => `<option value="${esc(value)}" ${selected === value ? "selected" : ""}>${esc(label)}</option>`)
+      .join("")
+  },
+
+  _findAlias(entityId, aliasText) {
+    return (this._aliases || []).find((item) => item.entity_id === entityId && item.alias === aliasText) || null
+  },
+
+  _aliasEvidenceHtml(item = {}) {
+    const evidence = [
+      ["来源", item.source === "deep_import" ? "深度导入" : item.source],
+      ["Workflow", item.workflow_id],
+      ["章节", item.source_chapter_index],
+      ["Scene", item.scene_id || item.scene_index],
+      ["置信度", item.confidence != null ? `${(Number(item.confidence) * 100).toFixed(0)}%` : ""],
+      ["引用", item.quote],
+    ].filter(([, value]) => value != null && String(value).trim() !== "")
+    if (!evidence.length) return ""
+    return `
+      <div class="form-group">
+        <label>证据</label>
+        <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;color:var(--text-muted);font-size:12px;">
+          ${evidence.map(([label, value]) => `<div><strong>${esc(label)}：</strong>${esc(value)}</div>`).join("")}
+        </div>
+      </div>
+    `
+  },
+
+  _isAliasTargetEntity(entity) {
+    return ["draft", "canonical", "candidate"].includes(entity?.status)
+  },
+
+  _aliasTargetCandidates(sourceId = "", selectedId = "", query = "") {
+    const normalizedQuery = String(query || "").trim().toLowerCase()
+    return (this._entities || [])
+      .filter((item) => this._entityId(item) !== sourceId)
+      .filter((item) => this._isAliasTargetEntity(item))
+      .filter((item) => !normalizedQuery || String(item.name || "").toLowerCase().includes(normalizedQuery) || this._entityId(item) === selectedId)
+      .slice(0, 20)
+  },
+
+  _bindAliasTargetSearch({ sourceId = "", selectedId = "" } = {}) {
+    const button = document.getElementById("alias-target-search")
+    const input = document.getElementById("alias-target-query")
+    const select = document.getElementById("alias-target-id")
+    if (!button || !input || !select) return
+    button.onclick = async () => {
+      try {
+        const data = await api.world.listEntities({
+          novel_id: state.currentProjectId,
+          q: input.value || "",
+          limit: 20,
+        })
+        const items = (data.items || data || [])
+          .filter((item) => this._entityId(item) !== sourceId)
+          .filter((item) => this._isAliasTargetEntity(item))
+        select.innerHTML = this._mergeTargetOptionsHtml(items, selectedId)
+      } catch (err) {
+        toast(err.message || "搜索目标对象失败", "error")
+      }
+    }
   },
 
   showAliasCreateForm() {
@@ -1372,6 +1670,131 @@ const worldView = {
     }, `确认删除别名 "${esc(alias)}"`)
   },
 
+  showAliasReviewEditForm(entityId, aliasText) {
+    const alias = this._findAlias(entityId, aliasText)
+    if (!alias) {
+      toast("未找到目标别名", "error")
+      return
+    }
+    const initialTargets = this._aliasTargetCandidates("", entityId, alias.entity_name || "")
+    if (!initialTargets.find((item) => this._entityId(item) === entityId)) {
+      initialTargets.unshift({
+        id: entityId,
+        name: alias.entity_name || entityId,
+        entity_type: "-",
+        status: "canonical",
+      })
+    }
+    const formHtml = `
+      <div class="form-group">
+        <label>搜索目标对象</label>
+        <div class="row-actions">
+          <input class="form-input" id="alias-target-query" placeholder="输入目标对象名称" value="${esc(alias.entity_name || "")}" />
+          <button class="btn btn-sm" id="alias-target-search" type="button">搜索</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>目标对象 *</label>
+        <select class="form-select" id="alias-target-id">${this._mergeTargetOptionsHtml(initialTargets, entityId)}</select>
+      </div>
+      <div class="form-group">
+        <label>别名文本 *</label>
+        <input class="form-input" id="alias-edit-text" value="${esc(alias.alias || "")}" />
+      </div>
+      <div class="form-group">
+        <label>别名类型</label>
+        <select class="form-select" id="alias-edit-type">${this._aliasTypeOptionsHtml(alias.alias_type || "alias")}</select>
+      </div>
+      ${this._aliasEvidenceHtml(alias)}
+    `
+    showModalHtml("编辑并确认别名", formHtml, [{
+      text: "保存并确认",
+      class: "btn-primary",
+      handler: async () => {
+        const targetId = document.getElementById("alias-target-id")?.value
+        const text = document.getElementById("alias-edit-text")?.value?.trim()
+        const type = document.getElementById("alias-edit-type")?.value || "alias"
+        if (!targetId || !text) {
+          toast("请选择目标对象并输入别名", "warning")
+          return
+        }
+        try {
+          await api.world.editAlias(entityId, aliasText, {
+            target_entity_id: targetId,
+            alias: text,
+            alias_type: type,
+            confirm_review: true,
+          }, { novel_id: state.currentProjectId })
+          toast("别名已保存并确认", "success")
+          await this._refreshCurrentSubViewInPlace()
+        } catch (err) {
+          toast(err.message || "保存失败", "error")
+        }
+      },
+    }])
+    setTimeout(() => this._bindAliasTargetSearch({ selectedId: entityId }), 0)
+  },
+
+  showResolveAliasForm(candidateId) {
+    const candidate = this._candidates.find((item) => this._entityId(item) === candidateId)
+    if (!candidate) {
+      toast("未找到目标候选", "error")
+      return
+    }
+    const targetId = this._candidateTargetId(candidate)
+    const targetName = this._candidateTargetName(candidate)
+    const initialTargets = this._aliasTargetCandidates(candidateId, targetId, targetName)
+    const formHtml = `
+      <p style="margin-bottom:10px;">将 <strong>${esc(candidate.name || "")}</strong> 登记为已有对象的别名。</p>
+      <div class="form-group">
+        <label>搜索目标对象</label>
+        <div class="row-actions">
+          <input class="form-input" id="alias-target-query" placeholder="输入目标对象名称" value="${esc(targetName)}" />
+          <button class="btn btn-sm" id="alias-target-search" type="button">搜索</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>目标对象 *</label>
+        <select class="form-select" id="alias-target-id">${this._mergeTargetOptionsHtml(initialTargets, targetId)}</select>
+      </div>
+      <div class="form-group">
+        <label>别名文本 *</label>
+        <input class="form-input" id="alias-edit-text" value="${esc(candidate.name || "")}" />
+      </div>
+      <div class="form-group">
+        <label>别名类型</label>
+        <select class="form-select" id="alias-edit-type">${this._aliasTypeOptionsHtml("alias")}</select>
+      </div>
+      ${this._aliasEvidenceHtml(this._candidateMeta(candidate))}
+    `
+    showModalHtml("确认为别名", formHtml, [{
+      text: "确认为别名",
+      class: "btn-primary",
+      handler: async () => {
+        const selectedTargetId = document.getElementById("alias-target-id")?.value
+        const text = document.getElementById("alias-edit-text")?.value?.trim()
+        const type = document.getElementById("alias-edit-type")?.value || "alias"
+        if (!selectedTargetId || !text) {
+          toast("请选择目标对象并输入别名", "warning")
+          return
+        }
+        try {
+          const result = await api.world.resolveEntityAsAlias(candidateId, {
+            target_entity_id: selectedTargetId,
+            alias: text,
+            alias_type: type,
+          }, state.currentProjectId)
+          await this._refreshCandidatesAfterAffectedMutation(result)
+          toast("候选已确认为别名", "success")
+          router.navigate("world", "candidates")
+        } catch (err) {
+          toast(err.message || "确认失败", "error")
+        }
+      },
+    }])
+    setTimeout(() => this._bindAliasTargetSearch({ sourceId: candidateId, selectedId: targetId }), 0)
+  },
+
   async _markEntityReviewed(id) {
     let entity = this._findEntity(id)
     try {
@@ -1382,13 +1805,19 @@ const worldView = {
     }
     if (!entity) {
       toast("未找到目标世界对象", "error")
-      return
+      return false
     }
-    await api.world.updateEntity(id, {
-      content_json: this._entityReviewContent(entity, true, "world_objects"),
-    }, state.currentProjectId)
-    toast("世界对象已标记为已复核", "success")
-    await this._refreshCurrentSubViewInPlace()
+    try {
+      await api.world.updateEntity(id, {
+        content_json: this._entityReviewContent(entity, true, "world_objects"),
+      }, state.currentProjectId)
+      toast("世界对象已标记为已复核", "success")
+      await this._refreshCurrentSubViewInPlace()
+      return true
+    } catch (err) {
+      toast(`世界对象复核状态更新失败：${err.message || "未知错误"}`, "error")
+      return false
+    }
   },
 
   async _markEntityUnreviewed(id) {
@@ -1401,49 +1830,79 @@ const worldView = {
     }
     if (!entity) {
       toast("未找到目标世界对象", "error")
-      return
+      return false
     }
-    await api.world.updateEntity(id, {
-      content_json: this._entityReviewContent(entity, false, "world_objects"),
-    }, state.currentProjectId)
-    toast("世界对象已标记为需复核", "success")
-    await this._refreshCurrentSubViewInPlace()
+    try {
+      await api.world.updateEntity(id, {
+        content_json: this._entityReviewContent(entity, false, "world_objects"),
+      }, state.currentProjectId)
+      toast("世界对象已标记为需复核", "success")
+      await this._refreshCurrentSubViewInPlace()
+      return true
+    } catch (err) {
+      toast(`世界对象复核状态更新失败：${err.message || "未知错误"}`, "error")
+      return false
+    }
   },
 
   async _markRelationReviewed(id) {
-    await api.world.updateRelationship(id, { status: "canonical" }, state.currentProjectId)
-    toast("关系已标记为已复核", "success")
-    await this._refreshCurrentSubViewInPlace()
+    try {
+      await api.world.reviewEditRelationship(id, { confirm_review: true }, state.currentProjectId)
+      toast("关系已标记为已复核", "success")
+      await this._refreshCurrentSubViewInPlace()
+      return true
+    } catch (err) {
+      toast(`关系复核状态更新失败：${err.message || "未知错误"}`, "error")
+      return false
+    }
   },
 
   async _markRelationUnreviewed(id) {
-    await api.world.updateRelationship(id, { status: "candidate" }, state.currentProjectId)
-    toast("关系已标记为需复核", "success")
-    await this._refreshCurrentSubViewInPlace()
+    try {
+      await api.world.updateRelationship(id, { status: "candidate" }, state.currentProjectId)
+      toast("关系已标记为需复核", "success")
+      await this._refreshCurrentSubViewInPlace()
+      return true
+    } catch (err) {
+      toast(`关系复核状态更新失败：${err.message || "未知错误"}`, "error")
+      return false
+    }
   },
 
   async _markAliasReviewed(entityId, alias) {
-    await api.world.updateAlias(entityId, alias, {
-      status: "canonical",
-      needs_review: false,
-      reviewed_at: new Date().toISOString(),
-      reviewed_by: "manual",
-      reviewed_from: "world_aliases",
-    }, { novel_id: state.currentProjectId })
-    toast("别名已标记为已复核", "success")
-    await this._refreshCurrentSubViewInPlace()
+    try {
+      await api.world.updateAlias(entityId, alias, {
+        status: "canonical",
+        needs_review: false,
+        reviewed_at: new Date().toISOString(),
+        reviewed_by: "manual",
+        reviewed_from: "world_aliases",
+      }, { novel_id: state.currentProjectId })
+      toast("别名已标记为已复核", "success")
+      await this._refreshCurrentSubViewInPlace()
+      return true
+    } catch (err) {
+      toast(`别名复核状态更新失败：${err.message || "未知错误"}`, "error")
+      return false
+    }
   },
 
   async _markAliasUnreviewed(entityId, alias) {
-    await api.world.updateAlias(entityId, alias, {
-      status: "candidate",
-      needs_review: true,
-      reviewed_at: null,
-      reviewed_by: null,
-      reviewed_from: null,
-    }, { novel_id: state.currentProjectId })
-    toast("别名已标记为需复核", "success")
-    await this._refreshCurrentSubViewInPlace()
+    try {
+      await api.world.updateAlias(entityId, alias, {
+        status: "candidate",
+        needs_review: true,
+        reviewed_at: null,
+        reviewed_by: null,
+        reviewed_from: null,
+      }, { novel_id: state.currentProjectId })
+      toast("别名已标记为需复核", "success")
+      await this._refreshCurrentSubViewInPlace()
+      return true
+    } catch (err) {
+      toast(`别名复核状态更新失败：${err.message || "未知错误"}`, "error")
+      return false
+    }
   },
 
   editEntity(id) {
@@ -1544,7 +2003,7 @@ const worldView = {
     const isTemporary = this._candidateAction(candidate) === "temporary_only"
     confirmAction(
       isTemporary
-        ? `将候选 "${candidate?.name || id}" 标记为临时并从候选清洗中移除？`
+        ? `将候选 "${candidate?.name || id}" 标记为临时并从待确认中移除？`
         : `确定忽略候选 "${candidate?.name || id}"？`,
       async () => {
         try {
@@ -1573,6 +2032,24 @@ const worldView = {
       .join("")
   },
 
+  _relationEntityOptionsHtml(selectedId = "") {
+    const items = [...(this._entities || []), ...(this._candidates || [])]
+      .filter((item) => !["merged", "ignored", "deprecated"].includes(item.status))
+    const seen = new Set()
+    const options = []
+    for (const item of items) {
+      const id = this._entityId(item)
+      if (!id || seen.has(id)) continue
+      seen.add(id)
+      const label = `${item.name || id} (${item.entity_type || "-"})`
+      options.push(`<option value="${esc(id)}" ${id === selectedId ? "selected" : ""}>${esc(label)}</option>`)
+    }
+    if (!seen.has(selectedId) && selectedId) {
+      options.unshift(`<option value="${esc(selectedId)}" selected>${esc(selectedId)}</option>`)
+    }
+    return options.length ? options.join("") : `<option value="">暂无对象</option>`
+  },
+
   async _applyFilters() {
     const entityType = document.getElementById("filter-entity-type")?.value || ""
     const status = document.getElementById("filter-status")?.value || ""
@@ -1599,6 +2076,58 @@ const worldView = {
   async _resetFilters() {
     this._filters = { ...WORLD_FILTER_DEFAULTS }
     await this._loadEntities()
+    await router.refresh()
+  },
+
+  async _applyCandidateReviewFilters() {
+    this._candidateFilters = {
+      ...WORLD_CANDIDATE_FILTER_DEFAULTS,
+      suggested_action: document.getElementById("review-candidate-action")?.value || "",
+      source: document.getElementById("review-candidate-source")?.value?.trim() || "",
+      workflow_id: document.getElementById("review-candidate-workflow")?.value?.trim() || "",
+      scene_index: document.getElementById("review-candidate-scene")?.value?.trim() || "",
+      confidence_min: document.getElementById("review-candidate-confidence-min")?.value?.trim() || "",
+    }
+    await this._loadCandidates()
+    await router.refresh()
+  },
+
+  async _resetCandidateReviewFilters() {
+    this._candidateFilters = { ...WORLD_CANDIDATE_FILTER_DEFAULTS }
+    await this._loadCandidates()
+    await router.refresh()
+  },
+
+  async _applyAliasReviewFilters() {
+    this._aliasFilters = {
+      ...WORLD_ALIAS_FILTER_DEFAULTS,
+      q: document.getElementById("review-alias-q")?.value?.trim() || "",
+      source: document.getElementById("review-alias-source")?.value?.trim() || "",
+      workflow_id: document.getElementById("review-alias-workflow")?.value?.trim() || "",
+      scene_index: document.getElementById("review-alias-scene")?.value?.trim() || "",
+      confidence_min: document.getElementById("review-alias-confidence-min")?.value?.trim() || "",
+    }
+    await router.refresh()
+  },
+
+  async _resetAliasReviewFilters() {
+    this._aliasFilters = { ...WORLD_ALIAS_FILTER_DEFAULTS }
+    await router.refresh()
+  },
+
+  async _applyRelationReviewFilters() {
+    this._relationFilters = {
+      ...WORLD_RELATION_FILTER_DEFAULTS,
+      q: document.getElementById("review-relation-q")?.value?.trim() || "",
+      relation_type: document.getElementById("review-relation-type")?.value?.trim() || "",
+      source_chapter_id: document.getElementById("review-relation-chapter")?.value?.trim() || "",
+      strength_min: document.getElementById("review-relation-strength-min")?.value?.trim() || "",
+    }
+    await router.refresh()
+  },
+
+  async _resetRelationReviewFilters() {
+    this._relationFilters = { ...WORLD_RELATION_FILTER_DEFAULTS }
     await router.refresh()
   },
 
@@ -1637,6 +2166,10 @@ const worldView = {
     bindWorkspaceClick(this, {
       "nav-objects": () => router.navigate("world", "objects"),
       "nav-candidates": () => router.navigate("world", "candidates"),
+      "nav-review": () => router.navigate("world", "review-objects"),
+      "nav-review-objects": () => router.navigate("world", "review-objects"),
+      "nav-review-aliases": () => router.navigate("world", "review-aliases"),
+      "nav-review-relations": () => router.navigate("world", "review-relations"),
       "nav-relations": () => router.navigate("world", "relations"),
       "nav-aliases": () => router.navigate("world", "aliases"),
       "nav-bible": () => router.navigate("world", "bible"),
@@ -1666,15 +2199,22 @@ const worldView = {
       "delete-entity": (_e, _t, ctx) => ctx.id && this.deleteEntity(ctx.id),
       "accept-candidate": (_e, _t, ctx) => ctx.id && this.acceptCandidate(ctx.id),
       "ignore-candidate": (_e, _t, ctx) => ctx.id && this.ignoreCandidate(ctx.id),
+      "resolve-candidate-alias": (_e, _t, ctx) => ctx.id && this.showResolveAliasForm(ctx.id),
       "promote-entity": (_e, _t, ctx) => ctx.id && this.promoteEntity(ctx.id),
       "merge-entity": (_e, _t, ctx) => ctx.id && this.showMergeForm(ctx.id),
       "rollback-entity": (_e, _t, ctx) => ctx.id && this.showRollbackForm(ctx.id),
       "knowledge-entity": (_e, _t, ctx) => ctx.id && this.showKnowledgeForm(ctx.id),
       "create-relation": () => this.showRelationCreateForm(),
+      "edit-relation-review": (_e, _t, ctx) => ctx.id && this.showRelationReviewEditForm(ctx.id),
       "mark-relation-reviewed": (_e, _t, ctx) => ctx.id && this._markRelationReviewed(ctx.id),
       "mark-relation-unreviewed": (_e, _t, ctx) => ctx.id && this._markRelationUnreviewed(ctx.id),
       "delete-relation": (_e, _t, ctx) => ctx.id && this.deleteRelation(ctx.id),
       "create-alias": () => this.showAliasCreateForm(),
+      "edit-alias-review": (_e, t) => {
+        const eid = t.getAttribute("data-entity-id")
+        const alias = t.getAttribute("data-alias")
+        if (eid && alias) this.showAliasReviewEditForm(eid, alias)
+      },
       "mark-alias-reviewed": (_e, t) => {
         const eid = t.getAttribute("data-entity-id")
         const alias = t.getAttribute("data-alias")
@@ -1688,6 +2228,12 @@ const worldView = {
       "delete-alias": (_e, t) => { const eid = t.getAttribute("data-entity-id"); const alias = t.getAttribute("data-alias"); if (eid && alias) this.deleteAlias(eid, alias) },
       "apply-filters": () => this._applyFilters(),
       "reset-filters": () => this._resetFilters(),
+      "apply-candidate-review-filters": () => this._applyCandidateReviewFilters(),
+      "reset-candidate-review-filters": () => this._resetCandidateReviewFilters(),
+      "apply-alias-review-filters": () => this._applyAliasReviewFilters(),
+      "reset-alias-review-filters": () => this._resetAliasReviewFilters(),
+      "apply-relation-review-filters": () => this._applyRelationReviewFilters(),
+      "reset-relation-review-filters": () => this._resetRelationReviewFilters(),
       "prev-page": () => this._changePage(-1),
       "next-page": () => this._changePage(1),
       "prev-candidates-page": () => this._changeCandidatePage(-1),
@@ -1818,7 +2364,7 @@ const worldView = {
       } else if (action === "delete-relations") {
         await api.world.deleteRelationship(item.id || item.relationship_id, { novel_id: state.currentProjectId })
       } else if (action === "review-relations") {
-        await api.world.updateRelationship(item.id || item.relationship_id, { status: "canonical" }, state.currentProjectId)
+        await api.world.reviewEditRelationship(item.id || item.relationship_id, { confirm_review: true }, state.currentProjectId)
       } else if (action === "delete-aliases") {
         await api.world.deleteAlias(item.entity_id, item.alias, { novel_id: state.currentProjectId })
       } else if (action === "review-aliases") {

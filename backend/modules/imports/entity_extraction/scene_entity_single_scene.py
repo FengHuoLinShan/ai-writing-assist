@@ -91,10 +91,10 @@ class SingleSceneEntityExtractor:
             )
         except Exception as exc:
             if snapshot_id is not None:
-                from modules.context.facade import mark_context_snapshot_failed
+                from modules.context.facade import fail_context_snapshot
 
                 async with _optional_lock(db_lock):
-                    await mark_context_snapshot_failed(
+                    await fail_context_snapshot(
                         db,
                         snapshot_id=snapshot_id,
                         error_kind=service._error_kind(exc),
@@ -142,19 +142,19 @@ class SingleSceneEntityExtractor:
                     result_refs=result_refs,
                 )
                 if snapshot_id is not None:
-                    from modules.context.facade import mark_context_snapshot_succeeded
+                    from modules.context.facade import succeed_context_snapshot
 
-                    await mark_context_snapshot_succeeded(
+                    await succeed_context_snapshot(
                         db,
                         snapshot_id=snapshot_id,
                         result_refs=result_refs,
                     )
         except Exception as exc:
             if snapshot_id is not None:
-                from modules.context.facade import mark_context_snapshot_failed
+                from modules.context.facade import fail_context_snapshot
 
                 async with _optional_lock(db_lock):
-                    await mark_context_snapshot_failed(
+                    await fail_context_snapshot(
                         db,
                         snapshot_id=snapshot_id,
                         error_kind=service._error_kind(exc),

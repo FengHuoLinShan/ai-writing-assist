@@ -4,6 +4,39 @@
 import { pollTaskProgress } from "../shared/workflowProgress.js"
 
 const PROJECTION_TYPE = "context_brief"
+const BIBLE_AI_TEMPLATES = [
+  { id: "builtin:none", label: "不带模板" },
+  { id: "builtin:character", label: "人物" },
+  { id: "builtin:event", label: "事件" },
+  { id: "builtin:item", label: "物品" },
+  { id: "builtin:location", label: "地点" },
+  { id: "builtin:faction", label: "组织" },
+  { id: "builtin:rule", label: "规则设定" },
+]
+const BIBLE_AI_TARGETS = [
+  { value: "chat", label: "只聊天" },
+  { value: "page_patch", label: "补写当前页" },
+  { value: "new_page", label: "新建世界书页" },
+  { value: "world_object_draft", label: "世界对象草稿" },
+]
+const BIBLE_DISPLAY_MODES = new Set(["editor", "gallery", "filter"])
+const BIBLE_PAGE_TYPES = {
+  background: { label: "背景", title: "世界基本背景", desc: "世界观、历史和基础设定", color: "#6366f1", symbol: "BG" },
+  species: { label: "种族", title: "种族", desc: "种族、生物和特殊生命体", color: "#dc2626", symbol: "SP" },
+  faction: { label: "势力", title: "势力", desc: "组织、阵营和权力结构", color: "#d97706", symbol: "FA" },
+  location: { label: "地点", title: "地点", desc: "城市、地理和关键场景", color: "#16a34a", symbol: "LO" },
+  rule: { label: "规则", title: "规则体系", desc: "法则、能力体系和限制", color: "#475569", symbol: "RU" },
+  item: { label: "物品", title: "重要物品", desc: "装备、资源和关键道具", color: "#9333ea", symbol: "IT" },
+  secret: { label: "秘密", title: "秘密", desc: "伏笔、真相和隐藏信息", color: "#7c3aed", symbol: "SE" },
+  custom: { label: "自定义", title: "自定义", desc: "尚未归入固定类别的设定", color: "#6b7280", symbol: "CU" },
+}
+const BIBLE_FALLBACK_TYPE = {
+  label: "其他",
+  title: "其他",
+  desc: "未识别类别的世界书页面",
+  color: "#64748b",
+  symbol: "OT",
+}
 
 const worldBibleView = {
   _pages: [],
@@ -14,30 +47,27 @@ const worldBibleView = {
   _projectionConflictHint: null,
   _projectionPoller: null,
   _beforeUnloadBound: false,
+  _aiOpen: false,
+  _aiMessages: [],
+  _aiOutputTarget: "chat",
+  _aiTemplateId: "builtin:none",
+  _aiQualityMode: "fast",
+  _aiSelectedChapters: "",
+  _aiResult: null,
+  _displayMode: "editor",
+  _activeCategory: "all",
+  _galleryCategory: null,
 
   async render() {
     if (!state.currentProjectId) {
       return `<div class="empty-state"><p>请先选择项目</p></div>`
     }
+    this._restoreDisplayPreferences()
     await this._load()
     return `
       <section class="world-bible-workspace">
-        <div class="world-bible-layout" style="display:grid;grid-template-columns:minmax(180px,240px) minmax(0,1fr);gap:14px;">
-          <aside class="panel" style="padding:12px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;">
-              <h3 style="margin:0;font-size:16px;">World Bible</h3>
-              <button class="btn btn-sm" data-action="bible-new-page">+</button>
-            </div>
-            ${this._renderPageNav()}
-            <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;">
-              <button class="btn btn-sm" data-action="bible-open-suggestions">创设建议</button>
-              <button class="btn btn-sm" data-action="bible-open-conflicts">冲突检查</button>
-            </div>
-          </aside>
-          <main class="panel" style="padding:14px;min-width:0;">
-            ${this._renderActivePage()}
-          </main>
-        </div>
+        ${this._renderToolbar()}
+        ${this._renderDisplayMode()}
       </section>
     `
   },
@@ -72,9 +102,29 @@ const worldBibleView = {
       else if (action === "bible-force-refresh-projection") this._refreshProjection(true)
       else if (action === "bible-open-suggestions") this._openSuggestions()
       else if (action === "bible-open-conflicts") this._openConflicts()
+      else if (action === "bible-toggle-ai") this._toggleAi()
+      else if (action === "bible-ai-send") this._runAi("chat")
+      else if (action === "bible-ai-generate") this._runAi()
+      else if (action === "bible-set-display-mode") this._setDisplayMode(actionNode.getAttribute("data-mode"))
+      else if (action === "bible-set-category") this._setActiveCategory(actionNode.getAttribute("data-category"))
+      else if (action === "bible-gallery-open") this._openGalleryCategory(actionNode.getAttribute("data-category"))
+      else if (action === "bible-gallery-back") this._backToGalleryHome()
+      else if (action === "bible-open-page-card") this._openPageCard(actionNode.getAttribute("data-page-id"))
     }
     this._bibleClickContainer = container
     container.addEventListener("click", this._bibleClickHandler)
+    container.querySelector("#bible-ai-output-target")?.addEventListener("change", (event) => {
+      this._aiOutputTarget = event.target.value || "chat"
+    })
+    container.querySelector("#bible-ai-template")?.addEventListener("change", (event) => {
+      this._aiTemplateId = event.target.value || "builtin:none"
+    })
+    container.querySelector("#bible-ai-quality-pro")?.addEventListener("change", (event) => {
+      this._aiQualityMode = event.target.checked ? "pro" : "fast"
+    })
+    container.querySelector("#bible-ai-chapters")?.addEventListener("input", (event) => {
+      this._aiSelectedChapters = event.target.value || ""
+    })
   },
 
   onLeave() {
@@ -104,6 +154,274 @@ const worldBibleView = {
     `).join("")
   },
 
+  _renderToolbar() {
+    const modeLabels = { editor: "编辑", gallery: "图鉴", filter: "筛选" }
+    return `
+      <div class="world-bible-toolbar">
+        <div class="world-bible-toolbar__title">
+          <h3>World Bible</h3>
+          <span>${esc(this._pages.length)} 个页面</span>
+        </div>
+        <div class="world-bible-toolbar__modes" aria-label="世界书展示模式">
+          ${Object.entries(modeLabels).map(([mode, label]) => `
+            <button class="btn btn-sm ${this._displayMode === mode ? "btn-primary" : ""}"
+              data-action="bible-set-display-mode" data-mode="${esc(mode)}">${esc(label)}</button>
+          `).join("")}
+        </div>
+        <div class="world-bible-toolbar__actions">
+          <button class="btn btn-sm btn-primary" data-action="bible-new-page">新建页面</button>
+          <button class="btn btn-sm" data-action="bible-open-suggestions">创设建议</button>
+          <button class="btn btn-sm" data-action="bible-open-conflicts">冲突检查</button>
+        </div>
+      </div>
+    `
+  },
+
+  _renderDisplayMode() {
+    if (this._displayMode === "gallery") return this._renderGalleryMode()
+    if (this._displayMode === "filter") return this._renderFilterMode()
+    return this._renderEditorMode()
+  },
+
+  _renderEditorMode() {
+    return `
+      <div class="world-bible-layout">
+        <aside class="panel world-bible-page-nav">
+          <div class="world-bible-page-nav__heading">页面</div>
+          ${this._renderPageNav()}
+        </aside>
+        <main class="panel world-bible-editor-panel">
+          ${this._renderActivePage()}
+        </main>
+      </div>
+    `
+  },
+
+  _renderGalleryMode() {
+    if (!this._pages.length) {
+      return `<div class="panel world-bible-gallery"><div class="empty-state"><p>创建一个世界书页面开始整理设定。</p></div></div>`
+    }
+    if (this._galleryCategory) return this._renderGalleryCategoryPage(this._galleryCategory)
+    return `
+      <div class="panel world-bible-gallery">
+        <div class="world-bible-gallery__hero">
+          <h2>世界书图鉴</h2>
+          <p>选择分类查看该类型的页面卡。</p>
+        </div>
+        <div class="world-bible-category-grid">
+          ${this._categoryItems(true).map((item, index) => this._renderCategoryCard(item, {
+            action: "bible-gallery-open",
+            active: false,
+            index,
+          })).join("")}
+        </div>
+      </div>
+    `
+  },
+
+  _renderGalleryCategoryPage(category) {
+    const items = this._pagesForCategory(category)
+    const meta = this._typeMeta(category)
+    return `
+      <div class="panel world-bible-gallery">
+        <div class="world-bible-category-header" style="--world-bible-type-color:${esc(meta.color)};">
+          <button class="btn btn-sm" data-action="bible-gallery-back">返回图鉴首页</button>
+          <div class="world-bible-category-icon">${esc(meta.symbol)}</div>
+          <div>
+            <h2>${esc(meta.title)} <span>(${esc(items.length)})</span></h2>
+            <p>${esc(meta.desc)}</p>
+          </div>
+        </div>
+        ${this._renderPageCardGrid(items)}
+      </div>
+    `
+  },
+
+  _renderFilterMode() {
+    if (!this._pages.length) {
+      return `<div class="panel world-bible-filter"><div class="empty-state"><p>创建一个世界书页面开始整理设定。</p></div></div>`
+    }
+    const items = this._pagesForCategory(this._activeCategory)
+    const title = this._activeCategory === "all" ? "全部页面" : this._typeMeta(this._activeCategory).title
+    return `
+      <div class="panel world-bible-filter">
+        <div class="world-bible-section-title">页面分类</div>
+        <div class="world-bible-category-grid">
+          ${this._categoryItems(true).map((item, index) => this._renderCategoryCard(item, {
+            action: "bible-set-category",
+            active: item.type === this._activeCategory,
+            index,
+          })).join("")}
+        </div>
+        <div class="world-bible-section-title">${esc(title)} <span>${esc(items.length)} 个页面</span></div>
+        ${this._renderPageCardGrid(items)}
+      </div>
+    `
+  },
+
+  _renderCategoryCard(item, { action, active, index }) {
+    const meta = item.meta
+    return `
+      <button class="world-bible-category-card ${active ? "is-active" : ""}"
+        type="button"
+        data-action="${esc(action)}"
+        data-category="${esc(item.type)}"
+        style="--world-bible-type-color:${esc(meta.color)};animation-delay:${index * 0.03}s;">
+        <span class="world-bible-category-card__band"></span>
+        <span class="world-bible-category-card__icon">${esc(meta.symbol)}</span>
+        <span class="world-bible-category-card__name">${esc(meta.title)}</span>
+        <span class="world-bible-category-card__desc">${esc(meta.desc)}</span>
+        <span class="world-bible-category-card__count">${esc(item.count)} 个页面</span>
+      </button>
+    `
+  },
+
+  _renderPageCardGrid(pages) {
+    if (!pages.length) {
+      return `<div class="empty-state"><p>这个分类下还没有世界书页面。</p></div>`
+    }
+    return `
+      <div class="world-bible-page-card-grid">
+        ${pages.map((page) => this._renderPageCard(page)).join("")}
+      </div>
+    `
+  },
+
+  _renderPageCard(page) {
+    const meta = this._typeMeta(page.page_type)
+    const statusClass = `badge-${page.status || "draft"}`
+    return `
+      <article class="world-bible-page-card" style="--world-bible-type-color:${esc(meta.color)};">
+        <div class="world-bible-page-card__band"></div>
+        <div class="world-bible-page-card__head">
+          <div class="world-bible-page-card__icon">${esc(meta.symbol)}</div>
+          <div class="world-bible-page-card__title">
+            <h3>${esc(page.title || "未命名页面")}</h3>
+            <div class="world-bible-page-card__meta">
+              <span>${esc(meta.title)}</span>
+              <span class="badge ${esc(statusClass)}">${esc(this._statusLabel(page.status))}</span>
+            </div>
+          </div>
+        </div>
+        <p class="world-bible-page-card__summary">${esc(this._pageExcerpt(page))}</p>
+        <div class="world-bible-page-card__footer">
+          <span>${this._task?.meta?.page_id === page.id ? `投影：${esc(this._task.status || "pending")}` : "投影：按页查看"}</span>
+        </div>
+        <div class="world-bible-page-card__actions">
+          <button class="btn btn-sm btn-primary" data-action="bible-open-page-card" data-page-id="${esc(page.id)}">打开编辑</button>
+        </div>
+      </article>
+    `
+  },
+
+  _typeMeta(type) {
+    return BIBLE_PAGE_TYPES[type] || {
+      ...BIBLE_FALLBACK_TYPE,
+      title: type || BIBLE_FALLBACK_TYPE.title,
+      label: type || BIBLE_FALLBACK_TYPE.label,
+    }
+  },
+
+  _statusLabel(status) {
+    return {
+      canonical: "正史",
+      draft: "草稿",
+      candidate: "候选",
+      deprecated: "废弃",
+      pending: "待处理",
+      done: "完成",
+      failed: "失败",
+    }[status] || status || "草稿"
+  },
+
+  _pageExcerpt(page) {
+    const text = String(page?.free_text || "").replace(/\s+/g, " ").trim()
+    if (!text) return "暂无正文摘要"
+    return text.length > 120 ? `${text.slice(0, 120)}...` : text
+  },
+
+  _categoryItems(includeAll = false) {
+    const counts = new Map()
+    for (const page of this._pages) {
+      const type = page.page_type || "custom"
+      counts.set(type, (counts.get(type) || 0) + 1)
+    }
+    const known = Object.keys(BIBLE_PAGE_TYPES)
+      .filter((type) => counts.has(type))
+      .map((type) => ({ type, count: counts.get(type), meta: this._typeMeta(type) }))
+    const unknown = Array.from(counts.entries())
+      .filter(([type]) => !BIBLE_PAGE_TYPES[type])
+      .sort(([a], [b]) => String(a).localeCompare(String(b)))
+      .map(([type, count]) => ({ type, count, meta: this._typeMeta(type) }))
+    const items = [...known, ...unknown]
+    if (!includeAll) return items
+    return [{
+      type: "all",
+      count: this._pages.length,
+      meta: { label: "全部", title: "全部", desc: "查看所有世界书页面", color: "#6366f1", symbol: "ALL" },
+    }, ...items]
+  },
+
+  _pagesForCategory(category) {
+    if (!category || category === "all") return this._pages
+    return this._pages.filter((page) => (page.page_type || "custom") === category)
+  },
+
+  _displayPreferenceKey(name) {
+    return `worldBible:${state.currentProjectId}:${name}`
+  },
+
+  _restoreDisplayPreferences() {
+    try {
+      const storedMode = localStorage.getItem(this._displayPreferenceKey("displayMode"))
+      this._displayMode = BIBLE_DISPLAY_MODES.has(storedMode) ? storedMode : "editor"
+      this._activeCategory = localStorage.getItem(this._displayPreferenceKey("activeCategory")) || "all"
+    } catch {
+      this._displayMode = "editor"
+      this._activeCategory = "all"
+    }
+    if (!this._activeCategory) this._activeCategory = "all"
+  },
+
+  _persistDisplayPreference(name, value) {
+    try {
+      localStorage.setItem(this._displayPreferenceKey(name), value)
+    } catch {}
+  },
+
+  _setDisplayMode(mode) {
+    if (!BIBLE_DISPLAY_MODES.has(mode)) mode = "editor"
+    this._displayMode = mode
+    if (mode !== "gallery") this._galleryCategory = null
+    this._persistDisplayPreference("displayMode", mode)
+    router.refresh()
+  },
+
+  _setActiveCategory(category) {
+    this._activeCategory = category || "all"
+    this._persistDisplayPreference("activeCategory", this._activeCategory)
+    router.refresh()
+  },
+
+  _openGalleryCategory(category) {
+    this._galleryCategory = category || "all"
+    router.refresh()
+  },
+
+  _backToGalleryHome() {
+    this._galleryCategory = null
+    router.refresh()
+  },
+
+  _openPageCard(pageId) {
+    const page = this._pages.find((item) => item.id === pageId)
+    if (page) this._activePage = page
+    this._displayMode = "editor"
+    this._galleryCategory = null
+    this._persistDisplayPreference("displayMode", "editor")
+    router.refresh()
+  },
+
   _renderActivePage() {
     const page = this._activePage
     if (!page) {
@@ -116,14 +434,88 @@ const worldBibleView = {
           <div style="color:var(--text-dim);font-size:12px;">${esc(page.page_type)} · ${esc(page.status)}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-sm" data-action="bible-toggle-ai">${this._aiOpen ? "收起 AI" : "AI 创建/整理"}</button>
           <button class="btn btn-sm btn-primary" data-action="bible-save-page">保存正文</button>
           <button class="btn btn-sm" data-action="bible-refresh-projection">刷新投影</button>
         </div>
       </div>
-      <textarea class="form-textarea" id="bible-free-text" rows="16"
-        style="width:100%;min-height:280px;">${esc(page.free_text || "")}</textarea>
-      ${this._renderProjectionStatus(page)}
+      <div style="display:grid;grid-template-columns:${this._aiOpen ? "minmax(0,1fr) minmax(280px,360px)" : "minmax(0,1fr)"};gap:12px;align-items:start;">
+        <div>
+          <textarea class="form-textarea" id="bible-free-text" rows="16"
+            style="width:100%;min-height:280px;">${esc(page.free_text || "")}</textarea>
+          ${this._renderProjectionStatus(page)}
+        </div>
+        ${this._aiOpen ? this._renderAiSidebar(page) : ""}
+      </div>
     `
+  },
+
+  _renderAiSidebar(page) {
+    return `
+      <aside class="bible-ai-sidebar" style="border:1px solid var(--border);border-radius:var(--radius-md);padding:12px;display:grid;gap:10px;background:var(--panel);">
+        <div>
+          <div style="font-weight:600;">AI 创建/整理</div>
+          <div style="font-size:12px;color:var(--text-dim);">生成结果会先进入创设建议，确认后才写入页面或对象草稿。</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <span class="badge">当前页：${esc(page.title)}</span>
+          <span class="badge">页面正文来源</span>
+        </div>
+        <label style="display:grid;gap:4px;font-size:12px;color:var(--text-muted);">输出目标
+          <select id="bible-ai-output-target" class="form-select">
+            ${BIBLE_AI_TARGETS.map((target) => `
+              <option value="${esc(target.value)}" ${this._aiOutputTarget === target.value ? "selected" : ""}>${esc(target.label)}</option>
+            `).join("")}
+          </select>
+        </label>
+        <label style="display:grid;gap:4px;font-size:12px;color:var(--text-muted);">模板
+          <select id="bible-ai-template" class="form-select">
+            ${BIBLE_AI_TEMPLATES.map((template) => `
+              <option value="${esc(template.id)}" ${this._aiTemplateId === template.id ? "selected" : ""}>${esc(template.label)}</option>
+            `).join("")}
+          </select>
+        </label>
+        <label style="display:grid;gap:4px;font-size:12px;color:var(--text-muted);">附带正文（章节序号，用逗号分隔）
+          <input id="bible-ai-chapters" class="form-input" value="${esc(this._aiSelectedChapters)}" placeholder="例如：1,2,5" />
+        </label>
+        <label style="display:flex;gap:6px;align-items:center;font-size:12px;color:var(--text-muted);">
+          <input id="bible-ai-quality-pro" type="checkbox" ${this._aiQualityMode === "pro" ? "checked" : ""} />
+          高质量
+        </label>
+        <div class="bible-ai-messages" style="max-height:180px;overflow:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;display:grid;gap:6px;">
+          ${this._aiMessages.length ? this._aiMessages.map((message) => `
+            <div style="font-size:12px;line-height:1.5;color:${message.role === "assistant" ? "var(--text)" : "var(--text-dim)"};">
+              <strong>${message.role === "assistant" ? "AI" : "我"}：</strong>${esc(message.content)}
+            </div>
+          `).join("") : `<div style="font-size:12px;color:var(--text-dim);">还没有对话。</div>`}
+        </div>
+        <textarea class="form-textarea" id="bible-ai-input" rows="3" placeholder="和 AI 讨论当前世界书页面，或说明想生成什么。"></textarea>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-sm" data-action="bible-ai-send">发送</button>
+          <button class="btn btn-sm btn-primary" data-action="bible-ai-generate">生成建议</button>
+        </div>
+        <div id="bible-ai-result" style="font-size:12px;color:var(--text-dim);">
+          ${this._renderAiResult()}
+        </div>
+      </aside>
+    `
+  },
+
+  _renderAiResult() {
+    const result = this._aiResult
+    if (!result) return "当前页正文会作为带来源标记的 AI 参考资料。"
+    if (result.error) return `<span style="color:var(--danger);">${esc(result.error)}</span>`
+    const suggestions = Array.isArray(result.suggestions) ? result.suggestions : []
+    if (suggestions.length) {
+      return suggestions.map((item) => `
+        <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;margin-top:6px;">
+          <div style="font-weight:600;color:var(--text);">${esc(item.title || this._targetTypeLabel(item.target_type))}</div>
+          <div>${esc(this._targetTypeLabel(item.target_type))} · 风险 ${esc(item.risk_level || "medium")}</div>
+          ${item.summary ? `<div>${esc(item.summary)}</div>` : ""}
+        </div>
+      `).join("")
+    }
+    return result.reply ? `<div style="color:var(--text);white-space:pre-wrap;">${esc(result.reply)}</div>` : "已完成。"
   },
 
   _renderProjectionStatus(page) {
@@ -187,6 +579,9 @@ const worldBibleView = {
               status: "draft",
             })
             this._activePage = page
+            this._displayMode = "editor"
+            this._galleryCategory = null
+            this._persistDisplayPreference("displayMode", "editor")
             toast("页面已创建", "success")
             router.refresh()
           } catch (err) {
@@ -208,6 +603,60 @@ const worldBibleView = {
     } catch (err) {
       toast(err.message || "保存失败", "error")
     }
+  },
+
+  _toggleAi() {
+    this._aiOpen = !this._aiOpen
+    router.refresh()
+  },
+
+  async _runAi(forcedTarget = null) {
+    const page = this._activePage
+    if (!page) return
+    const input = document.getElementById("bible-ai-input")
+    const text = input?.value?.trim() || ""
+    if (text) {
+      this._aiMessages.push({ role: "user", content: text })
+      if (input) input.value = ""
+    }
+    const outputTarget = forcedTarget || this._aiOutputTarget || "chat"
+    if (!this._aiMessages.length && outputTarget === "chat") {
+      toast("请输入要聊的内容", "warning")
+      return
+    }
+    this._aiResult = { reply: "正在生成..." }
+    router.refresh()
+    try {
+      const response = await api.world.generateBiblePageAi(
+        page.id,
+        {
+          output_target: outputTarget,
+          messages: this._aiMessages,
+          selected_chapter_indices: this._selectedChapterIndices(),
+          quality_mode: this._aiQualityMode,
+          template_id: this._aiTemplateId,
+          template_version: 1,
+          template_variables: {},
+          include_current_page: true,
+        },
+        state.currentProjectId,
+      )
+      if (response.reply) this._aiMessages.push({ role: "assistant", content: response.reply })
+      this._aiResult = response
+      toast(outputTarget === "chat" ? "AI 已回复" : "建议已生成，确认后才会写入", "success")
+      router.refresh()
+    } catch (err) {
+      this._aiResult = { error: err.message || "生成失败" }
+      toast(err.message || "生成失败", "error")
+      router.refresh()
+    }
+  },
+
+  _selectedChapterIndices() {
+    return String(this._aiSelectedChapters || "")
+      .split(/[,\s，]+/)
+      .map((item) => Number(item.trim()))
+      .filter((value) => Number.isInteger(value) && value > 0)
   },
 
   async _refreshProjection(force) {
@@ -331,7 +780,7 @@ const worldBibleView = {
     try {
       const data = await api.world.listSuggestions({
         novel_id: state.currentProjectId,
-        source_module: "imports",
+        source_module: "world_bible",
         status: "pending",
       })
       this._suggestions = data.items || []
@@ -360,9 +809,9 @@ const worldBibleView = {
         ${this._suggestions.map((item) => `
           <div style="border-bottom:1px solid var(--border);padding:10px 0;">
             ${this._renderSuggestionSelector(item, base)}
-            <div style="font-weight:600;">${esc(item.review_group)} · ${esc(item.target_type)}</div>
+            <div style="font-weight:600;">${esc(this._suggestionTitle(item))}</div>
             <div style="color:var(--text-dim);font-size:12px;">风险：${esc(item.risk_level)} · ${esc(item.action_schema)}</div>
-            <pre style="white-space:pre-wrap;font-size:12px;">${esc(JSON.stringify(item.payload_json || {}, null, 2))}</pre>
+            ${this._renderSuggestionPreview(item)}
             <button class="btn btn-sm btn-primary" data-bible-confirm-suggestion="${esc(item.id)}">确认</button>
             <button class="btn btn-sm" data-bible-reject-suggestion="${esc(item.id)}">拒绝</button>
           </div>
@@ -408,6 +857,36 @@ const worldBibleView = {
     `
   },
 
+  _suggestionTitle(item) {
+    const payload = item.payload_json || {}
+    return payload.title || payload.name || this._targetTypeLabel(item.target_type)
+  },
+
+  _targetTypeLabel(targetType) {
+    return {
+      world_bible_page_patch: "补写当前页",
+      world_bible_page: "新建世界书页",
+      core_entity_draft: "世界对象草稿",
+      profile_field: "档案字段",
+    }[targetType] || targetType || "创设建议"
+  },
+
+  _renderSuggestionPreview(item) {
+    const payload = item.payload_json || {}
+    const excerpt = payload.append_text || payload.free_text || payload.summary || payload.public_info || ""
+    const refs = Array.isArray(payload.source_refs) ? payload.source_refs : []
+    return `
+      <div style="font-size:13px;line-height:1.5;margin:6px 0;color:var(--text);">
+        ${esc(String(excerpt).slice(0, 320))}
+      </div>
+      ${refs.length ? `
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+          ${refs.map((ref) => `<span class="badge">${esc(ref.title || ref.source_type || "来源")}</span>`).join("")}
+        </div>
+      ` : ""}
+    `
+  },
+
   async _decideSuggestionBatch(accepted) {
     const selected = Array.from(document.querySelectorAll("[data-bible-batch-suggestion]:checked"))
       .map((node) => node.getAttribute("data-bible-batch-suggestion"))
@@ -434,6 +913,10 @@ const worldBibleView = {
       if (accepted) await api.world.confirmSuggestion(id, state.currentProjectId)
       else await api.world.rejectSuggestion(id, state.currentProjectId)
       toast(accepted ? "建议已确认" : "建议已拒绝", "success")
+      if (accepted) {
+        await this._load()
+        router.refresh()
+      }
       await this._openSuggestions()
     } catch (err) {
       toast(err.message || "处理建议失败", "error")

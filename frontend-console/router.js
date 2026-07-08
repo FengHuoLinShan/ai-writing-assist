@@ -12,7 +12,7 @@
  */
 const routes = {
   project: { title: "项目", subViews: [], requiresProject: false },
-  world: { title: "世界对象", requiresProject: true, defaultSubView: "objects", subViews: ["objects", "candidates", "relations", "aliases", "bible", "map"], subViewTitles: { objects: "对象库", candidates: "候选清洗", relations: "关系", aliases: "别名", bible: "世界书", map: "地图" } },
+  world: { title: "世界对象", requiresProject: true, defaultSubView: "objects", subViews: ["objects", "candidates", "review-objects", "review-aliases", "review-relations", "relations", "aliases", "bible", "map"], subViewTitles: { objects: "对象库", candidates: "待确认", "review-objects": "待确认 · 对象", "review-aliases": "待确认 · 别名", "review-relations": "待确认 · 关系", relations: "关系", aliases: "别名", bible: "世界书", map: "地图" } },
   rag: { title: "RAG 检索", requiresProject: true, defaultSubView: "status", subViews: ["status", "search"], subViewTitles: { status: "索引状态", search: "搜索测试" } },
   outline: { title: "大纲", requiresProject: true, defaultSubView: "scenes", subViews: ["scenes", "threads", "arcs", "foreshadowing", "reveals"], subViewTitles: { scenes: "场景卡", threads: "剧情线", arcs: "篇章纲", foreshadowing: "伏笔", reveals: "揭示" } },
   scene: { title: "场景", subViews: [], requiresProject: true, dynamicSubView: true },
@@ -364,13 +364,20 @@ async function renderCurrentView() {
     }
   } catch (err) {
     console.error("View render error:", err)
-    content.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon" style="color:var(--danger);">&#9888;</div>
-        <p style="color:var(--danger);">页面加载失败</p>
-        <p style="color:var(--text-dim);font-size:12px;">${esc(err.message)}</p>
-      </div>
-    `
+    const stateEl = document.createElement("div")
+    stateEl.className = "empty-state"
+    const icon = document.createElement("div")
+    icon.className = "empty-icon"
+    icon.style.color = "var(--danger)"
+    icon.textContent = "!"
+    const title = document.createElement("p")
+    title.style.color = "var(--danger)"
+    title.textContent = "页面加载失败"
+    const message = document.createElement("p")
+    message.style.cssText = "color:var(--text-dim);font-size:12px;"
+    message.textContent = err.message || ""
+    stateEl.append(icon, title, message)
+    content.replaceChildren(stateEl)
   } finally {
     state.loading = false
     _prevRenderedView = viewName
@@ -451,15 +458,20 @@ async function initRouter() {
 
   // 监听浏览器前进/后退
   window.addEventListener("popstate", async (e) => {
-    const hash = window.location.hash.slice(1) || "project"
-    const parsed = _parseHash(hash)
-    const routeState = _normalizeRoute(parsed)
-    const canonicalHash = _hashForRoute(routeState)
-    if (window.location.hash !== canonicalHash) {
-      window.history.replaceState({ view: routeState.viewName, subView: routeState.subView, projectId: routeState.projectId }, "", canonicalHash)
+    try {
+      const hash = window.location.hash.slice(1) || "project"
+      const parsed = _parseHash(hash)
+      const routeState = _normalizeRoute(parsed)
+      const canonicalHash = _hashForRoute(routeState)
+      if (window.location.hash !== canonicalHash) {
+        window.history.replaceState({ view: routeState.viewName, subView: routeState.subView, projectId: routeState.projectId }, "", canonicalHash)
+      }
+      await _applyRoute(routeState)
+      await renderCurrentView()
+    } catch (err) {
+      console.warn("路由切换失败", err)
+      if (typeof toast === "function") toast(`路由切换失败：${err.message || "未知错误"}`, "error")
     }
-    await _applyRoute(routeState)
-    await renderCurrentView()
   })
 
   await renderCurrentView()

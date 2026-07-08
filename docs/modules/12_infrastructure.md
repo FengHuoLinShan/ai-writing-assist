@@ -20,6 +20,15 @@ resp = await llm.generate(request)
 # 结构化 JSON（Pydantic 校验 + 自动修复）
 result = await llm.generate_structured(request, MySchema, max_fix_attempts=2)
 
+# 业务 text / structured generation 默认通过受控 step 包装
+resp = await run_managed_generate(llm, request, step_name="module.flow.generate")
+result = await run_managed_structured(
+    llm,
+    request,
+    MySchema,
+    step_name="module.flow.structured",
+)
+
 # 流式输出
 async for chunk in llm.generate_stream(request): ...
 
@@ -38,6 +47,20 @@ await llm.close()
 # 获取 Provider 状态
 stats = await llm.get_usage_stats()
 ```
+
+### 受控 LLM Step Harness
+
+`infrastructure.llm.agent_step_harness` 提供 `ManagedLLMStep`、
+`OutputGuard`、`ContextBudgetGuard` 以及 `run_managed_generate()` /
+`run_managed_structured()`。业务模块的普通文本生成和结构化生成应通过这两个
+helper 进入，以统一 step name、journal、timeout 和错误分类。
+
+helper 不改变 `LLMClient` 的 provider/retry/structured repair 行为：结构化 JSON
+修复仍由 `LLMClient.generate_structured()` 执行，失败时重新抛出原始异常实例，
+由调用方保留现有 fallback 或状态更新逻辑。`context_budget` 默认不自动截断
+request messages；需要裁剪时显式使用 `ContextBudgetGuard`。
+
+Embedding、streaming 和 `generate_simple()` 不是本 harness 的默认迁移范围。
 
 ### 配置与健康检查
 
@@ -88,7 +111,6 @@ GET /api/health/llm
 | `rag_reindex_novel` | rag | 全量/范围重建项目索引 |
 | `publish_chapter` | writing | 发布章节草稿并触发后续索引/记忆流程 |
 | `deep_import` | imports | 深度导入流水线（Scene 切分 → 实体提取 → 结构分析） |
-| `deep_import_resume` | imports | 生产兼容恢复 handler；由 `/api/imports/deep/resume` 在用户确认后继续原 deep_import 或 stage task |
 
 ### API
 

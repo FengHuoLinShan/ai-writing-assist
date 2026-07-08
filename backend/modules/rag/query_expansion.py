@@ -8,6 +8,7 @@ RAG 查询扩展
 from __future__ import annotations
 
 import re
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 
@@ -16,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.container import get as _container_get
 
 _TermLoader = Callable[[AsyncSession, uuid.UUID], Awaitable[list[dict[str, str]]]]
+_PROJECT_TERMS_TTL_SECONDS = 60.0
+_PROJECT_TERMS_CACHE: dict[uuid.UUID, tuple[float, list[dict[str, str]]]] = {}
 
 
 def _add_term(
@@ -36,6 +39,11 @@ async def _load_project_terms(
     novel_id: uuid.UUID,
 ) -> list[dict[str, str]]:
     """加载项目词典：人物、世界对象/别名、剧情线。"""
+    cached = _PROJECT_TERMS_CACHE.get(novel_id)
+    now = time.monotonic()
+    if cached and now - cached[0] <= _PROJECT_TERMS_TTL_SECONDS:
+        return [dict(item) for item in cached[1]]
+
     terms: list[dict[str, str]] = []
     novel_id_str = str(novel_id)
 
@@ -56,7 +64,16 @@ async def _load_project_terms(
         pass
 
     terms.sort(key=lambda x: len(x["term"]), reverse=True)
+    _PROJECT_TERMS_CACHE[novel_id] = (now, [dict(item) for item in terms])
     return terms
+
+
+def clear_project_terms_cache(novel_id: uuid.UUID | None = None) -> None:
+    """Clear query-expansion term cache after tests or explicit invalidation."""
+    if novel_id is None:
+        _PROJECT_TERMS_CACHE.clear()
+    else:
+        _PROJECT_TERMS_CACHE.pop(novel_id, None)
 
 
 def _match_project_terms(
@@ -93,10 +110,12 @@ def _cn_ngrams(term: str, min_n: int = 2, max_n: int = 4) -> list[str]:
     if not compact or not any("\u4e00" <= ch <= "\u9fff" for ch in compact):
         return []
     grams: list[str] = []
+    seen: set[str] = set()
     for n in range(min_n, min(max_n, len(compact)) + 1):
         for i in range(0, len(compact) - n + 1):
             gram = compact[i : i + n]
-            if gram not in grams:
+            if gram not in seen:
+                seen.add(gram)
                 grams.append(gram)
     return grams
 

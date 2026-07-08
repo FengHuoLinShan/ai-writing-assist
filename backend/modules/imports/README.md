@@ -19,7 +19,7 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - Phase 0 不调用 LLM；它按章节字符数计算窗口计划、owned range、固定右侧 2 章 overlap 和每窗 `max_tokens` 预算。默认目标输入约 `72000` 字符，窗口最多 20 章，`max_tokens=clamp(round(input_chars * 0.36), 13000, 32768)`
 - Phase 1a 只切分并锁定 Scene 边界字段：`title` / `goal` / `core_conflict` / `start_chapter` / `end_chapter` / `boundary_status`；缺失章节会生成 `needs_review` 的章节级 fallback
 - Phase 1b 每个 Scene 一个并发 enrichment 请求，只解析补充字段；`scene_chunks` 由系统按 `start_chapter` / `end_chapter` 章级确定生成，不由 LLM 定位
-- 旧 `scene_prefetch` / `scene_reinforcement` / `scene_fusion` 保留为 legacy/repair 组件，不进入默认 Scene 自动提取路径；`scene_prefetch` / `scene_reinforcement` 默认被 `DEEP_IMPORT_LEGACY_SCENE_PIPELINE_ENABLED=0` 禁用
+- 旧 `scene_prefetch` / `scene_reinforcement` legacy pipeline 已删除；`scene_fusion` 仍作为内部兼容/修复组件保留，不进入默认 Scene 自动提取主路径
 - 深度导入保持自动流水线，不弹出“AI 参考资料”确认；Phase 3 结构分析显式使用 `context_mode="working"` 并包含待确认对象
 - 分阶段世界对象自动提取执行 Phase 2a / 2b：先基于已提交 Scene 抽取世界对象与 Delta，再补抽别名 / 关系
 - Phase 2 对大量 Scene 使用 batch 间并发、batch 内 Scene 串行的调度：默认 12 Scene / batch、6 batch 并发；真实 LLM 调参可用 `PHASE2_BATCH_SIZE_SCENES` / `PHASE2_BATCH_CONCURRENCY` 临时覆盖；每个 batch 保留局部 rolling context
@@ -87,17 +87,19 @@ single-chapter / fusion wrapper，以及非 runtime seam 的薄包装/死代码�
 `workflow.py` 移除。
 阶段实现拆在同模块内部：
 
+- `workflow_phase_runner.py` — Phase runner 的共享 request / Protocol seam；
+  `workflow.py` 通过该 seam 调用各阶段，旧 runner 方法保留兼容 adapter
 - `workflow_scene_phase.py` — Phase 0 / Phase 1a / Phase 1b / Scene commit
 - `workflow_entity_phase.py` — Phase 2a / Phase 2b 与 world_objects stage
 - `workflow_structure_phase.py` — Phase 3、plot_structure stage 与小样本结构保底
 - `workflow_progress.py` — progress timeline、诊断计数、checkpoint/audit/snapshot summary 合并
-- `workflow_llm_adapters.py` — 深度导入 LLM adapter、Phase 0/1a/1b prompt 和 token 预算控制
+- `workflow_llm_adapters.py` — 深度导入 LLM adapter、Phase 1a/1b prompt 和 token 预算控制；Phase 0 只做确定性规划，不再有 LLM prefetch adapter
 - `scene_planning.py` — Phase 0 章节字符统计、字符预算窗口 / overlap / max_tokens 规划
 - `scene_slicing.py` — Phase 1a Scene 边界切分、owned range 过滤和章节级 fallback
 - `scene_enrichment.py` — Phase 1b 逐 Scene 补字段、锁定字段保护、确定性 `scene_chunks`
-- `scene_prefetch.py` / `scene_reinforcement.py` / `scene_fusion.py` — legacy/repair 路径的候选预取、补强与融合组件，默认不调用；前两者只有显式设置 `DEEP_IMPORT_LEGACY_SCENE_PIPELINE_ENABLED=1` 才允许运行
+- `scene_fusion.py` — 内部兼容/修复路径使用的候选融合组件；旧 `scene_prefetch.py` / `scene_reinforcement.py` 已删除
 - `deep_import_retry.py` — 深度导入 LLM 错误分类与阶段可控 retry 策略
-- `agent_step_harness.py` — imports 内部受控 LLM step envelope / journal / 输出守门；由 `workflow_llm_adapters.py` 使用，不提供自治 agent loop 或工具自主选择
+- `agent_step_harness.py` — 旧 imports 路径兼容导出；权威实现已迁至 `infrastructure/llm/agent_step_harness.py`
 
 这些文件不改变 HTTP API 或数据库 schema。`async_tasks.result` 会额外返回
 向后兼容的 `phase_artifacts`，用于记录真实服务分阶段 compact artifact、
@@ -137,8 +139,9 @@ Phase2b 稳定性相关环境变量：
 - `PHASE2_ALIAS_RELATION_ENTITY_INDEX_FALLBACK_LIMIT`
 
 Phase 2 的 Scene 实体抽取实现位于 `entity_extraction/` 子包；
-`SceneEntityExtractionService` 保持对外入口，顶层
-`scene_entity_extraction.py` 仅作为旧导入和 monkeypatch 路径的兼容 shell。
+`modules.imports.entity_extraction` 是稳定公共导出入口。旧顶层
+`scene_entity_extraction.py` 兼容 hub 已删除；测试和生产 monkeypatch 路径应指向
+`modules.imports.entity_extraction` 或其具体实现子模块。
 
 - `entity_extraction/scene_entity_strategy.py` — 选择 empty / small-sample parallel / bulk / batched / checkpoint resume 路由
 - `entity_extraction/scene_entity_single_scene.py` — 单 Scene 串行 Phase 2a

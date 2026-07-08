@@ -46,6 +46,44 @@ describe("command suggestions", () => {
 
     commands.getSuggestions = originalGetSuggestions
   })
+
+  it("shows visible feedback when command execution rejects", async () => {
+    document.body.innerHTML = `
+      <div id="workspace" tabindex="-1"></div>
+      <div id="command-bar">
+        <input id="command-input" value=":fail" />
+        <span id="command-hint"></span>
+        <div id="command-suggestions"></div>
+      </div>
+    `
+    commands.execute = vi.fn().mockRejectedValue(new Error("command failed"))
+    globalThis.App._bindCommandBar()
+
+    document.getElementById("command-input").dispatchEvent(new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+    }))
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(toast).toHaveBeenCalledWith("命令执行失败：command failed", "error")
+  })
+})
+
+describe("app navigation failure feedback", () => {
+  it("shows visible feedback when navigation rejects", async () => {
+    document.body.innerHTML = '<button class="nav-item" data-view="world"></button>'
+    router.getRoute = vi.fn().mockReturnValue({ subViews: [] })
+    router.getLastSubView = vi.fn().mockReturnValue(null)
+    router.navigate = vi.fn().mockRejectedValue(new Error("route failed"))
+
+    globalThis.App._bindNavigation()
+    document.querySelector(".nav-item").click()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(toast).toHaveBeenCalledWith("导航失败：route failed", "error")
+  })
 })
 
 describe("context compile result", () => {
@@ -96,6 +134,33 @@ describe("context markdown output", () => {
   })
 })
 
+describe("generated object result rendering", () => {
+  it("renders AI object fields as text nodes", () => {
+    const node = generateView._renderEntityResultNode({
+      name: "<img src=x onerror=alert(1)>",
+      entity_type: "<script>alert('type')</script>",
+      status: "draft",
+      summary: "<script>alert('summary')</script>",
+    })
+
+    document.body.append(node)
+
+    expect(document.querySelector("img")).toBeNull()
+    expect(document.querySelector("script")).toBeNull()
+    expect(document.body.textContent).toContain("<img src=x onerror=alert(1)>")
+    expect(document.body.textContent).toContain("<script>alert('summary')</script>")
+  })
+
+  it("renders inline errors as text nodes", () => {
+    const node = generateView._renderInlineError("生成失败：<img src=x onerror=alert(1)>")
+
+    document.body.append(node)
+
+    expect(document.querySelector("img")).toBeNull()
+    expect(document.body.textContent).toContain("<img src=x onerror=alert(1)>")
+  })
+})
+
 describe("modal body rendering", () => {
   beforeEach(() => {
     document.body.innerHTML = `
@@ -106,6 +171,15 @@ describe("modal body rendering", () => {
       </div>
     `
   })
+
+  async function flushClick() {
+    await Promise.resolve()
+    await Promise.resolve()
+  }
+
+  function isModalOpen() {
+    return !document.getElementById("modal-overlay").classList.contains("hidden")
+  }
 
   it("does not execute script tags passed as a string body", () => {
     let executed = false
@@ -142,5 +216,64 @@ describe("modal body rendering", () => {
 
     const bodyEl = document.getElementById("modal-body")
     expect(bodyEl.querySelector("p")?.textContent).toBe("helper paragraph")
+  })
+
+  it("closes after an async handler resolves", async () => {
+    window.showModal("Async ok", "body", [
+      { text: "保存", handler: vi.fn().mockResolvedValue(true) },
+    ])
+
+    document.querySelector("#modal-footer button").click()
+    await flushClick()
+
+    expect(isModalOpen()).toBe(false)
+  })
+
+  it("keeps open and shows toast when an async handler rejects", async () => {
+    window.showModal("Async fail", "body", [
+      { text: "保存", handler: vi.fn().mockRejectedValue(new Error("boom")) },
+    ])
+
+    document.querySelector("#modal-footer button").click()
+    await flushClick()
+
+    expect(isModalOpen()).toBe(true)
+    expect(toast).toHaveBeenCalledWith("操作失败：boom", "error")
+  })
+
+  it("keeps open when a handler returns false", async () => {
+    window.showModal("Stay open", "body", [
+      { text: "保存", handler: vi.fn().mockResolvedValue(false) },
+    ])
+
+    document.querySelector("#modal-footer button").click()
+    await flushClick()
+
+    expect(isModalOpen()).toBe(true)
+  })
+
+  it("still closes through cancel and close buttons", async () => {
+    window.showModal("Cancel", "body", [
+      { text: "关闭", handler: vi.fn().mockResolvedValue(false) },
+    ])
+
+    document.querySelector("#modal-footer button").click()
+    await flushClick()
+
+    expect(isModalOpen()).toBe(false)
+  })
+
+  it("confirmAction async reject does not bypass confirmation or close", async () => {
+    const onConfirm = vi.fn().mockRejectedValue(new Error("拒绝删除"))
+    window.confirmAction("确定永久删除？", onConfirm, "永久删除")
+
+    expect(onConfirm).not.toHaveBeenCalled()
+
+    document.querySelector("#modal-footer button").click()
+    await flushClick()
+
+    expect(onConfirm).toHaveBeenCalledOnce()
+    expect(isModalOpen()).toBe(true)
+    expect(toast).toHaveBeenCalledWith("操作失败：拒绝删除", "error")
   })
 })

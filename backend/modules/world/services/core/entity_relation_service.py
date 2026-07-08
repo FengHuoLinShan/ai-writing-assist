@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from typing import Any
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.crud import CrudService
@@ -15,6 +18,7 @@ from modules.world.schemas import (
     EntityRelationCreate,
     EntityRelationListResponse,
     EntityRelationResponse,
+    EntityRelationReviewEditRequest,
     EntityRelationUpdate,
     WorldEntityContext,
 )
@@ -32,6 +36,10 @@ def _merge_text(existing: str | None, incoming: str | None) -> str | None:
     if addition in current:
         return current
     return f"{current}\n{addition}"
+
+
+_RETIRED_ENTITY_STATUSES = {"merged", "ignored", "deprecated"}
+_RELATION_STATUSES = {"candidate", "canonical", "deprecated"}
 
 
 class EntityRelationService(
@@ -75,6 +83,38 @@ class EntityRelationService(
         ):
             raise NotFoundError("Source or target entity not found in this novel")
         return source, target
+
+    def _assert_active_relation_endpoint(self, entity: Any, field_name: str) -> None:
+        if getattr(entity, "status", None) in _RETIRED_ENTITY_STATUSES:
+            raise ValidationError(f"{field_name} cannot be retired entity")
+
+    def _relation_snapshot(self, rel: EntityRelation) -> dict[str, object]:
+        return {
+            "id": str(rel.id),
+            "source_id": str(rel.source_id),
+            "target_id": str(rel.target_id),
+            "relation_type": rel.relation_type,
+            "description": rel.description,
+            "strength": rel.strength,
+            "status": rel.status,
+        }
+
+    def _review_meta(
+        self,
+        *,
+        action: str,
+        before: dict[str, object],
+        after: dict[str, object],
+        reviewed_from: str,
+    ) -> dict[str, object]:
+        return {
+            "reviewed_at": datetime.now(UTC).isoformat(),
+            "reviewed_by": "manual",
+            "reviewed_from": reviewed_from,
+            "review_action": action,
+            "review_before": before,
+            "review_after": after,
+        }
 
     def _response_with_endpoint_names(
         self,
@@ -189,14 +229,31 @@ class EntityRelationService(
         db: AsyncSession,
         novel_id: str,
         *,
+        status: str | None = None,
+        relation_type: str | None = None,
+        q: str | None = None,
+        source_chapter_id: str | None = None,
+        strength_min: float | None = None,
+        strength_max: float | None = None,
         skip: int = 0,
         limit: int = 100,
     ) -> EntityRelationListResponse:
         nid = parse_uuid(novel_id, "novel_id")
+        chapter_id = (
+            parse_uuid(source_chapter_id, "source_chapter_id")
+            if source_chapter_id
+            else None
+        )
         limit = min(limit, MAX_PAGE_SIZE)
         relations, total = await self.repo.get_by_novel(
             db,
             nid,
+            status=status,
+            relation_type=relation_type,
+            q=q,
+            source_chapter_id=chapter_id,
+            strength_min=strength_min,
+            strength_max=strength_max,
             skip=skip,
             limit=limit,
         )
@@ -204,6 +261,105 @@ class EntityRelationService(
             items=[self._response_with_endpoint_names(rel) for rel in relations],
             total=total,
         )
+
+    async def update(  # type: ignore[override]
+        self,
+        db: AsyncSession,
+        id: str,
+        data: EntityRelationUpdate,
+        *,
+        novel_id: str,
+    ) -> EntityRelationResponse:
+        rid = parse_uuid(id, self.id_param)
+        nid = parse_uuid(novel_id, "novel_id")
+        rel = await self.repo.get(db, rid)
+        if rel is None or rel.novel_id != nid:
+            raise NotFoundError(f"EntityRelation {id} not found")
+        before = self._relation_snapshot(rel)
+        if data.status is not None and data.status not in _RELATION_STATUSES:
+            raise ValidationError("Invalid relation status")
+        updated = await self.repo.update(db, rel, data)
+        if updated is None:
+            raise NotFoundError(f"EntityRelation {id} not found")
+        if data.status is not None and before["status"] != updated.status:
+            after = self._relation_snapshot(updated)
+            updated.review_meta = self._review_meta(
+                action="relation_status_updated",
+                before=before,
+                after=after,
+                reviewed_from="world_relations_update",
+            )
+            db.add(updated)
+            await db.flush()
+        return self._response_with_endpoint_names(updated)
+
+    async def review_edit(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        rel_id: str,
+        data: EntityRelationReviewEditRequest,
+    ) -> dict[str, object]:
+        nid = parse_uuid(novel_id, "novel_id")
+        rid = parse_uuid(rel_id, self.id_param)
+        rel = await self.repo.get(db, rid)
+        if rel is None or rel.novel_id != nid:
+            raise NotFoundError(f"EntityRelation {rel_id} not found")
+        if rel.status == "deprecated":
+            raise ValidationError("Deprecated relation cannot be reviewed")
+
+        before = self._relation_snapshot(rel)
+        sid = parse_uuid(data.source_id, "source_id") if data.source_id else rel.source_id
+        tid = parse_uuid(data.target_id, "target_id") if data.target_id else rel.target_id
+        relation_type = (data.relation_type or rel.relation_type or "").strip()
+        if not relation_type:
+            raise ValidationError("relation_type cannot be blank")
+        source, target = await self._require_distinct_entities_in_novel(
+            db,
+            nid,
+            sid,
+            tid,
+        )
+        self._assert_active_relation_endpoint(source, "source_id")
+        self._assert_active_relation_endpoint(target, "target_id")
+
+        duplicate = await self.repo.find_duplicate_relation(
+            db,
+            nid,
+            sid,
+            tid,
+            relation_type,
+            exclude_rel_id=rid,
+        )
+        if duplicate is not None:
+            raise ConflictError(f"Relation already exists: {duplicate.id}")
+
+        rel.source_id = sid
+        rel.target_id = tid
+        rel.relation_type = relation_type
+        if data.description is not None:
+            rel.description = data.description
+        if data.strength is not None:
+            rel.strength = data.strength
+        if data.confirm_review:
+            rel.status = "canonical"
+
+        after = self._relation_snapshot(rel)
+        rel.review_meta = self._review_meta(
+            action="relation_review_edit",
+            before=before,
+            after=after,
+            reviewed_from="world_relations_review_edit",
+        )
+        db.add(rel)
+        await db.flush()
+        rel = await self.repo.get(db, rid) or rel
+        response = self._response_with_endpoint_names(rel)
+        return {
+            "relation": response.model_dump(mode="json"),
+            "affected_ids": [str(rel.id)],
+            "review_meta": rel.review_meta or {},
+        }
 
     # ============================================================
     # 特例方法

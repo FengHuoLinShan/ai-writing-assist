@@ -943,7 +943,7 @@ describe("mapWorkspaceView overview", () => {
     expect(toast).toHaveBeenCalledWith("地图事实已确认", "success")
   })
 
-  it("opens a searched location on its detail map", () => {
+  it("opens a searched location on its detail map", async () => {
     const root = document.createElement("div")
     root.id = "workspace-content"
     root.innerHTML = `<button data-action="map-search-location" data-id="loc1">洛阳</button>`
@@ -962,6 +962,7 @@ describe("mapWorkspaceView overview", () => {
 
     mapWorkspaceView._bindEvents()
     root.querySelector("[data-action='map-search-location']").click()
+    await Promise.resolve()
 
     expect(openSpy).toHaveBeenCalledWith("m2", { focusEntityId: "loc1" })
     openSpy.mockRestore()
@@ -983,6 +984,48 @@ describe("mapWorkspaceView overview", () => {
     quickCreateSpy.mockRestore()
     loadSpy.mockRestore()
     openSpy.mockRestore()
+  })
+
+  it("shows a visible error when quick-create cannot open", async () => {
+    const quickCreateSpy = vi.spyOn(mapQuickCreateView, "open").mockRejectedValue(
+      new Error("后端服务器错误"),
+    )
+
+    const result = await mapWorkspaceView._openQuickCreate()
+
+    expect(result).toBeNull()
+    expect(toast).toHaveBeenCalledWith("快速创建地图失败：后端服务器错误", "error")
+    quickCreateSpy.mockRestore()
+  })
+
+  it("warns before quick-create when no project is selected", async () => {
+    state.currentProjectId = null
+    const quickCreateSpy = vi.spyOn(mapQuickCreateView, "open")
+
+    const result = await mapWorkspaceView._openQuickCreate()
+
+    expect(result).toBeNull()
+    expect(quickCreateSpy).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("请先选择项目", "warning")
+    quickCreateSpy.mockRestore()
+  })
+
+  it("shows feedback when delegated async action rejects", async () => {
+    document.body.innerHTML = `
+      <main id="workspace-content">
+        <button data-action="map-search-location" data-id="loc1">打开地点</button>
+      </main>
+    `
+    const openLocationSpy = vi.spyOn(mapWorkspaceView, "_openLocation")
+      .mockRejectedValue(new Error("location failed"))
+
+    mapWorkspaceView._bindEvents()
+    document.querySelector("[data-action='map-search-location']").click()
+
+    await vi.waitFor(() => {
+      expect(toast).toHaveBeenCalledWith("操作失败：location failed", "error")
+    })
+    openLocationSpy.mockRestore()
   })
 
   it("clears pending render timers on leave", async () => {

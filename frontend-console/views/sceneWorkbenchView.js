@@ -847,13 +847,19 @@ const sceneWorkbenchView = {
         text: "确认合并",
         class: "btn-primary",
         handler: async () => {
-          await api.outline.mergeScenes(state.currentProjectId, {
-            ...request,
-            confirmed: true,
-          })
-          toast("Scene 已合并", "success")
-          closeModal()
-          await router.refresh()
+          try {
+            await api.outline.mergeScenes(state.currentProjectId, {
+              ...request,
+              confirmed: true,
+            })
+            toast("Scene 已合并", "success")
+            closeModal()
+            await router.refresh()
+            return true
+          } catch (err) {
+            toast(`Scene 合并失败：${err.message || "未知错误"}`, "error")
+            return false
+          }
         },
       },
     ])
@@ -1124,14 +1130,20 @@ const sceneWorkbenchView = {
         text: "确认拆分",
         class: "btn-primary",
         handler: async () => {
-          await api.outline.splitScene(state.currentProjectId, {
-            ...request,
-            draft_scenes: this._readSplitDraftScenes(),
-            confirmed: true,
-          })
-          toast("Scene 已拆分", "success")
-          closeModal()
-          await router.refresh()
+          try {
+            await api.outline.splitScene(state.currentProjectId, {
+              ...request,
+              draft_scenes: this._readSplitDraftScenes(),
+              confirmed: true,
+            })
+            toast("Scene 已拆分", "success")
+            closeModal()
+            await router.refresh()
+            return true
+          } catch (err) {
+            toast(`Scene 拆分失败：${err.message || "未知错误"}`, "error")
+            return false
+          }
         },
       },
     ])

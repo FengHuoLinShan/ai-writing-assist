@@ -16,13 +16,13 @@ function runningTask(taskId, result = {}) {
     result: {
       phase: "running",
       current_step: "scene_segmentation",
-      current_phase: "phase0",
+      current_phase: "phase0_plan",
       current_round: "A",
       current_chapter_range: "1-5",
       current_chapter: 3,
       current_scene_candidate_id: "cand-1",
-      current_operation: "scene_prefetch",
-      message: "正在预取 Scene 候选并统计质量...",
+      current_operation: "scene_planning",
+      message: "正在规划 Scene 切分窗口并统计质量...",
       quality_stats: {
         phase0: {
           total_batches: 6,

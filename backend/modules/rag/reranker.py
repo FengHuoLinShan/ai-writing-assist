@@ -19,6 +19,7 @@ import math
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from infrastructure.llm.agent_step_harness import run_managed_generate
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest
 
@@ -104,7 +105,11 @@ async def rerank(
             response_format={"type": "json_object"},
         )
 
-        response = await client.generate(request)
+        response = await run_managed_generate(
+            client,
+            request,
+            step_name="rag.reranker.generate",
+        )
         data = json.loads(response.content)
         parsed = _RerankerResponse.model_validate(data)
 

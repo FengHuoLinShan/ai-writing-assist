@@ -131,7 +131,16 @@ RAG 片段或资产摘要作为证据交给 LLM 判断 `merge`、`deprecate_dupl
 
 ## Facade
 
-跨模块调用优先走 `facade.py`，当前主要提供 Scene 读取能力：
+跨模块调用优先走 `modules.outline.facade`。`facade.py` 是兼容 re-export hub，
+内部按 seam 拆到子 facade：
+
+- `scene_facade.py`：Scene 读取、创建、更新、章节拆分和 `SceneContract`
+- `structure_dedup_facade.py`：outline 结构资产智能去重建议与应用
+- `deep_import_repair_facade.py`：deep import 修复、最小结构补齐和清理
+- `foreshadowing_facade.py`：伏笔计划只读上下文
+
+旧 `modules.outline.facade.*` 路径仍是唯一跨模块公共 seam，供外部模块 import 和
+测试 monkeypatch；子 facade 只是 outline 内部的 locality 拆分。当前常用入口包括：
 
 ```python
 async def get_scene(...)

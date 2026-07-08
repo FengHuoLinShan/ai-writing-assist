@@ -1,5 +1,24 @@
 # infrastructure/llm — LLM 客户端封装
 # 封装模型调用，不放小说业务逻辑
+from infrastructure.llm.agent_step_harness import (
+    AgentErrorKind,
+    AgentJournalEvent,
+    AgentPermissionLevel,
+    AgentRunJournal,
+    ContextBudget,
+    ContextBudgetEvent,
+    ContextBudgetGuard,
+    ContextBudgetResult,
+    ManagedLLMStep,
+    OutputGuard,
+    OutputGuardResult,
+    RetryPolicy,
+    StepExecutionResult,
+    StepExecutionStatus,
+    StepToolEnvelope,
+    run_managed_generate,
+    run_managed_structured,
+)
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.errors import (
     LLMConnectionError,
@@ -13,8 +32,23 @@ from infrastructure.llm.schemas import LLMCallRequest, LLMCallResponse, LLMMessa
 from infrastructure.llm.token_estimation import estimate_token_count
 
 __all__ = [
+    "AgentErrorKind",
+    "AgentJournalEvent",
+    "AgentPermissionLevel",
+    "AgentRunJournal",
+    "ContextBudget",
+    "ContextBudgetEvent",
+    "ContextBudgetGuard",
+    "ContextBudgetResult",
     "LLMClient",
+    "ManagedLLMStep",
     "OpenAIProvider",
+    "OutputGuard",
+    "OutputGuardResult",
+    "RetryPolicy",
+    "StepExecutionResult",
+    "StepExecutionStatus",
+    "StepToolEnvelope",
     "get_provider",
     "LLMCallRequest",
     "LLMCallResponse",
@@ -25,4 +59,6 @@ __all__ = [
     "LLMRateLimitError",
     "LLMInvalidResponseError",
     "estimate_token_count",
+    "run_managed_generate",
+    "run_managed_structured",
 ]

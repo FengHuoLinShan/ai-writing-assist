@@ -35,30 +35,31 @@
 | 事件 | Event | `core_entities` (entity_type="event") | 小说时间线事件。timeline_order 存于 content_json |
 | 导入记录 | ImportRecord | `import_records` | 小说文件导入跟踪。不存原文 |
 | 候选创作资产 | Candidate Creative Asset | 多表状态表达 | AI 或系统从正文中提取出的、具备长期维护价值但尚未被用户确认的结构化资产。可对应 CoreEntity、Relation、Alias、Event、Scene、PlotThread 等对象；默认进入 candidate 或等价待确认状态，可进入工作上下文但不进入正史上下文 |
+| 世界对象草稿 | World Object Draft | `core_entities` / profile / suggestion queues | 作者通过生成中心或 World Bible AI 入口主动创建的非正史世界对象工作稿。第一版用户界面不区分“草稿”和“候选对象”；若草稿来自页面正文、章节证据或导入结果，必须用来源标记提示作者其依据和复核风险 |
 | 导入写入风险分级 | Import Write Risk Classifier | imports workflow / suggestion queues | 深度导入写库前的风险分类边界。低风险事实轮廓可写 draft/candidate；公共可推导标签可在严格条件下自动同步；KnowledgeVisibilityPolicy、叙事专属 KnowledgeTag、CharacterKnowledge 等知识连接默认只进导入审核建议，作者确认前不写正式知识表 |
 | ~~候选实体~~ | ~~EntityCandidate~~ | ~~`entity_candidates`~~ | 已废弃。候选对象不再使用独立候选表，改由对应资产表的状态与自动入库元数据表达 |
 | 关系 | EntityRelation | `entity_relations` | 实体间关系（人物、势力、对象、通用）。source_id/target_id 为 UUID hex 字符串 |
 | 修订快照 | EntityRevision | `entity_revisions` | CoreEntity 的编辑历史快照，支持 rollback |
 | 世界观手册 | World Bible | `core_entities` / `entity_relations` / `map_*` / `context_*` | 作者开书前和创作过程中维护世界观的百科/指引手册式产品入口，采用固定核心册页 + 可扩展自定义册页。固定册页包括世界基本背景、种族/群体、势力、地点/地图、历史重大事件、规则体系、重要物品、主要人物、秘密与伏笔；自定义册页服务修仙境界、科幻技术树、神系/位面/怪物图鉴等类型化设定。它不是独立世界观数据库，而是把世界对象、关系、地图事实、人物知识边界和上下文激活规则组织成作者可浏览、可补全、可预览 AI 参考资料的手册 |
 | 事实所有权模型 | Fact Ownership Model | 跨模块 contract | 同一个世界事实只能有一个权威归属。世界对象事实属于 CoreEntity、类型 profile 强字段、profile `extra_json`、EntityRelation、地图事实、人物知识边界或结构资产；World Bible Page 只组织、引用和解释这些事实；projection 只是缓存；正文草稿是读者面向艺术呈现，不回写设定真相 |
-| 世界观手册页 | World Bible Page | `world_bible_pages` | World Bible 中的一个作者可编辑页面，承载页面标题、页面元数据、自由正文、关联资产引用和激活默认规则。它保存作者的手册正文和页面组织方式，但不拥有正史事实；可被 AI 参考资料、创设建议、冲突检查和地图联动读取其关联资产和页面投影 |
-| 手册页未发布修改 | World Bible Page Draft Changes | `world_bible_pages` | 已发布手册页应用页面元数据补全、自由正文编辑或模板字段调整后产生的未发布修改。它可用于预览和再次整理，但默认不进入 canonical 世界观手册；作者点击发布后才成为正史手册页内容 |
-| 手册页修订版本 | World Bible Page Revision | `world_bible_page_revisions` | World Bible Page 的轻量版本历史，类似正文版本。它在发布 canonical、应用 AI 整理建议、回滚等有意义节点记录完整页面快照、版本号、变更摘要和来源建议；不为每次自动保存创建版本。回滚通过创建新的修订版本完成，不删除旧历史 |
+| 世界观手册页 | World Bible Page | `world_bible_pages` | World Bible 中的一个作者可编辑页面，承载页面标题、页面元数据、自由正文、关联资产引用和激活默认规则。作者确认保存即视为发布当前手册页内容；它保存作者的手册正文和页面组织方式，但不拥有结构化正史事实 |
+| 手册页保存点 | World Bible Page Save Point | `world_bible_page_revisions` | World Bible Page 在作者确认保存、应用 AI 整理建议或回滚等有意义节点形成的轻量历史点。第一版不维护“未发布修改”层；回滚通过创建新的保存点完成，不删除旧历史 |
 | 实体手册扩展页 | Entity Bible Extension Page | `world_bible_pages` | 绑定单个 CoreEntity 的可选 World Bible Page，只在作者为该实体额外撰写百科正文、创作手册正文或特殊模板字段时创建。普通实体详情页默认由 CoreEntity、关系、地图事实和人物知识边界动态渲染，不为每个实体自动创建空手册页 |
 | 世界观手册页模板 | World Bible Page Template | 代码注册表 / `world_bible_page_templates` | 定义 World Bible Page 的页面元数据字段、展示规则、上下文投影、冲突检查提示和默认激活规则。`world_bible_pages` 只保存 `template_key`、`template_version` 和 `page_meta_json`；内置固定册页模板由代码注册表提供，自定义册页模板后续持久化到模板表 |
 | 世界观手册页结构 | World Bible Page Structure | World Bible | 每个固定册页和自定义册页的作者编辑结构，由页面元数据、自由正文、关联资产/激活规则三层组成。页面元数据服务展示顺序、关联故事线、写作状态和组织方式；自由正文服务作者表达手册式叙述；关联资产把页面连接到实体、关系、地图事实、历史事件、人物知识边界和 AI 参考资料激活规则 |
-| 自由正文投影 | Free Text Projection | `world_bible_page_projections` | World Bible Page 的 `free_text` 进入 AI 参考资料前形成的派生上下文材料。它可以是短文本摘录、模板化摘要、风格/文化要点或事实候选摘要，带 source page、source spans、token 估算、裁剪原因和不确定性；可持久化缓存并按 `free_text_hash` 失效重建，但不是正史事实 |
+| 自由正文投影 | Free Text Projection | `world_bible_page_projections` | World Bible Page 的 `free_text` 进入 AI 参考资料前形成的派生上下文材料。它可以是短文本摘录、模板化摘要、风格/文化要点或事实候选摘要，带 source page、source spans、token 估算、裁剪原因和不确定性；可持久化缓存并按 `free_text_hash` 失效重建，但不是结构化正史事实 |
+| 世界书 AI 生成入口 | World Bible AI Generation Entry | Generate Center / World Bible | World Bible 页面内复用生成中心交互的上下文化入口。它不限定用户生成的设定内容，只限定输出目标：仅聊天、写入当前页、新建手册页、生成世界对象草稿、生成 profile/关系/地图观察/揭示策略等创设建议 |
 | 手册页整理任务 | Page Organization Task | `async_tasks` / suggestion queues | 针对单个 World Bible Page 的受控 AI 整理流程，参考深度导入的 workflow_id、phase timeline、quality stats 和 phase artifacts。它读取页面元数据、自由正文、关联资产和 projection，产出页面元数据补全建议、profile/实体/关系/地图事实建议、冲突检查项和 projection 诊断；结果进入建议队列或冲突队列，作者确认前不写正史 |
 | 单页整理边界 | Single Page Organization Scope | Page Organization Task | `整理此页` 的默认执行边界。任务只整理当前 World Bible Page；关联实体、地图、关系和其他手册页只作为只读上下文，不被递归整理或自动改写。若发现关联页面也需要整理，只生成后续任务建议 |
 | 整理结果确认分组 | Organization Result Review Groups | Page Organization Task | `整理此页` 的结果审查分组。页面元数据补全建议、profile/新对象/关系/地图事实建议、冲突/叙事风险、后续任务建议分开确认；低风险的当前页元数据补全不和高风险正史资产写入混在同一个确认动作里 |
-| 世界观资产视图 | World Bible Asset View | World Bible | World Bible 手册页对世界资产的组织和编辑视图，而不是第二套正史来源。人物、种族/群体、势力、地点、重要物品、历史事件、规则体系、秘密、资源等世界对象优先复用 CoreEntity，通过 entity_type、类型扩展表、标签、profile 字段和关系区分；事件时间线由 Event 扩展字段、事件关系和视图表达，规则层级由规则扩展表、EntityRelation、模板字段和视图表达。正史事实仍由 CoreEntity、类型 profile、EntityRelation、地图事实、人物知识边界和 outline 结构资产拥有。手册页负责把这些资产组织成百科/指引体验。自由正文中的新事实若要参与 AI 参考资料、冲突检查、地图联动或深度导入支持，必须转成结构化资产、关系、地图事实或待确认建议 |
+| 世界观资产卡片视图 | World Bible Asset Card View | World Bible | World Bible 中以卡片形式浏览和编辑世界对象的 UI 视图，不是新的对象类型或数据表。人物、种族/群体、势力、地点、重要物品、历史事件、规则体系、秘密、资源等世界对象优先复用 CoreEntity，通过 entity_type、类型扩展表、标签、profile 字段和关系区分；手册页负责把这些资产组织成百科/指引体验 |
 | 世界核心简报 | World Core Brief | `world` / `context` | 世界基本背景页进入 AI 参考资料时的 P0 短版，而不是完整百科页。它只保留世界一句话、时代/文明阶段、核心规则边界、叙事禁区、核心矛盾和作者硬约束等必须常驻的短事实；完整世界基本背景页仍面向作者浏览和维护，详细段落按关键词、任务、地图焦点、Scene 证据或显式选择进入上下文 |
 | 世界设定工作台 | Worldbuilding Workspace | `core_entities` / `entity_relations` / `map_*` / `context_*` | 维护 World Bible 的工作台能力集合，包括手册浏览、对象编辑、地图联动、创设建议、冲突检查、AI 参考资料预览和深度导入消费。它不是独立世界观数据库，而是面向 CoreEntity、关系、地图事实和 AI 参考资料激活规则的统一操作入口 |
 | 世界背景聚合 | WorldBackgroundAggregation | `world` / `context` | 面向长篇小说的世界设定背景聚合层，把世界对象、关系、势力/地点/规则、历史事件、重要物品、地图事实、人物知识边界和结构资产整理成可被 AI 参考资料激活和冲突检查消费的分层摘要。它不是简单实体列表，也不由 imports 拥有；世界设定工作台负责维护和预览，context 模块负责按 `ContextActivationRule` 编译进 AI 参考资料，深度导入通过 context facade 消费它来改善 Phase 2/3 |
 | 上下文激活规则 | ContextActivationRule | `context_activation_rules` | 描述某个重要世界对象、规则或地图事实在什么任务、Scene、人物、地点、地图焦点或关键词下应进入 AI 参考资料。激活规则只决定上下文选择和解释，不改变对象本身的正史状态 |
 | 导入上下文激活 | ImportContextActivation | 跨模块概念 | 深度导入中每个 LLM 步骤运行前的确定性上下文预检。它以当前 Scene 为主证据，完整保留当前 Scene 覆盖的 `scene_chunks` 正文；Phase 2 Scene-local 抽取默认只读取前序 `NeighborSceneBrief`，只在共享实体、地点、关系、伏笔、地图焦点或跨章延续等强证据命中时读取前序局部原文，不把后续 Scene 放入当前 Scene 上下文，避免剧透污染。`NeighborSceneBrief` 由 deep import workflow 基于稳定接口和已落库资产生成，默认只进入任务结果、phase artifacts 或 context snapshot metadata，不作为长期正史表。它基于 Scene、章节范围、地图焦点、已知世界对象、关系、结构资产、关键词和递归激活规则选择 `ContextSection`，记录 activation_reason、sources、token 占比和裁剪原因；它不直接生成事实、不写正史，也不替代 Pydantic schema 校验 |
 | 深度导入上下文接入 | Deep Import Context Integration | 跨模块概念 | 深度导入对世界观和上下文模块的消费方式。交付顺序是先在 world/context 中形成世界观聚合、激活规则和可审计 `ContextSection`，再由 imports 通过 context facade 获取这些 section 支持 Phase 2/3；imports 不拥有世界观聚合，不直接读取 world/context 内部 repository/service，也不复制一套临时世界观系统 |
-| 创设建议队列 | CreationSuggestionQueue | 待建队列表 | LLM 对世界设定提出的新对象、补全、关系、地图候选或规则建议集合。建议默认等待作者确认，确认前不写入正史 |
+| 创设建议队列 | CreationSuggestionQueue | `creation_suggestion_queue` | LLM 对世界设定提出的新对象、补全、关系、地图候选、揭示策略或规则建议集合。World Bible AI 生成入口默认把会改变结构化资产的结果放入该队列；作者确认前不写入对应事实表 |
 | 冲突检查队列 | ConflictCheckQueue | 待建队列表 | LLM 或确定性检查发现的设定矛盾与叙事风险集合。队列项按事实冲突和叙事风险分级，作者确认处理后才修改正史或地图事实 |
 | 事实冲突 | FactConflict | 冲突检查队列 | 与已确认正史、时间线、人物知识边界或地图事实直接矛盾的问题。事实冲突需要修正、改写、废弃候选或显式解释 |
 | 叙事风险 | NarrativeRisk | 冲突检查队列 | 不一定违反正史、但可能削弱故事张力、重复设定、提前泄露秘密或破坏规则边界的风险提示。叙事风险默认非阻断，由作者决定是否采纳 |

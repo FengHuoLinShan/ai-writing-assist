@@ -33,11 +33,20 @@ npm run test:all
 
 ## E2E 测试
 
-Playwright 默认启动后端 `8000` 和前端 `8080`，可通过环境变量避开端口冲突：
+Playwright 默认复用本机已有的后端 `8000` 和前端 `8080`，没有服务时会自行启动。可通过环境变量避开端口冲突：
 
 ```bash
 BACKEND_PORT=8010 FRONTEND_PORT=8090 npm run test:e2e:smoke
 ```
+
+涉及数据库 schema 的 E2E 应使用 fresh server 路径，确保后端启动前执行 `APP_ENV=test alembic upgrade head`：
+
+```bash
+PW_REUSE_EXISTING_SERVER=0 npm run test:e2e
+BACKEND_PORT=8010 FRONTEND_PORT=8090 PW_REUSE_EXISTING_SERVER=0 npm run test:e2e
+```
+
+如果默认端口已有旧服务，先停止旧服务，或像上面一样指定备用端口。`scripts/e2e-servers.sh` 也是 E2E 专用入口，会先迁移 test 数据库再启动 backend；通用 `backend/scripts/dev_server.py` 不自动迁移。
 
 后端地址可用 `API_HOST` 覆盖，支持 `http://localhost:8000` 或 `http://localhost:8000/api`。
 如果 `webServer` 超时，先运行：
@@ -83,7 +92,7 @@ frontend-console/
 │   │   ├── tools.js
 │   │   ├── mobileQuickNote.js
 │   │   └── submodules.js   # 子模块工厂
-│   ├── worldView.js        # 世界对象 / 关系 / 别名 / 地图子标签
+│   ├── worldView.js        # 世界对象 / 关系 / 别名 / 世界书 / 地图子标签
 │   ├── mapWorkspaceView.js # 地图一级工作台
 │   ├── mapView.js          # 动态地图主视图
 │   ├── mapState.js         # 地图前端会话状态

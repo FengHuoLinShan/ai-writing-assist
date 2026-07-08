@@ -351,6 +351,82 @@ class ObjectDraftGenerateResponse(BaseModel):
     provider: str = ""
 
 
+WorldBibleAiOutputTarget = Literal[
+    "chat",
+    "page_patch",
+    "new_page",
+    "world_object_draft",
+]
+
+
+class WorldBibleAiGenerateRequest(BaseModel):
+    """世界书页内 AI 生成请求。"""
+
+    output_target: WorldBibleAiOutputTarget = "chat"
+    messages: list[ObjectDraftChatMessage] = Field(default_factory=list, max_length=40)
+    selected_chapter_indices: list[int] = Field(default_factory=list, max_length=20)
+    quality_mode: ObjectDraftQualityMode = "fast"
+    template_id: str | None = Field(default=None, max_length=128)
+    template_version: int | None = Field(default=None, ge=1)
+    template_variables: dict[str, Any] = Field(default_factory=dict)
+    include_current_page: bool = True
+
+
+class WorldBibleAiSuggestionSummary(BaseModel):
+    """世界书 AI 生成后创建的建议摘要。"""
+
+    id: str
+    target_type: str
+    review_group: str
+    risk_level: str
+    title: str = ""
+    summary: str = ""
+
+
+class WorldBibleAiGenerateResponse(BaseModel):
+    """世界书页内 AI 生成响应。"""
+
+    reply: str = ""
+    suggestions: list[WorldBibleAiSuggestionSummary] = Field(default_factory=list)
+    model: str = ""
+    provider: str = ""
+
+
+class WorldBibleSourceRef(BaseModel):
+    """世界书 AI 建议来源引用。"""
+
+    source_type: str = Field(..., min_length=1, max_length=64)
+    page_id: str | None = None
+    title: str | None = Field(default=None, max_length=255)
+    chapter_index: int | None = None
+
+
+class WorldBiblePagePatchSuggestionPayload(BaseModel):
+    page_id: str
+    append_text: str = Field(..., min_length=1, max_length=20000)
+    source_refs: list[WorldBibleSourceRef] = Field(default_factory=list)
+    reason: str = Field(default="", max_length=1000)
+
+
+class WorldBibleNewPageSuggestionPayload(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+    page_type: str = Field(default="custom", min_length=1, max_length=64)
+    free_text: str = Field(..., min_length=1, max_length=30000)
+    source_refs: list[WorldBibleSourceRef] = Field(default_factory=list)
+
+
+class CoreEntityDraftSuggestionPayload(BaseModel):
+    entity_type: str = Field(..., min_length=1, max_length=64)
+    name: str = Field(..., min_length=1, max_length=255)
+    summary: str | None = Field(default=None, max_length=5000)
+    public_info: str | None = None
+    hidden_truth: str | None = None
+    content_json: dict[str, Any] = Field(default_factory=dict)
+    importance_level: str = Field(default="normal", max_length=16)
+    reveal_level: str = Field(default="author_only", max_length=16)
+    source_refs: list[WorldBibleSourceRef] = Field(default_factory=list)
+
+
 # ============================================================
 # CoreEntity Schema
 # ============================================================
@@ -671,6 +747,27 @@ class EntityRelationUpdate(BaseModel):
     status: Annotated[str | None, Field(None, max_length=16)]
 
 
+class EntityRelationReviewEditRequest(BaseModel):
+    """编辑待复核关系并可同步确认。"""
+
+    source_id: Annotated[str | None, Field(None)] = None
+    target_id: Annotated[str | None, Field(None)] = None
+    relation_type: Annotated[str | None, Field(None, min_length=1, max_length=64)] = None
+    description: str | None = None
+    strength: Annotated[float | None, Field(None, ge=0.0, le=1.0)] = None
+    confirm_review: bool = True
+
+    @field_validator("relation_type")
+    @classmethod
+    def normalize_relation_type(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("relation_type cannot be blank")
+        return normalized
+
+
 class EntityRelationResponse(BaseModel):
     """关系响应"""
 
@@ -688,6 +785,7 @@ class EntityRelationResponse(BaseModel):
     source_chapter_id: str | None = None
     caused_by_event_id: str | None = None
     quote: str | None = None
+    review_meta: dict | None = None
     status: str = "canonical"
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -1267,32 +1365,8 @@ WorldEntityContext = WorldEntityContext
 WorldContextBundle = WorldContextBundle
 
 
-# alias: EntityAliasResponse — 旧名兼容
-class EntityAliasResponse(BaseModel):
-    """旧别名响应 — 兼容保留"""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
-    novel_id: str
-    entity_id: str
-    alias: str
-    alias_type: str = "name"
-    source_chapter_index: int | None = None
-    confidence: float = 0.8
-    status: str = "confirmed"
-    created_at: datetime | None = None
-
-
-class EntityAliasListResponse(BaseModel):
-    """旧别名列表响应 — 兼容保留"""
-
-    items: list[EntityAliasResponse]
-    total: int
-
-
 class EntityAliasCreate(BaseModel):
-    """旧别名创建请求 — 兼容保留"""
+    """创建 core_entities.content_json.aliases 中的别名。"""
 
     entity_id: str = Field(..., description="所属核心实体 ID")
     alias: str = Field(..., min_length=1, max_length=255, description="别名文本")
@@ -1312,130 +1386,21 @@ class EntityAliasUpdate(BaseModel):
     reviewed_from: Annotated[str | None, Field(None, max_length=64)]
 
 
-class EntityCandidateCreate(BaseModel):
-    """旧候选创建请求 — 兼容保留"""
+class EntityAliasEditRequest(BaseModel):
+    """编辑或移动 core_entities.content_json.aliases 中单个别名。"""
 
-    name: str = Field(..., description="名称")
-    entity_type: str = Field(..., description="类型")
-    summary: str | None = Field(None, description="概要")
-    source_text: str | None = Field(None, description="来源文本")
-    source_chapter_index: int | None = Field(None, ge=0, description="来源章节")
-    importance_score: float = Field(default=0.5, ge=0.0, le=1.0, description="重要性")
-    confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="置信度")
-    candidate_reason: str | None = Field(None, description="推荐理由")
-    suggested_action: str = Field(
-        default="needs_user_decision", max_length=32, description="建议动作"
-    )
-    suggested_existing_entity_id: str | None = Field(None, description="建议关联对象 ID")
-    status: str = Field(default="pending", max_length=32, description="状态")
+    target_entity_id: Annotated[str | None, Field(None)] = None
+    alias: Annotated[str | None, Field(None, min_length=1, max_length=255)] = None
+    alias_type: Annotated[str | None, Field(None, max_length=20)] = None
+    confirm_review: bool = True
 
 
-class EntityCandidateUpdate(BaseModel):
-    """旧候选更新请求 — 兼容保留"""
+class EntityResolveAsAliasRequest(BaseModel):
+    """将候选实体确认为已有对象的别名。"""
 
-    name: Annotated[str | None, Field(None)]
-    entity_type: Annotated[str | None, Field(None)]
-    summary: Annotated[str | None, Field(None)]
-    source_text: Annotated[str | None, Field(None)]
-    source_chapter_index: Annotated[int | None, Field(None)]
-    importance_score: Annotated[float | None, Field(None)]
-    confidence: Annotated[float | None, Field(None)]
-    candidate_reason: Annotated[str | None, Field(None)]
-    suggested_action: Annotated[str | None, Field(None)]
-    suggested_existing_entity_id: Annotated[str | None, Field(None)]
-    status: Annotated[str | None, Field(None)]
-
-
-class EntityCandidateResponse(BaseModel):
-    """旧候选响应 — 兼容保留"""
-
-    model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
-
-    id: str = ""
-    novel_id: str = ""
-    name: str = ""
-    entity_type: str = ""
-    summary: str | None = None
-    source_text: str | None = None
-    source_chapter_index: int | None = None
-    importance_score: float = 0.5
-    confidence: float = 0.5
-    candidate_reason: str | None = None
-    suggested_action: str = "needs_user_decision"
-    suggested_existing_entity_id: str | None = None
-    status: str = "pending"
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
-
-    @field_validator("id", "novel_id", mode="before")
-    @classmethod
-    def coerce_uuid(cls, v: object) -> str:
-        if isinstance(v, uuid.UUID):
-            return str(v)
-        if isinstance(v, str):
-            return v
-        return str(v)
-
-
-class EntityCandidateListResponse(BaseModel):
-    """旧候选列表响应 — 兼容保留"""
-
-    items: list[EntityCandidateResponse]
-    total: int
-
-
-class RelationshipCreate(BaseModel):
-    """旧关系创建请求 — 兼容保留"""
-
-    source_type: str = Field(..., max_length=32, description="源类型")
-    source_id: str = Field(..., description="源 ID")
-    target_type: str = Field(..., max_length=32, description="目标类型")
-    target_id: str = Field(..., description="目标 ID")
-    relation_type: str = Field(..., max_length=32, description="关系类型")
-    description: str | None = None
-    visibility: str = "author_only"
-    strength: float = 0.5
-    status: str = "canonical"
-
-
-class RelationshipUpdate(BaseModel):
-    """旧关系更新请求 — 兼容保留"""
-
-    source_type: Annotated[str | None, Field(None)]
-    source_id: Annotated[str | None, Field(None)]
-    target_type: Annotated[str | None, Field(None)]
-    target_id: Annotated[str | None, Field(None)]
-    relation_type: Annotated[str | None, Field(None)]
-    description: Annotated[str | None, Field(None)]
-    visibility: Annotated[str | None, Field(None)]
-    strength: Annotated[float | None, Field(None)]
-    status: Annotated[str | None, Field(None)]
-
-
-class RelationshipResponse(BaseModel):
-    """旧关系响应 — 兼容保留"""
-
-    model_config = ConfigDict(from_attributes=True)
-    id: str = ""
-    novel_id: str = ""
-    source_type: str = ""
-    source_id: str = ""
-    target_type: str = ""
-    target_id: str = ""
-    relation_type: str = ""
-    description: str | None = None
-    visibility: str = "author_only"
-    strength: float = 0.5
-    status: str = "canonical"
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
-
-
-class RelationshipListResponse(BaseModel):
-    """旧关系列表响应 — 兼容保留"""
-
-    items: list[RelationshipResponse]
-    total: int
+    target_entity_id: str = Field(..., description="目标核心实体 ID")
+    alias: str = Field(..., min_length=1, max_length=255, description="别名文本")
+    alias_type: str = Field(default="alias", max_length=20, description="别名类型")
 
 
 # ============================================================

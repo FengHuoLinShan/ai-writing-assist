@@ -11,6 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.imports.deep_import_dedup import DeepImportDedupCoordinator
 from modules.imports.service_phase_artifacts import add_phase_artifact
+from modules.imports.workflow_phase_runner import (
+    StructureFullPipelineRequest,
+    StructureStageRequest,
+)
 from modules.imports.workflow_runtime import DeepImportWorkflowRuntime
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 
@@ -82,6 +86,35 @@ class StructureAnalysisPhaseRunner:
         total_scenes: int,
         on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None,
     ) -> dict[str, Any]:
+        return await self.run_full_pipeline(
+            StructureFullPipelineRequest(
+                db=db,
+                novel_id=novel_id,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+                progress=progress,
+                workflow_id=workflow_id,
+                on_progress=on_progress,
+                total_scenes=total_scenes,
+                context_mode=context_mode,
+                include_pending_objects=include_pending_objects,
+            )
+        )
+
+    async def run_full_pipeline(
+        self,
+        request: StructureFullPipelineRequest,
+    ) -> dict[str, Any]:
+        db = request.db
+        novel_id = request.novel_id
+        start_chapter = request.start_chapter
+        end_chapter = request.end_chapter
+        progress = request.progress
+        workflow_id = request.workflow_id
+        context_mode = request.context_mode
+        include_pending_objects = request.include_pending_objects
+        total_scenes = request.total_scenes
+        on_progress = request.on_progress
         workflow = self.workflow
         progress.current_step = DeepImportStep.structure_analysis
         progress.current_phase = "structure_analysis"
@@ -214,8 +247,32 @@ class StructureAnalysisPhaseRunner:
         include_pending_objects: bool = True,
         on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None = None,
     ) -> DeepImportProgress:
+        return await self.run_stage(
+            StructureStageRequest(
+                db=db,
+                novel_id=novel_id,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+                progress=progress,
+                workflow_id=workflow_id,
+                on_progress=on_progress,
+                context_mode=context_mode,
+                include_pending_objects=include_pending_objects,
+            )
+        )
+
+    async def run_stage(self, request: StructureStageRequest) -> DeepImportProgress:
         """Run Phase 3 against already committed Scenes and existing objects."""
 
+        db = request.db
+        novel_id = request.novel_id
+        start_chapter = request.start_chapter
+        end_chapter = request.end_chapter
+        progress = request.progress
+        workflow_id = request.workflow_id
+        context_mode = request.context_mode
+        include_pending_objects = request.include_pending_objects
+        on_progress = request.on_progress
         workflow = self.workflow
         progress.phase = "running"
         progress.current_step = DeepImportStep.structure_analysis

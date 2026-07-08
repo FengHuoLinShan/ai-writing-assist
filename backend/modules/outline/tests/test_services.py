@@ -24,11 +24,74 @@ from modules.outline.services import (
 )
 
 
-def test_outline_facade_has_no_direct_http_exception_dependency() -> None:
-    source = (Path(__file__).resolve().parents[1] / "facade.py").read_text()
+def test_outline_facades_have_no_direct_http_exception_dependency() -> None:
+    outline_dir = Path(__file__).resolve().parents[1]
+    facade_files = [
+        outline_dir / "facade.py",
+        outline_dir / "scene_facade.py",
+        outline_dir / "structure_dedup_facade.py",
+        outline_dir / "deep_import_repair_facade.py",
+        outline_dir / "foreshadowing_facade.py",
+    ]
 
-    assert "from fastapi import HTTPException" not in source
-    assert "except HTTPException" not in source
+    for facade_file in facade_files:
+        source = facade_file.read_text()
+        assert "from fastapi import HTTPException" not in source
+        assert "except HTTPException" not in source
+
+
+def test_outline_facade_reexports_subfacade_functions_by_identity() -> None:
+    from modules.outline import (
+        deep_import_repair_facade,
+        foreshadowing_facade,
+        scene_facade,
+        structure_dedup_facade,
+    )
+    from modules.outline import (
+        facade as outline_facade,
+    )
+
+    assert outline_facade.create_scene is scene_facade.create_scene
+    assert outline_facade.get_scene_contract is scene_facade.get_scene_contract
+    assert outline_facade.suggest_structure_dedup is (
+        structure_dedup_facade.suggest_structure_dedup
+    )
+    assert outline_facade.apply_structure_dedup is (
+        structure_dedup_facade.apply_structure_dedup
+    )
+    assert outline_facade.ensure_deep_import_structure_outputs is (
+        deep_import_repair_facade.ensure_deep_import_structure_outputs
+    )
+    assert outline_facade.get_active_foreshadowing is (
+        foreshadowing_facade.get_active_foreshadowing
+    )
+
+
+@pytest.mark.asyncio
+async def test_deep_import_repair_service_resolves_world_entities_in_service() -> None:
+    from modules.outline.deep_import_repair_service import (
+        OutlineDeepImportRepairService,
+    )
+
+    calls: list[str] = []
+
+    async def list_entities(_db, novel_id: str, *, limit: int):
+        assert novel_id == "novel-1"
+        assert limit == 20
+        return [{"id": "entity-1", "name": "灯塔"}]
+
+    def service_resolver(name: str):
+        calls.append(name)
+        if name == "world.list_entities":
+            return list_entities
+        raise KeyError(name)
+
+    target = await OutlineDeepImportRepairService(
+        service_resolver=service_resolver
+    ).select_fallback_reveal_target(MagicMock(), "novel-1")
+
+    assert calls == ["world.list_entities"]
+    assert target == {"id": "entity-1", "name": "灯塔"}
 
 
 @pytest.mark.asyncio

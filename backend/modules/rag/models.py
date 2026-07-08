@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import JSON, Float, ForeignKey, Integer, LargeBinary, String, Text
+from sqlalchemy import JSON, Float, ForeignKey, Index, Integer, LargeBinary, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -35,6 +35,16 @@ class RagChunk(Base, UUIDMixin, TimestampMixin):
     """RAG 文本片段 — 语义检索的基本单元"""
 
     __tablename__ = "rag_chunks"
+    __table_args__ = (
+        Index(
+            "ix_rag_chunks_novel_source_chapter_order",
+            "novel_id",
+            "source_type",
+            "chapter_index",
+            "chunk_index",
+            "id",
+        ),
+    )
 
     novel_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

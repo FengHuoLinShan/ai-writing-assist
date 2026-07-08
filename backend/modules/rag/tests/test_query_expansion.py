@@ -14,6 +14,7 @@ from modules.rag.query_expansion import (
     _cn_ngrams,
     _load_project_terms,
     _match_project_terms,
+    clear_project_terms_cache,
 )
 
 
@@ -80,6 +81,9 @@ class TestQueryExpander:
 
 
 class TestLoadProjectTerms:
+    def teardown_method(self) -> None:
+        clear_project_terms_cache()
+
     @pytest.mark.asyncio
     async def test_loads_entity_terms_without_unused_character_query(self) -> None:
         from app.main import _register_container_services
@@ -112,3 +116,30 @@ class TestLoadProjectTerms:
             {"term": "克莱恩", "id": "entity-1", "type": "entity"},
             {"term": "周明瑞", "id": "entity-1", "type": "entity"},
         ]
+
+    @pytest.mark.asyncio
+    async def test_loads_entity_terms_from_novel_scoped_cache(self) -> None:
+        from app.main import _register_container_services
+        from core.container import register, reset
+
+        calls = 0
+        novel_id = uuid.uuid4()
+
+        async def _list_entity_terms(*args: Any, **kwargs: Any):
+            nonlocal calls
+            calls += 1
+            return [{"id": "entity-1", "terms": ["灰雾"]}]
+
+        reset()
+        clear_project_terms_cache()
+        register("world.list_entity_terms", _list_entity_terms)
+        try:
+            first = await _load_project_terms(None, novel_id)  # type: ignore[arg-type]
+            second = await _load_project_terms(None, novel_id)  # type: ignore[arg-type]
+        finally:
+            reset()
+            clear_project_terms_cache()
+            _register_container_services()
+
+        assert calls == 1
+        assert first == second == [{"term": "灰雾", "id": "entity-1", "type": "entity"}]

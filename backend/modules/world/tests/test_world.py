@@ -19,7 +19,7 @@ from sqlalchemy.pool import StaticPool
 from sqlalchemy.sql.dml import Update
 from sqlalchemy.sql.selectable import Select
 
-from core.errors import NotFoundError
+from core.errors import ConflictError, NotFoundError
 from core.errors import ValidationError as DomainValidationError
 from modules.world.facade import (
     expand_related_entities,
@@ -37,6 +37,7 @@ from modules.world.schemas import (
     CharacterKnowledgeCreate,
     CoreEntityUpdate,
     EntityRelationCreate,
+    EntityRelationReviewEditRequest,
     EntityRelationUpdate,
     EventCreate,
     EventUpdate,
@@ -47,6 +48,7 @@ from modules.world.schemas import (
 from modules.world.services import (
     CharacterKnowledgeService,
     CharacterService,
+    EntityAliasService,
     EventService,
     WorldEntityService,
 )
@@ -1217,6 +1219,319 @@ async def test_merge_entity_route_marks_candidate_merged(
 
 
 @pytest.mark.asyncio
+async def test_resolve_candidate_as_alias_marks_candidate_merged_and_migrates_relations(
+    db_session: AsyncSession,
+    sample_novel_id: str,
+) -> None:
+    nid = uuid.UUID(sample_novel_id)
+    entity_repo = CoreEntityRepository()
+    rel_repo = EntityRelationRepository()
+    target = await entity_repo.create_raw(
+        db_session,
+        novel_id=nid,
+        entity_type="faction",
+        name="值夜者",
+        status="canonical",
+        content_json={"aliases": []},
+    )
+    related = await entity_repo.create_raw(
+        db_session,
+        novel_id=nid,
+        entity_type="location",
+        name="廷根",
+        status="canonical",
+    )
+    candidate = await entity_repo.create_raw(
+        db_session,
+        novel_id=nid,
+        entity_type="organization",
+        name="黑荆棘安保公司",
+        status="candidate",
+        content_json={
+            "_meta": {
+                "source": "deep_import",
+                "workflow_id": "wf-blackthorn",
+                "scene_id": "scene-1",
+                "confidence": 0.95,
+                "quote": "黑荆棘安保公司",
+            },
+        },
+    )
+    await rel_repo.upsert(
+        db_session,
+        nid,
+        candidate.id,
+        related.id,
+        "located_at",
+        "黑荆棘安保公司位于廷根",
+    )
+    await rel_repo.upsert(
+        db_session,
+        nid,
+        candidate.id,
+        target.id,
+        "alias_hint",
+        "错误提示关系，迁移后会成为自环",
+    )
+
+    result = await EntityAliasService().resolve_candidate_as_alias(
+        db_session,
+        sample_novel_id,
+        str(candidate.id),
+        target_entity_id=str(target.id),
+        alias="黑荆棘安保公司",
+        alias_type="name",
+    )
+
+    await db_session.refresh(target)
+    await db_session.refresh(candidate)
+    assert target.status == "canonical"
+    assert target.content_json["aliases"][0]["alias"] == "黑荆棘安保公司"
+    assert target.content_json["aliases"][0]["type"] == "name"
+    assert target.content_json["aliases"][0]["status"] == "canonical"
+    assert target.content_json["aliases"][0]["source"] == "deep_import"
+    assert target.content_json["aliases"][0]["workflow_id"] == "wf-blackthorn"
+    assert target.content_json["aliases"][0]["confidence"] == 0.95
+    assert candidate.status == "merged"
+    assert candidate.content_json["merged_into"] == str(target.id)
+    assert candidate.content_json["resolved_as"] == "alias"
+    assert candidate.content_json["resolved_alias"] == "黑荆棘安保公司"
+    assert result["merged_ids"] == [str(candidate.id)]
+    assert set(result["affected_ids"]) == {str(candidate.id), str(target.id)}
+    assert result["relations_migrated"] == 2
+    assert result["self_loops_cleaned"] == 1
+
+    all_rels = await rel_repo.get_all_for_entity(db_session, nid, target.id)
+    canonical_rels = [
+        rel
+        for rel in all_rels
+        if rel.source_id == target.id
+        and rel.target_id == related.id
+        and rel.relation_type == "located_at"
+        and rel.status == "canonical"
+    ]
+    assert len(canonical_rels) == 1
+
+
+@pytest.mark.asyncio
+async def test_resolve_candidate_as_alias_route(
+    async_client: AsyncClient,
+) -> None:
+    project_resp = await async_client.post(
+        "/api/projects",
+        json={
+            "title": "别名确认路由测试",
+            "genre": "奇幻",
+            "tone": "正剧",
+            "language": "zh",
+        },
+    )
+    assert project_resp.status_code == 201
+    novel_id = project_resp.json()["id"]
+    target_resp = await async_client.post(
+        f"/api/world/entities?novel_id={novel_id}",
+        json={
+            "entity_type": "faction",
+            "name": "值夜者",
+            "status": "canonical",
+        },
+    )
+    candidate_resp = await async_client.post(
+        f"/api/world/entities?novel_id={novel_id}",
+        json={
+            "entity_type": "organization",
+            "name": "黑荆棘安保公司",
+            "status": "candidate",
+        },
+    )
+    assert target_resp.status_code == 201
+    assert candidate_resp.status_code == 201
+    target_id = target_resp.json()["id"]
+    candidate_id = candidate_resp.json()["id"]
+
+    resolve_resp = await async_client.post(
+        f"/api/world/entities/{candidate_id}/resolve-as-alias?novel_id={novel_id}",
+        json={
+            "target_entity_id": target_id,
+            "alias": "黑荆棘安保公司",
+            "alias_type": "name",
+        },
+    )
+    assert resolve_resp.status_code == 200
+    payload = resolve_resp.json()
+    assert payload["target_entity_id"] == target_id
+    assert payload["candidate_entity_id"] == candidate_id
+    assert payload["merged_ids"] == [candidate_id]
+    assert set(payload["affected_ids"]) == {candidate_id, target_id}
+
+    get_candidate_resp = await async_client.get(
+        f"/api/world/entities/{candidate_id}?novel_id={novel_id}",
+    )
+    assert get_candidate_resp.json()["status"] == "merged"
+
+
+@pytest.mark.asyncio
+async def test_edit_alias_route_moves_alias_between_entities(
+    async_client: AsyncClient,
+) -> None:
+    project_resp = await async_client.post(
+        "/api/projects",
+        json={
+            "title": "别名编辑路由测试",
+            "genre": "奇幻",
+            "tone": "正剧",
+            "language": "zh",
+        },
+    )
+    assert project_resp.status_code == 201
+    novel_id = project_resp.json()["id"]
+    source_resp = await async_client.post(
+        f"/api/world/entities?novel_id={novel_id}",
+        json={
+            "entity_type": "faction",
+            "name": "值夜者",
+            "status": "canonical",
+        },
+    )
+    target_resp = await async_client.post(
+        f"/api/world/entities?novel_id={novel_id}",
+        json={
+            "entity_type": "organization",
+            "name": "黑荆棘安保公司",
+            "status": "canonical",
+        },
+    )
+    source_id = source_resp.json()["id"]
+    target_id = target_resp.json()["id"]
+    create_alias_resp = await async_client.post(
+        f"/api/world/aliases?novel_id={novel_id}",
+        json={
+            "entity_id": source_id,
+            "alias": "黑荆棘安保公司",
+            "alias_type": "alias",
+        },
+    )
+    assert create_alias_resp.status_code == 201
+
+    edit_resp = await async_client.patch(
+        f"/api/world/entities/{source_id}/aliases/edit",
+        params={"novel_id": novel_id, "alias": "黑荆棘安保公司"},
+        json={
+            "target_entity_id": target_id,
+            "alias": "黑荆棘",
+            "alias_type": "name",
+            "confirm_review": True,
+        },
+    )
+
+    assert edit_resp.status_code == 200
+    payload = edit_resp.json()
+    assert payload["entity_id"] == target_id
+    assert payload["alias"] == "黑荆棘"
+    assert payload["alias_type"] == "name"
+    assert set(payload["affected_ids"]) == {source_id, target_id}
+
+
+@pytest.mark.asyncio
+async def test_relation_review_edit_route_confirms_and_returns_audit(
+    async_client: AsyncClient,
+) -> None:
+    project_resp = await async_client.post(
+        "/api/projects",
+        json={
+            "title": "关系复核路由测试",
+            "genre": "奇幻",
+            "tone": "正剧",
+            "language": "zh",
+        },
+    )
+    assert project_resp.status_code == 201
+    novel_id = project_resp.json()["id"]
+    source_resp = await async_client.post(
+        f"/api/world/entities?novel_id={novel_id}",
+        json={"entity_type": "character", "name": "克莱恩", "status": "canonical"},
+    )
+    target_resp = await async_client.post(
+        f"/api/world/entities?novel_id={novel_id}",
+        json={"entity_type": "faction", "name": "值夜者", "status": "canonical"},
+    )
+    relation_resp = await async_client.post(
+        f"/api/world/relations?novel_id={novel_id}",
+        json={
+            "source_id": source_resp.json()["id"],
+            "target_id": target_resp.json()["id"],
+            "relation_type": "member_of",
+            "description": "旧描述",
+            "strength": 0.5,
+            "status": "candidate",
+        },
+    )
+    assert relation_resp.status_code == 201
+    rel_id = relation_resp.json()["id"]
+
+    review_resp = await async_client.patch(
+        f"/api/world/relations/{rel_id}/review-edit",
+        params={"novel_id": novel_id},
+        json={
+            "relation_type": "ally_of",
+            "description": "新描述",
+            "strength": 0.9,
+            "confirm_review": True,
+        },
+    )
+
+    assert review_resp.status_code == 200, review_resp.text
+    payload = review_resp.json()
+    assert payload["affected_ids"] == [rel_id]
+    assert payload["relation"]["status"] == "canonical"
+    assert payload["relation"]["relation_type"] == "ally_of"
+    assert payload["review_meta"]["reviewed_by"] == "manual"
+
+
+@pytest.mark.asyncio
+async def test_relation_review_edit_route_rejects_blank_relation_type(
+    async_client: AsyncClient,
+) -> None:
+    project_resp = await async_client.post(
+        "/api/projects",
+        json={
+            "title": "关系复核空类型测试",
+            "genre": "奇幻",
+            "tone": "正剧",
+            "language": "zh",
+        },
+    )
+    assert project_resp.status_code == 201
+    novel_id = project_resp.json()["id"]
+    source_resp = await async_client.post(
+        f"/api/world/entities?novel_id={novel_id}",
+        json={"entity_type": "character", "name": "克莱恩", "status": "canonical"},
+    )
+    target_resp = await async_client.post(
+        f"/api/world/entities?novel_id={novel_id}",
+        json={"entity_type": "faction", "name": "值夜者", "status": "canonical"},
+    )
+    relation_resp = await async_client.post(
+        f"/api/world/relations?novel_id={novel_id}",
+        json={
+            "source_id": source_resp.json()["id"],
+            "target_id": target_resp.json()["id"],
+            "relation_type": "member_of",
+            "status": "candidate",
+        },
+    )
+    assert relation_resp.status_code == 201
+
+    review_resp = await async_client.patch(
+        f"/api/world/relations/{relation_resp.json()['id']}/review-edit",
+        params={"novel_id": novel_id},
+        json={"relation_type": "   ", "confirm_review": True},
+    )
+
+    assert review_resp.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_rollback_entity_route_uses_scene_index(
     async_client: AsyncClient,
     db_session: AsyncSession,
@@ -1542,6 +1857,280 @@ class TestUpsertRelationship:
         assert duplicate.target.name == "伦纳德"
         assert all_for_source[0].source.name == "克莱恩"
         assert all_for_source[0].target.name == "伦纳德"
+
+    @pytest.mark.asyncio
+    async def test_relation_review_edit_updates_endpoints_confirms_and_audits(
+        self,
+        db_session: AsyncSession,
+        entity_repo: CoreEntityRepository,
+        rel_repo: EntityRelationRepository,
+        novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=novel_id)
+        source = await entity_repo.create_raw(
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="克莱恩",
+            status="canonical",
+        )
+        old_target = await entity_repo.create_raw(
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="邓恩",
+            status="canonical",
+        )
+        new_target = await entity_repo.create_raw(
+            db_session,
+            novel_id=nid,
+            entity_type="organization",
+            name="值夜者",
+            status="canonical",
+        )
+        rel = await rel_repo.create(
+            db_session,
+            nid,
+            EntityRelationCreate(
+                source_id=str(source.id),
+                target_id=str(old_target.id),
+                relation_type="member_of",
+                description="旧描述",
+                strength=0.4,
+                quote="证据",
+                status="candidate",
+            ),
+        )
+
+        result = await EntityRelationService().review_edit(
+            db_session,
+            novel_id,
+            str(rel.id),
+            EntityRelationReviewEditRequest(
+                target_id=str(new_target.id),
+                relation_type="ally_of",
+                description="新描述",
+                strength=0.8,
+                confirm_review=True,
+            ),
+        )
+
+        await db_session.refresh(rel)
+        assert rel.target_id == new_target.id
+        assert rel.relation_type == "ally_of"
+        assert rel.description == "新描述"
+        assert rel.strength == 0.8
+        assert rel.status == "canonical"
+        assert rel.review_meta["reviewed_by"] == "manual"
+        assert rel.review_meta["review_before"]["target_id"] == str(old_target.id)
+        assert rel.review_meta["review_after"]["target_id"] == str(new_target.id)
+        assert result["affected_ids"] == [str(rel.id)]
+
+    @pytest.mark.asyncio
+    async def test_relation_review_edit_duplicate_excludes_self_but_rejects_other(
+        self,
+        db_session: AsyncSession,
+        entity_repo: CoreEntityRepository,
+        rel_repo: EntityRelationRepository,
+        novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=novel_id)
+        source = await entity_repo.create_raw(
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="克莱恩",
+            status="canonical",
+        )
+        target = await entity_repo.create_raw(
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="伦纳德",
+            status="canonical",
+        )
+        other = await entity_repo.create_raw(
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="奥黛丽",
+            status="canonical",
+        )
+        rel = await rel_repo.create(
+            db_session,
+            nid,
+            EntityRelationCreate(
+                source_id=str(source.id),
+                target_id=str(target.id),
+                relation_type="ally_of",
+                status="candidate",
+            ),
+        )
+        await EntityRelationService().review_edit(
+            db_session,
+            novel_id,
+            str(rel.id),
+            EntityRelationReviewEditRequest(confirm_review=True),
+        )
+        duplicate = await rel_repo.create(
+            db_session,
+            nid,
+            EntityRelationCreate(
+                source_id=str(source.id),
+                target_id=str(other.id),
+                relation_type="ally_of",
+                status="canonical",
+            ),
+        )
+
+        with pytest.raises(ConflictError) as exc:
+            await EntityRelationService().review_edit(
+                db_session,
+                novel_id,
+                str(duplicate.id),
+                EntityRelationReviewEditRequest(target_id=str(target.id)),
+            )
+        assert "Relation already exists" in str(exc.value)
+
+    @pytest.mark.asyncio
+    async def test_relation_review_edit_rejects_retired_endpoint(
+        self,
+        db_session: AsyncSession,
+        entity_repo: CoreEntityRepository,
+        rel_repo: EntityRelationRepository,
+        novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=novel_id)
+        source = await entity_repo.create_raw(
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="克莱恩",
+            status="canonical",
+        )
+        target = await entity_repo.create_raw(
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="伦纳德",
+            status="canonical",
+        )
+        retired = await entity_repo.create_raw(
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="已合并对象",
+            status="merged",
+        )
+        rel = await rel_repo.create(
+            db_session,
+            nid,
+            EntityRelationCreate(
+                source_id=str(source.id),
+                target_id=str(target.id),
+                relation_type="ally_of",
+                status="candidate",
+            ),
+        )
+
+        with pytest.raises(DomainValidationError):
+            await EntityRelationService().review_edit(
+                db_session,
+                novel_id,
+                str(rel.id),
+                EntityRelationReviewEditRequest(source_id=str(retired.id)),
+            )
+
+    @pytest.mark.asyncio
+    async def test_relation_review_edit_rejects_deprecated_relation(
+        self,
+        db_session: AsyncSession,
+        entity_repo: CoreEntityRepository,
+        rel_repo: EntityRelationRepository,
+        novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=novel_id)
+        source = await entity_repo.create_raw(
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="克莱恩",
+            status="canonical",
+        )
+        target = await entity_repo.create_raw(
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="伦纳德",
+            status="canonical",
+        )
+        rel = await rel_repo.create(
+            db_session,
+            nid,
+            EntityRelationCreate(
+                source_id=str(source.id),
+                target_id=str(target.id),
+                relation_type="ally_of",
+                status="deprecated",
+            ),
+        )
+
+        with pytest.raises(DomainValidationError):
+            await EntityRelationService().review_edit(
+                db_session,
+                novel_id,
+                str(rel.id),
+                EntityRelationReviewEditRequest(confirm_review=True),
+            )
+        await db_session.refresh(rel)
+        assert rel.status == "deprecated"
+
+    @pytest.mark.asyncio
+    async def test_relation_update_status_writes_review_meta(
+        self,
+        db_session: AsyncSession,
+        entity_repo: CoreEntityRepository,
+        rel_repo: EntityRelationRepository,
+        novel_id: str,
+    ) -> None:
+        nid = uuid.UUID(hex=novel_id)
+        source = await entity_repo.create_raw(
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="克莱恩",
+            status="canonical",
+        )
+        target = await entity_repo.create_raw(
+            db_session,
+            novel_id=nid,
+            entity_type="character",
+            name="伦纳德",
+            status="canonical",
+        )
+        rel = await rel_repo.create(
+            db_session,
+            nid,
+            EntityRelationCreate(
+                source_id=str(source.id),
+                target_id=str(target.id),
+                relation_type="ally_of",
+                status="candidate",
+            ),
+        )
+
+        updated = await EntityRelationService().update(
+            db_session,
+            str(rel.id),
+            EntityRelationUpdate(status="canonical"),
+            novel_id=novel_id,
+        )
+
+        assert updated.status == "canonical"
+        await db_session.refresh(rel)
+        assert rel.review_meta["review_action"] == "relation_status_updated"
+        assert rel.review_meta["review_before"]["status"] == "candidate"
+        assert rel.review_meta["review_after"]["status"] == "canonical"
 
     @pytest.mark.asyncio
     async def test_upsert_relationship_concurrent_calls_are_idempotent(self) -> None:

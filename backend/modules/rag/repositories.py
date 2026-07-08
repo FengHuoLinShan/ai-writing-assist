@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import Float, and_, case, delete, func, or_, select, text
+from sqlalchemy import Float, and_, case, delete, exists, func, or_, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
@@ -778,16 +778,14 @@ class RagChunkRepository:
         novel_id: uuid.UUID,
     ) -> bool:
         """该项目是否已有可用 chunk embedding。"""
-        stmt = (
-            select(func.count(RagChunk.id))
-            .where(
+        stmt = select(
+            exists().where(
                 RagChunk.novel_id == novel_id,
                 RagChunk.embedding.is_not(None),
             )
-            .limit(1)
         )
         result = await db.execute(stmt)
-        return (result.scalar_one() or 0) > 0
+        return bool(result.scalar_one())
 
     async def get_sample_embedding_dim(
         self,

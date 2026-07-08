@@ -103,6 +103,7 @@ class EntityExtractionService:
         # 3. 单章顺序抽取
         from pydantic import BaseModel
 
+        from infrastructure.llm.agent_step_harness import run_managed_structured
         from infrastructure.llm.client import LLMClient
         from infrastructure.llm.errors import LLMInvalidResponseError
         from infrastructure.llm.prompt_loader import load_prompt
@@ -155,9 +156,11 @@ class EntityExtractionService:
             )
 
             try:
-                result = await llm.generate_structured(
+                result = await run_managed_structured(
+                    llm,
                     request,
                     _ExtractionOutput,
+                    step_name="world.entity_extraction.structured",
                     max_fix_attempts=3,
                 )
             except LLMInvalidResponseError as exc:

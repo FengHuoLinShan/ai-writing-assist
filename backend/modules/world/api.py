@@ -31,6 +31,7 @@ from modules.world.schemas import (
     CoreEntityUpdate,
     CreationSuggestionListResponse,
     EntityAliasCreate,
+    EntityAliasEditRequest,
     EntityAliasUpdate,
     EntityFusionApplyRequest,
     EntityFusionApplyResponse,
@@ -43,7 +44,9 @@ from modules.world.schemas import (
     EntityRelationCreate,
     EntityRelationListResponse,
     EntityRelationResponse,
+    EntityRelationReviewEditRequest,
     EntityRelationUpdate,
+    EntityResolveAsAliasRequest,
     EntityRevisionListResponse,
     EntityRollbackRequest,
     EntityRollbackResponse,
@@ -73,6 +76,8 @@ from modules.world.schemas import (
     TextArchiveSeedResponse,
     WorldAliasRelationExtractRequest,
     WorldAliasRelationExtractResponse,
+    WorldBibleAiGenerateRequest,
+    WorldBibleAiGenerateResponse,
     WorldBiblePageCreate,
     WorldBiblePageListResponse,
     WorldBiblePageResponse,
@@ -101,6 +106,9 @@ from modules.world.services.worldbuilding.generation_prompt_template_service imp
 )
 from modules.world.services.worldbuilding.object_draft_generation_service import (
     ObjectDraftGenerationService,
+)
+from modules.world.services.worldbuilding.world_bible_ai_generation_service import (
+    WorldBibleAiGenerationService,
 )
 from modules.world.services.worldbuilding.worldbuilding_service import (
     ConflictQueueService,
@@ -131,6 +139,7 @@ _suggestion_service = SuggestionQueueService()
 _conflict_queue_service = ConflictQueueService()
 _knowledge_tag_service = KnowledgeTagService()
 _object_draft_service = ObjectDraftGenerationService()
+_world_bible_ai_service = WorldBibleAiGenerationService()
 _generation_template_service = GenerationPromptTemplateService()
 
 
@@ -462,6 +471,23 @@ async def organize_bible_page(
     }
 
 
+@router.post(
+    "/bible/pages/{page_id}/ai-generate",
+    response_model=WorldBibleAiGenerateResponse,
+)
+async def generate_bible_page_ai(
+    db: DbSession,
+    page_id: str,
+    data: WorldBibleAiGenerateRequest,
+    *,
+    novel_id: NovelIdQuery,
+) -> WorldBibleAiGenerateResponse:
+    try:
+        return await _world_bible_ai_service.generate(db, novel_id, page_id, data)
+    except TemplateVersionConflictError as exc:
+        raise _template_version_conflict(exc) from exc
+
+
 @router.get("/suggestions", response_model=CreationSuggestionListResponse)
 async def list_world_suggestions(
     db: DbSession,
@@ -642,6 +668,12 @@ async def list_entities(
     workflow_id: str | None = Query(None, description="深度导入 workflow ID"),
     needs_review: bool | None = Query(None, description="是否需要复核"),
     auto_ingested: bool | None = Query(None, description="是否自动导入"),
+    suggested_action: str | None = Query(None, description="候选建议动作"),
+    scene_id: str | None = Query(None, description="来源 Scene ID"),
+    scene_index: int | None = Query(None, description="来源 Scene 索引"),
+    source_chapter_index: int | None = Query(None, description="来源章节索引"),
+    confidence_min: float | None = Query(None, ge=0.0, le=1.0, description="最低置信度"),
+    confidence_max: float | None = Query(None, ge=0.0, le=1.0, description="最高置信度"),
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(
         default=DEFAULT_PAGE_SIZE,
@@ -660,6 +692,12 @@ async def list_entities(
         workflow_id=workflow_id,
         needs_review=needs_review,
         auto_ingested=auto_ingested,
+        suggested_action=suggested_action,
+        scene_id=scene_id,
+        scene_index=scene_index,
+        source_chapter_index=source_chapter_index,
+        confidence_min=confidence_min,
+        confidence_max=confidence_max,
         skip=skip,
         limit=limit,
     )
@@ -806,6 +844,24 @@ async def merge_entity(
     )
 
 
+@router.post("/entities/{candidate_id}/resolve-as-alias")
+async def resolve_entity_as_alias(
+    db: DbSession,
+    candidate_id: str,
+    data: EntityResolveAsAliasRequest,
+    *,
+    novel_id: NovelIdQuery,
+) -> dict:
+    return await _alias_service.resolve_candidate_as_alias(
+        db,
+        novel_id,
+        candidate_id,
+        target_entity_id=data.target_entity_id,
+        alias=data.alias,
+        alias_type=data.alias_type,
+    )
+
+
 @router.post(
     "/entities/fusion-suggestions",
     response_model=EntityFusionSuggestionResponse,
@@ -945,6 +1001,12 @@ async def list_relations(
     db: DbSession,
     *,
     novel_id: NovelIdQuery,
+    status: str | None = Query(None, description="状态过滤"),
+    relation_type: str | None = Query(None, description="关系类型过滤"),
+    q: str | None = Query(None, description="关系/端点名称搜索"),
+    source_chapter_id: str | None = Query(None, description="来源章节 ID"),
+    strength_min: float | None = Query(None, ge=0.0, le=1.0, description="最低强度"),
+    strength_max: float | None = Query(None, ge=0.0, le=1.0, description="最高强度"),
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(
         default=DEFAULT_PAGE_SIZE,
@@ -953,7 +1015,18 @@ async def list_relations(
         description="每页条数",
     ),
 ) -> EntityRelationListResponse:
-    return await _relation_service.list(db, novel_id, skip=skip, limit=limit)
+    return await _relation_service.list(
+        db,
+        novel_id,
+        status=status,
+        relation_type=relation_type,
+        q=q,
+        source_chapter_id=source_chapter_id,
+        strength_min=strength_min,
+        strength_max=strength_max,
+        skip=skip,
+        limit=limit,
+    )
 
 
 @router.post("/relations", response_model=EntityRelationResponse, status_code=201)
@@ -975,6 +1048,17 @@ async def update_relation(
     novel_id: NovelIdQuery,
 ) -> EntityRelationResponse:
     return await _relation_service.update(db, rel_id, data, novel_id=novel_id)
+
+
+@router.patch("/relations/{rel_id}/review-edit")
+async def review_edit_relation(
+    db: DbSession,
+    rel_id: str,
+    data: EntityRelationReviewEditRequest,
+    *,
+    novel_id: NovelIdQuery,
+) -> dict[str, object]:
+    return await _relation_service.review_edit(db, novel_id, rel_id, data)
 
 
 @router.delete("/relations/{rel_id}", status_code=204)
@@ -1276,6 +1360,16 @@ async def list_aliases(
     db: DbSession,
     *,
     novel_id: NovelIdQuery,
+    q: str | None = Query(None, description="别名/对象/引用搜索"),
+    status: str | None = Query(None, description="状态过滤"),
+    needs_review: bool | None = Query(None, description="是否需要复核"),
+    source: str | None = Query(None, description="来源过滤"),
+    workflow_id: str | None = Query(None, description="深度导入 workflow ID"),
+    scene_id: str | None = Query(None, description="来源 Scene ID"),
+    scene_index: int | None = Query(None, description="来源 Scene 索引"),
+    source_chapter_index: int | None = Query(None, description="来源章节索引"),
+    confidence_min: float | None = Query(None, ge=0.0, le=1.0, description="最低置信度"),
+    confidence_max: float | None = Query(None, ge=0.0, le=1.0, description="最高置信度"),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
 ) -> dict:
@@ -1283,6 +1377,16 @@ async def list_aliases(
     return await _alias_service.list_aliases_page(
         db,
         novel_id,
+        q=q,
+        status=status,
+        needs_review=needs_review,
+        source=source,
+        workflow_id=workflow_id,
+        scene_id=scene_id,
+        scene_index=scene_index,
+        source_chapter_index=source_chapter_index,
+        confidence_min=confidence_min,
+        confidence_max=confidence_max,
         skip=skip,
         limit=limit,
     )
@@ -1321,6 +1425,27 @@ async def update_alias(
         entity_id,
         alias,
         data.model_dump(exclude_unset=True),
+    )
+
+
+@router.patch("/entities/{entity_id}/aliases/edit")
+async def edit_alias(
+    db: DbSession,
+    entity_id: str,
+    data: EntityAliasEditRequest,
+    *,
+    novel_id: NovelIdQuery,
+    alias: str = Query(..., description="要编辑的原别名文本"),
+) -> dict:
+    return await _alias_service.edit_alias(
+        db,
+        novel_id,
+        entity_id,
+        alias,
+        target_entity_id=data.target_entity_id,
+        alias=data.alias,
+        alias_type=data.alias_type,
+        confirm_review=data.confirm_review,
     )
 
 

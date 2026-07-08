@@ -1432,21 +1432,23 @@ const outlineView = {
       text: "生成", class: "btn-primary", handler: async () => {
         const start = parseInt(document.getElementById("generate-structure-start")?.value || "1", 10)
         const end = parseInt(document.getElementById("generate-structure-end")?.value || "10", 10)
-        if (end < start) { toast("结束章节不能小于起始章节", "warning"); return }
+        if (end < start) { toast("结束章节不能小于起始章节", "warning"); return false }
 
         const overlap = this._generateOverlap || { threadCount: 0, arcCount: 0 }
         if (overlap.threadCount > 0 || overlap.arcCount > 0) {
           const confirmed = document.getElementById("generate-structure-confirm")?.checked
           if (!confirmed) {
             toast("目标范围已存在结构，请勾选确认后继续", "warning")
-            return
+            return false
           }
         }
 
         try {
-          closeModal()
-          setTimeout(() => this._generateStructure(start, end), 0)
-        } catch (err) { toast(err.message || "生成失败", "error") }
+          await this._generateStructure(start, end)
+          return true
+        } catch {
+          return false
+        }
       },
     }])
 

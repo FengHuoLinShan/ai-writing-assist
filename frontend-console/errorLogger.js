@@ -92,6 +92,9 @@
 
   function _syncToBackend(entry) {
     if (!entry || entry.level !== "error" || typeof fetch !== "function") return
+    const accessToken = typeof sessionStorage !== "undefined"
+      ? sessionStorage.getItem("novel_app_access_token")
+      : null
     const payload = {
       frontendId: entry.id,
       level: entry.level,
@@ -112,9 +115,18 @@
       },
     }
 
+    const headers = {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+    }
+    if (accessToken) {
+      headers.Authorization = `Bearer ${accessToken}`
+    }
+
     fetch(`${_debugApiBaseUrl()}/frontend-errors`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      headers,
       body: JSON.stringify(payload),
       keepalive: true,
     }).catch(() => {})

@@ -58,8 +58,8 @@ test.describe("worldView 子视图切换", () => {
 
     await openWorkbench(page, { id: testProjectId, title: "视图切换测试项目" }, "world", "objects")
 
-    await page.locator('[data-subview="candidates"]').click()
-    await expect(page.locator('[data-subview="candidates"]')).toHaveClass(/active/)
+    await page.locator('[data-subview="review-objects"]').click()
+    await expect(page.locator('[data-subview="review-objects"]')).toHaveClass(/active/)
 
     await page.locator('[data-subview="relations"]').click()
     await expect(page.locator('[data-subview="relations"]')).toHaveClass(/active/)

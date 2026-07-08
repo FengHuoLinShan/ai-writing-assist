@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
+from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.outline.models import Scene
@@ -247,7 +248,8 @@ class CrossChapterDetectionService:
             "evidence": evidence[:8],
         }
         try:
-            return await client.generate_structured(
+            return await run_managed_structured(
+                client,
                 LLMCallRequest(
                     model=settings.llm_model,
                     messages=[
@@ -269,6 +271,7 @@ class CrossChapterDetectionService:
                     response_format={"type": "json_object"},
                 ),
                 CrossChapterDecision,
+                step_name="outline.cross_chapter.decision.structured",
                 max_fix_attempts=1,
             )
         except Exception as exc:

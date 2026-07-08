@@ -12,6 +12,7 @@ from __future__ import annotations
 import inspect
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 from unittest.mock import Mock
 
@@ -37,6 +38,15 @@ from modules.imports.workflow_llm_adapters import (
 from modules.imports.workflow_llm_adapters import (
     _run_deep_import_structured_call as _run_deep_import_structured_call,
 )
+from modules.imports.workflow_phase_runner import (
+    EntityFullPipelineRequest,
+    EntityStageRequest,
+    FullPipelinePhaseRunner,
+    SceneFullPipelineRequest,
+    StageOnlyPhaseRunner,
+    StructureFullPipelineRequest,
+    StructureStageRequest,
+)
 from modules.imports.workflow_progress import DeepImportProgressTracker
 from modules.imports.workflow_scene_phase import (
     PHASE0_422_RECOMMENDATION,
@@ -60,6 +70,7 @@ __all__ = [
     "DEEP_IMPORT_STRUCTURED_MAX_FIX_ATTEMPTS",
     "DEEP_IMPORT_STRUCTURED_TIMEOUT_GRACE_SECONDS",
     "DeepImportWorkflow",
+    "DeepImportPhaseRunners",
     "PHASE0_422_RECOMMENDATION",
     "PHASE1B_COMPACT_TEXT_LIMIT",
     "PHASE3_STRUCTURE_TIMEOUT_SECONDS",
@@ -79,6 +90,18 @@ def _accepts_keyword(callable_obj: Any, keyword: str) -> bool:
         if parameter.name == keyword:
             return True
     return False
+
+
+@dataclass(frozen=True, kw_only=True)
+class DeepImportPhaseRunners:
+    scene_full: FullPipelinePhaseRunner[SceneFullPipelineRequest, Any]
+    entity_full: FullPipelinePhaseRunner[EntityFullPipelineRequest, dict[str, Any]]
+    entity_stage: StageOnlyPhaseRunner[EntityStageRequest]
+    structure_full: FullPipelinePhaseRunner[
+        StructureFullPipelineRequest,
+        dict[str, Any],
+    ]
+    structure_stage: StageOnlyPhaseRunner[StructureStageRequest]
 
 
 def _dummy_chapters(start_chapter: int, end_chapter: int) -> list[dict[str, Any]]:
@@ -188,6 +211,29 @@ def _dummy_scene_enrichment_result(phase1a_candidates):
 class DeepImportWorkflow:
     """深度导入流水线编排器 — 三阶段全自动"""
 
+    def __init__(
+        self,
+        *,
+        phase_runners: DeepImportPhaseRunners | None = None,
+    ) -> None:
+        self._phase_runners_override = phase_runners
+        self._phase_runners_cache: DeepImportPhaseRunners | None = None
+
+    def _phase_runners(self) -> DeepImportPhaseRunners:
+        if self._phase_runners_override is not None:
+            return self._phase_runners_override
+        if self._phase_runners_cache is None:
+            entity_runner = EntityExtractionPhaseRunner(self)
+            structure_runner = StructureAnalysisPhaseRunner(self)
+            self._phase_runners_cache = DeepImportPhaseRunners(
+                scene_full=ScenePhaseRunner(self),
+                entity_full=entity_runner,
+                entity_stage=entity_runner,
+                structure_full=structure_runner,
+                structure_stage=structure_runner,
+            )
+        return self._phase_runners_cache
+
     async def run_step(
         self,
         db: AsyncSession,
@@ -232,47 +278,50 @@ class DeepImportWorkflow:
                     return progress
 
             progress.phase = "running"
+            phase_runners = self._phase_runners()
 
-            scene_outcome = await ScenePhaseRunner(self).run(
-                db,
-                novel_id,
-                start_chapter,
-                end_chapter,
-                progress,
-                workflow_id=workflow_id,
-                on_progress=on_progress,
-                stop_after=stop_after,
+            scene_outcome = await phase_runners.scene_full.run_full_pipeline(
+                SceneFullPipelineRequest(
+                    db=db,
+                    novel_id=novel_id,
+                    start_chapter=start_chapter,
+                    end_chapter=end_chapter,
+                    progress=progress,
+                    workflow_id=workflow_id,
+                    on_progress=on_progress,
+                    stop_after=stop_after,
+                )
             )
             if scene_outcome.stopped:
                 return progress
             total_scenes = scene_outcome.total_scenes
 
-            phase2_result = await EntityExtractionPhaseRunner(
-                self
-            ).run_full_pipeline_phase(
-                db,
-                novel_id,
-                start_chapter,
-                end_chapter,
-                progress,
-                workflow_id=workflow_id,
-                total_scenes=total_scenes,
-                on_progress=on_progress,
+            phase2_result = await phase_runners.entity_full.run_full_pipeline(
+                EntityFullPipelineRequest(
+                    db=db,
+                    novel_id=novel_id,
+                    start_chapter=start_chapter,
+                    end_chapter=end_chapter,
+                    progress=progress,
+                    workflow_id=workflow_id,
+                    on_progress=on_progress,
+                    total_scenes=total_scenes,
+                )
             )
 
-            phase3_result = await StructureAnalysisPhaseRunner(
-                self
-            ).run_full_pipeline_phase(
-                db,
-                novel_id,
-                start_chapter,
-                end_chapter,
-                progress,
-                workflow_id=workflow_id,
-                context_mode=context_mode,
-                include_pending_objects=include_pending_objects,
-                total_scenes=total_scenes,
-                on_progress=on_progress,
+            phase3_result = await phase_runners.structure_full.run_full_pipeline(
+                StructureFullPipelineRequest(
+                    db=db,
+                    novel_id=novel_id,
+                    start_chapter=start_chapter,
+                    end_chapter=end_chapter,
+                    progress=progress,
+                    workflow_id=workflow_id,
+                    on_progress=on_progress,
+                    total_scenes=total_scenes,
+                    context_mode=context_mode,
+                    include_pending_objects=include_pending_objects,
+                )
             )
 
             progress.current_step = None
@@ -606,14 +655,16 @@ class DeepImportWorkflow:
         workflow_id: str | None = None,
         on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None = None,
     ) -> DeepImportProgress:
-        return await EntityExtractionPhaseRunner(self).run_stage_only(
-            db,
-            novel_id,
-            start_chapter,
-            end_chapter,
-            progress,
-            workflow_id=workflow_id,
-            on_progress=on_progress,
+        return await self._phase_runners().entity_stage.run_stage(
+            EntityStageRequest(
+                db=db,
+                novel_id=novel_id,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+                progress=progress,
+                workflow_id=workflow_id,
+                on_progress=on_progress,
+            )
         )
 
     async def run_structure_analysis_only(
@@ -629,16 +680,18 @@ class DeepImportWorkflow:
         include_pending_objects: bool = True,
         on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None = None,
     ) -> DeepImportProgress:
-        return await StructureAnalysisPhaseRunner(self).run_stage_only(
-            db,
-            novel_id,
-            start_chapter,
-            end_chapter,
-            progress,
-            workflow_id=workflow_id,
-            context_mode=context_mode,
-            include_pending_objects=include_pending_objects,
-            on_progress=on_progress,
+        return await self._phase_runners().structure_stage.run_stage(
+            StructureStageRequest(
+                db=db,
+                novel_id=novel_id,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+                progress=progress,
+                workflow_id=workflow_id,
+                on_progress=on_progress,
+                context_mode=context_mode,
+                include_pending_objects=include_pending_objects,
+            )
         )
 
     async def _fail_preflight(
@@ -749,10 +802,10 @@ class DeepImportWorkflow:
                 end_chapter=end_chapter,
             )
 
-        from modules.imports.phase2_world_extraction import Phase2WorldExtractor
         from modules.imports.entity_extraction.scene_entity_config import (
             phase2_project_settings_context,
         )
+        from modules.imports.phase2_world_extraction import Phase2WorldExtractor
 
         project_settings = getattr(self, "_agent_project_settings", None)
         if project_settings is None:

@@ -6,7 +6,6 @@ SceneSegmentationService — Phase 1: 章节正文 → Scene 切分
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -447,9 +446,13 @@ class SceneSegmentationService:
         *,
         timeout_seconds: float,
     ) -> Any:
+        from infrastructure.llm.agent_step_harness import run_managed_generate
+
         try:
-            return await asyncio.wait_for(
-                llm_client.generate(request),
+            return await run_managed_generate(
+                llm_client,
+                request,
+                step_name="imports.scene_segmentation.generate",
                 timeout=timeout_seconds,
             )
         except TimeoutError as exc:

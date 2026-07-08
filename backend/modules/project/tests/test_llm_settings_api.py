@@ -8,10 +8,15 @@ responses.
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.project.facade import get_project_context
+from modules.project.models import Project
 
 XHR_HEADERS = {"X-Requested-With": "XMLHttpRequest"}
 
@@ -67,10 +72,10 @@ async def test_get_project_llm_settings_does_not_require_xhr_header(
 
 @pytest.mark.asyncio
 async def test_update_project_llm_settings_requires_xhr_header(
-    async_client: AsyncClient,
+    raw_async_client: AsyncClient,
     sample_project: dict,
 ) -> None:
-    resp = await async_client.put(
+    resp = await raw_async_client.put(
         f"/api/projects/{sample_project['id']}/llm-settings",
         json={"provider_id": "deepseek"},
     )
@@ -81,6 +86,7 @@ async def test_update_project_llm_settings_requires_xhr_header(
 @pytest.mark.asyncio
 async def test_update_and_get_project_llm_settings_masks_api_key(
     async_client: AsyncClient,
+    db_session: AsyncSession,
     sample_project: dict,
 ) -> None:
     pid = sample_project["id"]
@@ -122,6 +128,15 @@ async def test_update_and_get_project_llm_settings_masks_api_key(
     assert data["api_key_configured"] is True
     assert "api_key" not in data
 
+    stored = (
+        await db_session.execute(select(Project).where(Project.id == uuid.UUID(pid)))
+    ).scalar_one()
+    stored_api_key = stored.settings["llm"]["api_key"]
+    assert stored_api_key != "sk-secret-value"
+    assert stored_api_key["encrypted"] is True
+    assert stored_api_key["version"] == "fernet-v1"
+    assert "sk-secret-value" not in str(stored.settings)
+
     resp = await async_client.get(f"/api/projects/{pid}/llm-settings")
     assert resp.status_code == 200
     assert "sk-secret-value" not in resp.text
@@ -135,6 +150,29 @@ async def test_update_and_get_project_llm_settings_masks_api_key(
     assert llm_settings["provider_id"] == "deepseek"
     assert llm_settings["api_key_configured"] is True
     assert "api_key" not in llm_settings
+
+
+@pytest.mark.asyncio
+async def test_update_project_settings_encrypts_generic_llm_api_key(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    sample_project: dict,
+) -> None:
+    pid = sample_project["id"]
+
+    resp = await async_client.put(
+        f"/api/projects/{pid}",
+        json={"settings": {"llm": {"provider_id": "deepseek", "api_key": "sk-generic"}}},
+    )
+
+    assert resp.status_code == 200
+    assert "sk-generic" not in resp.text
+    stored = (
+        await db_session.execute(select(Project).where(Project.id == uuid.UUID(pid)))
+    ).scalar_one()
+    stored_api_key = stored.settings["llm"]["api_key"]
+    assert stored_api_key["encrypted"] is True
+    assert "sk-generic" not in str(stored.settings)
 
 
 @pytest.mark.asyncio

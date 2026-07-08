@@ -36,14 +36,18 @@ async def require_confirmation(...) -> ContextConfirmationContract
 async def require_fresh_confirmation(...) -> ContextConfirmationContract
 async def attach_result_ref(...) -> ContextConfirmationContract
 async def mark_asset_context_changed(...) -> int
-async def create_context_snapshot(...) -> ContextSnapshotContract
-async def mark_context_snapshot_succeeded(...) -> ContextSnapshotContract
-async def mark_context_snapshot_failed(...) -> ContextSnapshotContract
+async def open_context_snapshot(db, request: ContextSnapshotRequest) -> ContextSnapshotContract
+async def succeed_context_snapshot(...) -> ContextSnapshotContract
+async def fail_context_snapshot(...) -> ContextSnapshotContract
 async def build_snapshot_health_summary(...) -> dict
 async def mark_stale_running_snapshots(...) -> int
 async def prune_rendered_context(...) -> int
 async def run_snapshot_maintenance(...) -> dict
 ```
+
+`create_context_snapshot()`、`mark_context_snapshot_succeeded()` 和
+`mark_context_snapshot_failed()` 保留为兼容 wrapper；新生产调用应使用
+`ContextSnapshotRequest` + `open/succeed/fail` 生命周期入口。
 
 ## 数据表
 
@@ -123,6 +127,10 @@ V1 复用 `excluded_asset_ids`，约定：
 ## 快照生命周期维护
 
 `context_snapshots` 的生命周期治理由 context 模块拥有，入口是 facade 和只读/维护 API：
+
+生产代码通过 `open_context_snapshot()` 打开 running 快照，通过
+`succeed_context_snapshot()` / `fail_context_snapshot()` 完成生命周期标记。宽参数
+`create_context_snapshot()` 仅用于兼容旧调用。
 
 ```http
 GET  /api/context/snapshots?novel_id=...&workflow_id=...

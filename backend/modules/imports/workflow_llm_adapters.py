@@ -9,14 +9,12 @@ from typing import Any, get_origin
 from pydantic import BaseModel, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.llm.profiles import ResolvedLLMProfile, resolve_llm_profile
-from modules.imports.agent_step_harness import (
+from infrastructure.llm.agent_step_harness import (
     AgentPermissionLevel,
-    ManagedLLMStep,
-    StepExecutionStatus,
-    StepToolEnvelope,
+    run_managed_structured,
 )
-from modules.imports.chapter_loader import build_chapters_text, load_chapter_range
+from infrastructure.llm.profiles import ResolvedLLMProfile, resolve_llm_profile
+from modules.imports.chapter_loader import build_chapters_text
 from modules.imports.env_helpers import positive_int_env
 from shared.deep_import_settings import (
     deep_import_int_setting,
@@ -336,188 +334,6 @@ def _phase2_overlap_text(window: dict[str, Any]) -> str:
     if owned_end and covered_end and owned_end < covered_end:
         return f"第{owned_end + 1}章-第{covered_end}章"
     return "无"
-
-
-class _Phase0SceneCandidateLLM:
-    """Deprecated LLM adapter for legacy Phase 0 candidate prefetch."""
-
-    def __init__(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        *,
-        timeout_seconds: int | None = None,
-        project_settings: dict[str, Any] | None = None,
-    ) -> None:
-        self.db = db
-        self.novel_id = novel_id
-        self.timeout_seconds = timeout_seconds
-        self.project_settings = project_settings
-
-    async def __call__(self, batch) -> Any:
-        from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
-        from modules.imports.llm_schemas import SceneCandidateOutput
-
-        chapters = await load_chapter_range(
-            self.db,
-            self.novel_id,
-            min(batch.chapter_indices),
-            max(batch.chapter_indices),
-            include_missing=False,
-        )
-        wanted = set(batch.chapter_indices)
-        chapters = [ch for ch in chapters if ch.get("chapter_index") in wanted]
-        if not chapters:
-            return SceneCandidateOutput(
-                scenes=[],
-                boundary_status="uncertain",
-                missing_or_uncertain_items=["no chapter content found"],
-            )
-
-        project_settings = self.project_settings
-        if project_settings is None and self.db is not None:
-            project_settings = await _project_settings_for_novel(self.db, self.novel_id)
-        profile = resolve_llm_profile(project_settings)
-        request_defaults = _profile_request_defaults(profile)
-        timeout_seconds = _phase0_scene_timeout_seconds(
-            self.timeout_seconds,
-            project_settings,
-        )
-        request = LLMCallRequest(
-            model=request_defaults["model"],
-            messages=[
-                LLMMessage(
-                    role="system",
-                    content=(
-                        "你是长篇小说导入的 Phase 0 Scene 预取器。"
-                        "目标是快速给 Phase 1a 提供轻量候选锚点，不做正式 Scene 切分。"
-                        "只输出 JSON object，不要 Markdown。"
-                        "必须包含 scenes 数组、boundary_status、confidence。"
-                        "每章最多 1 个候选；5 章窗口最多 5 个候选。"
-                        "每个 scene 只允许包含 title、goal、scene_chunks。"
-                        "title 不超过 24 个中文字符，goal 不超过 60 个中文字符。"
-                        "scene_chunks 每项只保留 chapter_index、start_paragraph、"
-                        "end_paragraph；没有段落号时只填 chapter_index。"
-                        "不要输出正文摘录、人物列表、长摘要、core_conflict、"
-                        "emotional_beat、narrative_tag 或解释文字。"
-                    ),
-                ),
-                LLMMessage(
-                    role="user",
-                    content=(
-                        "请为以下章节生成轻量候选锚点。按章节顺序输出，优先覆盖每章"
-                        "最关键的叙事推进；不要展开成细粒度 Scene。\n\n"
-                        f"{build_chapters_text(chapters)}"
-                    ),
-                ),
-            ],
-            temperature=request_defaults["temperature"] or 0.3,
-            max_tokens=_phase0_scene_max_tokens(
-                request_defaults["max_tokens"],
-                project_settings,
-            ),
-            response_format={"type": "json_object"},
-        )
-        return await _call_structured(
-            _llm_client_for_profile(
-                project_settings,
-                **({"timeout": timeout_seconds} if timeout_seconds else {}),
-            ),
-            request,
-            SceneCandidateOutput,
-            step_name="phase0_prefetch",
-            transport_retries=False,
-            timeout_seconds=timeout_seconds,
-            project_settings=project_settings,
-            fix_prompt=(
-                "上一轮输出无法通过 SceneCandidateOutput 校验。请只输出一个 JSON "
-                "object，必须包含 scenes 数组；每章最多 1 个 scene；每个 scene "
-                "只保留 title、goal、scene_chunks，scene_chunks 内必须有 "
-                "chapter_index。不要 Markdown，不要正文摘录或长摘要。"
-            ),
-        )
-
-
-class _Phase1aSceneCandidateLLM:
-    """Deprecated LLM adapter for legacy Phase 1a reinforcement."""
-
-    def __init__(self, project_settings: dict[str, Any] | None = None) -> None:
-        self.project_settings = project_settings
-
-    async def __call__(self, payload: dict[str, Any]) -> Any:
-        from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
-        from modules.imports.llm_schemas import SceneCandidateOutput
-
-        profile = resolve_llm_profile(self.project_settings)
-        request_defaults = _profile_request_defaults(profile)
-        request = LLMCallRequest(
-            model=request_defaults["model"],
-            messages=[
-                LLMMessage(
-                    role="system",
-                    content=(
-                        "你是长篇小说导入 Phase 1a 正文级 Scene 候选补强器，"
-                        "不是最终 Scene 切分器，也不要写入正式 Scene。"
-                        "你的输出只给 Phase 1b 融合使用。"
-                        "每个覆盖章节最多输出 1 个中间候选 Scene；"
-                        "每 5 章窗口最多 5 个。优先覆盖章节推进锚点，"
-                        "不追求最终完整切分。"
-                        "参考跨章 Scene 边界识别：如果相邻章节仍在同一目标、"
-                        "同一冲突或同一行动链中延续，应输出一个 Scene，并在 "
-                        "scene_chunks 中显式列出连续多个 chapter_index；"
-                        "章节号变化本身不是拆分理由。若目标/冲突/行动链已切换，"
-                        "再拆成独立 Scene。不要把同一 batch 内互不相干的事件"
-                        "强行标成跨章。"
-                        "每个 scene 只允许包含 title、goal、scene_chunks、"
-                        "boundary_reason。title 要短，goal 控制在约 30-60 "
-                        "个中文字符。scene_chunks 每项只保留 chapter_index、"
-                        "start_paragraph、end_paragraph。禁止正文摘录、长摘要、"
-                        "人物列表、core_conflict、emotional_beat、narrative_tag "
-                        "或最终 Scene 字段扩展。只输出 JSON object，必须包含 "
-                        "scenes；JSON 必须紧凑，不要 pretty print、换行缩进、"
-                        "解释文字或 Markdown。顶层不要输出 scenes 之外的字段。"
-                    ),
-                ),
-                LLMMessage(
-                    role="user",
-                    content=(
-                        "请基于章节正文、Phase 0 强/弱候选和相邻批次摘要强化当前"
-                        "批次候选。保持 source_round/source_batch_id/"
-                        "source_chapter_indices 可追溯。不要复制正文，不要展开"
-                        "成最终 Scene，只输出可供 Phase 1b 融合的中间候选。"
-                        "跨章延续必须通过一个 scene 的多个 scene_chunks 表达；"
-                        "不确定边界时在 boundary_reason 中说明。\n\n"
-                        f"{json.dumps(payload, ensure_ascii=False)}"
-                    ),
-                ),
-            ],
-            temperature=request_defaults["temperature"] or 0.3,
-            max_tokens=_phase1a_scene_max_tokens(
-                request_defaults["max_tokens"],
-                self.project_settings,
-            ),
-            response_format={"type": "json_object"},
-        )
-        return await _call_structured(
-            _llm_client_for_profile(self.project_settings),
-            request,
-            SceneCandidateOutput,
-            step_name="phase1a_reinforce",
-            transport_retries=False,
-            max_fix_attempts=_phase1a_structured_max_fix_attempts(
-                self.project_settings
-            ),
-            project_settings=self.project_settings,
-            fix_prompt=(
-                "上一轮输出无法通过 SceneCandidateOutput 校验。请只输出一个 JSON "
-                "object，必须包含 scenes 数组；每个 scene 只保留 title、goal、"
-                "scene_chunks、boundary_reason。不要 Markdown，不要正文摘录、"
-                "长摘要、人物列表或最终 Scene 字段。若相邻章节仍属同一目标/"
-                "冲突/行动链，用一个 scene 的多个 scene_chunks 显式保留跨章；"
-                "保留 source_round、source_batch_id、source_chapter_indices "
-                "等可追溯信息。"
-            ),
-        )
 
 
 class _Phase1aSceneSlicingLLM:
@@ -1639,37 +1455,25 @@ async def _run_deep_import_structured_call(
         else int(settings.llm_timeout)
         + _deep_import_structured_timeout_grace_seconds(project_settings)
     )
-    step = ManagedLLMStep(
-        StepToolEnvelope(
-            name=step_name,
-            output_schema=schema,
-            permission_level=AgentPermissionLevel.draft,
-            read_only=False,
-            concurrent_safe=True,
-            timeout=timeout,
-        )
+    return await run_managed_structured(
+        client,
+        request,
+        schema,
+        step_name=step_name,
+        max_fix_attempts=(
+            max_fix_attempts
+            if max_fix_attempts is not None
+            else _deep_import_structured_max_fix_attempts(project_settings)
+        ),
+        transport_retries=transport_retries,
+        fix_prompt=fix_prompt,
+        partial_list_fields=_structured_list_fields(schema),
+        diagnostics=diagnostics,
+        format_repair_attempts=1,
+        permission_level=AgentPermissionLevel.draft,
+        read_only=False,
+        timeout=timeout,
     )
-    result = await step.run(
-        lambda: client.generate_structured(
-            request,
-            schema,
-            max_fix_attempts=(
-                max_fix_attempts
-                if max_fix_attempts is not None
-                else _deep_import_structured_max_fix_attempts(project_settings)
-            ),
-            transport_retries=transport_retries,
-            fix_prompt=fix_prompt,
-            partial_list_fields=_structured_list_fields(schema),
-            diagnostics=diagnostics,
-            format_repair_attempts=1,
-        )
-    )
-    if result.status != StepExecutionStatus.succeeded:
-        if result.exception is not None:
-            raise result.exception
-        raise RuntimeError(result.error_kind or "managed_llm_step_failed")
-    return result.output
 
 
 _DEFAULT_DEEP_IMPORT_STRUCTURED_CALL = _run_deep_import_structured_call

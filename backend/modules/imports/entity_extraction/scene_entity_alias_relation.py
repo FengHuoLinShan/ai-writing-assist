@@ -324,9 +324,9 @@ class AliasRelationExtractor:
                     )
                 )
                 if snapshot_id is not None:
-                    from modules.context.facade import mark_context_snapshot_succeeded
+                    from modules.context.facade import succeed_context_snapshot
 
-                    await mark_context_snapshot_succeeded(
+                    await succeed_context_snapshot(
                         db,
                         snapshot_id=snapshot_id,
                         result_refs=result_refs,
@@ -678,9 +678,9 @@ async def _mark_phase2b_snapshot_failed(
 ) -> None:
     if snapshot_id is None:
         return
-    from modules.context.facade import mark_context_snapshot_failed
+    from modules.context.facade import fail_context_snapshot
 
-    await mark_context_snapshot_failed(
+    await fail_context_snapshot(
         db,
         snapshot_id=snapshot_id,
         error_kind=error_kind,

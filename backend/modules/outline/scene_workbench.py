@@ -83,7 +83,7 @@ class SceneWorkbenchService:
     ) -> dict:
         return await self._scene_service.reorder(db, novel_id, scene_ids)
 
-    async def split_chapters_legacy(
+    async def split_chapters_from_api(
         self,
         db: AsyncSession,
         novel_id: str,

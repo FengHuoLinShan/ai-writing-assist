@@ -15,6 +15,7 @@ from core.config import (
     _env,
     get_settings,
     load_env_file,
+    validate_app_access_token_config,
     validate_cors_origins,
 )
 
@@ -201,12 +202,19 @@ class TestCorsOriginValidation:
     """CORS wildcard is local-only."""
 
     @pytest.mark.parametrize("app_env", ["development", "test", "local", " TEST "])
-    @pytest.mark.parametrize("origins", [[], ["*"], ["https://x.com", "*"]])
+    @pytest.mark.parametrize("origins", [[], ["*"]])
     def test_local_env_allows_empty_or_wildcard_origins(self, app_env, origins):
         validate_cors_origins(app_env, origins)
 
+    @pytest.mark.parametrize("app_env", ["development", "test", "production"])
+    def test_mixed_wildcard_origins_are_rejected(self, app_env):
+        with pytest.raises(RuntimeError) as exc_info:
+            validate_cors_origins(app_env, ["https://x.com", "*"])
+
+        assert "cannot be mixed" in str(exc_info.value)
+
     @pytest.mark.parametrize("app_env", ["production", "prod", "staging"])
-    @pytest.mark.parametrize("origins", [[], ["*"], ["https://x.com", "*"]])
+    @pytest.mark.parametrize("origins", [[], ["*"]])
     def test_non_local_env_rejects_empty_or_wildcard_origins(
         self,
         app_env,
@@ -221,6 +229,22 @@ class TestCorsOriginValidation:
     @pytest.mark.parametrize("app_env", ["production", "staging"])
     def test_non_local_env_allows_specific_origins(self, app_env):
         validate_cors_origins(app_env, ["https://example.com"])
+
+
+class TestAppAccessTokenValidation:
+    @pytest.mark.parametrize("app_env", ["development", "test", "local"])
+    def test_local_env_allows_missing_token(self, app_env):
+        validate_app_access_token_config(app_env, "")
+
+    @pytest.mark.parametrize("app_env", ["production", "staging"])
+    def test_non_local_env_requires_token(self, app_env):
+        with pytest.raises(RuntimeError) as exc_info:
+            validate_app_access_token_config(app_env, "")
+
+        assert "APP_ACCESS_TOKEN" in str(exc_info.value)
+
+    def test_non_local_env_accepts_token(self):
+        validate_app_access_token_config("production", "secret")
 
 
 class TestSettingsFrozen:

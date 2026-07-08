@@ -12,6 +12,10 @@ from modules.imports.service_phase_artifacts import (
     phase2_checkpoint_summary,
     phase2_repair_summary,
 )
+from modules.imports.workflow_phase_runner import (
+    EntityFullPipelineRequest,
+    EntityStageRequest,
+)
 from modules.imports.workflow_runtime import DeepImportWorkflowRuntime
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 
@@ -34,6 +38,31 @@ class EntityExtractionPhaseRunner:
         total_scenes: int,
         on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None,
     ) -> dict[str, Any]:
+        return await self.run_full_pipeline(
+            EntityFullPipelineRequest(
+                db=db,
+                novel_id=novel_id,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+                progress=progress,
+                workflow_id=workflow_id,
+                on_progress=on_progress,
+                total_scenes=total_scenes,
+            )
+        )
+
+    async def run_full_pipeline(
+        self,
+        request: EntityFullPipelineRequest,
+    ) -> dict[str, Any]:
+        db = request.db
+        novel_id = request.novel_id
+        start_chapter = request.start_chapter
+        end_chapter = request.end_chapter
+        progress = request.progress
+        workflow_id = request.workflow_id
+        total_scenes = request.total_scenes
+        on_progress = request.on_progress
         workflow = self.workflow
         progress.current_step = DeepImportStep.entity_extraction
         progress.current_phase = "entity_extraction"
@@ -236,8 +265,28 @@ class EntityExtractionPhaseRunner:
         workflow_id: str | None = None,
         on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None = None,
     ) -> DeepImportProgress:
+        return await self.run_stage(
+            EntityStageRequest(
+                db=db,
+                novel_id=novel_id,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+                progress=progress,
+                workflow_id=workflow_id,
+                on_progress=on_progress,
+            )
+        )
+
+    async def run_stage(self, request: EntityStageRequest) -> DeepImportProgress:
         """Run Phase 2a/2b against already committed Scenes."""
 
+        db = request.db
+        novel_id = request.novel_id
+        start_chapter = request.start_chapter
+        end_chapter = request.end_chapter
+        progress = request.progress
+        workflow_id = request.workflow_id
+        on_progress = request.on_progress
         workflow = self.workflow
         progress.phase = "running"
         progress.current_step = DeepImportStep.entity_extraction

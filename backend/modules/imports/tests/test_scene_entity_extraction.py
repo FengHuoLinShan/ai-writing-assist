@@ -10,13 +10,10 @@ from contextlib import ExitStack, contextmanager
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.errors import LLMConnectionError, LLMInvalidResponseError
-from modules.imports import (
-    scene_entity_extraction as legacy_scene_entity_extraction_module,
-)
 from modules.imports.entity_extraction import (
     scene_entity_extraction as scene_entity_extraction_module,
 )
@@ -76,6 +73,23 @@ def _patched_phase2_summaries(svc: SceneEntityExtractionService):
             )
         )
         yield
+
+
+def test_scene_entity_extraction_public_timeout_monkeypatch_is_dynamic(
+    monkeypatch,
+) -> None:
+    import modules.imports.entity_extraction as public
+    from modules.imports.entity_extraction.scene_entity_bulk import (
+        small_sample_supplement_timeout_seconds,
+    )
+
+    monkeypatch.setattr(
+        public,
+        "PHASE2_SMALL_SAMPLE_SUPPLEMENT_TIMEOUT_SECONDS",
+        0.5,
+    )
+
+    assert small_sample_supplement_timeout_seconds() == 0.5
 
 
 @pytest.mark.parametrize(
@@ -567,6 +581,66 @@ async def test_process_scene_creates_failed_context_snapshot_on_llm_error(
     assert snapshot.error_kind == "connection_error"
     assert "connection dropped" in snapshot.error_message
     assert snapshot.phase == "entity_extraction"
+
+
+@pytest.mark.asyncio
+async def test_phase2b_snapshot_helper_creates_alias_relation_snapshot(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+) -> None:
+    """Phase 2b snapshot helper should use the lifecycle request path."""
+    from modules.imports.entity_extraction.scene_entity_snapshots import (
+        create_phase2b_snapshot,
+    )
+
+    class _SnapshotServiceStub:
+        def _scene_context_header(self, scene: dict) -> str:
+            return f"Scene {scene.get('scene_index')}"
+
+        def _scene_id(self, scene: dict) -> str:
+            return str(scene["id"])
+
+        def _scene_source_chapter_index(self, scene: dict) -> int:
+            return 1
+
+    scene = {
+        "id": "scene-phase2b",
+        "novel_id": novel_with_drafts,
+        "scene_index": 12,
+    }
+
+    snapshot = await create_phase2b_snapshot(
+        _SnapshotServiceStub(),
+        db_session,
+        novel_with_drafts,
+        scene,
+        "第 1 章正文",
+        "entity-index",
+        workflow_id="wf-phase2b",
+    )
+
+    rows = await _snapshot_rows(db_session, novel_with_drafts)
+    assert len(rows) == 1
+    stored = rows[0]
+    assert stored.id == snapshot.id
+    assert stored.workflow_id == "wf-phase2b"
+    assert stored.operation == "alias_relation_extraction"
+    assert stored.scene_id == "scene-phase2b"
+    assert stored.scene_index == 12
+    assert stored.chapter_index == 1
+    assert stored.included_asset_ids == {}
+    assert stored.context_summary["entity_index_chars"] == len("entity-index")
+    assert stored.rendered_context is None
+
+    from modules.context.models import ContextSnapshot
+
+    raw_result = await db_session.execute(select(ContextSnapshot))
+    raw_snapshot = raw_result.scalar_one()
+    assert raw_snapshot.included_asset_ids == []
+    assert raw_snapshot.section_metadata == [
+        {"name": "entity_index", "chars": len("entity-index")},
+        {"name": "scene_text", "chars": len("第 1 章正文")},
+    ]
 
 
 @pytest.mark.asyncio
@@ -2557,7 +2631,7 @@ async def test_parallel_llm_fallback_extracts_before_serial_persistence() -> Non
             },
         ),
         _patched_phase2_summaries(svc),
-        patch("modules.context.facade.mark_context_snapshot_succeeded", AsyncMock()),
+        patch("modules.context.facade.succeed_context_snapshot", AsyncMock()),
         patch("modules.memory.facade.capture_snapshot", AsyncMock()),
     ):
         result = await svc._process_scenes_parallel_llm(
@@ -2864,7 +2938,7 @@ async def test_bulk_scene_entity_extractor_prefetches_scene_drafts_once() -> Non
             "modules.writing.facade.list_latest_drafts_for_chapters",
             new=list_latest_drafts_for_chapters,
         ),
-        patch("modules.context.facade.mark_context_snapshot_succeeded", new=AsyncMock()),
+        patch("modules.context.facade.succeed_context_snapshot", new=AsyncMock()),
         patch("modules.memory.facade.capture_snapshot", new=AsyncMock()),
     ):
         result = await BulkSceneEntityExtractor(service).run(
@@ -2986,8 +3060,10 @@ async def test_small_sample_bulk_uses_llm_supplement_before_fallback() -> None:
 
 @pytest.mark.asyncio
 async def test_small_sample_supplement_timeout_falls_back(monkeypatch) -> None:
+    import modules.imports.entity_extraction as public_module
+
     monkeypatch.setattr(
-        legacy_scene_entity_extraction_module,
+        public_module,
         "PHASE2_SMALL_SAMPLE_SUPPLEMENT_TIMEOUT_SECONDS",
         0.01,
     )

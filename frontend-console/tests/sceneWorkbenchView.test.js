@@ -907,6 +907,25 @@ describe("sceneWorkbenchView", () => {
     })
   })
 
+  it("keeps merge preview open and shows feedback when merge fails", async () => {
+    api.outline.previewSceneMerge.mockResolvedValue({
+      operation: "merge",
+      chapter_mapping_change: { after: { s1: ["1", "2"] } },
+      field_changes: {},
+      warnings: ["只提示"],
+    })
+    api.outline.mergeScenes.mockRejectedValue(new Error("merge failed"))
+    sceneWorkbenchView._workbench = workbenchPayload
+
+    await sceneWorkbenchView._previewAndMerge("s1", ["s2"])
+    const buttons = showModal.mock.calls[0][2]
+    const result = await buttons.find((button) => button.text === "确认合并").handler()
+
+    expect(result).toBe(false)
+    expect(closeModal).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("Scene 合并失败：merge failed", "error")
+  })
+
   it("starts selected mechanical merge separately from AI fusion draft", async () => {
     api.outline.previewSceneMerge.mockResolvedValue({
       operation: "merge",
@@ -969,6 +988,31 @@ describe("sceneWorkbenchView", () => {
       ],
       confirmed: true,
     })
+  })
+
+  it("keeps split preview open and shows feedback when split fails", async () => {
+    api.outline.previewSceneSplit.mockResolvedValue({
+      operation: "split",
+      chapter_mapping_change: { after: { s1: ["1"] } },
+      field_changes: {},
+      warnings: [],
+      draft_scenes: [
+        { title: "前半", goal: "前半目标", chapter_ids: ["1"] },
+        { title: "后半", goal: "后半目标", chapter_ids: ["2"] },
+      ],
+      field_references: {},
+    })
+    api.outline.splitScene.mockRejectedValue(new Error("split failed"))
+    sceneWorkbenchView._workbench = workbenchPayload
+
+    await sceneWorkbenchView._previewAndSplit("s1", 2)
+    const call = showModal.mock.calls[0]
+    document.body.innerHTML = modalHtmlFromCall(call)
+    const result = await call[2].find((button) => button.text === "确认拆分").handler()
+
+    expect(result).toBe(false)
+    expect(closeModal).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("Scene 拆分失败：split failed", "error")
   })
 
   it("opens cross-chapter suggestions through draft review instead of saving", async () => {

@@ -16,6 +16,12 @@ from modules.imports.deep_import_retry import (
     DeepImportRetryResult,
     run_deep_import_llm_with_retry,
 )
+from modules.imports.entity_extraction.scene_entity_config import (
+    current_phase2_project_settings,
+)
+from modules.imports.entity_extraction.scene_entity_extraction import (
+    SceneEntityExtractionService,
+)
 from modules.imports.llm_schemas import (
     DeltaEvent,
     ExtractedEntity,
@@ -26,8 +32,6 @@ from modules.imports.llm_schemas import (
     Phase2WorldRelation,
     Phase2WorldUncertainItem,
 )
-from modules.imports.entity_extraction.scene_entity_config import current_phase2_project_settings
-from modules.imports.entity_extraction.scene_entity_extraction import SceneEntityExtractionService
 from modules.imports.scene_planning import (
     PHASE0_MAX_MAX_TOKENS,
     PHASE0_TARGET_INPUT_CHARS,

@@ -11,11 +11,11 @@ import asyncio
 import json
 import logging
 import uuid
-from collections import defaultdict
+from collections import OrderedDict
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import Text, delete, func, or_, select, text, update
+from sqlalchemy import Text, delete, exists, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,9 +23,30 @@ from sqlalchemy.orm import selectinload
 
 logger = logging.getLogger(__name__)
 
-_RELATION_UPSERT_LOCKS: defaultdict[tuple[str, str, str, str, str], asyncio.Lock] = (
-    defaultdict(asyncio.Lock)
-)
+_RELATION_UPSERT_LOCK_MAXSIZE = 4096
+_RELATION_UPSERT_LOCKS: OrderedDict[
+    tuple[str, str, str, str, str],
+    asyncio.Lock,
+] = OrderedDict()
+
+
+def _relation_upsert_lock(key: tuple[str, str, str, str, str]) -> asyncio.Lock:
+    lock = _RELATION_UPSERT_LOCKS.get(key)
+    if lock is not None:
+        _RELATION_UPSERT_LOCKS.move_to_end(key)
+        return lock
+
+    lock = asyncio.Lock()
+    _RELATION_UPSERT_LOCKS[key] = lock
+    while len(_RELATION_UPSERT_LOCKS) > _RELATION_UPSERT_LOCK_MAXSIZE:
+        old_key, old_lock = next(iter(_RELATION_UPSERT_LOCKS.items()))
+        if old_lock.locked():
+            _RELATION_UPSERT_LOCKS.move_to_end(old_key)
+            if all(item.locked() for item in _RELATION_UPSERT_LOCKS.values()):
+                break
+            continue
+        _RELATION_UPSERT_LOCKS.popitem(last=False)
+    return lock
 
 from modules.world.models import (  # noqa: E402
     Character,
@@ -105,34 +126,6 @@ class CoreEntityRepository:
         await db.flush()
         return entity
 
-    async def create_candidate(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        data,  # EntityCandidateCreate
-    ) -> CoreEntity:
-        """从旧 EntityCandidateCreate 创建候选（兼容 v2→v3 迁移）"""
-        entity = CoreEntity(
-            novel_id=novel_id,
-            entity_type=data.entity_type,
-            name=data.name,
-            summary=data.summary,
-            importance=data.importance_score or 0.5,
-            importance_level="normal",
-            status="pending",
-            content_json={
-                "source_text": data.source_text,
-                "source_chapter_index": data.source_chapter_index,
-                "confidence": data.confidence,
-                "candidate_reason": data.candidate_reason,
-                "suggested_action": data.suggested_action,
-                "suggested_existing_entity_id": data.suggested_existing_entity_id,
-            },
-        )
-        db.add(entity)
-        await db.flush()
-        return entity
-
     async def get(
         self,
         db: AsyncSession,
@@ -153,6 +146,12 @@ class CoreEntityRepository:
         workflow_id: str | None = None,
         needs_review: bool | None = None,
         auto_ingested: bool | None = None,
+        suggested_action: str | None = None,
+        scene_id: str | None = None,
+        scene_index: int | None = None,
+        source_chapter_index: int | None = None,
+        confidence_min: float | None = None,
+        confidence_max: float | None = None,
     ) -> list[Any]:
         conditions = [CoreEntity.novel_id == novel_id]
         if entity_type:
@@ -194,6 +193,35 @@ class CoreEntityRepository:
                 CoreEntity.content_json["_meta"]["auto_ingested"].as_boolean()
                 == auto_ingested
             )
+        if suggested_action:
+            conditions.append(
+                CoreEntity.content_json["_meta"]["suggested_action"].as_string()
+                == suggested_action
+            )
+        if scene_id:
+            conditions.append(
+                CoreEntity.content_json["_meta"]["scene_id"].as_string() == scene_id
+            )
+        if scene_index is not None:
+            conditions.append(
+                CoreEntity.content_json["_meta"]["scene_index"].as_integer()
+                == scene_index
+            )
+        if source_chapter_index is not None:
+            conditions.append(
+                CoreEntity.content_json["_meta"]["source_chapter_index"].as_integer()
+                == source_chapter_index
+            )
+        if confidence_min is not None:
+            conditions.append(
+                CoreEntity.content_json["_meta"]["confidence"].as_float()
+                >= confidence_min
+            )
+        if confidence_max is not None:
+            conditions.append(
+                CoreEntity.content_json["_meta"]["confidence"].as_float()
+                <= confidence_max
+            )
         return conditions
 
     async def list_by_novel(
@@ -208,6 +236,12 @@ class CoreEntityRepository:
         workflow_id: str | None = None,
         needs_review: bool | None = None,
         auto_ingested: bool | None = None,
+        suggested_action: str | None = None,
+        scene_id: str | None = None,
+        scene_index: int | None = None,
+        source_chapter_index: int | None = None,
+        confidence_min: float | None = None,
+        confidence_max: float | None = None,
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> list[CoreEntity]:
@@ -220,6 +254,12 @@ class CoreEntityRepository:
             workflow_id=workflow_id,
             needs_review=needs_review,
             auto_ingested=auto_ingested,
+            suggested_action=suggested_action,
+            scene_id=scene_id,
+            scene_index=scene_index,
+            source_chapter_index=source_chapter_index,
+            confidence_min=confidence_min,
+            confidence_max=confidence_max,
         )
         stmt = (
             select(CoreEntity)
@@ -244,6 +284,12 @@ class CoreEntityRepository:
         workflow_id: str | None = None,
         needs_review: bool | None = None,
         auto_ingested: bool | None = None,
+        suggested_action: str | None = None,
+        scene_id: str | None = None,
+        scene_index: int | None = None,
+        source_chapter_index: int | None = None,
+        confidence_min: float | None = None,
+        confidence_max: float | None = None,
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[CoreEntity], int]:
@@ -256,6 +302,12 @@ class CoreEntityRepository:
             workflow_id=workflow_id,
             needs_review=needs_review,
             auto_ingested=auto_ingested,
+            suggested_action=suggested_action,
+            scene_id=scene_id,
+            scene_index=scene_index,
+            source_chapter_index=source_chapter_index,
+            confidence_min=confidence_min,
+            confidence_max=confidence_max,
         )
 
         count_stmt = select(func.count(CoreEntity.id)).where(*conditions)
@@ -272,6 +324,12 @@ class CoreEntityRepository:
             workflow_id=workflow_id,
             needs_review=needs_review,
             auto_ingested=auto_ingested,
+            suggested_action=suggested_action,
+            scene_id=scene_id,
+            scene_index=scene_index,
+            source_chapter_index=source_chapter_index,
+            confidence_min=confidence_min,
+            confidence_max=confidence_max,
             skip=skip,
             limit=limit,
         )
@@ -591,16 +649,14 @@ class CoreEntityRepository:
     ) -> bool:
         """检查该 novel 是否有任何实体已生成 embedding。"""
         try:
-            stmt = (
-                select(func.count(CoreEntity.id))
-                .where(
+            stmt = select(
+                exists().where(
                     CoreEntity.novel_id == novel_id,
                     CoreEntity.embedding.isnot(None),
                 )
-                .limit(1)
             )
             result = await db.execute(stmt)
-            return (result.scalar() or 0) > 0
+            return bool(result.scalar())
         except (OperationalError, ProgrammingError):
             logger.warning("pgvector has_embeddings check failed, returning False")
             return False
@@ -865,6 +921,12 @@ class EntityRelationRepository:
         db: AsyncSession,
         novel_id: uuid.UUID,
         *,
+        status: str | None = None,
+        relation_type: str | None = None,
+        q: str | None = None,
+        source_chapter_id: uuid.UUID | None = None,
+        strength_min: float | None = None,
+        strength_max: float | None = None,
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> list[EntityRelation]:
@@ -872,8 +934,42 @@ class EntityRelationRepository:
             EntityRelation.novel_id == novel_id,
             EntityRelation.status != "deprecated",
         ]
+        if status:
+            conditions[-1] = EntityRelation.status == status
+        if relation_type:
+            conditions.append(EntityRelation.relation_type == relation_type)
+        if q:
+            query = q.strip()
+            if query:
+                like_expr = f"%{query}%"
+                conditions.append(
+                    or_(
+                        EntityRelation.relation_type.ilike(like_expr),
+                        EntityRelation.description.ilike(like_expr),
+                        EntityRelation.quote.ilike(like_expr),
+                        CoreEntity.name.ilike(like_expr),
+                    )
+                )
+        if source_chapter_id:
+            conditions.append(EntityRelation.source_chapter_id == source_chapter_id)
+        if strength_min is not None:
+            conditions.append(EntityRelation.strength >= strength_min)
+        if strength_max is not None:
+            conditions.append(EntityRelation.strength <= strength_max)
+        stmt = self._with_endpoint_loads(select(EntityRelation))
+        if q and q.strip():
+            stmt = (
+                stmt.join(
+                    CoreEntity,
+                    or_(
+                        EntityRelation.source_id == CoreEntity.id,
+                        EntityRelation.target_id == CoreEntity.id,
+                    ),
+                )
+                .distinct()
+            )
         stmt = (
-            self._with_endpoint_loads(select(EntityRelation))
+            stmt
             .where(*conditions)
             .offset(skip)
             .limit(limit)
@@ -888,6 +984,12 @@ class EntityRelationRepository:
         db: AsyncSession,
         novel_id: uuid.UUID,
         *,
+        status: str | None = None,
+        relation_type: str | None = None,
+        q: str | None = None,
+        source_chapter_id: uuid.UUID | None = None,
+        strength_min: float | None = None,
+        strength_max: float | None = None,
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[EntityRelation], int]:
@@ -895,9 +997,56 @@ class EntityRelationRepository:
             EntityRelation.novel_id == novel_id,
             EntityRelation.status != "deprecated",
         ]
-        count_stmt = select(func.count(EntityRelation.id)).where(*conditions)
+        if status:
+            conditions[-1] = EntityRelation.status == status
+        if relation_type:
+            conditions.append(EntityRelation.relation_type == relation_type)
+        if q:
+            query = q.strip()
+            if query:
+                like_expr = f"%{query}%"
+                conditions.append(
+                    or_(
+                        EntityRelation.relation_type.ilike(like_expr),
+                        EntityRelation.description.ilike(like_expr),
+                        EntityRelation.quote.ilike(like_expr),
+                        CoreEntity.name.ilike(like_expr),
+                    )
+                )
+        if source_chapter_id:
+            conditions.append(EntityRelation.source_chapter_id == source_chapter_id)
+        if strength_min is not None:
+            conditions.append(EntityRelation.strength >= strength_min)
+        if strength_max is not None:
+            conditions.append(EntityRelation.strength <= strength_max)
+        count_stmt = select(func.count(EntityRelation.id))
+        if q and q.strip():
+            count_stmt = (
+                select(func.count(func.distinct(EntityRelation.id)))
+                .select_from(EntityRelation)
+                .join(
+                    CoreEntity,
+                    or_(
+                        EntityRelation.source_id == CoreEntity.id,
+                        EntityRelation.target_id == CoreEntity.id,
+                    ),
+                )
+                .distinct()
+            )
+        count_stmt = count_stmt.where(*conditions)
         total = (await db.execute(count_stmt)).scalar() or 0
-        items = await self.list_by_novel(db, novel_id, skip=skip, limit=limit)
+        items = await self.list_by_novel(
+            db,
+            novel_id,
+            status=status,
+            relation_type=relation_type,
+            q=q,
+            source_chapter_id=source_chapter_id,
+            strength_min=strength_min,
+            strength_max=strength_max,
+            skip=skip,
+            limit=limit,
+        )
         return items, total
 
     async def get_by_source(
@@ -1168,7 +1317,7 @@ class EntityRelationRepository:
             relation_type,
             "canonical",
         )
-        async with _RELATION_UPSERT_LOCKS[lock_key]:
+        async with _relation_upsert_lock(lock_key):
             return await self._manual_upsert(
                 db,
                 novel_id,
@@ -1266,17 +1415,22 @@ class EntityRelationRepository:
         source_id: uuid.UUID,
         target_id: uuid.UUID,
         relation_type: str,
+        *,
+        exclude_rel_id: uuid.UUID | None = None,
     ) -> EntityRelation | None:
         """查找已存在的同类型同方向关系。"""
+        conditions = [
+            EntityRelation.novel_id == novel_id,
+            EntityRelation.source_id == source_id,
+            EntityRelation.target_id == target_id,
+            EntityRelation.relation_type == relation_type,
+            EntityRelation.status != "deprecated",
+        ]
+        if exclude_rel_id is not None:
+            conditions.append(EntityRelation.id != exclude_rel_id)
         stmt = (
             self._with_endpoint_loads(select(EntityRelation))
-            .where(
-                EntityRelation.novel_id == novel_id,
-                EntityRelation.source_id == source_id,
-                EntityRelation.target_id == target_id,
-                EntityRelation.relation_type == relation_type,
-                EntityRelation.status != "deprecated",
-            )
+            .where(*conditions)
             .order_by(EntityRelation.status.desc(), EntityRelation.id.asc())
             .limit(1)
         )

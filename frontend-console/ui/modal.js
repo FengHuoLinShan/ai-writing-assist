@@ -38,10 +38,22 @@ function showModal(title, body, buttons = []) {
     const isPrimary = !btn.class || btn.class.includes("primary") || btn.text === "保存" || btn.text === "创建" || btn.text === "确认"
     el.className = "btn " + (btn.class || (isPrimary ? "btn-primary" : "btn-ghost"))
     el.textContent = btn.text
-    el.addEventListener("click", () => {
-      btn.handler()
-      if (btn.text !== "取消" && btn.text !== "关闭") {
+    el.addEventListener("click", async () => {
+      if (_isCloseButton(btn)) {
+        try {
+          await Promise.resolve(btn.handler?.())
+        } catch (err) {
+          _toastHandlerError(err)
+        }
         closeModal()
+        return
+      }
+
+      try {
+        const result = await Promise.resolve(btn.handler?.())
+        if (result !== false) closeModal()
+      } catch (err) {
+        _toastHandlerError(err)
       }
     })
     footerEl.appendChild(el)
@@ -57,6 +69,15 @@ function showModal(title, body, buttons = []) {
   }
 
   overlay.classList.remove("hidden")
+}
+
+function _isCloseButton(btn) {
+  return btn?.text === "取消" || btn?.text === "关闭"
+}
+
+function _toastHandlerError(err) {
+  const message = err?.message || "未知错误"
+  if (typeof toast === "function") toast(`操作失败：${message}`, "error")
 }
 
 /** 关闭模态框 */

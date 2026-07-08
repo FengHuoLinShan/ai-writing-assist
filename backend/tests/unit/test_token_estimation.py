@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import tiktoken
 
-from infrastructure.llm.token_estimation import estimate_token_count
-from modules.imports.agent_step_harness import (
+from infrastructure.llm.agent_step_harness import (
     ContextBudget,
     ContextBudgetGuard,
 )
+from infrastructure.llm.token_estimation import estimate_token_count
 from modules.imports.context_snapshot_helpers import (
     build_phase2_snapshot_payload,
     estimate_tokens,

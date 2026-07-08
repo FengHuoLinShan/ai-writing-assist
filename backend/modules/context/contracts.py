@@ -120,6 +120,33 @@ class ContextSnapshotContract:
 
 
 @dataclass
+class ContextSnapshotRequest:
+    """Request to open an automated AI-call context snapshot."""
+
+    novel_id: str
+    phase: str
+    operation: str
+    prompt_name: str
+    model: str
+    compile_options: dict
+    included_asset_ids: dict | list
+    context_summary: dict
+    section_metadata: dict | list
+    token_metadata: dict
+    task_id: str | None = None
+    workflow_id: str | None = None
+    scene_id: str | None = None
+    scene_index: int | None = None
+    chapter_index: int | None = None
+    context_mode: str = "working"
+    include_pending_objects: bool = True
+    attempt: int = 1
+    excluded_asset_ids: dict | list | None = None
+    rendered_context: str | None = None
+    retain_rendered_context: bool = False
+
+
+@dataclass
 class StructureContextBundle:
     """结构化创作上下文包
 

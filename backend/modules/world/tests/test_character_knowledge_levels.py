@@ -303,7 +303,7 @@ class TestCharacterServiceFilterContextByKnowledgeLevel:
         assert filtered[0]["is_misconception"] is True
         assert filtered[0]["knowledge_level"] == "misunderstood"
 
-    async def test_filter_partial_appends_known_content_without_redacting_hidden_truth(
+    async def test_filter_partial_uses_known_content_and_redacts_hidden_truth(
         self, db_session: AsyncSession
     ) -> None:
         svc = CharacterService()
@@ -339,13 +339,13 @@ class TestCharacterServiceFilterContextByKnowledgeLevel:
         assert len(filtered) == 1
         assert removed == 0
         assert replaced == 0
-        assert filtered[0]["hidden_truth"] == "隐藏真相应保留"
-        assert filtered[0]["content"] == "正史内容"
-        assert filtered[0]["summary"] == "正史摘要"
+        assert "hidden_truth" not in filtered[0]
+        assert filtered[0]["content"] == "角色听说过的版本"
+        assert filtered[0]["summary"] == "角色听说过的版本"
         assert filtered[0]["character_known_content"] == "角色听说过的版本"
         assert filtered[0]["knowledge_level"] == "partial"
 
-    async def test_filter_rumor_appends_known_content_without_redacting_hidden_truth(
+    async def test_filter_rumor_uses_known_content_and_redacts_hidden_truth(
         self, db_session: AsyncSession
     ) -> None:
         svc = CharacterService()
@@ -380,8 +380,9 @@ class TestCharacterServiceFilterContextByKnowledgeLevel:
         assert len(filtered) == 1
         assert removed == 0
         assert replaced == 0
-        assert filtered[0]["hidden_truth"] == "隐藏真相应保留"
-        assert filtered[0]["content"] == "正史内容"
+        assert "hidden_truth" not in filtered[0]
+        assert filtered[0]["content"] == "街头传闻"
+        assert filtered[0]["summary"] == "街头传闻"
         assert filtered[0]["character_known_content"] == "街头传闻"
         assert filtered[0]["knowledge_level"] == "rumor"
 

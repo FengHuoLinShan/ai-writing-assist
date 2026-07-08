@@ -29,16 +29,58 @@ const mapQuickCreateView = {
   },
 
   async setIncludeCandidates(enabled) {
+    const previous = this._snapshotPreviewState()
     this._includeCandidates = Boolean(enabled)
-    await this._loadContext()
-    await this._loadPreview()
-    this._updatePreviewDom()
+    try {
+      await this._loadContext()
+      await this._loadPreview()
+      this._updatePreviewDom()
+      return true
+    } catch (err) {
+      this._restorePreviewState(previous)
+      this._updatePreviewDom()
+      toast(`快速创建预览刷新失败：${err.message || "未知错误"}`, "error")
+      return false
+    }
   },
 
   async setTarget(target) {
+    const previous = this._snapshotPreviewState()
     this._target = target || "world"
-    await this._loadPreview()
-    this._updatePreviewDom()
+    try {
+      await this._loadPreview()
+      this._updatePreviewDom()
+      return true
+    } catch (err) {
+      this._restorePreviewState(previous)
+      this._updatePreviewDom()
+      toast(`快速创建预览刷新失败：${err.message || "未知错误"}`, "error")
+      return false
+    }
+  },
+
+  _snapshotPreviewState() {
+    return {
+      context: this._context,
+      preview: this._preview,
+      activeLayouts: this._activeLayouts.map((layout) => ({ ...layout })),
+      layoutHistory: this._layoutHistory.map((entry) => entry.map((layout) => ({ ...layout }))),
+      selectedLocationIds: new Set(this._selectedLocationIds),
+      previousLayoutIds: new Set(this._previousLayoutIds),
+      includeCandidates: this._includeCandidates,
+      target: this._target,
+    }
+  },
+
+  _restorePreviewState(snapshot) {
+    this._context = snapshot.context
+    this._preview = snapshot.preview
+    this._activeLayouts = snapshot.activeLayouts
+    this._layoutHistory = snapshot.layoutHistory
+    this._selectedLocationIds = snapshot.selectedLocationIds
+    this._previousLayoutIds = snapshot.previousLayoutIds
+    this._includeCandidates = snapshot.includeCandidates
+    this._target = snapshot.target
   },
 
   async _loadContext() {
@@ -306,18 +348,22 @@ const mapQuickCreateView = {
     if (!selectedLayouts.length) {
       toast("请至少选择一个地点", "warning")
       this._syncCreateButton()
-      return null
+      return false
     }
-    const created = await api.world.confirmQuickCreateMap({
-      target: this._target,
-      include_candidates: this._includeCandidates,
-      include_markers: false,
-      layouts: selectedLayouts,
-    }, state.currentProjectId)
-    closeModal()
-    toast("地图已快速创建", "success")
-    await this._onCreated?.(created.map)
-    return created
+    try {
+      const created = await api.world.confirmQuickCreateMap({
+        target: this._target,
+        include_candidates: this._includeCandidates,
+        include_markers: false,
+        layouts: selectedLayouts,
+      }, state.currentProjectId)
+      toast("地图已快速创建", "success")
+      await this._onCreated?.(created.map)
+      return created
+    } catch (err) {
+      toast(`快速创建地图失败：${err.message || "未知错误"}`, "error")
+      return false
+    }
   },
 
   _locationName(locationId) {

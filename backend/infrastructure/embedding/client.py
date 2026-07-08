@@ -95,6 +95,10 @@ class BgeEmbeddingClient(EmbeddingProvider):
                 _settings_int(settings, "inference_worker_max_batch", 64),
             ),
         )
+        self._batch_wait_timeout_seconds = max(
+            0.1,
+            float(getattr(settings, "embedding_batch_queue_timeout_seconds", 30.0)),
+        )
         self._batch_queues = {
             False: _BatchQueueState(),
             True: _BatchQueueState(),
@@ -319,7 +323,13 @@ class BgeEmbeddingClient(EmbeddingProvider):
                 )
             await self._batch_queues[is_query].queue.put(request)
         try:
-            return await asyncio.shield(future)
+            return await asyncio.wait_for(
+                asyncio.shield(future),
+                timeout=self._batch_wait_timeout_seconds,
+            )
+        except TimeoutError as exc:
+            future.cancel()
+            raise TimeoutError("BGE embedding batch queue timed out") from exc
         except asyncio.CancelledError:
             future.cancel()
             raise

@@ -13,6 +13,7 @@ from .common import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     Mapped,
     NovelMixin,
@@ -211,7 +212,21 @@ class EntityRelation(Base, UUIDMixin, TimestampMixin):
     """实体关系边 — UUID FK → core_entities + 章节追溯"""
 
     __tablename__ = "entity_relations"
-    __table_args__ = {"comment": "实体关系边"}
+    __table_args__ = (
+        Index(
+            "ix_entity_relations_novel_status_source",
+            "novel_id",
+            "status",
+            "source_id",
+        ),
+        Index(
+            "ix_entity_relations_novel_status_target",
+            "novel_id",
+            "status",
+            "target_id",
+        ),
+        {"comment": "实体关系边"},
+    )
 
     novel_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -264,11 +279,17 @@ class EntityRelation(Base, UUIDMixin, TimestampMixin):
         nullable=True,
         comment="原文依据",
     )
+    review_meta: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+        default=dict,
+        comment="人工复核审计元数据",
+    )
     status: Mapped[str] = mapped_column(
         String(16),
         nullable=False,
         default="canonical",
-        comment="状态：canonical/deprecated",
+        comment="状态：candidate/canonical/deprecated",
     )
 
     source: Mapped[CoreEntity] = relationship(

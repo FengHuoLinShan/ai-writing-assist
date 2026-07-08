@@ -5,14 +5,16 @@
  * 通过 import 获取视图对象，全局 mock 在 setup.js 中提供。
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { afterEach, describe, it, expect, vi, beforeEach } from "vitest"
 import projectView from "../views/projectView.js"
-import { resetState, autoConfirm, captureModalHandler } from "./helpers.js"
+import { resetState, autoConfirm, captureModalHandler, clearDocument, latestModalHtml } from "./helpers.js"
 
 // 清理全局状态，确保各测试隔离
 beforeEach(() => {
   resetState()
   localStorage.clear()
+  sessionStorage.clear()
+  clearDocument()
   projectView._uploadProgress = null
   vi.clearAllMocks()
 })
@@ -336,6 +338,60 @@ describe("projectView", () => {
       expect(html).toContain("42%")
       expect(html).toContain('aria-valuenow="42"')
     })
+
+    it("adds CSRF and closed-test auth headers to raw XHR uploads", async () => {
+      state.currentProjectId = "p1"
+      sessionStorage.setItem("novel_app_access_token", "closed-token")
+      document.body.innerHTML = `
+        <input id="pv-import-file" type="file" />
+        <button data-action="upload-file"></button>
+      `
+      const fileInput = document.getElementById("pv-import-file")
+      Object.defineProperty(fileInput, "files", {
+        value: [new File(["chapter"], "novel.txt", { type: "text/plain" })],
+      })
+
+      const instances = []
+      const OriginalXMLHttpRequest = globalThis.XMLHttpRequest
+      class FakeXMLHttpRequest {
+        constructor() {
+          this.headers = {}
+          this.upload = {}
+          this.status = 200
+          this.responseText = JSON.stringify({
+            total_chapters: 1,
+            imported_chapters: 0,
+          })
+          instances.push(this)
+        }
+
+        open(method, url) {
+          this.method = method
+          this.url = url
+        }
+
+        setRequestHeader(name, value) {
+          this.headers[name] = value
+        }
+
+        send(body) {
+          this.body = body
+          this.onload()
+        }
+      }
+      globalThis.XMLHttpRequest = FakeXMLHttpRequest
+
+      try {
+        await projectView._uploadFile()
+      } finally {
+        globalThis.XMLHttpRequest = OriginalXMLHttpRequest
+      }
+
+      expect(instances).toHaveLength(1)
+      expect(instances[0].method).toBe("POST")
+      expect(instances[0].headers["X-Requested-With"]).toBe("XMLHttpRequest")
+      expect(instances[0].headers.Authorization).toBe("Bearer closed-token")
+    })
   })
 
   describe("import history rendering", () => {
@@ -374,6 +430,77 @@ describe("projectView", () => {
       await vi.waitFor(() => {
         expect(toast).toHaveBeenCalledWith(expect.stringContaining("成功 2 / 2"), "success")
       })
+    })
+  })
+
+  describe("回收站失败反馈", () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+      api.projects.listDeleted = vi.fn().mockResolvedValue({
+        items: [
+          { id: "p1", title: "项目A", deleted_at: "2026-07-08T00:00:00Z" },
+          { id: "p2", title: "项目B", deleted_at: "2026-07-08T00:00:00Z" },
+        ],
+      })
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    async function openRecycleBinDom() {
+      await projectView.showRecycleBin()
+      document.body.innerHTML = latestModalHtml()
+      await vi.advanceTimersByTimeAsync(100)
+    }
+
+    it("批量恢复 API reject 时显示反馈", async () => {
+      await openRecycleBinDom()
+      document.querySelectorAll(".recycle-project-checkbox").forEach((input) => { input.checked = true })
+      api.projects.restore.mockRejectedValue(new Error("restore failed"))
+
+      document.getElementById("recycle-bulk-restore").click()
+
+      await vi.waitFor(() => {
+        expect(toast).toHaveBeenCalledWith("批量恢复失败：restore failed", "error")
+      })
+    })
+
+    it("批量永久删除仍走确认且 reject 时不关闭确认 modal", async () => {
+      await openRecycleBinDom()
+      document.querySelectorAll(".recycle-project-checkbox").forEach((input) => { input.checked = true })
+
+      document.getElementById("recycle-bulk-delete").click()
+
+      expect(confirmAction).toHaveBeenCalledWith(
+        "确定永久删除选中的 2 个项目？此操作不可恢复。",
+        expect.any(Function),
+        "永久删除",
+      )
+
+      api.projects.permanentDelete.mockRejectedValue(new Error("delete failed"))
+      const result = await confirmAction.mock.calls.at(-1)[1]()
+
+      expect(result).toBe(false)
+      expect(toast).toHaveBeenCalledWith("批量永久删除失败：delete failed", "error")
+    })
+
+    it("单个永久删除仍走确认且 reject 时不关闭确认 modal", async () => {
+      await openRecycleBinDom()
+
+      document.querySelector(".perm-delete-project-btn").click()
+
+      expect(confirmAction).toHaveBeenCalledWith(
+        "确定永久删除此项目？此操作不可恢复，所有关联数据将被级联删除。",
+        expect.any(Function),
+        "永久删除",
+      )
+
+      api.projects.permanentDelete.mockRejectedValue(new Error("single failed"))
+      const result = await confirmAction.mock.calls.at(-1)[1]()
+
+      expect(result).toBe(false)
+      expect(toast).toHaveBeenCalledWith("永久删除失败：single failed", "error")
     })
   })
 })

@@ -1195,6 +1195,303 @@ html, body {
   margin-top: var(--space-3);
 }
 
+.world-bible-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.world-bible-toolbar__title {
+  display: grid;
+  gap: 2px;
+}
+
+.world-bible-toolbar__title h3 {
+  margin: 0;
+  font-size: var(--text-base);
+  color: var(--text-primary);
+}
+
+.world-bible-toolbar__title span {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.world-bible-toolbar__modes,
+.world-bible-toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.world-bible-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.world-bible-page-nav,
+.world-bible-editor-panel {
+  padding: var(--space-3);
+  min-width: 0;
+}
+
+.world-bible-page-nav__heading {
+  margin-bottom: var(--space-2);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.world-bible-gallery,
+.world-bible-filter {
+  padding: var(--space-4);
+  min-width: 0;
+}
+
+.world-bible-gallery__hero {
+  text-align: center;
+  margin: var(--space-3) 0 var(--space-5);
+}
+
+.world-bible-gallery__hero h2,
+.world-bible-category-header h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-xl);
+}
+
+.world-bible-gallery__hero p,
+.world-bible-category-header p {
+  margin: var(--space-1) 0 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.world-bible-category-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr));
+  gap: var(--space-3);
+}
+
+.world-bible-category-card {
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 0 0 var(--space-3);
+  overflow: hidden;
+  transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease;
+}
+
+.world-bible-category-card:hover,
+.world-bible-category-card.is-active {
+  border-color: var(--world-bible-type-color);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, .12);
+  transform: translateY(-2px);
+}
+
+.world-bible-category-card__band {
+  width: 100%;
+  height: 5px;
+  background: var(--world-bible-type-color);
+}
+
+.world-bible-category-card__icon {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  margin: var(--space-3) 0 var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--world-bible-type-color) 35%, transparent);
+  border-radius: 50%;
+  color: var(--world-bible-type-color);
+  background: color-mix(in srgb, var(--world-bible-type-color) 10%, transparent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.world-bible-category-card__name {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.world-bible-category-card__desc {
+  min-height: 34px;
+  padding: var(--space-1) var(--space-3) 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+}
+
+.world-bible-category-card__count {
+  margin-top: var(--space-2);
+  padding: 3px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  background: var(--bg-alt);
+}
+
+.world-bible-section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-5) 0 var(--space-3);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.world-bible-section-title:first-child {
+  margin-top: 0;
+}
+
+.world-bible-section-title::before {
+  content: "";
+  width: 4px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.world-bible-section-title span {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.world-bible-category-header {
+  display: grid;
+  grid-template-columns: auto 56px minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: center;
+  margin-bottom: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--world-bible-type-color) 12%, var(--bg-surface)),
+    var(--bg-surface)
+  );
+}
+
+.world-bible-category-header h2 span {
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.world-bible-category-icon,
+.world-bible-page-card__icon {
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--world-bible-type-color) 35%, transparent);
+  border-radius: var(--radius-md);
+  color: var(--world-bible-type-color);
+  background: color-mix(in srgb, var(--world-bible-type-color) 10%, transparent);
+  font-weight: 700;
+}
+
+.world-bible-category-icon {
+  width: 56px;
+  height: 56px;
+}
+
+.world-bible-page-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: var(--space-4);
+}
+
+.world-bible-page-card {
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.world-bible-page-card__band {
+  height: 5px;
+  background: var(--world-bible-type-color);
+}
+
+.world-bible-page-card__head {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+  padding: var(--space-4) var(--space-4) var(--space-2);
+}
+
+.world-bible-page-card__icon {
+  width: 46px;
+  height: 46px;
+  font-size: 11px;
+}
+
+.world-bible-page-card__title {
+  min-width: 0;
+}
+
+.world-bible-page-card__title h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-base);
+  overflow-wrap: anywhere;
+}
+
+.world-bible-page-card__meta,
+.world-bible-page-card__footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin-top: var(--space-2);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.world-bible-page-card__summary {
+  margin: 0;
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  color: var(--text-secondary);
+  line-height: var(--leading-normal);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.world-bible-page-card__footer {
+  margin: auto var(--space-4) 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.world-bible-page-card__actions {
+  padding: var(--space-3) var(--space-4) var(--space-4);
+}
+
 .llm-settings-view {
   max-width: 920px;
   margin: 0 auto;
@@ -1446,6 +1743,57 @@ html, body {
 .chapter-tree-title {
   font-size: 13px;
   font-weight: 700;
+}
+
+.scene-tree-scene {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.scene-tree-toggle,
+.scene-tree-label {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.scene-tree-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.scene-tree-toggle:hover,
+.scene-tree-toggle:focus-visible,
+.scene-tree-label:hover,
+.scene-tree-label:focus-visible {
+  background: var(--bg-hover);
+}
+
+.scene-tree-toggle:focus-visible,
+.scene-tree-label:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.scene-tree-label {
+  min-width: 0;
+  padding: 2px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chapter-row {

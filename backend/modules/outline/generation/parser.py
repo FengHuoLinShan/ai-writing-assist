@@ -12,6 +12,10 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, ValidationError
 
+from infrastructure.llm.agent_step_harness import (
+    run_managed_generate,
+    run_managed_structured,
+)
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.prompt_loader import load_prompt
 from infrastructure.llm.schemas import LLMCallRequest
@@ -101,9 +105,11 @@ class PlotStructureParser:
         for attempt in range(max_empty_retries + 1):
             parsed: GeneratedOutput | None = None
             try:
-                parsed = await llm_client.generate_structured(
+                parsed = await run_managed_structured(
+                    llm_client,
                     request,
                     GeneratedOutput,
+                    step_name="outline.structure_parser.generated_output.structured",
                     max_fix_attempts=1 if self._fast_structured else 2,
                     partial_list_fields={
                         "plot_threads",
@@ -221,9 +227,11 @@ class PlotStructureParser:
             diagnostics["max_tokens"] = max_tokens
             diagnostics["retry_count"] = attempt_index
             try:
-                parsed = await llm_client.generate_structured(
+                parsed = await run_managed_structured(
+                    llm_client,
                     request,
                     SimpleStructureOutput,
+                    step_name="outline.structure_parser.simple_output.structured",
                     max_fix_attempts=1,
                     partial_list_fields={
                         "plot_threads",
@@ -443,7 +451,11 @@ class PlotStructureParser:
     ) -> GeneratedOutput | None:
         """结构化输出失败时，降级为原始文本 + 逐项校验。"""
         try:
-            raw = await llm_client.generate(request)
+            raw = await run_managed_generate(
+                llm_client,
+                request,
+                step_name="outline.structure_parser.fallback.generate",
+            )
             raw_data = json.loads(raw.content)
         except Exception as inner_exc:
             logger.warning("Per-item validation also failed: %s", inner_exc)

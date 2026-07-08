@@ -5,6 +5,8 @@ const frontendPort = process.env.FRONTEND_PORT || "8080"
 const rawApiHost = process.env.API_HOST || `http://localhost:${backendPort}`
 const apiBase = rawApiHost.endsWith("/api") ? rawApiHost : `${rawApiHost}/api`
 const frontendBase = `http://localhost:${frontendPort}`
+const reuseExistingServer =
+  process.env.PW_REUSE_EXISTING_SERVER !== "0" && !process.env.CI
 
 export default defineConfig({
   testDir: "./e2e",
@@ -24,13 +26,13 @@ export default defineConfig({
       command: `cd ../backend && APP_ENV=test python -m alembic upgrade head && APP_ENV=test python -m uvicorn app.main:app --host 0.0.0.0 --port ${backendPort}`,
       url: `${apiBase}/health`,
       timeout: 60000,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer,
     },
     {
       command: `FRONTEND_PORT=${frontendPort} npm run dev`,
       url: frontendBase,
       timeout: 60000,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer,
     },
   ],
 })

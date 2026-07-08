@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
 from datetime import UTC, datetime
 from typing import Any
 
@@ -33,14 +32,17 @@ logger = logging.getLogger(__name__)
 
 
 def small_sample_supplement_timeout_seconds() -> float:
-    legacy_module = sys.modules.get("modules.imports.scene_entity_extraction")
-    if legacy_module is None:
-        return PHASE2_SMALL_SAMPLE_SUPPLEMENT_TIMEOUT_SECONDS
-    return getattr(
-        legacy_module,
+    default_timeout = PHASE2_SMALL_SAMPLE_SUPPLEMENT_TIMEOUT_SECONDS
+    import modules.imports.entity_extraction as public_module
+
+    timeout = getattr(
+        public_module,
         "PHASE2_SMALL_SAMPLE_SUPPLEMENT_TIMEOUT_SECONDS",
-        PHASE2_SMALL_SAMPLE_SUPPLEMENT_TIMEOUT_SECONDS,
+        default_timeout,
     )
+    if timeout != default_timeout:
+        return timeout
+    return default_timeout
 
 
 def fallback_entity_label(entity_type: str) -> str:
@@ -162,9 +164,9 @@ class BulkSceneEntityExtractor:
             )
         except Exception as exc:
             if snapshot_id is not None:
-                from modules.context.facade import mark_context_snapshot_failed
+                from modules.context.facade import fail_context_snapshot
 
-                await mark_context_snapshot_failed(
+                await fail_context_snapshot(
                     db,
                     snapshot_id=snapshot_id,
                     error_kind=service._error_kind(exc),
@@ -215,9 +217,9 @@ class BulkSceneEntityExtractor:
                 result_refs=result_refs,
             )
         if snapshot_id is not None:
-            from modules.context.facade import mark_context_snapshot_succeeded
+            from modules.context.facade import succeed_context_snapshot
 
-            await mark_context_snapshot_succeeded(
+            await succeed_context_snapshot(
                 db,
                 snapshot_id=snapshot_id,
                 result_refs=result_refs,

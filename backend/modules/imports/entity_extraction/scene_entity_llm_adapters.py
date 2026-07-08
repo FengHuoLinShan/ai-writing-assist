@@ -22,6 +22,7 @@ async def call_llm_extraction(
     diagnostics: list[dict[str, Any]] | None = None,
 ) -> SceneEntityExtractionOutput:
     from core.config import get_settings
+    from infrastructure.llm.agent_step_harness import run_managed_structured
     from infrastructure.llm.client import LLMClient
     from infrastructure.llm.prompt_loader import load_prompt
     from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
@@ -54,9 +55,11 @@ async def call_llm_extraction(
     )
 
     llm_client = LLMClient(timeout=client_timeout)
-    return await llm_client.generate_structured(
+    return await run_managed_structured(
+        llm_client,
         request,
         SceneEntityExtractionOutput,
+        step_name="imports.scene_entity.extraction.structured",
         max_fix_attempts=max_fix_attempts,
         transport_retries=transport_retries,
         partial_list_fields={"entities", "relations", "delta_events"},
@@ -79,6 +82,7 @@ async def call_alias_relation_extraction(
     diagnostics: list[dict[str, Any]] | None = None,
 ) -> AliasRelationExtractionOutput:
     from core.config import get_settings
+    from infrastructure.llm.agent_step_harness import run_managed_structured
     from infrastructure.llm.client import LLMClient
     from infrastructure.llm.prompt_loader import load_prompt
     from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
@@ -108,9 +112,11 @@ async def call_alias_relation_extraction(
         response_format={"type": "json_object"},
     )
     llm_client = LLMClient(timeout=client_timeout)
-    return await llm_client.generate_structured(
+    return await run_managed_structured(
+        llm_client,
         request,
         AliasRelationExtractionOutput,
+        step_name="imports.scene_entity.alias_relation.structured",
         max_fix_attempts=max_fix_attempts,
         transport_retries=True,
         partial_list_fields={"aliases", "relations"},

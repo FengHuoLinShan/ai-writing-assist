@@ -11,7 +11,7 @@ Import 模组补充单元测试
   api.py:           API 端点 (upload / list / get / deep / resume)
   facade.py:        deep import 重复确认、force 入队、恢复 / 放弃兼容语义
   repositories.py:  update_status 不存在的记录
-  tasks.py:         任务处理器 (handle_deep_import / handle_deep_import_resume)
+  tasks.py:         任务处理器 (handle_deep_import / stage handlers)
 
 注意:
   - parse_epub / parse_mobi 需要真实的 epub/mobi 文件依赖 (ebooklib / mobi)，
@@ -1100,7 +1100,7 @@ class TestImportRecordRepositoryMore:
 
 
 class TestImportTaskHandlers:
-    """deep_import / deep_import_resume 任务处理器"""
+    """deep_import 及分阶段自动提取任务处理器"""
 
     pytestmark = [pytest.mark.asyncio]
 
@@ -1249,17 +1249,3 @@ class TestImportTaskHandlers:
             task,
             stage=stage,
         )
-
-    @pytest.mark.asyncio
-    async def test_handle_deep_import_resume_deprecated(self):
-        """deep_import_resume handler 应返回废弃提示"""
-        from modules.imports.tasks import handle_deep_import_resume
-
-        task = MagicMock()
-        task.meta = {}
-
-        db = MagicMock()
-        result = await handle_deep_import_resume(db, task)
-
-        assert result["phase"] == "done"
-        assert "已移除" in result["message"]

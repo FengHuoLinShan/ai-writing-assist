@@ -17,8 +17,8 @@
 export function bindDelegation(view, element, eventType, handlerMap) {
   const key = `__delegation_${eventType}`
   if (element[key]) element.removeEventListener(eventType, element[key])
-  element[key] = (e) => {
-    const t = e.target.closest("[data-action]")
+  element[key] = async (e) => {
+    const t = e.target.closest?.("[data-action]")
     if (!t) return
     const a = t.getAttribute("data-action")
     const ctx = {
@@ -26,9 +26,19 @@ export function bindDelegation(view, element, eventType, handlerMap) {
       chapter: t.getAttribute("data-chapter"),
     }
     const handler = handlerMap[a]
-    if (handler) handler.call(view, e, t, ctx)
+    if (!handler) return
+    try {
+      await Promise.resolve(handler.call(view, e, t, ctx))
+    } catch (err) {
+      _toastDelegationError(err)
+    }
   }
   element.addEventListener(eventType, element[key])
+}
+
+function _toastDelegationError(err) {
+  const message = err?.message || "未知错误"
+  if (typeof toast === "function") toast(`操作失败：${message}`, "error")
 }
 
 /**

@@ -17,6 +17,7 @@ from infrastructure.llm.profiles import (
     list_provider_templates,
     sanitize_llm_profile,
 )
+from infrastructure.llm.secret_store import ensure_encrypted_secret
 from modules.project.repositories import ProjectRepository
 from modules.project.schemas import (
     LLMFieldResetResponse,
@@ -80,6 +81,10 @@ class ProjectService:
     async def create_project(
         self, db: AsyncSession, data: ProjectCreate
     ) -> ProjectResponse:
+        if data.settings:
+            update_shape = ProjectUpdate(settings=data.settings)
+            encrypted = self._encrypt_project_settings_update(update_shape)
+            data = data.model_copy(update={"settings": encrypted.settings})
         project = await self._repo.create(db, data)
         return await self._response_with_stats(db, project)
 
@@ -120,6 +125,7 @@ class ProjectService:
         data: ProjectUpdate,
     ) -> ProjectResponse:
         pid = _parse_uuid(project_id, "project_id")
+        data = self._encrypt_project_settings_update(data)
         project = await self._repo.update(db, pid, data)
         if project is None:
             raise NotFoundError(f"Project {project_id} not found")
@@ -170,9 +176,11 @@ class ProjectService:
         if data.clear_api_key:
             pass
         elif data.api_key:
-            next_profile[LLM_API_KEY_FIELD] = data.api_key
+            next_profile[LLM_API_KEY_FIELD] = ensure_encrypted_secret(data.api_key)
         elif existing_profile.get(LLM_API_KEY_FIELD):
-            next_profile[LLM_API_KEY_FIELD] = existing_profile[LLM_API_KEY_FIELD]
+            next_profile[LLM_API_KEY_FIELD] = ensure_encrypted_secret(
+                existing_profile[LLM_API_KEY_FIELD]
+            )
 
         if next_profile:
             settings[LLM_SETTINGS_KEY] = next_profile
@@ -195,6 +203,21 @@ class ProjectService:
             project.settings
         )
         return ProjectLLMSettingsResponse.model_validate(profile)
+
+    @staticmethod
+    def _encrypt_project_settings_update(data: ProjectUpdate) -> ProjectUpdate:
+        if data.settings is None:
+            return data
+        settings = dict(data.settings)
+        llm = settings.get(LLM_SETTINGS_KEY)
+        if not isinstance(llm, dict) or not llm.get(LLM_API_KEY_FIELD):
+            return data
+        next_llm = dict(llm)
+        next_llm[LLM_API_KEY_FIELD] = ensure_encrypted_secret(
+            next_llm[LLM_API_KEY_FIELD]
+        )
+        settings[LLM_SETTINGS_KEY] = next_llm
+        return data.model_copy(update={"settings": settings})
 
     async def reset_llm_settings_field(
         self,

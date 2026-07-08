@@ -109,6 +109,36 @@ describe("mapQuickCreateView", () => {
     }), "p1")
   })
 
+  it("candidate toggle failure keeps the previous preview and shows feedback", async () => {
+    mockQuickCreateApis()
+    await mapQuickCreateView.open()
+    const previousPreview = mapQuickCreateView._preview
+    const previousLayouts = mapQuickCreateView._activeLayouts
+    api.world.getMapQuickCreateContext.mockRejectedValueOnce(new Error("context failed"))
+
+    const result = await mapQuickCreateView.setIncludeCandidates(true)
+
+    expect(result).toBe(false)
+    expect(mapQuickCreateView._includeCandidates).toBe(false)
+    expect(mapQuickCreateView._preview).toBe(previousPreview)
+    expect(mapQuickCreateView._activeLayouts).toEqual(previousLayouts)
+    expect(toast).toHaveBeenCalledWith("快速创建预览刷新失败：context failed", "error")
+  })
+
+  it("target change failure keeps the previous preview and shows feedback", async () => {
+    mockQuickCreateApis()
+    await mapQuickCreateView.open()
+    const previousPreview = mapQuickCreateView._preview
+    api.world.previewQuickCreateMap.mockRejectedValueOnce(new Error("preview failed"))
+
+    const result = await mapQuickCreateView.setTarget("detail")
+
+    expect(result).toBe(false)
+    expect(mapQuickCreateView._target).toBe("world")
+    expect(mapQuickCreateView._preview).toBe(previousPreview)
+    expect(toast).toHaveBeenCalledWith("快速创建预览刷新失败：preview failed", "error")
+  })
+
   it("confirm creates one map and invokes callback", async () => {
     mockQuickCreateApis()
     const onCreated = vi.fn()
@@ -130,8 +160,25 @@ describe("mapQuickCreateView", () => {
       include_markers: false,
       layouts: mapQuickCreateView._activeLayouts,
     }), "p1")
-    expect(closeModal).toHaveBeenCalled()
     expect(onCreated).toHaveBeenCalledWith({ id: "m1", name: "快速创建世界地图" })
+  })
+
+  it("shows a visible error when confirm fails", async () => {
+    mockQuickCreateApis()
+    mapQuickCreateView._preview = {
+      location_layouts: [{ location_entity_id: "loc1", center_hex_q: 1, center_hex_r: 1 }],
+    }
+    mapQuickCreateView._activeLayouts = [
+      { location_entity_id: "loc1", center_hex_q: 2, center_hex_r: 3, occupy_radius: 2 },
+    ]
+    mapQuickCreateView._selectedLocationIds = new Set(["loc1"])
+    api.world.confirmQuickCreateMap.mockRejectedValue(new Error("后端服务器错误"))
+
+    const result = await mapQuickCreateView._confirm()
+
+    expect(result).toBe(false)
+    expect(closeModal).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("快速创建地图失败：后端服务器错误", "error")
   })
 
   it("submits only selected layouts", async () => {
@@ -174,7 +221,7 @@ describe("mapQuickCreateView", () => {
     mapQuickCreateView._setAllSelected(false)
     const result = await mapQuickCreateView._confirm()
 
-    expect(result).toBeNull()
+    expect(result).toBe(false)
     expect(api.world.confirmQuickCreateMap).not.toHaveBeenCalled()
     expect(toast).toHaveBeenCalledWith("请至少选择一个地点", "warning")
   })

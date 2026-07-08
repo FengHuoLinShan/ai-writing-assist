@@ -19,25 +19,42 @@ test.describe("首页与导航", () => {
   test("侧边栏导航项可见", async ({ page }) => {
     await page.goto("/")
 
-    const navItems = ["project", "world", "map", "writing", "rag", "context", "generate"]
+    const navItems = [
+      "project",
+      "world",
+      "map",
+      "writing",
+      "rag",
+      "outline",
+      "scene",
+      "generate",
+      "settings",
+      "project-settings",
+    ]
     for (const item of navItems) {
       await expect(page.locator(SEL.navItem(item))).toBeVisible()
     }
+    await expect(page.locator(SEL.navItem("context"))).toHaveCount(0)
   })
 
   test("点击导航切换视图", async ({ page }) => {
     await page.goto("/")
 
     await page.locator(SEL.navItem("world")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("世界对象")
-    await expect(page.locator(SEL.navItem("world"))).toHaveClass(/active/)
+    await expect(page.locator(SEL.viewTitle)).toHaveText("项目")
+    await expect(page.locator(SEL.navItem("project"))).toHaveClass(/active/)
+    await expect(page.locator(SEL.navItem("world"))).not.toHaveClass(/active/)
+    await expect(page.locator(SEL.toastContainer)).toContainText("请先选择项目后再进入该页面")
 
     await page.locator(SEL.navItem("writing")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("写作台")
-    await expect(page.locator(SEL.navItem("writing"))).toHaveClass(/active/)
+    await expect(page.locator(SEL.viewTitle)).toHaveText("项目")
+    await expect(page.locator(SEL.navItem("project"))).toHaveClass(/active/)
+    await expect(page.locator(SEL.navItem("writing"))).not.toHaveClass(/active/)
 
     await page.locator(SEL.navItem("rag")).click()
-    await expect(page.locator(SEL.viewTitle)).toHaveText("RAG 检索")
+    await expect(page.locator(SEL.viewTitle)).toHaveText("项目")
+    await expect(page.locator(SEL.navItem("project"))).toHaveClass(/active/)
+    await expect(page.locator(SEL.navItem("rag"))).not.toHaveClass(/active/)
   })
 
   test("后端连接状态显示", async ({ page }) => {

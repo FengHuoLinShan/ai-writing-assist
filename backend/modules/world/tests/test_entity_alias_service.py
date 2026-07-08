@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from core.errors import ConflictError, NotFoundError
+from core.errors import ValidationError as DomainValidationError
 from modules.world.services.core.entity_alias_service import EntityAliasService
 
 
@@ -19,7 +20,7 @@ def novel_id() -> str:
 
 @pytest.fixture
 def alias_service() -> EntityAliasService:
-    return EntityAliasService(repo=MagicMock())
+    return EntityAliasService(repo=MagicMock(), context_marker=AsyncMock(return_value=0))
 
 
 @pytest.mark.asyncio
@@ -38,12 +39,14 @@ def _make_entity(
     novel_id: str | None = None,
     name: str = "Arthur",
     content_json: dict | None = None,
+    status: str = "canonical",
 ) -> MagicMock:
     entity = MagicMock()
     entity.id = uuid.UUID(entity_id) if entity_id else uuid.uuid4()
     entity.novel_id = uuid.UUID(novel_id) if novel_id else uuid.uuid4()
     entity.name = name
     entity.content_json = content_json if content_json is not None else {}
+    entity.status = status
     return entity
 
 
@@ -97,6 +100,61 @@ async def test_list_aliases_pagination(
     assert [item["alias"] for item in page["items"]] == ["Athy", "Bell"]
     assert alias_service.repo.list_by_novel.await_count == 2
     alias_service.repo.get_by_novel.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_list_aliases_page_filters_before_pagination(
+    novel_id: str,
+    alias_service: EntityAliasService,
+) -> None:
+    entity = _make_entity(
+        name="克莱恩",
+        content_json={
+            "aliases": [
+                {
+                    "alias": "周明瑞",
+                    "type": "alias",
+                    "status": "candidate",
+                    "source": "deep_import",
+                    "workflow_id": "wf-1",
+                    "scene_index": 3,
+                    "source_chapter_index": 1,
+                    "confidence": 0.95,
+                    "needs_review": True,
+                    "quote": "证据一",
+                },
+                {
+                    "alias": "愚者",
+                    "type": "title",
+                    "status": "canonical",
+                    "source": "manual",
+                    "confidence": 0.7,
+                    "needs_review": False,
+                    "quote": "证据二",
+                },
+            ],
+        },
+    )
+    alias_service.repo.list_by_novel = AsyncMock(return_value=[entity])
+    db = MagicMock()
+
+    page = await alias_service.list_aliases_page(
+        db,
+        novel_id,
+        q="周明",
+        needs_review=True,
+        source="deep_import",
+        workflow_id="wf-1",
+        scene_index=3,
+        source_chapter_index=1,
+        confidence_min=0.9,
+        skip=0,
+        limit=1,
+    )
+
+    assert page["total"] == 1
+    assert page["items"][0]["alias"] == "周明瑞"
+    assert page["items"][0]["quote"] == "证据一"
 
 
 @pytest.mark.asyncio
@@ -251,6 +309,160 @@ async def test_update_alias_updates_metadata_and_removes_none_fields(
         }
     ]
     db.flush.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_edit_alias_renames_type_and_confirms_review_preserving_provenance(
+    novel_id: str,
+    alias_service: EntityAliasService,
+) -> None:
+    entity = _make_entity(
+        novel_id=novel_id,
+        content_json={
+            "aliases": [
+                {
+                    "alias": "Art",
+                    "type": "nickname",
+                    "status": "candidate",
+                    "source": "deep_import",
+                    "workflow_id": "wf-1",
+                    "scene_id": "scene-1",
+                    "confidence": 0.92,
+                    "quote": "called Art",
+                    "needs_review": True,
+                },
+            ]
+        },
+    )
+    alias_service.repo.get = AsyncMock(return_value=entity)
+    db = AsyncMock()
+
+    result = await alias_service.edit_alias(
+        db,
+        novel_id,
+        str(entity.id),
+        "Art",
+        alias="King Arthur",
+        alias_type="title",
+    )
+
+    updated = entity.content_json["aliases"][0]
+    assert updated["alias"] == "King Arthur"
+    assert updated["type"] == "title"
+    assert updated["status"] == "canonical"
+    assert updated["needs_review"] is False
+    assert updated["source"] == "deep_import"
+    assert updated["workflow_id"] == "wf-1"
+    assert updated["scene_id"] == "scene-1"
+    assert updated["confidence"] == 0.92
+    assert updated["quote"] == "called Art"
+    assert result["alias"] == "King Arthur"
+    assert result["alias_type"] == "title"
+    assert result["affected_ids"] == [str(entity.id)]
+    db.flush.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_edit_alias_moves_to_target_entity(
+    novel_id: str,
+    alias_service: EntityAliasService,
+) -> None:
+    source = _make_entity(
+        novel_id=novel_id,
+        content_json={"aliases": [{"alias": "Blackthorn", "type": "alias"}]},
+    )
+    target = _make_entity(
+        novel_id=novel_id,
+        name="Nighthawks",
+        content_json={"aliases": []},
+    )
+    alias_service.repo.get = AsyncMock(side_effect=[source, target])
+    db = AsyncMock()
+
+    result = await alias_service.edit_alias(
+        db,
+        novel_id,
+        str(source.id),
+        "Blackthorn",
+        target_entity_id=str(target.id),
+        alias_type="name",
+    )
+
+    assert source.content_json["aliases"] == []
+    assert target.content_json["aliases"][0]["alias"] == "Blackthorn"
+    assert target.content_json["aliases"][0]["type"] == "name"
+    assert set(result["affected_ids"]) == {str(source.id), str(target.id)}
+    db.flush.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_edit_alias_rejects_duplicate_on_target(
+    novel_id: str,
+    alias_service: EntityAliasService,
+) -> None:
+    source = _make_entity(
+        novel_id=novel_id,
+        content_json={"aliases": [{"alias": "Blackthorn", "type": "alias"}]},
+    )
+    target = _make_entity(
+        novel_id=novel_id,
+        content_json={"aliases": [{"alias": "Blackthorn", "type": "name"}]},
+    )
+    alias_service.repo.get = AsyncMock(side_effect=[source, target])
+    db = AsyncMock()
+
+    with pytest.raises(ConflictError):
+        await alias_service.edit_alias(
+            db,
+            novel_id,
+            str(source.id),
+            "Blackthorn",
+            target_entity_id=str(target.id),
+        )
+    db.flush.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_edit_alias_rejects_cross_novel_target(
+    novel_id: str,
+    alias_service: EntityAliasService,
+) -> None:
+    source = _make_entity(
+        novel_id=novel_id,
+        content_json={"aliases": [{"alias": "Blackthorn"}]},
+    )
+    target = _make_entity(novel_id=str(uuid.uuid4()))
+    alias_service.repo.get = AsyncMock(side_effect=[source, target])
+    db = AsyncMock()
+
+    with pytest.raises(NotFoundError) as exc_info:
+        await alias_service.edit_alias(
+            db,
+            novel_id,
+            str(source.id),
+            "Blackthorn",
+            target_entity_id=str(target.id),
+        )
+    assert "Target entity not found" in exc_info.value.message
+    db.flush.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_edit_alias_rejects_invalid_target_status(
+    novel_id: str,
+    alias_service: EntityAliasService,
+) -> None:
+    entity = _make_entity(
+        novel_id=novel_id,
+        status="merged",
+        content_json={"aliases": [{"alias": "Blackthorn"}]},
+    )
+    alias_service.repo.get = AsyncMock(return_value=entity)
+    db = AsyncMock()
+
+    with pytest.raises(DomainValidationError):
+        await alias_service.edit_alias(db, novel_id, str(entity.id), "Blackthorn")
+    db.flush.assert_not_awaited()
 
 
 @pytest.mark.parametrize(

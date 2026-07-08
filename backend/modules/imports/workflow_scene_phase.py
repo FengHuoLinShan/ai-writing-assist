@@ -18,6 +18,7 @@ from modules.imports.service_phase_artifacts import (
     phase_error,
     scene_phase_repair_summary,
 )
+from modules.imports.workflow_phase_runner import SceneFullPipelineRequest
 from modules.imports.workflow_runtime import DeepImportWorkflowRuntime
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 
@@ -83,6 +84,31 @@ class ScenePhaseRunner:
         on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None,
         stop_after: DeepImportStep | None,
     ) -> ScenePhaseOutcome:
+        return await self.run_full_pipeline(
+            SceneFullPipelineRequest(
+                db=db,
+                novel_id=novel_id,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+                progress=progress,
+                workflow_id=workflow_id,
+                on_progress=on_progress,
+                stop_after=stop_after,
+            )
+        )
+
+    async def run_full_pipeline(
+        self,
+        request: SceneFullPipelineRequest,
+    ) -> ScenePhaseOutcome:
+        db = request.db
+        novel_id = request.novel_id
+        start_chapter = request.start_chapter
+        end_chapter = request.end_chapter
+        progress = request.progress
+        workflow_id = request.workflow_id
+        on_progress = request.on_progress
+        stop_after = request.stop_after
         workflow = self.workflow
 
         # Phase 0: deterministic Scene import plan.

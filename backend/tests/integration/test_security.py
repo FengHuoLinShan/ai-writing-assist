@@ -9,11 +9,55 @@ from __future__ import annotations
 import pytest
 from httpx import AsyncClient
 
+from core.config import get_settings
+
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
 
 class TestSecurity:
     """安全边界测试 — 验证恶意或极端输入不会导致崩溃或数据泄露"""
+
+    async def test_state_changing_api_requires_xhr_header(
+        self,
+        raw_async_client: AsyncClient,
+    ):
+        resp = await raw_async_client.post(
+            "/api/projects",
+            json={"title": "csrf-blocked"},
+        )
+
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "Missing X-Requested-With header"
+
+    async def test_state_changing_api_accepts_console_xhr_header(
+        self,
+        async_client: AsyncClient,
+    ):
+        resp = await async_client.post(
+            "/api/projects",
+            json={"title": "csrf-allowed"},
+        )
+
+        assert resp.status_code == 201
+
+    async def test_closed_test_access_token_guards_api(
+        self,
+        async_client: AsyncClient,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        monkeypatch.setenv("APP_ACCESS_TOKEN", "closed-token")
+        get_settings.cache_clear()
+        try:
+            blocked = await async_client.get("/api/projects")
+            allowed = await async_client.get(
+                "/api/projects",
+                headers={"Authorization": "Bearer closed-token"},
+            )
+        finally:
+            get_settings.cache_clear()
+
+        assert blocked.status_code == 401
+        assert allowed.status_code == 200
 
     # ============================================================
     # SQL 注入

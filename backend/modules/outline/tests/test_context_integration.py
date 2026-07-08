@@ -34,11 +34,7 @@ def _mock_container_get(name):
 
 _CONTAINER_GET_PATCHES = [
     mock.patch(
-        "modules.context.services.loaders.plot_threads_loader._container_get",
-        side_effect=_mock_container_get,
-    ),
-    mock.patch(
-        "modules.context.services.loaders.outline_arc_loader._container_get",
+        "core.container.get",
         side_effect=_mock_container_get,
     ),
     mock.patch(

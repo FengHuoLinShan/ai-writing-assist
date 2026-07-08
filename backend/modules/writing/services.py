@@ -16,6 +16,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
+from infrastructure.llm.agent_step_harness import run_managed_generate
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.writing.conflict_ai import (
@@ -1102,7 +1103,8 @@ class WritingGenerationService:
             )
             response_format = None
 
-        response = await self._llm.generate(
+        response = await run_managed_generate(
+            self._llm,
             LLMCallRequest(
                 model=getattr(self._llm, "model_name", "gpt-4o"),
                 messages=[
@@ -1115,7 +1117,8 @@ class WritingGenerationService:
                 temperature=0.7,
                 max_tokens=4096,
                 response_format=response_format,
-            )
+            ),
+            step_name="writing.generation.candidate.generate",
         )
         model_name = response.model or getattr(
             self._llm,

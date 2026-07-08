@@ -22,7 +22,8 @@ async def create_phase2_snapshot(
     workflow_id: str | None = None,
 ):
     from core.config import get_settings
-    from modules.context.facade import create_context_snapshot
+    from modules.context.contracts import ContextSnapshotRequest
+    from modules.context.facade import open_context_snapshot
 
     settings = get_settings()
     max_tokens = 16384
@@ -38,28 +39,26 @@ async def create_phase2_snapshot(
         max_tokens=max_tokens,
         temperature=temperature,
     )
-    return await create_context_snapshot(
+    return await open_context_snapshot(
         db,
-        novel_id=str(nid),
-        task_id=workflow_id,
-        workflow_id=workflow_id,
-        phase="entity_extraction",
-        operation="scene_entity_extraction",
-        scene_id=payload["scene_id"],
-        scene_index=payload["scene_index"],
-        chapter_index=payload["chapter_index"],
-        context_mode="working",
-        include_pending_objects=True,
-        attempt=1,
-        prompt_name="scene_entity_extraction",
-        model=settings.llm_model,
-        compile_options=payload["compile_options"],
-        included_asset_ids=payload["included_asset_ids"],
-        context_summary=payload["context_summary"],
-        section_metadata=payload["section_metadata"],
-        token_metadata=payload["token_metadata"],
-        rendered_context=payload["rendered_context"],
-        retain_rendered_context=False,
+        ContextSnapshotRequest(
+            novel_id=str(nid),
+            task_id=workflow_id,
+            workflow_id=workflow_id,
+            phase="entity_extraction",
+            operation="scene_entity_extraction",
+            scene_id=payload["scene_id"],
+            scene_index=payload["scene_index"],
+            chapter_index=payload["chapter_index"],
+            prompt_name="scene_entity_extraction",
+            model=settings.llm_model,
+            compile_options=payload["compile_options"],
+            included_asset_ids=payload["included_asset_ids"],
+            context_summary=payload["context_summary"],
+            section_metadata=payload["section_metadata"],
+            token_metadata=payload["token_metadata"],
+            rendered_context=payload["rendered_context"],
+        ),
     )
 
 async def phase2_audit_summary(
@@ -133,38 +132,36 @@ async def create_phase2b_snapshot(
     workflow_id: str | None = None,
 ):
     from core.config import get_settings
-    from modules.context.facade import create_context_snapshot
+    from modules.context.contracts import ContextSnapshotRequest
+    from modules.context.facade import open_context_snapshot
 
     settings = get_settings()
     rendered_context = f"{entity_index}\n\n{service._scene_context_header(scene)}"
-    return await create_context_snapshot(
+    return await open_context_snapshot(
         db,
-        novel_id=str(nid),
-        task_id=workflow_id,
-        workflow_id=workflow_id,
-        phase="entity_extraction",
-        operation="alias_relation_extraction",
-        scene_id=service._scene_id(scene),
-        scene_index=scene.get("scene_index"),
-        chapter_index=service._scene_source_chapter_index(scene),
-        context_mode="working",
-        include_pending_objects=True,
-        attempt=1,
-        prompt_name="alias_relation_extraction",
-        model=settings.llm_model,
-        compile_options={"source": "deep_import_phase2b_alias_relation"},
-        included_asset_ids=[],
-        context_summary={
-            "scene_index": scene.get("scene_index"),
-            "entity_index_chars": len(entity_index),
-            "text_chars": len(chapters_text),
-        },
-        section_metadata=[
-            {"name": "entity_index", "chars": len(entity_index)},
-            {"name": "scene_text", "chars": len(chapters_text)},
-        ],
-        token_metadata={"estimated_chars": len(rendered_context)},
-        rendered_context=rendered_context,
-        retain_rendered_context=False,
+        ContextSnapshotRequest(
+            novel_id=str(nid),
+            task_id=workflow_id,
+            workflow_id=workflow_id,
+            phase="entity_extraction",
+            operation="alias_relation_extraction",
+            scene_id=service._scene_id(scene),
+            scene_index=scene.get("scene_index"),
+            chapter_index=service._scene_source_chapter_index(scene),
+            prompt_name="alias_relation_extraction",
+            model=settings.llm_model,
+            compile_options={"source": "deep_import_phase2b_alias_relation"},
+            included_asset_ids=[],
+            context_summary={
+                "scene_index": scene.get("scene_index"),
+                "entity_index_chars": len(entity_index),
+                "text_chars": len(chapters_text),
+            },
+            section_metadata=[
+                {"name": "entity_index", "chars": len(entity_index)},
+                {"name": "scene_text", "chars": len(chapters_text)},
+            ],
+            token_metadata={"estimated_chars": len(rendered_context)},
+            rendered_context=rendered_context,
+        ),
     )
-

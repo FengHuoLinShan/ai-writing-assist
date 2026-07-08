@@ -10,7 +10,6 @@ from typing import Any
 
 from infrastructure.tasks.registry import task_handler
 from modules.imports.orchestrator import DeepImportOrchestrator
-from modules.imports.workflow_schemas import DeepImportStep
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +45,6 @@ async def handle_scene_auto_extraction(db, task) -> dict[str, Any]:
     )
     return result
 
-
 @task_handler("world_object_auto_extraction")
 async def handle_world_object_auto_extraction(db, task) -> dict[str, Any]:
     """处理世界对象与别名/关系自动提取任务 — Phase2a/2b。"""
@@ -77,24 +75,3 @@ async def handle_plot_structure_auto_extraction(db, task) -> dict[str, Any]:
         result["completed_steps"],
     )
     return result
-
-
-@task_handler("deep_import_resume")
-async def handle_deep_import_resume(db, task) -> dict[str, Any]:
-    """（已废弃）候选管理已移除，深度导入全自动执行。
-
-    保留 handler 注册以兼容已有队列任务。
-    """
-    logger.warning("deep_import_resume 已废弃 — 深度导入已改为全自动。忽略 resume 请求。")
-    return {
-        "phase": "done",
-        "current_step": None,
-        "completed_steps": [
-            DeepImportStep.scene_segmentation.value,
-            DeepImportStep.entity_extraction.value,
-            DeepImportStep.structure_analysis.value,
-        ],
-        "message": "候选管理已移除，深度导入全自动执行。",
-        "degraded": False,
-        "degraded_batches": [],
-    }

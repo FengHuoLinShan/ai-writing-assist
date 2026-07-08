@@ -29,3 +29,19 @@ class GeneratedObjectDraftOutput(BaseModel):
         if not summary:
             raise ValueError("summary must not be blank")
         return summary
+
+
+class GeneratedWorldBiblePagePatchOutput(BaseModel):
+    """Structured output for appending AI-organized text to a World Bible page."""
+
+    append_text: str = Field(..., min_length=1, max_length=20000)
+    reason: str = Field(default="", max_length=1000)
+
+
+class GeneratedWorldBibleNewPageOutput(BaseModel):
+    """Structured output for a new World Bible page suggestion."""
+
+    title: str = Field(..., min_length=1, max_length=255)
+    page_type: str = Field(default="custom", min_length=1, max_length=64)
+    free_text: str = Field(..., min_length=1, max_length=30000)
+    reason: str = Field(default="", max_length=1000)

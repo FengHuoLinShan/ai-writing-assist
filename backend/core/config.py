@@ -69,16 +69,27 @@ def _env_float(key: str, default: float) -> float:
     return float(value)
 
 
-_CORS_WILDCARD_ENVS = {"development", "test", "local"}
+_LOCAL_ENVS = {"development", "test", "local"}
 
 
 def validate_cors_origins(app_env: str, origins: list[str]) -> None:
-    """Reject wildcard CORS in non-local runtime environments."""
+    """Reject unsafe wildcard CORS configurations."""
     normalized_env = app_env.strip().lower()
     allows_wildcard = not origins or "*" in origins
-    if allows_wildcard and normalized_env not in _CORS_WILDCARD_ENVS:
+    if "*" in origins and len(origins) > 1:
+        raise RuntimeError("CORS wildcard origins cannot be mixed with explicit origins")
+    if allows_wildcard and normalized_env not in _LOCAL_ENVS:
         raise RuntimeError(
             "CORS wildcard origins are only allowed in development, test, or local"
+        )
+
+
+def validate_app_access_token_config(app_env: str, app_access_token: str) -> None:
+    """Require a deployment access token outside local runtimes."""
+    normalized_env = app_env.strip().lower()
+    if normalized_env not in _LOCAL_ENVS and not app_access_token.strip():
+        raise RuntimeError(
+            "APP_ACCESS_TOKEN must be configured outside development, test, or local"
         )
 
 
@@ -184,6 +195,9 @@ class Settings:
             _env_int("INFERENCE_WORKER_MAX_BATCH", 64),
         )
     )
+    embedding_batch_queue_timeout_seconds: float = field(
+        default_factory=lambda: _env_float("EMBEDDING_BATCH_QUEUE_TIMEOUT_SECONDS", 30.0)
+    )
 
     # --- Async task worker ---
     task_worker_max_concurrent_tasks: int = field(
@@ -200,6 +214,12 @@ class Settings:
         default_factory=lambda: [
             o.strip() for o in _env("ALLOWED_ORIGINS", "*").split(",") if o.strip()
         ]
+    )
+
+    # --- Deployment access / secrets ---
+    app_access_token: str = field(default_factory=lambda: _env("APP_ACCESS_TOKEN", ""))
+    llm_settings_encryption_key: str = field(
+        default_factory=lambda: _env("LLM_SETTINGS_ENCRYPTION_KEY", "")
     )
 
     # --- 重排序 ---

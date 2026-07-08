@@ -782,6 +782,28 @@ describe("_showGenerateStructureForm", () => {
     expect(outlineView._generateStructure).toHaveBeenCalledWith(1, 5)
   })
 
+  it("swallows generate rejection after _generateStructure has already handled feedback", async () => {
+    outlineView._showGenerateStructureForm()
+    const handler = captureModalHandler()
+    expect(handler).toBeTruthy()
+
+    document.getElementById = vi.fn((id) => {
+      if (id === "generate-structure-start") return { value: "1", addEventListener: vi.fn() }
+      if (id === "generate-structure-end") return { value: "5", addEventListener: vi.fn() }
+      if (id === "generate-structure-confirm") return { checked: false, addEventListener: vi.fn() }
+      if (id === "generate-structure-warning") return { style: {}, innerHTML: "", addEventListener: vi.fn() }
+      if (id === "generate-structure-confirm-row") return { style: {}, addEventListener: vi.fn() }
+      return { addEventListener: vi.fn() }
+    })
+    outlineView._generateStructure = vi.fn().mockRejectedValue(new Error("already toasted"))
+
+    const result = await handler()
+
+    expect(result).toBe(false)
+    expect(outlineView._generateStructure).toHaveBeenCalledWith(1, 5)
+    expect(toast).not.toHaveBeenCalledWith("already toasted", "error")
+  })
+
   it("counts overlapping threads and arcs for a range", () => {
     const threads = [
       { id: "t1", start_chapter: 1, planned_payoff_chapter: 3 },

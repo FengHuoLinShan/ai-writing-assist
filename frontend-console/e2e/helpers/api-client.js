@@ -10,13 +10,19 @@ export const API_HOST = rawApiHost.endsWith("/api") ? rawApiHost.slice(0, -4) : 
 export const API_BASE = `${API_HOST}/api`
 
 async function request(path, options = {}) {
+  const method = (options.method || "GET").toUpperCase()
+  const headers = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+    ...options.headers,
+  }
+  if (method !== "GET" && method !== "HEAD") {
+    headers["X-Requested-With"] ||= "XMLHttpRequest"
+  }
+
   const resp = await fetch(`${API_BASE}${path}`, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      ...options.headers,
-    },
+    headers,
   })
   if (!resp.ok) {
     const text = await resp.text()

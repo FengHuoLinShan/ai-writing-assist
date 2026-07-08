@@ -88,7 +88,7 @@ class TestCrudServiceSubclassValidation:
     """__init_subclass__ 验证必填 ClassVar"""
 
     def test_core_crud_has_no_fastapi_exception_dependency(self):
-        source = Path("backend/core/crud.py").read_text()
+        source = (Path(__file__).resolve().parents[2] / "core/crud.py").read_text()
 
         assert "from fastapi import HTTPException" not in source
         assert "raise HTTPException" not in source

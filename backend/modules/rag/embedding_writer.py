@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +18,8 @@ class EmbeddingWriteResult:
 
 
 class EmbeddingWriter:
+    _FALLBACK_CONCURRENCY = 3
+
     def __init__(
         self,
         repo: RagChunkRepository,
@@ -35,16 +38,27 @@ class EmbeddingWriter:
         chunks: list[RagChunk],
     ) -> EmbeddingWriteResult:
         failed_count = 0
-        for chunk in chunks:
+        semaphore = asyncio.Semaphore(self._FALLBACK_CONCURRENCY)
+
+        async def _generate(chunk: RagChunk) -> tuple[RagChunk, object, Exception | None]:
+            async with semaphore:
+                try:
+                    return chunk, await self._llm.generate_embedding(chunk.text), None
+                except Exception as exc:  # noqa: BLE001 - preserve per-chunk degradation
+                    return chunk, None, exc
+
+        for chunk, embedding, exc in await asyncio.gather(
+            *(_generate(chunk) for chunk in chunks)
+        ):
             try:
-                embedding = await self._llm.generate_embedding(chunk.text)
-                if self._is_single_embedding(embedding):
-                    chunk.embedding = embedding  # type: ignore[assignment]
-                    chunk.embedding_status = "succeeded"
-                    chunk.embedding_error = None
-                    chunk.index_warnings = []
-                else:
+                if exc is not None:
+                    raise exc
+                if not self._is_single_embedding(embedding):
                     raise ValueError("embedding 返回格式异常")
+                chunk.embedding = embedding  # type: ignore[assignment]
+                chunk.embedding_status = "succeeded"
+                chunk.embedding_error = None
+                chunk.index_warnings = []
             except Exception as exc:
                 error = str(exc)
                 chunk.embedding = None

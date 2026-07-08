@@ -14,7 +14,11 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - AI 抽取对象以 `status="candidate"` 入库，等待用户确认、合并或忽略；不自动提升为正史
 - 别名不建新对象，存储于 `core_entities.content_json.aliases` JSONB 字段
 - 深度导入 Phase 2b 发现的别名以内联待复核形式写入 `content_json.aliases`，单条别名携带 `status/source/workflow_id/scene_id/confidence/needs_review` 元数据
+- 待复核别名可在确认前修改目标对象、别名文本和别名类型；来源、workflow、Scene、引用和置信度作为只读证据保留
+- “待确认”入口按对象 / 别名 / 关系三个子 tab 处理复核队列；对象库、别名、关系页仍保留全量管理能力
+- `link_to_existing` / `alias_of_existing` 候选可在待确认对象队列中确认为已有对象别名，源候选标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不提升为正史
 - 深度导入 Phase 2b 发现的关系写入 `entity_relations(status="candidate")`，两端可解析到 canonical / draft / candidate 工作对象
+- 待确认关系可在确认前修改源对象、目标对象、关系类型、描述和强度；引用和来源章节作为只读证据保留，复核审计写入 `review_meta`
 - 人物扩展表 `characters` 保留历史独立 `aliases` JSONB 字段，新别名应优先写入 `core_entities.content_json.aliases`
 - 对象分级：core / important / normal / temporary
 - 版本回滚基于 `TextArchive` 归档与 `EntityRevision` 兜底（活跃回滚路由优先查询 `TextArchive`，无归档时回退到最近 `EntityRevision` 快照）
@@ -24,6 +28,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 世界对象 CRUD（CoreEntity / `WorldEntityService`）
 - 对象关系管理（EntityRelation）
 - 别名管理（`EntityAliasService`，内联于 CoreEntity.aliases JSONB，支持待复核别名元数据）
+- 候选别名确认（将候选对象解析为目标对象别名，并复用关系迁移/去重逻辑）
 - 对象去重（EntityDedupService）
 - 对象融合建议（WorldEntityFusionService，LLM 只生成建议，用户确认后应用）
 - 面向项目级智能去重的实体融合子 facade（`entity_facade.suggest_entity_fusion` /
@@ -57,6 +62,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 项目级“智能去重”按钮复用同一套 world 实体融合逻辑；它只改变入口和结果聚合，
   不放宽用户确认、正史二次确认或 novel_id 隔离规则。
 - 候选合并/清洗完成后，响应会尽量返回 `affected_ids` / `merged_ids`；前端只能按精确 ID 更新本地候选列表，缺少这些字段时刷新当前 tab，不按名称或候选组猜测删除。
+- 确认为别名不是深合并：仅写入目标别名、迁移/去重关系并标记源候选为 `merged`，不得合并 summary/public_info/hidden_truth 或人物扩展字段。
 
 ## 数据表
 
@@ -128,11 +134,16 @@ ORM 表到同一个 `core.base.Base.metadata`。具体模型按子域拆分：
 - `description` — 关系描述
 - `strength` — 关系强度（0~1）
 - `quote` — 原文依据
-- `status` — 状态（canonical / deprecated）
+- `review_meta` — 人工复核审计元数据（reviewed_by / reviewed_at / review_before / review_after）
+- `status` — 状态（candidate / canonical / deprecated）
 - `source_chapter_id` — 来源章节 ID
 - `caused_by_event_id` — 导致此关系的事件 ID
 
-`canonical` 关系以 `(novel_id, source_id, target_id, relation_type)` 为数据库幂等键。关系写入走仓储层 upsert；调用方不应再实现“先查再插”的并发控制。
+`candidate` 关系必须经用户复核后进入 `canonical`。`canonical` 关系以
+`(novel_id, source_id, target_id, relation_type)` 为数据库幂等键。关系写入走仓储层
+upsert；调用方不应再实现“先查再插”的并发控制。关系复核确认走
+`PATCH /api/world/relations/{rel_id}/review-edit`；旧 `PUT /relations/{rel_id}`
+若变更 status，也会写入等价 `review_meta`，避免绕过审计。
 
 ### aliases（内联 JSONB）
 
@@ -145,6 +156,8 @@ ORM 表到同一个 `core.base.Base.metadata`。具体模型按子域拆分：
 
 - 别名不创建新实体行
 - 去重检查：别名不与已有别名重复（大小写不敏感）
+- `PATCH /api/world/entities/{entity_id}/aliases` 只更新复核元数据；编辑文本或移动目标必须走 `/aliases/edit`
+- `POST /api/world/entities/{candidate_id}/resolve-as-alias` 将候选对象登记为目标对象别名，并把源候选移出待确认对象队列
 
 ### entity_revisions 表（legacy 快照兜底）
 
@@ -238,6 +251,10 @@ class ResolveResult:
 - `services/core/`：核心实体、人物、事件、关系、去重、抽取、版本和回滚。
 - `services/map/`：地图配置、tile、marker、territory、observation/fact、dashboard、playback、动态队列。
 - `services/worldbuilding/`：世界书页面、模板、投影、作者资料整理和上下文摘要。
+  其中 `worldbuilding_service.py` 是旧 import path 兼容 hub；实际实现按概念拆到
+  `profile_service.py`、`world_bible_service.py`、`suggestion_queue_service.py`、
+  `knowledge_tag_service.py`、`reader_safety_service.py`、`conflict_queue_service.py`
+  和 `activation_preview_service.py`。
 - `services/common.py`：跨子包通用 helper。
 - `services/__init__.py`：顶层 re-export hub，保留常用 service 和 helper 的旧聚合入口。
 - `services/map_service.py`：历史兼容导出层，不承载业务逻辑。
@@ -350,8 +367,10 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 | PUT | `/api/world/entities/{entity_id}` | 更新对象 |
 | DELETE | `/api/world/entities/{entity_id}` | 删除对象 |
 | POST | `/api/world/entities/{entity_id}/promote` | 将草稿/候选实体提升为正史 |
+| POST | `/api/world/entities/{candidate_id}/resolve-as-alias` | 将候选确认为目标对象别名 |
 | GET | `/api/world/entities/{entity_id}/relations` | 实体关系列表 |
 | DELETE | `/api/world/entities/{entity_id}/aliases` | 删除别名 |
+| PATCH | `/api/world/entities/{entity_id}/aliases/edit` | 编辑/移动并确认别名 |
 | GET | `/api/world/entities/{entity_id}/revisions` | 版本历史（legacy，只读兼容） |
 | POST | `/api/world/entities/{entity_id}/rollback` | 回滚到指定 scene_index（优先 TextArchive，无归档时回退到 EntityRevision） |
 | POST | `/api/world/entities/{entity_id}/rollback-by-revision` | 按 revision_id 回滚（`entity_revisions` 兼容） |
@@ -361,6 +380,7 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 | GET | `/api/world/relations` | 关系列表（v3） |
 | POST | `/api/world/relations` | 创建关系（v3） |
 | PUT | `/api/world/relations/{rel_id}` | 更新关系（v3） |
+| PATCH | `/api/world/relations/{rel_id}/review-edit` | 编辑待确认关系并确认 |
 | DELETE | `/api/world/relations/{rel_id}` | 删除关系（v3） |
 | GET | `/api/world/events` | 事件列表 |
 | POST | `/api/world/events` | 创建事件 |

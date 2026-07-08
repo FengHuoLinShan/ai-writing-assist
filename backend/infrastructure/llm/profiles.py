@@ -12,6 +12,11 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse
 
+from infrastructure.llm.secret_store import (
+    decrypt_secret,
+    secret_configured,
+)
+
 LLM_SETTINGS_KEY = "llm"
 LLM_API_KEY_FIELD = "api_key"
 
@@ -330,7 +335,7 @@ def sanitize_project_settings(settings: dict[str, Any] | None) -> dict[str, Any]
     llm = cleaned.get(LLM_SETTINGS_KEY)
     if isinstance(llm, dict):
         api_key = llm.pop(LLM_API_KEY_FIELD, None)
-        llm["api_key_configured"] = bool(api_key) or bool(
+        llm["api_key_configured"] = secret_configured(api_key) or bool(
             llm.get("api_key_configured")
         )
     return cleaned
@@ -341,10 +346,19 @@ def get_llm_profile(settings: dict[str, Any] | None) -> dict[str, Any]:
     return deepcopy(llm) if isinstance(llm, dict) else {}
 
 
+def get_runtime_llm_profile(settings: dict[str, Any] | None) -> dict[str, Any]:
+    """Return the project LLM profile with encrypted secrets decrypted."""
+    profile = get_llm_profile(settings)
+    api_key = profile.get(LLM_API_KEY_FIELD)
+    if secret_configured(api_key):
+        profile[LLM_API_KEY_FIELD] = decrypt_secret(api_key)
+    return profile
+
+
 def sanitize_llm_profile(profile: dict[str, Any] | None) -> dict[str, Any]:
     cleaned = deepcopy(profile or {})
     api_key = cleaned.pop(LLM_API_KEY_FIELD, None)
-    cleaned["api_key_configured"] = bool(api_key) or bool(
+    cleaned["api_key_configured"] = secret_configured(api_key) or bool(
         cleaned.get("api_key_configured")
     )
     return cleaned
@@ -413,7 +427,7 @@ def _normalize_override_payload(payload: dict[str, Any] | None) -> dict[str, Any
 
 
 def _normalize_project_profile(project_settings: dict[str, Any] | None) -> dict[str, Any]:
-    profile = get_llm_profile(project_settings)
+    profile = get_runtime_llm_profile(project_settings)
     if not profile:
         return {}
 
