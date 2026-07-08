@@ -43,6 +43,7 @@ export function createChapterTree({
     _chapterListLoadError: null,
     _currentChapter: null,
     _activeSceneId: null,
+    _sceneGroupExpansion: {},
     _showBulkActions: false,
     _bulkSelections: {},
 
@@ -131,7 +132,7 @@ export function createChapterTree({
           this._syncBulkUi()
         },
         "bulk-run": (_e, t) => this._runBulkAction(t.getAttribute("data-bulk-action")),
-        "toggle-scene-group": (_e, t) => this._toggleSceneGroup(t),
+        "toggle-scene-group": (e, t) => this._toggleSceneGroup(t, e),
       })
     },
 
@@ -264,6 +265,7 @@ export function createChapterTree({
       this._chapterListLoadError = null
       this._currentChapter = null
       this._activeSceneId = null
+      this._sceneGroupExpansion = {}
       this._showBulkActions = false
       this._bulkSelections = {}
     },
@@ -355,12 +357,18 @@ export function createChapterTree({
       `
 
       if (unassigned.length > 0) {
-        const isExpanded = unassigned.includes(this._currentChapter)
+        const groupId = "unassigned"
+        const isExpanded = this._isSceneGroupExpanded(
+          groupId,
+          unassigned.includes(this._currentChapter),
+        )
         html += `
           <div class="scene-tree-node">
-            <div class="scene-tree-scene" data-action="toggle-scene-group" style="cursor:pointer;padding:4px 4px;">
-              <span class="toggle-icon">${isExpanded ? "▼" : "▶"}</span>
-              <span style="color:var(--text-dim);font-size:12px;">未归类</span>
+            <div class="scene-tree-scene" style="padding:4px 4px;">
+              <button type="button" class="scene-tree-toggle" data-action="toggle-scene-group" data-group-id="${groupId}" aria-expanded="${isExpanded ? "true" : "false"}" title="${isExpanded ? "折叠" : "展开"}">
+                <span class="toggle-icon">${isExpanded ? "▼" : "▶"}</span>
+              </button>
+              <button type="button" class="scene-tree-label" data-action="toggle-scene-group" data-group-id="${groupId}" style="color:var(--text-dim);font-size:12px;">未归类</button>
               <span style="color:var(--text-dim);font-size:10px;margin-left:4px;">(${unassigned.length}章)</span>
             </div>
             <div class="scene-tree-chapters" style="display:${isExpanded ? "block" : "none"};margin-left:12px;">
@@ -374,14 +382,20 @@ export function createChapterTree({
       for (const { scene, chapters } of sceneChapterMap) {
         if (chapters.length === 0 && unassigned.length === 0) continue
         const isCurrentScene = scene.id === this._activeSceneId
-        const isExpanded = chapters.length > 0 || isCurrentScene || chapters.includes(this._currentChapter)
+        const groupId = this._sceneGroupKey(scene)
+        const isExpanded = this._isSceneGroupExpanded(
+          groupId,
+          chapters.length > 0 || isCurrentScene || chapters.includes(this._currentChapter),
+        )
 
         html += `
           <div class="scene-tree-node">
-            <div class="scene-tree-scene clickable" data-action="select-scene" data-scene-id="${this._esc(scene.id)}"
+            <div class="scene-tree-scene"
                  style="padding:4px 4px;border-radius:var(--radius-sm);${isCurrentScene ? "background:var(--hover-bg);" : ""}">
-              <span class="toggle-icon">${isExpanded ? "▼" : "▶"}</span>
-              <span style="font-size:13px;font-weight:${isCurrentScene ? "bold" : "normal"};">${this._esc(scene.title || "未命名")}</span>
+              <button type="button" class="scene-tree-toggle" data-action="toggle-scene-group" data-group-id="${this._esc(groupId)}" aria-expanded="${isExpanded ? "true" : "false"}" title="${isExpanded ? "折叠" : "展开"}">
+                <span class="toggle-icon">${isExpanded ? "▼" : "▶"}</span>
+              </button>
+              <button type="button" class="scene-tree-label" data-action="select-scene" data-scene-id="${this._esc(scene.id)}" style="font-size:13px;font-weight:${isCurrentScene ? "bold" : "normal"};">${this._esc(scene.title || "未命名")}</button>
               <span style="color:var(--text-dim);font-size:10px;margin-left:4px;">(${chapters.length}章)</span>
             </div>
             <div class="scene-tree-chapters" style="display:${isExpanded ? "block" : "none"};margin-left:12px;">
@@ -460,6 +474,17 @@ export function createChapterTree({
       return this._activeSceneId
     },
 
+    _sceneGroupKey(scene) {
+      return `scene:${scene.id}`
+    },
+
+    _isSceneGroupExpanded(groupId, defaultExpanded) {
+      if (Object.prototype.hasOwnProperty.call(this._sceneGroupExpansion, groupId)) {
+        return this._sceneGroupExpansion[groupId]
+      }
+      return defaultExpanded
+    },
+
     // ============================================================
     // 事件处理
     // ============================================================
@@ -472,6 +497,10 @@ export function createChapterTree({
     _selectScene(sceneId) {
       const scene = this._scenes.find((s) => s.id === sceneId)
       if (!scene) return
+
+      const groupId = this._sceneGroupKey(scene)
+      const currentlyExpanded = this._isSceneGroupExpanded(groupId, false)
+      this._sceneGroupExpansion[groupId] = !currentlyExpanded
 
       const chIds = (scene.chapter_ids || []).map((id) => parseInt(id, 10)).filter((n) => !isNaN(n))
       const firstChapter = chIds.length > 0 ? Math.min(...chIds) : null
@@ -491,12 +520,21 @@ export function createChapterTree({
       this._selectChapter(this._chapterList[nextIndex])
     },
 
-    _toggleSceneGroup(t) {
-      const chapters = t.parentElement.querySelector(".scene-tree-chapters")
-      const icon = t.querySelector(".toggle-icon")
+    _toggleSceneGroup(t, event) {
+      if (event) event.stopPropagation()
+      const node = t.closest(".scene-tree-node")
+      const chapters = node?.querySelector(".scene-tree-chapters")
+      const toggleBtn = node?.querySelector(".scene-tree-toggle")
+      const icon = toggleBtn?.querySelector(".toggle-icon")
       if (chapters) {
         const isHidden = chapters.style.display === "none"
         chapters.style.display = isHidden ? "block" : "none"
+        const groupId = t.getAttribute("data-group-id")
+        if (groupId) this._sceneGroupExpansion[groupId] = isHidden
+        if (toggleBtn) {
+          toggleBtn.setAttribute("aria-expanded", isHidden ? "true" : "false")
+          toggleBtn.setAttribute("title", isHidden ? "折叠" : "展开")
+        }
         if (icon) icon.textContent = isHidden ? "▼" : "▶"
       }
     },

@@ -178,6 +178,90 @@ describe("createChapterTree", () => {
     expect(onSceneSelect).toHaveBeenCalledWith("s1")
   })
 
+  it("Scene 分组三角按钮与标题均可折叠/展开", async () => {
+    state.currentProjectId = "p1"
+    api.writing.listChapters.mockResolvedValue({
+      chapters: [
+        { chapter_index: 1, title: "开篇", word_count: 100, version_number: 1 },
+        { chapter_index: 2, title: "转折", word_count: 100, version_number: 1 },
+      ],
+    })
+    api.outline.listScenesOrdered.mockResolvedValue([
+      { id: "s1", title: "Scene 1", chapter_ids: ["1", "2"] },
+    ])
+
+    const onSelect = vi.fn()
+    const onSceneSelect = vi.fn()
+    const tree = createTestTree({ onSelect, onSceneSelect })
+    await tree.load()
+
+    document.body.innerHTML = tree.render()
+    tree.bindEvents(document.body)
+
+    const toggle = document.querySelector('[data-action="toggle-scene-group"]')
+    const chapters = document.querySelector(".scene-tree-chapters")
+    expect(toggle.getAttribute("aria-expanded")).toBe("true")
+    expect(chapters.style.display).toBe("block")
+
+    // 三角按钮只折叠，不触发跳转回调
+    toggle.click()
+    expect(toggle.getAttribute("aria-expanded")).toBe("false")
+    expect(chapters.style.display).toBe("none")
+    expect(onSceneSelect).not.toHaveBeenCalled()
+
+    document.body.innerHTML = tree.render()
+    const rerenderedChapters = document.querySelector(".scene-tree-chapters")
+    expect(rerenderedChapters.style.display).toBe("none")
+
+    // Scene 标题点击：跳转并展开（需重渲染才能看到状态变化）
+    tree.bindEvents(document.body)
+    document.querySelector('[data-action="select-scene"]').click()
+    expect(onSelect).toHaveBeenCalledWith(1)
+    expect(onSceneSelect).toHaveBeenCalledWith("s1")
+    document.body.innerHTML = tree.render()
+    expect(document.querySelector(".scene-tree-chapters").style.display).toBe("block")
+
+    // Scene 标题再次点击：跳转并折叠
+    tree.bindEvents(document.body)
+    document.querySelector('[data-action="select-scene"]').click()
+    expect(onSelect).toHaveBeenCalledTimes(2)
+    expect(onSceneSelect).toHaveBeenCalledTimes(2)
+    document.body.innerHTML = tree.render()
+    expect(document.querySelector(".scene-tree-chapters").style.display).toBe("none")
+  })
+
+  it("未归类分组标题点击只切换折叠不跳转", async () => {
+    state.currentProjectId = "p1"
+    api.writing.listChapters.mockResolvedValue({
+      chapters: [
+        { chapter_index: 1, title: "开篇", word_count: 100, version_number: 1 },
+        { chapter_index: 2, title: "转折", word_count: 100, version_number: 1 },
+      ],
+    })
+    api.outline.listScenesOrdered.mockResolvedValue([
+      { id: "s1", title: "Scene 1", chapter_ids: ["1"] },
+    ])
+
+    const onSceneSelect = vi.fn()
+    const tree = createTestTree({ onSceneSelect })
+    tree._setCurrentChapter(2)
+    await tree.load()
+
+    document.body.innerHTML = tree.render()
+    tree.bindEvents(document.body)
+
+    const unassignedLabel = document.querySelector('[data-group-id="unassigned"].scene-tree-label')
+    expect(unassignedLabel).not.toBeNull()
+    expect(unassignedLabel.textContent).toBe("未归类")
+
+    const unassignedChapters = document.querySelectorAll(".scene-tree-chapters")[0]
+    expect(unassignedChapters.style.display).toBe("block")
+
+    unassignedLabel.click()
+    expect(unassignedChapters.style.display).toBe("none")
+    expect(onSceneSelect).not.toHaveBeenCalled()
+  })
+
   it("上下章按钮切换选中章节", async () => {
     state.currentProjectId = "p1"
     api.writing.listChapters.mockResolvedValue({
