@@ -40,7 +40,7 @@ export function createPublishManager({ state, api, toast, modal, esc, onStatusCh
 
     const progress = _normalizePublishProgress()
     const actionsHtml = progress.failed
-      ? `<button class="btn btn-sm" data-action="dismiss-publish-error" style="font-size:11px;">关闭</button>`
+      ? `<button class="btn btn-sm writing-btn-compact" data-action="dismiss-publish-error">关闭</button>`
       : ""
 
     return renderFixedProgress(progress, {
@@ -219,8 +219,8 @@ export function createPublishManager({ state, api, toast, modal, esc, onStatusCh
     _errorModalVisible = true
     modal.showHtml("发布失败", `
       <p>${esc(msg)}</p>
-      <p style="color:var(--text-dim);font-size:11px;margin-top:8px;">草稿已保存成功。您可以手动重试失败的步骤。</p>
-      <div style="margin-top:12px;display:flex;gap:6px;justify-content:flex-end;">
+      <p class="writing-publish-error">草稿已保存成功。您可以手动重试失败的步骤。</p>
+      <div class="writing-publish-actions">
         <button class="btn" id="btn-dismiss-publish-modal">关闭</button>
         <button class="btn btn-primary" id="btn-retry-failed">手动重试</button>
       </div>

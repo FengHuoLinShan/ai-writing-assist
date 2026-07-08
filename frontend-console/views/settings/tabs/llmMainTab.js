@@ -40,7 +40,7 @@ const llmMainTab = {
     return `
       <div class="llm-main-tab">
         ${renderLLMFormFields({ values, templates, sourceMap, withApiKey: true })}
-        <div class="llm-main-tab-actions">
+        <div class="settings-actions">
           <button class="btn btn-primary" id="llm-tab-save">保存项目 LLM 配置</button>
           <button class="btn btn-link" id="llm-tab-reset-all">恢复所有字段到全局默认</button>
         </div>

@@ -22,19 +22,19 @@ const worldBibleView = {
     await this._load()
     return `
       <section class="world-bible-workspace">
-        <div class="world-bible-layout" style="display:grid;grid-template-columns:minmax(180px,240px) minmax(0,1fr);gap:14px;">
-          <aside class="panel" style="padding:12px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;">
-              <h3 style="margin:0;font-size:16px;">World Bible</h3>
+        <div class="world-bible-layout">
+          <aside class="world-bible-panel">
+            <div class="world-bible-panel__header">
+              <h3>World Bible</h3>
               <button class="btn btn-sm" data-action="bible-new-page">+</button>
             </div>
             ${this._renderPageNav()}
-            <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;">
+            <div class="world-bible-panel__actions">
               <button class="btn btn-sm" data-action="bible-open-suggestions">创设建议</button>
               <button class="btn btn-sm" data-action="bible-open-conflicts">冲突检查</button>
             </div>
           </aside>
-          <main class="panel" style="padding:14px;min-width:0;">
+          <main class="world-bible-panel">
             ${this._renderActivePage()}
           </main>
         </div>
@@ -93,15 +93,14 @@ const worldBibleView = {
 
   _renderPageNav() {
     if (!this._pages.length) {
-      return `<div style="color:var(--text-dim);font-size:13px;">暂无页面</div>`
+      return `<div class="world-bible-empty-hint">暂无页面</div>`
     }
-    return this._pages.map((page) => `
-      <button class="btn btn-sm ${this._activePage?.id === page.id ? "btn-primary" : ""}"
-        data-bible-page-id="${esc(page.id)}"
-        style="display:block;width:100%;text-align:left;margin-bottom:6px;">
+    return `<div class="world-bible-page-nav">${this._pages.map((page) => `
+      <button class="btn btn-sm world-bible-page-btn ${this._activePage?.id === page.id ? "btn-primary" : ""}"
+        data-bible-page-id="${esc(page.id)}">
         ${esc(page.title)}
       </button>
-    `).join("")
+    `).join("")}</div>`
   },
 
   _renderActivePage() {
@@ -110,18 +109,17 @@ const worldBibleView = {
       return `<div class="empty-state"><p>创建一个世界书页面开始整理设定。</p></div>`
     }
     return `
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px;">
+      <div class="world-bible-panel__header">
         <div>
-          <h2 style="margin:0 0 4px;font-size:20px;">${esc(page.title)}</h2>
-          <div style="color:var(--text-dim);font-size:12px;">${esc(page.page_type)} · ${esc(page.status)}</div>
+          <h2>${esc(page.title)}</h2>
+          <div class="world-bible-page-meta">${esc(page.page_type)} · ${esc(page.status)}</div>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <div class="world-bible-panel__actions">
           <button class="btn btn-sm btn-primary" data-action="bible-save-page">保存正文</button>
           <button class="btn btn-sm" data-action="bible-refresh-projection">刷新投影</button>
         </div>
       </div>
-      <textarea class="form-textarea" id="bible-free-text" rows="16"
-        style="width:100%;min-height:280px;">${esc(page.free_text || "")}</textarea>
+      <textarea class="form-textarea world-bible-editor" id="bible-free-text" rows="16">${esc(page.free_text || "")}</textarea>
       ${this._renderProjectionStatus(page)}
     `
   },
@@ -130,19 +128,19 @@ const worldBibleView = {
     const task = this._task
     const key = this._taskStorageKey(page)
     if (!task) {
-      return `<div style="margin-top:10px;color:var(--text-dim);font-size:12px;">投影状态：未刷新 · ${esc(key)}</div>`
+      return `<div class="world-bible-empty-hint" style="margin-top:10px;">投影状态：未刷新 · ${esc(key)}</div>`
     }
     const retry = task.status === "failed" || task.status === "done"
       ? `<button class="btn btn-sm" data-action="bible-force-refresh-projection">强制重新刷新</button>`
       : ""
     const hintHtml = this._projectionConflictHint
-      ? `<div style="color:var(--warning);font-size:12px;">${esc(this._projectionConflictHint)}</div>`
+      ? `<div class="world-bible-projection-status__hint">${esc(this._projectionConflictHint)}</div>`
       : ""
     return `
-      <div style="margin-top:12px;border:1px solid var(--border);padding:10px;border-radius:var(--radius-md);">
-        <div style="font-size:12px;color:var(--text-dim);">投影任务：${esc(task.task_id || task.id || "")}</div>
+      <div class="world-bible-projection-status">
+        <div class="world-bible-projection-status__task">投影任务：${esc(task.task_id || task.id || "")}</div>
         <div>状态：${esc(task.status || "pending")} · 进度 ${Math.round((task.progress || 0) * 100)}%</div>
-        ${task.error_message ? `<div style="color:var(--danger);font-size:12px;">${esc(task.error_message)}</div>` : ""}
+        ${task.error_message ? `<div class="world-bible-projection-status__error">${esc(task.error_message)}</div>` : ""}
         ${hintHtml}
         ${retry}
       </div>
@@ -347,22 +345,22 @@ const worldBibleView = {
     if (!this._suggestions.length) return `<div class="empty-state"><p>暂无待审核建议</p></div>`
     const base = this._suggestionBatchBase()
     return `
-      <div style="max-height:60vh;overflow:auto;">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;position:sticky;top:0;background:var(--surface);padding-bottom:10px;border-bottom:1px solid var(--border);">
-          <div style="font-size:12px;color:var(--text-dim);">
+      <div class="world-bible-suggestion-list">
+        <div class="world-bible-suggestion-header">
+          <div class="world-bible-suggestion-meta">
             批量范围：${esc(base.review_group)} · ${esc(base.target_type)} · ${esc(base.action_schema)}
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <div class="world-bible-suggestion-actions">
             <button class="btn btn-sm btn-primary" data-action="bible-batch-confirm">批量确认</button>
             <button class="btn btn-sm" data-action="bible-batch-reject">批量拒绝</button>
           </div>
         </div>
         ${this._suggestions.map((item) => `
-          <div style="border-bottom:1px solid var(--border);padding:10px 0;">
+          <div class="world-bible-suggestion-item">
             ${this._renderSuggestionSelector(item, base)}
-            <div style="font-weight:600;">${esc(item.review_group)} · ${esc(item.target_type)}</div>
-            <div style="color:var(--text-dim);font-size:12px;">风险：${esc(item.risk_level)} · ${esc(item.action_schema)}</div>
-            <pre style="white-space:pre-wrap;font-size:12px;">${esc(JSON.stringify(item.payload_json || {}, null, 2))}</pre>
+            <div class="world-bible-suggestion-title">${esc(item.review_group)} · ${esc(item.target_type)}</div>
+            <div class="world-bible-suggestion-risk">风险：${esc(item.risk_level)} · ${esc(item.action_schema)}</div>
+            <pre class="world-bible-suggestion-payload">${esc(JSON.stringify(item.payload_json || {}, null, 2))}</pre>
             <button class="btn btn-sm btn-primary" data-bible-confirm-suggestion="${esc(item.id)}">确认</button>
             <button class="btn btn-sm" data-bible-reject-suggestion="${esc(item.id)}">拒绝</button>
           </div>
@@ -401,7 +399,7 @@ const worldBibleView = {
     const compatible = this._isSuggestionCompatible(item, base)
     const reason = compatible ? "" : "只能批量处理同一分组、目标类型和动作结构的建议"
     return `
-      <label style="display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:12px;color:var(--text-dim);">
+      <label class="world-bible-suggestion-selector">
         <input type="checkbox" data-bible-batch-suggestion="${esc(item.id)}" ${compatible ? "checked" : "disabled"}>
         ${compatible ? "已纳入批量操作" : esc(reason)}
       </label>
@@ -445,7 +443,7 @@ const worldBibleView = {
       const data = await api.world.listWorldConflicts({ novel_id: state.currentProjectId, status: "pending" })
       this._conflicts = data.items || []
       const body = this._conflicts.length
-        ? this._conflicts.map((item) => `<p>${esc(item.severity)} · ${esc(item.summary)}</p>`).join("")
+        ? this._conflicts.map((item) => `<p class="world-bible-conflict-item">${esc(item.severity)} · ${esc(item.summary)}</p>`).join("")
         : `<div class="empty-state"><p>暂无冲突检查项</p></div>`
       showModalHtml("冲突检查", body, [])
     } catch (err) {

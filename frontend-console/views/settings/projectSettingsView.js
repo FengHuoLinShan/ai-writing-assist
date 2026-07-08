@@ -9,6 +9,18 @@ import llmMainTab from "./tabs/llmMainTab.js"
 import deepImportTab from "./tabs/deepImportTab.js"
 import authorPreferencesTab from "./tabs/authorPreferencesTab.js"
 
+function setSettingsButtonLoading(btn, loading) {
+  if (!btn) return
+  btn.classList.toggle("settings-btn-loading", loading)
+  btn.disabled = loading
+}
+
+function setSettingsButtonError(btn) {
+  if (!btn) return
+  btn.classList.add("settings-btn-error")
+  setTimeout(() => btn.classList.remove("settings-btn-error"), 500)
+}
+
 const projectSettingsView = {
   _projectId: null,
   _effectiveLLM: null,
@@ -54,7 +66,7 @@ const projectSettingsView = {
     setTimeout(() => this.bindEvents(), 0)
     if (!this._projectId) {
       return `
-        <div class="project-settings-view empty-state">
+        <div class="project-settings-view empty-state settings-empty-state">
           <p class="empty-hint">请先进入项目</p>
           <button class="btn btn-link" id="project-settings-goto-global">返回全局设置</button>
         </div>
@@ -138,6 +150,8 @@ const projectSettingsView = {
   },
 
   async saveLLM(payload, apiKey, clearApiKey) {
+    const btn = document.getElementById("llm-tab-save")
+    setSettingsButtonLoading(btn, true)
     try {
       await api.projects.updateLlmSettings(this._projectId, {
         ...payload,
@@ -156,10 +170,15 @@ const projectSettingsView = {
       await this._refreshEffective()
     } catch (err) {
       toast(err.message || "保存失败", "error")
+      setSettingsButtonError(btn)
+    } finally {
+      setSettingsButtonLoading(btn, false)
     }
   },
 
   async saveDeepImport(deepImport) {
+    const btn = document.getElementById("deep-import-tab-save")
+    setSettingsButtonLoading(btn, true)
     try {
       const eff = await api.settings.getEffectiveLLMSettings(this._projectId)
       const pickProject = (field) =>
@@ -181,16 +200,24 @@ const projectSettingsView = {
       await this._refreshEffective()
     } catch (err) {
       toast(err.message || "保存失败", "error")
+      setSettingsButtonError(btn)
+    } finally {
+      setSettingsButtonLoading(btn, false)
     }
   },
 
   async saveAuthorPrefs(prefs) {
+    const btn = document.getElementById("author-prefs-tab-save")
+    setSettingsButtonLoading(btn, true)
     try {
       await api.settings.updateProjectAuthorPrefs(this._projectId, prefs)
       toast("作者偏好已保存", "success")
       await this._refreshEffective()
     } catch (err) {
       toast(err.message || "保存失败", "error")
+      setSettingsButtonError(btn)
+    } finally {
+      setSettingsButtonLoading(btn, false)
     }
   },
 

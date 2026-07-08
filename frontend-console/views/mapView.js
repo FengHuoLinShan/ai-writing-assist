@@ -514,13 +514,13 @@ const mapView = {
         <div class="empty-state" role="alert">
           <div class="empty-icon" style="color:var(--warning);">&#9888;</div>
           <p>地图列表加载失败</p>
-          <p style="color:var(--text-dim);font-size:12px;">可稍后重试。错误信息：${esc(this._mapsLoadError)}</p>
+          <p class="world-text-dim">可稍后重试。错误信息：${esc(this._mapsLoadError)}</p>
         </div>
       ` : `
       <div class="empty-state">
         <div class="empty-icon">&#9744;</div>
         <p>暂无地图</p>
-        <p style="color:var(--text-dim);font-size:12px;">创建第一张世界地图开始构建你的世界</p>
+        <p class="world-text-dim">创建第一张世界地图开始构建你的世界</p>
       </div>
       `}
     `
@@ -736,7 +736,7 @@ const mapView = {
   },
 
   _renderLeafletLoadFailure(container) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-icon" style="color:var(--danger);">&#9888;</div><p>地图引擎加载失败</p><p style="color:var(--text-dim);font-size:12px;">Leaflet 未加载，请检查网络连接（ADR-0003）</p></div>`
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon" style="color:var(--danger);">&#9888;</div><p>地图引擎加载失败</p><p class="world-text-dim">Leaflet 未加载，请检查网络连接（ADR-0003）</p></div>`
   },
 
   _scheduleRedraw() {
@@ -1711,7 +1711,7 @@ const mapView = {
   _renderTerritoryTools() {
     const orgs = this._allEntities.filter((e) => e.entity_type === "organization")
     if (orgs.length === 0) {
-      return `<div class="map-tool-group"><h4>势力范围</h4><p style="color:var(--text-dim);font-size:12px;">暂无组织实体（需在 world 对象中创建 organization 类型实体）</p></div>`
+      return `<div class="map-tool-group"><h4>势力范围</h4><p class="world-text-dim">暂无组织实体（需在 world 对象中创建 organization 类型实体）</p></div>`
     }
     const orgOptions = orgs.map((o) => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join("")
     const selectedOrg = mapState.selectedFactionId

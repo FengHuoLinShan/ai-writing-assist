@@ -33,9 +33,9 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
     if (!_currentChapter || _versions.length === 0) return ""
 
     let html = `
-      <div style="margin-bottom:8px;display:flex;align-items:center;gap:6px;font-size:12px;">
-        <span style="color:var(--text-dim);">版本：</span>
-        <select id="version-selector" style="background:var(--bg);color:var(--text);border:1px solid var(--border);padding:3px 6px;border-radius:var(--radius-sm);font-size:12px;">
+      <div class="writing-version-bar">
+        <span class="writing-version-label">版本：</span>
+        <select id="version-selector" class="writing-version-select">
     `
 
     for (const v of _versions) {
@@ -46,9 +46,9 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
 
     html += `
         </select>
-        <button class="btn btn-sm" data-action="version-history" title="版本历史" style="font-size:11px;">历史</button>
-        <button class="btn btn-sm" id="btn-delete-version" data-action="delete-version" title="删除当前版本" style="font-size:11px;color:var(--danger);margin-left:4px;">🗑</button>
-        <span id="publish-status-dot" style="display:none;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-left:4px;" title="发布任务进行中"></span>
+        <button class="btn btn-sm writing-btn-compact" data-action="version-history" title="版本历史">历史</button>
+        <button class="btn btn-sm writing-version-delete" id="btn-delete-version" data-action="delete-version" title="删除当前版本">🗑</button>
+        <span id="publish-status-dot" class="publish-status-dot" title="发布任务进行中"></span>
       </div>
     `
     return html
@@ -148,23 +148,23 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
       return
     }
     const latestVersion = _versions[0]?.version_number
-    let listHtml = '<div style="max-height:400px;overflow-y:auto;">'
+    let listHtml = '<div class="writing-version-history-list">'
     for (const v of _versions) {
       const isLatest = v.version_number === latestVersion
       const wordCount = v.word_count || 0
       const created = v.created_at ? new Date(v.created_at).toLocaleDateString("zh-CN") : ""
       const isCurrent = v.version_number === _currentVersionNumber
       listHtml += `
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border-dim);${isCurrent ? "background:var(--hover-bg);border-radius:var(--radius-sm);padding:8px;" : ""}">
-          <div>
-            <span style="font-weight:500;">v${esc(v.version_number)}</span>
+        <div class="writing-version-item ${isCurrent ? "writing-version-item--current" : ""}">
+          <div class="writing-version-item__main">
+            <span class="writing-version-item__number">v${esc(v.version_number)}</span>
             ${isLatest ? " <span class=\"badge badge-canonical\">最新</span>" : ""}
-            ${isCurrent ? " <span style=\"color:var(--accent);font-size:11px;\">当前</span>" : ""}
-            <div style="font-size:11px;color:var(--text-dim);">${esc(created)} · ${esc(wordCount)} 字</div>
+            ${isCurrent ? " <span class=\"pill pill-accent\">当前</span>" : ""}
+            <div class="writing-version-item__meta">${esc(created)} · ${esc(wordCount)} 字</div>
           </div>
-          <div style="display:flex;gap:6px;">
-            <button class="btn btn-sm version-preview-btn" data-draft-id="${esc(v.id)}" data-version="${esc(v.version_number)}" data-is-latest="${isLatest ? 1 : 0}">预览</button>
-            ${!isCurrent ? `<button class="btn btn-sm version-restore-btn" data-draft-id="${esc(v.id)}" data-version="${esc(v.version_number)}" data-is-latest="${isLatest ? 1 : 0}">恢复</button>` : ""}
+          <div class="writing-version-item__actions">
+            <button class="btn btn-sm writing-btn-compact version-preview-btn" data-draft-id="${esc(v.id)}" data-version="${esc(v.version_number)}" data-is-latest="${isLatest ? 1 : 0}">预览</button>
+            ${!isCurrent ? `<button class="btn btn-sm writing-btn-compact version-restore-btn" data-draft-id="${esc(v.id)}" data-version="${esc(v.version_number)}" data-is-latest="${isLatest ? 1 : 0}">恢复</button>` : ""}
           </div>
         </div>
       `

@@ -18,6 +18,18 @@ import {
   validateAuthorPreferences,
 } from "./shared/authorPreferencesForm.js"
 
+function setSettingsButtonLoading(btn, loading) {
+  if (!btn) return
+  btn.classList.toggle("settings-btn-loading", loading)
+  btn.disabled = loading
+}
+
+function setSettingsButtonError(btn) {
+  if (!btn) return
+  btn.classList.add("settings-btn-error")
+  setTimeout(() => btn.classList.remove("settings-btn-error"), 500)
+}
+
 const globalSettingsView = {
   _llmDefaults: null,
   _authorPrefs: null,
@@ -65,7 +77,9 @@ const globalSettingsView = {
           <h3>LLM 全局默认</h3>
           <p class="settings-section-hint">不存 API Key；项目级才配置 Key。</p>
           ${renderLLMFormFields({ values: this._withSystemLLMDefaults(this._llmDefaults), templates: this._templates, withApiKey: false })}
-          <button class="btn btn-primary" id="global-llm-save">保存 LLM 全局默认</button>
+          <div class="settings-actions">
+            <button class="btn btn-primary" id="global-llm-save">保存 LLM 全局默认</button>
+          </div>
         </section>
 
         <section class="settings-section">
@@ -75,7 +89,9 @@ const globalSettingsView = {
             editorFont: this._authorPrefs.editor_font,
             defaultFocusMode: this._authorPrefs.default_focus_mode,
           })}
-          <button class="btn btn-primary" id="global-author-save">保存作者偏好</button>
+          <div class="settings-actions">
+            <button class="btn btn-primary" id="global-author-save">保存作者偏好</button>
+          </div>
         </section>
 
         <section class="settings-section">
@@ -86,7 +102,9 @@ const globalSettingsView = {
         <section class="settings-section">
           <h3>本地迁移</h3>
           <p class="settings-section-hint">将浏览器 localStorage 中的旧作者偏好一次性迁入后端。</p>
-          <button class="btn btn-secondary" id="manual-migrate-btn">手动迁移所有项目本地偏好</button>
+          <div class="settings-actions">
+            <button class="btn btn-secondary" id="manual-migrate-btn">手动迁移所有项目本地偏好</button>
+          </div>
         </section>
       </div>
     `
@@ -110,7 +128,7 @@ const globalSettingsView = {
       <li>${esc(it.title || "")} (${esc(it.project_id || "")})</li>
     `).join("")
     const tail = this._projectsUsingDefaults.truncated
-      ? `<p class="muted">还有更多项目省略…</p>`
+      ? `<p class="settings-section-hint">还有更多项目省略…</p>`
       : ""
     return `<ul class="projects-using-list">${items}</ul>${tail}`
   },
@@ -125,9 +143,11 @@ const globalSettingsView = {
   },
 
   async saveLLM() {
+    const btn = document.getElementById("global-llm-save")
     const { payload } = readLLMFormFields()
     const v = validateLLMPayload(payload)
     if (!v.ok) return toast(v.message, "warning")
+    setSettingsButtonLoading(btn, true)
     try {
       const clean = { ...payload }
       delete clean.api_key
@@ -136,18 +156,26 @@ const globalSettingsView = {
       toast("LLM 全局默认已保存", "success")
     } catch (err) {
       toast(err.message || "保存失败", "error")
+      setSettingsButtonError(btn)
+    } finally {
+      setSettingsButtonLoading(btn, false)
     }
   },
 
   async saveAuthor() {
+    const btn = document.getElementById("global-author-save")
     const prefs = readAuthorPreferencesForm()
     const v = validateAuthorPreferences(prefs)
     if (!v.ok) return toast(v.message, "warning")
+    setSettingsButtonLoading(btn, true)
     try {
       this._authorPrefs = await api.settings.updateGlobalAuthorPrefs(prefs)
       toast("作者偏好已保存", "success")
     } catch (err) {
       toast(err.message || "保存失败", "error")
+      setSettingsButtonError(btn)
+    } finally {
+      setSettingsButtonLoading(btn, false)
     }
   },
 

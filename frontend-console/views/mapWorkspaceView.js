@@ -400,7 +400,7 @@ const mapWorkspaceView = {
           </button>
           <button class="btn btn-primary" data-action="map-quick-create">快速创建</button>
           <button class="btn" data-action="map-create-world">创建世界地图</button>
-          <input class="form-input" id="map-workspace-search" placeholder="搜索地图或地点" />
+          <input class="form-input map-overview-search" id="map-workspace-search" placeholder="搜索地图或地点" />
         </div>
         ${message}
         <div class="map-overview-grid">
@@ -429,7 +429,7 @@ const mapWorkspaceView = {
   _renderMapTree(parentId = null) {
     this._ensureMapIndexes()
     const children = this._mapsByParentId.get(parentId) || []
-    if (!children.length) return parentId ? "" : `<p class="muted">暂无地图</p>`
+    if (!children.length) return parentId ? "" : `<p class="map-muted-text">暂无地图</p>`
     return `
       <ul class="map-tree">
         ${children.map((m) => `
@@ -548,14 +548,14 @@ const mapWorkspaceView = {
   _renderDynamicSummary() {
     const summary = this._dynamicSummary || {}
     if (summary.loading) {
-      return `<p class="muted">正在加载世界动态...</p>`
+      return `<p class="map-muted-text">正在加载世界动态...</p>`
     }
     if (summary.error) {
       return `<div class="alert alert-warning">${esc(summary.error)}</div>`
     }
     const dashboard = summary.dashboard
     if (!dashboard) {
-      return `<p class="muted">暂无世界动态</p>`
+      return `<p class="map-muted-text">暂无世界动态</p>`
     }
     const queue = dashboard.dynamic_queue || []
     const inspector = this._focusedInspector(dashboard)
@@ -573,7 +573,7 @@ const mapWorkspaceView = {
             <h4>动态队列</h4>
             ${queue.slice(0, 8).map((item) => this._renderQueueItem(item)).join("")}
           </div>`
-        : `<p class="muted">暂无动态队列</p>`}
+        : `<p class="map-muted-text">暂无动态队列</p>`}
       ${this._renderInspector(inspector)}
       ${this._renderBatchGroups(dashboard.batch_groups || [])}
     `
@@ -816,7 +816,7 @@ const mapWorkspaceView = {
   _renderPlaybackPanel() {
     const playbackState = this._playback || {}
     if (playbackState.loading) {
-      return `<div class="map-dynamic-section"><h4>电影化播放</h4><p class="muted">正在加载播放事件...</p></div>`
+      return `<div class="map-dynamic-section"><h4>电影化播放</h4><p class="map-muted-text">正在加载播放事件...</p></div>`
     }
     if (playbackState.error) {
       return `<div class="map-dynamic-section"><h4>电影化播放</h4><div class="alert alert-warning">${esc(playbackState.error)}</div></div>`
@@ -838,7 +838,7 @@ const mapWorkspaceView = {
           ? `<div class="map-playback-tracks">
               ${tracks.map((track) => `<span>${esc(track.label)} ${track.count}</span>`).join("")}
             </div>`
-          : `<p class="muted">暂无可播放动态</p>`}
+          : `<p class="map-muted-text">暂无可播放动态</p>`}
         ${active
           ? `<article class="map-dynamic-item ${active.risk_level === "danger" ? "is-danger" : active.risk_level === "warning" ? "is-warning" : ""}" data-action="map-open-dynamic-item" data-id="${esc(active.event_id)}">
               <div class="map-dynamic-title">${esc(active.title)}</div>

@@ -81,16 +81,16 @@ export function createScenePanel({
     if (sceneMapSummaryError) {
       return `
         <div class="writing-map-summary">
-          <div style="font-size:12px;font-weight:600;margin-bottom:6px;">地图摘要</div>
-          <div style="color:var(--warning);font-size:11px;">${escapeHtml(sceneMapSummaryError)}</div>
+          <div class="writing-map-summary__title">地图摘要</div>
+          <div class="writing-map-summary__warning">${escapeHtml(sceneMapSummaryError)}</div>
         </div>
       `
     }
     if (sceneMapSummaryLoading && !sceneMapSummary) {
       return `
         <div class="writing-map-summary">
-          <div style="font-size:12px;font-weight:600;margin-bottom:6px;">地图摘要</div>
-          <div style="color:var(--text-dim);font-size:11px;">地图摘要加载中...</div>
+          <div class="writing-map-summary__title">地图摘要</div>
+          <div class="writing-map-summary__empty">地图摘要加载中...</div>
         </div>
       `
     }
@@ -98,8 +98,8 @@ export function createScenePanel({
     if (!summary) {
       return `
         <div class="writing-map-summary">
-          <div style="font-size:12px;font-weight:600;margin-bottom:6px;">地图摘要</div>
-          <div style="color:var(--text-dim);font-size:11px;">${escapeHtml(emptyText)}</div>
+          <div class="writing-map-summary__title">地图摘要</div>
+          <div class="writing-map-summary__empty">${escapeHtml(emptyText)}</div>
         </div>
       `
     }
@@ -108,28 +108,28 @@ export function createScenePanel({
       const names = (items || []).map((item) => item.name).filter(Boolean)
       if (!names.length) return ""
       return `
-        <div style="margin-top:4px;">
-          <span style="color:var(--text-dim);">${escapeHtml(label)}：</span>${escapeHtml(names.slice(0, 3).join("、"))}
+        <div class="writing-map-summary__row">
+          <span class="writing-map-summary__label">${escapeHtml(label)}：</span>${escapeHtml(names.slice(0, 3).join("、"))}
         </div>
       `
     }
     const warnings = (summary.warnings || []).map((warning) => `
-      <div style="margin-top:4px;color:var(--warning);">${escapeHtml(mapWarningMessage(warning))}</div>
+      <div class="writing-map-summary__warning">${escapeHtml(mapWarningMessage(warning))}</div>
     `).join("")
     const risks = (summary.risks || []).map((risk) => `
-      <div style="margin-top:4px;color:var(--warning);">${escapeHtml(mapWarningMessage(risk))}</div>
+      <div class="writing-map-summary__warning">${escapeHtml(mapWarningMessage(risk))}</div>
     `).join("")
     return `
       <div class="writing-map-summary">
-        <div style="font-size:12px;font-weight:600;margin-bottom:6px;">地图摘要</div>
-        <div><span style="color:var(--text-dim);">地点：</span>${escapeHtml(location)}</div>
+        <div class="writing-map-summary__title">地图摘要</div>
+        <div class="writing-map-summary__row"><span class="writing-map-summary__label">地点：</span>${escapeHtml(location)}</div>
         ${row("人物", summary.characters)}
         ${row("事件", summary.events)}
         ${row("势力", summary.factions)}
         ${row("危机", summary.crises)}
         ${risks}
         ${warnings}
-        <div style="margin-top:8px;">
+        <div class="writing-map-summary__actions">
           <button class="btn btn-sm" data-action="open-map">打开地图</button>
         </div>
       </div>

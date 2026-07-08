@@ -106,11 +106,11 @@ export function createConflictCheck({
       }
       const body = `
         <div class="writing-conflict-options">
-          <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
+          <label class="writing-checkbox-label">
             <input id="writing-conflict-include-candidates" type="checkbox" />
             <span>包含待确认对象</span>
           </label>
-          <p style="margin:8px 0 0;color:var(--text-muted);font-size:12px;line-height:1.6;">
+          <p class="writing-form-hint">
             包含后，依赖待确认对象的检查结果会标记为需复核；不会修改正文、Scene、地图或正史。
           </p>
         </div>

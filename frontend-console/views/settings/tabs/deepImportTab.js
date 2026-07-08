@@ -15,10 +15,10 @@ const deepImportTab = {
     return `
       <div class="deep-import-tab">
         <p class="deep-import-source-hint">
-          深度导入参数 <small>${renderSourceLabel(di || { source: "system", value: null })}</small>
+          深度导入参数 ${renderSourceLabel(di || { source: "system", value: null })}
         </p>
         ${renderDeepImportFields(settings)}
-        <div class="deep-import-actions">
+        <div class="settings-actions">
           <button class="btn btn-primary" id="deep-import-tab-save">保存深度导入参数</button>
           ${di?.source === "project"
             ? `<button class="btn btn-link" id="deep-import-tab-reset-all">恢复到全局/系统默认</button>`

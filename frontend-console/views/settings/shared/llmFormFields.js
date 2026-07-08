@@ -1,3 +1,5 @@
+import { renderSourceLabel } from "./fieldSourceLabel.js"
+
 const CREATIVE_PRESETS = {
   creative: { label: "灵感创作", temperature: 0.9, top_p: 0.95, max_tokens: 8192 },
   precise: { label: "精修校对", temperature: 0.25, top_p: 0.8, max_tokens: 4096 },
@@ -100,7 +102,7 @@ function renderKeyBlock(configured, v) {
   return `
     <div class="form-group">
       <label>API Key</label>
-      <div class="llm-key-row">
+      <div class="settings-key-row">
         <input class="form-input" id="llm-api-key" type="password" autocomplete="off" placeholder="留空保留已保存密钥" />
         <button class="btn btn-sm" id="llm-toggle-api-key" type="button">显示 Key</button>
         <label class="llm-clear-key">
@@ -108,15 +110,15 @@ function renderKeyBlock(configured, v) {
           清除
         </label>
       </div>
-      <div class="llm-status ${configured ? "success" : "muted"}">${configured ? "已保存" : "未保存"}</div>
-      ${configured && v && (v.provider_id_source === "global" || v.base_url_source === "global" || v.provider_id_source === "system" || v.base_url_source === "system") ? "<p class='llm-key-mismatch-warning'>当前供应商/BaseURL 来自全局或系统默认，请确认 Key 与该供应商匹配</p>" : ""}
+      <div class="settings-key-status ${configured ? "success" : "muted"}">${configured ? "已保存" : "未保存"}</div>
+      ${configured && v && (v.provider_id_source === "global" || v.base_url_source === "global" || v.provider_id_source === "system" || v.base_url_source === "system") ? "<p class='settings-key-mismatch-warning'>当前供应商/BaseURL 来自全局或系统默认，请确认 Key 与该供应商匹配</p>" : ""}
     </div>
   `
 }
 
 function sourceHtml(src) {
   if (!src) return ""
-  return `<small class="field-source-tag" data-source="${src.source}">${src.source}</small>`
+  return `<div class="settings-field-source">${renderSourceLabel(src)}</div>`
 }
 
 function detectCreativeMode(values) {

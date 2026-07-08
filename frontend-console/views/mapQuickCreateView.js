@@ -164,7 +164,7 @@ const mapQuickCreateView = {
       ${warnings}
       <div class="map-toolbar">
         <button class="btn btn-sm" id="map-quick-undo" ${this._layoutHistory.length ? "" : "disabled"}>撤销</button>
-        <span class="text-muted">已选 ${selectedCount} / 共 ${total}</span>
+        <span class="map-quick-meta">已选 ${selectedCount} / 共 ${total}</span>
       </div>
       <table class="data-table">
         <thead><tr>

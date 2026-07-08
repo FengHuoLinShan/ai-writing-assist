@@ -293,7 +293,7 @@ describe("outlineView render", () => {
     }]
 
     const html = await outlineView.render()
-    const rowHtml = html.match(/<tr data-id="t1">[\s\S]*?<\/tr>/)?.[0] || ""
+    const rowHtml = html.match(/<tr[^>]*data-id="t1"[^>]*>[\s\S]*?<\/tr>/)?.[0] || ""
 
     expect(rowHtml).toContain("草稿")
     expect(rowHtml).not.toContain("需复核")
@@ -312,7 +312,7 @@ describe("outlineView render", () => {
     }]
 
     const html = await outlineView.render()
-    const rowHtml = html.match(/<tr data-id="t1">[\s\S]*?<\/tr>/)?.[0] || ""
+    const rowHtml = html.match(/<tr[^>]*data-id="t1"[^>]*>[\s\S]*?<\/tr>/)?.[0] || ""
 
     expect(rowHtml).toContain("草稿")
     expect(rowHtml).toContain("需复核")

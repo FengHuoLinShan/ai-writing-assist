@@ -161,9 +161,9 @@ const writingView = {
       setTimeout(() => this._bindEvents(), 0)
       return `
         <div class="empty-state" role="alert">
-          <div class="empty-icon" style="color:var(--warning);">&#9888;</div>
+          <div class="empty-icon writing-empty-icon--warning">&#9888;</div>
           <p>章节列表加载失败</p>
-          <p style="color:var(--text-dim);font-size:12px;">可稍后重试。错误信息：${esc(this._chapterListLoadError)}</p>
+          <p class="writing-empty-hint">可稍后重试。错误信息：${esc(this._chapterListLoadError)}</p>
         </div>
         <div id="writing-deep-import-bar-container">${this._deepImportRecovery?.renderBar?.() ?? ""}</div>
       `
@@ -175,10 +175,10 @@ const writingView = {
         <div class="empty-state">
           <div class="empty-icon">&#128221;</div>
           <p>开始创作！</p>
-          <p style="color:var(--text-dim);font-size:12px;">
+          <p class="writing-empty-hint">
             点击下方按钮创建第一个章节，开始写作。
           </p>
-          <div style="margin-top:12px;">
+          <div class="writing-empty-actions">
             <button class="btn btn-primary" data-action="new-chapter">+ 新建章节</button>
           </div>
         </div>
@@ -192,7 +192,7 @@ const writingView = {
     }
 
     const html = `
-      <p style="color:var(--text-muted);font-size:12px;margin-bottom:8px;">
+      <p class="writing-view-hint">
         手动工作台 — 选择章节，撰写正文。
       </p>
       <div class="writing-workspace-layout">
