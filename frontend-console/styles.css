@@ -6598,6 +6598,17 @@ kbd {
   min-height: 280px;
 }
 
+.world-bible-editor-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.world-bible-editor-layout--with-ai {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+}
+
 .world-bible-page-meta {
   color: var(--text-dim);
   font-size: var(--text-xs);
@@ -6686,6 +6697,13 @@ kbd {
   color: var(--text-dim);
 }
 
+.world-bible-suggestion-item__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: var(--space-2);
+}
+
 .world-bible-conflict-item {
   margin: var(--space-2) 0;
   color: var(--text-body);
@@ -6713,6 +6731,92 @@ kbd {
   margin: var(--space-2) 0;
 }
 
+/* ===== project 视图统一组件 ===== */
+
+.project-import-panel {
+  border: 1px solid var(--text-quaternary);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  margin-top: var(--space-4);
+  background: var(--bg-panel);
+}
+
+.project-import-panel__hint {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-3);
+}
+
+.project-import-panel__hint-warning {
+  color: var(--warning);
+}
+
+.project-import-panel__form {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.project-import-panel__field {
+  flex: 1;
+  min-width: 200px;
+}
+
+.project-import-panel__label {
+  display: block;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.project-import-panel__input {
+  width: 100%;
+  color: var(--text-body);
+  font-size: var(--text-sm);
+}
+
+.project-import-panel__progress {
+  margin-top: var(--space-2);
+}
+
+.project-import-panel__history {
+  margin-top: var(--space-3);
+}
+
+.recycle-bin__list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.recycle-bin__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.recycle-bin__item-info {
+  flex: 1;
+  min-width: 0;
+  margin-left: var(--space-2);
+}
+
+.recycle-bin__item-name {
+  font-weight: 500;
+}
+
+.recycle-bin__item-date {
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+}
+
+.recycle-bin__item-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
 /* ===== writing view UI polish additions (continued) ===== */
 
 .chapter-tree-bulk-toggle {
@@ -6734,4 +6838,13 @@ kbd {
 
 .writing-audit-retention--spaced {
   margin-top: 8px;
+}
+
+.publish-status-dot {
+  display: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-left: 4px;
 }

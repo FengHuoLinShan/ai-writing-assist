@@ -66,6 +66,7 @@ describe("createVersionManager", () => {
     expect(html).toContain("v1")
     expect(html).toContain('data-action="version-history"')
     expect(html).toContain('data-action="delete-version"')
+    expect(html).toContain("publish-status-dot")
   })
 
   it("switches version through selector and notifies orchestrator", async () => {

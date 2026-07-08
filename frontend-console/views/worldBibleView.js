@@ -810,6 +810,10 @@ const worldBibleView = {
             <div class="world-bible-suggestion-title">${esc(this._suggestionTitle(item))}</div>
             <div class="world-bible-suggestion-risk">风险：${esc(item.risk_level)} · ${esc(item.action_schema)}</div>
             ${this._renderSuggestionPreview(item)}
+            <div class="world-bible-suggestion-item__actions">
+              <button class="btn btn-sm btn-primary" data-bible-confirm-suggestion="${esc(item.id)}">确认</button>
+              <button class="btn btn-sm" data-bible-reject-suggestion="${esc(item.id)}">拒绝</button>
+            </div>
           </div>
         `).join("")}
       </div>

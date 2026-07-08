@@ -17,4 +17,9 @@ describe("fieldSourceLabel", () => {
   it("resettableField produces button HTML with field name", () => {
     expect(resettableField("daily_goal")).toContain('data-field="daily_goal"')
   })
+  it("escapes dynamic value to prevent XSS", () => {
+    const html = renderSourceLabel({ source: "project", value: "<img src=x onerror=alert(1)>" })
+    expect(html).not.toContain("<img")
+    expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;")
+  })
 })

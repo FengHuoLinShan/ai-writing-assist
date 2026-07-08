@@ -182,6 +182,26 @@ describe("worldBibleView", () => {
     expect(showModal.mock.calls[1][0]).toBe("冲突检查")
   })
 
+  it("创设建议弹窗保留单条确认/拒绝按钮", async () => {
+    api.world.listSuggestions.mockResolvedValue({
+      items: [{
+        id: "s1",
+        review_group: "world_bible_ai",
+        target_type: "world_bible_page_patch",
+        action_schema: "world_bible_ai.v1",
+        risk_level: "low",
+        payload_json: { append_text: "补写" },
+      }],
+      total: 1,
+    })
+
+    await worldBibleView._openSuggestions()
+
+    const html = showModal.mock.calls[0][1].html
+    expect(html).toContain('data-bible-confirm-suggestion="s1"')
+    expect(html).toContain('data-bible-reject-suggestion="s1"')
+  })
+
   it("世界书 AI 边栏生成建议时带当前页和输出目标", async () => {
     api.world.listBiblePages.mockResolvedValue({ items: [page], total: 1 })
     api.world.generateBiblePageAi.mockResolvedValue({

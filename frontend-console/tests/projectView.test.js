@@ -322,6 +322,21 @@ describe("projectView", () => {
     })
   })
 
+  describe("_renderImportSection", () => {
+    it("使用语义化 class 渲染导入面板", () => {
+      state.currentProjectId = "p1"
+      state.currentProject = { id: "p1", title: "测试项目" }
+
+      const html = projectView._renderImportSection()
+
+      expect(html).toContain("project-import-panel")
+      expect(html).toContain("project-import-panel__hint")
+      expect(html).toContain("project-import-panel__form")
+      expect(html).toContain("project-import-panel__field")
+      expect(html).toContain("project-import-panel__input")
+    })
+  })
+
   describe("upload progress rendering", () => {
     it("使用 shared progress 样式显示导入阶段和真实百分比", () => {
       projectView._uploadProgress = {
