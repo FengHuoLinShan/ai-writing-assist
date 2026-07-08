@@ -277,9 +277,9 @@ export function createChapterTree({
     _renderError() {
       return `
         <div class="empty-state" role="alert">
-          <div class="empty-icon" style="color:var(--warning);">&#9888;</div>
+          <div class="empty-icon writing-empty-icon--warning">&#9888;</div>
           <p>章节列表加载失败</p>
-          <p style="color:var(--text-dim);font-size:12px;">可稍后重试。错误信息：${this._esc(this._chapterListLoadError)}</p>
+          <p class="writing-empty-hint">可稍后重试。错误信息：${this._esc(this._chapterListLoadError)}</p>
         </div>
       `
     },
@@ -289,10 +289,10 @@ export function createChapterTree({
         <div class="empty-state">
           <div class="empty-icon">&#128221;</div>
           <p>开始创作！</p>
-          <p style="color:var(--text-dim);font-size:12px;">
+          <p class="writing-empty-hint">
             点击下方按钮创建第一个章节，开始写作。
           </p>
-          <div style="margin-top:12px;">
+          <div class="writing-empty-actions">
             <button class="btn btn-primary" data-action="new-chapter">+ 新建章节</button>
           </div>
         </div>
@@ -311,7 +311,7 @@ export function createChapterTree({
               <button class="btn btn-sm" data-action="new-chapter">+ 新建</button>
             </div>
           </div>
-          <div style="margin-top:6px;">
+          <div class="chapter-tree-list">
       `
 
       for (const idx of this._chapterList) {
@@ -353,7 +353,7 @@ export function createChapterTree({
               <button class="btn btn-sm" data-action="new-chapter">+ 新建</button>
             </div>
           </div>
-          <div style="margin-top:6px;">
+          <div class="chapter-tree-list">
       `
 
       if (unassigned.length > 0) {
@@ -364,14 +364,14 @@ export function createChapterTree({
         )
         html += `
           <div class="scene-tree-node">
-            <div class="scene-tree-scene" style="padding:4px 4px;">
+            <div class="scene-tree-scene">
               <button type="button" class="scene-tree-toggle" data-action="toggle-scene-group" data-group-id="${groupId}" aria-expanded="${isExpanded ? "true" : "false"}" title="${isExpanded ? "折叠" : "展开"}">
                 <span class="toggle-icon">${isExpanded ? "▼" : "▶"}</span>
               </button>
-              <button type="button" class="scene-tree-label" data-action="toggle-scene-group" data-group-id="${groupId}" style="color:var(--text-dim);font-size:12px;">未归类</button>
-              <span style="color:var(--text-dim);font-size:10px;margin-left:4px;">(${unassigned.length}章)</span>
+              <button type="button" class="scene-tree-label scene-tree-label--muted" data-action="toggle-scene-group" data-group-id="${groupId}">未归类</button>
+              <span class="scene-tree-count">(${unassigned.length}章)</span>
             </div>
-            <div class="scene-tree-chapters" style="display:${isExpanded ? "block" : "none"};margin-left:12px;">
+            <div class="scene-tree-chapters" style="display:${isExpanded ? "block" : "none"};">
         `
         for (const idx of unassigned) {
           html += this._renderChapterRow(idx)
@@ -390,15 +390,14 @@ export function createChapterTree({
 
         html += `
           <div class="scene-tree-node">
-            <div class="scene-tree-scene"
-                 style="padding:4px 4px;border-radius:var(--radius-sm);${isCurrentScene ? "background:var(--hover-bg);" : ""}">
+            <div class="scene-tree-scene ${isCurrentScene ? "scene-tree-scene--current" : ""}">
               <button type="button" class="scene-tree-toggle" data-action="toggle-scene-group" data-group-id="${this._esc(groupId)}" aria-expanded="${isExpanded ? "true" : "false"}" title="${isExpanded ? "折叠" : "展开"}">
                 <span class="toggle-icon">${isExpanded ? "▼" : "▶"}</span>
               </button>
-              <button type="button" class="scene-tree-label" data-action="select-scene" data-scene-id="${this._esc(scene.id)}" style="font-size:13px;font-weight:${isCurrentScene ? "bold" : "normal"};">${this._esc(scene.title || "未命名")}</button>
-              <span style="color:var(--text-dim);font-size:10px;margin-left:4px;">(${chapters.length}章)</span>
+              <button type="button" class="scene-tree-label ${isCurrentScene ? "scene-tree-label--current" : ""}" data-action="select-scene" data-scene-id="${this._esc(scene.id)}">${this._esc(scene.title || "未命名")}</button>
+              <span class="scene-tree-count">(${chapters.length}章)</span>
             </div>
-            <div class="scene-tree-chapters" style="display:${isExpanded ? "block" : "none"};margin-left:12px;">
+            <div class="scene-tree-chapters" style="display:${isExpanded ? "block" : "none"};">
         `
 
         for (const idx of chapters) {
@@ -437,10 +436,10 @@ export function createChapterTree({
 
     _renderChapterBulkToolbar() {
       if (!this._showBulkActions) {
-        return `<div style="margin:4px 0;text-align:right;"><button class="btn btn-sm btn-ghost" data-action="toggle-bulk-actions" title="批量管理">管理 ▾</button></div>`
+        return `<div class="chapter-tree-bulk-toggle"><button class="btn btn-sm btn-ghost" data-action="toggle-bulk-actions" title="批量管理">管理 ▾</button></div>`
       }
       return `
-        <div class="row-actions" style="margin:8px 0;">
+        <div class="row-actions chapter-tree-bulk-toolbar">
           <button class="btn btn-sm btn-ghost" data-action="toggle-bulk-actions">收起管理 ▴</button>
           <button class="btn btn-sm" data-action="select-visible-chapters" ${this._chapterList.length === 0 ? "disabled" : ""}>全选当前章节</button>
         </div>

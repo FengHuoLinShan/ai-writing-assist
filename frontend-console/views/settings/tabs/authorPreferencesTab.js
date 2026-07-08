@@ -29,7 +29,7 @@ const authorPreferencesTab = {
           ...values,
           source,
         })}
-        <div class="author-prefs-actions">
+        <div class="settings-actions">
           <button class="btn btn-primary" id="author-prefs-tab-save">保存作者偏好</button>
         </div>
       </div>

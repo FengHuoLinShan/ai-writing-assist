@@ -353,18 +353,18 @@ const worldView = {
         title: label,
         destinationLabel: `范围: ${rangeText}。完成后查看世界对象、别名和候选关系。`,
       })
-      : `<div id="w-extract-status" style="margin-top:4px;font-size:11px;color:var(--text-dim);">状态: ${esc(this._autoExtractStatus)}</div>`
+      : `<div id="w-extract-status" class="world-extract-panel__status">状态: ${esc(this._autoExtractStatus)}</div>`
     return `
-      <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;margin-bottom:12px;text-align:center;">
-        <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">${label}</div>
-        <div style="display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;">
-          起始章 <input id="w-extract-start" type="number" min="1" value="1" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:var(--radius-sm);" />
-          结束章 <input id="w-extract-end" type="number" min="1" value="10" style="width:50px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:var(--radius-sm);" />
+      <div class="world-extract-panel">
+        <div class="world-extract-panel__label">${label}</div>
+        <div class="world-extract-panel__controls">
+          起始章 <input id="w-extract-start" type="number" min="1" value="1" class="world-extract-panel__input" />
+          结束章 <input id="w-extract-end" type="number" min="1" value="10" class="world-extract-panel__input" />
           <button class="btn btn-sm btn-primary" data-action="submit-extract" data-type="${taskType}" ${isRunning ? "disabled" : ""}>
             ${isRunning ? "提取中..." : "开始提取"}
           </button>
         </div>
-        <div id="w-extract-progress" style="margin-top:8px;">${progressHtml}</div>
+        <div id="w-extract-progress" class="world-extract-panel__progress">${progressHtml}</div>
       </div>
     `
   },
@@ -480,8 +480,8 @@ const worldView = {
     const result = this._fusionProgress.raw?.result || {}
     const suggestions = Array.isArray(result.suggestions) ? result.suggestions : []
     const suggestionHtml = this._fusionProgress.done && suggestions.length ? `
-      <div style="margin-top:8px;display:flex;gap:8px;justify-content:center;align-items:center;">
-        <span style="color:var(--text-dim);font-size:12px;">${esc(suggestions.length)} 条建议可查看</span>
+      <div class="world-extract-panel__suggestion">
+        <span class="world-text-dim">${esc(suggestions.length)} 条建议可查看</span>
         <button class="btn btn-sm btn-primary" data-action="show-entity-fusion-suggestions">查看建议</button>
       </div>
     ` : ""
@@ -636,7 +636,7 @@ const worldView = {
   _renderEntityList() {
     if (this._entities.length === 0) {
       return `
-        <div style="text-align:center;margin-bottom:12px;">
+        <div class="world-list-actions">
           <button class="btn btn-primary" data-action="new" id="btn-new-entity">新建对象</button>
           <button class="btn" data-action="toggle-extract" style="margin-left:8px;">${this._autoExtractOpen ? "▾" : "▸"} 世界对象与别名/关系自动提取</button>
         </div>
@@ -646,7 +646,7 @@ const worldView = {
           <div class="empty-state" role="alert">
             <div class="empty-icon" style="color:var(--warning);">&#9888;</div>
             <p>世界对象加载失败</p>
-            <p style="color:var(--text-dim);font-size:12px;">可稍后重试。错误信息：${esc(this._entitiesLoadError)}</p>
+            <p class="world-text-dim">可稍后重试。错误信息：${esc(this._entitiesLoadError)}</p>
           </div>
         ` : `
         <div class="empty-state">
@@ -662,14 +662,14 @@ const worldView = {
     }
 
     let html = `
-      <div style="text-align:center;margin-bottom:12px;">
+      <div class="world-list-actions">
         <button class="btn btn-primary" data-action="new" id="btn-new-entity">新建对象</button>
         <button class="btn" data-action="toggle-extract" style="margin-left:8px;">
           ${this._autoExtractOpen ? "▾" : "▸"} 世界对象与别名/关系自动提取
         </button>
       </div>
       ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_object_auto_extraction", "世界对象与别名/关系自动提取") : ""}
-      <div style="margin-bottom:8px;text-align:center;">
+      <div class="world-list-actions__secondary">
         <button class="btn btn-sm" data-action="nav-candidates">待确认（${this._candidateTotal || this._candidates.length}）</button>
       </div>
     `
@@ -708,10 +708,10 @@ const worldView = {
 
       // 渲染自动入库批次折叠区
       if (autoEntities.length > 0) {
-        html += `<div style="margin-bottom:12px;">`
-        html += `<details open style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;">`
-        html += `<summary style="padding:6px 10px;background:var(--bg-alt);cursor:pointer;font-size:13px;font-weight:600;">
-          <span style="color:var(--accent);">&#9733;</span> 自动入库 — ${this._formatBatchTime(this._batches[0]?.ingested_at)} — ${autoEntities.length} 个对象
+        html += `<div class="world-batch-group">`
+        html += `<details open class="world-batch-group__details">`
+        html += `<summary class="world-batch-group__summary">
+          <span class="world-batch-group__star">&#9733;</span> 自动入库 — ${this._formatBatchTime(this._batches[0]?.ingested_at)} — ${autoEntities.length} 个对象
         </summary>`
         html += this._renderEntityCollection(autoEntities, { showNewBadge: true })
         html += `</details></div>`
@@ -719,8 +719,8 @@ const worldView = {
 
       // 渲染手动创建区
       if (manualEntities.length > 0) {
-        html += `<details ${!autoEntities.length > 0 ? "open" : ""} style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;">`
-        html += `<summary style="padding:6px 10px;background:var(--bg-alt);cursor:pointer;font-size:13px;font-weight:600;">
+        html += `<details ${!autoEntities.length > 0 ? "open" : ""} class="world-batch-group__details">`
+        html += `<summary class="world-batch-group__summary">
           其他对象 — ${manualEntities.length} 个
         </summary>`
         html += this._renderEntityCollection(manualEntities, { showNewBadge: false })
@@ -808,9 +808,9 @@ const worldView = {
     const prevDisabled = skip <= 0 ? "disabled" : ""
     const nextDisabled = skip + limit >= total ? "disabled" : ""
     return `
-      <div style="display:flex;gap:8px;justify-content:center;align-items:center;margin-top:12px;">
+      <div class="world-pagination">
         <button class="btn btn-sm" data-action="${esc(prevAction)}" ${prevDisabled}>上一页</button>
-        <span style="font-size:12px;color:var(--text-dim);">第 ${currentPage} / ${totalPages} 页，共 ${esc(total)} 条</span>
+        <span class="world-pagination__info">第 ${currentPage} / ${totalPages} 页，共 ${esc(total)} 条</span>
         <button class="btn btn-sm" data-action="${esc(nextAction)}" ${nextDisabled}>下一页</button>
       </div>
     `
@@ -829,7 +829,7 @@ const worldView = {
     const scope = "world-objects"
     const ids = entities.map((entity) => this._entityId(entity))
     reconcileBulkSelection(this, scope, ids)
-    let html = `<table class="data-table table-card-list" style="border-top:none;">
+    let html = `<table class="data-table table-card-list world-table--no-top-border">
       <thead>
         <tr>
           <th class="selection-cell">${renderSelectionHeader(this, scope, ids, "全选当前页对象")}</th>
@@ -855,7 +855,7 @@ const worldView = {
       const sourceText = { deep_import: "深度导入", manual: "手动", ai_generated: "AI 生成" }
       const needsReview = this._entityNeedsReview(e)
       const reviewText = needsReview ? "需复核" : "已复核"
-      const isNew = showNewBadge ? ' <span class="badge badge-new" style="font-size:10px;background:var(--accent);color:#fff;padding:1px 4px;border-radius:var(--radius-sm);">新</span>' : ""
+      const isNew = showNewBadge ? ' <span class="badge badge-new">新</span>' : ""
       const isCharacter = (e.entity_type === "character" || e.entity_type === "character_ref")
       const canMerge = e.status === "draft" || e.status === "candidate"
       const canPromote = e.status === "draft" || e.status === "candidate"
@@ -865,12 +865,12 @@ const worldView = {
         <tr data-id="${esc(id)}" class="clickable">
           <td class="selection-cell">${renderSelectionCell(this, scope, id, `选择 ${e.name || "对象"}`)}</td>
           <td data-label="状态"><span class="badge ${esc(statusClass)}">${statusText[e.status] || esc(e.status)}</span></td>
-          <td data-label="类型" style="color:var(--accent-dim);font-family:var(--font-mono);font-size:12px;">${esc(e.entity_type || "-")}</td>
+          <td data-label="类型" class="world-table-cell--type">${esc(e.entity_type || "-")}</td>
           <td data-label="名称">${esc(e.name)}${isNew}</td>
-          <td data-label="来源" style="color:var(--text-muted);font-size:12px;">${esc(sourceText[e.source] || e.source || "-")}</td>
-          <td data-label="复核" style="color:${needsReview ? "var(--warning)" : "var(--text-muted)"};font-size:12px;">${reviewText}</td>
+          <td data-label="来源" class="world-table-cell--muted">${esc(sourceText[e.source] || e.source || "-")}</td>
+          <td data-label="复核" class="${needsReview ? "world-table-cell--warning" : "world-table-cell--muted"}">${reviewText}</td>
           <td data-label="重要度">${esc(e.importance || e.importance_score || "-")}</td>
-          <td data-label="摘要" style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.summary || e.public_info || "-")}</td>
+          <td data-label="摘要" class="world-table-cell--muted world-table-cell--ellipsis">${esc(e.summary || e.public_info || "-")}</td>
           <td data-label="操作">
             <div class="row-actions">
               ${reviewAction}
@@ -1079,8 +1079,8 @@ const worldView = {
     }
     let html = `
       ${reviewOnly ? this._renderCandidateReviewFilters() : ""}
-      <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">
-        以下是从文本中抽取的候选对象。请检查并决定如何处理。
+      <p class="world-list-description">
+        ${reviewOnly ? "以下是从文本中抽取的候选对象。请检查并决定如何处理。" : "以下是从文本中抽取的候选对象。请检查并决定如何处理。"}
       </p>
       <table class="data-table table-card-list">
         <thead>
@@ -1116,7 +1116,7 @@ const worldView = {
         <tr data-id="${esc(id)}">
           <td class="selection-cell">${renderSelectionCell(this, scope, id, `选择 ${c.name || "候选"}`)}</td>
           <td data-label="名称">${esc(c.name)}</td>
-          <td data-label="类型" style="color:var(--accent-dim);font-family:var(--font-mono)">${esc(c.entity_type)}</td>
+          <td data-label="类型" class="world-table-cell--type">${esc(c.entity_type)}</td>
           <td data-label="重要度">${esc(c.importance || c.importance_score || "-")}</td>
           <td data-label="建议动作"><span class="candidate-action-badge candidate-action-badge--${esc(action)}">${esc(actionLabel)}</span></td>
           <td data-label="证据" style="max-width:220px;color:var(--text-dim);font-size:12px;">${this._inlineEvidenceHtml(meta)}</td>
@@ -1177,10 +1177,10 @@ const worldView = {
 
   async _renderRelations({ reviewOnly = false } = {}) {
     let html = `
-      <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">
+      <p class="world-list-description">
         ${reviewOnly ? "复核 AI 抽取或导入产生的待确认关系。" : "管理世界对象与人物之间的关系。"}
       </p>
-      ${reviewOnly ? this._renderRelationReviewFilters() : `<div style="margin-bottom:8px;">
+      ${reviewOnly ? this._renderRelationReviewFilters() : `<div class="world-list-actions__secondary">
         <button class="btn btn-primary" data-action="create-relation">新建关系</button>
       </div>`}
     `
@@ -1203,7 +1203,7 @@ const worldView = {
       this._relations = rels
       this._relationTotal = Number(data.total ?? rels.length) || 0
       if (rels.length === 0) {
-        return html + `<div class="empty-state"><p>${reviewOnly ? "没有待确认关系。" : "还没有建立人物关系。"}</p><p style="color:var(--text-dim);font-size:12px;">关系网可以帮助你梳理角色之间的恩怨情仇。</p></div>`
+        return html + `<div class="empty-state"><p>${reviewOnly ? "没有待确认关系。" : "还没有建立人物关系。"}</p><p class="world-text-dim">关系网可以帮助你梳理角色之间的恩怨情仇。</p></div>`
       }
       const scope = "world-relations"
       const ids = rels.map((rel) => rel.id || rel.relationship_id).filter(Boolean)
@@ -1220,19 +1220,19 @@ const worldView = {
       for (const r of rels) {
         const id = r.id || r.relationship_id
         const statusLabel = r.status === "candidate" ? "待确认" : "正史"
-        const statusClass = r.status === "candidate" ? "badge-warning" : "badge-canonical"
+        const statusClass = r.status === "candidate" ? "badge-candidate" : "badge-canonical"
         const reviewAction = this._renderRelationReviewAction(r)
         const sourceName = r.source_name || r.source_entity_name || r.source?.name || (r.source_id ? `${String(r.source_id).slice(0, 8)}...` : "-")
         const targetName = r.target_name || r.target_entity_name || r.target?.name || (r.target_id ? `${String(r.target_id).slice(0, 8)}...` : "-")
         html += `
         <tr data-id="${esc(id)}">
           <td class="selection-cell">${renderSelectionCell(this, scope, id, "选择关系")}</td>
-          <td style="color:var(--accent-dim);font-size:12px;">${esc(sourceName)}</td>
+          <td class="world-table-cell--type">${esc(sourceName)}</td>
           <td><span class="badge badge-canonical">${esc(r.relation_type || "-")}</span></td>
-          <td style="color:var(--accent-dim);font-size:12px;">${esc(targetName)}</td>
+          <td class="world-table-cell--type">${esc(targetName)}</td>
           <td><span class="badge ${statusClass}">${statusLabel}</span></td>
-          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-dim);font-size:12px;">${esc(r.description || "")}</td>
-          <td style="max-width:220px;color:var(--text-dim);font-size:12px;">${this._inlineRelationEvidenceHtml(r)}</td>
+          <td class="world-table-cell--dim world-table-cell--ellipsis">${esc(r.description || "")}</td>
+          <td class="world-table-cell--dim">${this._inlineRelationEvidenceHtml(r)}</td>
           <td>
             <div class="row-actions">
               ${reviewOnly && r.status === "candidate" ? `<button class="btn btn-sm btn-primary" data-action="edit-relation-review" data-id="${esc(id)}">编辑并确认</button>` : ""}
@@ -1407,10 +1407,10 @@ const worldView = {
 
   async _renderAliases({ reviewOnly = false } = {}) {
     let html = `
-      <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px;">
+      <p class="world-list-description">
         ${reviewOnly ? "复核待确认别名。别名不独立创建对象。" : "管理世界对象的别名、称号和化名。别名不独立创建对象。"}
       </p>
-      ${reviewOnly ? this._renderAliasReviewFilters() : `<div style="margin-bottom:8px;">
+      ${reviewOnly ? this._renderAliasReviewFilters() : `<div class="world-list-actions__secondary">
         <button class="btn btn-primary" data-action="create-alias">新建别名</button>
       </div>`}
     `
@@ -1435,7 +1435,7 @@ const worldView = {
       this._aliases = aliases
       this._aliasTotal = Number(data.total ?? aliases.length) || 0
       if (aliases.length === 0) {
-        return html + `<div class="empty-state"><p>${reviewOnly ? "没有待确认别名。" : "还没有设置别名。"}</p><p style="color:var(--text-dim);font-size:12px;">别名可以帮助你管理角色的化名、称号和绰号。</p></div>`
+        return html + `<div class="empty-state"><p>${reviewOnly ? "没有待确认别名。" : "还没有设置别名。"}</p><p class="world-text-dim">别名可以帮助你管理角色的化名、称号和绰号。</p></div>`
       }
       const typeMap = { name: "名称", title: "称号", nickname: "昵称", alias: "化名", translation: "译名" }
       const scope = "world-aliases"
@@ -1455,20 +1455,20 @@ const worldView = {
         group.aliases.forEach((a, index) => {
           const id = this._aliasKey(a)
           const statusLabel = a.status === "candidate" || a.needs_review ? "待确认" : "正史"
-          const statusClass = statusLabel === "待确认" ? "badge-warning" : "badge-canonical"
+          const statusClass = statusLabel === "待确认" ? "badge-candidate" : "badge-canonical"
           const sourceLabel = a.source === "deep_import" ? "深度导入" : (a.source || "-")
           const reviewAction = this._renderAliasReviewAction(a)
           html += `
         <tr data-id="${esc(id)}">
           <td class="selection-cell">${renderSelectionCell(this, scope, id, `选择别名 ${a.alias || ""}`)}</td>
-          ${index === 0 ? `<td rowspan="${group.aliases.length}" style="color:var(--accent-dim);font-size:12px;vertical-align:top;">
+          ${index === 0 ? `<td rowspan="${group.aliases.length}" class="world-table-cell--type" style="vertical-align:top;">
             <div>${esc(group.entityName)}</div>
-            ${group.aliases.length > 1 ? `<div style="color:var(--text-dim);margin-top:4px;">${group.aliases.length} 个别名</div>` : ""}
+            ${group.aliases.length > 1 ? `<div class="world-text-dim" style="margin-top:4px;">${group.aliases.length} 个别名</div>` : ""}
           </td>` : ""}
           <td>${esc(a.alias)}</td>
           <td>${typeMap[a.alias_type] || esc(a.alias_type)}</td>
           <td><span class="badge ${statusClass}">${statusLabel}</span></td>
-          <td>${esc(sourceLabel)}</td>
+          <td class="world-table-cell--muted">${esc(sourceLabel)}</td>
           <td>${a.confidence ? (a.confidence * 100).toFixed(0) + "%" : "-"}</td>
           <td style="max-width:220px;color:var(--text-dim);font-size:12px;">${this._inlineEvidenceHtml(a)}</td>
           <td>

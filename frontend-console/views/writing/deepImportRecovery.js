@@ -602,8 +602,8 @@ export function createDeepImportRecovery({
         </div>
         ${summaryItems ? `<div class="deep-import-recovery__meta">${summaryItems}</div>` : ""}
         <div class="deep-import-recovery__actions">
-          <button class="btn btn-sm btn-primary" data-action="resume-deep-import" style="font-size:11px;">继续</button>
-          <button class="btn btn-sm" data-action="abandon-deep-import" style="font-size:11px;">放弃恢复</button>
+          <button class="btn btn-sm btn-primary writing-deep-import-btn" data-action="resume-deep-import">继续</button>
+          <button class="btn btn-sm writing-deep-import-btn" data-action="abandon-deep-import">放弃恢复</button>
         </div>
       </div>
     `
@@ -624,10 +624,10 @@ export function createDeepImportRecovery({
       const runningText = running > 0 ? ` · 运行中 ${running}` : ""
       const staleText = stale > 0 ? ` · 超时 ${stale}` : ""
       return `
-        <span style="font-size:11px;color:var(--text-dim);margin-right:8px;">
+        <span class="writing-audit-summary">
           快照健康摘要：共 ${total} 条 · 成功 ${succeeded} · 失败 ${failed}${runningText}${staleText}
         </span>
-        <button class="btn btn-sm" data-action="view-deep-import-audit" style="font-size:11px;">查看快照状态</button>
+        <button class="btn btn-sm writing-deep-import-btn" data-action="view-deep-import-audit">查看快照状态</button>
       `
     }
 
@@ -642,10 +642,10 @@ export function createDeepImportRecovery({
       .filter((item) => item !== null && item !== undefined)
     const failedSceneText = failedScenes.length > 0 ? ` · 失败 Scene：${failedScenes.join(", ")}` : ""
     return `
-      <span style="font-size:11px;color:var(--text-dim);margin-right:8px;">
+      <span class="writing-audit-summary">
         快照健康摘要：共 ${total} 条 · 成功 ${succeeded} · 失败 ${failed}${escapeHtml(failedSceneText)}
       </span>
-      <button class="btn btn-sm" data-action="view-deep-import-audit" style="font-size:11px;">查看快照状态</button>
+      <button class="btn btn-sm writing-deep-import-btn" data-action="view-deep-import-audit">查看快照状态</button>
     `
   }
 
@@ -653,7 +653,7 @@ export function createDeepImportRecovery({
     if (!progress) return ""
     const normalized = normalizeProgress()
     const actionsHtml = normalized.failed
-      ? `<button class="btn btn-sm" data-action="dismiss-deep-import" style="font-size:11px;">关闭</button>`
+      ? `<button class="btn btn-sm writing-deep-import-btn" data-action="dismiss-deep-import">关闭</button>`
       : ""
     const recoveryHtml = renderRecoveryPrompt()
     const currentPositionHtml = renderCurrentPosition()
@@ -752,17 +752,17 @@ export function createDeepImportRecovery({
       const byPhase = summary.by_phase || {}
       const latestFailure = summary.latest_failure
       const failureHtml = latestFailure
-        ? `<div style="color:var(--warning);font-size:11px;margin-top:8px;">最近失败：${escapeHtml(latestFailure.phase || "unknown")} · ${escapeHtml(latestFailure.error_kind || "failed")}</div>`
+        ? `<div class="writing-audit-warning writing-audit-warning--spaced">最近失败：${escapeHtml(latestFailure.phase || "unknown")} · ${escapeHtml(latestFailure.error_kind || "failed")}</div>`
         : ""
       const retainedHtml = summary.retained_rendered_context_count
-        ? `<div style="color:var(--text-dim);font-size:11px;margin-top:8px;">完整上下文保留：${summary.retained_rendered_context_count} 条</div>`
+        ? `<div class="writing-audit-retention writing-audit-retention--spaced">完整上下文保留：${summary.retained_rendered_context_count} 条</div>`
         : ""
       const rows = Object.entries(byPhase)
         .filter(([, item]) => item && typeof item === "object")
         .map(([phase, item]) => `
-          <div style="padding:10px 0;border-bottom:1px solid var(--border);">
-            <div style="font-weight:600;margin-bottom:4px;">${escapeHtml(phaseLabels[phase] || phase)}</div>
-            <div style="font-size:12px;color:var(--text-dim);">
+          <div class="writing-audit-row">
+            <div class="writing-audit-title">${escapeHtml(phaseLabels[phase] || phase)}</div>
+            <div class="writing-audit-meta">
               快照 ${(item.running || 0) + (item.succeeded || 0) + (item.failed || 0)} 条 · 成功 ${item.succeeded || 0} · 失败 ${item.failed || 0} · 运行中 ${item.running || 0}
             </div>
           </div>
@@ -771,7 +771,7 @@ export function createDeepImportRecovery({
         "深度导入快照状态",
         rows || failureHtml || retainedHtml
           ? `${rows}${failureHtml}${retainedHtml}`
-          : '<p style="color:var(--text-dim);">暂无快照健康摘要</p>',
+          : '<p class="writing-empty-hint">暂无快照健康摘要</p>',
       )
       return
     }
@@ -779,15 +779,15 @@ export function createDeepImportRecovery({
       .filter(([, item]) => item && typeof item === "object")
       .map(([phase, item]) => {
         const failedScenes = Array.isArray(item.failed_scenes) && item.failed_scenes.length > 0
-          ? `<div style="color:var(--warning);font-size:11px;margin-top:4px;">失败 Scene：${escapeHtml(item.failed_scenes.join(", "))}</div>`
+          ? `<div class="writing-audit-warning">失败 Scene：${escapeHtml(item.failed_scenes.join(", "))}</div>`
           : ""
         const retention = item.retained_rendered_context_count
-          ? `<div style="color:var(--text-dim);font-size:11px;margin-top:4px;">完整上下文保留：${item.retained_rendered_context_count} 条</div>`
+          ? `<div class="writing-audit-retention">完整上下文保留：${item.retained_rendered_context_count} 条</div>`
           : ""
         return `
-          <div style="padding:10px 0;border-bottom:1px solid var(--border);">
-            <div style="font-weight:600;margin-bottom:4px;">${escapeHtml(phaseLabels[phase] || phase)}</div>
-            <div style="font-size:12px;color:var(--text-dim);">
+          <div class="writing-audit-row">
+            <div class="writing-audit-title">${escapeHtml(phaseLabels[phase] || phase)}</div>
+            <div class="writing-audit-meta">
               快照 ${item.snapshot_count || 0} 条 · 成功 ${item.succeeded || 0} · 失败 ${item.failed || 0}
             </div>
             ${failedScenes}
@@ -795,7 +795,7 @@ export function createDeepImportRecovery({
           </div>
         `
       }).join("")
-    modalApi.showModalHtml("深度导入快照状态", rows || '<p style="color:var(--text-dim);">暂无快照健康摘要</p>')
+    modalApi.showModalHtml("深度导入快照状态", rows || '<p class="writing-empty-hint">暂无快照健康摘要</p>')
   }
 
   function dispose() {

@@ -375,13 +375,19 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     return editor._lastSavedContent !== null ? "已保存" : ""
   }
 
+  function _saveBadgeClass(status) {
+    if (status === "未保存") return "writing-save-badge--unsaved"
+    if (status === "已保存" || status === "发布成功" || status === "已发布") return "writing-save-badge--saved"
+    return ""
+  }
+
   function aiContinue() {
     const panel = document.getElementById("ai-suggestion-panel")
     if (!panel) return
     panel.classList.remove("hidden")
     panel.innerHTML = `
-      <div style="display:flex;align-items:center;gap:8px;padding:12px 16px;color:var(--text-dim);font-size:13px;">
-        <span class="spinner" style="display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 1s linear infinite;"></span>
+      <div class="writing-ai-loading">
+        <span class="writing-spinner"></span>
         AI 正在分析上下文...
       </div>
     `
@@ -413,15 +419,17 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     const disabledReason = hasSelection ? "当前版本只读，需基于此版本创建后再编辑" : "请先选择章节"
     const focusMode = Boolean(state._focusMode)
 
+    const saveBadgeClass = _saveBadgeClass(saveStatus)
+
     let html = `
       <div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;flex-wrap:wrap;">
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span id="writing-chapter-title" style="font-size:14px;font-weight:bold;">
+        <div class="writing-editor-header">
+          <div class="writing-editor-title-group">
+            <span id="writing-chapter-title" class="writing-editor-chapter-title">
               ${hasSelection ? `第 ${editor._currentChapter} 章` : "选择章节开始编辑"}
             </span>
             <span id="writing-version-info" class="writing-version-badge">${esc(draftLabel || "未选择版本")}</span>
-            <span id="writing-save-status" class="writing-save-badge">${esc(saveStatus)}</span>
+            <span id="writing-save-status" class="writing-save-badge ${esc(saveBadgeClass)}">${esc(saveStatus)}</span>
           </div>
           <div class="writing-editor-buttons" id="writing-editor-buttons">
             ${editor._isReadonly ? `<button class="btn btn-primary" data-action="restore-from-version">基于此版本创建</button>` : ""}
@@ -438,7 +446,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
 
     if (hasSelection) {
       html += `
-        <input id="writing-title-input" type="text" value="${esc(editor._currentTitle || "")}" placeholder="章节标题" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);padding:6px 10px;border-radius:var(--radius-sm);font-size:13px;margin-bottom:6px;" ${editor._isReadonly ? "readonly" : ""} />
+        <input id="writing-title-input" class="writing-title-input" type="text" value="${esc(editor._currentTitle || "")}" placeholder="章节标题" ${editor._isReadonly ? "readonly" : ""} />
 
         <textarea id="writing-editor" class="novel-editor ${focusMode ? "novel-editor--focus" : ""}"
           placeholder="在此书写正文..." ${editor._isReadonly ? "readonly" : ""}>${editor._currentContent ? esc(editor._currentContent) : ""}</textarea>
@@ -448,7 +456,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
       `
     } else {
       html += `
-        <div style="text-align:center;padding:40px 0;color:var(--text-dim);font-size:13px;">
+        <div class="writing-editor-empty">
           请从左侧选择章节
         </div>
       `
@@ -516,50 +524,50 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
       ? fields
         .filter(([key]) => povView[key])
         .map(([key, label]) => `
-          <div style="min-width:180px;">
-            <div style="font-size:11px;color:var(--text-dim);margin-bottom:2px;">${esc(label)}</div>
-            <div style="font-size:12px;line-height:1.55;">${esc(povView[key])}</div>
+          <div class="writing-pov-field">
+            <div class="writing-pov-field-label">${esc(label)}</div>
+            <div class="writing-pov-field-value">${esc(povView[key])}</div>
           </div>
         `)
         .join("")
-      : `<div style="font-size:12px;color:var(--warning);">结构化角色视角解析失败，已保留原始候选文本。</div>`
+      : `<div class="writing-pov-warnings">结构化角色视角解析失败，已保留原始候选文本。</div>`
     const dialogueHtml = _renderPovDialogueCandidates(povView?.dialogue_candidates)
     const warnings = Array.isArray(validation?.warnings) ? validation.warnings : []
     const findings = Array.isArray(validation?.findings) ? validation.findings : []
     const findingsHtml = findings.length
-      ? `<ul style="margin:8px 0 0;padding-left:18px;font-size:12px;line-height:1.5;">
+      ? `<ul class="writing-pov-findings">
           ${findings.slice(0, 5).map((item) => `
             <li>
               ${esc(item.field_path || item.rule || "pov_view")}：
               ${esc(item.generated_excerpt || "疑似越权片段")}
-              <span style="color:var(--text-dim);">（${esc(item.source_label || "已过滤来源")}）</span>
+              <span class="writing-pov-field-label">（${esc(item.source_label || "已过滤来源")}）</span>
             </li>
           `).join("")}
         </ul>`
       : ""
     const warningsHtml = warnings.length
-      ? `<div style="margin-top:8px;color:var(--warning);font-size:12px;">${warnings.map((item) => esc(item)).join(" · ")}</div>`
+      ? `<div class="writing-pov-warnings">${warnings.map((item) => esc(item)).join(" · ")}</div>`
       : ""
     const riskButton = status === "failed"
       ? `<button class="btn btn-sm btn-danger" data-action="ack-pov-validation-risk" type="button">仍然采用</button>`
       : ""
 
     return `
-      <section class="pov-candidate-panel" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-top:8px;background:var(--panel);">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;">
+      <section class="pov-candidate-panel writing-pov-panel">
+        <div class="writing-pov-header">
           <div>
-            <div style="font-weight:600;font-size:13px;">角色视角候选</div>
-            <div style="font-size:11px;color:var(--text-dim);">该结果仍是候选草稿，正史变更需人工确认。</div>
+            <div class="writing-pov-title">角色视角候选</div>
+            <div class="writing-pov-subtitle">该结果仍是候选草稿，正史变更需人工确认。</div>
           </div>
-          <span style="font-size:12px;color:${esc(statusMeta.color)};">${esc(statusMeta.label)}</span>
+          <span class="writing-pov-status" style="color:${esc(statusMeta.color)};">${esc(statusMeta.label)}</span>
         </div>
-        <div style="border-left:3px solid ${esc(statusMeta.color)};padding:8px 10px;background:var(--bg);font-size:12px;line-height:1.5;">
+        <div class="writing-pov-alert" style="border-color:${esc(statusMeta.color)};">
           ${esc(statusMeta.message)}
           ${riskButton}
           ${findingsHtml}
           ${warningsHtml}
         </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:10px;">
+        <div class="writing-pov-grid">
           ${fieldHtml}
         </div>
         ${dialogueHtml}
@@ -570,13 +578,13 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
   function _renderPovDialogueCandidates(candidates) {
     if (!Array.isArray(candidates) || candidates.length === 0) return ""
     return `
-      <div style="margin-top:10px;">
-        <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">台词候选</div>
-        <div style="display:grid;gap:6px;">
+      <div class="writing-pov-dialogue">
+        <div class="writing-pov-dialogue-label">台词候选</div>
+        <div class="writing-pov-dialogue-list">
           ${candidates.slice(0, 4).map((item) => `
-            <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 8px;font-size:12px;">
+            <div class="writing-pov-dialogue-item">
               <div>${esc(item?.line || item || "")}</div>
-              ${item?.tone || item?.subtext ? `<div style="color:var(--text-dim);margin-top:2px;">${esc([item.tone, item.subtext].filter(Boolean).join(" · "))}</div>` : ""}
+              ${item?.tone || item?.subtext ? `<div class="writing-pov-dialogue-meta">${esc([item.tone, item.subtext].filter(Boolean).join(" · "))}</div>` : ""}
             </div>
           `).join("")}
         </div>
@@ -753,7 +761,13 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
   }
 
   function _updateSaveStatus() {
-    if (typeof onSaveStatusChange === "function") onSaveStatusChange(saveStatusText())
+    const status = saveStatusText()
+    if (typeof onSaveStatusChange === "function") onSaveStatusChange(status)
+    const badge = typeof document !== "undefined" ? document.getElementById("writing-save-status") : null
+    if (badge) {
+      badge.textContent = status || ""
+      badge.className = `writing-save-badge ${_saveBadgeClass(status)}`.trim()
+    }
   }
 
   function _notifyWordcountUpdate() {

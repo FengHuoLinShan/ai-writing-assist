@@ -127,44 +127,44 @@ const ragView = {
         <div class="empty-state">
           <div class="empty-icon">&#128269;</div>
           <p>与服务器连接断开</p>
-          <p style="color:var(--text-dim);font-size:12px;">请检查网络或刷新页面，后端服务可能尚未启动。</p>
+          <p class="rag-empty-copy">请检查网络或刷新页面，后端服务可能尚未启动。</p>
         </div>
       `
     }
 
     return `
-      <div style="margin-bottom:8px;">
-        <div class="card" style="margin-bottom:8px;">
+      <div class="rag-status-stack">
+        <div class="card rag-status-card">
           <div class="card-title">RAG 索引概览</div>
-          <div style="display:flex;gap:16px;margin-top:8px;">
-            <div><strong style="font-size:24px;">${statusBadge}</strong><br><span style="color:var(--text-dim);font-size:12px;">索引是否可用</span></div>
-            <div><strong style="font-size:24px;">${countDisplay}</strong><br><span style="color:var(--text-dim);font-size:12px;">已索引章节片段</span></div>
-            <div><strong style="font-size:24px;">${this._embeddingFailedCount}</strong><br><span style="color:var(--text-dim);font-size:12px;">降级片段</span></div>
+          <div class="rag-status-metrics">
+            <div class="rag-status-metric"><strong class="rag-status-value">${statusBadge}</strong><br><span class="rag-status-label">索引是否可用</span></div>
+            <div class="rag-status-metric"><strong class="rag-status-value">${countDisplay}</strong><br><span class="rag-status-label">已索引章节片段</span></div>
+            <div class="rag-status-metric"><strong class="rag-status-value">${this._embeddingFailedCount}</strong><br><span class="rag-status-label">降级片段</span></div>
           </div>
         </div>
         <div id="rag-diagnostics">${this._renderDiagnostics()}</div>
         ${this._statusDegraded ? `
-          <div class="card" style="margin-bottom:8px;border-color:var(--warning);">
-            <div class="card-title" style="font-size:12px;color:var(--warning);">索引不完整</div>
-            <p style="font-size:12px;color:var(--text-muted);">${esc((this._statusWarnings || []).join("；") || "部分索引已降级，抽取结果可能不准确。")}</p>
+          <div class="card rag-status-card rag-status-warning-card">
+            <div class="card-title rag-status-warning-title">索引不完整</div>
+            <p class="rag-empty-copy">${esc((this._statusWarnings || []).join("；") || "部分索引已降级，抽取结果可能不准确。")}</p>
           </div>
         ` : ""}
         ${!this._loading && this._totalChunks === 0 ? `
           <div class="empty-state">
             <div class="empty-icon">&#128194;</div>
             <p>还没有检索数据</p>
-            <p style="color:var(--text-dim);font-size:12px;">导入正文后，系统会自动分析内容并建立检索索引。</p>
+            <p class="rag-empty-copy">导入正文后，系统会自动分析内容并建立检索索引。</p>
           </div>
         ` : ""}
         <div id="rag-rebuild-progress">${this._renderRebuildProgress()}</div>
         ${this._renderChunkList()}
       </div>
-      <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-        <div style="display:flex;gap:8px;align-items:center;">
-          <label style="font-size:12px;color:var(--text-dim);">起始章节</label>
-          <input class="form-input" id="rag-rebuild-start" type="number" min="1" placeholder="起始" style="width:70px;" />
-          <label style="font-size:12px;color:var(--text-dim);">结束章节</label>
-          <input class="form-input" id="rag-rebuild-end" type="number" min="1" placeholder="结束" style="width:70px;" />
+      <div class="rag-rebuild-form">
+        <div class="rag-rebuild-range">
+          <label>起始章节</label>
+          <input class="form-input rag-rebuild-input" id="rag-rebuild-start" type="number" min="1" placeholder="起始" />
+          <label>结束章节</label>
+          <input class="form-input rag-rebuild-input" id="rag-rebuild-end" type="number" min="1" placeholder="结束" />
         </div>
         <button class="btn" data-action="rebuild-index">重建索引</button>
         <button class="btn" data-action="prewarm-rag">预热检索引擎</button>
@@ -194,22 +194,22 @@ const ragView = {
     const cacheStats = runtime.cache_stats || {}
     const cacheText = cacheStats.hits != null ? `${cacheStats.hits}/${cacheStats.misses || 0}` : "-"
     const warning = this._prewarmWarning ? `
-      <p style="margin-top:6px;font-size:12px;color:var(--warning);">${esc(this._prewarmWarning)}</p>
+      <p class="rag-diagnostics-warning">${esc(this._prewarmWarning)}</p>
     ` : ""
     return `
-      <details class="card rag-diagnostics-card" style="margin-bottom:8px;" ${this._embeddingDimensionMismatch || this._prewarmWarning ? "open" : ""}>
+      <details class="card rag-diagnostics-card" ${this._embeddingDimensionMismatch || this._prewarmWarning ? "open" : ""}>
         <summary class="card-title">技术诊断详情</summary>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-top:8px;font-size:12px;">
-          <div><strong>${esc(String(actualDim))}</strong><br><span style="color:var(--text-dim);">实际维度</span></div>
-          <div><strong>${esc(String(configuredDim))}</strong><br><span style="color:var(--text-dim);">配置维度</span></div>
-          <div><strong>${esc(runtimeLabel)}</strong><br><span style="color:var(--text-dim);">worker</span></div>
-          <div><strong>${esc(avg)}</strong><br><span style="color:var(--text-dim);">平均检索</span></div>
-          <div><strong>${esc(embeddingAvg)}</strong><br><span style="color:var(--text-dim);">embedding</span></div>
-          <div><strong>${esc(degradedRate)}</strong><br><span style="color:var(--text-dim);">降级率</span></div>
-          <div><strong>${esc(String(this._retryableEmbeddingCount || 0))}</strong><br><span style="color:var(--text-dim);">可重试</span></div>
-          <div><strong>${esc(cacheText)}</strong><br><span style="color:var(--text-dim);">缓存命中/未命中</span></div>
+        <div class="rag-diagnostics-grid">
+          <div class="rag-status-metric"><strong class="rag-diagnostics-value">${esc(String(actualDim))}</strong><br><span class="rag-diagnostics-label">实际维度</span></div>
+          <div class="rag-status-metric"><strong class="rag-diagnostics-value">${esc(String(configuredDim))}</strong><br><span class="rag-diagnostics-label">配置维度</span></div>
+          <div class="rag-status-metric"><strong class="rag-diagnostics-value">${esc(runtimeLabel)}</strong><br><span class="rag-diagnostics-label">worker</span></div>
+          <div class="rag-status-metric"><strong class="rag-diagnostics-value">${esc(avg)}</strong><br><span class="rag-diagnostics-label">平均检索</span></div>
+          <div class="rag-status-metric"><strong class="rag-diagnostics-value">${esc(embeddingAvg)}</strong><br><span class="rag-diagnostics-label">embedding</span></div>
+          <div class="rag-status-metric"><strong class="rag-diagnostics-value">${esc(degradedRate)}</strong><br><span class="rag-diagnostics-label">降级率</span></div>
+          <div class="rag-status-metric"><strong class="rag-diagnostics-value">${esc(String(this._retryableEmbeddingCount || 0))}</strong><br><span class="rag-diagnostics-label">可重试</span></div>
+          <div class="rag-status-metric"><strong class="rag-diagnostics-value">${esc(cacheText)}</strong><br><span class="rag-diagnostics-label">缓存命中/未命中</span></div>
         </div>
-        ${this._embeddingDimensionMismatch ? `<p style="margin-top:6px;font-size:12px;color:var(--warning);">向量维度配置漂移，请同步配置后重启后端。</p>` : ""}
+        ${this._embeddingDimensionMismatch ? `<p class="rag-diagnostics-warning">向量维度配置漂移，请同步配置后重启后端。</p>` : ""}
         ${warning}
       </details>
     `
@@ -292,7 +292,7 @@ const ragView = {
     if (this._rebuildInfo) {
       return `
         <div class="empty-state">
-          <p style="color:var(--text-dim);font-size:12px;">${esc(this._rebuildInfo)}</p>
+          <p class="rag-empty-copy">${esc(this._rebuildInfo)}</p>
         </div>
       `
     }
@@ -375,9 +375,9 @@ const ragView = {
     const items = this._statusItems || []
     if (items.length === 0) {
       return `
-        <div class="card" style="margin-top:8px;">
+        <div class="card rag-chunk-list-card">
           <div class="card-title">最近片段</div>
-          <p style="font-size:12px;color:var(--text-dim);">暂无片段数据</p>
+          <p class="rag-empty-copy">暂无片段数据</p>
         </div>
       `
     }
@@ -401,18 +401,18 @@ const ragView = {
           <td>${characterCount}</td>
           <td>${threadCount}</td>
           <td>${sceneCount}</td>
-          <td style="max-width:200px;" title="${esc(plainText)}">${preview}</td>
+          <td class="rag-chunk-preview" title="${esc(plainText)}">${preview}</td>
         </tr>
       `
     }
 
     return `
-      <div class="card" style="margin-top:8px;">
+      <div class="card rag-chunk-list-card">
         <div class="card-title">最近片段</div>
-        <div style="overflow-x:auto;">
-          <table style="width:100%;font-size:12px;border-collapse:collapse;">
+        <div class="rag-chunk-table-wrap">
+          <table class="data-table rag-chunk-table">
             <thead>
-              <tr style="text-align:left;color:var(--text-dim);">
+              <tr>
                 <th>片段</th>
                 <th>章节</th>
                 <th>字数</th>
@@ -435,14 +435,14 @@ const ragView = {
     return `
       <div class="form-group">
         <label>搜索关键词</label>
-        <div style="display:flex;gap:8px;">
-          <input class="form-input" id="rag-search-input" placeholder="输入搜索关键词..." value="${esc(state.searchQuery || "")}" style="flex:1;" />
+        <div class="rag-search-form">
+          <input class="form-input" id="rag-search-input" placeholder="输入搜索关键词..." value="${esc(state.searchQuery || "")}" />
           <button class="btn btn-primary" data-action="do-search">搜索</button>
         </div>
       </div>
       <div id="rag-results">
         <div class="empty-state">
-          <p style="color:var(--text-dim);font-size:12px;">输入关键词后搜索。</p>
+          <p class="rag-search-empty">输入关键词后搜索。</p>
         </div>
       </div>
     `
@@ -458,33 +458,33 @@ const ragView = {
       const data = await api.rag.search({ query, top_k: 8, mode: "search" }, state.currentProjectId, { signal: this._ensureAbortController().signal })
       const chunks = Array.isArray(data.chunks) ? data.chunks : (Array.isArray(data) ? data : [])
       if (chunks.length === 0) {
-        results.innerHTML = '<div class="empty-state"><p style="color:var(--text-dim);">未找到匹配结果</p></div>'
+        results.innerHTML = '<div class="empty-state"><p class="rag-search-empty">未找到匹配结果</p></div>'
         return
       }
 
-      let html = '<div style="margin-top:12px;">'
+      let html = '<div class="rag-results-list">'
       if (data.degraded || (data.warnings || []).length > 0) {
         const warnings = (data.warnings || []).map((w) => esc(w)).join("<br>")
         html += `
-          <div class="card" style="margin-bottom:8px;border-color:var(--warning);">
-            <div class="card-title" style="font-size:12px;color:var(--warning);">本次结果可能不准确</div>
-            <p style="font-size:12px;color:var(--text-muted);">${warnings || "检索已降级，请检查索引任务结果。"}</p>
+          <div class="card rag-result-card rag-status-warning-card">
+            <div class="card-title rag-status-warning-title">本次结果可能不准确</div>
+            <p class="rag-empty-copy">${warnings || "检索已降级，请检查索引任务结果。"}</p>
           </div>
         `
       }
-      html += `<p style="color:var(--text-muted);font-size:12px;margin-bottom:8px;">找到 ${chunks.length} 条结果</p>`
+      html += `<p class="rag-result-count">找到 ${chunks.length} 条结果</p>`
       for (const chunk of chunks) {
         const sourceType = esc(chunk.source_type || "unknown")
         const text = esc(chunk.text || chunk.summary || chunk.content || "")
         const score = chunk.similarity || chunk.score || ""
         const truncated = text.length > 200 ? text.substring(0, 200) + "..." : text
         html += `
-          <div class="card" style="margin-bottom:8px;">
-            <div class="card-title" style="font-size:12px;">
-              来源：${sourceType}
-              ${score ? `<span style="float:right;color:var(--accent);">${(score * 100).toFixed(0)}%</span>` : ""}
+          <div class="card rag-result-card">
+            <div class="card-title rag-result-title">
+              <span>来源：${sourceType}</span>
+              ${score ? `<span class="rag-result-score">${(score * 100).toFixed(0)}%</span>` : ""}
             </div>
-            <p style="font-size:12px;color:var(--text);">${truncated}</p>
+            <p class="rag-result-text">${truncated}</p>
             <div class="card-meta">${chunk.chapter_index ? `第 ${esc(String(chunk.chapter_index))} 章` : ""}</div>
           </div>
         `
@@ -492,7 +492,7 @@ const ragView = {
       html += "</div>"
       results.innerHTML = html
     } catch (err) {
-      results.innerHTML = `<div class="empty-state"><p style="color:var(--danger);">搜索失败：${esc(err.message)}</p></div>`
+      results.innerHTML = `<div class="empty-state"><p class="rag-error-text">搜索失败：${esc(err.message)}</p></div>`
     }
   },
 

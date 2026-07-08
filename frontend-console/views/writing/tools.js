@@ -125,7 +125,7 @@ export function createWritingTools({
       <div class="form-group">
         <label>当前 Scene：${escapeHtml(currentScene.title || "未命名")}</label>
       </div>
-      <p style="color:var(--text-dim);font-size:11px;margin-top:8px;">
+      <p class="writing-form-hint">
         从当前章节的指定 offset 处切分为新章节，并同步更新 Scene chunk。
       </p>
     `

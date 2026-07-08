@@ -217,7 +217,7 @@ const outlineView = {
     const rangeText = this._plotAutoExtractMeta
       ? `范围: 章节 ${this._plotAutoExtractMeta.start_chapter || 1}-${this._plotAutoExtractMeta.end_chapter || 10}`
       : "范围: 所选章节"
-    return `<div style="margin-bottom:8px;">${renderWorkflowCard(this._plotAutoExtractProgress, {
+    return `<div class="outline-progress-card-wrap">${renderWorkflowCard(this._plotAutoExtractProgress, {
       title: "剧情线自动提取",
       destinationLabel: rangeText,
     })}</div>`
@@ -262,7 +262,7 @@ const outlineView = {
       <div class="empty-state">
         <div class="empty-icon">&#128209;</div>
         <p>场景工作台已作为一级工作区</p>
-        <p style="color:var(--text-dim);font-size:12px;">这里保留旧路径兼容入口，点击后进入完整 Scene 管理。</p>
+        <p class="outline-empty-detail">这里保留旧路径兼容入口，点击后进入完整 Scene 管理。</p>
         <button class="btn btn-primary" data-action="open-scene-workbench">打开场景工作台</button>
       </div>
     `
@@ -349,9 +349,9 @@ const outlineView = {
     const prevDisabled = filters.skip <= 0 ? "disabled" : ""
     const nextDisabled = filters.skip + filters.limit >= total ? "disabled" : ""
     return `
-      <div style="display:flex;gap:8px;justify-content:center;align-items:center;margin-top:12px;">
+      <div class="outline-structure-pagination">
         <button class="btn btn-sm" data-action="prev-outline-structure-page" ${prevDisabled}>上一页</button>
-        <span style="font-size:12px;color:var(--text-dim);">第 ${currentPage} / ${totalPages} 页，共 ${esc(total)} 条</span>
+        <span class="outline-structure-pagination__info">第 ${currentPage} / ${totalPages} 页，共 ${esc(total)} 条</span>
         <button class="btn btn-sm" data-action="next-outline-structure-page" ${nextDisabled}>下一页</button>
       </div>
     `
@@ -448,7 +448,7 @@ const outlineView = {
       <div class="empty-state">
         <div class="empty-icon">&#128204;</div>
         <p>暂无${esc(kind)}。</p>
-        <p style="color:var(--text-dim);font-size:12px;">${esc(detail)}</p>
+        <p class="outline-empty-detail">${esc(detail)}</p>
       </div>
     `
   },
@@ -473,7 +473,7 @@ const outlineView = {
     }
 
     let html = `
-      <div style="margin-bottom:8px;">
+      <div class="outline-actions-bar">
         <button class="btn btn-primary" data-action="create-thread">新建剧情线</button>
         ${this._renderPlotAutoExtractAction()}
       </div>
@@ -513,13 +513,13 @@ const outlineView = {
       const safeStatus = allowedStatuses.has(t.status) ? t.status : "draft"
       const statusClass = `badge-${safeStatus}`
       html += `
-        <tr data-id="${esc(t.id || t.thread_id)}">
+        <tr class="outline-structure-row" data-id="${esc(t.id || t.thread_id)}">
           <td class="selection-cell">${renderSelectionCell(this, scope, t.id || t.thread_id, `选择 ${t.name || t.title || "剧情线"}`)}</td>
           <td data-label="状态"><span class="badge ${statusClass}">${statusMap[safeStatus] || esc(safeStatus)}</span></td>
           <td data-label="名称">${esc(t.name || t.title)}</td>
-          <td data-label="类型" style="color:var(--accent-dim);font-size:12px;">${esc(t.thread_type || "-")}</td>
+          <td data-label="类型" class="outline-asset-meta">${esc(t.thread_type || "-")}</td>
           <td data-label="标记">${this._renderStructureAssetBadges(t) || "-"}</td>
-          <td data-label="描述" style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(this._threadDescription(t))}</td>
+          <td data-label="描述" class="outline-asset-description">${esc(this._threadDescription(t))}</td>
           <td data-label="操作">
             ${this._renderThreadReviewAction(t)}
             <button class="btn btn-sm btn-primary" data-action="edit-thread" data-id="${esc(t.id || t.thread_id)}">编辑</button>
@@ -542,7 +542,7 @@ const outlineView = {
     }
 
     let html = `
-      <div style="margin-bottom:8px;">
+      <div class="outline-actions-bar">
         <button class="btn btn-primary" data-action="create-arc">新建篇章纲</button>
         ${this._renderPlotAutoExtractAction()}
       </div>
@@ -584,13 +584,13 @@ const outlineView = {
         ? `${a.start_chapter}-${a.end_chapter}`
         : "-"
       html += `
-        <tr data-id="${esc(a.id || a.arc_id)}">
+        <tr class="outline-structure-row" data-id="${esc(a.id || a.arc_id)}">
           <td class="selection-cell">${renderSelectionCell(this, scope, a.id || a.arc_id, `选择 ${a.name || a.title || "篇章纲"}`)}</td>
           <td data-label="状态"><span class="badge ${statusClass}">${statusMap[safeStatus] || esc(safeStatus)}</span></td>
           <td data-label="名称">${esc(a.name || a.title)}</td>
-          <td data-label="章节范围" style="font-family:var(--font-mono);font-size:12px;">${esc(range)}</td>
+          <td data-label="章节范围" class="outline-asset-mono">${esc(range)}</td>
           <td data-label="标记">${this._renderStructureAssetBadges(a) || "-"}</td>
-          <td data-label="描述" style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(this._arcDescription(a))}</td>
+          <td data-label="描述" class="outline-asset-description">${esc(this._arcDescription(a))}</td>
           <td data-label="操作">
             <button class="btn btn-sm btn-primary" data-action="edit-arc" data-id="${esc(a.id || a.arc_id)}">编辑</button>
             ${renderActionMenu(`arc-actions-${esc(a.id || a.arc_id)}`, [
@@ -612,7 +612,7 @@ const outlineView = {
     }
 
     let html = `
-      <div style="margin-bottom:8px;">
+      <div class="outline-actions-bar">
         <button class="btn btn-primary" data-action="create-foreshadowing">新建伏笔</button>
         ${this._renderPlotAutoExtractAction()}
       </div>
@@ -633,14 +633,14 @@ const outlineView = {
     for (const f of this._foreshadowing) {
       const st = FORESHADOWING_STATUS_LABELS[f.status] || f.status
       const description = f.summary || f.name || "-"
-      tableHtml += `<tr data-id="${esc(f.id)}">
+      tableHtml += `<tr class="outline-structure-row" data-id="${esc(f.id)}">
         <td class="selection-cell">${renderSelectionCell(this, scope, f.id, `选择 ${description}`)}</td>
         <td data-label="状态"><span class="badge badge-${esc(f.status || "planted")}">${esc(st)}</span></td>
-        <td data-label="描述" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(description)}</td>
-        <td data-label="目标章节" style="font-family:var(--font-mono);font-size:12px;">${f.planned_seed_chapter != null ? esc(String(f.planned_seed_chapter)) : "-"}</td>
+        <td data-label="描述" class="outline-asset-description">${esc(description)}</td>
+        <td data-label="目标章节" class="outline-asset-mono">${f.planned_seed_chapter != null ? esc(String(f.planned_seed_chapter)) : "-"}</td>
         <td data-label="标记">${this._renderStructureAssetBadges(f) || "-"}</td>
         <td data-label="操作">
-          <select class="form-select foreshadowing-status-select" style="width:auto;font-size:12px;padding:2px 4px;" data-id="${esc(f.id)}">
+          <select class="form-select foreshadowing-status-select outline-status-select" data-id="${esc(f.id)}">
             ${FORESHADOWING_STATUSES.map((s) => `<option value="${s}" ${f.status === s ? "selected" : ""}>${FORESHADOWING_STATUS_LABELS[s] || s}</option>`).join("")}
           </select>
           <button class="btn btn-sm btn-primary" data-action="edit-foreshadowing" data-id="${esc(f.id)}">编辑</button>
@@ -661,7 +661,7 @@ const outlineView = {
     }
 
     let html = `
-      <div style="margin-bottom:8px;">
+      <div class="outline-actions-bar">
         <button class="btn btn-primary" data-action="create-reveal">新建揭示</button>
         ${this._renderPlotAutoExtractAction()}
       </div>
@@ -682,14 +682,14 @@ const outlineView = {
     for (const r of this._reveals) {
       const st = REVEAL_STATUS_LABELS[r.status] || r.status || "计划中"
       const revealChapter = (r.reveal_stages && r.reveal_stages[0] && r.reveal_stages[0].chapter_index) || "-"
-      html += `<tr data-id="${esc(r.id)}">
+      html += `<tr class="outline-structure-row" data-id="${esc(r.id)}">
         <td class="selection-cell">${renderSelectionCell(this, scope, r.id, "选择揭示")}</td>
         <td data-label="状态"><span class="badge badge-${esc(r.status || "planned")}">${esc(st)}</span></td>
-        <td data-label="描述" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.secret_summary || "-")}</td>
-        <td data-label="揭示章节" style="font-family:var(--font-mono);font-size:12px;">${revealChapter !== "-" ? esc(String(revealChapter)) : "-"}</td>
+        <td data-label="描述" class="outline-asset-description">${esc(r.secret_summary || "-")}</td>
+        <td data-label="揭示章节" class="outline-asset-mono">${revealChapter !== "-" ? esc(String(revealChapter)) : "-"}</td>
         <td data-label="标记">${this._renderStructureAssetBadges(r) || "-"}</td>
         <td data-label="操作">
-          <select class="form-select reveal-status-select" style="width:auto;font-size:12px;padding:2px 4px;" data-id="${esc(r.id)}">
+          <select class="form-select reveal-status-select outline-status-select" data-id="${esc(r.id)}">
             ${REVEAL_STATUSES.map((s) => `<option value="${s}" ${r.status === s ? "selected" : ""}>${REVEAL_STATUS_LABELS[s] || s}</option>`).join("")}
           </select>
           <button class="btn btn-sm btn-primary" data-action="edit-reveal" data-id="${esc(r.id)}">编辑</button>
@@ -1420,9 +1420,9 @@ const outlineView = {
         <label>结束章节</label>
         <input class="form-input" id="generate-structure-end" type="number" min="1" value="10" />
       </div>
-      <div id="generate-structure-warning" class="form-group" style="display:none;color:var(--danger);font-size:12px;"></div>
-      <div id="generate-structure-confirm-row" class="form-group" style="display:none;">
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+      <div id="generate-structure-warning" class="form-group outline-generate-warning" style="display:none;"></div>
+      <div id="generate-structure-confirm-row" class="form-group outline-generate-confirm-row" style="display:none;">
+        <label class="outline-generate-confirm-label">
           <input type="checkbox" id="generate-structure-confirm" />
           <span>我已确认，继续生成</span>
         </label>

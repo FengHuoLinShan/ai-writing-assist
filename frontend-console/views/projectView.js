@@ -53,8 +53,8 @@ const projectView = {
     } else {
       html += `
         <div class="project-header">
-          <div style="display:flex;align-items:center;justify-content:space-between;">
-            <button class="btn btn-ghost btn-sm" data-action="recycle-bin" style="font-size:12px;">回收站</button>
+          <div class="project-header__top">
+            <button class="btn btn-ghost btn-sm" data-action="recycle-bin">回收站</button>
           </div>
           <p>选择一个项目继续创作，或创建新项目。</p>
           <div class="divider"></div>
@@ -93,7 +93,7 @@ const projectView = {
             <div class="project-meta">
               ${created ? `创建于 ${created}` : "刚刚创建"}
             </div>
-            <div class="project-actions" style="margin-top:12px;display:flex;gap:8px;">
+            <div class="project-card__actions">
               <button class="btn btn-sm btn-primary" data-action="continue-writing" data-id="${esc(p.id)}">继续写作</button>
               <button class="btn btn-sm btn-ghost" data-action="edit-project" data-id="${esc(p.id)}">编辑</button>
               <button class="btn btn-sm btn-danger" data-action="delete-project" data-id="${esc(p.id)}">删除</button>
@@ -111,7 +111,7 @@ const projectView = {
       `
 
       html += `
-        <div style="margin-top:16px;">
+        <div class="project-import-section">
           <button class="btn btn-ghost btn-sm" data-action="toggle-import">
             ${this._importSectionOpen ? "收起导入" : "导入小说到当前项目"}
           </button>
@@ -120,7 +120,7 @@ const projectView = {
         <div class="import-list">
           <div class="import-list-header">导入记录</div>
           <div id="import-list-body">
-            <p style="color:var(--text-tertiary);font-size:13px;">加载中...</p>
+            <p class="project-import-list__status">加载中...</p>
           </div>
         </div>
       `
@@ -138,7 +138,7 @@ const projectView = {
     const ids = projects.map((project) => project.id).filter(Boolean)
     reconcileBulkSelection(this, "project-cards", ids)
     return `
-      <div class="row-actions" style="margin-bottom:8px;">
+      <div class="row-actions project-bulk-toolbar__select">
         <button class="btn btn-sm" data-action="select-visible-projects" ${ids.length === 0 ? "disabled" : ""}>全选当前项目</button>
       </div>
     ` + renderBulkToolbar(this, "project-cards", [
@@ -435,7 +435,7 @@ const projectView = {
             <button class="btn btn-sm btn-danger" id="recycle-bulk-delete">批量永久删除</button>
           </div>
         </div>
-        <div style="max-height:400px;overflow-y:auto;">
+        <div class="recycle-bin__list">
       `
       for (const p of items) {
         const name = p.title || p.name || "未命名"
@@ -443,16 +443,16 @@ const projectView = {
           ? new Date(p.deleted_at).toLocaleDateString("zh-CN")
           : ""
         listHtml += `
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border-dim);">
+          <div class="recycle-bin__item">
             <label class="selection-checkbox" title="选择 ${esc(name)}">
               <input type="checkbox" class="recycle-project-checkbox" data-id="${esc(p.id)}" />
               <span class="sr-only">选择 ${esc(name)}</span>
             </label>
-            <div style="flex:1;min-width:0;margin-left:8px;">
-              <div style="font-weight:500;">${esc(name)}</div>
-              <div style="font-size:11px;color:var(--text-dim);">删除于 ${deletedDate}</div>
+            <div class="recycle-bin__item-info">
+              <div class="recycle-bin__item-name">${esc(name)}</div>
+              <div class="recycle-bin__item-date">删除于 ${deletedDate}</div>
             </div>
-            <div style="display:flex;gap:6px;">
+            <div class="recycle-bin__item-actions">
               <button class="btn btn-sm btn-primary restore-project-btn" data-id="${esc(p.id)}">恢复</button>
               <button class="btn btn-sm btn-danger perm-delete-project-btn" data-id="${esc(p.id)}">永久删除</button>
             </div>
@@ -659,22 +659,22 @@ const projectView = {
   _renderImportSection() {
     const hasProject = !!state.currentProjectId
     return `
-      <div style="border:1px solid var(--text-quaternary);border-radius:var(--radius-md);padding:16px;margin-top:16px;background:var(--bg-panel);">
-        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">
+      <div class="project-import-panel">
+        <div class="project-import-panel__hint">
           将小说文件导入到当前选中的项目。
-          ${hasProject ? `当前项目：<strong>${esc(state.currentProject?.title || "")}</strong>` : '<span style="color:var(--warning);">请先点击项目行选择项目</span>'}
+          ${hasProject ? `当前项目：<strong>${esc(state.currentProject?.title || "")}</strong>` : '<span class="project-import-panel__hint-warning">请先点击项目行选择项目</span>'}
         </div>
-        <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
-          <div style="flex:1;min-width:200px;">
-            <label style="display:block;font-size:12px;color:var(--text-secondary);margin-bottom:6px;">选择文件（txt/epub/html/mobi）</label>
-            <input type="file" id="pv-import-file" accept=".txt,.epub,.html,.htm,.mobi,.azw3" style="width:100%;color:var(--text-body);font-size:13px;" ${!hasProject ? "disabled" : ""} />
+        <div class="project-import-panel__form">
+          <div class="project-import-panel__field">
+            <label class="project-import-panel__label">选择文件（txt/epub/html/mobi）</label>
+            <input type="file" id="pv-import-file" class="project-import-panel__input" accept=".txt,.epub,.html,.htm,.mobi,.azw3" ${!hasProject ? "disabled" : ""} />
           </div>
           <button class="btn btn-primary" data-action="upload-file" ${this._importUploading || !hasProject ? "disabled" : ""}>
             ${this._importUploading ? "上传中..." : "上传并导入"}
           </button>
         </div>
-        <div id="pv-upload-progress" style="margin-top:8px;">${this._renderUploadProgress()}</div>
-        <div id="pv-import-history" style="margin-top:12px;"></div>
+        <div id="pv-upload-progress" class="project-import-panel__progress">${this._renderUploadProgress()}</div>
+        <div id="pv-import-history" class="project-import-panel__history"></div>
       </div>
     `
   },
@@ -716,7 +716,7 @@ const projectView = {
     if (!container) return
     await this._loadImportRecords()
     if (this._importRecords.length === 0) {
-      container.innerHTML = '<p style="color:var(--text-tertiary);font-size:13px;padding:8px 0;">暂无导入记录。</p>'
+      container.innerHTML = '<p class="project-import-list__empty">暂无导入记录。</p>'
       return
     }
     let html = ''
@@ -726,10 +726,10 @@ const projectView = {
       const time = r.created_at ? new Date(r.created_at).toLocaleString("zh-CN") : ""
       html += `<div class="import-list-item">
         <span class="status-dot ${r.status === "done" ? "success" : r.status === "failed" ? "error" : r.status === "processing" ? "warning" : "info"}"></span>
-        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-body);">${esc(r.file_name)}</span>
+        <span class="project-import-list__item-name">${esc(r.file_name)}</span>
         <span class="pill ${statusClass[r.status] || ""}">${esc(statusMap[r.status] || r.status || "")}</span>
-        <span style="color:var(--text-secondary);font-size:12px;">成功 ${r.imported_chapters || 0} / 共 ${r.total_chapters || 0} 章</span>
-        <span style="color:var(--text-tertiary);font-size:12px;font-family:var(--font-mono);">${time}</span>
+        <span class="project-import-list__item-chapters">成功 ${r.imported_chapters || 0} / 共 ${r.total_chapters || 0} 章</span>
+        <span class="project-import-list__item-time">${time}</span>
       </div>`
     }
     container.innerHTML = html
@@ -751,7 +751,10 @@ const projectView = {
     }
     this._importUploading = true
     this._uploadProgress = null
-    if (btn) btn.textContent = "上传中 0%"
+    if (btn) {
+      btn.disabled = true
+      btn.textContent = "上传中 0%"
+    }
     this._setUploadProgress("上传文件", 0, "正在上传文件...")
 
     try {
@@ -818,7 +821,10 @@ const projectView = {
     } finally {
       this._importUploading = false
       this._uploadProgress = null
-      if (btn) btn.textContent = "上传并导入"
+      if (btn) {
+        btn.textContent = "上传并导入"
+        btn.disabled = !state.currentProjectId
+      }
       const progressBar = document.getElementById("pv-upload-progress")
       if (progressBar) progressBar.innerHTML = ""
     }

@@ -1,4 +1,5 @@
 import { EDITOR_FONT_OPTIONS } from "./constants.js"
+import { renderSourceLabel } from "./fieldSourceLabel.js"
 
 export function renderAuthorPreferencesForm({
   dailyGoal,
@@ -8,12 +9,12 @@ export function renderAuthorPreferencesForm({
 } = {}) {
   return `
     <div class="author-preferences-form">
-      ${source.daily_goal ? `<div class="field-source">${sourceLabelHtml(source.daily_goal)}</div>` : ""}
       <div class="form-row">
         <div class="form-group">
           <label for="author-daily-goal">日更目标（字）</label>
           <input class="form-input" id="author-daily-goal" type="number" min="0" max="100000"
             value="${dailyGoal ?? ""}" placeholder="6000" />
+          ${sourceLabelHtml(source.daily_goal)}
           ${renderResetFor(source.daily_goal, "daily_goal")}
         </div>
         <div class="form-group">
@@ -21,13 +22,16 @@ export function renderAuthorPreferencesForm({
           <select class="form-input" id="author-editor-font">
             ${EDITOR_FONT_OPTIONS.map((v) => `<option value="${v}" ${editorFont === v ? "selected" : ""}>${v}</option>`).join("")}
           </select>
+          ${sourceLabelHtml(source.editor_font)}
           ${renderResetFor(source.editor_font, "editor_font")}
         </div>
-        <div class="form-group">
-          <label>
+        <div class="form-group settings-form-group-checkbox">
+          <span class="settings-field-label-text">默认专注模式</span>
+          <label class="settings-checkbox-label">
             <input id="author-default-focus" type="checkbox" ${defaultFocusMode ? "checked" : ""} />
             默认专注模式
           </label>
+          ${sourceLabelHtml(source.default_focus_mode)}
           ${renderResetFor(source.default_focus_mode, "default_focus_mode")}
         </div>
       </div>
@@ -41,7 +45,8 @@ function renderResetFor(srcObj, fieldName) {
 }
 
 function sourceLabelHtml(srcObj) {
-  return `<small class="source-tag">${srcObj.source}</small>`
+  if (!srcObj) return ""
+  return `<div class="settings-field-source">${renderSourceLabel(srcObj)}</div>`
 }
 
 export function readAuthorPreferencesForm() {

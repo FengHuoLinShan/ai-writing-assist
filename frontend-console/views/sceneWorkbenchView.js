@@ -892,11 +892,11 @@ const sceneWorkbenchView = {
       return
     }
     const cards = scenes.map((scene, index) => `
-      <label class="scene-primary-card" style="display:block;margin-bottom:10px;border:1px solid var(--border);padding:10px;border-radius:var(--radius-md);">
+      <label class="scene-primary-card scene-picker-card">
         <input type="radio" name="merge-target-scene-id" value="${esc(scene.id)}" ${index === 0 ? "checked" : ""} />
         <strong>${esc(scene.title || "未命名 Scene")}</strong>
-        <div style="color:var(--text-dim);font-size:12px;">${esc(this._sourceLabel(scene.source))} · ${esc(this._statusLabel(scene.status))} · ${esc(this._sceneChapterLabel(scene))}</div>
-        <p style="margin:6px 0 0;">${esc(scene.goal || scene.core_conflict || "暂无目标")}</p>
+        <div class="scene-picker-card__meta">${esc(this._sourceLabel(scene.source))} · ${esc(this._statusLabel(scene.status))} · ${esc(this._sceneChapterLabel(scene))}</div>
+        <p class="scene-picker-card__summary">${esc(scene.goal || scene.core_conflict || "暂无目标")}</p>
       </label>
     `).join("")
     showModalHtml("选择目标 Scene", cards, [
@@ -935,12 +935,12 @@ const sceneWorkbenchView = {
         meta.confidence != null ? `置信度:${meta.confidence}` : "",
       ].filter(Boolean)
       return `
-        <label class="scene-primary-card" style="display:block;margin-bottom:10px;border:1px solid var(--border);padding:10px;border-radius:var(--radius-md);">
+        <label class="scene-primary-card scene-picker-card">
           <input type="radio" name="primary-scene-id" value="${esc(scene.id)}" ${index === 0 ? "checked" : ""} />
           <strong>${esc(scene.title || "未命名 Scene")}</strong>
-          <div style="color:var(--text-dim);font-size:12px;">${esc(this._sourceLabel(scene.source))} · ${esc(this._statusLabel(scene.status))} · ${esc(this._sceneChapterLabel(scene))}</div>
-          <p style="margin:6px 0 0;">${esc(scene.goal || scene.core_conflict || "暂无目标")}</p>
-          ${flags.length ? `<div style="margin-top:6px;color:var(--text-dim);font-size:12px;">${esc(flags.join(" · "))}</div>` : ""}
+          <div class="scene-picker-card__meta">${esc(this._sourceLabel(scene.source))} · ${esc(this._statusLabel(scene.status))} · ${esc(this._sceneChapterLabel(scene))}</div>
+          <p class="scene-picker-card__summary">${esc(scene.goal || scene.core_conflict || "暂无目标")}</p>
+          ${flags.length ? `<div class="scene-picker-card__flags">${esc(flags.join(" · "))}</div>` : ""}
         </label>
       `
     }).join("")
@@ -1316,7 +1316,7 @@ const sceneWorkbenchView = {
     const rangeText = this._autoExtractMeta
       ? `范围: 章节 ${this._autoExtractMeta.start_chapter || 1}-${this._autoExtractMeta.end_chapter || 10}`
       : "范围: 所选章节"
-    return `<div style="margin-bottom:8px;">${renderWorkflowCard(this._autoExtractProgress, {
+    return `<div class="scene-progress-card-wrap">${renderWorkflowCard(this._autoExtractProgress, {
       title: "场景（scene）自动提取",
       destinationLabel: rangeText,
     })}</div>`
@@ -1327,12 +1327,12 @@ const sceneWorkbenchView = {
     const result = this._crossChapterProgress.raw?.result || {}
     const suggestions = Array.isArray(result.suggestions) ? result.suggestions : []
     const suggestionHtml = this._crossChapterProgress.done && suggestions.length ? `
-      <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
-        <span style="color:var(--text-dim);font-size:12px;">${esc(suggestions.length)} 条建议可查看</span>
+      <div class="scene-cross-chapter-suggestions">
+        <span class="scene-cross-chapter-suggestions__count">${esc(suggestions.length)} 条建议可查看</span>
         <button class="btn btn-sm btn-primary" data-action="show-cross-chapter-suggestions">查看建议</button>
       </div>
     ` : ""
-    return `<div style="margin-bottom:8px;">${renderWorkflowCard(this._crossChapterProgress, {
+    return `<div class="scene-progress-card-wrap">${renderWorkflowCard(this._crossChapterProgress, {
       title: "跨章 Scene 识别",
       destinationLabel: "完成后可选择建议并保存融合 Scene",
     })}${suggestionHtml}</div>`
@@ -1384,9 +1384,9 @@ const sceneWorkbenchView = {
         <label>结束章节</label>
         <input class="form-input" id="scene-auto-extract-end" type="number" min="1" value="10" />
       </div>
-      <label style="display:flex;gap:8px;align-items:center;font-size:12px;color:var(--text-body);margin-top:8px;">
+      <label class="scene-quality-option">
         <input id="scene-auto-extract-high-quality" type="checkbox" />
-        更高质量 <span style="color:var(--text-dim);">需要标准提取约8倍时间</span>
+        更高质量 <span class="scene-quality-option__hint">需要标准提取约8倍时间</span>
       </label>
     `
     showModalHtml("场景（scene）自动提取", formHtml, [{
@@ -1536,12 +1536,12 @@ const sceneWorkbenchView = {
       const span = Array.isArray(item.chapter_span) ? item.chapter_span.join("-") : "-"
       const trace = (item.scan_trace || []).map((step) => `${step.action}: ${step.reason || ""}`).join(" / ")
       return `
-        <label class="scene-fusion-suggestion" style="display:block;margin-bottom:12px;border:1px solid var(--border);padding:8px;border-radius:var(--radius-md);">
+        <label class="scene-fusion-suggestion scene-cross-chapter-suggestion">
           <input type="radio" name="cross-chapter-suggestion" value="${esc(index)}" ${index === 0 ? "checked" : ""} />
           <strong>${esc(item.proposed_scene?.title || "跨章融合建议")}</strong>
-          <div style="color:var(--text-dim);font-size:12px;">章节 ${esc(span)} · 置信度 ${esc(item.confidence ?? "-")} · ${esc(item.stop_reason || "")}</div>
-          <p style="margin:6px 0 0;">${esc(item.reason || "无说明")}</p>
-          <details style="margin-top:6px;"><summary>扫描轨迹</summary><p>${esc(trace || "无")}</p></details>
+          <div class="scene-fusion-suggestion__meta">章节 ${esc(span)} · 置信度 ${esc(item.confidence ?? "-")} · ${esc(item.stop_reason || "")}</div>
+          <p class="scene-fusion-suggestion__summary">${esc(item.reason || "无说明")}</p>
+          <details class="scene-fusion-suggestion__trace"><summary>扫描轨迹</summary><p>${esc(trace || "无")}</p></details>
         </label>
       `
     }).join("")

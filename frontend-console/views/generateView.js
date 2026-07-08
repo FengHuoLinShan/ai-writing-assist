@@ -863,7 +863,7 @@ const generateView = {
       <div class="generate-result-card">
         <div class="generate-result-title">${esc(entity.name || "未命名对象")}</div>
         <div class="generate-result-meta">${esc(entity.entity_type || "-")} · ${esc(entity.status || "draft")}</div>
-        <p style="font-size:13px;line-height:1.6;margin:0;">${esc(entity.summary || "已生成数据库草稿。")}</p>
+        <p class="generate-result-summary">${esc(entity.summary || "已生成数据库草稿。")}</p>
         <div class="generate-result-actions">
           <button class="btn btn-sm btn-primary" data-action="open-generated-destination" data-target-view="world" data-target-subview="objects">打开世界对象</button>
           <button class="btn btn-sm" data-action="continue-chat">继续聊</button>
@@ -917,7 +917,7 @@ const generateView = {
 
   _renderInlineError(message) {
     const p = document.createElement("p")
-    p.style.cssText = "color:var(--danger);font-size:13px;"
+    p.className = "generate-error-text"
     p.textContent = message
     return p
   },
@@ -1245,7 +1245,7 @@ const generateView = {
         return
       }
       if (resultEl) {
-        resultEl.innerHTML = `<p style="color:var(--danger);font-size:13px;">生成失败：${esc(err.message || "未知错误")}</p>`
+        resultEl.innerHTML = `<p class="generate-error-text">生成失败：${esc(err.message || "未知错误")}</p>`
       }
       toast(`角色视角正文生成失败：${err.message || "未知错误"}`, "error")
     } finally {
@@ -1264,7 +1264,7 @@ const generateView = {
         <div class="generate-result-meta">
           第 ${esc(submission.chapterIndex)} 章 · ${esc(scene?.title || scene?.name || submission.sceneId)} · ${esc(role?.name || role?.display_name || submission.viewpointCharacterId)}
         </div>
-        <p style="font-size:13px;line-height:1.6;margin:0;">${id ? `任务 / 草稿：${esc(id)}` : "已生成候选正文草稿。"}</p>
+        <p class="generate-result-summary">${id ? `任务 / 草稿：${esc(id)}` : "已生成候选正文草稿。"}</p>
         <div class="generate-result-actions">
           <button class="btn btn-sm btn-primary" data-action="open-generated-destination" data-target-view="writing" data-chapter-index="${esc(submission.chapterIndex)}">打开写作页</button>
         </div>
@@ -1395,7 +1395,7 @@ const generateView = {
     } catch (err) {
       const message = `编译失败：${esc(err.message || "未知错误")}`
       if (output) {
-        output.replaceChildren(this._renderInlineError(`编译失败：${err.message || "未知错误"}`))
+        output.replaceChildren(this._renderInlineError(message))
       }
       if (!silent) {
         toast(message, "error")
@@ -1426,10 +1426,10 @@ const generateView = {
       const data = await api.context.render(params, { signal: controller.signal })
       if (data?.markdown) {
         this._lastContextMarkdown = data.markdown
-        output.innerHTML = `<pre style="background:var(--bg);color:var(--text);padding:16px;border-radius:var(--radius-sm);border:1px solid var(--border);font-size:12px;line-height:1.6;overflow-x:auto;white-space:pre-wrap;word-break:break-word;">${esc(data.markdown)}</pre>`
+        output.innerHTML = `<pre class="generate-markdown-pre">${esc(data.markdown)}</pre>`
       }
     } catch (err) {
-      output.innerHTML = `<p style="color:var(--danger);font-size:13px;">渲染失败：${esc(err.message || "未知错误")}</p>`
+      output.innerHTML = `<p class="generate-error-text">渲染失败：${esc(err.message || "未知错误")}</p>`
     } finally {
       this._releaseRequestController(controller)
       this._setBusy(false)
@@ -1536,7 +1536,7 @@ const generateView = {
               <label>任务描述 *</label>
               <textarea class="form-textarea" id="gen-task" rows="2" placeholder="如：为旧档案缺页篇生成 10 章章节卡">${esc(form.task || "")}</textarea>
             </div>
-            <details class="gen-form-section">
+            <details class="gen-form-section generate-task-section">
               <summary>高级设置</summary>
               <div class="form-group">
                 <label>范围</label>
@@ -1577,7 +1577,7 @@ const generateView = {
               <div class="form-group" id="gen-viewpoint-character-group" style="${form.reveal_mode === "character" ? "" : "display:none;"}">
                 <label>视角人物 *</label>
                 <input class="form-input" id="gen-viewpoint-character" value="${esc(form.viewpoint_character_id || "")}" placeholder="角色视角模式必须填写一个 character ID" />
-                <p style="color:var(--text-dim);font-size:12px;margin:4px 0 0;">角色视角模式仅使用此 ID 作为视角人物，与“相关人物”相互独立。</p>
+                <p class="generate-form-hint">角色视角模式仅使用此 ID 作为视角人物，与“相关人物”相互独立。</p>
               </div>
             </details>
             <div class="generate-result-actions">
@@ -1588,7 +1588,7 @@ const generateView = {
             </div>
           </div>
           <div class="card generate-task-result">
-            <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+            <div class="card-title generate-task-output-header">
               <span>输出</span>
               <span>
                 <button class="btn btn-sm" data-action="copy-task-md" disabled title="渲染 Markdown 后可复制">复制</button>
@@ -1611,7 +1611,7 @@ const generateView = {
         <div class="card-title">上下文预览</div>
         ${sourceText ? `<div class="generate-context-preview-source">来自：${esc(sourceText)}</div>` : ""}
         ${this._lastContextBundle ? `
-          <div class="generate-result-actions" style="margin-bottom:12px;">
+          <div class="generate-result-actions generate-preview-actions">
             <button class="btn btn-sm" data-action="render-task-md">渲染 Markdown</button>
             <button class="btn btn-sm" data-action="copy-task-md" ${this._lastContextMarkdown ? "" : "disabled"}>复制</button>
             <button class="btn btn-sm" data-action="export-task-md" ${this._lastContextMarkdown ? "" : "disabled"}>导出</button>
@@ -1629,48 +1629,51 @@ const generateView = {
 
   _renderCompileResult(data) {
     let html = ''
-    html += '<div style="margin-bottom:12px;padding:8px;background:var(--panel);border-radius:var(--radius-sm);border:1px solid var(--border);">'
-    html += `<span style="color:var(--accent);font-size:13px;">已加载 ${data.sections?.length || 0} 段上下文</span>`
-    html += `<span style="color:var(--text-dim);margin-left:12px;">范围：${esc(data.scope)}</span>`
-    html += `<span style="color:var(--text-dim);margin-left:12px;">揭示模式：${esc(data.reveal_mode)}</span>`
-    html += `<span style="color:var(--text-dim);margin-left:12px;">Tokens：${data.total_tokens || 0} / ${data.budget_tokens || 0}</span>`
+    html += '<div class="generate-context-header">'
+    html += `<span class="generate-context-stat">已加载 ${data.sections?.length || 0} 段上下文</span>`
+    html += `<span class="generate-context-meta">范围：${esc(data.scope)}</span>`
+    html += `<span class="generate-context-meta">揭示模式：${esc(data.reveal_mode)}</span>`
+    html += `<span class="generate-context-meta">Tokens：${data.total_tokens || 0} / ${data.budget_tokens || 0}</span>`
     html += '</div>'
 
     if (data.sections && data.sections.length > 0) {
-      html += '<table class="data-table" style="margin-bottom:12px;"><thead><tr><th>Tier</th><th>Section</th><th>Tokens</th><th>Truncated</th></tr></thead><tbody>'
+      html += '<table class="data-table generate-context-table"><thead><tr><th>Tier</th><th>Section</th><th>Tokens</th><th>Truncated</th></tr></thead><tbody>'
       for (const section of data.sections) {
         const truncatedText = section.truncated ? "是" : "否"
-        html += `<tr><td style="color:var(--text-muted);">${esc(this._tierName(section.tier))}</td><td>${esc(section.key)}</td><td>${section.token_count || 0}</td><td>${truncatedText}</td></tr>`
+        html += `<tr><td class="generate-context-meta">${esc(this._tierName(section.tier))}</td><td>${esc(section.key)}</td><td>${section.token_count || 0}</td><td>${truncatedText}</td></tr>`
       }
       html += '</tbody></table>'
     }
 
     if (data.evicted && data.evicted.length > 0) {
-      html += '<div style="margin-bottom:12px;"><strong style="color:var(--text-muted);font-size:12px;">已驱逐段落：</strong>'
-      html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">'
+      html += '<div class="generate-context-tag-list">'
+      html += '<strong class="generate-context-meta">已驱逐段落：</strong>'
+      html += '<div class="generate-context-tags">'
       for (const key of data.evicted) {
-        html += `<span style="background:var(--panel);color:var(--text);padding:2px 8px;border-radius:var(--radius-sm);font-size:11px;border:1px solid var(--border);">${esc(key)}</span>`
+        html += `<span class="generate-context-tag">${esc(key)}</span>`
       }
       html += '</div></div>'
     }
 
     if (data.truncated && data.truncated.length > 0) {
-      html += '<div style="margin-bottom:12px;"><strong style="color:var(--text-muted);font-size:12px;">已截断段落：</strong>'
-      html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">'
+      html += '<div class="generate-context-tag-list">'
+      html += '<strong class="generate-context-meta">已截断段落：</strong>'
+      html += '<div class="generate-context-tags">'
       for (const key of data.truncated) {
-        html += `<span style="background:var(--panel);color:var(--danger);padding:2px 8px;border-radius:var(--radius-sm);font-size:11px;border:1px solid var(--border);">${esc(key)}</span>`
+        html += `<span class="generate-context-tag generate-context-tag--truncated">${esc(key)}</span>`
       }
       html += '</div></div>'
     }
 
     if (data.warnings && data.warnings.length > 0) {
-      html += '<div style="margin-bottom:12px;padding:8px;background:rgba(255,204,102,0.1);border-radius:var(--radius-sm);border:1px solid var(--warning);"><strong style="color:var(--warning);font-size:12px;">⚠ 警告</strong>'
+      html += '<div class="generate-context-warning">'
+      html += '<strong class="generate-context-warning-title">⚠ 警告</strong>'
       for (const w of data.warnings) {
-        html += `<p style="color:var(--warning);font-size:12px;margin:2px 0;">${esc(w)}</p>`
+        html += `<p class="generate-context-warning-text">${esc(w)}</p>`
       }
       html += '</div>'
     }
-    html += '<p style="color:var(--text-dim);font-size:12px;">点击"渲染 Markdown"查看完整上下文内容。</p>'
+    html += '<p class="generate-context-hint">点击"渲染 Markdown"查看完整上下文内容。</p>'
     return html
   },
 

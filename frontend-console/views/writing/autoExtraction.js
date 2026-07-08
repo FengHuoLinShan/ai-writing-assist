@@ -64,12 +64,13 @@ export function createAutoExtraction({
         <input class="form-input" id="auto-extract-end" type="number" min="1" value="${lastChapter}" />
       </div>
       ${stage === "scenes" ? `
-        <label style="display:flex;gap:8px;align-items:center;font-size:12px;color:var(--text-body);margin-top:8px;">
+        <label class="writing-checkbox-label writing-form-option">
           <input id="auto-extract-high-quality" type="checkbox" />
-          更高质量 <span style="color:var(--text-dim);">需要标准提取约8倍时间</span>
+          <span>更高质量</span>
+          <span class="writing-checkbox-hint">需要标准提取约8倍时间</span>
         </label>
       ` : ""}
-      <p style="color:var(--text-dim);font-size:11px;margin-top:8px;">
+      <p class="writing-form-hint">
         ${escapeHtml(config.label)}会在所选章节范围内创建或补充对应结构资产。
       </p>
     `
@@ -146,7 +147,7 @@ export function createAutoExtraction({
         <label>结束章节</label>
         <input class="form-input" id="extract-end" type="number" min="1" value="${lastCh}" />
       </div>
-      <p style="color:var(--text-dim);font-size:11px;margin-top:8px;">
+      <p class="writing-form-hint">
         调用 AI 分析章节内容，生成 Scene 卡（场景目标、冲突、情感节奏等）。
       </p>
     `
