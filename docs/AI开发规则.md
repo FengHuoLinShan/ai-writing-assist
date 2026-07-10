@@ -6,7 +6,7 @@
 
 | 文件 | 职责 |
 |------|------|
-| 根目录 `CLAUDE.md` | Claude Code 专用开发参考（架构、流程、命名） |
+| 根目录 `CLAUDE.md` | 编码 Agent 开发入口（架构、流程、命名） |
 | 根目录 `AGENTS.md` | 所有编码 Agent 的协作规则与禁止事项 |
 | `development-guide.md` | 开发命令、模块结构、架构原则、工程规则 |
 | `testing-guide.md` | 测试要求、Review 分级、安全测试清单 |
@@ -18,10 +18,9 @@
 ## 开发前读取顺序
 
 1. `AGENTS.md` → 禁止事项与协作规则
-2. `CLAUDE.md` → 架构与开发流程
-3. `development-guide.md` → 命令与工程规则
-4. `testing-guide.md` → 测试规范
-5. 目标模块 `README.md` → `contracts.py` → `facade.py` → `models.py` → `services.py`
+2. `CLAUDE.md` → 开发入口与架构导航
+3. 目标模块 `README.md` → 稳定接口 → 测试
+4. 按任务补读：实现任务读 `development-guide.md` / `testing-guide.md`，架构或数据库任务读 `docs/00_整体设计.md`、`docs/01_数据库设计.md`、相关 ADR 和 migration
 
 ## 关键规则速查
 

@@ -2,7 +2,7 @@
 
 ## 模块级禁止事项
 
-- 别名统一存储在 `core_entities.aliases` JSONB 中（不再使用独立 `entity_aliases` 表）
+- 别名统一存储在 `core_entities.content_json.aliases` JSONB 中（不再使用独立 `entity_aliases` 表）
 - 不把别名当作新世界对象创建；别名直接标记在已有对象的 `aliases` 中
 - 手动 AI 补抽必须先校验 `context_confirmation_id`，抽取实体以 `status="candidate"` 入库，等待用户确认、合并或忽略
 - 不跨 `novel_id` 合并关系、别名或正史对象

@@ -46,11 +46,16 @@ make doctor-json                 # Same diagnostics as stable JSON
 make doctor-llm                  # Explicitly includes remote LLM provider connectivity
 
 # Testing & linting
-make test                        # Backend tests
-make test-v                      # Backend tests, verbose, stop on first failure
+make test                        # Fast backend layer: no PostgreSQL, real LLM, or local corpus
+make test-fast                   # Explicit alias for the fast backend layer
+make test-v                      # Fast layer, verbose, stop on first failure
 make test ARGS="-k test_create"  # Filter by test name
+make test-integration            # SQLite cross-module integration tests
+make test-e2e                    # PostgreSQL E2E; database and Alembic head are required
+make test-real-llm               # Explicit SQLite real-model acceptance
+make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt  # Real corpus + PostgreSQL/model acceptance
 make test-frontend FRONTEND_ARGS="stateTopbarHelp.test.js"  # Frontend Vitest
-make test-all                    # Backend tests, then frontend tests
+make test-all                    # Fast backend layer, then frontend tests
 make lint                        # ruff check
 make lint-fix                    # ruff --fix
 make format                      # ruff format --check
@@ -65,7 +70,7 @@ Frontend currently has no build script and no independent lint/format dependency
 |-------|---------|----------------|
 | **事实层** (Fact) | project, world, memory | Maintain canonical facts. world unifies CoreEntity + Character + Event + EntityRelation |
 | **结构层** (Structure) | outline | Organize facts into executable plot plans (threads → arcs → chapter cards → scene cards) |
-| **辅助层** (Support) | rag, context, writing, imports | Retrieval, context compilation, draft writing, file import. infrastructure (tasks/llm) is shared infra |
+| **辅助层** (Support) | rag, context, writing, imports, settings | Retrieval, context compilation, draft writing, file import, and LLM/author preference overrides. infrastructure (tasks/llm) is shared infra |
 
 ## Module Structure
 
@@ -134,16 +139,16 @@ Modules choose files by responsibility. Do not create empty contracts or pass-th
 - **Context Budget**: Context Compiler enforces per-category item limits to stay within token budgets.
 - **Reveal Levels**: Every entity has visibility/reveal metadata to prevent premature spoilers in LLM prompts.
 - **Enums centralized**: All shared enums in `shared/enums.py` to avoid circular imports.
-- **Memory proposals only**: AI generates proposals; user confirms before writing to memory_records.
+- **Memory event sourcing**: `memory_events` records ordered changes and `memory_snapshots` materializes stage state; the removed `memory_records` table is not a write target.
 - **Lightweight timeline**: No complex relative-time reasoning, no calendar system, no automatic history simulation.
-- **Scene table**: `scenes` is the active minimal narrative-unit table; older `chapter_cards.scene_cards` references are compatibility/history only.
+- **Scene table**: `scenes` is the active minimal narrative-unit table; `scene_chapter_links` and derived `scene_spans` carry chapter/physical mappings.
 
 ## AI Development Rules
 
 - Public contract, user-visible behavior, data model, or cross-module call changes require updating authoritative docs and affected tests. Pure internal rearrangement does not require design-doc churn.
 - DB schema refactors may reset the demo database instead of carrying historical migrations; keep ORM/schema/tests/docs in sync
 - Each module owns its tests. Run that module's tests after modification. Cross-module flows go in tests/integration/
-- The system uses core creative prompts plus bounded tool prompts, not an autonomous multi-agent runtime.
+- The system uses controlled structured LLM steps, not an autonomous multi-agent runtime. The active Prompt and contract catalogue is `docs/prompts/Prompt体系设计.md`.
 - Entity extraction is NOT NER. Extract only "long-term creative assets."
 
 ## Frontend Principles

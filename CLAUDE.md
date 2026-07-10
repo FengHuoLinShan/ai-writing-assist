@@ -26,7 +26,7 @@
 1. 运行受影响模块的测试
 2. 运行 `make lint`
 3. 公共契约、用户可见行为、数据模型或跨模块调用变化时，同步更新权威文档和受影响测试；纯内部重排不强制更新设计文档
-4. `git push` 后自动触发 `/structure-docs-update` 同步设计文档
+4. 不假定 `git push` 会自动同步文档；如本地配置了 hook/CI，可将其作为辅助检查
 
 ### 合并前 Checklist
 
@@ -106,9 +106,9 @@ modules/<name>/
 - Worker: `backend/run_worker.py`（PostgreSQL 任务队列，无 Redis/Celery）
 - Frontend: `frontend-console/index.html`（`npm run dev` / Vite dev server, port 8080）
 
-### 8 个活跃模块
+### 9 个活跃模块
 
-`project`, `imports`, `world`, `memory`, `outline`, `rag`, `context`, `writing`
+`project`, `imports`, `world`, `memory`, `outline`, `rag`, `context`, `writing`, `settings`
 
 已移除：`geo`, `review`, `character`, `timeline`。Character 不再是活跃独立模块；人物能力合并到 `world`，权威入口是 `docs/modules/02_world.md`、world facade 和 `/api/world/characters`。
 
@@ -136,9 +136,9 @@ modules/<name>/
 ## 关键领域约定
 
 - **实体抽取 ≠ NER**：只抽取长期创作资产，不抽取路人/普通道具/代词/一次性场景
-- **别名内联存储**：`core_entities.aliases` JSONB，标记 `alias_of_existing`
-- **Scene 独立管理**：当前以 `scenes` 表作为最小叙事单元；旧 `chapter_cards.scene_cards` JSONB 只作为历史兼容语境
-- **创作 Agent 非多 Agent 系统**：4 核心创作 Prompt + 工具提取 Prompt，非自治 Agent
+- **别名内联存储**：`core_entities.content_json.aliases` JSONB，标记 `alias_of_existing`
+- **Scene 独立管理**：当前以 `scenes` 表作为最小叙事单元；章节映射由 `scene_chapter_links` 与 `scene_spans` 表达
+- **受控 LLM 工作流非自治系统**：Prompt 清单以 `docs/prompts/Prompt体系设计.md` 为准；调用必须保留 schema 校验和用户确认语义
 - **无复杂多 Agent**：未经用户明确要求或 ADR，不引入多 Agent 协同框架
 
 ---
@@ -212,17 +212,9 @@ This repo uses a single-context layout: root `CONTEXT.md` plus root `docs/adr/`.
 
 ---
 
-## Skills 参考
-
-- `/tdd` — 测试驱动开发（RED→GREEN→REFACTOR）
-- `/grill-with-docs` — 设计决策压力测试
-- `/structure-docs-update` — git push 后自动同步设计文档
-
----
-
 ## Meta
 
 - `AGENTS.md` 是硬约束源头；本文件只补充开发入口和架构导航
 - 用户显式指令 > 本文档 > 模块 CLAUDE.md
-- `git push` 后运行 `/structure-docs-update`
+- 不将特定模型、Skill 名称或外部自动化当作仓库前提；它们只能辅助执行现有约束
 - 本文档不承载项目结构、实施计划、长篇设计说明 — 此类内容见 `development-guide.md`

@@ -14,7 +14,7 @@ AI 长篇小说创作辅助系统，提供从**导入 → 世界构建 → 记�
 |------|------|------|
 | **事实层** | `project` · `world` · `memory` | 项目根聚合、世界对象/人物/事件、长期记忆 |
 | **结构层** | `outline` | 剧情线、篇章纲、Scene、伏笔与揭示计划 |
-| **辅助层** | `imports` · `rag` · `context` · `writing` | 文件导入、检索增强、上下文编译、正文写作 |
+| **辅助层** | `imports` · `rag` · `context` · `writing` · `settings` | 文件导入、检索增强、上下文编译、正文写作、LLM/作者偏好覆盖 |
 
 > 详细交互图 → [`docs/architecture/module-architecture.html`](docs/architecture/module-architecture.html)（浏览器打开，支持导出 PNG/PDF）
 
@@ -26,13 +26,14 @@ AI 长篇小说创作辅助系统，提供从**导入 → 世界构建 → 记�
 | **world** | 核心实体、人物、事件、关系、动态地图、AI 实体抽取、状态组装 |
 | **memory** | `memory_events` 事件溯源与 `memory_snapshots` 全景快照 |
 | **outline** | 剧情线、篇章纲、Scene、伏笔计划、揭示计划 |
-| **rag** | 分块 → embedding → 混合检索（向量 + 关键词 + 项目词典 + 关系 + 重要性） |
+| **rag** | canonical/working 独立分块、embedding 与混合候选召回；证据输出由 context 重读 writing 原文校验 hash |
 | **context** | 分层编译 LLM 上下文、提供 AI 参考资料审查台、管理确认记录与自动上下文快照审计 |
 | **writing** | 草稿 CRUD、Scene 树写作工作台、发布后触发索引与记忆更新 |
 | **imports** | 外部文件解析、深度导入三阶段工作流、Scene 切分与实体/结构抽取 |
+| **settings** | 全局 LLM 默认、全局作者偏好与项目级偏好覆盖；API Key 始终项目级 |
 | **infrastructure/tasks** | PostgreSQL 队列的异步任务调度（enqueuer → worker），不是业务模块 |
 
-前端当前注册 8 个一级路由：`project` / `writing` / `world` / `map` / `rag` / `outline` / `generate` / `context`。地图已升级为侧边栏一级入口，`world` 内的旧地图子入口仅保留兼容跳转。
+前端当前注册 11 个视图路由：`project` / `world` / `rag` / `outline` / `scene` / `writing` / `map` / `generate` / `llm` / `settings` / `project-settings`。`rag` 在产品导航显示为“小说检索”，默认进入检索页，索引维护为第二子页。主导航不显示兼容 `llm` 路由；旧 `context` hash 会重定向到生成中心任务页。地图已升级为侧边栏一级入口，`world` 内的旧地图子入口仅保留兼容跳转。
 
 ## 快速开始
 
@@ -46,8 +47,11 @@ make dev
 # 本地环境异常时先运行只读诊断
 make doctor
 
-# 运行测试
+# 运行快速后端测试（不连接 PostgreSQL 或真实 LLM）
 make test
+
+# PostgreSQL E2E（数据库必须已迁移到 head）
+make test-e2e
 
 # 仅启动前端控制台
 cd frontend-console
@@ -62,6 +66,7 @@ npm run dev
 - [数据库设计](docs/01_数据库设计.md)
 - [模块文档索引](docs/README.md)
 - [动态地图子系统](docs/modules/15_map.md)
+- [设置模块](docs/modules/16_settings.md)
 - [Prompt 体系设计](docs/prompts/Prompt体系设计.md)
 - [CLAUDE.md](CLAUDE.md) — 开发约定与规则
 - [AGENTS.md](AGENTS.md) — Agent 协作约束

@@ -102,6 +102,27 @@
 - `UNIQUE(map_id, location_entity_id, hex_q, hex_r)` 防止同一地点重复绑定同一格。
 - 同一地点在同一地图最多一个 `is_center = true`（业务层 `clear_center` 保证；PG 部分唯一索引 `ix_map_binding_center` 在 Alembic 中声明）。
 
+### `map_location_layouts` — 地点布局节点
+
+`map_location_layouts` 把地点在地图上的编辑布局与原始绑定分开保存，字段包括
+`map_id`、`location_entity_id`、中心 hex、占用半径、锁定状态、布局来源、版本、
+`sync_geo_setting` 与扩展 `meta`。同一地图内每个地点最多一条布局记录；它服务快速创建、
+拖拽与布局恢复，不替代 `map_location_bindings` 的地点→hex 事实绑定。
+
+### 地形图层与区域
+
+手绘地形不是 `map_tiles.style_override` 的临时前端数据，而是以下四张 world 拥有的表：
+
+| 表 | 用途 |
+|---|---|
+| `map_terrain_layers` | 地图上的命名地形图层，保存素材、透明度、层级、显隐与锁定状态。 |
+| `map_terrain_regions` | 图层中的可命名连续区域与区域状态。 |
+| `map_terrain_patches` | region 覆盖的离散 hex 及强度/笔刷来源。 |
+| `map_terrain_bindings` | region 与地点的用户确认绑定，记录 binding 类型、复核状态、来源和 metadata。 |
+
+这些表均按 `novel_id` 和 `map_id` 隔离。图层/区域/patch 的增删改由
+`MapTerrainService` 原子处理，前端不能只改本地画布后假定持久化已完成。
+
 ### `map_markers` — 动态标记（P1）
 
 | 字段 | 类型 | 说明 |
@@ -215,6 +236,16 @@
 | POST | `/{map_id}/location-bindings?novel_id={}` | 批量创建绑定 |
 | PATCH | `/{map_id}/location-bindings/{binding_id}?novel_id={}` | 更新单个绑定 |
 | DELETE | `/{map_id}/location-bindings/{binding_id}?novel_id={}` | 删除单个绑定 |
+
+### 地点布局与手绘地形
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET/PUT | `/{map_id}/location-layouts?novel_id={}` | 读取或替换地点布局节点 |
+| GET | `/{map_id}/terrain?novel_id={}` | 读取图层、区域、patch 与绑定的地形状态 |
+| PUT | `/{map_id}/terrain/layers/{layer_id}/patches?novel_id={}` | 替换一层的 patch 集合 |
+| POST | `/{map_id}/terrain/regions/{region_id}/bindings?novel_id={}` | 创建区域与地点绑定 |
+| PATCH | `/{map_id}/terrain/bindings/{binding_id}?novel_id={}` | 修改区域绑定复核/metadata |
 
 ### 动态标记（P1）
 
