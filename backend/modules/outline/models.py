@@ -135,6 +135,103 @@ class Scene(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
         )
 
 
+class SceneSpan(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """Derived Scene → chapter text span read model."""
+
+    __tablename__ = "scene_spans"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "scene_id",
+            "content_mode",
+            "part_no",
+            name="uq_scene_spans_novel_scene_part",
+        ),
+        Index(
+            "ix_scene_spans_novel_chapter",
+            "novel_id",
+            "chapter_index",
+            "part_no",
+        ),
+        Index(
+            "ix_scene_spans_scene",
+            "scene_id",
+        ),
+        {"comment": "Scene 到正文物理片段的派生查询索引"},
+    )
+
+    scene_id: Mapped[uuid.UUID] = mapped_column(
+        UUIDType,
+        ForeignKey("scenes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    chapter_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_mode: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="canonical"
+    )
+    source_draft_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
+    source_content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    start_offset: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    end_offset: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    start_paragraph: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    end_paragraph: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    part_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    mapping_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="chapter_only"
+    )
+    anchor_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    anchor_excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
+
+
+class SceneSummaryCheckpoint(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """Derived, source-backed Scene summary as of one visible cursor."""
+
+    __tablename__ = "scene_summary_checkpoints"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "scene_id",
+            "content_mode",
+            "through_chapter",
+            "through_offset",
+            name="uq_scene_summary_checkpoint_cursor",
+        ),
+        Index(
+            "ix_scene_summary_checkpoints_lookup",
+            "novel_id",
+            "scene_id",
+            "content_mode",
+            "through_chapter",
+        ),
+        {"comment": "Scene 按可见截止位置派生的防剧透摘要"},
+    )
+
+    scene_id: Mapped[uuid.UUID] = mapped_column(
+        UUIDType,
+        ForeignKey("scenes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    content_mode: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="canonical"
+    )
+    through_chapter: Mapped[int] = mapped_column(Integer, nullable=False)
+    through_offset: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=-1,
+        comment="-1 表示截止章完整可见",
+    )
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    source_refs: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    based_on_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="derived")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="ready")
+
+
 class SceneChapterLink(Base, UUIDMixin, TimestampMixin, NovelMixin):
     """Query index for Scene → chapter membership."""
 

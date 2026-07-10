@@ -14,6 +14,7 @@ from modules.outline.contracts import (
     OutlineArcContract,
     PlotThreadContract,
     SceneContract,
+    SceneSpanContract,
 )
 from modules.outline.foreshadowing_repository import ForeshadowingPlanRepository
 from modules.outline.models import (
@@ -133,7 +134,7 @@ class StructureAssetFilterMixin:
         if self.list_response is None:
             raise TypeError(
                 f"{self.__class__.__name__}.list_response is not set",
-        )
+            )
         return self.list_response(items=items, total=total)
 
 
@@ -218,6 +219,30 @@ def scene_to_contract(scene: Any) -> SceneContract:
     )
 
 
+def scene_span_to_contract(span: Any) -> SceneSpanContract:
+    """Convert SceneSpan ORM objects to the stable cross-module contract."""
+    return SceneSpanContract(
+        id=str(span.id),
+        novel_id=str(span.novel_id),
+        scene_id=str(span.scene_id),
+        chapter_index=span.chapter_index,
+        content_mode=span.content_mode,
+        source_draft_id=(
+            str(span.source_draft_id) if span.source_draft_id is not None else None
+        ),
+        source_content_hash=span.source_content_hash,
+        start_offset=span.start_offset,
+        end_offset=span.end_offset,
+        start_paragraph=span.start_paragraph,
+        end_paragraph=span.end_paragraph,
+        part_no=span.part_no,
+        mapping_status=span.mapping_status,
+        anchor_hash=span.anchor_hash,
+        source=span.source,
+        status=span.status,
+    )
+
+
 def foreshadowing_plan_to_dict(plan: ForeshadowingPlan) -> dict[str, Any]:
     return {
         "id": str(plan.id),
@@ -238,7 +263,7 @@ def foreshadowing_plan_to_dict(plan: ForeshadowingPlan) -> dict[str, Any]:
 
 class PlotThreadService(
     StructureAssetFilterMixin,
-    CrudService[PlotThread, PlotThreadCreate, PlotThreadUpdate, PlotThreadResponse]
+    CrudService[PlotThread, PlotThreadCreate, PlotThreadUpdate, PlotThreadResponse],
 ):
     repo = PlotThreadRepository()
     response = PlotThreadResponse
@@ -300,7 +325,7 @@ class PlotThreadService(
 
 class OutlineArcService(
     StructureAssetFilterMixin,
-    CrudService[OutlineArc, OutlineArcCreate, OutlineArcUpdate, OutlineArcResponse]
+    CrudService[OutlineArc, OutlineArcCreate, OutlineArcUpdate, OutlineArcResponse],
 ):
     repo = OutlineArcRepository()
     response = OutlineArcResponse
@@ -369,7 +394,7 @@ class ForeshadowingPlanService(
         ForeshadowingPlanCreate,
         ForeshadowingPlanUpdate,
         ForeshadowingPlanResponse,
-    ]
+    ],
 ):
     repo = ForeshadowingPlanRepository()
     response = ForeshadowingPlanResponse
@@ -438,7 +463,7 @@ class ForeshadowingPlanService(
 
 class RevealPlanService(
     StructureAssetFilterMixin,
-    CrudService[RevealPlan, RevealPlanCreate, RevealPlanUpdate, RevealPlanResponse]
+    CrudService[RevealPlan, RevealPlanCreate, RevealPlanUpdate, RevealPlanResponse],
 ):
     repo = RevealPlanRepository()
     response = RevealPlanResponse
@@ -679,6 +704,7 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
         scenes = result.scalars().all()
 
         deprecated = 0
+        repo = self.repo
         for scene in scenes:
             meta = scene.structure_meta or {}
             if not _is_cleanup_eligible_deep_import_meta(
@@ -699,6 +725,9 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
 
         if deprecated:
             await db.flush()
+            for scene in scenes:
+                if scene.status == "deprecated":
+                    await repo.sync_scene_spans(db, scene)
         return deprecated
 
     async def get_by_chapter(
@@ -710,6 +739,47 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
         nid = parse_uuid(novel_id, "novel_id")
         scenes = await self.repo.get_by_chapter(db, nid, chapter_index)
         return [scene_to_contract(scene) for scene in scenes]
+
+    async def get_scene_spans_by_chapter(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        chapter_index: int,
+        *,
+        status_filter: list[str] | None = None,
+        content_mode: str = "canonical",
+    ) -> list[SceneSpanContract]:
+        nid = parse_uuid(novel_id, "novel_id")
+        statuses = tuple(status_filter or ["draft", "canonical"])
+        spans = await self.repo.get_scene_spans_by_chapter(
+            db,
+            nid,
+            chapter_index,
+            statuses=statuses,
+            content_mode=content_mode,
+        )
+        return [scene_span_to_contract(span) for span in spans]
+
+    async def get_scene_spans_for_scene(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        scene_id: str,
+        *,
+        status_filter: list[str] | None = None,
+        content_mode: str = "canonical",
+    ) -> list[SceneSpanContract]:
+        nid = parse_uuid(novel_id, "novel_id")
+        sid = parse_uuid(scene_id, "scene_id")
+        statuses = tuple(status_filter) if status_filter is not None else None
+        spans = await self.repo.get_scene_spans_for_scene(
+            db,
+            nid,
+            sid,
+            statuses=statuses,
+            content_mode=content_mode,
+        )
+        return [scene_span_to_contract(span) for span in spans]
 
     async def reorder(
         self,
@@ -790,11 +860,11 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
             db.add(new_scene)
 
         await db.flush()
-        await self.repo.sync_chapter_links(db, source_scene)
+        await self.repo.sync_scene_indexes(db, source_scene)
         if tid:
-            await self.repo.sync_chapter_links(db, target)
+            await self.repo.sync_scene_indexes(db, target)
         else:
-            await self.repo.sync_chapter_links(db, new_scene)
+            await self.repo.sync_scene_indexes(db, new_scene)
 
         # 返回更新后的 scenes
         scenes = await self.repo.get_by_novel_ordered(db, nid)
@@ -875,8 +945,8 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
             source.scene_index,
             exclude_ids={source.id, new_scene.id},
         )
-        await self.repo.sync_chapter_links(db, source)
-        await self.repo.sync_chapter_links(db, new_scene)
+        await self.repo.sync_scene_indexes(db, source)
+        await self.repo.sync_scene_indexes(db, new_scene)
 
         scenes = await self.repo.get_by_novel_ordered(db, nid)
         return list(scenes)

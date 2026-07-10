@@ -511,12 +511,25 @@ class TestWritingDraftRepository:
         repo: WritingDraftRepository,
         mock_db: AsyncMock,
     ):
+        drafts = [
+            MagicMock(status="published", provenance_json=None),
+            MagicMock(status="draft", provenance_json={"source": "test"}),
+            MagicMock(status="candidate", provenance_json=None),
+        ]
         mock_result = MagicMock()
-        mock_result.rowcount = 3
+        mock_result.scalars.return_value.all.return_value = drafts
         mock_db.execute.return_value = mock_result
+        mock_db.add_all = MagicMock()
 
         count = await repo.delete_all_versions(mock_db, uuid.uuid4(), 1)
         assert count == 3
+        assert all(draft.status == "deprecated" for draft in drafts)
+        assert drafts[0].provenance_json["deprecated_from_status"] == "published"
+        assert drafts[1].provenance_json == {
+            "source": "test",
+            "deprecated_from_status": "draft",
+        }
+        mock_db.add_all.assert_called_once_with(drafts)
 
     async def test_count_versions(
         self,
@@ -612,6 +625,22 @@ class TestWritingAPI:
             yield enqueue
 
     @pytest.fixture
+    def mock_request_chapter_index(self):
+        with patch(
+            "modules.rag.facade.request_chapter_index",
+            new_callable=AsyncMock,
+        ) as request:
+            yield request
+
+    @pytest.fixture
+    def mock_mark_chapter_index_dirty(self):
+        with patch(
+            "modules.rag.facade.mark_chapter_index_dirty",
+            new_callable=AsyncMock,
+        ) as mark_dirty:
+            yield mark_dirty
+
+    @pytest.fixture
     def router(self):
         from modules.writing.api import router
 
@@ -629,6 +658,7 @@ class TestWritingAPI:
         self,
         mock_facade,
         mock_service,
+        mock_request_chapter_index,
     ):
         """verify facade is called with correct args"""
         from modules.writing.api import create_autosaved_draft
@@ -653,6 +683,12 @@ class TestWritingAPI:
         assert isinstance(result, WritingDraftResponse)
         assert result.title == "第一章"
         mock_service.publish_draft.assert_not_awaited()
+        mock_request_chapter_index.assert_awaited_once_with(
+            mock_db,
+            data.novel_id,
+            data.chapter_index,
+            content_mode="working",
+        )
 
     async def test_create_draft_endpoint_publishes_through_service_and_enqueue(
         self,
@@ -660,6 +696,7 @@ class TestWritingAPI:
         mock_enqueue,
         mock_service,
         mock_conflict_service,
+        mock_mark_chapter_index_dirty,
     ):
         from modules.writing.api import create_draft
 
@@ -689,6 +726,12 @@ class TestWritingAPI:
             "publish_chapter",
             meta={"novel_id": data.novel_id, "chapter_index": data.chapter_index},
         )
+        mock_mark_chapter_index_dirty.assert_awaited_once_with(
+            mock_db,
+            data.novel_id,
+            data.chapter_index,
+            content_mode="canonical",
+        )
         assert result.draft == expected
         assert result.task_id is not None
 
@@ -715,6 +758,7 @@ class TestWritingAPI:
         self,
         mock_service,
         mock_facade,
+        mock_request_chapter_index,
     ):
         from modules.writing.api import update_draft
 
@@ -731,25 +775,43 @@ class TestWritingAPI:
         result = await update_draft(mock_db, draft_id="did", data=data, novel_id="nid")
         assert result.title == "updated"
         mock_service.update_draft.assert_awaited_once_with(mock_db, "did", data, "nid")
+        mock_request_chapter_index.assert_awaited_once_with(
+            mock_db,
+            "nid",
+            expected.chapter_index,
+            content_mode="working",
+        )
 
     async def test_delete_draft_endpoint(
         self,
         mock_service,
         mock_facade,
+        mock_request_chapter_index,
     ):
         from modules.writing.api import delete_draft
 
         mock_db = AsyncMock()
         mock_service.delete_draft = AsyncMock()
+        mock_service.get_draft.return_value = WritingDraftResponse(
+            id=str(uuid.uuid4()),
+            novel_id=str(uuid.uuid4()),
+            chapter_index=7,
+        )
 
         result = await delete_draft(mock_db, draft_id="did", novel_id="nid")
         assert result is None
+        mock_service.get_draft.assert_awaited_once_with(mock_db, "did", "nid")
         mock_service.delete_draft.assert_awaited_once_with(mock_db, "did", "nid")
+        assert mock_request_chapter_index.await_args_list == [
+            ((mock_db, "nid", 7), {"content_mode": "canonical"}),
+            ((mock_db, "nid", 7), {"content_mode": "working"}),
+        ]
 
     async def test_delete_chapter_endpoint(
         self,
         mock_service,
         mock_facade,
+        mock_request_chapter_index,
     ):
         from modules.writing.api import delete_chapter
 
@@ -760,6 +822,10 @@ class TestWritingAPI:
         assert result.chapter_index == 3
         assert result.deleted_versions == 5
         mock_service.delete_chapter.assert_awaited_once_with(mock_db, "nid", 3)
+        assert mock_request_chapter_index.await_args_list == [
+            ((mock_db, "nid", 3), {"content_mode": "canonical"}),
+            ((mock_db, "nid", 3), {"content_mode": "working"}),
+        ]
 
     async def test_get_latest_chapter_draft(
         self,
@@ -843,10 +909,21 @@ class TestHandlePublishChapter:
         task.update_progress = MagicMock()
         return task
 
+    @pytest.fixture
+    def mock_index_state(self):
+        """Keep publish-task tests focused on retry orchestration, not RAG storage."""
+        with patch("modules.rag.index_state.RagIndexStateService") as state_class:
+            state = state_class.return_value
+            state.begin_direct = AsyncMock()
+            state.finish = AsyncMock()
+            state.fail = AsyncMock()
+            yield state
+
     async def test_success_path(
         self,
         mock_db: AsyncMock,
         mock_task: MagicMock,
+        mock_index_state,
     ):
         from core.container import register, reset
 
@@ -884,6 +961,7 @@ class TestHandlePublishChapter:
         self,
         mock_db: AsyncMock,
         mock_task: MagicMock,
+        mock_index_state,
     ):
         from core.container import register, reset
 
@@ -922,6 +1000,7 @@ class TestHandlePublishChapter:
         self,
         mock_db: AsyncMock,
         mock_task: MagicMock,
+        mock_index_state,
     ):
         from core.container import register, reset
 
@@ -943,6 +1022,7 @@ class TestHandlePublishChapter:
         self,
         mock_db: AsyncMock,
         mock_task: MagicMock,
+        mock_index_state,
     ):
         from core.container import register, reset
 
@@ -978,6 +1058,7 @@ class TestHandlePublishChapter:
         self,
         mock_db: AsyncMock,
         mock_task: MagicMock,
+        mock_index_state,
     ):
         from core.container import register, reset
 

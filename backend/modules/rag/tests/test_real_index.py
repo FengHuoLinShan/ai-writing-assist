@@ -1,12 +1,8 @@
-"""
-RAG 真实数据重建索引测试 — 诡秘之主_第一部_小丑.txt 前10章
-
-Cycle 1: 重建索引 + 验证分块
-Cycle 2: 检索匹配度确定性验证
-"""
+"""RAG synthetic-data regression coverage and opt-in embedding acceptance."""
 
 from __future__ import annotations
 
+import os
 import uuid
 from pathlib import Path
 
@@ -18,8 +14,17 @@ from modules.project.models import Project
 from modules.rag.facade import get_index_status, index_chapter
 from modules.writing.facade import create_draft
 
-REAL_FILE_PATH = Path("/Users/tywww/Desktop/项目/wirting skill/诡秘之主_第一部 小丑.txt")
+SYNTHETIC_FILE_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "tests"
+    / "fixtures"
+    / "synthetic_ten_chapters.txt"
+)
 FIRST_10_CHAPTER_COUNT = 10
+real_llm_required = pytest.mark.skipif(
+    os.getenv("RUN_REAL_LLM_TESTS") != "1",
+    reason="真实 embedding 验收默认跳过；设置 RUN_REAL_LLM_TESTS=1 才运行",
+)
 
 
 # ============================================================
@@ -33,18 +38,16 @@ class TestRebuildIndexFirst10Chapters:
     @pytest_asyncio.fixture
     async def ctx(self, db_session: AsyncSession) -> dict:
         """导入前10章正文到 writing_drafts，返回 project_id"""
-        assert REAL_FILE_PATH.exists(), f"真实文件不存在: {REAL_FILE_PATH}"
-
         from modules.imports.parsers import parse_txt
 
-        file_bytes = REAL_FILE_PATH.read_bytes()
+        file_bytes = SYNTHETIC_FILE_PATH.read_bytes()
         all_chapters = parse_txt(file_bytes)
         assert len(all_chapters) >= FIRST_10_CHAPTER_COUNT
 
         pid = uuid.uuid4()
         project = Project(
             id=pid,
-            title="诡秘之主 RAG 重建索引测试",
+            title="合成小说 RAG 重建索引测试",
             genre="西方奇幻",
             tone="维多利亚风格、黑暗",
             language="zh",
@@ -188,18 +191,16 @@ class TestRetrievalDeterminism:
     @pytest_asyncio.fixture
     async def ctx(self, db_session: AsyncSession) -> dict:
         """导入前3章并重建索引"""
-        assert REAL_FILE_PATH.exists()
-
         from modules.imports.parsers import parse_txt
 
-        file_bytes = REAL_FILE_PATH.read_bytes()
+        file_bytes = SYNTHETIC_FILE_PATH.read_bytes()
         all_chapters = parse_txt(file_bytes)
         assert len(all_chapters) >= 3
 
         pid = uuid.uuid4()
         project = Project(
             id=pid,
-            title="诡秘之主 匹配度确定性测试",
+            title="合成小说匹配度确定性测试",
             genre="西方奇幻",
             tone="维多利亚风格、黑暗",
             language="zh",
@@ -239,7 +240,7 @@ class TestRetrievalDeterminism:
 
         from modules.rag.facade import retrieve
 
-        query = "克莱恩 廷根 值夜者"
+        query = "林舟 青岚城 星盘"
 
         # 第一次检索
         result1 = await retrieve(
@@ -320,8 +321,8 @@ class TestRetrievalDeterminism:
         from modules.rag.facade import retrieve
 
         # 两个语义不同的查询
-        query_a = "克莱恩 值夜者 非凡"
-        query_b = "邓恩 队长 笔记"
+        query_a = "林舟 星盘 钟楼"
+        query_b = "柳青 旧钥匙 城门"
 
         result_a = await retrieve(
             db_session,
@@ -367,6 +368,8 @@ class TestRetrievalDeterminism:
 # ============================================================
 
 
+@pytest.mark.real_llm
+@real_llm_required
 class TestRealEmbedding:
     """验证 LLM embedding API 的可用性与确定性"""
 
@@ -384,33 +387,16 @@ class TestRealEmbedding:
         print(f"  dim: {settings.embedding_dim}")
 
         client = LLMClient()
-        try:
-            result = await client.generate_embedding("测试embedding的确定性")
-            assert isinstance(result, list), f"embedding 应为 list，实际 {type(result)}"
-            assert len(result) == settings.embedding_dim, (
-                f"向量维度应为 {settings.embedding_dim}，实际 {len(result)}"
-            )
-            assert all(isinstance(v, float) for v in result), "所有值应为 float"
-            print(f"  ✓ embedding 成功: dim={len(result)}")
-            print(f"    前5个值: {[round(v, 6) for v in result[:5]]}")
+        result = await client.generate_embedding("测试embedding的确定性")
+        assert isinstance(result, list), f"embedding 应为 list，实际 {type(result)}"
+        assert len(result) == settings.embedding_dim, (
+            f"向量维度应为 {settings.embedding_dim}，实际 {len(result)}"
+        )
+        assert all(isinstance(v, float) for v in result), "所有值应为 float"
+        print(f"  ✓ embedding 成功: dim={len(result)}")
 
-            # 确定性验证：相同文本两次 embedding 应一致
-            result2 = await client.generate_embedding("测试embedding的确定性")
-            assert result == result2, (
-                "相同文本的 embedding 应完全一致，LLM 提供的 embedding 应是确定性的"
-            )
-            print("  ✓ 确定性确认: 两次相同输入返回相同向量")
-        except Exception as e:
-            pytest.skip(
-                f"Embedding API 不可用: {e}\n"
-                f"  当前配置: model={settings.embedding_model}, "
-                f"base_url={settings.embedding_base_url or settings.llm_base_url}\n"
-                f"  DeepSeek 不支持 embedding API.\n"
-                f"  如需测试, 在 .env 中配置:\n"
-                f"    EMBEDDING_BASE_URL=https://api.openai.com\n"
-                f"    EMBEDDING_API_KEY=sk-xxx\n"
-                f"    EMBEDDING_MODEL=text-embedding-3-large"
-            )
+        result2 = await client.generate_embedding("测试embedding的确定性")
+        assert result == result2, "相同文本的 embedding 应是确定性的"
 
     @pytest.mark.asyncio
     async def test_embedding_determinism_multiple_texts(self):
@@ -424,33 +410,15 @@ class TestRealEmbedding:
             "邓恩·史密斯队长翻阅着古老的笔记。",
         ]
 
-        try:
-            # 批量获取 embedding
-            embeddings = await client.generate_embedding(texts)
-            assert len(embeddings) == len(texts), (
-                f"应返回 {len(texts)} 个向量，实际 {len(embeddings)}"
+        embeddings = await client.generate_embedding(texts)
+        assert len(embeddings) == len(texts), (
+            f"应返回 {len(texts)} 个向量，实际 {len(embeddings)}"
+        )
+        for i, embedding in enumerate(embeddings):
+            assert all(isinstance(value, float) for value in embedding), (
+                f"第{i}条文本的向量值应该都是 float"
             )
-            for i, emb in enumerate(embeddings):
-                assert all(isinstance(v, float) for v in emb), (
-                    f"第{i}条文本的向量值应该都是 float"
-                )
 
-            # 再次调用确认确定性
-            embeddings2 = await client.generate_embedding(texts)
-            for i, (e1, e2) in enumerate(zip(embeddings, embeddings2)):
-                assert e1 == e2, f"第{i}条文本的 embedding 两次不一致"
-
-            # 计算相似度矩阵
-            from modules.rag.scoring import cosine_similarity
-
-            sims = []
-            for i in range(len(texts)):
-                for j in range(i + 1, len(texts)):
-                    sim = cosine_similarity(embeddings[i], embeddings[j])
-                    sims.append((i, j, round(sim, 4)))
-
-            print("\n文本相似度矩阵:")
-            for i, j, sim in sims:
-                print(f"  文本{i} ↔ 文本{j}: cosine={sim}")
-        except Exception as e:
-            pytest.skip(f"多文本 embedding 不可用: {e}")
+        embeddings2 = await client.generate_embedding(texts)
+        for i, (first, second) in enumerate(zip(embeddings, embeddings2)):
+            assert first == second, f"第{i}条文本的 embedding 两次不一致"

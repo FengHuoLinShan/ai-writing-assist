@@ -37,12 +37,84 @@ class ParallelSceneEntityExtractor:
         workflow_id: str | None,
         on_scene_progress: Callable[[int, int], Awaitable[None]] | None,
         bulk_error_kind: str | None,
+        include_alias_relations: bool = True,
+        existing_checkpoints: dict[str, dict[str, Any]] | None = None,
+        visible_until_chapter: int | None = None,
     ) -> dict[str, Any]:
         service = self.service
         prepared: list[dict[str, Any]] = []
+        skipped_checkpoints: list[dict[str, Any]] = []
         for scene_idx, scene in enumerate(scenes):
-            source_chapter_index = service._scene_source_chapter_index(scene)
-            chapters_text = await service._load_scene_chapters(db, scene)
+            previous = (existing_checkpoints or {}).get(service._scene_id(scene))
+            previous_status = (previous or {}).get("status")
+            previous_retries = int((previous or {}).get("retry_count") or 0)
+            if previous_status == "done":
+                skipped_checkpoints.append(
+                    service._build_scene_checkpoint(
+                        scene,
+                        status="skipped",
+                        workflow_id=workflow_id,
+                        scene_provenance_key=service._scene_provenance_key(
+                            workflow_id,
+                            scene,
+                        ),
+                        retry_count=previous_retries,
+                        created_entity_ids=previous.get("created_entity_ids", []),
+                        created_relation_ids=previous.get("created_relation_ids", []),
+                        created_delta_ids=previous.get("created_delta_ids", []),
+                    )
+                )
+                continue
+            if previous_status == "quality_failed" and previous_retries >= 1:
+                skipped_checkpoints.append(
+                    service._build_scene_checkpoint(
+                        scene,
+                        status="skipped",
+                        workflow_id=workflow_id,
+                        scene_provenance_key=service._scene_provenance_key(
+                            workflow_id,
+                            scene,
+                        ),
+                        retry_count=previous_retries,
+                        error="quality_rerun_exhausted",
+                        error_kind="quality_rerun_exhausted",
+                    )
+                )
+                continue
+            if service._has_persistent_scene_id(scene):
+                activation_kwargs: dict[str, Any] = {
+                    "novel_id": str(nid),
+                    "scene_id": service._scene_id(scene),
+                }
+                if visible_until_chapter is not None:
+                    activation_kwargs["visible_until_chapter"] = visible_until_chapter
+                activation = await service._prepare_import_context_activation(
+                    db,
+                    **activation_kwargs,
+                )
+                source_chapter_index = (
+                    activation.chapter_index or service._scene_source_chapter_index(scene)
+                )
+                chapters_text = activation.current_scene_text
+                world_context = activation.world_context_text
+                memory_context = activation.neighbor_context_text
+                activation_metadata = {
+                    "activation_version": activation.activation_version,
+                    "sources": activation.sources,
+                    "budget_events": activation.budget_events,
+                    "warnings": activation.warnings,
+                }
+            else:
+                source_chapter_index = service._scene_source_chapter_index(scene)
+                chapters_text = await service._load_scene_chapters(db, scene)
+                world_context = existing_context
+                memory_context = service._parallel_scene_memory_context(scene, scene_idx)
+                activation_metadata = {
+                    "activation_version": "legacy-transient-scene",
+                    "sources": [],
+                    "budget_events": [],
+                    "warnings": ["transient_scene_compatibility_adapter"],
+                }
             if not chapters_text:
                 prepared.append(
                     {
@@ -50,22 +122,24 @@ class ParallelSceneEntityExtractor:
                         "scene": scene,
                         "source_chapter_index": source_chapter_index,
                         "chapters_text": "",
-                        "memory_context": "无前序 Scene 上下文",
+                        "memory_context": memory_context,
+                        "world_context": world_context,
+                        "activation": activation_metadata,
                         "snapshot_id": None,
                     }
                 )
                 continue
-            memory_context = service._parallel_scene_memory_context(scene, scene_idx)
             snapshot = await service._create_phase2_snapshot(
                 db,
                 nid,
                 scene,
                 source_chapter_index,
                 chapters_text,
-                existing_context,
+                world_context,
                 memory_context,
                 [],
                 workflow_id=workflow_id,
+                activation=activation_metadata,
             )
             prepared.append(
                 {
@@ -74,29 +148,28 @@ class ParallelSceneEntityExtractor:
                     "source_chapter_index": source_chapter_index,
                     "chapters_text": chapters_text,
                     "memory_context": memory_context,
+                    "world_context": world_context,
+                    "activation": activation_metadata,
                     "snapshot_id": snapshot.id,
                 }
             )
-
-        semaphore = asyncio.Semaphore(PHASE2_PARALLEL_SCENE_CONCURRENCY)
 
         async def extract_scene(item: dict[str, Any]) -> dict[str, Any]:
             if not item["chapters_text"]:
                 return {**item, "extraction": None, "error": None}
             format_diagnostics: list[dict[str, Any]] = []
             try:
-                async with semaphore:
-                    extraction = await asyncio.wait_for(
-                        service._call_llm_extraction(
-                            item["chapters_text"],
-                            existing_context,
-                            item["memory_context"],
-                            client_timeout=PHASE2_PARALLEL_PROVIDER_TIMEOUT_SECONDS,
-                            transport_retries=False,
-                            diagnostics=format_diagnostics,
-                        ),
-                        timeout=PHASE2_PARALLEL_LLM_TIMEOUT_SECONDS,
-                    )
+                extraction = await asyncio.wait_for(
+                    service._call_llm_extraction(
+                        item["chapters_text"],
+                        item["world_context"],
+                        item["memory_context"],
+                        client_timeout=PHASE2_PARALLEL_PROVIDER_TIMEOUT_SECONDS,
+                        transport_retries=False,
+                        diagnostics=format_diagnostics,
+                    ),
+                    timeout=PHASE2_PARALLEL_LLM_TIMEOUT_SECONDS,
+                )
             except Exception as exc:
                 return {
                     **item,
@@ -111,16 +184,40 @@ class ParallelSceneEntityExtractor:
                 "format_diagnostics": format_diagnostics,
             }
 
-        extracted = await asyncio.gather(
-            *(extract_scene(item) for item in prepared),
-        )
+        extracted: list[dict[str, Any]] = []
+        concurrency = max(8, PHASE2_PARALLEL_SCENE_CONCURRENCY)
+        throttle_reasons: list[str] = []
+        healthy_completions = 0
+        for start in range(0, len(prepared), concurrency):
+            wave = prepared[start : start + concurrency]
+            results = await asyncio.gather(*(extract_scene(item) for item in wave))
+            extracted.extend(results)
+            transport_failures = sum(1 for item in results if item.get("error"))
+            format_failures = sum(1 for item in results if item.get("format_diagnostics"))
+            if transport_failures >= 2 or format_failures >= 3:
+                next_concurrency = max(8, concurrency // 2)
+                if next_concurrency < concurrency:
+                    throttle_reasons.append("transport_or_format_failure_window")
+                    concurrency = next_concurrency
+                healthy_completions = 0
+            else:
+                healthy_completions += len(results)
+                if (
+                    healthy_completions >= 16
+                    and concurrency < PHASE2_PARALLEL_SCENE_CONCURRENCY
+                ):
+                    concurrency = min(
+                        PHASE2_PARALLEL_SCENE_CONCURRENCY,
+                        concurrency * 2,
+                    )
+                    healthy_completions = 0
 
         total_created = 0
         total_relations = 0
         total_deltas = 0
         completed_scenes = 0
         failed_scene_indices: list[int] = []
-        scene_checkpoints: list[dict[str, Any]] = []
+        scene_checkpoints: list[dict[str, Any]] = list(skipped_checkpoints)
         seen_entity_keys: set[tuple[str, str]] = set()
         accumulated_memory: list[dict] = []
         updated_context = existing_context
@@ -161,6 +258,8 @@ class ParallelSceneEntityExtractor:
                         retry_count=1,
                         error=error_message,
                         error_kind=error_kind,
+                        activation_version=item["activation"]["activation_version"],
+                        activation_source_count=len(item["activation"]["sources"]),
                     )
                 )
                 if on_scene_progress is not None:
@@ -168,16 +267,32 @@ class ParallelSceneEntityExtractor:
                 continue
 
             if extraction is None:
+                missing_current_evidence = not item["chapters_text"]
                 scene_checkpoints.append(
                     service._build_scene_checkpoint(
                         scene,
-                        status="done",
+                        status="quality_failed" if missing_current_evidence else "done",
                         workflow_id=workflow_id,
                         scene_provenance_key=scene_provenance_key,
-                        retry_count=0,
+                        retry_count=1 if missing_current_evidence else 0,
+                        error=(
+                            "current_scene_span_coverage_missing"
+                            if missing_current_evidence
+                            else None
+                        ),
+                        error_kind=(
+                            "current_scene_span_coverage_missing"
+                            if missing_current_evidence
+                            else None
+                        ),
+                        activation_version=item["activation"]["activation_version"],
+                        activation_source_count=len(item["activation"]["sources"]),
                     )
                 )
-                completed_scenes += 1
+                if missing_current_evidence:
+                    failed_scene_indices.append(scene_index)
+                else:
+                    completed_scenes += 1
                 if on_scene_progress is not None:
                     await on_scene_progress(scene_idx + 1, len(scenes))
                 continue
@@ -202,7 +317,9 @@ class ParallelSceneEntityExtractor:
                     nid,
                     extraction.relations,
                     scene_index=scene_index,
+                    source_chapter_index=item["source_chapter_index"],
                     workflow_id=workflow_id,
+                    scene_id=scene_id,
                     context_snapshot_id=snapshot_id,
                     result_refs=result_refs,
                 )
@@ -247,6 +364,8 @@ class ParallelSceneEntityExtractor:
                         retry_count=1,
                         error=error_message,
                         error_kind=error_kind,
+                        activation_version=item["activation"]["activation_version"],
+                        activation_source_count=len(item["activation"]["sources"]),
                     )
                 )
                 if on_scene_progress is not None:
@@ -280,6 +399,8 @@ class ParallelSceneEntityExtractor:
                         "entity_relation",
                     ),
                     created_delta_ids=service._result_ref_ids(result_refs, "delta_log"),
+                    activation_version=item["activation"]["activation_version"],
+                    activation_source_count=len(item["activation"]["sources"]),
                 )
             )
             try:
@@ -299,16 +420,6 @@ class ParallelSceneEntityExtractor:
             if on_scene_progress is not None:
                 await on_scene_progress(scene_idx + 1, len(scenes))
 
-        supplement_result = await service._supplement_small_sample_entities(
-            db,
-            nid,
-            scenes,
-            current_count=total_created,
-            workflow_id=workflow_id,
-        )
-        if supplement_result["created"]:
-            total_created += supplement_result["created"]
-
         flush_status = await service._phase2_flush_with_timeout(db)
         audit_summary = await service._phase2_audit_summary(
             db,
@@ -326,32 +437,46 @@ class ParallelSceneEntityExtractor:
             "total_aliases": 0,
             "total_deltas": total_deltas,
             "total_scenes": len(scenes),
-            "degraded": bool(
-                failed_scene_indices
-                or supplement_result["created"]
-                or flush_status["degraded"]
-            ),
+            "degraded": bool(failed_scene_indices or flush_status["degraded"]),
             "error_kind": error_kind or flush_status["error_kind"],
             "error_message": error_message or flush_status["error_message"],
             "failed_scene_indices": failed_scene_indices,
+            "failed_scene_ids": [
+                service._scene_id(item["scene"])
+                for item in extracted
+                if not item["chapters_text"] or item.get("error") is not None
+            ],
             "completed_scenes": completed_scenes,
             "skipped_scenes": 0,
             "rerun_scenes": 0,
+            "quality_failed_scene_ids": [
+                service._scene_id(item["scene"])
+                for item in extracted
+                if not item["chapters_text"]
+            ],
             "stopped_early": False,
             "audit_summary": audit_summary,
             "snapshot_health_summary": snapshot_health_summary,
             "checkpoints": {"phase2": {"scenes": scene_checkpoints}},
-            "parallel_llm_fallback": True,
+            "parallel_llm_fallback": not str(bulk_error_kind or "").startswith(
+                "unified_activation:"
+            ),
             "bulk_error_kind": bulk_error_kind,
-            "supplemental_llm_created": supplement_result["supplemental_llm_created"],
-            "fallback_created": supplement_result["fallback_created"],
-            "supplemental_error_kind": supplement_result["supplemental_error_kind"],
+            "activation_version": "import-context-v1",
+            "phase2_effective_concurrency": PHASE2_PARALLEL_SCENE_CONCURRENCY,
+            "phase2_throttle_reasons": throttle_reasons,
+            "supplemental_llm_created": 0,
+            "fallback_created": 0,
+            "supplemental_error_kind": None,
             "structured_format_diagnostics": structured_format_diagnostics[:20],
         }
-        alias_result = await service._run_alias_relation_phase(
-            db,
-            nid,
-            scenes,
-            workflow_id=workflow_id,
-        )
+        if include_alias_relations:
+            alias_result = await service._run_alias_relation_phase(
+                db,
+                nid,
+                scenes,
+                workflow_id=workflow_id,
+            )
+        else:
+            alias_result = {"alias_relation_skipped": True}
         return service._merge_alias_relation_result(phase2_result, alias_result)

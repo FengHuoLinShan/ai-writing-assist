@@ -29,7 +29,6 @@ from modules.imports.workflow_llm_adapters import (
     PHASE1B_COMPACT_TEXT_LIMIT,
     _Phase1aSceneSlicingLLM,
     _Phase1bSceneEnrichmentLLM,
-    _Phase2WorldExtractionLLM,
     _project_settings_for_novel,
 )
 from modules.imports.workflow_llm_adapters import (
@@ -705,8 +704,7 @@ class DeepImportWorkflow:
         progress.current_step = None
         progress.degraded = True
         progress.message = (
-            "LLM 健康检查失败，已停止自动提取："
-            f"{health.error_kind or health.message}"
+            f"LLM 健康检查失败，已停止自动提取：{health.error_kind or health.message}"
         )
         progress.phase_errors.append(
             {
@@ -790,8 +788,8 @@ class DeepImportWorkflow:
         start_chapter: int | None = None,
         end_chapter: int | None = None,
     ) -> dict[str, Any]:
+        handler = _container_get("world.run_scene_entity_extraction")
         if db is None or isinstance(db, Mock):
-            handler = _container_get("world.run_scene_entity_extraction")
             return await handler(
                 db,
                 novel_id=novel_id,
@@ -805,21 +803,15 @@ class DeepImportWorkflow:
         from modules.imports.entity_extraction.scene_entity_config import (
             phase2_project_settings_context,
         )
-        from modules.imports.phase2_world_extraction import Phase2WorldExtractor
 
         project_settings = getattr(self, "_agent_project_settings", None)
         if project_settings is None:
             project_settings = await _project_settings_for_novel(db, novel_id)
         high_quality = bool(getattr(self, "_deep_import_high_quality", False))
         with phase2_project_settings_context(project_settings):
-            result = await Phase2WorldExtractor(
-                llm=_Phase2WorldExtractionLLM(
-                    project_settings=project_settings,
-                    high_quality=high_quality,
-                )
-            ).run(
+            result = await handler(
                 db,
-                novel_id,
+                novel_id=novel_id,
                 workflow_id=workflow_id,
                 on_scene_progress=on_scene_progress,
                 existing_checkpoints=existing_checkpoints,

@@ -13,7 +13,6 @@ from core.errors import DomainError, ValidationError
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
-from modules.rag import facade as rag_facade
 from modules.world.models import CoreEntity
 from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import EntityFusionApplyItem
@@ -347,12 +346,22 @@ class WorldEntityFusionService:
         source: CoreEntity,
         target: CoreEntity,
     ) -> list[dict[str, Any]]:
+        from modules.context.contracts import VisibilityContextContract
+        from modules.context.facade import search_novel_evidence
+
         query = (
-            f"{source.name} {target.name} "
-            f"{source.summary or ''} {target.summary or ''}"
+            f"{source.name} {target.name} {source.summary or ''} {target.summary or ''}"
         )
         try:
-            bundle = await rag_facade.retrieve(db, novel_id, query[:500], top_k=5)
+            result = await search_novel_evidence(
+                db,
+                novel_id=novel_id,
+                query=query[:500],
+                content_mode="canonical",
+                visibility=VisibilityContextContract(mode="author"),
+                scopes=["manuscript"],
+                top_k=5,
+            )
         except Exception:
             return [
                 {
@@ -362,7 +371,8 @@ class WorldEntityFusionService:
                     "snippet": _clip(f"{source.summary or ''}\n{target.summary or ''}"),
                 }
             ]
-        if not bundle.chunks:
+        hits = list(result.get("hits") or [])
+        if not hits:
             return [
                 {
                     "source_type": "entity_summary",
@@ -373,13 +383,13 @@ class WorldEntityFusionService:
             ]
         return [
             {
-                "source_type": "rag",
-                "rag_chunk_id": chunk.id,
-                "chapter_index": chunk.chapter_index,
-                "scene_id": chunk.scene_id,
-                "snippet": _clip(chunk.text),
+                "source_type": "manuscript_evidence",
+                "source_ref": hit.get("source_ref"),
+                "chapter_index": hit.get("chapter_index"),
+                "scene_refs": hit.get("scene_refs") or [],
+                "snippet": _clip(str(hit.get("snippet") or "")),
             }
-            for chunk in bundle.chunks[:5]
+            for hit in hits[:5]
         ]
 
     async def _decide(

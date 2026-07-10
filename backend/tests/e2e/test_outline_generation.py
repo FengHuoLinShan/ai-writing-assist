@@ -10,6 +10,7 @@ E2E：Outline 模块真实环境 AI 生成验证。
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 import pytest
@@ -19,6 +20,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tests.e2e.seed_data import create_base_scene
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
+
+real_llm_required = pytest.mark.skipif(
+    os.getenv("RUN_REAL_LLM_TESTS") != "1",
+    reason="真实 LLM E2E 验收默认跳过；设置 RUN_REAL_LLM_TESTS=1 才运行",
+)
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +169,8 @@ async def project_with_world(db_session: AsyncSession) -> dict[str, Any]:
 # ============================================================
 
 
+@pytest.mark.real_llm
+@real_llm_required
 class TestRealOutlineGeneration:
     """真实 LLM 验证——生成完整性 + 内容正确性。"""
 

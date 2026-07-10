@@ -68,6 +68,7 @@ async def _open_snapshot(
         _snapshot_request(novel_id, **overrides),
     )
 
+
 # ============================================================
 # Context Confirmation 测试
 # ============================================================
@@ -135,9 +136,7 @@ class TestConfirmedAiAction:
                 assert kwargs["confirmation_id"] == "conf-1"
                 return compiled
 
-        service = ConfirmedAIActionService(
-            confirmation_service=FakeConfirmationService()
-        )
+        service = ConfirmedAIActionService(confirmation_service=FakeConfirmationService())
 
         result = await service.prepare(
             object(),
@@ -162,9 +161,7 @@ class TestConfirmedAiAction:
             async def require_fresh_confirmation(self, db, **kwargs):
                 raise ValueError("context confirmation is stale_context")
 
-        service = ConfirmedAIActionService(
-            confirmation_service=FakeConfirmationService()
-        )
+        service = ConfirmedAIActionService(confirmation_service=FakeConfirmationService())
 
         with pytest.raises(ValueError, match="stale_context"):
             await service.prepare(
@@ -926,8 +923,8 @@ class TestContextSceneIsolation:
         records = {str(record.id): record for record in result.scalars().all()}
         records[stale.id].created_at = datetime.now(UTC) - timedelta(hours=3)
         records[stale.id].result_refs = [{"type": "scene", "id": "scene-1"}]
-        records[retained.id].rendered_context_expires_at = (
-            datetime.now(UTC) - timedelta(minutes=1)
+        records[retained.id].rendered_context_expires_at = datetime.now(UTC) - timedelta(
+            minutes=1
         )
         await db_session.flush()
 
@@ -1258,9 +1255,7 @@ class TestContextConfirmation:
                 "action": "writing.generate",
                 "task": "生成第 1 章正文草稿",
                 "scope": "full",
-                "excluded_asset_ids": {
-                    "context_sections": ["retrieval_evidence_packs"]
-                },
+                "excluded_asset_ids": {"context_sections": ["retrieval_evidence_packs"]},
             },
         )
 
@@ -1268,9 +1263,10 @@ class TestContextConfirmation:
         data = response.json()
         section_keys = [section["key"] for section in data["sections"]]
         assert "retrieval_evidence_packs" not in section_keys
-        assert "retrieval_evidence_packs" not in data["selected_asset_ids"][
-            "context_sections"
-        ]
+        assert (
+            "retrieval_evidence_packs"
+            not in data["selected_asset_ids"]["context_sections"]
+        )
         assert data["excluded_asset_ids"] == {
             "context_sections": ["retrieval_evidence_packs"]
         }
@@ -1306,12 +1302,8 @@ class TestContextConfirmation:
             if section["key"] == "hard_constraints"
         )
         assert hard_constraints["can_exclude"] is False
-        assert "核心参考资料不可排除：writing_objective" in "\n".join(
-            data["warnings"]
-        )
-        assert "核心参考资料不可排除：hard_constraints" in "\n".join(
-            data["warnings"]
-        )
+        assert "核心参考资料不可排除：writing_objective" in "\n".join(data["warnings"])
+        assert "核心参考资料不可排除：hard_constraints" in "\n".join(data["warnings"])
 
     def test_budget_events_record_eviction_and_truncation(self) -> None:
         """预算裁剪应记录已移除和已裁剪 section 的事件。"""
@@ -1840,6 +1832,47 @@ class TestStructureContextBundle:
 class TestContextCompiler:
     """测试 Context Compiler 核心逻辑"""
 
+    def test_rag_section_metadata_keeps_stable_source_ref(self) -> None:
+        from modules.context.services.context_compiler import ContextCompiler
+
+        source_ref = {
+            "draft_id": "00000000-0000-0000-0000-000000000123",
+            "chapter_index": 3,
+            "version_number": 2,
+            "content_mode": "working",
+            "start_offset": 10,
+            "end_offset": 20,
+            "source_hash": "a" * 64,
+            "range_hash": "b" * 64,
+        }
+        bundle = StructureContextBundle(
+            novel_id="00000000-0000-0000-0000-000000000399",
+            task="稳定来源",
+            scope="full",
+            rag_chunks=[
+                {
+                    "id": "chunk-1",
+                    "source_type": "chapter_text",
+                    "text": "已从 writing 回读的原文",
+                    "source_ref": source_ref,
+                }
+            ],
+        )
+        options = CompileOptions(
+            novel_id=bundle.novel_id,
+            task=bundle.task,
+            scope=bundle.scope,
+            content_mode="working",
+        )
+
+        sections = ContextCompiler()._build_sections(bundle, options)
+        section = next(
+            item for item in sections if item.key == "retrieval_evidence_packs"
+        )
+
+        assert section.sources[0]["source_ref"] == source_ref
+        assert section.sources[0]["source_hash"] == "a" * 64
+
     @pytest.mark.asyncio
     async def test_rag_loader_propagates_retrieval_warnings(
         self,
@@ -1882,6 +1915,58 @@ class TestContextCompiler:
 
         assert "embedding 生成失败，本次检索已降级" in bundle.warnings
         assert "RAG 检索降级" in bundle.warnings
+
+    @pytest.mark.asyncio
+    async def test_rag_loader_passes_visible_until_chapter(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        from dataclasses import dataclass, field
+
+        from modules.context.services.loaders.rag_chunks_loader import RagChunksLoader
+
+        calls: list[dict] = []
+
+        @dataclass
+        class _FakeRagResult:
+            chunks: list = field(default_factory=list)
+            warnings: list[str] = field(default_factory=list)
+            degraded: bool = False
+
+        async def _fake_retrieve(*args, **kwargs):
+            calls.append(kwargs)
+            return _FakeRagResult()
+
+        bundle = StructureContextBundle(
+            novel_id="00000000-0000-0000-0000-000000000398",
+            task="测试 RAG 读者进度",
+            scope="chapter",
+        )
+        options = CompileOptions(
+            novel_id=bundle.novel_id,
+            task=bundle.task,
+            scope=bundle.scope,
+            chapter_index=3,
+        )
+
+        await RagChunksLoader(retrieve_fn=_fake_retrieve).load(
+            db_session,
+            options,
+            bundle,
+        )
+
+        assert calls[0]["chapter_index"] == 3
+        assert calls[0]["reference_chapter_index"] == 3
+        assert calls[0]["visible_until_chapter"] == 3
+
+        calls.clear()
+        options.visible_until_chapter = 5
+        await RagChunksLoader(retrieve_fn=_fake_retrieve).load(
+            db_session,
+            options,
+            bundle,
+        )
+        assert calls[0]["visible_until_chapter"] == 5
 
     @pytest.mark.asyncio
     async def test_compile_empty_db_project_scope(
@@ -2070,6 +2155,7 @@ class TestContextCompiler:
                 knowledge_level="false_belief",
                 known_content="一个神秘组织。",
                 misconception="错误认知：暗影组织是正义的。",
+                source_chapter_index=1,
             )
         )
         await db_session.flush()
@@ -2082,6 +2168,7 @@ class TestContextCompiler:
             character_ids=[str(char_id)],
             reveal_mode="character",
             viewpoint_character_id=str(char_id),
+            visible_until_chapter=2,
         )
         rendered = render_context_markdown(bundle)
 
@@ -2228,6 +2315,7 @@ class TestContextCompiler:
             character_ids=[str(char_id)],
             reveal_mode="character",
             viewpoint_character_id=str(char_id),
+            visible_until_chapter=2,
         )
 
         faction_entities = [
@@ -2737,11 +2825,12 @@ async def _setup_character_knowledge(
             id=uuid.uuid4(),
             novel_id=nid,
             character_id=char_id,
-            target_type="entity",
+            target_type="location",
             target_id=target_id,
             knowledge_level=knowledge_level,
             known_content=known_content,
             misconception=misconception,
+            source_chapter_index=1,
         )
     )
     await db_session.flush()
@@ -2776,6 +2865,7 @@ class TestContextApiIntegration:
                 "task": "生成场景",
                 "scope": "world_character",
                 "reveal_mode": "character",
+                "visible_until_chapter": 2,
                 "viewpoint_character_id": char_id,
                 "character_ids": [char_id],
                 "entity_ids": [target_id],
@@ -2808,6 +2898,7 @@ class TestContextApiIntegration:
                 "task": "生成场景",
                 "scope": "world_character",
                 "reveal_mode": "character",
+                "visible_until_chapter": 2,
                 "viewpoint_character_id": char_id,
                 "character_ids": [char_id],
                 "entity_ids": [target_id],
@@ -2841,6 +2932,7 @@ class TestContextApiIntegration:
                 "task": "生成场景",
                 "scope": "world_character",
                 "reveal_mode": "character",
+                "visible_until_chapter": 2,
                 "viewpoint_character_id": char_id,
                 "character_ids": [char_id],
                 "entity_ids": [target_id],

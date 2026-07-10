@@ -147,11 +147,54 @@ class TestWritingMissingFlows:
         await db_session.flush()
         return async_client, meta["project_id"]
 
-    async def test_writing_draft_and_outline_get_by_chapter_returns_both(self, ctx):
-        pytest.skip("端点已移除: /api/outline/chapters/by-index/{idx}")
+    async def test_writing_draft_and_scenes_by_chapter_return_current_models(self, ctx):
+        client, pid = ctx
+        created = await client.post(
+            "/api/writing/drafts",
+            json={"novel_id": pid, "chapter_index": 1, "content": "当前章节正文"},
+        )
+        assert created.status_code == 201, created.text
+        draft = await client.get(f"/api/writing/chapters/1/draft?novel_id={pid}")
+        scenes = await client.get(
+            f"/api/outline/scenes/by-chapter?novel_id={pid}&chapter_index=1"
+        )
+        assert draft.status_code == 200
+        assert scenes.status_code == 200
+        assert isinstance(scenes.json(), list)
 
-    async def test_writing_save_and_analyze_returns_draft_id_and_status(self, ctx):
-        pytest.skip("端点已移除: /api/writing/save-and-analyze")
+    async def test_writing_draft_update_replaces_latest_version_without_new_publish(
+        self,
+        ctx,
+    ):
+        client, pid = ctx
+        created = await client.post(
+            "/api/writing/drafts",
+            json={"novel_id": pid, "chapter_index": 2, "content": "初稿"},
+        )
+        assert created.status_code == 201, created.text
+        draft_id = created.json()["draft"]["id"]
+        updated = await client.put(
+            f"/api/writing/drafts/{draft_id}?novel_id={pid}",
+            json={"content": "修订后的正文"},
+        )
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["content"] == "修订后的正文"
 
-    async def test_writing_draft_update_status_to_approved_returns_200(self, ctx):
-        pytest.skip("端点已移除: draft 无 status 字段，无法更新 approved 状态")
+    async def test_writing_delete_chapter_removes_all_versions(self, ctx):
+        client, pid = ctx
+        for content in ("第一版", "第二版"):
+            response = await client.post(
+                "/api/writing/drafts",
+                json={"novel_id": pid, "chapter_index": 3, "content": content},
+            )
+            assert response.status_code == 201, response.text
+        before = await client.get(f"/api/writing/chapters/3/versions?novel_id={pid}")
+        assert before.status_code == 200, before.text
+        deleted = await client.delete(f"/api/writing/chapters/3?novel_id={pid}")
+        assert deleted.status_code == 200, deleted.text
+        assert deleted.json()["deleted_versions"] == before.json()["total"]
+        after = await client.get(f"/api/writing/chapters/3/versions?novel_id={pid}")
+        assert after.status_code == 200, after.text
+        assert after.json()["total"] == before.json()["total"]
+        latest = await client.get(f"/api/writing/chapters/3/draft?novel_id={pid}")
+        assert latest.status_code == 404

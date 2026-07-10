@@ -6,17 +6,22 @@ writing 模块不是核心 AI 正文生成模块，而是人工正文草稿和�
 
 ## 数据表
 
-- `writing_drafts` — chapter_index / title / content / version_number / status / provenance_json（UniqueConstraint: novel_id + chapter_index + version_number）
+- `writing_drafts` — chapter_index / title / content / content_hash / version_number / status / provenance_json（UniqueConstraint: novel_id + chapter_index + version_number）
 - `writing_conflict_checks` — Scene 写作冲突检查记录，保存规则层结果、AI 软冲突状态和 `include_candidates`
 - `writing_conflict_items` — 单条检查问题，保存来源模块、证据摘要、可打开来源和处理状态
 
 ## 版本管理
 
-每次保存创建新版本（version_number 自增），旧版本保留供版本历史查看和回滚。
+每次发布或对 published 的首次编辑创建新版本（version_number 自增），
+旧 published 版本不可变，保留供稳定引用与版本历史回读。
 API 提供了两种写入模式：
 
 1. **发布草稿**（`POST /drafts`）→ 新版本 + 自动入队 `publish_chapter` 任务
-2. **更新草稿**（`PUT /drafts/{id}`）→ 原地更新最新版本内容，无副作用（暂存模式）
+2. **更新草稿**（`PUT /drafts/{id}`）→ working 可原地暂存；published 以 copy-on-write 返回新 draft ID
+
+`canonical` 选择每章最新非废弃 `published`，缺失时不回退 working；
+`working` 选择最新非废弃版本。删除单版本或整章只标记 `deprecated`，
+版本号永不重排。
 
 ## Facade
 
@@ -28,6 +33,9 @@ async def get_draft(db, draft_id) -> WritingDraftContract | None
 async def get_latest_draft_for_chapter(db, novel_id, chapter_index) -> WritingDraftContract | None
 async def list_latest_drafts_for_chapters(db, novel_id, chapter_indices, *, content_limit: int | None = None) -> list[WritingDraftContract]
 async def list_chapter_indices(db, novel_id) -> list[int]
+async def list_manuscript_sources(db, novel_id, chapter_indices=None, *, content_mode="canonical") -> list[WritingDraftContract]
+async def grep_manuscript(db, novel_id, pattern, *, content_mode="canonical", ...) -> ManuscriptSearchPageContract
+async def read_manuscript_range(db, novel_id, source_ref, *, before_paragraphs=0, after_paragraphs=0) -> ManuscriptReadContract
 ```
 
 facade 的 create 系列只暴露跨模块 `WritingDraftContract`，不返回 API response schema；REST API 层继续负责把 contract 适配为 `WritingDraftResponse`，保持 HTTP response body 不变。
@@ -45,9 +53,9 @@ outline 时不在服务模块顶层 import outline facade，而是通过可注�
 ```
 POST   /api/writing/drafts                              # 发布草稿（新版本 + publish_chapter 任务）
 GET    /api/writing/drafts/{id}                         # 获取草稿
-PUT    /api/writing/drafts/{id}                         # 暂存草稿（原地更新，支持 expected_version 冲突检测）
-DELETE /api/writing/drafts/{id}                         # 删除单个版本
-DELETE /api/writing/chapters/{index}                    # 删除整章所有版本
+PUT    /api/writing/drafts/{id}                         # 暂存；published copy-on-write，支持 expected_version
+DELETE /api/writing/drafts/{id}                         # 软废弃单个版本
+DELETE /api/writing/chapters/{index}                    # 软废弃整章所有版本
 GET    /api/writing/chapters/{index}/draft              # 按章节索引获取最新草稿
 GET    /api/writing/chapters/{index}/versions           # 章节版本历史
 GET    /api/writing/chapters                            # 列出有草稿的章节索引
@@ -56,11 +64,22 @@ POST   /api/writing/conflict-checks                    # 创建剧情设定冲�
 GET    /api/writing/conflict-checks                    # 获取章节/Scene 检查历史
 GET    /api/writing/conflict-checks/{id}               # 获取检查详情
 POST   /api/writing/conflict-checks/{id}/ai-review     # 追加 AI 软冲突判断
+POST   /api/writing/conflict-checks/{id}/ai-review-task # 提交异步 AI 软冲突判断任务
 PATCH  /api/writing/conflict-check-items/{id}          # 更新问题处理状态
 POST   /api/writing/conflict-check-items/{id}/ai-suggestion # 生成单条 AI 修复建议
+POST   /api/writing/drafts/autosave                    # 创建纯草稿版本，不发布；合并标脏 working 索引
+POST   /api/writing/generate                            # 生成正文候选草稿，不自动发布
 ```
 
-`POST /api/writing/chapters/{chapter_index}/split?novel_id=...` splits the latest draft at `split_pos`, creates the next chapter draft, shifts later chapter indices, and remaps Scene chunks through the injected split provider. The default provider still delegates to outline facade, so existing behavior is unchanged. It does not enqueue `publish_chapter`; RAG indexing waits for an explicit save/publish.
+`POST /api/writing/chapters/{chapter_index}/split?novel_id=...` 只允许未发布的
+working 章节拓扑变更；切分位置及后续存在 published 版本时拒绝。该入口通过
+outline provider 重映射 Scene chunk，不修改正文事实源，也不自动发布。
+
+## 稳定原文引用
+
+`SourceRangeRefContract` 保存 draft/chapter/version/content mode、章内 offset、
+`source_hash` 与 `range_hash`。范围不跨章；读取时必须校验 novel 归属、
+版本与 hash。原文 grep 为有长度/结果上限和分页的字面搜索，V1 不开放正则。
 
 ## 版本历史
 

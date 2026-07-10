@@ -8,8 +8,9 @@ outline 模块负责把事实层资产组织成“可执行的剧情计划”。
 
 - `plot_threads`：剧情线
 - `outline_arcs`：篇章纲
-- `chapter_cards`：章节卡
 - `scenes`：最小叙事单元
+- `scene_spans`：从 `scene_chunks` 派生的只读物理片段索引
+- `scene_chapter_links`：Scene 与章节的轻量关联
 - `foreshadowing_plans`：伏笔计划
 - `reveal_plans`：揭示计划
 
@@ -110,6 +111,8 @@ monkeypatch 路径。
 - `get_scene_contract()`
 - `get_scenes_by_novel()`
 - `get_scenes_by_chapter()`
+- `get_scene_spans_by_chapter()`
+- `get_scene_spans_for_scene()`
 
 ## 与 writing 的依赖方向
 
@@ -126,10 +129,29 @@ Scene contract 都通过可注入 provider 完成；默认 provider 在调用时
 - `scenes` 是当前最小叙事单元的权威表
 - `scene_index` 是逻辑顺序
 - `scene_chunks` 保存 Scene 到正文物理区间的映射
+- `scene_spans` 是从 `scene_chunks` 派生的只读查询索引，记录
+  `scene_id/chapter_index/content_mode/source_draft_id/source_content_hash/offset/paragraph/part_no/mapping_status/anchor_hash`
 - `structure_meta` 保存结构整理元信息，如 `needs_organize`、`reviewed_at`、`merged_into_scene_id`、`merged_from_scene_ids`、`split_from_scene_id`、`split_at_chapter_index`
 - 深度导入 / 手动融合等自动整理来源通过 `source` 与 `structure_meta` / `provenance_meta` 暴露给管理筛选；手动融合新 Scene 使用 `source="manual_fusion"`
-- `chapter_cards.scene_cards` 只保留历史兼容/冗余上下文，不是当前权威来源
-- 写作页、地图摘要、RAG `scene_id` 关联都依赖 `scenes` 表
+- `scene_chapter_links` 与 `scene_spans` 表达章节映射；旧章卡 JSON 语境不属于当前 ORM schema
+- 写作页、地图摘要、RAG `scene_id` 关联都依赖 `scenes` 表；RAG 精确正文归因通过
+  outline facade 只读获取 `SceneSpanContract`
+
+`scene_spans` 不替代 `scene_chunks`，也不是前端编辑入口。`SceneRepository` 在
+Scene create/update、Workbench merge/split/fusion、断章和 deep-import cleanup 时统一
+同步 `scene_chapter_links` 与 `scene_spans`；`source/status` 镜像 Scene，默认只读查询
+排除 `deprecated` span。跨模块只允许调用 `modules.outline.facade` 中的
+`get_scene_spans_by_chapter()` 和 `get_scene_spans_for_scene()`。
+
+span 按 `(novel_id, scene_id, content_mode, part_no)` 唯一。正文版本变化后以
+anchor 文本/hash 重定位；唯一命中是 `reanchored`，仅知章节是 `chapter_only`，
+歧义或缺失是 `unresolved`。非精确 span 不参与自动证据归因，并作为
+Scene 工作台“待整理”健康项进入人工复核。
+
+`scene_summary_checkpoints` 只摘要可见截止点之前的 span，并以 source refs 和
+`based_on_hash` 校验有效性。缺少/失效时降级为可见原文摘录，不回退完整
+Scene 卡摘要。`get_reader_reveal_decision()` 使用 `reveal_plans` 与截止章确定读者可见性，
+同章无可判定顺序的揭示默认排除。
 
 ## Scene 工作台
 
@@ -141,7 +163,8 @@ Scene 工作台是 Scene 管理、章节映射和结构整理的主入口；大�
 - `未复核`：导入 / AI 生成来源仍处于草稿或候选，且缺少人工复核标记
 - `未关联章节`：Scene 没有关联章节，或存在有正文草稿但未归入任何 Scene 的章节
 - `缺设定`：目标、核心冲突、必须发生、禁止发生等关键字段缺失
-- `待整理`：人工标记、重复章节映射、chunk/chapter 不一致等结构整理信号
+- `待整理`：人工标记、重复章节映射、chunk/chapter 不一致，或
+  `chapter_only` / `unresolved` 来源映射等需要复核的信号
 
 跨多章 Scene 是正常创作形态，不作为默认风险。合并 / 拆分必须先请求影响预览，
 再二次确认执行；预览只提示章节映射、字段、剧情线、伏笔 / 揭示和地图摘要影响，

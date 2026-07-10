@@ -90,6 +90,11 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 | ~~`entity_candidates`~~ | 已废弃；候选对象存于 `core_entities.status="candidate"` |
 | ~~`relationships`~~ | 已废弃，使用 `entity_relations` |
 
+`character_knowledge.source_chapter_index` 表示人物学到该知识的章节。
+读者/角色视角仅激活早于可见截止章的记录；无来源章节的旧数据默认排除，
+只有显式标记 `is_public_baseline=true` 的开场公开知识例外。同章但没有更精确学习
+位置的记录按保守规则排除。
+
 ### ORM 模型布局
 
 `modules.world.models` 是兼容导出 package，导入该 package 会注册 world 所有
@@ -281,6 +286,10 @@ Root `facade.py` 是纯 re-export hub，不定义 async wrapper 或承载业务�
 `preview_worldbuilding_activation()` 调用确定性 activation preview 服务；
 `mark_worldbuilding_context_stale()` 保持函数内 lazy import `modules.context.facade`，
 避免扩大 context ↔ world 循环 import 风险。
+
+`get_world_background()` 返回只读的 `WorldBackgroundBundleContract`。它从世界对象、
+关系、已确认地图事实和人物知识边界派生 token-aware 条目，供 context 编译；不拥有
+新的正史表，也不写回任何事实。
 
 ```python
 # ---- CoreEntity ----

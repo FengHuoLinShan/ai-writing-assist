@@ -76,6 +76,19 @@ def multi_chapters():
     ]
 
 
+@pytest.fixture(autouse=True)
+def project_context_without_profile(monkeypatch):
+    """Keep existing extraction tests on the legacy no-profile path by default."""
+
+    async def _get_project_context(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "modules.project.facade.get_project_context",
+        _get_project_context,
+    )
+
+
 @pytest_asyncio.fixture
 async def service(chapters):
     """Service with mocked dependencies (single chapter)."""
@@ -145,6 +158,7 @@ def _setup_llm(mock_llm_client, *, return_value=None):
         return [0.1, 0.2 if is_query else 0.4, 0.3]
 
     instance.generate_embedding.side_effect = _generate_embedding
+    mock_llm_client.from_project_settings.return_value = instance
     return instance
 
 
@@ -155,6 +169,46 @@ def _setup_llm(mock_llm_client, *, return_value=None):
 
 class TestEntityExtractionService:
     """EntityExtractionService 单元测试 — 验证实体抽取、去重、错误处理与上下文累积"""
+
+    @mock.patch("modules.project.facade.get_project_context", new_callable=mock.AsyncMock)
+    @mock.patch("modules.world.facade.find_entity_id_by_name")
+    @mock.patch("modules.world.facade.get_world_context")
+    @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
+    @mock.patch("infrastructure.llm.client.LLMClient")
+    async def test_extract_entities_uses_project_llm_profile(
+        self,
+        mock_llm_client,
+        mock_load_prompt,
+        mock_get_context,
+        mock_find_entity,
+        mock_project_context,
+        service,
+        default_llm_response,
+    ):
+        """Configured projects must use their effective LLM profile."""
+        profile = {
+            "llm": {
+                "provider_id": "deepseek",
+                "base_url": "https://api.deepseek.com",
+                "model": "deepseek-v4-flash",
+                "api_key": "encrypted-test-key",
+            }
+        }
+        _setup_llm(mock_llm_client, return_value=default_llm_response)
+        mock_project_context.return_value = SimpleNamespace(settings=profile)
+        mock_get_context.return_value = WorldContextBundle(novel_id="test", entities=[])
+        mock_load_prompt.return_value = "system prompt base"
+        mock_find_entity.return_value = None
+
+        result = await service.extract_entities_from_chapters(
+            mock.AsyncMock(),
+            TEST_NOVEL_ID,
+            1,
+            1,
+        )
+
+        assert result.total_created == 2
+        mock_llm_client.from_project_settings.assert_called_once_with(profile)
 
     @mock.patch("modules.world.facade.find_entity_id_by_name")
     @mock.patch("modules.world.facade.get_world_context")

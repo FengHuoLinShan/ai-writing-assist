@@ -86,7 +86,7 @@
         <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
       </div>
     </div>
-    <p class="subtitle">FastAPI 后端 · 8 个业务模块 · 三层架构 · 异步任务队列</p>
+    <p class="subtitle">FastAPI 后端 · 9 个业务模块 · 三层架构 · PostgreSQL 异步任务队列</p>
   </div>
 
   <div class="diagram-container">
@@ -188,6 +188,12 @@
       <rect x="120" y="95" width="280" height="70" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
       <text x="260" y="118" fill="white" font-size="12" font-weight="600" text-anchor="middle">project 项目管理</text>
       <text x="260" y="136" fill="#94a3b8" font-size="9" text-anchor="middle">Project CRUD · novel_id 全局隔离</text>
+
+      <!-- settings box -->
+      <rect x="470" y="95" width="280" height="70" rx="6" fill="#0f172a" stroke="none"/>
+      <rect x="470" y="95" width="280" height="70" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="610" y="118" fill="white" font-size="12" font-weight="600" text-anchor="middle">settings 设置</text>
+      <text x="610" y="136" fill="#94a3b8" font-size="9" text-anchor="middle">全局默认 · 作者偏好 · 项目覆盖</text>
       <text x="260" y="152" fill="#fbbf24" font-size="8" text-anchor="middle">零跨模块依赖 — 根聚合</text>
 
       <!-- tasks box -->
@@ -307,9 +313,9 @@
         <h3>模块数量</h3>
       </div>
       <ul>
-        <li>• 8 个活动业务模块（project / imports / world / memory / rag / context / writing / tasks）</li>
-        <li>• 1 个附加模块（outline — 剧情结构）仍在 main.py 中注册</li>
-        <li>• 已移除：geo / outline / review / character / timeline（character 并入 world）</li>
+        <li>• 9 个活动业务模块（project / settings / imports / world / memory / outline / rag / context / writing）</li>
+        <li>• map 是 world 子系统；infrastructure/tasks 是共享基础设施，不是业务模块</li>
+        <li>• 已移除：geo / review / character / timeline（人物和事件能力并入 world）</li>
       </ul>
     </div>
     <div class="card">
@@ -318,9 +324,9 @@
         <h3>架构原则</h3>
       </div>
       <ul>
-        <li>• 单向依赖：contracts → models → repos → services → facade → api</li>
-        <li>• 跨模块只能引用 contracts.py 和 facade.py（禁止 imports 内部文件）</li>
-        <li>• 所有跨模块依赖均为函数体内部懒加载 import</li>
+        <li>• 模块内部由 API、领域服务、repository 与模型各自承担职责</li>
+        <li>• 跨模块仅通过 contracts.py、facade.py 或已注册 DI port</li>
+        <li>• 组合根、迁移与测试 fixture 是受限模型导入例外</li>
         <li>• 异步任务通过 enqueuer → worker 解耦（PostgreSQL 队列）</li>
       </ul>
     </div>

@@ -30,24 +30,10 @@ async def test_writing_draft_provider_loads_latest_drafts_in_one_batch() -> None
         calls.append(("index", chapter_index))
         return SimpleNamespace(warnings=[f"w{chapter_index}"])
 
-    async def _get_chunks(
-        db,
-        novel_id: str,
-        start_chapter: int,
-        end_chapter: int | None = None,
-    ):
-        calls.append(("chunks", start_chapter, end_chapter))
-        return [
-            SimpleNamespace(chapter_index=1, chunk_index=0, text="切片一"),
-            SimpleNamespace(chapter_index=2, chunk_index=0, text="不应进入结果"),
-            SimpleNamespace(chapter_index=3, chunk_index=0, text="切片三"),
-        ]
-
     reset()
     register("writing.list_latest_drafts_for_chapters", _list_latest_drafts)
     register("writing.get_latest_draft_for_chapter", _get_latest_draft)
     register("rag.index_chapter", _index_chapter)
-    register("rag.get_ordered_chapter_chunks", _get_chunks)
     try:
         chapters = await WritingDraftProvider().load_chapters(
             None,  # type: ignore[arg-type]
@@ -63,19 +49,18 @@ async def test_writing_draft_provider_loads_latest_drafts_in_one_batch() -> None
         ("list_latest", "novel-1", [1, 2, 3]),
         ("index", 1),
         ("index", 3),
-        ("chunks", 1, 3),
     ]
     assert chapters == [
         {
             "chapter_index": 1,
             "title": "第一章",
-            "content": "[RAG chunk 0] 切片一",
+            "content": "正文一",
             "rag_warnings": ["w1"],
         },
         {
             "chapter_index": 3,
             "title": "第三章",
-            "content": "[RAG chunk 0] 切片三",
+            "content": "正文三",
             "rag_warnings": ["w3"],
         },
     ]

@@ -29,6 +29,7 @@ def build_phase2_snapshot_payload(
     model: str,
     max_tokens: int,
     temperature: float,
+    activation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build compact snapshot payload for Phase 2 handcrafted context."""
     scene_id = str(scene.get("id")) if scene.get("id") else None
@@ -52,10 +53,9 @@ def build_phase2_snapshot_payload(
         }
         for key, content in sections.items()
     ]
-    per_section_tokens = {
-        item["key"]: item["token_estimate"] for item in section_items
-    }
+    per_section_tokens = {item["key"]: item["token_estimate"] for item in section_items}
 
+    activation = activation or {}
     return {
         "scene_id": scene_id,
         "scene_index": scene.get("scene_index"),
@@ -65,6 +65,7 @@ def build_phase2_snapshot_payload(
             "model": model,
             "scene_index": scene.get("scene_index"),
             "chapter_ids": chapter_ids,
+            "activation_version": activation.get("activation_version"),
         },
         "included_asset_ids": {
             "scenes": [scene_id] if scene_id else [],
@@ -79,10 +80,12 @@ def build_phase2_snapshot_payload(
             "recent_memory": accumulated_memory[-5:],
             "scene_text_char_count": len(chapters_text),
             "include_pending_objects": True,
+            "activation_source_count": len(activation.get("sources") or []),
         },
         "section_metadata": {
             "sections": section_items,
             "existing_entity_terms": existing_terms,
+            "activation": activation,
         },
         "token_metadata": {
             "total_tokens": sum(per_section_tokens.values()),

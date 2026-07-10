@@ -73,6 +73,43 @@ def test_plot_structure_context_markdown_includes_rag_evidence_and_warnings() ->
 
 
 @pytest.mark.asyncio
+async def test_plot_structure_context_uses_range_end_as_visible_until(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.context.contracts import StructureContextBundle
+    from modules.outline.generation import context_builder
+    from modules.outline.generation.context_builder import PlotStructureContextBuilder
+
+    calls: list[dict] = []
+
+    async def _compile_structure_context(**kwargs):
+        calls.append(kwargs)
+        return StructureContextBundle(
+            novel_id=kwargs["novel_id"],
+            task=kwargs["task"],
+            scope=kwargs["scope"],
+        )
+
+    monkeypatch.setattr(
+        context_builder.context_facade,
+        "compile_structure_context",
+        _compile_structure_context,
+    )
+
+    await PlotStructureContextBuilder().build(
+        db_session,
+        "00000000-0000-0000-0000-000000000500",
+        3,
+        7,
+        include_chapter_texts=False,
+    )
+
+    assert calls[0]["chapter_index"] == 3
+    assert calls[0]["visible_until_chapter"] == 7
+
+
+@pytest.mark.asyncio
 async def test_plot_structure_context_loads_chapter_texts_in_one_batch(
     db_session: AsyncSession,
     sample_novel_id: str,

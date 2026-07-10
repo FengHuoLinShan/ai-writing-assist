@@ -1,8 +1,11 @@
-.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-v test-frontend test-all lint lint-fix format format-fix prompt-contracts prompt-contracts-json generate-e2e help db migrate doctor doctor-json doctor-llm
+.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-fast test-v test-integration test-e2e test-real-llm test-manual test-frontend test-all lint lint-fix format format-fix prompt-contracts prompt-contracts-json generate-e2e help db migrate doctor doctor-json doctor-llm
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BACKEND_DIR := $(ROOT_DIR)backend
 FRONTEND_DIR := $(ROOT_DIR)frontend-console
+BACKEND_FAST_TESTS := modules infrastructure tests/unit tests/integration tests/modules tests/prompt_contracts tests/test_api.py tests/test_outline_api.py tests/test_world_testonly_route.py
+BACKEND_REAL_LLM_TESTS := modules/imports/tests/test_real_extraction.py modules/rag/tests/test_real_index.py modules/writing/tests/test_conflict_checks_real_llm.py tests/integration/test_extraction_pipeline.py
+BACKEND_MANUAL_TESTS := $(BACKEND_REAL_LLM_TESTS) tests/e2e/test_extraction_real_file.py tests/e2e/test_outline_generation.py
 
 # ─── Full Stack ─────────────────────────────────────
 
@@ -30,17 +33,31 @@ migrate:  ## Run database migrations
 
 # ─── Testing & Linting ──────────────────────────────
 
-test:  ## Run backend tests
-	cd $(BACKEND_DIR) && pytest $(ARGS)
+test: test-fast  ## Run the fast backend test layer
 
-test-v:  ## Run tests verbosely (stop on first failure)
-	cd $(BACKEND_DIR) && pytest -xvs $(ARGS)
+test-fast:  ## Run SQLite-backed tests without external services or source data
+	cd $(BACKEND_DIR) && pytest $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" $(ARGS)
+
+test-v:  ## Run the fast backend layer verbosely and stop on the first failure
+	cd $(BACKEND_DIR) && pytest -xvs $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" $(ARGS)
+
+test-integration:  ## Run the SQLite cross-module integration layer
+	cd $(BACKEND_DIR) && pytest tests/integration -m "not e2e and not real_llm and not external_data" $(ARGS)
+
+test-e2e:  ## Run PostgreSQL E2E tests; database and migrations are required
+	cd $(BACKEND_DIR) && RUN_E2E_TESTS=1 pytest tests/e2e -m "not real_llm and not external_data" $(ARGS)
+
+test-real-llm:  ## Run SQLite real-LLM acceptance tests explicitly
+	cd $(BACKEND_DIR) && RUN_REAL_LLM_TESTS=1 pytest $(BACKEND_REAL_LLM_TESTS) -m real_llm $(ARGS)
+
+test-manual:  ## Run real-source and PostgreSQL/real-LLM acceptance tests explicitly
+	cd $(BACKEND_DIR) && RUN_E2E_TESTS=1 RUN_REAL_LLM_TESTS=1 pytest $(BACKEND_MANUAL_TESTS) -m "real_llm or external_data" $(ARGS)
 
 test-frontend:  ## Run frontend tests
 	cd $(FRONTEND_DIR) && npm test -- $(FRONTEND_ARGS)
 
 test-all:  ## Run backend tests, then frontend tests
-	cd $(BACKEND_DIR) && pytest $(BACKEND_ARGS)
+	cd $(BACKEND_DIR) && pytest $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" $(BACKEND_ARGS)
 	cd $(FRONTEND_DIR) && npm test -- $(FRONTEND_ARGS)
 
 lint:  ## Run ruff linter

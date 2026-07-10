@@ -1,10 +1,4 @@
-"""
-真实文件提取测试 — 诡秘之主_第一部_小丑.txt 前10章
-
-测试从导入 → LLM 抽取 → 候选创建的完整管线。
-使用真实文件、真实数据库、真实 LLM（DeepSeek）。
-DraftProvider 直读 writing_drafts（绕过不可用的 pgvector RAG）。
-"""
+"""Synthetic import coverage plus opt-in real-LLM acceptance tests."""
 
 from __future__ import annotations
 
@@ -17,6 +11,7 @@ import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.llm.secret_store import ensure_encrypted_secret
 from modules.imports.parsers import parse_txt
 from modules.project.models import Project
 from modules.world.services.core.extraction_service import EntityExtractionService
@@ -25,12 +20,52 @@ from modules.writing.models import WritingDraft
 from shared.protocols import DraftProvider
 from tests.utils import _mock_analyze, _mock_extract
 
-REAL_FILE_PATH = Path("/Users/tywww/Desktop/项目/wirting skill/诡秘之主_第一部 小丑.txt")
+SYNTHETIC_FILE_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "tests"
+    / "fixtures"
+    / "synthetic_ten_chapters.txt"
+)
 FIRST_10_CHAPTER_COUNT = 10
 real_llm_required = pytest.mark.skipif(
     os.getenv("RUN_REAL_LLM_TESTS") != "1",
     reason="真实 LLM 抽取测试默认跳过；设置 RUN_REAL_LLM_TESTS=1 才运行",
 )
+
+
+def _synthetic_file_bytes() -> bytes:
+    return SYNTHETIC_FILE_PATH.read_bytes()
+
+
+def _manual_source_path() -> Path:
+    raw_path = os.getenv("REAL_SOURCE_PATH")
+    if not raw_path:
+        pytest.fail(
+            "手动真实语料验收需要 REAL_SOURCE_PATH；"
+            "默认测试只使用 tests/fixtures/synthetic_ten_chapters.txt。"
+        )
+    source_path = Path(raw_path).expanduser()
+    if not source_path.is_file():
+        pytest.fail(f"REAL_SOURCE_PATH 不存在或不是文件：{source_path}")
+    return source_path
+
+
+def _real_deepseek_settings() -> dict:
+    """Build the in-memory project profile used only by manual acceptance."""
+    api_key = os.getenv("DEEPSEEK_API_KEY") or os.getenv("LLM_API_KEY")
+    if not api_key:
+        pytest.fail(
+            "真实 LLM 验收需要 DEEPSEEK_API_KEY 或 LLM_API_KEY，不会读取或输出密钥。"
+        )
+    return {
+        "llm": {
+            "provider_id": "deepseek",
+            "label": "DeepSeek",
+            "base_url": "https://api.deepseek.com",
+            "model": "deepseek-v4-flash",
+            "api_key": ensure_encrypted_secret(api_key),
+        }
+    }
 
 
 # ============================================================
@@ -72,13 +107,12 @@ class DirectDraftProvider(DraftProvider):
 
 
 class TestImportFirst10Chapters:
-    """Tracer Bullet: 导入前10章并验证"""
+    """Tracer Bullet: 导入合成十章节并验证。"""
 
     @pytest_asyncio.fixture
     async def ctx(self, db_session: AsyncSession) -> dict:
         """导入前10章并返回 project_id 和章节数据"""
-        assert REAL_FILE_PATH.exists(), f"真实文件不存在: {REAL_FILE_PATH}"
-        file_bytes = REAL_FILE_PATH.read_bytes()
+        file_bytes = _synthetic_file_bytes()
 
         # 1. 解析全部章节
         all_chapters = parse_txt(file_bytes)
@@ -130,20 +164,20 @@ class TestImportFirst10Chapters:
         assert len(drafts) == FIRST_10_CHAPTER_COUNT
         for i, draft in enumerate(drafts):
             assert draft.chapter_index == i + 1
-            assert draft.content and len(draft.content) > 500
+            assert draft.content and len(draft.content) > 50
 
     @pytest.mark.asyncio
-    async def test_first_chapter_starts_with_pain(self, ctx: dict):
-        """第一章正文以"痛！"开头"""
+    async def test_first_chapter_keeps_fixture_content(self, ctx: dict):
+        """The fixture preserves a stable first chapter title and narrative signal."""
         ch = ctx["chapters"][0]
-        assert ch["title"] == "第一章 绯红"
-        assert "痛" in ch["content"][:100]
+        assert ch["title"] == "第一章 雨夜来信"
+        assert "林舟" in ch["content"]
 
     @pytest.mark.asyncio
     async def test_10th_chapter_title(self, ctx: dict):
-        """第十章标题为'第十章 常态'"""
+        """The ten-chapter fixture has a deterministic final chapter."""
         ch = ctx["chapters"][9]
-        assert ch["title"] == "第十章 常态"
+        assert ch["title"] == "第十章 新的晨光"
 
 
 # ============================================================
@@ -159,8 +193,7 @@ class TestRealEntityExtraction:
     @pytest_asyncio.fixture
     async def ctx(self, db_session: AsyncSession) -> dict:
         """导入前10章，返回 project_id"""
-        assert REAL_FILE_PATH.exists()
-        file_bytes = REAL_FILE_PATH.read_bytes()
+        file_bytes = _synthetic_file_bytes()
 
         pid = uuid.uuid4()
         project = Project(
@@ -171,6 +204,7 @@ class TestRealEntityExtraction:
             language="zh",
             target_length="novel",
             current_stage="writing",
+            settings=_real_deepseek_settings(),
         )
         db_session.add(project)
         await db_session.flush()
@@ -217,7 +251,6 @@ class TestRealEntityExtraction:
         assert result.total_created > 0, (
             f"应抽取到世界对象。创建 {result.total_created}，跳过 {result.total_skipped}"
         )
-        # 至少应识别出核心实体（克莱恩、廷根市、值夜者等）
         created_names = [item["name"] for item in result.items]
         print(f"抽取到的实体: {created_names}")
         print(
@@ -313,11 +346,10 @@ class TestRealWorkflowStep1:
         self,
         db_session: AsyncSession,
     ) -> None:
-        """Workflow 从 pending → done，使用真实文件导入数据 + mock 三阶段"""
+        """Workflow 从 pending → done，使用合成语料和 mock 三阶段。"""
         from unittest import mock
 
-        assert REAL_FILE_PATH.exists()
-        file_bytes = REAL_FILE_PATH.read_bytes()
+        file_bytes = _synthetic_file_bytes()
 
         pid = uuid.uuid4()
         project = Project(
@@ -381,9 +413,7 @@ class TestRealWorkflowStep1:
                         owned_start=start_chapter,
                         owned_end=end_chapter,
                         chapter_indices=list(range(start_chapter, end_chapter + 1)),
-                        owned_chapter_indices=list(
-                            range(start_chapter, end_chapter + 1)
-                        ),
+                        owned_chapter_indices=list(range(start_chapter, end_chapter + 1)),
                         input_chars=5000,
                         max_tokens=13_000,
                         batch_size=end_chapter - start_chapter + 1,
@@ -533,8 +563,7 @@ class TestAutoIngestContextLoading:
     @pytest_asyncio.fixture
     async def ctx(self, db_session: AsyncSession) -> dict:
         """导入前10章 + 首次抽取，返回 project_id"""
-        assert REAL_FILE_PATH.exists()
-        file_bytes = REAL_FILE_PATH.read_bytes()
+        file_bytes = _synthetic_file_bytes()
 
         pid = uuid.uuid4()
         project = Project(
@@ -640,3 +669,12 @@ class TestAutoIngestContextLoading:
             f"批次 {batch['batch_id']}: {batch['entity_count']} 个实体, "
             f"导入时间 {batch['ingested_at']}"
         )
+
+
+@pytest.mark.external_data
+class TestManualExternalSource:
+    """Keep original-novel parsing available without binding it to one machine."""
+
+    def test_manual_source_contains_at_least_ten_chapters(self) -> None:
+        chapters = parse_txt(_manual_source_path().read_bytes())
+        assert len(chapters) >= FIRST_10_CHAPTER_COUNT

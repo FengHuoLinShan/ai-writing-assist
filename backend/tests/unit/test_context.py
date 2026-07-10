@@ -453,6 +453,65 @@ class TestNineTierIR:
         assert '"scene_index": 5' in blueprint.content
         assert "章节卡" not in blueprint.content
 
+    def test_reader_sections_exclude_author_planning_assets(self) -> None:
+        """reader context must contain only visibility-checked facts."""
+        bundle = StructureContextBundle(
+            novel_id="id",
+            task="回答读者问题",
+            scope="full",
+            scene={"id": "s1", "goal": "未来反转"},
+            characters=[{"name": "幕后黑手"}],
+            memory_records=[{"event": "第九十章真相"}],
+            plot_threads=[{"hidden_truth": "国王是凶手"}],
+            outline_arc={"climax": "世界毁灭"},
+            world_entities=[
+                {
+                    "entity_id": "e1",
+                    "name": "铜钥匙",
+                    "summary": "唤醒古神的媒介",
+                    "public_info": "一把普通铜钥匙",
+                }
+            ],
+            rag_chunks=[
+                {
+                    "text": "读者已看到钥匙。",
+                    "source_ref": {
+                        "draft_id": "d1",
+                        "chapter_index": 80,
+                        "source_hash": "hash",
+                    },
+                },
+                {"text": "没有稳定引用的伪证据"},
+            ],
+            project={"title": "测试小说", "style": "克制"},
+        )
+        options = CompileOptions(
+            novel_id=str(uuid.uuid4()),
+            task="回答读者问题",
+            scope="full",
+            reveal_mode="reader",
+            visible_until_chapter=80,
+        )
+
+        sections = ContextCompiler(loaders=[])._build_sections(bundle, options)
+
+        keys = {section.key for section in sections}
+        assert keys == {
+            "writing_objective",
+            "reader_visible_world",
+            "reader_visible_manuscript",
+            "style_assets",
+        }
+        rendered = "\n".join(section.content for section in sections)
+        assert "一把普通铜钥匙" in rendered
+        assert "读者已看到钥匙" in rendered
+        assert "未来反转" not in rendered
+        assert "幕后黑手" not in rendered
+        assert "国王是凶手" not in rendered
+        assert "世界毁灭" not in rendered
+        assert "唤醒古神" not in rendered
+        assert "伪证据" not in rendered
+
     def test_enforce_budget_tracks_evicted_keys(self) -> None:
         """P4/P3 被整体淘汰时应记录 evicted_keys"""
         sections = [
@@ -529,6 +588,35 @@ class TestNineTierIR:
 
 class TestConstraintEngine:
     """测试 ConstraintEngine 场景化约束编译"""
+
+    @pytest.mark.asyncio
+    async def test_reader_mode_only_emits_static_constraints(self) -> None:
+        """Raw Scene/knowledge/foreshadowing plans are author-only inputs."""
+        engine = ConstraintEngine()
+        with (
+            patch(
+                "modules.outline.facade.get_scene_contract",
+                AsyncMock(side_effect=AssertionError("must not load Scene card")),
+            ),
+            patch(
+                "modules.outline.facade.get_active_foreshadowing",
+                AsyncMock(side_effect=AssertionError("must not load future plan")),
+            ),
+            patch(
+                "modules.world.facade.get_character_knowledge_entries",
+                AsyncMock(side_effect=AssertionError("must not load all knowledge")),
+            ),
+        ):
+            sections = await engine.compile_constraints(
+                MagicMock(),
+                str(uuid.uuid4()),
+                scene_id="scene-1",
+                scene_index=80,
+                chapter_index=80,
+                reveal_mode="reader",
+            )
+
+        assert [section.key for section in sections] == ["hard_constraints"]
 
     @pytest.mark.asyncio
     async def test_foreshadowing_with_future_payoff_scene_included(self) -> None:
@@ -854,6 +942,48 @@ class TestWorldEntitiesLoader:
 
         assert AUTHOR_ONLY_WARNING in bundle.world_entities[0]["hidden_truth"]
 
+    @pytest.mark.asyncio
+    async def test_reader_without_reveal_policy_uses_public_info_as_summary(
+        self,
+    ) -> None:
+        mock_ctx = MagicMock()
+        mock_ctx.entities = [
+            MagicMock(
+                model_dump=lambda: {
+                    "entity_id": "e1",
+                    "name": "铜钥匙",
+                    "entity_type": "item",
+                    "status": "canonical",
+                    "summary": "唤醒古神的媒介",
+                    "public_info": "一把普通铜钥匙",
+                    "hidden_truth": None,
+                    "importance": 0.9,
+                    "importance_level": "core",
+                }
+            )
+        ]
+        loader = WorldEntitiesLoader(
+            get_world_context_fn=AsyncMock(return_value=mock_ctx),
+        )
+        bundle = StructureContextBundle(novel_id="id", task="t", scope="world")
+        options = MagicMock(
+            novel_id="id",
+            reveal_mode="reader",
+            entity_ids=None,
+            visible_until_chapter=80,
+            chapter_index=80,
+        )
+        decision = MagicMock(has_policy=False)
+
+        with patch(
+            "modules.outline.facade.get_reader_reveal_decision",
+            AsyncMock(return_value=decision),
+        ):
+            await loader.load(db=MagicMock(), options=options, bundle=bundle)
+
+        assert bundle.world_entities[0]["summary"] == "一把普通铜钥匙"
+        assert "古神" not in str(bundle.world_entities[0])
+
 
 class TestCharactersLoader:
     """测试 CharactersLoader"""
@@ -1078,10 +1208,11 @@ class TestCharactersLoader:
         await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert bundle.world_entities == []
+        assert any("保守排除" in warning for warning in bundle.warnings)
 
     @pytest.mark.asyncio
-    async def test_character_knowledge_filter_failure_keeps_entities(self) -> None:
-        """知识边界过滤失败不应中断人物加载或清空世界对象。"""
+    async def test_character_knowledge_filter_failure_fails_closed(self) -> None:
+        """知识边界过滤失败时不得保留可能剧透的世界对象。"""
         mock_char = MagicMock()
         mock_char.model_dump.return_value = {"name": "主角", "character_id": "c1"}
         mock_ctx = MagicMock()
@@ -1110,7 +1241,8 @@ class TestCharactersLoader:
         await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert bundle.characters == [{"name": "主角", "character_id": "c1"}]
-        assert bundle.world_entities == [{"name": "秘密", "entity_type": "secret"}]
+        assert bundle.world_entities == []
+        assert "保守策略" in bundle.warnings[0]
 
 
 class TestSceneLoader:
@@ -1257,6 +1389,9 @@ class TestRagChunksLoader:
         mock_result.chunks = [mock_chunk]
 
         loader = RagChunksLoader(retrieve_fn=AsyncMock(return_value=mock_result))
+        loader._rehydrate_chunks = AsyncMock(  # type: ignore[method-assign]
+            return_value=[{"text": "相关文章内容", "score": 0.85}]
+        )
         bundle = StructureContextBundle(novel_id="id", task="t", scope="full")
         options = MagicMock(
             novel_id="id",
@@ -1309,6 +1444,9 @@ class TestRagChunksLoader:
         mock_result.chunks = chunks
 
         loader = RagChunksLoader(retrieve_fn=AsyncMock(return_value=mock_result))
+        loader._rehydrate_chunks = AsyncMock(  # type: ignore[method-assign]
+            return_value=[{"text": f"chunk{i}", "score": 0.9} for i in range(2)]
+        )
         bundle = StructureContextBundle(novel_id="id", task="t", scope="full")
         options = MagicMock(
             novel_id="id",
@@ -1737,6 +1875,23 @@ class TestContextApi:
 
         assert exc_info.value.status_code == 400
         assert "viewpoint_character_id" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_compile_context_reader_reveal_requires_chapter_cutoff(self) -> None:
+        """reader reveal must fail closed when no chapter cursor is available."""
+        from modules.context.api import compile_context
+
+        request = ContextCompileRequest(
+            novel_id="nid",
+            task="测试",
+            scope="project",
+            reveal_mode="reader",
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await compile_context(db=MagicMock(), request=request)
+
+        assert exc_info.value.status_code == 400
+        assert "截止章" in exc_info.value.detail
 
     @pytest.mark.asyncio
     async def test_compile_context_invalid_scope_raises_400(self) -> None:

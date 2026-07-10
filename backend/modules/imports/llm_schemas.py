@@ -82,9 +82,7 @@ def _coerce_string_list(value: Any) -> list[str]:
         return []
     if isinstance(value, list | tuple | set):
         return [
-            str(item).strip()
-            for item in value
-            if item is not None and str(item).strip()
+            str(item).strip() for item in value if item is not None and str(item).strip()
         ]
     if isinstance(value, str):
         parts = [
@@ -267,6 +265,7 @@ class ExtractedEntity(BaseModel):
     suggested_action: str = Field(default="create_new")
     suggested_existing_entity_name: str | None = Field(default=None)
     candidate_reason: str = Field(default="")
+    quote: str | None = Field(default=None)
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     aliases: list[dict] | None = Field(default=None)
 
@@ -287,6 +286,11 @@ class ExtractedEntity(BaseModel):
     @classmethod
     def _normalize_optional_text(cls, value: Any) -> str:
         return _coerce_short_text(value)
+
+    @field_validator("quote", mode="before")
+    @classmethod
+    def _normalize_quote(cls, value: Any) -> str | None:
+        return _coerce_optional_short_text(value)
 
     @field_validator("aliases", mode="before")
     @classmethod

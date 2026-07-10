@@ -64,6 +64,7 @@ from modules.world.map_facade import (  # noqa: F401
     create_map_observation_from_delta_event,
 )
 from modules.world.worldbuilding_facade import (  # noqa: F401
+    get_world_background,
     mark_worldbuilding_context_stale,
     preview_worldbuilding_activation,
 )

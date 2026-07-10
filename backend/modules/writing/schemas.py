@@ -86,6 +86,7 @@ class WritingDraftResponse(BaseModel):
     chapter_index: int
     title: str | None = None
     content: str | None = None
+    content_hash: str = ""
     version_number: int = 1
     status: str = "draft"
     conflict_check_snapshot_json: dict | None = None

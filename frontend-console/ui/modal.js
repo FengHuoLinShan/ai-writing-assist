@@ -10,14 +10,25 @@
  * @param {string} title - 标题
  * @param {string|HTMLElement|{html:string}} body - 内容：字符串使用 textContent；HTMLElement 作为可信节点附加；{html:string} 使用 innerHTML
  * @param {Array<{text:string, class?:string, handler:function}>} buttons - 按钮
+ * @param {{size?: "large"|"full"}} options - 视觉选项
  */
-function showModal(title, body, buttons = []) {
+function showModal(title, body, buttons = [], options = {}) {
   const overlay = document.getElementById("modal-overlay")
+  const contentEl = document.getElementById("modal-content")
   const titleEl = document.getElementById("modal-title")
   const bodyEl = document.getElementById("modal-body")
   const footerEl = document.getElementById("modal-footer")
 
   if (!overlay || !titleEl || !bodyEl || !footerEl) return
+
+  if (contentEl) {
+    contentEl.classList.remove("modal-content--large", "modal-content--full")
+    delete contentEl.dataset.modalSize
+    if (options.size === "large" || options.size === "full") {
+      contentEl.classList.add(`modal-content--${options.size}`)
+      contentEl.dataset.modalSize = options.size
+    }
+  }
 
   titleEl.textContent = title
 
@@ -91,9 +102,10 @@ function closeModal() {
  * @param {string} title - 标题
  * @param {string} htmlString - HTML 字符串
  * @param {Array<{text:string, class?:string, handler:function}>} buttons - 按钮
+ * @param {{size?: "large"|"full"}} options - 视觉选项
  */
-function showModalHtml(title, htmlString, buttons = []) {
-  showModal(title, { html: htmlString }, buttons)
+function showModalHtml(title, htmlString, buttons = [], options = {}) {
+  showModal(title, { html: htmlString }, buttons, options)
 }
 
 /**

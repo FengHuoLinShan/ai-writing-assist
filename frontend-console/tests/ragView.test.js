@@ -22,6 +22,16 @@ beforeEach(() => {
   ragView._rebuildPoller = null
   ragView._rebuildProgress = null
   ragView._rebuildInfo = null
+  ragView._indexFreshness = {}
+  ragView._characters = []
+  ragView._scenes = []
+  ragView._searchHits = []
+  ragView._lastSearchPayload = null
+  api.context.searchEvidence = vi.fn()
+  api.context.grepEvidence = vi.fn()
+  api.context.readEvidence = vi.fn()
+  api.context.inspectEvidence = vi.fn()
+  api.context.traceEvidence = vi.fn()
   vi.clearAllMocks()
 })
 
@@ -47,7 +57,7 @@ describe("ragView", () => {
         name: "status 子视图包含索引状态",
         subView: "status",
         setup: () => {},
-        expected: ["索引状态"],
+        expected: ["索引维护"],
       },
       {
         name: "status 子视图显示索引降级提示",
@@ -64,7 +74,7 @@ describe("ragView", () => {
         name: "search 子视图包含搜索框",
         subView: "search",
         setup: () => {},
-        expected: ["搜索关键词"],
+        expected: ["检索方式", "字面搜索", "可见视角"],
       },
       {
         name: "status 子视图展示最近片段列表",
@@ -111,8 +121,8 @@ describe("ragView", () => {
         projectId: "p1",
         query: "测试",
         body: '<div id="rag-results"></div>',
-        response: { chunks: [{ text: "测试结果", source_type: "chapter_text", score: 0.85 }] },
-        expectedCall: { query: "测试", top_k: 8, mode: "search" },
+        response: { hits: [{ snippet: "测试结果", kind: "manuscript", score: 0.85 }] },
+        expectedCall: "测试",
         expectedInHtml: ["测试结果"],
       },
       {
@@ -120,7 +130,7 @@ describe("ragView", () => {
         projectId: "p1",
         query: "测试",
         body: '<div id="rag-results"></div>',
-        response: { degraded: true, warnings: ["embedding 生成失败，本次结果可能不准确"], chunks: [{ text: "测试结果", source_type: "chapter_text", score: 0.5 }] },
+        response: { degraded: true, warnings: ["embedding 生成失败，本次结果可能不准确"], hits: [{ snippet: "测试结果", kind: "manuscript", score: 0.5 }] },
         expectedInHtml: ["本次结果可能不准确", "测试结果"],
       },
       {
@@ -128,7 +138,7 @@ describe("ragView", () => {
         projectId: null,
         query: "不存在",
         body: '<div id="rag-results"></div>',
-        response: { chunks: [] },
+        response: { hits: [] },
         expectedInHtml: ["未找到匹配结果"],
       },
       {
@@ -136,13 +146,13 @@ describe("ragView", () => {
         projectId: null,
         query: "test",
         body: "",
-        response: { chunks: [] },
+        response: { hits: [] },
         expectUndefined: true,
       },
     ])("$name", async ({ projectId, query, body, response, expectedCall, expectedInHtml, expectUndefined }) => {
       document.body.innerHTML = body
       if (projectId) state.currentProjectId = projectId
-      api.rag.search.mockResolvedValue(response)
+      api.context.searchEvidence.mockResolvedValue(response)
 
       const result = ragView._doSearch(query)
       if (expectUndefined) {
@@ -151,13 +161,132 @@ describe("ragView", () => {
       }
       await result
       if (expectedCall) {
-        expect(api.rag.search).toHaveBeenCalledWith(expectedCall, projectId, expect.objectContaining({ signal: expect.any(AbortSignal) }))
+        expect(api.context.searchEvidence).toHaveBeenCalledWith(
+          expect.objectContaining({ query: expectedCall, content_mode: "canonical" }),
+          expect.objectContaining({ signal: expect.any(AbortSignal) }),
+        )
       }
       const results = document.getElementById("rag-results")
       for (const text of expectedInHtml) {
-        expect(results?.innerHTML).toContain(text)
+        expect(results?.textContent).toContain(text)
       }
     })
+  })
+
+  it("智能搜索传递正文版本、可见性和范围", async () => {
+    state.currentProjectId = "p1"
+    document.body.innerHTML = `
+      <div id="rag-results"></div>
+      <select id="rag-search-kind"><option value="smart" selected>smart</option></select>
+      <select id="rag-content-mode"><option value="working" selected>working</option></select>
+      <select id="rag-visibility-mode"><option value="reader" selected>reader</option></select>
+      <input id="rag-cutoff-chapter" value="80" />
+      <select id="rag-cutoff-scene-id"><option value="scene-80" selected>scene-80</option></select>
+      <input id="rag-cutoff-offset" value="320" />
+      <input type="checkbox" data-search-scope="manuscript" checked />
+      <input type="checkbox" data-search-scope="outline" checked />
+    `
+    api.context.searchEvidence = vi.fn().mockResolvedValue({ hits: [] })
+
+    await ragView._doSearch("铜铃")
+
+    expect(api.context.searchEvidence).toHaveBeenCalledWith(
+      expect.objectContaining({
+        novel_id: "p1",
+        query: "铜铃",
+        content_mode: "working",
+        visibility: expect.objectContaining({
+          mode: "reader",
+          cutoff_chapter: 80,
+          cutoff_scene_id: "scene-80",
+          cutoff_offset: 320,
+        }),
+        scopes: ["manuscript", "outline"],
+      }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
+  })
+
+  it("字面搜索锁定正文范围", () => {
+    document.body.innerHTML = `
+      <select id="rag-search-kind"><option value="literal" selected>literal</option></select>
+      <input type="checkbox" data-search-scope="manuscript" />
+      <input type="checkbox" data-search-scope="world" checked />
+      <input type="checkbox" data-search-scope="outline" checked />
+    `
+
+    ragView._toggleSearchScopes("literal")
+
+    const manuscript = document.querySelector('[data-search-scope="manuscript"]')
+    const world = document.querySelector('[data-search-scope="world"]')
+    const outline = document.querySelector('[data-search-scope="outline"]')
+    expect(manuscript.checked).toBe(true)
+    expect(manuscript.disabled).toBe(false)
+    expect(world.checked).toBe(false)
+    expect(world.disabled).toBe(true)
+    expect(outline.checked).toBe(false)
+    expect(outline.disabled).toBe(true)
+  })
+
+  it("零命中时仍显示工作稿索引警告", async () => {
+    state.currentProjectId = "p1"
+    document.body.innerHTML = `
+      <div id="rag-results"></div>
+      <select id="rag-search-kind"><option value="smart" selected>smart</option></select>
+      <select id="rag-content-mode"><option value="working" selected>working</option></select>
+      <select id="rag-visibility-mode"><option value="author" selected>author</option></select>
+      <input type="checkbox" data-search-scope="manuscript" checked />
+    `
+    api.context.searchEvidence = vi.fn().mockResolvedValue({
+      hits: [],
+      degraded: true,
+      warnings: ["工作稿索引更新中/需重建，过期片段不会返回"],
+    })
+
+    await ragView._doSearch("铜铃")
+
+    expect(document.getElementById("rag-results")?.textContent).toContain("工作稿索引更新中")
+    expect(document.getElementById("rag-results")?.textContent).toContain("未找到匹配结果")
+  })
+
+  it("高亮片段会转义用户动态内容", () => {
+    const html = ragView._highlightSnippet('<img src=x onerror="boom">', "img")
+    expect(html).toContain("&lt;<mark>img</mark>")
+    expect(html).not.toContain("<img")
+    expect(html).toContain("&quot;boom&quot;")
+  })
+
+  it("索引状态会转义 API 返回的动态计数", async () => {
+    state.currentSubView = "status"
+    ragView._totalChunks = '<img src=x onerror="boom">'
+    ragView._embeddingFailedCount = '<script>alert(1)</script>'
+
+    const html = await ragView.render()
+
+    expect(html).toContain("&lt;img")
+    expect(html).toContain("&lt;script&gt;")
+    expect(html).not.toContain("<img src=x")
+    expect(html).not.toContain("<script>alert")
+  })
+
+  it("对象跳转使用已检查的名称作为对象库查询", async () => {
+    state.currentProjectId = "p1"
+    ragView._drawerRefs = [{
+      target_type: "world_entity",
+      target_id: "entity-1",
+      target_name: "旧塔密钥",
+    }]
+
+    await ragView._navigateObjectRef(0)
+
+    expect(router.navigate).toHaveBeenCalledWith(
+      "world",
+      "objects",
+      true,
+      expect.any(URLSearchParams),
+    )
+    const query = router.navigate.mock.calls.at(-1)[3]
+    expect(query.get("q")).toBe("旧塔密钥")
   })
 
 
@@ -407,24 +536,42 @@ describe("ragView", () => {
       expect(ragView._embeddingFailedCount).toBe(1)
     })
 
-    it("搜索结果中 chunks 非数组时兜底为空数组", async () => {
+    it("证据结果中 hits 非数组时兜底为空数组", async () => {
       state.currentProjectId = "p1"
       document.body.innerHTML = '<div id="rag-results"></div>'
-      api.rag.search.mockResolvedValue({ chunks: null })
+      api.context.searchEvidence.mockResolvedValue({ hits: null })
 
       await ragView._doSearch("test")
 
       expect(document.getElementById("rag-results").textContent).toContain("未找到匹配结果")
     })
 
-    it("搜索结果直接返回数组时也兼容", async () => {
+    it("证据 hits 数组会按统一结果渲染", async () => {
       state.currentProjectId = "p1"
       document.body.innerHTML = '<div id="rag-results"></div>'
-      api.rag.search.mockResolvedValue([{ text: "直接数组", source_type: "chapter_text" }])
+      api.context.searchEvidence.mockResolvedValue({
+        hits: [{ snippet: "统一证据", kind: "manuscript" }],
+      })
 
       await ragView._doSearch("test")
 
-      expect(document.getElementById("rag-results").textContent).toContain("直接数组")
+      expect(document.getElementById("rag-results").textContent).toContain("统一证据")
+    })
+
+    it("统一证据接口缺失时不回退展示旧 RAG chunk", async () => {
+      state.currentProjectId = "p1"
+      document.body.innerHTML = '<div id="rag-results"></div>'
+      delete api.context.searchEvidence
+      api.rag.search.mockResolvedValue({
+        chunks: [{ text: "过期旧片段", source_type: "chapter_text" }],
+      })
+
+      await ragView._doSearch("test")
+
+      const text = document.getElementById("rag-results").textContent
+      expect(text).toContain("证据检索接口不可用")
+      expect(text).not.toContain("过期旧片段")
+      expect(api.rag.search).not.toHaveBeenCalled()
     })
 
     it("重建索引成功后清空 API 缓存", async () => {
@@ -461,7 +608,7 @@ describe("ragView", () => {
       state.currentProjectId = "p1"
       ragView._abortController = new AbortController()
       ragView._retryableEmbeddingCount = 2
-      api.rag.search.mockResolvedValue({ chunks: [] })
+      api.context.searchEvidence.mockResolvedValue({ hits: [] })
       api.rag.rebuild.mockResolvedValue({ task_id: "task-1" })
       api.rag.retryEmbeddings.mockResolvedValue({ task_id: "task-retry" })
       api.rag.prewarm.mockResolvedValue({ status: "ready" })
@@ -473,7 +620,7 @@ describe("ragView", () => {
       await ragView._prewarm({ signal: ragView._abortController.signal })
       ragView.onLeave()
 
-      expect(api.rag.search.mock.calls[0][2]).toMatchObject({ signal: expect.any(AbortSignal) })
+      expect(api.context.searchEvidence.mock.calls[0][1]).toMatchObject({ signal: expect.any(AbortSignal) })
       expect(api.rag.rebuild.mock.calls[0][1]).toMatchObject({ signal: expect.any(AbortSignal) })
       expect(api.rag.retryEmbeddings.mock.calls[0][1]).toMatchObject({ signal: expect.any(AbortSignal) })
       expect(api.rag.prewarm.mock.calls[0][0]).toMatchObject({ signal: expect.any(AbortSignal) })

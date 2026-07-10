@@ -513,6 +513,7 @@ async def test_filter_context_by_character_knowledge_with_items_returns_filtered
         novel_id,
         char_id,
         context_items,
+        visible_until_chapter=None,
     )
     assert result == expected_filtered
 

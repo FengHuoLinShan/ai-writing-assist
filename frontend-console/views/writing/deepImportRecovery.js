@@ -153,6 +153,11 @@ export function createDeepImportRecovery({
       currentOperation: result.current_operation || null,
       currentItem: result.current_item || {},
       qualityStats: result.quality_stats || {},
+      phaseArtifacts: result.phase_artifacts || {},
+      acceptanceChecks: result.acceptance_checks || [],
+      diagnosticCounts: result.diagnostic_counts || {},
+      throttleReasons: result.phase2_throttle_reasons || [],
+      qualityRerun: result.quality_rerun || {},
       degradedReason: result.degraded_reason || "",
       phase1aFallback: result.phase1a_fallback || false,
       recoverySummary,
@@ -213,6 +218,11 @@ export function createDeepImportRecovery({
             : p.stepLabel || p.message || "自动提取中...",
         warnings,
         summary: isPartial ? "部分完成" : p.degraded ? "部分降级完成" : null,
+        phase_artifacts: p.phaseArtifacts || {},
+        acceptance_checks: p.acceptanceChecks || [],
+        diagnostic_counts: p.diagnosticCounts || {},
+        phase2_throttle_reasons: p.throttleReasons || [],
+        quality_rerun: p.qualityRerun || {},
       },
     }, p.workflowType || "deep_import")
   }

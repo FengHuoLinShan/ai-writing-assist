@@ -17,6 +17,7 @@ def is_transport_failure(exc: Exception) -> bool:
         (LLMConnectionError, LLMTimeoutError, LLMRateLimitError, TimeoutError),
     )
 
+
 def error_kind(exc: Exception) -> str:
     if isinstance(exc, LLMConnectionError):
         return "connection_error"
@@ -29,6 +30,7 @@ def error_kind(exc: Exception) -> str:
     if isinstance(exc, ValueError) and "valid json" in str(exc).lower():
         return "schema_error"
     return exc.__class__.__name__
+
 
 def merge_alias_relation_result(
     service,
@@ -51,26 +53,21 @@ def merge_alias_relation_result(
     merged["alias_relation_total_timeout_s"] = alias_result.get(
         "alias_relation_total_timeout_s"
     )
-    merged["alias_relation_concurrency"] = alias_result.get(
-        "alias_relation_concurrency"
-    )
+    merged["alias_relation_concurrency"] = alias_result.get("alias_relation_concurrency")
     merged["alias_relation_skipped"] = bool(alias_result.get("alias_relation_skipped"))
-    merged["alias_relation_skip_reason"] = alias_result.get(
-        "alias_relation_skip_reason"
-    )
+    merged["alias_relation_skip_reason"] = alias_result.get("alias_relation_skip_reason")
     merged["alias_relation_format_diagnostics"] = alias_result.get(
         "alias_relation_format_diagnostics",
         [],
     )
     if alias_result.get("degraded"):
         merged["degraded"] = True
-        merged["error_kind"] = merged.get("error_kind") or alias_result.get(
-            "error_kind"
-        )
+        merged["error_kind"] = merged.get("error_kind") or alias_result.get("error_kind")
         merged["error_message"] = merged.get("error_message") or alias_result.get(
             "error_message"
         )
     return merged
+
 
 def scene_id(scene: dict[str, Any]) -> str:
     if isinstance(scene, dict):
@@ -83,12 +80,14 @@ def scene_id(scene: dict[str, Any]) -> str:
         return str(raw_scene_id)
     return f"scene_index:{scene_index}"
 
+
 def scene_provenance_key(
     service,
     workflow_id: str | None,
     scene: dict[str, Any],
 ) -> str:
     return f"{workflow_id or 'manual'}:scene:{service._scene_id(scene)}"
+
 
 def checkpoint_retry_count(checkpoint: dict[str, Any] | None) -> int:
     if not checkpoint:
@@ -97,6 +96,7 @@ def checkpoint_retry_count(checkpoint: dict[str, Any] | None) -> int:
         return max(0, int(checkpoint.get("retry_count") or 0))
     except (TypeError, ValueError):
         return 0
+
 
 def phase2_checkpoint_by_scene(
     existing_checkpoints: dict[str, Any] | None,
@@ -123,6 +123,7 @@ def phase2_checkpoint_by_scene(
         if isinstance(checkpoint, dict)
     }
 
+
 def build_scene_checkpoint(
     service,
     scene: dict[str, Any],
@@ -136,6 +137,8 @@ def build_scene_checkpoint(
     created_delta_ids: list[str] | None = None,
     error: str | None = None,
     error_kind: str | None = None,
+    activation_version: str | None = None,
+    activation_source_count: int | None = None,
 ) -> dict[str, Any]:
     checkpoint = {
         "scene_id": service._scene_id(scene),
@@ -154,7 +157,12 @@ def build_scene_checkpoint(
         checkpoint["error"] = error
     if error_kind is not None:
         checkpoint["error_kind"] = error_kind
+    if activation_version is not None:
+        checkpoint["activation_version"] = activation_version
+    if activation_source_count is not None:
+        checkpoint["activation_source_count"] = activation_source_count
     return checkpoint
+
 
 def filter_scenes_by_range(
     service,
@@ -176,13 +184,14 @@ def filter_scenes_by_range(
             selected.append(scene)
     return selected
 
+
 def scene_overlaps_chapter_range(
     scene: dict[str, Any],
     *,
     start_chapter: int | None = None,
     end_chapter: int | None = None,
 ) -> bool:
-    start = start_chapter if start_chapter is not None else -10**9
+    start = start_chapter if start_chapter is not None else -(10**9)
     end = end_chapter if end_chapter is not None else 10**9
     chapter_ids = scene.get("chapter_ids") or []
     for chapter_id in chapter_ids:
@@ -198,8 +207,12 @@ def scene_overlaps_chapter_range(
             chapter_indices.append(int(raw))
         except (TypeError, ValueError):
             continue
-    source_chapter = max(chapter_indices) if chapter_indices else scene.get(
-        "scene_index",
-        0,
+    source_chapter = (
+        max(chapter_indices)
+        if chapter_indices
+        else scene.get(
+            "scene_index",
+            0,
+        )
     )
     return start <= source_chapter <= end

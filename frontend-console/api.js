@@ -770,9 +770,9 @@ const api = {
     },
 
     async rebuild(payload, options = {}) {
-      const { novel_id, start_chapter, end_chapter } = payload || {}
+      const { novel_id, content_mode, start_chapter, end_chapter } = payload || {}
       if (!novel_id) throw new Error("重建索引需要先选择项目")
-      return post("/rag/rebuild", { novel_id, start_chapter, end_chapter }, options)
+      return post("/rag/rebuild", { novel_id, content_mode, start_chapter, end_chapter }, options)
     },
 
     async prewarm(options = {}) {
@@ -798,6 +798,26 @@ const api = {
   // 上下文
   // ============================================================
   context: {
+    async grepEvidence(payload, options = {}) {
+      return post("/context/evidence/grep", payload, options)
+    },
+
+    async searchEvidence(payload, options = {}) {
+      return post("/context/evidence/search", payload, options)
+    },
+
+    async readEvidence(payload, options = {}) {
+      return post("/context/evidence/read", payload, options)
+    },
+
+    async inspectEvidence(payload, options = {}) {
+      return post("/context/evidence/inspect", payload, options)
+    },
+
+    async traceEvidence(payload, options = {}) {
+      return post("/context/evidence/trace", payload, options)
+    },
+
     async compile(payload, options = {}) {
       return post("/context/compile", payload, options)
     },

@@ -228,13 +228,21 @@ async def create_autosaved_draft(
     db: DbSession,
     data: WritingDraftAutosaveCreate,
 ) -> WritingDraftResponse:
-    """创建纯草稿版本，不触发发布/RAG 任务。"""
+    """创建纯草稿版本；不发布，但会合并标脏 working 索引。"""
     draft = await _create_draft_only(
         db,
         novel_id=data.novel_id,
         chapter_index=data.chapter_index,
         title=data.title,
         content=data.content or "",
+    )
+    from modules.rag.facade import request_chapter_index
+
+    await request_chapter_index(
+        db,
+        data.novel_id,
+        data.chapter_index,
+        content_mode="working",
     )
     return WritingDraftResponse.model_validate(asdict(draft))
 
@@ -311,6 +319,14 @@ async def create_draft(
             )
         except Exception as exc:
             logger.warning("writing conflict snapshot archive failed: %s", exc)
+    from modules.rag.facade import mark_chapter_index_dirty
+
+    await mark_chapter_index_dirty(
+        db,
+        data.novel_id,
+        data.chapter_index,
+        content_mode="canonical",
+    )
     task_id = enqueue_task(
         db,
         "publish_chapter",
@@ -342,8 +358,17 @@ async def update_draft(
     *,
     novel_id: NovelIdQuery,
 ) -> WritingDraftResponse:
-    """暂存草稿 — 原地更新最新版本内容，不创建新版本，无副作用"""
-    return await _service.update_draft(db, draft_id, data, novel_id)
+    """暂存草稿；published 会 copy-on-write，并合并请求 working 索引。"""
+    from modules.rag.facade import request_chapter_index
+
+    result = await _service.update_draft(db, draft_id, data, novel_id)
+    await request_chapter_index(
+        db,
+        novel_id,
+        result.chapter_index,
+        content_mode="working",
+    )
+    return result
 
 
 @router.delete("/drafts/{draft_id}", status_code=204)
@@ -354,7 +379,17 @@ async def delete_draft(
     novel_id: NovelIdQuery,
 ) -> None:
     """删除单个版本（至少保留 1 个版本）"""
+    from modules.rag.facade import request_chapter_index
+
+    draft = await _service.get_draft(db, draft_id, novel_id)
     await _service.delete_draft(db, draft_id, novel_id)
+    for content_mode in ("canonical", "working"):
+        await request_chapter_index(
+            db,
+            novel_id,
+            draft.chapter_index,
+            content_mode=content_mode,
+        )
 
 
 @router.delete("/chapters/{chapter_index}", response_model=DeleteChapterResponse)
@@ -364,8 +399,17 @@ async def delete_chapter(
     *,
     novel_id: NovelIdQuery,
 ) -> DeleteChapterResponse:
-    """删除整章所有版本"""
+    """软废弃整章所有版本。"""
+    from modules.rag.facade import request_chapter_index
+
     count = await _service.delete_chapter(db, novel_id, chapter_index)
+    for content_mode in ("canonical", "working"):
+        await request_chapter_index(
+            db,
+            novel_id,
+            chapter_index,
+            content_mode=content_mode,
+        )
     return DeleteChapterResponse(
         chapter_index=chapter_index,
         deleted_versions=count,

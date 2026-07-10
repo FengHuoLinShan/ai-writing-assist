@@ -15,7 +15,7 @@ from collections import OrderedDict
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import Text, delete, exists, func, or_, select, text, update
+from sqlalchemy import Text, and_, delete, exists, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1789,6 +1789,7 @@ class CharacterKnowledgeRepository:
             known_content=data.known_content,
             misconception=data.misconception,
             source_chapter_index=data.source_chapter_index,
+            is_public_baseline=data.is_public_baseline,
             source_memory_id=parse_uuid(data.source_memory_id)
             if data.source_memory_id
             else None,
@@ -1874,6 +1875,7 @@ class CharacterKnowledgeRepository:
         novel_id: uuid.UUID,
         character_id: uuid.UUID,
         target_ids: list[uuid.UUID] | None = None,
+        visible_until_chapter: int | None = None,
     ) -> list[CharacterKnowledge]:
         conditions = [
             CharacterKnowledge.novel_id == novel_id,
@@ -1881,6 +1883,20 @@ class CharacterKnowledgeRepository:
         ]
         if target_ids:
             conditions.append(CharacterKnowledge.target_id.in_(target_ids))
+        if visible_until_chapter is not None:
+            conditions.append(
+                or_(
+                    and_(
+                        CharacterKnowledge.source_chapter_index.is_not(None),
+                        CharacterKnowledge.source_chapter_index
+                        < visible_until_chapter,
+                    ),
+                    and_(
+                        CharacterKnowledge.source_chapter_index.is_(None),
+                        CharacterKnowledge.is_public_baseline.is_(True),
+                    ),
+                )
+            )
 
         stmt = select(CharacterKnowledge).where(*conditions)
         result = await db.execute(stmt)
@@ -1903,6 +1919,7 @@ class CharacterKnowledgeRepository:
             "known_content",
             "misconception",
             "source_chapter_index",
+            "is_public_baseline",
             "status",
         ):
             value = getattr(data, field, None)

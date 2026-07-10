@@ -7,7 +7,12 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import NotFoundError
-from modules.outline.contracts import SceneContract
+from modules.outline.contracts import (
+    NeighborSceneBriefContract,
+    SceneContextWindowContract,
+    SceneContract,
+    SceneSpanContract,
+)
 
 
 async def get_scene(db: AsyncSession, scene_id: str) -> dict[str, Any] | None:
@@ -70,6 +75,167 @@ async def get_scenes_by_chapter(
         chapter_index,
     )
     return [_scene_to_dict(scene) for scene in scenes]
+
+
+async def get_scene_spans_by_chapter(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_index: int,
+    *,
+    status_filter: list[str] | None = None,
+    content_mode: str = "canonical",
+) -> list[SceneSpanContract]:
+    """获取指定章节的 SceneSpan 派生读模型。"""
+    from modules.outline.services import SceneService
+
+    return await SceneService().get_scene_spans_by_chapter(
+        db,
+        novel_id,
+        chapter_index,
+        status_filter=status_filter,
+        content_mode=content_mode,
+    )
+
+
+async def get_scene_spans_for_scene(
+    db: AsyncSession,
+    novel_id: str,
+    scene_id: str,
+    *,
+    status_filter: list[str] | None = None,
+    content_mode: str = "canonical",
+) -> list[SceneSpanContract]:
+    """获取指定 Scene 的 SceneSpan 派生读模型。"""
+    from modules.outline.services import SceneService
+
+    return await SceneService().get_scene_spans_for_scene(
+        db,
+        novel_id,
+        scene_id,
+        status_filter=status_filter,
+        content_mode=content_mode,
+    )
+
+
+async def get_scene_context_window(
+    db: AsyncSession,
+    novel_id: str,
+    scene_id: str,
+    *,
+    previous_limit: int = 2,
+    status_filter: list[str] | None = None,
+    content_mode: str = "canonical",
+) -> SceneContextWindowContract | None:
+    """Return the current Scene and prior-only briefs for context compilation."""
+    scene = await get_scene_contract(db, novel_id, scene_id)
+    if scene is None:
+        return None
+    allowed_statuses = status_filter or ["canonical", "draft"]
+    scenes = await get_scenes_by_novel(
+        db,
+        novel_id,
+        status_filter=allowed_statuses,
+    )
+    previous = [
+        item for item in scenes if int(item.get("scene_index") or 0) < scene.scene_index
+    ]
+    previous = previous[-max(0, min(previous_limit, 4)) :]
+    briefs = [
+        NeighborSceneBriefContract(
+            scene_id=str(item["id"]),
+            novel_id=str(item["novel_id"]),
+            scene_index=int(item["scene_index"]),
+            title=item.get("title"),
+            goal=item.get("goal"),
+            core_conflict=item.get("core_conflict"),
+            emotional_beat=item.get("emotional_beat"),
+            chapter_indices=[
+                int(value)
+                for value in item.get("chapter_ids") or []
+                if str(value).isdigit()
+            ],
+            scene_chunks=list(item.get("scene_chunks") or []),
+        )
+        for item in previous
+    ]
+    spans = await get_scene_spans_for_scene(
+        db,
+        novel_id,
+        scene_id,
+        status_filter=allowed_statuses,
+        content_mode=content_mode,
+    )
+    return SceneContextWindowContract(
+        novel_id=novel_id,
+        scene=scene,
+        scene_spans=spans,
+        previous_briefs=briefs,
+    )
+
+
+async def bind_scene_spans_to_source(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    chapter_index: int,
+    content_mode: str,
+    source_draft_id: str,
+    source_content_hash: str,
+    content: str,
+) -> list[SceneSpanContract]:
+    from modules.outline.scene_source_service import SceneSourceService
+
+    return await SceneSourceService().bind_chapter_spans(
+        db,
+        novel_id=novel_id,
+        chapter_index=chapter_index,
+        content_mode=content_mode,
+        source_draft_id=source_draft_id,
+        source_content_hash=source_content_hash,
+        content=content,
+    )
+
+
+async def get_scene_summary_checkpoint(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    scene_id: str,
+    content_mode: str,
+    through_chapter: int,
+    through_offset: int | None = None,
+):
+    from modules.outline.scene_source_service import SceneSourceService
+
+    return await SceneSourceService().get_checkpoint(
+        db,
+        novel_id=novel_id,
+        scene_id=scene_id,
+        content_mode=content_mode,
+        through_chapter=through_chapter,
+        through_offset=through_offset,
+    )
+
+
+async def rebuild_scene_summary_checkpoint(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    scene_id: str,
+    content_mode: str,
+    through_chapter: int,
+    through_offset: int | None = None,
+):
+    from modules.outline.scene_source_service import SceneSourceService
+
+    return await SceneSourceService().rebuild_checkpoint(
+        db,
+        novel_id=novel_id,
+        scene_id=scene_id,
+        content_mode=content_mode,
+        through_chapter=through_chapter,
+        through_offset=through_offset,
+    )
 
 
 async def get_scenes_by_provenance_key(
@@ -239,16 +405,22 @@ def _scene_to_contract(scene) -> SceneContract:
 
 
 __all__ = [
+    "bind_scene_spans_to_source",
     "batch_create_scenes",
     "count_scenes_by_novel",
     "create_scene",
     "get_next_scene_index",
     "get_scene",
     "get_scene_contract",
+    "get_scene_context_window",
+    "get_scene_summary_checkpoint",
+    "get_scene_spans_by_chapter",
+    "get_scene_spans_for_scene",
     "get_scenes_by_chapter",
     "get_scenes_by_novel",
     "get_scenes_by_provenance_key",
     "get_scenes_by_provenance_keys",
+    "rebuild_scene_summary_checkpoint",
     "split_scene_chunk_to_new_chapter",
     "update_scene",
 ]

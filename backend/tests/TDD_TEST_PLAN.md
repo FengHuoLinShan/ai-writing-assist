@@ -1,5 +1,7 @@
 # TDD Test Plan: Refactored Entity Extraction System
 
+> **Historical test-refactor plan**: this records a previous extraction design and test backlog. It is not a current test contract or implementation guide; use the active module tests, `testing-guide.md`, and current imports/world code instead. Do not backfill this plan after code changes.
+
 ## Overview
 
 The extraction pipeline was refactored from batch-mode (5 chapters per LLM call) to single-chapter sequential mode with 3-layer embedding dedup and 4 action handlers. This plan covers backfill verification tests for all changed behaviors.

@@ -165,9 +165,11 @@ describe("modal body rendering", () => {
   beforeEach(() => {
     document.body.innerHTML = `
       <div id="modal-overlay" class="hidden">
-        <div id="modal-title"></div>
-        <div id="modal-body"></div>
-        <div id="modal-footer"></div>
+        <div id="modal-content">
+          <div id="modal-title"></div>
+          <div id="modal-body"></div>
+          <div id="modal-footer"></div>
+        </div>
       </div>
     `
   })
@@ -216,6 +218,19 @@ describe("modal body rendering", () => {
 
     const bodyEl = document.getElementById("modal-body")
     expect(bodyEl.querySelector("p")?.textContent).toBe("helper paragraph")
+  })
+
+  it("showModalHtml applies and resets optional size classes", () => {
+    const contentEl = document.getElementById("modal-content")
+
+    window.showModalHtml("Large helper test", "<p>large</p>", [], { size: "large" })
+    expect(contentEl.classList.contains("modal-content--large")).toBe(true)
+    expect(contentEl.dataset.modalSize).toBe("large")
+
+    window.showModalHtml("Default helper test", "<p>default</p>")
+    expect(contentEl.classList.contains("modal-content--large")).toBe(false)
+    expect(contentEl.classList.contains("modal-content--full")).toBe(false)
+    expect(contentEl.dataset.modalSize).toBeUndefined()
   })
 
   it("closes after an async handler resolves", async () => {

@@ -108,8 +108,15 @@ class EntityExtractionService:
         from infrastructure.llm.errors import LLMInvalidResponseError
         from infrastructure.llm.prompt_loader import load_prompt
         from infrastructure.llm.schemas import LLMCallRequest
+        from modules.project.facade import get_project_context
 
-        llm = LLMClient()
+        project_context = await get_project_context(db, novel_id)
+        project_settings = project_context.settings if project_context else {}
+        llm = (
+            LLMClient.from_project_settings(project_settings)
+            if project_settings
+            else LLMClient()
+        )
         total_created = 0
         total_skipped = 0
         created_items: list[dict[str, Any]] = []

@@ -36,25 +36,32 @@ Three layers:
 - **Service**: business logic happy path, exception paths (not found → 404, invalid UUID → 422)
 - **API** (via `tests/conftest.py` `async_client`): HTTP happy path + error path
 
+## Test execution layers
+
+| Command | Scope | External prerequisites |
+|---|---|---|
+| `make test` / `make test-fast` | Modules, infrastructure, unit, SQLite integration, prompt contracts | None; excludes E2E, real LLM, and external source data |
+| `make test-integration` | SQLite cross-module flows | None |
+| `make test-e2e` | PostgreSQL/pgvector behavior | Running test database at Alembic head; fails fast if unavailable or stale |
+| `make test-real-llm` | Explicit SQLite real-model acceptance | Configured provider credentials |
+| `make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt` | Real source corpus and PostgreSQL/real-model acceptance | Source path, PostgreSQL, and configured provider credentials |
+
+`pytest` uses the same fast test paths by default. Every marker is strict: use
+`real_llm` for a remote provider call and `external_data` for a user-supplied
+local corpus. Neither may enter the default fast layer.
+
 ### Test setup pattern
 
-Use SQLite in-memory for tests. Each module's `tests/conftest.py` must create its own `db_session` fixture:
+Use the root `backend/conftest.py` SQLite fixture for normal tests. It imports
+the ORM metadata and creates the schema once per test session; every test gets
+an outer transaction plus a savepoint-backed `AsyncSession`, so application
+`commit()` calls are rolled back before the next test. Module `conftest.py`
+files should contain only module-specific factories and mocks:
 
 ```python
-# conftest.py must import all ORM models this module depends on
-import modules.project.models  # noqa: F401 — FK to projects.id
-import modules.other.models    # noqa: F401
-
 @pytest_asyncio.fixture
-async def db_session() -> AsyncGenerator[AsyncSession, ...]:
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
-    async with factory() as session:
-        yield session
-        await session.rollback()
-    await engine.dispose()
+async def world_map(db_session: AsyncSession, project_novel_id: str):
+    return await _create_default_map(db_session, project_novel_id)
 ```
 
 ### Test import convention
@@ -74,10 +81,9 @@ async def db_session() -> AsyncGenerator[AsyncSession, ...]:
 - **metadata import 是例外** — fixture / conftest 为注册 FK 模型导入 `modules.project.models` 等模型，不代表业务代码可跨模块依赖内部实现
 
 Key points:
-- All ORM models with FK dependencies must be imported to register in `Base.metadata`
-- `NovelMixin` references `projects.id` → always import `modules.project.models`
-- `WritingDraft` references `chapter_cards.id` → import `modules.outline.models`
-- Each test gets a fresh DB (tables created per session)
+- Root conftest owns model registration, the shared schema, DI reset, and FastAPI dependency override cleanup.
+- Each test starts with an empty logical database through transaction rollback; do not add per-module `create_all()` fixtures.
+- Feature fixtures may import the concrete models they construct (for example `modules.outline.models` for `scenes` / `scene_spans`); `WritingDraft` itself has no `chapter_cards` FK.
 
 ### Future subpackage test paths
 
@@ -89,7 +95,7 @@ This does not relax module boundaries: cross-module behavior tests still go thro
 
 1. **Candidate/proposal review**: input text → generate candidates/proposals → dedup → confirm alias or preserve canonical auto-ingest provenance
 2. **Character knowledge boundary**: character's unknown info not in compiled context
-3. **Chapter card generation**: schema validation passes, contains goal/conflict/must_not_happen/hook
+3. **Scene and structure generation**: schema validation passes and retains goal/conflict/must_not_happen/hook
 4. **Structure review**: detects early reveal of hidden_truth
 5. **Novel_id isolation**: project A API cannot read project B objects
 6. **XSS protection**: `<script>` tags display as text, not executed

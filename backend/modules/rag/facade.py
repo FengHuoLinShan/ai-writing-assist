@@ -128,7 +128,9 @@ async def get_index_status(db: AsyncSession, novel_id: str) -> dict:
         )
 
     from modules.rag.circuit_breaker import get_circuit_breaker
+    from modules.rag.index_state import RagIndexStateService
 
+    freshness = await RagIndexStateService().summary(db, novel_id)
     return {
         "total": total,
         "embedding_provider": settings.embedding_provider,
@@ -148,7 +150,28 @@ async def get_index_status(db: AsyncSession, novel_id: str) -> dict:
         ),
         "warnings": warnings,
         "circuit_breaker": get_circuit_breaker().status["state"],
+        "index_freshness": freshness,
     }
+
+
+async def get_index_freshness(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    content_mode: str,
+    chapter_from: int | None = None,
+    chapter_to: int | None = None,
+) -> dict:
+    """Read freshness state without loading chunk text or embedding diagnostics."""
+    from modules.rag.index_state import RagIndexStateService
+
+    return await RagIndexStateService().freshness(
+        db,
+        novel_id=novel_id,
+        content_mode=content_mode,
+        chapter_from=chapter_from,
+        chapter_to=chapter_to,
+    )
 
 
 async def get_ordered_chapter_chunks(
@@ -180,6 +203,8 @@ async def retrieve(
     scene_id: str | None = None,
     strict_scene_filter: bool = False,
     visibility: str | None = None,
+    visible_until_chapter: int | None = None,
+    content_mode: str = "canonical",
     mode: str = "search",
     top_k: int = 12,
     reference_chapter_index: int | None = None,
@@ -196,6 +221,7 @@ async def retrieve(
         chapter_index: 限制关联章节索引
         scene_id: 限制关联 Scene ID
         strict_scene_filter: 是否严格按 Scene 过滤，排除未标注 Scene 的片段
+        visible_until_chapter: 读者进度上界，硬过滤未来章节
         top_k: 返回的最大结果数（最小为 1）
 
     Returns:
@@ -213,6 +239,8 @@ async def retrieve(
         scene_id=scene_id,
         strict_scene_filter=strict_scene_filter,
         visibility=visibility,
+        visible_until_chapter=visible_until_chapter,
+        content_mode=content_mode,
         mode=mode,
         top_k=top_k,
         reference_chapter_index=reference_chapter_index,
@@ -223,6 +251,8 @@ async def index_chapter(
     db: AsyncSession,
     novel_id: str,
     chapter_index: int,
+    *,
+    content_mode: str = "canonical",
 ) -> int:
     """索引指定章节的正文到 RAG 库
 
@@ -237,17 +267,29 @@ async def index_chapter(
         int — 创建的 chunk 数量（无草稿返回 0）
     """
     nid = uuid.UUID(hex=novel_id)
-    return await _indexing.index_chapter(db, nid, chapter_index)
+    return await _indexing.index_chapter(
+        db,
+        nid,
+        chapter_index,
+        content_mode=content_mode,
+    )
 
 
 async def index_chapter_with_report(
     db: AsyncSession,
     novel_id: str,
     chapter_index: int,
+    *,
+    content_mode: str = "canonical",
 ) -> RagIndexReport:
     """索引指定章节并返回诊断报告。"""
     nid = uuid.UUID(hex=novel_id)
-    return await _indexing.index_chapter_with_report(db, nid, chapter_index)
+    return await _indexing.index_chapter_with_report(
+        db,
+        nid,
+        chapter_index,
+        content_mode=content_mode,
+    )
 
 
 async def index_chapter_incremental(
@@ -319,3 +361,38 @@ async def prewarm_embedding_runtime() -> dict:
     from infrastructure.embedding.client import prewarm_embedding_worker
 
     return await prewarm_embedding_worker()
+
+
+async def request_chapter_index(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_index: int,
+    *,
+    content_mode: str = "canonical",
+) -> dict:
+    from modules.rag.index_state import RagIndexStateService
+
+    return await RagIndexStateService().request(
+        db,
+        novel_id=novel_id,
+        chapter_index=chapter_index,
+        content_mode=content_mode,
+    )
+
+
+async def mark_chapter_index_dirty(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_index: int,
+    *,
+    content_mode: str,
+) -> dict:
+    """Mark freshness stale when another scheduled workflow owns execution."""
+    from modules.rag.index_state import RagIndexStateService
+
+    return await RagIndexStateService().mark_dirty(
+        db,
+        novel_id=novel_id,
+        chapter_index=chapter_index,
+        content_mode=content_mode,
+    )

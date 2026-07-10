@@ -32,6 +32,8 @@ class RagChunkCreate(BaseModel):
         None,
         description="来源对象 ID (UUID hex string)",
     )
+    content_mode: Literal["canonical", "working"] = "canonical"
+    source_content_hash: str | None = Field(None, min_length=64, max_length=64)
     chapter_index: int | None = Field(
         None,
         ge=1,
@@ -81,6 +83,10 @@ class RagChunkCreate(BaseModel):
     scene_id: str | None = Field(
         None,
         description="关联的 Scene ID (UUID hex string)",
+    )
+    scene_span_id: str | None = Field(
+        None,
+        description="关联的 SceneSpan ID (UUID hex string)",
     )
     visibility: str = Field(
         default="author_only",
@@ -133,6 +139,7 @@ class RagQuery(BaseModel):
         min_length=1,
         description="检索查询文本",
     )
+    content_mode: Literal["canonical", "working"] = "canonical"
     entity_ids: list[str] | None = Field(
         None,
         description="限制关联的世界对象 ID 列表",
@@ -149,6 +156,11 @@ class RagQuery(BaseModel):
         None,
         ge=1,
         description="限制关联章节索引",
+    )
+    visible_until_chapter: int | None = Field(
+        None,
+        ge=1,
+        description="读者进度上界；只召回该章节及之前的片段",
     )
     scene_id: str | None = Field(
         None,
@@ -187,6 +199,7 @@ class RagRebuildRequest(BaseModel):
         min_length=1,
         description="小说项目 ID (UUID hex string)",
     )
+    content_mode: Literal["canonical", "working"] = "canonical"
     start_chapter: int | None = Field(
         None,
         ge=1,
@@ -258,6 +271,8 @@ class RagChunkResponse(BaseModel):
     novel_id: str
     source_type: str
     source_id: str | None = None
+    content_mode: str = "canonical"
+    source_content_hash: str | None = None
     chapter_index: int | None = None
     chunk_index: int | None = None
     start_offset: int | None = None
@@ -269,6 +284,7 @@ class RagChunkResponse(BaseModel):
     character_ids: list[str] = []
     thread_ids: list[str] = []
     scene_id: str | None = None
+    scene_span_id: str | None = None
     visibility: str = "author_only"
     importance: float = 0.5
     index_version: str = "legacy"
@@ -304,10 +320,10 @@ class RagChunkResponse(BaseModel):
             return v
         return None
 
-    @field_validator("scene_id", mode="before")
+    @field_validator("scene_id", "scene_span_id", mode="before")
     @classmethod
-    def coerce_scene_id(cls, v: object) -> str | None:
-        """将 scene_id UUID 转为字符串"""
+    def coerce_scene_ids(cls, v: object) -> str | None:
+        """将 Scene 相关 UUID 转为字符串"""
         if isinstance(v, uuid.UUID):
             return str(v)
         if isinstance(v, str):

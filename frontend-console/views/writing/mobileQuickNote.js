@@ -56,6 +56,9 @@ export function createMobileQuickNote({ state, api, toast, esc, editor, onSaved 
           },
           currentProjectId(),
         )
+        if (result?.id && result.id !== projectState._currentDraftId) {
+          projectState._currentDraftId = result.id
+        }
         savedInfo = {
           draftId: projectState._currentDraftId,
           versionNumber: result.version_number,

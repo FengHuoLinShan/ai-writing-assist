@@ -106,6 +106,7 @@ class OutlineDeepImportRepairService:
             return 0
         updated = await repo.reorder(db, nid, desired_order)
         await repo.backfill_chapter_links(db, nid)
+        await repo.backfill_scene_spans(db, nid)
         return updated
 
     async def structure_counts(
@@ -135,19 +136,29 @@ class OutlineDeepImportRepairService:
     ) -> dict[str, Any]:
         nid = parse_uuid(novel_id, "novel_id")
         threads = (
-            await db.execute(select(PlotThread).where(PlotThread.novel_id == nid))
-        ).scalars().all()
+            (await db.execute(select(PlotThread).where(PlotThread.novel_id == nid)))
+            .scalars()
+            .all()
+        )
         arcs = (
-            await db.execute(select(OutlineArc).where(OutlineArc.novel_id == nid))
-        ).scalars().all()
+            (await db.execute(select(OutlineArc).where(OutlineArc.novel_id == nid)))
+            .scalars()
+            .all()
+        )
         foreshadowing = (
-            await db.execute(
-                select(ForeshadowingPlan).where(ForeshadowingPlan.novel_id == nid)
+            (
+                await db.execute(
+                    select(ForeshadowingPlan).where(ForeshadowingPlan.novel_id == nid)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         reveals = (
-            await db.execute(select(RevealPlan).where(RevealPlan.novel_id == nid))
-        ).scalars().all()
+            (await db.execute(select(RevealPlan).where(RevealPlan.novel_id == nid)))
+            .scalars()
+            .all()
+        )
         return {
             "total_threads": len(threads),
             "total_arcs": len(arcs),

@@ -13,7 +13,7 @@ rag 模块负责从结构化小说知识库和文本片段中检索与当前创�
 - 关键词检索（SQL LIKE 文本匹配）
 - 项目词典检索（人物别名、世界对象别名、剧情线名称）
 - 混合检索（关键词 + 项目词典 + 关系 + 重要性 + 向量）
-- metadata 过滤（entity_id、character_id、thread_id、chapter_index）
+- metadata 过滤（entity_id、character_id、thread_id、chapter_index、visible_until_chapter）
 - 有序章节 chunk 读取（供人物、世界对象、章节卡抽取）
 
 ## 不负责
@@ -26,9 +26,12 @@ rag 模块负责从结构化小说知识库和文本片段中检索与当前创�
 
 ## 数据表
 
-- `rag_chunks` — RAG 文本片段主表
+- `rag_chunks` — 可删除重建的检索块；正文块指向具体 writing draft
+- `rag_index_state` — 按 novel/chapter/content mode 保存请求源与已索引源的 ID/hash 和状态
 
-章节正文索引要求 `chunk_index` 和 `index_version` 始终存在。`index_chapter_with_report` 使用 `(novel_id, source_type, chapter_index, chunk_index, index_version)` upsert 当前章节 chunk，并删除同章旧版本或不在当前结果中的 stale chunk。
+章节正文索引要求 `chunk_index` 和 `index_version` 始终存在。幂等键包含
+`content_mode`，canonical 与 working 分别重建；`source_id/source_content_hash`
+必须指向实际执行时选中的 draft。
 
 ## 检索类型
 
@@ -52,12 +55,20 @@ rag 模块负责从结构化小说知识库和文本片段中检索与当前创�
 
 ## Scene 关联
 
-`RagChunk` 通过 `scene_id` 与 `outline` 模块的 Scene 卡近似关联。索引章节时：
+`RagChunk` 通过 `scene_id` 与 `outline` 模块的 Scene 卡近似关联，并通过
+nullable `scene_span_id` 指向 outline 派生的 `SceneSpan`。`scene_span_id` 不加
+跨模块硬 FK，避免 RAG ORM 依赖 outline 内部模型。索引章节时：
 
-1. 通过 `modules.outline.facade.get_scenes_by_novel` 读取当前小说的 Scene 列表。
-2. 筛选 `chapter_ids` 包含当前章节索引的 Scene。
-3. 将 chunk 的字符偏移范围与 `scene_chunks` 的 `[start_pos, end_pos]` 区间做重叠匹配。
-4. 命中第一个重叠 Scene 时写入 `scene_id`，无匹配时留空。
+1. 通过 `modules.outline.facade.get_scene_spans_by_chapter` 读取当前章节 span。
+2. 优先用 chunk 的字符偏移与 span 的 `start_offset/end_offset` 做重叠匹配。
+3. 命中 span 时同时写入 `scene_id` 与 `scene_span_id`。
+4. 只有 source draft/hash 一致且 mapping 精确的 span 可写入自动 Scene 归因。
+5. `chapter_only` / `unresolved` 或无匹配时 `scene_id` / `scene_span_id` 留空并进入复核。
+
+`chapter_index` 是精确章节过滤；`reference_chapter_index` 只参与时间衰减评分；
+`visible_until_chapter` 是读者进度上界硬过滤，检索时只召回该章及以前的 chunk。
+`chapter_index IS NULL` 的 chunk 默认保留；如果调用方同时指定 exact
+`chapter_index`，则仍按 exact chapter 过滤。
 
 ## 混合评分公式
 
@@ -81,10 +92,16 @@ from modules.rag.facade import retrieve, split_text_into_chunks, get_ordered_cha
 
 ### Facade 方法
 
-- `retrieve(db, novel_id, query, *, entity_ids, character_ids, thread_ids, chapter_index, mode="search", top_k=12) -> RagResultBundle`
+- `retrieve(db, novel_id, query, *, entity_ids, character_ids, thread_ids, chapter_index, visible_until_chapter, mode="search", top_k=12) -> RagResultBundle`
   - 核心混合检索接口
 - `index_chapter_with_report(db, novel_id, chapter_index) -> RagIndexReport`
   - 索引章节并返回 chunk/embedding 诊断
+- `request_chapter_index(db, novel_id, chapter_index, *, content_mode) -> dict`
+  - 幂等标脏并确保同一状态键最多一个 pending/running 任务
+- `mark_chapter_index_dirty(db, novel_id, chapter_index, *, content_mode) -> dict`
+  - 只标脏不额外入队，供已有 `publish_chapter` 工作流负责执行时使用
+- `get_index_freshness(db, novel_id, *, content_mode, chapter_from=None, chapter_to=None) -> dict`
+  - 返回指定模式/范围的 fresh/stale 状态
 - `get_index_status(db, novel_id) -> dict`
   - 返回索引统计、配置/实际向量维度、可重试 embedding 数、worker runtime 快照
 - `prewarm_embedding_runtime() -> dict`
@@ -108,11 +125,15 @@ POST /api/rag/chunks/split               — 文本分割工具
 ```
 
 `/api/rag/rebuild` 接收 `novel_id`、`start_chapter`、`end_chapter`（后两者可选），
-入队 `rag_reindex_novel` 异步任务，返回 `{task_id, status}`。
+以及 `content_mode`，入队 `rag_reindex_novel` 异步任务，返回 `{task_id, status}`。
 
 `/api/rag/retry-embeddings` 接收 `novel_id`、`start_chapter`、`end_chapter`、`statuses`（默认 `failed` 与 `pending_vectorization`），入队 `rag_retry_embeddings` 异步任务，返回 `{task_id, status}`。
 
 `retrieve` 响应包含 `warnings` 与 `degraded`；`chunks` 列表响应额外包含 `embedding_failed_count`、`retryable_embedding_count`、`configured_embedding_dim`、`indexed_embedding_dim`、`embedding_dimension_mismatch` 与 `embedding_runtime`。
+
+RAG 文本只是候选召回材料。context 或证据 API 在输出前必须通过 writing
+重读 `source_id` 对应的当前原文并校验 `source_content_hash`；不匹配的块丢弃并报
+索引过期。删除所有 RAG 派生数据后可由 writing 事实源完整恢复。
 
 ## 模块职责
 
@@ -138,7 +159,10 @@ POST /api/rag/chunks/split               — 文本分割工具
 
 ```bash
 cd backend
-pytest modules/rag/tests/ -v
+pytest modules/rag/tests/ -m "not real_llm and not external_data"
+
+# 真实 embedding 提供方只在显式验收中调用
+cd ../.. && make test-real-llm
 ```
 
 ## 依赖

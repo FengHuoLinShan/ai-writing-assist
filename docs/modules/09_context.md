@@ -18,6 +18,7 @@ context 本身不拥有业务事实，但当前**有自己的确认与审计记�
 
 - `context_confirmations`：AI 参考资料确认记录，保存 action、scope、selected_asset_ids、warnings、result_refs、stale_reasons 等摘要
 - `context_snapshots`：自动 AI 调用上下文快照，保存 task_id、workflow_id、phase、context_mode、included_asset_ids、摘要、prompt_hash、token/section metadata、result_refs 和错误信息
+- `evidence_links`：使用 `TargetRef + claim_path` 将对象字段连到 `SourceRangeRef`；保存 precision/status/provenance，不创建独立 Claim 正史
 
 聚合来源仍来自：
 
@@ -40,6 +41,10 @@ context 本身不拥有业务事实，但当前**有自己的确认与审计记�
 ### 2. 分层编译器
 
 `CompiledContext` 是当前主路径，按 tier 组织内容并做预算裁剪。前端的生成中心任务页、AI 参考资料确认、outline 生成等都优先使用这一层；旧 `context` hash 入口已由路由层重定向到 `generate?tab=task`。
+
+reader 视角不沿用作者 section 组装：编译器只纳入公开/已揭示世界信息、
+回读 writing 且校验 hash 的正文证据与无剧情事实的风格资产。完整 Scene 卡、
+剧情线、记忆、篇章纲和包含未来伏笔的动态约束一律排除。
 
 每个 `ContextSection` 会携带审查台元数据：
 
@@ -70,6 +75,28 @@ context 本身不拥有业务事实，但当前**有自己的确认与审计记�
 | `RagChunksLoader` | `rag.facade.retrieve()` |
 
 loader 的外部调度契约仍由 `SCOPE_LOADERS` 与各 loader `name` 决定；具体依赖统一为构造函数注入 callable。默认 callable 委托上表既有来源，因此 API、schema、bundle shape 和 ContextCompiler 外部行为不变。测试可直接传入 fake callable；`load()` 内不做 facade local import，也不直接访问 DI container。
+
+RAG 文本只用于候选召回。`RagChunksLoader` 按 chunk 的 source draft/hash 从 writing
+重读原文，不匹配则丢弃并告警；进入 `CompiledContext` 的 section metadata 保留
+source refs/hash，不把未校验的 chunk text 当作事实。
+
+## 小说证据编排
+
+`NovelEvidenceService` 集中编排 writing、RAG、outline 和 world，暴露确定性
+grep/search/read/inspect/trace。它不自主选工具，受控 LLM 工作流只能消费
+已编译、已校验的证据包。
+
+`VisibilityContextContract` 支持 `author/reader/character`。reader 必须提供截止章，
+character 还必须提供人物 ID；两者可选同章 Scene/offset 截止。writing、RAG、
+SceneSpan/checkpoint、ReaderRevealPolicy 和 CharacterKnowledge 各层先硬过滤，
+context 返回前再校验 source location。同章无可判定先后、或缺少学习章且非明确
+public baseline 的 CharacterKnowledge 默认排除。
+这类保守排除会返回 warning。inspect/trace 会再从 writing 回读 evidence link；
+伪造或失效引用不计入证据，并通过 `index_fresh=false` 与 warnings 报告。
+
+深度导入在事实写入同一 savepoint 记录 evidence link；quote 只有在当前可见、
+版本绑定的 Scene 原文中唯一命中才可形成 active source ref。无法定位时标记
+`needs_review`，不伪造 offset。
 
 ## AI 参考资料确认
 
@@ -140,6 +167,15 @@ Lifecycle v1 为快照提供显式维护入口：
 
 当前默认总预算由 `CompileOptions.budget_tokens` 控制，前端默认 4000。
 
+`CompileOptions.visible_until_chapter` 是 RAG 证据加载的读者进度上界。为空且存在
+`chapter_index` 时，RAG loader 默认使用当前章；范围型上下文必须显式传入范围结束章，
+避免只用起始章排除同一范围内的后续证据。`reference_chapter_index` 仍只用于 RAG
+时间衰减评分，不承担防剧透硬过滤。
+
+`CompileOptions.content_mode` 独立选择 canonical/working 正文与索引；
+`visible_until_scene_id/visible_until_offset` 表达同章可选截止点。旧
+`reveal_mode` 由适配层映射为统一 visibility 语义。
+
 分类预算仍由 `CONTEXT_BUDGET` 提供，包括：
 
 - `core_entities`
@@ -170,6 +206,11 @@ POST /api/context/recompile
 GET  /api/context/snapshots
 GET  /api/context/snapshots/{snapshot_id}
 POST /api/context/snapshots/maintenance
+POST /api/context/evidence/grep
+POST /api/context/evidence/search
+POST /api/context/evidence/read
+POST /api/context/evidence/inspect
+POST /api/context/evidence/trace
 ```
 
 ## 不做
@@ -178,3 +219,10 @@ POST /api/context/snapshots/maintenance
 - 不绕过 reveal / knowledge / pending-object 约束
 - 不负责剧情推理或生成正文
 - 不提供完整上下文预设系统、作者长期偏好配置或 item 级事实编辑
+
+## Deep Import Activation
+
+`prepare_import_context_activation()` 是 Phase 2a 的冻结预检接口。它封装当前 Scene
+精确 span 正文、最多两个前序 Scene brief、命中共享世界术语的前序证据、世界背景聚合、
+来源与预算事件。它接受可见截止章/offset，会丢弃跨章 Scene 中的未来 span。
+future Scene 永不进入该输出；别名/关系全局对账仍属于 Phase 2b。

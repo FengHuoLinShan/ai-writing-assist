@@ -153,10 +153,16 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
           },
           state.currentProjectId,
         )
+        if (result.id && result.id !== editor._currentDraftId) {
+          editor._currentDraftId = result.id
+          state._currentDraftId = result.id
+        }
         editor._currentContent = content
         editor._currentTitle = title
         editor._currentVersionNumber = result.version_number
         editor._currentUpdatedAt = result.updated_at || editor._currentUpdatedAt
+        editor._draftStatus = result.status || editor._draftStatus
+        editor._currentProvenanceJson = result.provenance_json || editor._currentProvenanceJson
         editor._lastSavedContent = content
         editor._lastPublishStatus = null
         _saveBackup(null, null)

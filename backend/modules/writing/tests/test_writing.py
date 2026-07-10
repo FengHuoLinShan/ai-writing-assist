@@ -95,10 +95,7 @@ def test_writing_services_has_no_top_level_outline_facade_import() -> None:
         if isinstance(node, ast.ImportFrom):
             assert node.module != "modules.outline.facade"
         elif isinstance(node, ast.Import):
-            assert all(
-                alias.name != "modules.outline.facade"
-                for alias in node.names
-            )
+            assert all(alias.name != "modules.outline.facade" for alias in node.names)
 
 
 @pytest.fixture
@@ -432,6 +429,26 @@ class TestWritingDraftRepository:
         assert updated.content == "这是一个测试正文的段落。"
 
     @pytest.mark.asyncio
+    async def test_repository_rejects_published_in_place_update(
+        self,
+        repo: WritingDraftRepository,
+        db_session: AsyncSession,
+        sample_draft_data: WritingDraftCreate,
+    ) -> None:
+        published = await repo.create_with_status(
+            db_session,
+            sample_draft_data,
+            status="published",
+        )
+
+        with pytest.raises(ValueError, match="published drafts cannot be updated"):
+            await repo.update(
+                db_session,
+                published.id,
+                WritingDraftUpdate(content="不应原地修改"),
+            )
+
+    @pytest.mark.asyncio
     async def test_delete(
         self,
         repo: WritingDraftRepository,
@@ -439,7 +456,7 @@ class TestWritingDraftRepository:
         sample_draft_data: WritingDraftCreate,
     ) -> None:
         created = await repo.create(db_session, sample_draft_data)
-        # 需要至少 2 个版本才能删
+        # Service 层负责至少保留一个活跃版本；repository 只负责软废弃。
         v2_data = WritingDraftCreate(
             novel_id=sample_draft_data.novel_id,
             chapter_index=1,
@@ -450,7 +467,8 @@ class TestWritingDraftRepository:
         deleted = await repo.delete(db_session, created.id)
         assert deleted is not None
         fetched = await repo.get(db_session, created.id)
-        assert fetched is None
+        assert fetched is not None
+        assert fetched.status == "deprecated"
 
     @pytest.mark.asyncio
     async def test_delete_last_version_allowed_in_repo(
@@ -465,7 +483,7 @@ class TestWritingDraftRepository:
         assert deleted is not None
 
     @pytest.mark.asyncio
-    async def test_delete_renumbers_versions(
+    async def test_delete_preserves_version_history(
         self,
         repo: WritingDraftRepository,
         db_session: AsyncSession,
@@ -491,19 +509,14 @@ class TestWritingDraftRepository:
                 content="v3",
             ),
         )
-        # Delete v2, v3 should become v2
+        # 删除是软废弃：版本号和可追溯历史都必须保持稳定。
         deleted = await repo.delete(db_session, v2.id)
         assert deleted is not None
-        await repo.renumber_versions_after_delete(
-            db_session,
-            novel_id,
-            1,
-            deleted.version_number,
-        )
         versions = await repo.get_version_history(db_session, novel_id, chapter_index=1)
-        assert len(versions) == 2
+        assert len(versions) == 3
         version_numbers = sorted([v.version_number for v in versions])
-        assert version_numbers == [1, 2]
+        assert version_numbers == [1, 2, 3]
+        assert next(v for v in versions if v.id == v2.id).status == "deprecated"
 
     @pytest.mark.asyncio
     async def test_delete_all_versions(
@@ -611,6 +624,7 @@ def _make_draft(**overrides: object) -> MagicMock:
         "chapter_index": 1,
         "title": "第一章：开端",
         "content": "这是一个测试正文的段落。",
+        "content_hash": "0" * 64,
         "version_number": 1,
         "status": "draft",
         "created_at": datetime.now(UTC),
@@ -942,9 +956,7 @@ class TestWritingDraftService:
         await service.delete_draft(db, str(v2.id), sample_draft_data.novel_id)
 
         repo.delete.assert_awaited_once_with(db, v2.id)
-        repo.renumber_versions_after_delete.assert_awaited_once_with(
-            db, v2.novel_id, v2.chapter_index, v2.version_number
-        )
+        repo.renumber_versions_after_delete.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_delete_draft_last_version_rejected(

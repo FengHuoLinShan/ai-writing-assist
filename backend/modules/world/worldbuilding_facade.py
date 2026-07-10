@@ -31,6 +31,24 @@ async def preview_worldbuilding_activation(
     )
 
 
+async def get_world_background(
+    db,
+    novel_id: str,
+    *,
+    context_mode: str = "canonical",
+    limit: int = 160,
+):
+    """Return derived world entries for context; never writes canonical state."""
+    from modules.world.world_background import WorldBackgroundAggregation
+
+    return await WorldBackgroundAggregation().build(
+        db,
+        novel_id,
+        context_mode=context_mode,
+        limit=limit,
+    )
+
+
 async def mark_worldbuilding_context_stale(
     db,
     novel_id: str,

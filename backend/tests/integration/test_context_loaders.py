@@ -36,6 +36,7 @@ def _compile_options(
     entity_ids: list[str] | None = None,
     character_ids: list[str] | None = None,
     reveal_mode: str = "author_safe",
+    content_mode: str = "canonical",
 ) -> CompileOptions:
     return CompileOptions(
         novel_id=novel_id,
@@ -45,6 +46,7 @@ def _compile_options(
         entity_ids=entity_ids,
         character_ids=character_ids,
         reveal_mode=reveal_mode,
+        content_mode=content_mode,
     )
 
 
@@ -666,8 +668,10 @@ async def test_plot_threads_loader_loads_active_threads(
 
     # Assert
     assert len(bundle.plot_threads) == 2
-    assert bundle.plot_threads[0]["name"] == "Thread 1"
-    assert bundle.plot_threads[1]["name"] == "Thread 2"
+    assert {thread["name"] for thread in bundle.plot_threads} == {
+        "Thread 1",
+        "Thread 2",
+    }
 
 
 @pytest.mark.asyncio
@@ -737,9 +741,14 @@ async def _create_rag_chunk(
         id=cid,
         novel_id=uuid.UUID(hex=novel_id),
         source_type=kwargs.get("source_type", "chapter_text"),
+        source_id=kwargs.get("source_id"),
+        content_mode=kwargs.get("content_mode", "canonical"),
+        source_content_hash=kwargs.get("source_content_hash"),
         text=text,
         summary=kwargs.get("summary"),
         chapter_index=kwargs.get("chapter_index"),
+        start_offset=kwargs.get("start_offset"),
+        end_offset=kwargs.get("end_offset"),
         entity_ids=kwargs.get("entity_ids", []),
         character_ids=kwargs.get("character_ids", []),
         thread_ids=kwargs.get("thread_ids", []),
@@ -757,17 +766,32 @@ async def test_rag_chunks_loader_loads_chunks(
     test_project_id: str,
 ):
     # Arrange
+    from modules.writing.facade import create_draft_only
+
+    content = "这是关于测试任务的重要内容"
+    draft = await create_draft_only(
+        db_session,
+        test_project_id,
+        1,
+        content=content,
+    )
     await _create_rag_chunk(
         db_session,
         test_project_id,
-        text="这是关于测试任务的重要内容",
+        text=content,
         chapter_index=1,
+        source_id=uuid.UUID(draft.id or ""),
+        content_mode="working",
+        source_content_hash=draft.content_hash,
+        start_offset=0,
+        end_offset=len(content),
     )
     loader = RagChunksLoader()
     options = _compile_options(
         test_project_id,
         task="测试任务",
         chapter_index=1,
+        content_mode="working",
     )
     bundle = _bundle(test_project_id)
 
@@ -777,6 +801,77 @@ async def test_rag_chunks_loader_loads_chunks(
     # Assert
     assert len(bundle.rag_chunks) >= 1
     assert bundle.budget_used["rag_chunks"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_rag_loader_resolves_scene_cutoff_before_compiling_same_chapter(
+    db_session: AsyncSession,
+    test_project_id: str,
+) -> None:
+    from modules.outline.facade import bind_scene_spans_to_source
+    from modules.outline.repositories import SceneRepository
+    from modules.outline.schemas import SceneCreate
+    from modules.writing.facade import create_draft_only
+
+    content = "可见线索。未来线索。"
+    cutoff = content.index("未来")
+    draft = await create_draft_only(
+        db_session,
+        test_project_id,
+        80,
+        content=content,
+    )
+    scene = await SceneRepository().create(
+        db_session,
+        uuid.UUID(test_project_id),
+        SceneCreate(
+            scene_index=80,
+            title="当前 Scene",
+            chapter_ids=["80"],
+            scene_chunks=[{"chapter_index": 80, "start_offset": 0, "end_offset": cutoff}],
+            status="canonical",
+        ),
+    )
+    await bind_scene_spans_to_source(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=80,
+        content_mode="working",
+        source_draft_id=draft.id or "",
+        source_content_hash=draft.content_hash,
+        content=content,
+    )
+    for start, end in ((0, cutoff), (cutoff, len(content))):
+        await _create_rag_chunk(
+            db_session,
+            test_project_id,
+            text=content[start:end],
+            chapter_index=80,
+            source_id=uuid.UUID(draft.id or ""),
+            content_mode="working",
+            source_content_hash=draft.content_hash,
+            start_offset=start,
+            end_offset=end,
+            visibility="reader_known",
+        )
+
+    options = CompileOptions(
+        novel_id=test_project_id,
+        task="线索",
+        scope="chapter",
+        chapter_index=80,
+        reveal_mode="reader",
+        content_mode="working",
+        visible_until_chapter=80,
+        visible_until_scene_id=str(scene.id),
+    )
+    bundle = _bundle(test_project_id)
+
+    await RagChunksLoader().load(db_session, options, bundle)
+
+    rendered = "\n".join(str(item.get("text") or "") for item in bundle.rag_chunks)
+    assert "可见线索" in rendered
+    assert "未来线索" not in rendered
 
 
 @pytest.mark.asyncio

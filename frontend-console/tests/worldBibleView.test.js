@@ -27,6 +27,7 @@ beforeEach(() => {
   worldBibleView._pages = []
   worldBibleView._activePage = null
   worldBibleView._suggestions = []
+  worldBibleView._suggestionBatchKey = null
   worldBibleView._conflicts = []
   worldBibleView._task = null
   worldBibleView._projectionConflictHint = null
@@ -179,6 +180,7 @@ describe("worldBibleView", () => {
     })
     expect(api.world.listWorldConflicts).toHaveBeenCalledWith({ novel_id: "p1", status: "pending" })
     expect(showModal.mock.calls[0][0]).toBe("创设建议")
+    expect(showModal.mock.calls[0][3]).toEqual({ size: "large" })
     expect(showModal.mock.calls[1][0]).toBe("冲突检查")
   })
 
@@ -262,6 +264,83 @@ describe("worldBibleView", () => {
     expect(html).toContain("补写当前页")
     expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;补写")
     expect(html).not.toContain("\"append_text\"")
+  })
+
+  it("世界书 AI 侧栏使用语义类并保留动态内容转义", () => {
+    worldBibleView._activePage = page
+    worldBibleView._aiOpen = true
+    worldBibleView._aiMessages = [{ role: "user", content: "<img src=x onerror=alert(1)>" }]
+
+    const html = worldBibleView._renderAiSidebar(page)
+
+    expect(html).toContain('class="bible-ai-sidebar"')
+    expect(html).toContain("bible-ai-message--user")
+    expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;")
+    expect(html).not.toContain("<img src=x")
+  })
+
+  it("不兼容创设建议可点击并自动切换批量范围", () => {
+    worldBibleView._suggestions = [
+      {
+        id: "s1",
+        review_group: "world_bible_ai",
+        target_type: "world_bible_page",
+        action_schema: "world_bible_ai.v1",
+        risk_level: "low",
+        payload_json: { title: "新建页面" },
+      },
+      {
+        id: "s2",
+        review_group: "world_bible_ai",
+        target_type: "world_bible_page_patch",
+        action_schema: "world_bible_ai.v1",
+        risk_level: "low",
+        payload_json: { append_text: "补写当前页" },
+      },
+    ]
+    worldBibleView._suggestionBatchKey = worldBibleView._suggestionGroupKey(worldBibleView._suggestions[0])
+    document.body.innerHTML = worldBibleView._renderSuggestionsModal()
+    worldBibleView._bindSuggestionModal()
+
+    const first = document.querySelector('[data-bible-batch-suggestion="s1"]')
+    const second = document.querySelector('[data-bible-batch-suggestion="s2"]')
+    expect(first.disabled).toBe(false)
+    expect(second.disabled).toBe(false)
+    expect(first.checked).toBe(true)
+    expect(second.checked).toBe(false)
+
+    second.checked = true
+    second.dispatchEvent(new Event("change"))
+
+    expect(first.checked).toBe(false)
+    expect(second.checked).toBe(true)
+    expect(document.querySelector("[data-bible-batch-meta]").textContent).toContain("world_bible_page_patch")
+  })
+
+  it("批量提交前会拦截不一致创设建议类型", async () => {
+    worldBibleView._suggestions = [
+      {
+        id: "s1",
+        review_group: "world_bible_ai",
+        target_type: "world_bible_page",
+        action_schema: "world_bible_ai.v1",
+      },
+      {
+        id: "s2",
+        review_group: "world_bible_ai",
+        target_type: "world_bible_page_patch",
+        action_schema: "world_bible_ai.v1",
+      },
+    ]
+    document.body.innerHTML = `
+      <input type="checkbox" data-bible-batch-suggestion="s1" checked />
+      <input type="checkbox" data-bible-batch-suggestion="s2" checked />
+    `
+
+    await worldBibleView._decideSuggestionBatch(true)
+
+    expect(toast).toHaveBeenCalledWith("选中的建议类型不一致，请分别处理", "warning")
+    expect(api.world.confirmSuggestion).not.toHaveBeenCalled()
   })
 
   it("恢复世界书展示模式偏好，并能切换回编辑模式", async () => {

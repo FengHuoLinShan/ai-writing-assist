@@ -136,8 +136,7 @@ class WritingDraftService:
     ) -> None:
         self._repo = repo or WritingDraftRepository()
         self._split_scene_chunk_to_new_chapter = (
-            split_scene_chunk_to_new_chapter
-            or _default_split_scene_chunk_to_new_chapter
+            split_scene_chunk_to_new_chapter or _default_split_scene_chunk_to_new_chapter
         )
 
     async def create_draft(
@@ -226,7 +225,7 @@ class WritingDraftService:
         data: WritingDraftUpdate,
         novel_id: str,
     ) -> WritingDraftResponse:
-        """暂存草稿（原地更新最新版本，不创建新版本）"""
+        """暂存草稿；published 版本首次编辑时 copy-on-write。"""
         did = _parse_uuid(draft_id, "draft")
         nid = _parse_uuid(novel_id, "novel")
         draft = await self._repo.get(db, did)
@@ -244,8 +243,7 @@ class WritingDraftService:
             expected_updated_at = _as_utc_aware(data.expected_updated_at)
             if db_updated_at > expected_updated_at:
                 raise ConflictError(
-                    "该章节已被其他会话更新（当前修改时间晚于期望时间，"
-                    "请刷新后重新编辑。"
+                    "该章节已被其他会话更新（当前修改时间晚于期望时间，请刷新后重新编辑。"
                 )
 
         if data.expected_version is not None and latest_version != data.expected_version:
@@ -254,7 +252,30 @@ class WritingDraftService:
                 f"期望版本 v{data.expected_version}）。请刷新后重新编辑。"
             )
         sanitized_data = _sanitize_draft_update(data)
-        updated = await self._repo.update(db, draft, sanitized_data)
+        if draft.status == "published":
+            copied = WritingDraftCreate(
+                novel_id=str(draft.novel_id),
+                chapter_index=draft.chapter_index,
+                title=(
+                    sanitized_data.title
+                    if sanitized_data.title is not None
+                    else draft.title
+                ),
+                content=(
+                    sanitized_data.content
+                    if sanitized_data.content is not None
+                    else draft.content
+                ),
+                provenance_json={
+                    **(draft.provenance_json or {}),
+                    "copied_from_published_draft_id": str(draft.id),
+                },
+            )
+            updated = await self._repo.create(db, copied)
+            updated.conflict_check_snapshot_json = draft.conflict_check_snapshot_json
+            await db.flush()
+        else:
+            updated = await self._repo.update(db, draft, sanitized_data)
         if updated is None:
             raise NotFoundError(f"Draft {draft_id} not found")
         return WritingDraftResponse.model_validate(updated)
@@ -265,7 +286,7 @@ class WritingDraftService:
         draft_id: str,
         novel_id: str,
     ) -> None:
-        """删除单个版本（至少保留 1 个版本），并自动重排后续版本号"""
+        """软废弃单个版本（至少保留 1 个活跃版本）。"""
         did = _parse_uuid(draft_id, "draft")
         nid = _parse_uuid(novel_id, "novel")
         draft = await self._repo.get(db, did)
@@ -284,14 +305,6 @@ class WritingDraftService:
         deleted = await self._repo.delete(db, did)
         if deleted is None:
             raise NotFoundError(f"Draft {draft_id} not found")
-
-        # 数据完整性：重排后续版本号
-        await self._repo.renumber_versions_after_delete(
-            db,
-            draft.novel_id,
-            draft.chapter_index,
-            draft.version_number,
-        )
 
     async def delete_chapter(
         self,
@@ -417,6 +430,7 @@ class WritingDraftService:
             chapter_index=draft.chapter_index,  # type: ignore[union-attr]
             title=draft.title,  # type: ignore[union-attr]
             content=draft.content,  # type: ignore[union-attr]
+            content_hash=getattr(draft, "content_hash", ""),
             version_number=draft.version_number,  # type: ignore[union-attr]
             status=draft.status,  # type: ignore[union-attr]
             conflict_check_snapshot_json=draft.conflict_check_snapshot_json,  # type: ignore[union-attr]
@@ -435,6 +449,7 @@ class WritingDraftService:
             chapter_index=mapping["chapter_index"],  # type: ignore[index]
             title=mapping["title"],  # type: ignore[index]
             content=mapping["content"],  # type: ignore[index]
+            content_hash=mapping.get("content_hash", ""),  # type: ignore[union-attr]
             version_number=mapping["version_number"],  # type: ignore[index]
             status=mapping["status"],  # type: ignore[index]
             conflict_check_snapshot_json=mapping["conflict_check_snapshot_json"],  # type: ignore[index]
@@ -517,6 +532,12 @@ class WritingDraftService:
         latest = await self._repo.get_latest_by_chapter(db, nid, chapter_index)
         if latest is None:
             raise NotFoundError(f"No draft found for chapter {chapter_index}")
+        if await self._repo.has_published_from(db, nid, chapter_index):
+            raise ValidationError(
+                "Cannot split across published chapters because published source "
+                "positions are immutable; create a new working chapter layout first",
+                status_code=409,
+            )
         content = latest.content or ""
         if not (0 < split_pos < len(content)):
             raise ValidationError(
@@ -906,17 +927,13 @@ class WritingConflictCheckService:
                 or _read_field(warning, "code")
                 or "地图状态需复核"
             )
-            depends_on_candidate = bool(
-                _read_field(warning, "depends_on_candidate")
-            )
+            depends_on_candidate = bool(_read_field(warning, "depends_on_candidate"))
             evidence_excerpt = _read_field(warning, "evidence_excerpt") or message
             open_target = _read_field(warning, "open_target") or {
                 "kind": "map_scene",
                 "scene_id": scene_id,
             }
-            needs_review_reason = (
-                "依赖待确认地图观察" if depends_on_candidate else None
-            )
+            needs_review_reason = "依赖待确认地图观察" if depends_on_candidate else None
             severity = "medium" if _read_field(warning, "level") == "warning" else "low"
             items.append(
                 {
@@ -1210,11 +1227,7 @@ def _build_writing_generation_prompt(
 def _split_rule_phrases(value: str | None) -> list[str]:
     if not value:
         return []
-    return [
-        part.strip()
-        for part in re.split(r"[；;，,\n。]+", value)
-        if part.strip()
-    ]
+    return [part.strip() for part in re.split(r"[；;，,\n。]+", value) if part.strip()]
 
 
 def _locate_phrase(content: str, phrase: str) -> dict:

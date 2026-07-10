@@ -56,6 +56,13 @@ class WritingDraft(Base, UUIDMixin, TimestampMixin, NovelMixin):
         nullable=True,
         comment="草稿正文",
     )
+    content_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default="",
+        index=True,
+        comment="正文 SHA-256，用于稳定来源引用和索引新鲜度校验",
+    )
     conflict_check_snapshot_json: Mapped[dict | None] = mapped_column(
         JSON,
         nullable=True,
@@ -76,7 +83,7 @@ class WritingDraft(Base, UUIDMixin, TimestampMixin, NovelMixin):
         String(32),
         nullable=False,
         default="draft",
-        comment="状态：draft / candidate / canonical / deprecated",
+        comment="状态：draft / published / candidate / canonical / deprecated",
     )
 
     def __repr__(self) -> str:

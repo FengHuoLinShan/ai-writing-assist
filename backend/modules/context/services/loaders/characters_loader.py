@@ -98,6 +98,12 @@ class CharactersLoader(Loader):
             and options.scope != "project"
         ):
             filter_character_id = options.viewpoint_character_id or limited_ids[0]
+            visible_until_chapter = options.visible_until_chapter or options.chapter_index
+            if visible_until_chapter is None:
+                bundle.world_entities = []
+                bundle.warnings.append("角色视角缺少截止章，已保守排除人物知识")
+                bundle.budget_used["characters"] = len(bundle.characters)
+                return
             if not options.viewpoint_character_id:
                 logger.warning(
                     "character reveal 模式未提供 viewpoint_character_id，"
@@ -128,6 +134,7 @@ class CharactersLoader(Loader):
                     options.novel_id,
                     filter_character_id,
                     filter_input,
+                    visible_until_chapter=visible_until_chapter,
                 )
 
                 # 将过滤结果映射回世界对象字段，并整合知识边界信息。
@@ -148,8 +155,18 @@ class CharactersLoader(Loader):
 
                 if filtered is not None:
                     bundle.world_entities = restored
+                    if len(restored) < len(filter_input) or any(
+                        item.get("visibility_source") == "public_info"
+                        for item in restored
+                    ):
+                        bundle.warnings.append(
+                            "无法确定学习位置或超出截止位置的人物知识"
+                            "已保守排除；未授权对象仅保留公开基线"
+                        )
             except Exception:
                 logger.warning("知识边界过滤失败", exc_info=True)
+                bundle.world_entities = []
+                bundle.warnings.append("人物知识过滤失败，已按保守策略排除对象")
 
         bundle.budget_used["characters"] = len(bundle.characters)
 

@@ -60,6 +60,10 @@ helper 不改变 `LLMClient` 的 provider/retry/structured repair 行为：结�
 由调用方保留现有 fallback 或状态更新逻辑。`context_budget` 默认不自动截断
 request messages；需要裁剪时显式使用 `ContextBudgetGuard`。
 
+step envelope 可表达 read / suggest / draft / act-with-confirmation 权限，但当前 harness
+明确拒绝 `autonomous`。它记录确定性执行与输出守门，不实现 agent loop、工具自主选择或
+跨模块业务编排。
+
 Embedding、streaming 和 `generate_simple()` 不是本 harness 的默认迁移范围。
 
 ### 配置与健康检查
@@ -103,14 +107,17 @@ GET /api/health/llm
 
 ### 任务类型
 
-| 处理器 | 模块 | 说明 |
-|--------|------|------|
-| `world_entity_extraction` | world | 从章节正文抽取世界对象并按当前 world 规则入库 |
-| `plot_structure_generate` | outline | 从正文生成剧情线+篇章纲 |
-| `rag_index_chapter` | rag | 单章 RAG 索引 |
-| `rag_reindex_novel` | rag | 全量/范围重建项目索引 |
-| `publish_chapter` | writing | 发布章节草稿并触发后续索引/记忆流程 |
-| `deep_import` | imports | 深度导入流水线（Scene 切分 → 实体提取 → 结构分析） |
+| 模块 | 当前注册处理器 |
+|------|------|
+| project | `smart_dedup_scan` |
+| world | `world_entity_extraction`、`world_alias_relation_extraction`、`world_entity_fusion_suggestions`、`world_bible_projection_refresh` |
+| outline | `plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate`、`scene_cross_chapter_detection`、`outline_analyze`、`outline_generate`、`outline_chapter_scenes_extract` |
+| rag | `rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings` |
+| writing | `publish_chapter`、`writing_generate`、`writing_conflict_ai_review` |
+| imports | `deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、`plot_structure_auto_extraction` |
+
+任务处理器由模块 `tasks.py` 在应用/worker 启动时注册；新增或移除处理器时应更新此表并保留
+`async_tasks` 的兼容状态语义。
 
 ### API
 

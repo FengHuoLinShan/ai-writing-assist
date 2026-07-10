@@ -90,6 +90,7 @@ class PlotStructureContextBuilder:
             task="生成剧情结构",
             scope="full",
             chapter_index=start_chapter,
+            visible_until_chapter=end_chapter,
             reveal_mode="author_only",
             context_mode=context_mode,
             include_pending_objects=include_pending_objects,
@@ -98,6 +99,14 @@ class PlotStructureContextBuilder:
         warnings = list(bundle.warnings or [])
         guard = _PromptTextGuard(warnings=warnings)
         context_md = self._render_bundle_to_markdown(bundle, guard=guard)
+        world_background_md = await self._load_world_background(
+            db,
+            novel_id,
+            context_mode=context_mode,
+            budget_tokens=1800,
+        )
+        if world_background_md:
+            context_md += "\n" + world_background_md
 
         entity_name_to_id = {
             e["name"]: e["entity_id"]
@@ -147,6 +156,38 @@ class PlotStructureContextBuilder:
             character_name_to_id=character_name_to_id,
             scenes=scene_cards,
         )
+
+    async def _load_world_background(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        context_mode: str,
+        budget_tokens: int,
+    ) -> str:
+        """Append derived world background without reading novel body text."""
+        from infrastructure.llm.token_estimation import estimate_token_count
+        from modules.world.facade import get_world_background
+
+        background = await get_world_background(
+            db,
+            novel_id,
+            context_mode=context_mode,
+        )
+        lines: list[str] = []
+        used = 0
+        seen_groups: set[str] = set()
+        for entry in background.entries:
+            if entry.group in seen_groups:
+                continue
+            line = f"- {entry.title}: {entry.summary}"
+            tokens = estimate_token_count(line)
+            if used + tokens > budget_tokens:
+                continue
+            lines.append(line)
+            seen_groups.add(entry.group)
+            used += tokens
+        return "## 世界背景聚合\n" + "\n".join(lines) if lines else ""
 
     def _render_bundle_to_markdown(
         self,

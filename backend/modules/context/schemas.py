@@ -6,9 +6,9 @@ Context Pydantic Schema 定义
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ContextSelectionRequest(BaseModel):
@@ -25,10 +25,26 @@ class ContextSelectionRequest(BaseModel):
         ge=0,
         description="当前章节索引（scope=chapter 时必填）",
     )
+    visible_until_chapter: int | None = Field(
+        None,
+        ge=1,
+        description="读者/角色视角可见截止章",
+    )
+    visible_until_scene_id: str | None = Field(
+        None,
+        description="同章可见截止 Scene",
+    )
+    visible_until_offset: int | None = Field(
+        None,
+        ge=0,
+        description="同章可见截止字符偏移",
+    )
     scene_id: str | None = Field(
         None,
         description="当前 Scene ID（scene-centric 编译时使用）",
     )
+    map_id: str | None = Field(None, description="当前地图焦点 ID")
+    focus_entity_id: str | None = Field(None, description="显式关注的世界对象 ID")
     arc_id: str | None = Field(
         None,
         description="当前篇章 ID（scope=arc 时必填）",
@@ -66,6 +82,10 @@ class ContextSelectionRequest(BaseModel):
     context_mode: Literal["canonical", "working"] = Field(
         default="canonical",
         description="上下文模式：canonical / working",
+    )
+    content_mode: Literal["canonical", "working"] = Field(
+        default="canonical",
+        description="正文来源视图：canonical / working",
     )
     include_pending_objects: bool = Field(
         default=False,
@@ -155,7 +175,7 @@ class ContextSectionItem(BaseModel):
         "unknown",
     ] = Field(default="unknown", description="段内容状态")
     activation_reason: str = Field(default="", description="段被选入的原因")
-    sources: list[dict[str, str]] = Field(
+    sources: list[dict[str, Any]] = Field(
         default_factory=list,
         description="段来源摘要",
     )
@@ -351,3 +371,138 @@ class ContextSnapshotMaintenanceResponse(BaseModel):
     pruned_rendered_context_count: int = 0
     would_change_count: int = 0
     dry_run: bool = True
+
+
+class VisibilityContextRequest(BaseModel):
+    mode: Literal["author", "reader", "character"] = "author"
+    cutoff_chapter: int | None = Field(None, ge=1)
+    cutoff_scene_id: str | None = None
+    cutoff_offset: int | None = Field(None, ge=0)
+    character_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_visibility(self):
+        if self.mode in {"reader", "character"} and self.cutoff_chapter is None:
+            raise ValueError("reader/character visibility requires cutoff_chapter")
+        if self.mode == "character" and not self.character_id:
+            raise ValueError("character visibility requires character_id")
+        return self
+
+
+class SourceRangeRefRequest(BaseModel):
+    draft_id: str
+    chapter_index: int = Field(..., ge=1)
+    version_number: int = Field(..., ge=1)
+    content_mode: Literal["canonical", "working"]
+    start_offset: int = Field(..., ge=0)
+    end_offset: int = Field(..., ge=1)
+    source_hash: str = Field(..., min_length=64, max_length=64)
+    range_hash: str = Field(..., min_length=64, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_offsets(self):
+        if self.end_offset <= self.start_offset:
+            raise ValueError("end_offset must be greater than start_offset")
+        return self
+
+
+class EvidenceGrepRequest(BaseModel):
+    novel_id: str
+    pattern: str = Field(..., min_length=1, max_length=200)
+    content_mode: Literal["canonical", "working"] = "canonical"
+    visibility: VisibilityContextRequest = Field(default_factory=VisibilityContextRequest)
+    chapter_from: int | None = Field(None, ge=1)
+    chapter_to: int | None = Field(None, ge=1)
+    case_sensitive: bool = False
+    skip: int = Field(0, ge=0)
+    limit: int = Field(20, ge=1, le=100)
+
+
+class EvidenceSearchRequest(BaseModel):
+    novel_id: str
+    query: str = Field(..., min_length=1, max_length=1000)
+    content_mode: Literal["canonical", "working"] = "canonical"
+    visibility: VisibilityContextRequest = Field(default_factory=VisibilityContextRequest)
+    scopes: list[Literal["manuscript", "world", "outline"]] = Field(
+        default_factory=lambda: ["manuscript"]
+    )
+    chapter_from: int | None = Field(None, ge=1)
+    chapter_to: int | None = Field(None, ge=1)
+    top_k: int = Field(12, ge=1, le=50)
+
+
+class EvidenceReadRequest(BaseModel):
+    novel_id: str
+    content_mode: Literal["canonical", "working"] = "canonical"
+    visibility: VisibilityContextRequest = Field(default_factory=VisibilityContextRequest)
+    source_ref: SourceRangeRefRequest
+    before: int = Field(3, ge=0, le=20)
+    after: int = Field(3, ge=0, le=20)
+
+
+class EvidenceInspectRequest(BaseModel):
+    novel_id: str
+    content_mode: Literal["canonical", "working"] = "canonical"
+    visibility: VisibilityContextRequest = Field(default_factory=VisibilityContextRequest)
+    target_ref: dict
+
+
+class EvidenceTraceRequest(EvidenceInspectRequest):
+    claim_path: str = Field(default="", max_length=512)
+
+
+class EvidenceHitResponse(BaseModel):
+    kind: str
+    title: str
+    snippet: str
+    source_ref: dict | None = None
+    target_ref: dict | None = None
+    chapter_index: int | None = None
+    score: float | None = None
+    scene_refs: list[dict] = Field(default_factory=list)
+    object_refs: list[dict] = Field(default_factory=list)
+    index_fresh: bool = True
+    visibility_decision: dict = Field(default_factory=dict)
+
+
+class EvidenceSearchResponse(BaseModel):
+    hits: list[EvidenceHitResponse] = Field(default_factory=list)
+    total: int = 0
+    warnings: list[str] = Field(default_factory=list)
+    degraded: bool = False
+    missing_chapters: list[int] = Field(default_factory=list)
+
+
+class EvidenceReadResponse(BaseModel):
+    source_ref: dict
+    title: str | None = None
+    text: str
+    highlight_start: int
+    highlight_end: int
+    scene_refs: list[dict] = Field(default_factory=list)
+    object_refs: list[dict] = Field(default_factory=list)
+    index_fresh: bool = True
+    visibility_decision: dict = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+    degraded: bool = False
+
+
+class EvidenceInspectResponse(BaseModel):
+    target_ref: dict
+    visible: bool
+    item: dict | None = None
+    evidence_count: int = 0
+    index_fresh: bool = True
+    warnings: list[str] = Field(default_factory=list)
+    visibility_decision: dict = Field(default_factory=dict)
+    degraded: bool = False
+
+
+class EvidenceTraceResponse(BaseModel):
+    target_ref: dict
+    claim_path: str = ""
+    links: list[dict] = Field(default_factory=list)
+    index_fresh: bool = True
+    warnings: list[str] = Field(default_factory=list)
+    visibility_decision: dict = Field(default_factory=dict)
+    degraded: bool = False

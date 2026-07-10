@@ -96,6 +96,8 @@ class CharacterKnowledgeContract:
     knowledge_level: str
     known_content: str | None = None
     misconception: str | None = None
+    source_chapter_index: int | None = None
+    is_public_baseline: bool = False
 
 
 @dataclass(frozen=True)
@@ -133,6 +135,36 @@ class ResolveResult:
     merge_result: MergeResult | None = None
     promoted_entity_id: str | None = None
     suggestions: list = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class WorldBackgroundEntryContract:
+    """Derived world fact suitable for deterministic context activation."""
+
+    entry_id: str
+    novel_id: str
+    asset_type: str
+    asset_id: str
+    title: str
+    summary: str
+    group: str
+    importance: float = 0.5
+    tier: str = "P2"
+    status: str = "canonical"
+    sensitivity: str = "author_safe"
+    keywords: list[str] = field(default_factory=list)
+    source_ids: list[dict[str, str]] = field(default_factory=list)
+    token_count: int = 0
+
+
+@dataclass(frozen=True)
+class WorldBackgroundBundleContract:
+    """Read-only derived world background; it never owns canonical facts."""
+
+    novel_id: str
+    context_mode: str
+    entries: list[WorldBackgroundEntryContract] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
 
 # facade 返回类型（Pydantic schema），供跨模块导入使用

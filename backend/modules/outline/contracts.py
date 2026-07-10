@@ -62,3 +62,75 @@ class SceneContract:
     pov_character_id: str | None = None
     structure_meta: dict = field(default_factory=dict)
     status: str = "draft"
+
+
+@dataclass
+class SceneSpanContract:
+    id: str
+    novel_id: str
+    scene_id: str
+    chapter_index: int
+    content_mode: str = "canonical"
+    source_draft_id: str | None = None
+    source_content_hash: str | None = None
+    start_offset: int | None = None
+    end_offset: int | None = None
+    start_paragraph: int | None = None
+    end_paragraph: int | None = None
+    part_no: int = 0
+    mapping_status: str = "chapter_only"
+    anchor_hash: str | None = None
+    source: str = "manual"
+    status: str = "draft"
+
+
+@dataclass
+class SceneSummaryCheckpointContract:
+    id: str
+    novel_id: str
+    scene_id: str
+    content_mode: str
+    through_chapter: int
+    through_offset: int | None
+    summary: str
+    source_refs: list[dict] = field(default_factory=list)
+    based_on_hash: str = ""
+    source: str = "derived"
+    status: str = "ready"
+
+
+@dataclass
+class NeighborSceneBriefContract:
+    """A spoiler-safe prior Scene summary for context activation."""
+
+    scene_id: str
+    novel_id: str
+    scene_index: int
+    title: str | None = None
+    goal: str | None = None
+    core_conflict: str | None = None
+    emotional_beat: str | None = None
+    chapter_indices: list[int] = field(default_factory=list)
+    scene_chunks: list[dict] = field(default_factory=list)
+
+
+@dataclass
+class SceneContextWindowContract:
+    """Current Scene plus prior-only metadata exposed at the outline seam."""
+
+    novel_id: str
+    scene: SceneContract
+    scene_spans: list[SceneSpanContract] = field(default_factory=list)
+    previous_briefs: list[NeighborSceneBriefContract] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ReaderRevealDecisionContract:
+    """Reader-visible state for one target at a conservative chapter cursor."""
+
+    target_type: str
+    target_id: str
+    has_policy: bool = False
+    revealed: bool = True
+    reveal_chapter: int | None = None
+    reveal_content: str | None = None

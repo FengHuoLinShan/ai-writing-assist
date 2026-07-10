@@ -76,6 +76,44 @@ describe("createEditor", () => {
     expect(editor.saveStatusText()).toBe("已保存")
   })
 
+  it("published 首次暂存后切换到 copy-on-write 新 draft ID", async () => {
+    state.currentProjectId = "p1"
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [{ id: "published-1", version_number: 1 }],
+    })
+    api.writing.get.mockResolvedValue({
+      id: "published-1",
+      content: "已发布正文",
+      title: "第一章",
+      version_number: 1,
+      status: "published",
+      updated_at: "2026-07-10T00:00:00Z",
+    })
+    api.writing.autosave.mockResolvedValue({
+      id: "working-2",
+      content: "已修改工作稿",
+      title: "第一章",
+      version_number: 2,
+      status: "draft",
+      updated_at: "2026-07-10T00:01:00Z",
+    })
+
+    const editor = createTestEditor()
+    await editor.loadChapter(1)
+    document.body.innerHTML = editor.render()
+    document.getElementById("writing-editor").value = "已修改工作稿"
+
+    await editor.autosave()
+
+    expect(api.writing.autosave).toHaveBeenCalledWith(
+      "published-1",
+      expect.objectContaining({ content: "已修改工作稿" }),
+      "p1",
+    )
+    expect(editor.getDraftId()).toBe("working-2")
+    expect(state._currentDraftId).toBe("working-2")
+  })
+
   it("按 draftId 加载只读版本", async () => {
     state.currentProjectId = "p1"
     api.writing.get.mockResolvedValue({

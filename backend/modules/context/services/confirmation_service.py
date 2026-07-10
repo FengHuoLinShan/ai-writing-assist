@@ -38,6 +38,9 @@ class ContextConfirmationService:
         task: str,
         scope: str,
         chapter_index: int | None = None,
+        visible_until_chapter: int | None = None,
+        visible_until_scene_id: str | None = None,
+        visible_until_offset: int | None = None,
         scene_id: str | None = None,
         arc_id: str | None = None,
         entity_ids: list[str] | None = None,
@@ -48,6 +51,7 @@ class ContextConfirmationService:
         viewpoint_character_id: str | None = None,
         budget_tokens: int = 4000,
         context_mode: str = "canonical",
+        content_mode: str = "canonical",
         include_pending_objects: bool = False,
         excluded_asset_ids: dict[str, list[str]] | None = None,
         user_note: str | None = None,
@@ -57,6 +61,9 @@ class ContextConfirmationService:
             task=task,
             scope=scope,
             chapter_index=chapter_index,
+            visible_until_chapter=visible_until_chapter,
+            visible_until_scene_id=visible_until_scene_id,
+            visible_until_offset=visible_until_offset,
             scene_id=scene_id,
             arc_id=arc_id,
             entity_ids=entity_ids,
@@ -67,6 +74,7 @@ class ContextConfirmationService:
             viewpoint_character_id=viewpoint_character_id,
             budget_tokens=budget_tokens,
             context_mode=context_mode,
+            content_mode=content_mode,
             include_pending_objects=include_pending_objects,
             excluded_asset_ids=excluded_asset_ids or {},
             user_note=user_note,
@@ -267,6 +275,9 @@ class ContextConfirmationService:
             "task": options.task,
             "scope": options.scope,
             "chapter_index": options.chapter_index,
+            "visible_until_chapter": options.visible_until_chapter,
+            "visible_until_scene_id": options.visible_until_scene_id,
+            "visible_until_offset": options.visible_until_offset,
             "scene_id": options.scene_id,
             "arc_id": options.arc_id,
             "entity_ids": options.entity_ids,
@@ -278,6 +289,7 @@ class ContextConfirmationService:
             "budget_tokens": options.budget_tokens,
             "top_k": options.top_k,
             "context_mode": options.context_mode,
+            "content_mode": options.content_mode,
             "include_pending_objects": options.include_pending_objects,
             "excluded_asset_ids": options.excluded_asset_ids,
             "user_note": options.user_note,
@@ -311,9 +323,7 @@ class ContextConfirmationService:
                 }
                 for section in compiled.sections
             ]
-            budget_events = [
-                event.model_dump() for event in compiled.budget_events
-            ]
+            budget_events = [event.model_dump() for event in compiled.budget_events]
         return ContextConfirmationContract(
             id=str(record.id),
             novel_id=str(record.novel_id),

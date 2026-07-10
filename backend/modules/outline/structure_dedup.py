@@ -35,7 +35,6 @@ from modules.outline.schemas import (
     RevealPlanUpdate,
     SceneMergeRequest,
 )
-from modules.rag import facade as rag_facade
 from shared.utils import parse_uuid
 
 logger = logging.getLogger(__name__)
@@ -271,22 +270,34 @@ class OutlineStructureDedupService:
         source: _StructureAsset,
         target: _StructureAsset,
     ) -> list[dict[str, Any]]:
+        from modules.context.contracts import VisibilityContextContract
+        from modules.context.facade import search_novel_evidence
+
         query = f"{source.title} {target.title} {source.summary} {target.summary}"[:500]
         try:
-            bundle = await rag_facade.retrieve(db, novel_id, query, top_k=4)
+            result = await search_novel_evidence(
+                db,
+                novel_id=novel_id,
+                query=query,
+                content_mode="canonical",
+                visibility=VisibilityContextContract(mode="author"),
+                scopes=["manuscript"],
+                top_k=4,
+            )
         except Exception:
             return _asset_summary_evidence(source, target, "rag_error")
-        if not bundle.chunks:
+        hits = list(result.get("hits") or [])
+        if not hits:
             return _asset_summary_evidence(source, target, "no_rag_hit")
         return [
             {
-                "source_type": "rag",
-                "rag_chunk_id": chunk.id,
-                "chapter_index": chunk.chapter_index,
-                "scene_id": chunk.scene_id,
-                "snippet": _clip(chunk.text),
+                "source_type": "manuscript_evidence",
+                "source_ref": hit.get("source_ref"),
+                "chapter_index": hit.get("chapter_index"),
+                "scene_refs": hit.get("scene_refs") or [],
+                "snippet": _clip(str(hit.get("snippet") or "")),
             }
-            for chunk in bundle.chunks[:4]
+            for hit in hits[:4]
         ]
 
     async def _decide(
@@ -594,8 +605,10 @@ def _asset_similarity(left: _StructureAsset, right: _StructureAsset) -> tuple[fl
     right_title = _normalize(right.title)
     if left_title and left_title == right_title:
         return 1.0, "normalized_exact_title"
-    if left_title and right_title and (
-        left_title in right_title or right_title in left_title
+    if (
+        left_title
+        and right_title
+        and (left_title in right_title or right_title in left_title)
     ):
         return 0.9, "substring_title"
     title_score = _char_jaccard(left_title, right_title)

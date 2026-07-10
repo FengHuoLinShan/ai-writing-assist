@@ -20,6 +20,7 @@ async def create_phase2_snapshot(
     memory_context: str,
     accumulated_memory: list[dict],
     workflow_id: str | None = None,
+    activation: dict[str, Any] | None = None,
 ):
     from core.config import get_settings
     from modules.context.contracts import ContextSnapshotRequest
@@ -38,6 +39,7 @@ async def create_phase2_snapshot(
         model=settings.llm_model,
         max_tokens=max_tokens,
         temperature=temperature,
+        activation=activation,
     )
     return await open_context_snapshot(
         db,
@@ -61,6 +63,7 @@ async def create_phase2_snapshot(
         ),
     )
 
+
 async def phase2_audit_summary(
     service,
     db: AsyncSession,
@@ -78,9 +81,7 @@ async def phase2_audit_summary(
         workflow_id=workflow_id,
         limit=200,
     )
-    phase_snapshots = [
-        item for item in snapshots if item.phase == "entity_extraction"
-    ]
+    phase_snapshots = [item for item in snapshots if item.phase == "entity_extraction"]
     failed_scenes = [
         item.scene_index
         for item in phase_snapshots
@@ -94,15 +95,14 @@ async def phase2_audit_summary(
     return {
         "entity_extraction": {
             "snapshot_count": len(phase_snapshots),
-            "succeeded": sum(
-                1 for item in phase_snapshots if item.status == "succeeded"
-            ),
+            "succeeded": sum(1 for item in phase_snapshots if item.status == "succeeded"),
             "failed": sum(1 for item in phase_snapshots if item.status == "failed"),
             "failed_scenes": failed_scenes,
             "retained_rendered_context_count": len(retained_expirations),
             "rendered_context_expires_at": retained_expirations,
         }
     }
+
 
 async def phase2_snapshot_health_summary(
     service,
@@ -121,6 +121,7 @@ async def phase2_snapshot_health_summary(
         workflow_id=workflow_id,
     )
 
+
 async def create_phase2b_snapshot(
     service,
     db: AsyncSession,
@@ -132,11 +133,23 @@ async def create_phase2b_snapshot(
     workflow_id: str | None = None,
 ):
     from core.config import get_settings
+    from core.errors import ValidationError
     from modules.context.contracts import ContextSnapshotRequest
-    from modules.context.facade import open_context_snapshot
+    from modules.context.facade import get_import_scene_source_refs, open_context_snapshot
 
     settings = get_settings()
     rendered_context = f"{entity_index}\n\n{service._scene_context_header(scene)}"
+    source_refs: list[dict] = []
+    source_warning = None
+    try:
+        source_refs = await get_import_scene_source_refs(
+            db,
+            novel_id=str(nid),
+            scene_id=service._scene_id(scene),
+            content_mode="working",
+        )
+    except (ValidationError, ValueError) as exc:
+        source_warning = str(exc)
     return await open_context_snapshot(
         db,
         ContextSnapshotRequest(
@@ -150,16 +163,25 @@ async def create_phase2b_snapshot(
             chapter_index=service._scene_source_chapter_index(scene),
             prompt_name="alias_relation_extraction",
             model=settings.llm_model,
-            compile_options={"source": "deep_import_phase2b_alias_relation"},
+            compile_options={
+                "source": "deep_import_phase2b_alias_relation",
+                "content_mode": "working",
+            },
             included_asset_ids=[],
             context_summary={
                 "scene_index": scene.get("scene_index"),
                 "entity_index_chars": len(entity_index),
                 "text_chars": len(chapters_text),
+                "source_ref_count": len(source_refs),
             },
             section_metadata=[
                 {"name": "entity_index", "chars": len(entity_index)},
-                {"name": "scene_text", "chars": len(chapters_text)},
+                {
+                    "name": "scene_text",
+                    "chars": len(chapters_text),
+                    "source_refs": source_refs,
+                    "source_warning": source_warning,
+                },
             ],
             token_metadata={"estimated_chars": len(rendered_context)},
             rendered_context=rendered_context,

@@ -315,14 +315,14 @@ async def test_entity_fusion_suggests_same_type_summary_overlap(
     project_novel_id: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fail_rag_retrieve(*args, **kwargs):
+    async def fail_evidence_search(*args, **kwargs):
         raise AssertionError(
             "summary_overlap suggestions should use entity summary evidence"
         )
 
     monkeypatch.setattr(
-        "modules.world.entity_fusion.rag_facade.retrieve",
-        fail_rag_retrieve,
+        "modules.context.facade.search_novel_evidence",
+        fail_evidence_search,
     )
 
     shen_lan_id = await _create_entity(

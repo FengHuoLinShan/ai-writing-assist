@@ -10,7 +10,7 @@ import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.outline.models import Scene, SceneChapterLink
+from modules.outline.models import Scene, SceneChapterLink, SceneSpan
 from modules.outline.schemas import SceneCreate, SceneUpdate
 
 
@@ -160,10 +160,14 @@ class TestSceneRepository:
         )
 
         rows = (
-            await db_session.execute(
-                select(SceneChapterLink).where(SceneChapterLink.scene_id == scene.id)
+            (
+                await db_session.execute(
+                    select(SceneChapterLink).where(SceneChapterLink.scene_id == scene.id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert {row.chapter_index for row in rows} == {1, 2}
 
         by_chapter = await repo.get_by_chapter(db_session, nid, 2)
@@ -177,13 +181,117 @@ class TestSceneRepository:
         )
         assert updated is not None
         rows_after = (
-            await db_session.execute(
-                select(SceneChapterLink).where(SceneChapterLink.scene_id == scene.id)
+            (
+                await db_session.execute(
+                    select(SceneChapterLink).where(SceneChapterLink.scene_id == scene.id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert {row.chapter_index for row in rows_after} == {3}
         assert await repo.get_by_chapter_index(db_session, nid, 1) is None
         assert (await repo.get_by_chapter_index(db_session, nid, 3)).id == scene.id
+
+    @pytest.mark.asyncio
+    async def test_scene_spans_sync_from_scene_chunks(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        from modules.outline.repositories import SceneRepository
+
+        repo = SceneRepository()
+        nid = uuid.UUID(hex=sample_novel_id)
+        scene = await repo.create(
+            db_session,
+            nid,
+            SceneCreate(
+                scene_index=0,
+                title="同章多段 Scene",
+                source="deep_import",
+                chapter_ids=["2"],
+                scene_chunks=[
+                    {"chapter_index": 2, "start_pos": 80, "end_pos": 120},
+                    {
+                        "chapter_index": 2,
+                        "start_paragraph": 1,
+                        "end_paragraph": 3,
+                    },
+                    {"chapter_index": 2, "start_offset": 10, "end_offset": 20},
+                ],
+                status="draft",
+            ),
+        )
+
+        spans = await repo.get_scene_spans_by_chapter(db_session, nid, 2)
+
+        assert [span.scene_id for span in spans] == [scene.id, scene.id, scene.id]
+        assert [span.part_no for span in spans] == [0, 1, 2]
+        assert [span.start_offset for span in spans] == [10, 80, None]
+        assert [span.start_paragraph for span in spans] == [None, None, 1]
+        assert {span.source for span in spans} == {"deep_import"}
+        assert {span.status for span in spans} == {"draft"}
+
+    @pytest.mark.asyncio
+    async def test_scene_spans_follow_status_and_clear_mapping(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        from modules.outline.repositories import SceneRepository
+
+        repo = SceneRepository()
+        nid = uuid.UUID(hex=sample_novel_id)
+        keep = await repo.create(
+            db_session,
+            nid,
+            SceneCreate(
+                scene_index=0,
+                chapter_ids=["1"],
+                scene_chunks=[{"chapter_index": 1, "start_pos": 0, "end_pos": 10}],
+                status="draft",
+            ),
+        )
+        clear = await repo.create(
+            db_session,
+            nid,
+            SceneCreate(
+                scene_index=1,
+                chapter_ids=["1"],
+                scene_chunks=[{"chapter_index": 1, "start_pos": 10, "end_pos": 20}],
+                status="draft",
+            ),
+        )
+
+        await repo.update(db_session, keep.id, SceneUpdate(status="deprecated"))
+        active_spans = await repo.get_scene_spans_by_chapter(db_session, nid, 1)
+        assert [span.scene_id for span in active_spans] == [clear.id]
+        deprecated_spans = await repo.get_scene_spans_for_scene(
+            db_session,
+            nid,
+            keep.id,
+            statuses=("deprecated",),
+        )
+        assert [span.status for span in deprecated_spans] == ["deprecated"]
+
+        await repo.deprecate_with_reference(
+            db_session,
+            [clear],
+            reference_field="merged_into_scene_id",
+            reference_scene_id=keep.id,
+            clear_mapping=True,
+        )
+        remaining = (
+            (
+                await db_session.execute(
+                    select(SceneSpan).where(SceneSpan.scene_id == clear.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert remaining == []
 
     @pytest.mark.asyncio
     async def test_chapter_lookup_with_multiple_scenes_has_stable_order(
@@ -291,12 +399,16 @@ class TestSceneRepository:
 
         assert [scene.title for scene in scenes] == ["A", "B"]
         rows = (
-            await db_session.execute(
-                select(SceneChapterLink).where(
-                    SceneChapterLink.scene_id.in_([scene.id for scene in scenes])
+            (
+                await db_session.execute(
+                    select(SceneChapterLink).where(
+                        SceneChapterLink.scene_id.in_([scene.id for scene in scenes])
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert {(row.scene_id, row.chapter_index) for row in rows} == {
             (scenes[0].id, 1),
             (scenes[1].id, 2),
@@ -337,10 +449,14 @@ class TestSceneRepository:
         await db_session.flush()
 
         existing_links = (
-            await db_session.execute(
-                select(SceneChapterLink).where(SceneChapterLink.scene_id == scene.id)
+            (
+                await db_session.execute(
+                    select(SceneChapterLink).where(SceneChapterLink.scene_id == scene.id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert {row.chapter_index for row in existing_links} == {99}
 
         async def fail_sync(*_args, **_kwargs):
@@ -350,10 +466,14 @@ class TestSceneRepository:
 
         assert await repo.backfill_chapter_links(db_session, nid) == 2
         rows = (
-            await db_session.execute(
-                select(SceneChapterLink).where(SceneChapterLink.scene_id == scene.id)
+            (
+                await db_session.execute(
+                    select(SceneChapterLink).where(SceneChapterLink.scene_id == scene.id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert {row.chapter_index for row in rows} == {4, 5}
 
     @pytest.mark.asyncio
@@ -481,12 +601,16 @@ class TestSceneRepository:
         )
 
         assert (
-            await db_session.execute(
-                select(SceneChapterLink).where(
-                    SceneChapterLink.scene_id.in_([first.id, second.id])
+            (
+                await db_session.execute(
+                    select(SceneChapterLink).where(
+                        SceneChapterLink.scene_id.in_([first.id, second.id])
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         count = await repo.deprecate_with_reference(
             db_session,
@@ -509,12 +633,16 @@ class TestSceneRepository:
         assert second.scene_chunks == []
         assert second.structure_meta["merged_into_scene_id"] == str(target.id)
         rows = (
-            await db_session.execute(
-                select(SceneChapterLink).where(
-                    SceneChapterLink.scene_id.in_([first.id, second.id])
+            (
+                await db_session.execute(
+                    select(SceneChapterLink).where(
+                        SceneChapterLink.scene_id.in_([first.id, second.id])
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert rows == []
 
     @pytest.mark.asyncio

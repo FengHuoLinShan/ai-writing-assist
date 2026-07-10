@@ -95,15 +95,12 @@ class TestNovelIdIsolation:
         client, pid_a, pid_b, _ = ctx
 
         # Act
-        try:
-            resp = await client.post(
-                f"/api/rag/retrieve?novel_id={pid_b}",
-                json={
-                    "query": "test",
-                },
-            )
-        except Exception:
-            pytest.skip("预存 DB schema 问题: rag_chunks.meta 列缺失")
+        resp = await client.post(
+            f"/api/rag/retrieve?novel_id={pid_b}",
+            json={
+                "query": "test",
+            },
+        )
 
         # Assert
         assert resp.status_code == 200

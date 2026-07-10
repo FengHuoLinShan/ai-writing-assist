@@ -97,10 +97,13 @@ class TestLoadProjectTerms:
 
         async def _list_entity_terms(*args: Any, **kwargs: Any):
             calls.append("entity_terms")
-            return [{
-                "id": "entity-1",
-                "terms": ["克莱恩", "周明瑞"],
-            }]
+            return [
+                {
+                    "id": "entity-1",
+                    "entity_type": "character",
+                    "terms": ["克莱恩", "周明瑞"],
+                }
+            ]
 
         reset()
         register("world.list_characters", _list_characters)
@@ -113,8 +116,8 @@ class TestLoadProjectTerms:
 
         assert calls == ["entity_terms"]
         assert terms == [
-            {"term": "克莱恩", "id": "entity-1", "type": "entity"},
-            {"term": "周明瑞", "id": "entity-1", "type": "entity"},
+            {"term": "克莱恩", "id": "entity-1", "type": "character"},
+            {"term": "周明瑞", "id": "entity-1", "type": "character"},
         ]
 
     @pytest.mark.asyncio

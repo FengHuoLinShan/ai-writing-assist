@@ -2,14 +2,14 @@
 
 ## 测试分层
 
-- `tests/conftest.py` → SQLite 内存，用于 API 测试和集成测试
-- `tests/e2e/conftest.py` → 真实 PostgreSQL，用于 E2E 测试
+- `backend/conftest.py` → 共享 SQLite schema、每例事务回滚、DI 与 FastAPI override 清理
+- `tests/e2e/conftest.py` → 真实 PostgreSQL，用于显式 E2E 测试；连接或 Alembic head 不满足时失败
 - 两种 conftest 不可混用：SQLite 和 pgvector 的 embedding 列类型不一致
 
 ## E2E 约定
 
-- 不 mock LLM；真实 LLM 调用集中在 `test_extraction_real_file.py`
-- 每个测试独立连接 + 事务回滚（见 `e2e/conftest.py` 的 `db_session` fixture）
+- `make test-e2e` 只运行确定性 PostgreSQL 行为；真实模型与真实语料必须使用 `make test-manual`
+- 每个测试独立连接 + savepoint/外层事务回滚（见 `e2e/conftest.py` 的 `db_session` fixture）
 - `seed_data.py` 使用旧 characters schema（`id`+`world_entity_id`），新增测试直接适配 `entity_id` 即可
 
 ## 模块级禁止事项

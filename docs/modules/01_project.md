@@ -60,6 +60,12 @@ GET    /api/projects/recycle-bin               # 回收站列表
 GET    /api/projects/llm/provider-templates     # LLM 供应商模板
 GET    /api/projects/{id}/llm-settings          # 项目级 LLM 配置（不回显 API Key）
 PUT    /api/projects/{id}/llm-settings          # 更新项目级 LLM 配置
+POST   /api/projects/{id}/smart-dedup/scan      # 提交跨模块去重建议扫描
+POST   /api/projects/{id}/smart-dedup/apply     # 应用已确认的去重建议
 POST   /api/projects/{id}/restore              # 恢复项目
 DELETE /api/projects/{id}/permanent            # 永久删除（级联）
 ```
+
+项目级智能去重只聚合各资产模块的建议并写入任务结果；实体或结构资产的判断、确认和
+实际写入仍由 world / outline 拥有。应用接口必须显式确认，不能用项目 API 绕过候选与
+正史边界。

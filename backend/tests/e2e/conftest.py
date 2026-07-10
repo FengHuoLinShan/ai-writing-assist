@@ -9,12 +9,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     create_async_engine,
@@ -22,74 +26,76 @@ from sqlalchemy.ext.asyncio import (
 
 logging.basicConfig(level=logging.WARNING)
 
-# 真实 PG 数据库 — 与 Docker Compose / .env 配置一致
-DATABASE_URL = (
-    "postgresql+asyncpg://novelist:novel_dev_pass@localhost:5207/ai_novel_engine"
+# 真实 PG 数据库 — 默认值与 Docker Compose 开发环境一致。
+DATABASE_URL = os.getenv(
+    "E2E_DATABASE_URL",
+    "postgresql+asyncpg://novelist:novel_dev_pass@localhost:5207/ai_novel_engine",
 )
-# asyncpg 原生连接检查使用 postgresql:// 协议头
-_PG_CHECK_URL = "postgresql://novelist:novel_dev_pass@localhost:5207/ai_novel_engine"
+_BACKEND_DIR = Path(__file__).resolve().parents[2]
+
+
+class XhrAsyncClient(AsyncClient):
+    """Mirror the frontend's required marker on state-changing requests."""
+
+    async def request(self, method, url, **kwargs):  # noqa: ANN001, ANN201
+        if method.upper() not in {"GET", "HEAD", "OPTIONS"}:
+            headers = dict(kwargs.pop("headers", {}) or {})
+            headers.setdefault("X-Requested-With", "XMLHttpRequest")
+            kwargs["headers"] = headers
+        return await super().request(method, url, **kwargs)
 
 
 # ============================================================
-# 环境可用性检查：无 PostgreSQL 时跳过全部 E2E 测试
+# 显式 E2E 前置条件：数据库与迁移必须可用，不能以 skip 伪装通过
 # ============================================================
 
 
-def _pg_available() -> bool:
-    try:
-        import asyncpg
-
-        async def _check() -> bool:
-            try:
-                conn = await asyncpg.connect(_PG_CHECK_URL, timeout=3, command_timeout=3)
-                await conn.close()
-                return True
-            except Exception:
-                return False
-
-        return asyncio.run(_check())
-    except Exception:
-        return False
-
-
-_PG_IS_AVAILABLE: bool = _pg_available()
 _E2E_DIR = Path(__file__).resolve().parent
 
 
-def pytest_collection_modifyitems(config, items):
-    """如果 PostgreSQL 不可用，只跳过 backend/tests/e2e 下的测试。"""
-    if not _PG_IS_AVAILABLE:
-        skip_marker = pytest.mark.skip(
-            reason="PostgreSQL 不可用（需要 Docker 运行 postgresql+pgvector）"
-        )
-        for item in items:
-            item_path = Path(str(item.fspath)).resolve()
-            if item_path.is_relative_to(_E2E_DIR):
-                item.add_marker(skip_marker)
-
-
-# ============================================================
-# 预启动 BGE Embedding Worker（避免 pytest 中 multiprocessing 初始化问题）
-# ============================================================
-
-
-def pytest_sessionstart(session):
-    """在测试会话开始前预启动 BGE embedding worker。"""
-    if not _PG_IS_AVAILABLE:
-        return
+async def _validate_e2e_database() -> None:
+    engine = create_async_engine(DATABASE_URL, echo=False, pool_size=1, max_overflow=0)
     try:
-        from infrastructure.embedding.client import BgeEmbeddingClient
-
-        async def _init():
-            client = await BgeEmbeddingClient.get_instance()
-            if client.healthy:
-                print("[BGE] Worker pre-started successfully")
-            else:
-                print("[BGE] Worker pre-start returned but not healthy")
-
-        asyncio.run(_init())
+        async with engine.connect() as connection:
+            migration_config = Config(str(_BACKEND_DIR / "alembic.ini"))
+            migration_script = ScriptDirectory.from_config(migration_config)
+            expected_heads = set(migration_script.get_heads())
+            statement = text("SELECT version_num FROM alembic_version")
+            current_heads = set((await connection.execute(statement)).scalars())
     except Exception as exc:
-        print(f"[BGE] Worker pre-start failed (will retry per-test): {exc}")
+        raise RuntimeError(
+            "PostgreSQL E2E 前置条件不满足：请启动测试数据库并执行 "
+            "`make db && make migrate`，或设置 E2E_DATABASE_URL。"
+        ) from exc
+    finally:
+        await engine.dispose()
+
+    if current_heads != expected_heads:
+        raise RuntimeError(
+            "PostgreSQL E2E schema 不是当前 Alembic head："
+            f"数据库={sorted(current_heads) or ['<none>']}，"
+            f"期望={sorted(expected_heads)}。请先执行 `make migrate`。"
+        )
+
+
+def pytest_configure(config) -> None:  # noqa: ANN001
+    if os.getenv("RUN_E2E_TESTS") != "1":
+        pytest.exit(
+            "E2E 测试必须显式运行：使用 `make test-e2e`；"
+            "真实模型验收使用 `make test-manual`。"
+        )
+    try:
+        asyncio.run(_validate_e2e_database())
+    except RuntimeError as exc:
+        pytest.exit(str(exc))
+
+
+def pytest_collection_modifyitems(config, items) -> None:  # noqa: ANN001
+    """Keep directory-level E2E classification correct for newly added files."""
+    for item in items:
+        item_path = Path(str(item.fspath)).resolve()
+        if item_path.is_relative_to(_E2E_DIR):
+            item.add_marker(pytest.mark.e2e)
 
 
 # ============================================================
@@ -106,9 +112,17 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
     conn = await engine.connect()
     try:
         await conn.begin()
-        session = AsyncSession(bind=conn, expire_on_commit=False)
-        yield session
-        await conn.rollback()
+        session = AsyncSession(
+            bind=conn,
+            expire_on_commit=False,
+            join_transaction_mode="create_savepoint",
+        )
+        try:
+            yield session
+        finally:
+            await session.close()
+            if conn.in_transaction():
+                await conn.rollback()
     finally:
         await conn.close()
         await engine.dispose()
@@ -132,9 +146,12 @@ async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, 
         yield db_session
 
     app.dependency_overrides[get_db] = _override_get_db
-
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        yield client
-
-    app.dependency_overrides.clear()
+    try:
+        async with XhrAsyncClient(
+            transport=transport,
+            base_url="http://test",
+        ) as client:
+            yield client
+    finally:
+        app.dependency_overrides.clear()

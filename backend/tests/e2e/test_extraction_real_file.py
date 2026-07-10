@@ -9,7 +9,9 @@ RAG 索引已绕过（DirectDraftProvider），节省 embedding API 费用。
 
 from __future__ import annotations
 
+import os
 import uuid
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
@@ -21,10 +23,23 @@ from modules.world.services.core.extraction_service import EntityExtractionServi
 from modules.writing.facade import get_latest_draft_for_chapter
 from shared.protocols import DraftProvider
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
+pytestmark = [pytest.mark.asyncio, pytest.mark.e2e, pytest.mark.external_data]
 
-REAL_FILE_PATH = "/Users/tywww/Desktop/项目/wirting skill/诡秘之主_第一部 小丑.txt"
 FIRST_10 = 10
+real_llm_required = pytest.mark.skipif(
+    os.getenv("RUN_REAL_LLM_TESTS") != "1",
+    reason="真实 LLM E2E 验收默认跳过；设置 RUN_REAL_LLM_TESTS=1 才运行",
+)
+
+
+def _source_file_bytes() -> bytes:
+    raw_path = os.getenv("REAL_SOURCE_PATH")
+    if not raw_path:
+        pytest.fail("真实语料 E2E 需要 REAL_SOURCE_PATH；默认测试使用仓库内的合成语料。")
+    source_path = Path(raw_path).expanduser()
+    if not source_path.is_file():
+        pytest.fail(f"REAL_SOURCE_PATH 不存在或不是文件：{source_path}")
+    return source_path.read_bytes()
 
 
 # ============================================================
@@ -86,7 +101,7 @@ class TestImportFirst10Chapters:
         assert proj_resp.status_code == 201, f"创建项目失败: {proj_resp.text}"
         project_id = proj_resp.json()["id"]
 
-        file_bytes = open(REAL_FILE_PATH, "rb").read()
+        file_bytes = _source_file_bytes()
         all_chapters = parse_txt(file_bytes)
         first_10 = all_chapters[:FIRST_10]
 
@@ -152,6 +167,8 @@ class TestImportFirst10Chapters:
 # ============================================================
 
 
+@pytest.mark.real_llm
+@real_llm_required
 class TestRealEntityExtraction:
     """用真实 DeepSeek LLM 从前10章抽取世界对象候选"""
 
@@ -173,7 +190,7 @@ class TestRealEntityExtraction:
         assert proj_resp.status_code == 201
         project_id = proj_resp.json()["id"]
 
-        file_bytes = open(REAL_FILE_PATH, "rb").read()
+        file_bytes = _source_file_bytes()
         all_chapters = parse_txt(file_bytes)
 
         from modules.writing.facade import create_draft
@@ -351,7 +368,7 @@ class TestRealFileRagContextPipeline:
         assert proj_resp.status_code == 201, f"创建项目失败: {proj_resp.text}"
         project_id = proj_resp.json()["id"]
 
-        file_bytes = open(REAL_FILE_PATH, "rb").read()
+        file_bytes = _source_file_bytes()
         all_chapters = parse_txt(file_bytes)
         first_3 = all_chapters[:3]
 
@@ -417,7 +434,7 @@ class TestRealFileRagContextPipeline:
     async def test_rag_writing_draft_provider_loads_chunks_with_content(
         self, ctx: dict, db_session: AsyncSession
     ):
-        """WritingDraftProvider 能从 RAG chunks 加载章节正文"""
+        """WritingDraftProvider 建索引后仍从 writing 加载权威正文。"""
         # Arrange
         from modules.world.services.core.draft_provider import WritingDraftProvider
 
@@ -436,7 +453,8 @@ class TestRealFileRagContextPipeline:
         for ch in chapters:
             assert "chapter_index" in ch
             assert "content" in ch
-            assert "[RAG chunk" in ch["content"] or len(ch["content"]) > 500
+            assert "[RAG chunk" not in ch["content"]
+            assert ch["content"]
 
     async def test_context_compile_world_scope_returns_project_bundle(
         self, ctx: dict, db_session: AsyncSession
@@ -558,7 +576,7 @@ class TestRealWorkflowStep1:
         )
         project_id = proj_resp.json()["id"]
 
-        file_bytes = open(REAL_FILE_PATH, "rb").read()
+        file_bytes = _source_file_bytes()
         all_chapters = parse_txt(file_bytes)
         from modules.writing.facade import create_draft
 

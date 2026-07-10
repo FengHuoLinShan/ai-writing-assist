@@ -3,7 +3,7 @@
 ## 顶层文档
 
 1. [`00_整体设计.md`](00_整体设计.md) — 项目定位、核心原则、三层架构、模块职责
-2. [`01_数据库设计.md`](01_数据库设计.md) — 所有表的实际 SQL 定义与要点说明
+2. [`01_数据库设计.md`](01_数据库设计.md) — 当前数据库表、关系、约束与 schema 权威来源说明
 3. [`AI开发规则.md`](AI开发规则.md) — 历史设计说明；Agent 运行时以根目录 `AGENTS.md` 为准
 4. [`核心业务场景与预期行为.md`](核心业务场景与预期行为.md) — 用户可感知业务流程
 
@@ -16,19 +16,31 @@
 - 测试要求与 Review 分级写入根目录 `testing-guide.md`
 - 模块专属约束写入模块 README 或模块级 `CLAUDE.md`
 
+## 权威性与历史分类
+
+- 当前架构和数据库设计以 `docs/00_整体设计.md`、`docs/01_数据库设计.md`、活跃模块
+  README、ORM `models.py` 与 Alembic migration 共同为准；发生冲突时，当前代码和迁移优先。
+- [`superpowers/README.md`](superpowers/README.md) 说明历史交付计划、设计快照、报告和验收
+  记录的分类。`superpowers/plans/` 中的旧计划不是当前需求或架构契约，维护时只更新分类，
+  不回写历史计划正文。
+- `audit/`、`待更新清单.md` 和已完成验收报告是时间点记录，不作为当前状态判断依据。
+- [`architecture/README.md`](architecture/README.md) 分类架构图：只有模块架构图维护当前
+  模块清单；`diagrams/` 下的旧图仅作历史视觉参考。
+
 ## 子模块文档
 
 1. `modules/01_project.md` — 小说项目模块
 2. `modules/02_world.md` — 世界对象模块
 3. `modules/05_memory.md` — 长期记忆模块
 4. `modules/07_outline.md` — 结构化剧情模块
-5. `modules/08_rag.md` — 检索增强模块
+5. `modules/08_rag.md` — canonical/working 派生索引与候选召回
 6. `modules/09_context.md` — 上下文编译模块
 7. `modules/11_writing.md` — 正文草稿承载模块
 8. `modules/13_imports.md` — 小说导入模块
 9. `modules/12_infrastructure.md` — 基础设施模块（LLM + PostgreSQL 任务队列）
 10. `modules/14_frontend.md` — 前端控制台
 11. `modules/15_map.md` — 动态地图子系统（world 模块子系统）
+12. `modules/16_settings.md` — 设置模块（全局 LLM 默认、作者偏好与项目覆盖）
 
 已移除的旧模块：`geo` / `character` / `timeline` / `review`。地点、人物、事件能力已并入 `world`，结构复查模块暂缓。
 
@@ -62,9 +74,9 @@
 
 ## 当前状态
 
-当前代码注册 8 个业务模块：`project` / `imports` / `world` / `memory` / `outline` / `rag` / `context` / `writing`。
+当前代码注册 9 个业务模块：`project` / `imports` / `world` / `memory` / `outline` / `rag` / `context` / `writing` / `settings`。
 
 - `infrastructure/tasks` 提供 PostgreSQL 异步任务队列
 - 动态地图是 `world` 的子系统，API 前缀为 `/api/world/maps`
-- 前端一级入口为 `project / writing / world / map / rag / outline / generate / context`
+- 前端注册视图为 `project / world / rag / outline / scene / writing / map / generate / llm / settings / project-settings`；主导航不显示兼容 `llm` 路由
 - `world/map` 旧入口只做兼容跳转

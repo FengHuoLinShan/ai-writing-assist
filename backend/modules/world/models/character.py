@@ -8,6 +8,7 @@ from .common import (
     JSON,
     PG_UUID,
     Base,
+    Boolean,
     ForeignKey,
     Integer,
     Mapped,
@@ -198,6 +199,12 @@ class CharacterKnowledge(Base, UUIDMixin, TimestampMixin, StatusMixin):
         Integer,
         nullable=True,
         comment="信息来源章节",
+    )
+    is_public_baseline: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="无来源章节时，是否为明确公开的初始知识",
     )
     source_memory_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),

@@ -93,6 +93,61 @@ class SceneEntityPersistenceGateway:
     def __init__(self, service: SceneEntityExtractionRuntime) -> None:
         self.service = service
 
+    async def _record_quote_evidence(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        target_ref: dict,
+        quote: str | None,
+        scene_id: str | None,
+        workflow_id: str | None,
+        evidence_type: str = "supports",
+        visible_until_chapter: int | None = None,
+    ) -> None:
+        from modules.context.facade import (
+            locate_scene_quote,
+            record_evidence_link,
+            record_unresolved_evidence_link,
+        )
+
+        provenance = {
+            "source": "deep_import",
+            "workflow_id": workflow_id,
+            "scene_id": scene_id,
+            "quote": quote,
+        }
+        source_ref = None
+        reason = "missing_scene_id"
+        if scene_id:
+            source_ref, reason = await locate_scene_quote(
+                db,
+                novel_id=novel_id,
+                scene_id=scene_id,
+                quote=quote or "",
+                content_mode="working",
+                visible_until_chapter=visible_until_chapter,
+            )
+        if source_ref is not None:
+            await record_evidence_link(
+                db,
+                novel_id=novel_id,
+                target_ref=target_ref,
+                source_ref=source_ref,
+                claim_path=target_ref.get("target_path", ""),
+                evidence_type=evidence_type,
+                provenance=provenance,
+            )
+            return
+        await record_unresolved_evidence_link(
+            db,
+            novel_id=novel_id,
+            target_ref=target_ref,
+            claim_path=target_ref.get("target_path", ""),
+            evidence_type=evidence_type,
+            provenance={**provenance, "review_reason": reason},
+        )
+
     async def persist_alias_relation_output(
         self,
         db: AsyncSession,
@@ -126,18 +181,32 @@ class SceneEntityPersistenceGateway:
             entity_id = entity_ids.get(alias.entity_name)
             if not entity_id:
                 continue
-            added = await append_candidate_alias(
-                db,
-                novel_id,
-                entity_id,
-                alias=alias.alias,
-                alias_type=alias.alias_type,
-                workflow_id=workflow_id,
-                scene_id=scene_id,
-                scene_index=scene_index,
-                confidence=alias.confidence,
-                quote=alias.quote,
-            )
+            async with db.begin_nested():
+                added = await append_candidate_alias(
+                    db,
+                    novel_id,
+                    entity_id,
+                    alias=alias.alias,
+                    alias_type=alias.alias_type,
+                    workflow_id=workflow_id,
+                    scene_id=scene_id,
+                    scene_index=scene_index,
+                    confidence=alias.confidence,
+                    quote=alias.quote,
+                )
+                if added:
+                    await self._record_quote_evidence(
+                        db,
+                        novel_id=novel_id,
+                        target_ref={
+                            "target_type": "core_entity",
+                            "target_id": entity_id,
+                            "target_path": "aliases",
+                        },
+                        quote=alias.quote,
+                        scene_id=scene_id,
+                        workflow_id=workflow_id,
+                    )
             if added:
                 aliases_created += 1
                 if result_refs is not None:
@@ -154,19 +223,35 @@ class SceneEntityPersistenceGateway:
             if not source_id or not target_id:
                 continue
             try:
-                relation_result = await create_or_merge_relation(
-                    db,
-                    novel_id,
-                    {
-                        "source_id": source_id,
-                        "target_id": target_id,
-                        "relation_type": rel.relation_type,
-                        "description": rel.description,
-                        "quote": rel.quote,
-                        "strength": rel.strength,
-                        "status": "candidate",
-                    },
-                )
+                async with db.begin_nested():
+                    relation_result = await create_or_merge_relation(
+                        db,
+                        novel_id,
+                        {
+                            "source_id": source_id,
+                            "target_id": target_id,
+                            "relation_type": rel.relation_type,
+                            "description": rel.description,
+                            "quote": rel.quote,
+                            "strength": rel.strength,
+                            "status": "candidate",
+                        },
+                    )
+                    relation = relation_result.get("relation")
+                    relation_id = getattr(relation, "id", None)
+                    if relation_id:
+                        await self._record_quote_evidence(
+                            db,
+                            novel_id=novel_id,
+                            target_ref={
+                                "target_type": "entity_relation",
+                                "target_id": str(relation_id),
+                                "target_path": "description",
+                            },
+                            quote=rel.quote,
+                            scene_id=scene_id,
+                            workflow_id=workflow_id,
+                        )
             except Exception as exc:
                 logger.warning(
                     "Failed to create phase2b relation %s -> %s: %s",
@@ -177,8 +262,6 @@ class SceneEntityPersistenceGateway:
                 continue
             if relation_result.get("action") == "created":
                 relations_created += 1
-            relation = relation_result.get("relation")
-            relation_id = getattr(relation, "id", None)
             if result_refs is not None and relation_id:
                 result_refs.append(build_result_ref("entity_relation", relation_id))
 
@@ -327,7 +410,28 @@ class SceneEntityPersistenceGateway:
                             created_entity["id"],
                             high_confidence_target_id,
                         )
-                auto_merged = action == "create_new" and bool(high_confidence_target_id)
+                    auto_merged = action == "create_new" and bool(
+                        high_confidence_target_id
+                    )
+                    evidence_target_id = (
+                        high_confidence_target_id
+                        if auto_merged
+                        else created_entity.get("id")
+                    )
+                    if evidence_target_id:
+                        await self._record_quote_evidence(
+                            db,
+                            novel_id=str(nid),
+                            target_ref={
+                                "target_type": "core_entity",
+                                "target_id": str(evidence_target_id),
+                                "target_path": "summary",
+                            },
+                            quote=ent.quote,
+                            scene_id=scene_id,
+                            workflow_id=workflow_id,
+                            visible_until_chapter=source_chapter_index,
+                        )
                 if not auto_merged:
                     created += 1
                 seen_entity_keys.add(entity_key)
@@ -361,7 +465,9 @@ class SceneEntityPersistenceGateway:
         nid,
         relations: list[ExtractedRelation],
         scene_index: int,
+        source_chapter_index: int | None = None,
         workflow_id: str | None = None,
+        scene_id: str | None = None,
         context_snapshot_id: str | None = None,
         result_refs: list[dict[str, str]] | None = None,
         persistence_stats: dict[str, Any] | None = None,
@@ -392,25 +498,40 @@ class SceneEntityPersistenceGateway:
                 )
                 continue
             try:
-                relation_result = await create_or_merge_relation(
-                    db,
-                    str(nid),
-                    {
-                        "source_id": source_id,
-                        "target_id": target_id,
-                        "relation_type": rel.relation_type,
-                        "description": rel.description,
-                        "quote": rel.quote,
-                        "strength": rel.strength,
-                        "status": "candidate",
-                    },
-                )
+                async with db.begin_nested():
+                    relation_result = await create_or_merge_relation(
+                        db,
+                        str(nid),
+                        {
+                            "source_id": source_id,
+                            "target_id": target_id,
+                            "relation_type": rel.relation_type,
+                            "description": rel.description,
+                            "quote": rel.quote,
+                            "strength": rel.strength,
+                            "status": "candidate",
+                        },
+                    )
+                    relation = relation_result.get("relation")
+                    relation_id = getattr(relation, "id", None)
+                    if relation_id:
+                        await self._record_quote_evidence(
+                            db,
+                            novel_id=str(nid),
+                            target_ref={
+                                "target_type": "entity_relation",
+                                "target_id": str(relation_id),
+                                "target_path": "description",
+                            },
+                            quote=rel.quote,
+                            scene_id=scene_id,
+                            workflow_id=workflow_id,
+                            visible_until_chapter=source_chapter_index,
+                        )
                 if relation_result.get("action") == "created":
                     created += 1
                 elif persistence_stats is not None:
                     persistence_stats["dedup_counts"]["relation_merged"] += 1
-                relation = relation_result.get("relation")
-                relation_id = getattr(relation, "id", None)
                 if result_refs is not None and relation_id:
                     result_refs.append(build_result_ref("entity_relation", relation_id))
             except Exception as exc:
@@ -501,7 +622,7 @@ class SceneEntityPersistenceGateway:
                 )
                 if result_refs is not None:
                     result_refs.append(
-                    build_result_ref("map_observation", observation["id"])
+                        build_result_ref("map_observation", observation["id"])
                     )
             except Exception as exc:
                 logger.warning(

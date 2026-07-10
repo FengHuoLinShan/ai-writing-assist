@@ -116,6 +116,8 @@ class RetrievalOrchestrator:
         scene_id: str | None = None,
         strict_scene_filter: bool = False,
         visibility: str | None = None,
+        visible_until_chapter: int | None = None,
+        content_mode: str = "canonical",
         mode: str = "search",
         top_k: int = 12,
         reference_chapter_index: int | None = None,
@@ -156,6 +158,8 @@ class RetrievalOrchestrator:
             scene_id=scene_id,
             strict_scene_filter=strict_scene_filter,
             visibility=visibility,
+            visible_until_chapter=visible_until_chapter,
+            content_mode=content_mode,
             limit=top_k * 2,
         )
 
@@ -174,6 +178,8 @@ class RetrievalOrchestrator:
                 scene_id=scene_id,
                 strict_scene_filter=strict_scene_filter,
                 visibility=visibility,
+                visible_until_chapter=visible_until_chapter,
+                content_mode=content_mode,
                 top_k=top_k * 2,
             )
             candidate_chunks.extend(chunk for chunk, _score in vector_chunks)
@@ -197,6 +203,8 @@ class RetrievalOrchestrator:
                 scene_id=scene_id,
                 strict_scene_filter=strict_scene_filter,
                 visibility=visibility,
+                visible_until_chapter=visible_until_chapter,
+                content_mode=content_mode,
                 limit=top_k * 2,
             )
             candidate_chunks.extend(metadata_chunks)
@@ -398,6 +406,8 @@ class RetrievalOrchestrator:
         scene_id: str | None = None,
         strict_scene_filter: bool = False,
         visibility: str | None = None,
+        visible_until_chapter: int | None = None,
+        content_mode: str = "canonical",
         mode: str = "search",
         top_k: int = 12,
         reference_chapter_index: int | None = None,
@@ -457,6 +467,8 @@ class RetrievalOrchestrator:
             scene_id=scene_id,
             strict_scene_filter=strict_scene_filter,
             visibility=visibility,
+            visible_until_chapter=visible_until_chapter,
+            content_mode=content_mode,
             mode=mode,
             top_k=top_k,
             reference_chapter_index=reference_chapter_index,

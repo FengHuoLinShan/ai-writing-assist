@@ -22,9 +22,21 @@ class CompileOptions:
     task: str
     scope: str
     chapter_index: int | None = None
+    visible_until_chapter: int | None = None
+    """RAG 读者进度上界；None 表示不启用未来章节硬过滤"""
+    visible_until_scene_id: str | None = None
+    """可选的同章 Scene 可见截止点"""
+    visible_until_offset: int | None = None
+    """可选的同章字符可见截止点"""
     scene_id: str | None = None
     """当前 Scene ID（scene-centric 编译时提供）"""
     arc_id: str | None = None
+    map_id: str | None = None
+    """当前地图焦点（world context activation 使用）"""
+    focus_entity_id: str | None = None
+    """显式关注的世界对象（world context activation 使用）"""
+    prior_neighbor_limit: int = 2
+    """导入 Scene-local 上下文的前序邻居数，最大 4"""
     entity_ids: list[str] | None = None
     character_ids: list[str] | None = None
     location_ids: list[str] | None = None
@@ -40,6 +52,8 @@ class CompileOptions:
     """RAG 检索上限"""
     context_mode: str = "canonical"
     """上下文模式：canonical / working"""
+    content_mode: str = "canonical"
+    """正文来源视图：canonical / working"""
     include_pending_objects: bool = False
     """是否包含待确认对象"""
     excluded_asset_ids: dict[str, list[str]] = field(default_factory=dict)
@@ -144,6 +158,77 @@ class ContextSnapshotRequest:
     excluded_asset_ids: dict | list | None = None
     rendered_context: str | None = None
     retain_rendered_context: bool = False
+
+
+@dataclass(frozen=True)
+class ImportContextActivationContract:
+    """Frozen, read-only preflight material for one deep-import Scene call."""
+
+    novel_id: str
+    scene_id: str
+    scene_index: int
+    chapter_index: int | None
+    activation_version: str
+    current_scene_text: str
+    current_scene_sources: list[dict]
+    previous_briefs: list[dict]
+    previous_evidence: list[dict]
+    world_entries: list[dict]
+    world_context_text: str
+    neighbor_context_text: str
+    sources: list[dict]
+    budget_events: list[dict]
+    warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class VisibilityContextContract:
+    mode: str = "author"
+    cutoff_chapter: int | None = None
+    cutoff_scene_id: str | None = None
+    cutoff_offset: int | None = None
+    character_id: str | None = None
+
+
+@dataclass(frozen=True)
+class EvidenceHitContract:
+    kind: str
+    title: str
+    snippet: str
+    source_ref: dict | None = None
+    target_ref: dict | None = None
+    chapter_index: int | None = None
+    score: float | None = None
+    scene_refs: list[dict] = field(default_factory=list)
+    object_refs: list[dict] = field(default_factory=list)
+    index_fresh: bool = True
+    visibility_decision: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class EvidenceReadContract:
+    source_ref: dict
+    title: str | None
+    text: str
+    highlight_start: int
+    highlight_end: int
+    scene_refs: list[dict] = field(default_factory=list)
+    object_refs: list[dict] = field(default_factory=list)
+    index_fresh: bool = True
+    visibility_decision: dict = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
+    degraded: bool = False
+
+
+@dataclass(frozen=True)
+class EvidenceTraceContract:
+    target_ref: dict
+    claim_path: str
+    links: list[dict] = field(default_factory=list)
+    index_fresh: bool = True
+    warnings: list[str] = field(default_factory=list)
+    visibility_decision: dict = field(default_factory=dict)
+    degraded: bool = False
 
 
 @dataclass
