@@ -5,7 +5,7 @@
  * 避免每个测试文件重复 setup。
  */
 
-import { vi } from "vitest"
+import { beforeEach, vi } from "vitest"
 
 // ============================================================
 // 模拟状态系统 (state.js Proxy)
@@ -54,8 +54,12 @@ globalThis.esc = (str) => {
 
 globalThis.toast = vi.fn()
 globalThis.showModal = vi.fn()
-globalThis.showModalHtml = vi.fn((title, htmlString, buttons) => {
-  globalThis.showModal(title, { html: htmlString }, buttons)
+globalThis.showModalHtml = vi.fn((title, htmlString, buttons, options) => {
+  if (options === undefined) {
+    globalThis.showModal(title, { html: htmlString }, buttons)
+    return
+  }
+  globalThis.showModal(title, { html: htmlString }, buttons, options)
 })
 globalThis.confirmAction = vi.fn()
 globalThis.closeModal = vi.fn()
@@ -67,6 +71,7 @@ globalThis.updateRightPanelForView = vi.fn()
 // 模拟 Router (router.js)
 // ============================================================
 const _lastSubViewMap = {}
+let _currentQuery = new URLSearchParams()
 
 globalThis.router = {
   _lastSubViewMap,
@@ -74,15 +79,25 @@ globalThis.router = {
     return _lastSubViewMap[viewName] || null
   },
   initRouter: vi.fn(),
-  navigate: vi.fn((viewName) => {
+  navigate: vi.fn((viewName, subView = null, _pushHistory = true, query = null) => {
     state.currentView = viewName
+    state.currentSubView = subView
+    _currentQuery = query && typeof query.toString === "function"
+      ? new URLSearchParams(query.toString())
+      : new URLSearchParams()
   }),
   refresh: vi.fn(),
   registerView: vi.fn(),
   getCurrentView: vi.fn(() => state.currentView),
+  getCurrentQuery: vi.fn(() => _currentQuery),
   onNavigate: vi.fn(),
   renderCurrentView: vi.fn(),
 }
+
+beforeEach(() => {
+  _currentQuery = new URLSearchParams()
+  for (const key of Object.keys(_lastSubViewMap)) delete _lastSubViewMap[key]
+})
 
 // ============================================================
 // 模拟 API (api.js)
@@ -210,6 +225,7 @@ globalThis.api = {
     editAlias: vi.fn(),
     deleteAlias: vi.fn(),
     mergeEntity: vi.fn(),
+    applyEntityFusionSuggestions: vi.fn(),
     resolveEntityAsAlias: vi.fn(),
     rollbackEntity: vi.fn(),
     listKnowledge: vi.fn(),

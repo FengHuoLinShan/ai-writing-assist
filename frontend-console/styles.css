@@ -2543,6 +2543,15 @@ html, body {
   transition: transform 0.2s var(--ease-out);
 }
 
+#modal-content.modal-content--large {
+  width: min(920px, 94vw);
+}
+
+#modal-content.modal-content--full {
+  width: 96vw;
+  max-height: 92vh;
+}
+
 #modal-overlay:not(.hidden) #modal-content,
 #help-overlay:not(.hidden) #help-modal {
   transform: scale(1);
@@ -6373,6 +6382,90 @@ kbd {
   margin: 0;
 }
 
+.novel-search-panel {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.novel-search-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.novel-search-filters label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.novel-search-scopes,
+.rag-result-actions,
+.novel-evidence-links {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.novel-evidence-drawer {
+  position: fixed;
+  z-index: 80;
+  top: 72px;
+  right: 24px;
+  bottom: 24px;
+  width: min(560px, calc(100vw - 48px));
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 22%);
+}
+
+.novel-evidence-drawer__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.novel-evidence-source-meta {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.novel-evidence-text,
+.novel-evidence-object {
+  margin: 16px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-reading, var(--font-ui));
+  line-height: 1.85;
+}
+
+.novel-evidence-trace {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.rag-result-text mark,
+.novel-evidence-text mark {
+  padding: 0 2px;
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  color: inherit;
+}
+
+@media (max-width: 720px) {
+  .novel-evidence-drawer {
+    inset: 64px 10px 10px;
+    width: auto;
+  }
+}
+
 
 /* ===== world + map 视图统一组件 ===== */
 
@@ -6521,7 +6614,6 @@ kbd {
 .world-batch-group__details {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  overflow: hidden;
 }
 
 .world-batch-group__summary {
@@ -6534,6 +6626,40 @@ kbd {
 
 .world-batch-group__star {
   color: var(--accent);
+}
+
+.world-batch-time {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.world-batch-fresh-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--success);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 35%, transparent);
+  animation: world-batch-fresh-pulse 1.8s ease-out infinite;
+}
+
+@keyframes world-batch-fresh-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 35%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.world-fusion-suggestion-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
 /* 世界书 */
@@ -6609,6 +6735,93 @@ kbd {
   grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
 }
 
+.bible-ai-sidebar {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  display: grid;
+  gap: var(--space-3);
+  background: var(--bg-panel);
+}
+
+.bible-ai-sidebar__title {
+  font-weight: 600;
+}
+
+.bible-ai-sidebar__hint,
+.bible-ai-empty,
+.bible-ai-result {
+  color: var(--text-dim);
+  font-size: var(--text-xs);
+}
+
+.bible-ai-chip-row,
+.bible-ai-actions,
+.world-bible-suggestion-refs {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.bible-ai-field {
+  display: grid;
+  gap: var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.bible-ai-toggle {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.bible-ai-messages {
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  display: grid;
+  gap: var(--space-2);
+}
+
+.bible-ai-message {
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+}
+
+.bible-ai-message--assistant,
+.bible-ai-reply {
+  color: var(--text);
+}
+
+.bible-ai-message--user {
+  color: var(--text-dim);
+}
+
+.bible-ai-result-error {
+  color: var(--danger);
+}
+
+.bible-ai-result-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.bible-ai-result-card__title {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.bible-ai-reply {
+  white-space: pre-wrap;
+}
+
 .world-bible-page-meta {
   color: var(--text-dim);
   font-size: var(--text-xs);
@@ -6639,6 +6852,10 @@ kbd {
 .world-bible-empty-hint {
   color: var(--text-dim);
   font-size: var(--text-sm);
+}
+
+.world-bible-empty-hint--projection {
+  margin-top: 10px;
 }
 
 .world-bible-suggestion-list {
@@ -6686,6 +6903,17 @@ kbd {
 .world-bible-suggestion-payload {
   white-space: pre-wrap;
   font-size: var(--text-xs);
+}
+
+.world-bible-suggestion-preview {
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  margin: var(--space-2) 0;
+  color: var(--text);
+}
+
+.world-bible-suggestion-refs {
+  margin-bottom: var(--space-2);
 }
 
 .world-bible-suggestion-selector {

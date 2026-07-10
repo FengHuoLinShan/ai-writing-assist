@@ -13,7 +13,7 @@
 const routes = {
   project: { title: "项目", subViews: [], requiresProject: false },
   world: { title: "世界对象", requiresProject: true, defaultSubView: "objects", subViews: ["objects", "candidates", "review-objects", "review-aliases", "review-relations", "relations", "aliases", "bible", "map"], subViewTitles: { objects: "对象库", candidates: "待确认", "review-objects": "待确认 · 对象", "review-aliases": "待确认 · 别名", "review-relations": "待确认 · 关系", relations: "关系", aliases: "别名", bible: "世界书", map: "地图" } },
-  rag: { title: "RAG 检索", requiresProject: true, defaultSubView: "status", subViews: ["status", "search"], subViewTitles: { status: "索引状态", search: "搜索测试" } },
+  rag: { title: "小说检索", requiresProject: true, defaultSubView: "search", subViews: ["search", "status"], subViewTitles: { search: "检索", status: "索引维护" } },
   outline: { title: "大纲", requiresProject: true, defaultSubView: "scenes", subViews: ["scenes", "threads", "arcs", "foreshadowing", "reveals"], subViewTitles: { scenes: "场景卡", threads: "剧情线", arcs: "篇章纲", foreshadowing: "伏笔", reveals: "揭示" } },
   scene: { title: "场景", subViews: [], requiresProject: true, dynamicSubView: true },
   writing: { title: "写作台", subViews: [], requiresProject: true },

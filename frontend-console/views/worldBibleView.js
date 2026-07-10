@@ -57,6 +57,7 @@ const worldBibleView = {
   _displayMode: "editor",
   _activeCategory: "all",
   _galleryCategory: null,
+  _suggestionBatchKey: null,
 
   async render() {
     if (!state.currentProjectId) {
@@ -450,49 +451,49 @@ const worldBibleView = {
 
   _renderAiSidebar(page) {
     return `
-      <aside class="bible-ai-sidebar" style="border:1px solid var(--border);border-radius:var(--radius-md);padding:12px;display:grid;gap:10px;background:var(--panel);">
+      <aside class="bible-ai-sidebar">
         <div>
-          <div style="font-weight:600;">AI 创建/整理</div>
-          <div style="font-size:12px;color:var(--text-dim);">生成结果会先进入创设建议，确认后才写入页面或对象草稿。</div>
+          <div class="bible-ai-sidebar__title">AI 创建/整理</div>
+          <div class="bible-ai-sidebar__hint">生成结果会先进入创设建议，确认后才写入页面或对象草稿。</div>
         </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <div class="bible-ai-chip-row">
           <span class="badge">当前页：${esc(page.title)}</span>
           <span class="badge">页面正文来源</span>
         </div>
-        <label style="display:grid;gap:4px;font-size:12px;color:var(--text-muted);">输出目标
+        <label class="bible-ai-field">输出目标
           <select id="bible-ai-output-target" class="form-select">
             ${BIBLE_AI_TARGETS.map((target) => `
               <option value="${esc(target.value)}" ${this._aiOutputTarget === target.value ? "selected" : ""}>${esc(target.label)}</option>
             `).join("")}
           </select>
         </label>
-        <label style="display:grid;gap:4px;font-size:12px;color:var(--text-muted);">模板
+        <label class="bible-ai-field">模板
           <select id="bible-ai-template" class="form-select">
             ${BIBLE_AI_TEMPLATES.map((template) => `
               <option value="${esc(template.id)}" ${this._aiTemplateId === template.id ? "selected" : ""}>${esc(template.label)}</option>
             `).join("")}
           </select>
         </label>
-        <label style="display:grid;gap:4px;font-size:12px;color:var(--text-muted);">附带正文（章节序号，用逗号分隔）
+        <label class="bible-ai-field">附带正文（章节序号，用逗号分隔）
           <input id="bible-ai-chapters" class="form-input" value="${esc(this._aiSelectedChapters)}" placeholder="例如：1,2,5" />
         </label>
-        <label style="display:flex;gap:6px;align-items:center;font-size:12px;color:var(--text-muted);">
+        <label class="bible-ai-toggle">
           <input id="bible-ai-quality-pro" type="checkbox" ${this._aiQualityMode === "pro" ? "checked" : ""} />
           高质量
         </label>
-        <div class="bible-ai-messages" style="max-height:180px;overflow:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;display:grid;gap:6px;">
+        <div class="bible-ai-messages">
           ${this._aiMessages.length ? this._aiMessages.map((message) => `
-            <div style="font-size:12px;line-height:1.5;color:${message.role === "assistant" ? "var(--text)" : "var(--text-dim)"};">
+            <div class="bible-ai-message ${message.role === "assistant" ? "bible-ai-message--assistant" : "bible-ai-message--user"}">
               <strong>${message.role === "assistant" ? "AI" : "我"}：</strong>${esc(message.content)}
             </div>
-          `).join("") : `<div style="font-size:12px;color:var(--text-dim);">还没有对话。</div>`}
+          `).join("") : `<div class="bible-ai-empty">还没有对话。</div>`}
         </div>
         <textarea class="form-textarea" id="bible-ai-input" rows="3" placeholder="和 AI 讨论当前世界书页面，或说明想生成什么。"></textarea>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <div class="bible-ai-actions">
           <button class="btn btn-sm" data-action="bible-ai-send">发送</button>
           <button class="btn btn-sm btn-primary" data-action="bible-ai-generate">生成建议</button>
         </div>
-        <div id="bible-ai-result" style="font-size:12px;color:var(--text-dim);">
+        <div id="bible-ai-result" class="bible-ai-result">
           ${this._renderAiResult()}
         </div>
       </aside>
@@ -502,25 +503,25 @@ const worldBibleView = {
   _renderAiResult() {
     const result = this._aiResult
     if (!result) return "当前页正文会作为带来源标记的 AI 参考资料。"
-    if (result.error) return `<span style="color:var(--danger);">${esc(result.error)}</span>`
+    if (result.error) return `<span class="bible-ai-result-error">${esc(result.error)}</span>`
     const suggestions = Array.isArray(result.suggestions) ? result.suggestions : []
     if (suggestions.length) {
       return suggestions.map((item) => `
-        <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;margin-top:6px;">
-          <div style="font-weight:600;color:var(--text);">${esc(item.title || this._targetTypeLabel(item.target_type))}</div>
+        <div class="bible-ai-result-card">
+          <div class="bible-ai-result-card__title">${esc(item.title || this._targetTypeLabel(item.target_type))}</div>
           <div>${esc(this._targetTypeLabel(item.target_type))} · 风险 ${esc(item.risk_level || "medium")}</div>
           ${item.summary ? `<div>${esc(item.summary)}</div>` : ""}
         </div>
       `).join("")
     }
-    return result.reply ? `<div style="color:var(--text);white-space:pre-wrap;">${esc(result.reply)}</div>` : "已完成。"
+    return result.reply ? `<div class="bible-ai-reply">${esc(result.reply)}</div>` : "已完成。"
   },
 
   _renderProjectionStatus(page) {
     const task = this._task
     const key = this._taskStorageKey(page)
     if (!task) {
-      return `<div class="world-bible-empty-hint" style="margin-top:10px;">投影状态：未刷新 · ${esc(key)}</div>`
+      return `<div class="world-bible-empty-hint world-bible-empty-hint--projection">投影状态：未刷新 · ${esc(key)}</div>`
     }
     const retry = task.status === "failed" || task.status === "done"
       ? `<button class="btn btn-sm" data-action="bible-force-refresh-projection">强制重新刷新</button>`
@@ -782,8 +783,9 @@ const worldBibleView = {
         status: "pending",
       })
       this._suggestions = data.items || []
+      this._suggestionBatchKey = this._suggestions[0] ? this._suggestionGroupKey(this._suggestions[0]) : null
       const body = this._renderSuggestionsModal()
-      showModalHtml("创设建议", body, [])
+      showModalHtml("创设建议", body, [], { size: "large" })
       this._bindSuggestionModal()
     } catch (err) {
       toast(err.message || "加载建议失败", "error")
@@ -796,7 +798,7 @@ const worldBibleView = {
     return `
       <div class="world-bible-suggestion-list">
         <div class="world-bible-suggestion-header">
-          <div class="world-bible-suggestion-meta">
+          <div class="world-bible-suggestion-meta" data-bible-batch-meta>
             批量范围：${esc(base.review_group)} · ${esc(base.target_type)} · ${esc(base.action_schema)}
           </div>
           <div class="world-bible-suggestion-actions">
@@ -829,15 +831,33 @@ const worldBibleView = {
     document.querySelectorAll("[data-bible-reject-suggestion]").forEach((node) => {
       node.addEventListener("click", () => this._decideSuggestion(node.getAttribute("data-bible-reject-suggestion"), false))
     })
+    document.querySelectorAll("[data-bible-batch-suggestion]").forEach((node) => {
+      node.addEventListener("change", () => {
+        if (!node.checked) return
+        const item = this._suggestions.find((entry) => entry.id === node.getAttribute("data-bible-batch-suggestion"))
+        if (!item) return
+        this._suggestionBatchKey = this._suggestionGroupKey(item)
+        this._syncSuggestionBatchSelection()
+      })
+    })
   },
 
   _suggestionBatchBase() {
-    const first = this._suggestions[0] || {}
+    const selected = this._suggestions.find((item) => this._suggestionGroupKey(item) === this._suggestionBatchKey)
+    const first = selected || this._suggestions[0] || {}
     return {
       review_group: first.review_group || "",
       target_type: first.target_type || "",
       action_schema: first.action_schema || "",
     }
+  },
+
+  _suggestionGroupKey(item = {}) {
+    return [
+      item.review_group || "",
+      item.target_type || "",
+      item.action_schema || "",
+    ].join("::")
   },
 
   _isSuggestionCompatible(item, base) {
@@ -848,13 +868,27 @@ const worldBibleView = {
 
   _renderSuggestionSelector(item, base) {
     const compatible = this._isSuggestionCompatible(item, base)
-    const reason = compatible ? "" : "只能批量处理同一分组、目标类型和动作结构的建议"
     return `
       <label class="world-bible-suggestion-selector">
-        <input type="checkbox" data-bible-batch-suggestion="${esc(item.id)}" ${compatible ? "checked" : "disabled"}>
-        ${compatible ? "已纳入批量操作" : esc(reason)}
+        <input type="checkbox" data-bible-batch-suggestion="${esc(item.id)}" ${compatible ? "checked" : ""}>
+        <span data-bible-batch-label="${esc(item.id)}">${compatible ? "已纳入批量操作" : "选择此组进行批量操作"}</span>
       </label>
     `
+  },
+
+  _syncSuggestionBatchSelection() {
+    const base = this._suggestionBatchBase()
+    const meta = document.querySelector("[data-bible-batch-meta]")
+    if (meta) {
+      meta.textContent = `批量范围：${base.review_group} · ${base.target_type} · ${base.action_schema}`
+    }
+    document.querySelectorAll("[data-bible-batch-suggestion]").forEach((node) => {
+      const item = this._suggestions.find((entry) => entry.id === node.getAttribute("data-bible-batch-suggestion"))
+      const compatible = item ? this._isSuggestionCompatible(item, base) : false
+      node.checked = compatible
+      const label = node.closest(".world-bible-suggestion-selector")?.querySelector("[data-bible-batch-label]")
+      if (label) label.textContent = compatible ? "已纳入批量操作" : "选择此组进行批量操作"
+    })
   },
 
   _suggestionTitle(item) {
@@ -876,11 +910,11 @@ const worldBibleView = {
     const excerpt = payload.append_text || payload.free_text || payload.summary || payload.public_info || ""
     const refs = Array.isArray(payload.source_refs) ? payload.source_refs : []
     return `
-      <div style="font-size:13px;line-height:1.5;margin:6px 0;color:var(--text);">
+      <div class="world-bible-suggestion-preview">
         ${esc(String(excerpt).slice(0, 320))}
       </div>
       ${refs.length ? `
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+        <div class="world-bible-suggestion-refs">
           ${refs.map((ref) => `<span class="badge">${esc(ref.title || ref.source_type || "来源")}</span>`).join("")}
         </div>
       ` : ""}
@@ -893,6 +927,18 @@ const worldBibleView = {
       .filter(Boolean)
     if (!selected.length) {
       toast("没有可批量处理的建议", "warning")
+      return
+    }
+    const selectedItems = selected
+      .map((id) => this._suggestions.find((item) => item.id === id))
+      .filter(Boolean)
+    const base = selectedItems[0] ? {
+      review_group: selectedItems[0].review_group,
+      target_type: selectedItems[0].target_type,
+      action_schema: selectedItems[0].action_schema,
+    } : null
+    if (!base || selectedItems.some((item) => !this._isSuggestionCompatible(item, base))) {
+      toast("选中的建议类型不一致，请分别处理", "warning")
       return
     }
     let failed = 0

@@ -36,4 +36,12 @@ describe("global typography tokens", () => {
     expect(styles).toMatch(/#modal-footer\s*\{[^}]*flex-wrap:\s*wrap;/s)
     expect(styles).toMatch(/#modal-footer \.btn\s*\{[^}]*white-space:\s*normal;/s)
   })
+
+  it("keeps modal sizing and world bible AI semantic style hooks", () => {
+    expect(styles).toMatch(/#modal-content\.modal-content--large\s*\{/)
+    expect(styles).toMatch(/#modal-content\.modal-content--full\s*\{/)
+    expect(styles).toMatch(/\.bible-ai-sidebar\s*\{/)
+    expect(styles).toMatch(/\.bible-ai-message--assistant/)
+    expect(styles).toMatch(/\.world-bible-suggestion-preview\s*\{/)
+  })
 })

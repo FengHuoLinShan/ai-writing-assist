@@ -15,6 +15,18 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
+function mockVisibilityState(initial = "visible") {
+  let value = initial
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    get: () => value,
+  })
+  return (next) => {
+    value = next
+    document.dispatchEvent(new Event("visibilitychange"))
+  }
+}
+
 describe("normalizeTaskProgress", () => {
   it("normalizes real task progress to percentage", () => {
     const progress = normalizeTaskProgress({
@@ -218,6 +230,7 @@ describe("active workflow storage", () => {
 describe("pollTaskProgress", () => {
   it("polls until task completion", async () => {
     vi.useFakeTimers()
+    mockVisibilityState("visible")
     const onUpdate = vi.fn()
     const onDone = vi.fn()
     const apiClient = {
@@ -235,5 +248,79 @@ describe("pollTaskProgress", () => {
     expect(apiClient.tasks.get).toHaveBeenCalledTimes(2)
     expect(onUpdate).toHaveBeenCalledTimes(2)
     expect(onDone).toHaveBeenCalledTimes(1)
+  })
+
+  it("skips API calls while the page is hidden", async () => {
+    vi.useFakeTimers()
+    mockVisibilityState("hidden")
+    const apiClient = {
+      tasks: {
+        get: vi.fn().mockResolvedValue({ task_id: "t1", task_type: "rag_reindex_novel", status: "running" }),
+      },
+    }
+
+    pollTaskProgress({ taskId: "t1", workflowType: "rag_reindex_novel", intervalMs: 10, apiClient })
+    await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(50)
+
+    expect(apiClient.tasks.get).not.toHaveBeenCalled()
+  })
+
+  it("ticks immediately when visibility returns", async () => {
+    vi.useFakeTimers()
+    const setVisibility = mockVisibilityState("hidden")
+    const apiClient = {
+      tasks: {
+        get: vi.fn().mockResolvedValue({ task_id: "t1", task_type: "rag_reindex_novel", status: "running" }),
+      },
+    }
+
+    pollTaskProgress({ taskId: "t1", workflowType: "rag_reindex_novel", intervalMs: 1000, apiClient })
+    await Promise.resolve()
+    expect(apiClient.tasks.get).not.toHaveBeenCalled()
+
+    setVisibility("visible")
+    await Promise.resolve()
+
+    expect(apiClient.tasks.get).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not respond to visibility changes after stop", async () => {
+    vi.useFakeTimers()
+    const setVisibility = mockVisibilityState("hidden")
+    const apiClient = {
+      tasks: {
+        get: vi.fn().mockResolvedValue({ task_id: "t1", task_type: "rag_reindex_novel", status: "running" }),
+      },
+    }
+
+    const poller = pollTaskProgress({ taskId: "t1", workflowType: "rag_reindex_novel", intervalMs: 10, apiClient })
+    poller.stop()
+    setVisibility("visible")
+    await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(20)
+
+    expect(apiClient.tasks.get).not.toHaveBeenCalled()
+  })
+
+  it("can disable visibility pausing for background monitors", async () => {
+    vi.useFakeTimers()
+    mockVisibilityState("hidden")
+    const apiClient = {
+      tasks: {
+        get: vi.fn().mockResolvedValue({ task_id: "t1", task_type: "rag_reindex_novel", status: "running" }),
+      },
+    }
+
+    pollTaskProgress({
+      taskId: "t1",
+      workflowType: "rag_reindex_novel",
+      intervalMs: 10,
+      apiClient,
+      pauseWhenHidden: false,
+    })
+    await Promise.resolve()
+
+    expect(apiClient.tasks.get).toHaveBeenCalledTimes(1)
   })
 })

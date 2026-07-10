@@ -365,6 +365,7 @@ export function pollTaskProgress({
   workflowType,
   intervalMs = 1500,
   apiClient = globalThis.api,
+  pauseWhenHidden = true,
   onUpdate,
   onDone,
   onFailed,
@@ -374,15 +375,53 @@ export function pollTaskProgress({
 
   let stopped = false
   let timer = null
+  let inFlight = false
+  const visibilityDoc = typeof document !== "undefined" ? document : null
+  const canPauseForVisibility = Boolean(
+    pauseWhenHidden
+    && visibilityDoc
+    && typeof visibilityDoc.addEventListener === "function"
+    && typeof visibilityDoc.removeEventListener === "function",
+  )
 
-  const stop = () => {
-    stopped = true
+  const isHidden = () => canPauseForVisibility && visibilityDoc.visibilityState === "hidden"
+
+  const clearTimer = () => {
     if (timer) clearTimeout(timer)
     timer = null
   }
 
-  const tick = async () => {
+  const scheduleNext = () => {
+    if (stopped || isHidden()) return
+    clearTimer()
+    timer = setTimeout(tick, intervalMs)
+  }
+
+  const handleVisibilityChange = () => {
     if (stopped) return
+    if (isHidden()) {
+      clearTimer()
+      return
+    }
+    clearTimer()
+    tick()
+  }
+
+  const stop = () => {
+    stopped = true
+    clearTimer()
+    if (canPauseForVisibility) {
+      visibilityDoc.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
+  }
+
+  const tick = async () => {
+    if (stopped || inFlight) return
+    if (isHidden()) {
+      clearTimer()
+      return
+    }
+    inFlight = true
     try {
       const task = await apiClient.tasks.get(taskId)
       if (stopped) return
@@ -411,10 +450,15 @@ export function pollTaskProgress({
       stop()
       onFailed?.(progress, null)
       return
+    } finally {
+      inFlight = false
     }
-    timer = setTimeout(tick, intervalMs)
+    scheduleNext()
   }
 
+  if (canPauseForVisibility) {
+    visibilityDoc.addEventListener("visibilitychange", handleVisibilityChange)
+  }
   tick()
   return { stop }
 }

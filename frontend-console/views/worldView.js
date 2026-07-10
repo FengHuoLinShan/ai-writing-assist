@@ -76,6 +76,26 @@ const WORLD_RELATION_FILTER_DEFAULTS = {
   strength_max: "",
 }
 
+const WORLD_OBJECT_QUERY_KEYS = [
+  "entity_type",
+  "status",
+  "q",
+  "source",
+  "workflow_id",
+  "needs_review",
+  "auto_ingested",
+]
+
+const WORLD_CANDIDATE_QUERY_KEYS = [
+  "suggested_action",
+  "source",
+  "workflow_id",
+  "scene_index",
+  "source_chapter_index",
+  "confidence_min",
+  "confidence_max",
+]
+
 const worldView = {
   /** @type {Array} */
   _entities: [],
@@ -156,6 +176,7 @@ const worldView = {
     this._stopAutoExtractPolling()
     this._stopFusionPolling()
 
+    await this._syncRouteQueryState(state.currentSubView || "objects", { loadOnChange: false })
     this._recoverAutoExtractWorkflow()
     this._recoverFusionWorkflow()
     this._eventsBound = false
@@ -170,6 +191,103 @@ const worldView = {
     } catch {
       this._batches = []
     }
+  },
+
+  _currentQuery() {
+    const query = router.getCurrentQuery ? router.getCurrentQuery() : null
+    return new URLSearchParams(query?.toString ? query.toString() : "")
+  },
+
+  _queryPageSkip(query, limit) {
+    const page = Math.max(1, Number.parseInt(query.get("page") || "1", 10) || 1)
+    return (page - 1) * limit
+  },
+
+  _filtersEqual(a, b, keys) {
+    return keys.every((key) => String(a[key] ?? "") === String(b[key] ?? ""))
+      && Number(a.skip || 0) === Number(b.skip || 0)
+      && Number(a.limit || 0) === Number(b.limit || 0)
+  },
+
+  _objectFiltersFromQuery(query = this._currentQuery()) {
+    const filters = { ...WORLD_FILTER_DEFAULTS }
+    for (const key of WORLD_OBJECT_QUERY_KEYS) {
+      filters[key] = query.get(key) || ""
+    }
+    filters.skip = this._queryPageSkip(query, filters.limit)
+    return filters
+  },
+
+  _candidateFiltersFromQuery(query = this._currentQuery()) {
+    const filters = { ...WORLD_CANDIDATE_FILTER_DEFAULTS }
+    for (const key of WORLD_CANDIDATE_QUERY_KEYS) {
+      filters[key] = query.get(key) || ""
+    }
+    filters.skip = this._queryPageSkip(query, filters.limit)
+    return filters
+  },
+
+  async _syncRouteQueryState(subView = state.currentSubView || "objects", { loadOnChange = false } = {}) {
+    const query = this._currentQuery()
+    const reviewSubView = this._normalizeReviewSubView(subView)
+    if (subView === "objects") {
+      const nextFilters = this._objectFiltersFromQuery(query)
+      const nextMode = query.get("view") === "card" ? "card" : "table"
+      const filtersChanged = !this._filtersEqual(this._filters, nextFilters, WORLD_OBJECT_QUERY_KEYS)
+      const modeChanged = this._objectViewMode !== nextMode
+      this._filters = nextFilters
+      this._objectViewMode = nextMode
+      if (this._hasAdvancedObjectFilters(nextFilters)) this._advancedFiltersOpen = true
+      if (loadOnChange && filtersChanged) await this._loadEntities()
+      return filtersChanged || modeChanged
+    }
+    if (reviewSubView === "review-objects") {
+      const nextFilters = this._candidateFiltersFromQuery(query)
+      const filtersChanged = !this._filtersEqual(this._candidateFilters, nextFilters, WORLD_CANDIDATE_QUERY_KEYS)
+      this._candidateFilters = nextFilters
+      if (loadOnChange && filtersChanged) await this._loadCandidates()
+      return filtersChanged
+    }
+    return false
+  },
+
+  _hasAdvancedObjectFilters(filters) {
+    return Boolean(
+      filters.source
+      || filters.workflow_id
+      || filters.needs_review
+      || filters.auto_ingested,
+    )
+  },
+
+  _setQueryValue(query, key, value) {
+    const normalized = String(value ?? "").trim()
+    if (normalized) query.set(key, normalized)
+  },
+
+  _objectQueryFromState() {
+    const query = new URLSearchParams()
+    for (const key of WORLD_OBJECT_QUERY_KEYS) {
+      this._setQueryValue(query, key, this._filters[key])
+    }
+    const page = Math.floor((this._filters.skip || 0) / this._filters.limit) + 1
+    if (page > 1) query.set("page", String(page))
+    if (this._objectViewMode === "card") query.set("view", "card")
+    return query
+  },
+
+  _candidateQueryFromState() {
+    const query = new URLSearchParams()
+    for (const key of WORLD_CANDIDATE_QUERY_KEYS) {
+      this._setQueryValue(query, key, this._candidateFilters[key])
+    }
+    const page = Math.floor((this._candidateFilters.skip || 0) / this._candidateFilters.limit) + 1
+    if (page > 1) query.set("page", String(page))
+    return query
+  },
+
+  async _navigateWithQuery(subView, query) {
+    await router.navigate("world", subView || state.currentSubView || "objects", true, query)
   },
 
   async _loadEntities() {
@@ -263,6 +381,38 @@ const worldView = {
     this._bindEvents()
   },
 
+  async _rerenderCurrentSubViewInPlace({ preserveScroll = true } = {}) {
+    const content = typeof document !== "undefined"
+      ? document.getElementById("workspace-content")
+      : null
+    if (!content) return
+    const scrollTop = preserveScroll ? content.scrollTop : 0
+    content.innerHTML = await this.render()
+    content.scrollTop = scrollTop
+    this._bindEvents()
+  },
+
+  async _removeCandidateOptimistically(id) {
+    const snapshot = {
+      candidates: [...this._candidates],
+      candidateTotal: this._candidateTotal,
+    }
+    const before = this._candidates.length
+    this._candidates = this._candidates.filter((item) => this._entityId(item) !== id)
+    if (this._candidates.length !== before) {
+      this._candidateTotal = Math.max(0, this._candidateTotal - 1)
+      await this._rerenderCurrentSubViewInPlace()
+    }
+    return snapshot
+  },
+
+  async _restoreCandidateSnapshot(snapshot) {
+    if (!snapshot) return
+    this._candidates = snapshot.candidates
+    this._candidateTotal = snapshot.candidateTotal
+    await this._rerenderCurrentSubViewInPlace()
+  },
+
   onLeave() {
     if (this._autoExtractTimer) {
       clearInterval(this._autoExtractTimer)
@@ -277,6 +427,7 @@ const worldView = {
     this._eventsBound = false
     const subView = state.currentSubView || "objects"
     const reviewSubView = this._normalizeReviewSubView(subView)
+    await this._syncRouteQueryState(subView, { loadOnChange: true })
     if (this._lastRenderedSubView === "bible" && subView !== "bible") {
       worldBibleView.onLeave()
     }
@@ -338,7 +489,7 @@ const worldView = {
 
   _toggleAutoExtract() {
     this._autoExtractOpen = !this._autoExtractOpen
-    router.navigate("world", state.currentSubView)
+    router.refresh()
   },
 
   _renderAutoExtractPanel(taskType, label) {
@@ -711,7 +862,7 @@ const worldView = {
         html += `<div class="world-batch-group">`
         html += `<details open class="world-batch-group__details">`
         html += `<summary class="world-batch-group__summary">
-          <span class="world-batch-group__star">&#9733;</span> 自动入库 — ${this._formatBatchTime(this._batches[0]?.ingested_at)} — ${autoEntities.length} 个对象
+          <span class="world-batch-group__star">&#9733;</span> 自动入库 — ${this._renderBatchTime(this._batches[0]?.ingested_at)} — ${autoEntities.length} 个对象
         </summary>`
         html += this._renderEntityCollection(autoEntities, { showNewBadge: true })
         html += `</details></div>`
@@ -719,12 +870,13 @@ const worldView = {
 
       // 渲染手动创建区
       if (manualEntities.length > 0) {
-        html += `<details ${!autoEntities.length > 0 ? "open" : ""} class="world-batch-group__details">`
+        html += `<div class="world-batch-group">`
+        html += `<details ${autoEntities.length === 0 ? "open" : ""} class="world-batch-group__details">`
         html += `<summary class="world-batch-group__summary">
           其他对象 — ${manualEntities.length} 个
         </summary>`
         html += this._renderEntityCollection(manualEntities, { showNewBadge: false })
-        html += `</details>`
+        html += `</details></div>`
       }
     } else {
       html += this._renderEntityCollection(this._entities, { showNewBadge: false })
@@ -820,9 +972,54 @@ const worldView = {
     if (!isoStr) return ""
     try {
       const d = new Date(isoStr)
+      if (Number.isNaN(d.getTime())) return isoStr
+      const now = new Date()
+      const diffMs = now.getTime() - d.getTime()
+      const pad = (n) => String(n).padStart(2, "0")
+      const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`
+      if (diffMs >= 0 && diffMs < 60 * 1000) return "刚刚"
+      if (diffMs >= 0 && diffMs < 60 * 60 * 1000) return `${Math.max(1, Math.floor(diffMs / (60 * 1000)))} 分钟前`
+      if (diffMs >= 0 && diffMs < 24 * 60 * 60 * 1000) return `${Math.max(1, Math.floor(diffMs / (60 * 60 * 1000)))} 小时前`
+      const yesterday = new Date(now)
+      yesterday.setDate(now.getDate() - 1)
+      if (
+        d.getFullYear() === yesterday.getFullYear()
+        && d.getMonth() === yesterday.getMonth()
+        && d.getDate() === yesterday.getDate()
+      ) {
+        return `昨天 ${time}`
+      }
+      if (d.getFullYear() === now.getFullYear()) {
+        return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${time}`
+      }
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${time}`
+    } catch { return isoStr }
+  },
+
+  _formatBatchTimeFull(isoStr) {
+    if (!isoStr) return ""
+    try {
+      const d = new Date(isoStr)
+      if (Number.isNaN(d.getTime())) return isoStr
       const pad = (n) => String(n).padStart(2, "0")
       return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
     } catch { return isoStr }
+  },
+
+  _isFreshBatch(isoStr) {
+    if (!isoStr) return false
+    const d = new Date(isoStr)
+    if (Number.isNaN(d.getTime())) return false
+    const diffMs = Date.now() - d.getTime()
+    return diffMs >= 0 && diffMs < 24 * 60 * 60 * 1000
+  },
+
+  _renderBatchTime(isoStr) {
+    if (!isoStr) return ""
+    const label = this._formatBatchTime(isoStr)
+    const title = this._formatBatchTimeFull(isoStr)
+    const freshDot = this._isFreshBatch(isoStr) ? `<span class="world-batch-fresh-dot" aria-label="新鲜入库"></span>` : ""
+    return `<span class="world-batch-time" title="${esc(title)}">${freshDot}${esc(label)}</span>`
   },
 
   _renderEntityTable(entities, { showNewBadge }) {
@@ -1155,7 +1352,9 @@ const worldView = {
         <input class="form-input" id="review-candidate-source" value="${esc(this._candidateFilters.source)}" placeholder="来源" />
         <input class="form-input" id="review-candidate-workflow" value="${esc(this._candidateFilters.workflow_id)}" placeholder="Workflow" />
         <input class="form-input" id="review-candidate-scene" value="${esc(this._candidateFilters.scene_index)}" placeholder="Scene" />
+        <input class="form-input" id="review-candidate-chapter" value="${esc(this._candidateFilters.source_chapter_index)}" placeholder="章节" />
         <input class="form-input" id="review-candidate-confidence-min" value="${esc(this._candidateFilters.confidence_min)}" placeholder="最低置信度" />
+        <input class="form-input" id="review-candidate-confidence-max" value="${esc(this._candidateFilters.confidence_max)}" placeholder="最高置信度" />
         <button class="btn btn-sm" data-action="apply-candidate-review-filters">筛选</button>
         <button class="btn btn-sm" data-action="reset-candidate-review-filters">清空</button>
       </div>
@@ -1982,15 +2181,17 @@ const worldView = {
     const candidate = this._candidates.find((c) => (c.id || c.entity_id) === id)
     if (!candidate) return
 
-    confirmAction(
+    return confirmAction(
       `确定将 "${esc(candidate.name)}" 提升为正史吗？`,
       async () => {
+        const snapshot = await this._removeCandidateOptimistically(id)
         try {
           await api.world.promoteEntity(id, state.currentProjectId)
           toast(`候选 "${candidate.name}" 已确认`, "success")
           await this._reloadWorldLists()
-          router.navigate("world", "candidates")
+          await this._navigateWithQuery(state.currentSubView || "candidates", this._candidateQueryFromState())
         } catch (err) {
+          await this._restoreCandidateSnapshot(snapshot)
           toast(`处理失败：${err.message}`, "error")
         }
       },
@@ -2001,17 +2202,19 @@ const worldView = {
   async ignoreCandidate(id) {
     const candidate = this._candidates.find((c) => (c.id || c.entity_id) === id)
     const isTemporary = this._candidateAction(candidate) === "temporary_only"
-    confirmAction(
+    return confirmAction(
       isTemporary
         ? `将候选 "${candidate?.name || id}" 标记为临时并从待确认中移除？`
         : `确定忽略候选 "${candidate?.name || id}"？`,
       async () => {
+        const snapshot = await this._removeCandidateOptimistically(id)
         try {
           await api.world.updateEntity(id, { status: "ignored" }, state.currentProjectId)
           toast(isTemporary ? "已设为临时" : "已忽略", "success")
           await this._reloadWorldLists()
-          router.navigate("world", "candidates")
+          await this._navigateWithQuery(state.currentSubView || "candidates", this._candidateQueryFromState())
         } catch (err) {
+          await this._restoreCandidateSnapshot(snapshot)
           toast(`操作失败：${err.message}`, "error")
         }
       },
@@ -2069,14 +2272,14 @@ const worldView = {
       auto_ingested: autoIngested,
       skip: 0,
     }
-    await this._loadEntities()
-    await router.refresh()
+    await this._navigateWithQuery("objects", this._objectQueryFromState())
   },
 
   async _resetFilters() {
     this._filters = { ...WORLD_FILTER_DEFAULTS }
-    await this._loadEntities()
-    await router.refresh()
+    this._objectViewMode = "table"
+    this._advancedFiltersOpen = false
+    await this._navigateWithQuery("objects", this._objectQueryFromState())
   },
 
   async _applyCandidateReviewFilters() {
@@ -2086,16 +2289,16 @@ const worldView = {
       source: document.getElementById("review-candidate-source")?.value?.trim() || "",
       workflow_id: document.getElementById("review-candidate-workflow")?.value?.trim() || "",
       scene_index: document.getElementById("review-candidate-scene")?.value?.trim() || "",
+      source_chapter_index: document.getElementById("review-candidate-chapter")?.value?.trim() || "",
       confidence_min: document.getElementById("review-candidate-confidence-min")?.value?.trim() || "",
+      confidence_max: document.getElementById("review-candidate-confidence-max")?.value?.trim() || "",
     }
-    await this._loadCandidates()
-    await router.refresh()
+    await this._navigateWithQuery(state.currentSubView || "review-objects", this._candidateQueryFromState())
   },
 
   async _resetCandidateReviewFilters() {
     this._candidateFilters = { ...WORLD_CANDIDATE_FILTER_DEFAULTS }
-    await this._loadCandidates()
-    await router.refresh()
+    await this._navigateWithQuery(state.currentSubView || "review-objects", this._candidateQueryFromState())
   },
 
   async _applyAliasReviewFilters() {
@@ -2136,8 +2339,7 @@ const worldView = {
     if (newSkip < 0) return
     if (newSkip >= this._total) return
     this._filters.skip = newSkip
-    await this._loadEntities()
-    await router.refresh()
+    await this._navigateWithQuery("objects", this._objectQueryFromState())
   },
 
   async _changeListPage(filters, total, loader, delta) {
@@ -2146,7 +2348,11 @@ const worldView = {
     if (newSkip >= total) return
     filters.skip = newSkip
     await loader()
-    await router.refresh()
+    if (filters === this._candidateFilters) {
+      await this._navigateWithQuery(state.currentSubView || "review-objects", this._candidateQueryFromState())
+    } else {
+      await router.refresh()
+    }
   },
 
   async _changeCandidatePage(delta) {
@@ -2250,9 +2456,9 @@ const worldView = {
     this._eventsBound = true
   },
 
-  _setObjectViewMode(mode) {
+  async _setObjectViewMode(mode) {
     this._objectViewMode = mode === "card" ? "card" : "table"
-    router.refresh()
+    await this._navigateWithQuery("objects", this._objectQueryFromState())
   },
 
   _visibleIdsForBulkScope(scope) {
@@ -2644,19 +2850,21 @@ const worldView = {
       toast("暂无合并建议", "info")
       return
     }
-    const rows = suggestions.map((item, index) => {
+    const suggestionsByKey = new Map(suggestions.map((item) => [this._fusionSuggestionKey(item), item]))
+    const rows = suggestions.map((item) => {
+      const suggestionKey = this._fusionSuggestionKey(item)
       const actionLabel = item.action === "merge" ? "合并" : item.action === "alias_only" ? "登记别名" : "复核"
       const evidence = (item.evidence_anchors || []).map((anchor) => anchor.snippet || anchor.source_type || "").filter(Boolean).join(" / ")
       const canonical = item.requires_canonical_confirmation ? `
         <label style="display:block;margin-top:6px;color:var(--warning);font-size:12px;">
-          <input type="checkbox" data-canonical-merge="${esc(index)}" />
+          <input type="checkbox" data-canonical-merge />
           确认合并两个正史对象
         </label>
       ` : ""
       return `
-        <article style="border:1px solid var(--border);border-radius:var(--radius-md);padding:8px;margin-bottom:10px;">
+        <article class="world-fusion-suggestion-card" data-fusion-card="${esc(suggestionKey)}">
           <label style="display:flex;gap:8px;align-items:flex-start;">
-            <input type="checkbox" data-fusion-index="${esc(index)}" ${item.action === "needs_review" ? "" : "checked"} />
+            <input type="checkbox" data-fusion-key="${esc(suggestionKey)}" ${item.action === "needs_review" ? "" : "checked"} />
             <span>
               <strong>${esc(actionLabel)}：</strong>
               ${esc(item.source_entity_name)} → ${esc(item.target_entity_name)}
@@ -2675,10 +2883,11 @@ const worldView = {
       text: "应用选中建议",
       class: "btn-primary",
       handler: async () => {
-        const selected = Array.from(document.querySelectorAll("[data-fusion-index]:checked"))
+        const selected = Array.from(document.querySelectorAll("[data-fusion-key]:checked"))
           .map((input) => {
-            const index = Number(input.getAttribute("data-fusion-index"))
-            return { index, item: suggestions[index] }
+            const key = input.getAttribute("data-fusion-key")
+            const card = input.closest("[data-fusion-card]")
+            return { item: suggestionsByKey.get(key), card }
           })
           .filter((entry) => entry.item)
           .filter((entry) => entry.item.action === "merge" || entry.item.action === "alias_only")
@@ -2686,12 +2895,12 @@ const worldView = {
           toast("请选择可应用的建议", "warning")
           return
         }
-        const payload = selected.map(({ index, item }) => ({
+        const payload = selected.map(({ item, card }) => ({
           action: item.action,
           source_entity_id: item.source_entity_id,
           target_entity_id: item.target_entity_id,
           alias: item.alias || item.source_entity_name,
-          allow_canonical_merge: Boolean(document.querySelector(`[data-canonical-merge="${index}"]`)?.checked),
+          allow_canonical_merge: Boolean(card?.querySelector("[data-canonical-merge]")?.checked),
         }))
         try {
           const applied = await api.world.applyEntityFusionSuggestions({
@@ -2707,7 +2916,15 @@ const worldView = {
           toast(err.message || "应用失败", "error")
         }
       },
-    }])
+    }], { size: "large" })
+  },
+
+  _fusionSuggestionKey(item) {
+    return [
+      item.action || "needs_review",
+      item.source_entity_id || "",
+      item.target_entity_id || "",
+    ].map((part) => encodeURIComponent(String(part))).join("::")
   },
 
   showRollbackForm(entityId) {
