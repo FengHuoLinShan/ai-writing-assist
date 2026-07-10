@@ -226,3 +226,30 @@ class ContextSnapshot(Base, TimestampMixin):
         DateTime(timezone=True),
         nullable=True,
     )
+
+
+class EvidenceLink(Base, TimestampMixin):
+    """Provenance link from a domain target/field to original manuscript text."""
+
+    __tablename__ = "evidence_links"
+    __table_args__ = (
+        Index("ix_evidence_links_novel_target", "novel_id", "target_hash"),
+        Index("ix_evidence_links_novel_status", "novel_id", "status"),
+        {"comment": "业务资产字段到原始正文的来源链接"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    target_ref: Mapped[dict] = mapped_column(JSON, nullable=False)
+    target_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    claim_path: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    evidence_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_ref: Mapped[dict] = mapped_column(JSON, nullable=False)
+    precision: Mapped[str] = mapped_column(String(32), nullable=False, default="range")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    provenance: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)

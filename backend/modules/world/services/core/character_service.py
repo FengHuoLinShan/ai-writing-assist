@@ -206,6 +206,8 @@ class CharacterService(
         novel_id: str,
         character_id: str,
         context_items: list[dict],
+        *,
+        visible_until_chapter: int | None = None,
     ) -> tuple[list[dict], int, int]:
         cid = parse_uuid(character_id, "character_id")
         nid = parse_uuid(novel_id, "novel_id")
@@ -224,6 +226,7 @@ class CharacterService(
                 nid,
                 cid,
                 tid_uuids,
+                visible_until_chapter=visible_until_chapter,
             )
             for rec in records:
                 key = f"{rec.target_type}:{rec.target_id}"

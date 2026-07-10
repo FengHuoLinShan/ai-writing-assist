@@ -49,13 +49,32 @@ async def handle_publish_chapter(db, task):
 
     # Step 1: RAG 索引
     rag_ok = False
+    from modules.rag.index_state import RagIndexStateService
+
+    index_state = RagIndexStateService()
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
             async with _attempt_savepoint(db):
+                claimed = await index_state.begin_direct(
+                    db,
+                    novel_id=novel_id,
+                    chapter_index=chapter_index,
+                    content_mode="canonical",
+                )
+                if not claimed:
+                    results["rag_chunks"] = 0
+                    results["rag_index_status"] = "coalesced"
+                    rag_ok = True
+                    break
                 report = await _container_get("rag.index_chapter")(
                     db,
                     novel_id,
                     chapter_index,
+                )
+                await index_state.finish(
+                    db,
+                    novel_id=novel_id,
+                    report=report,
                 )
             results["rag_chunks"] = report.chunks_created
             results["rag_embedding_failed"] = report.embedding_failed_count
@@ -68,6 +87,13 @@ async def handle_publish_chapter(db, task):
             )
             break
         except Exception as e:
+            await index_state.fail(
+                db,
+                novel_id=novel_id,
+                chapter_index=chapter_index,
+                content_mode="canonical",
+                error=str(e),
+            )
             logger.warning(
                 "Publish chapter %d — RAG attempt %d/%d failed: %s",
                 chapter_index,

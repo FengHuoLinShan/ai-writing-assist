@@ -21,7 +21,6 @@ class WritingDraftProvider(DraftProvider):
         start_chapter: int,
         end_chapter: int,
     ) -> list[dict[str, Any]]:
-        _get_ordered_chapter_chunks = _container_get("rag.get_ordered_chapter_chunks")
         _index_chapter_with_report = _container_get("rag.index_chapter")
         _list_latest_drafts = _container_get("writing.list_latest_drafts_for_chapters")
 
@@ -33,38 +32,16 @@ class WritingDraftProvider(DraftProvider):
             report = await _index_chapter_with_report(db, novel_id, draft.chapter_index)
             warnings_by_chapter[draft.chapter_index] = report.warnings
 
-        chunks_by_chapter: dict[int, list[Any]] = {}
-        if content_drafts:
-            first_chapter = min(draft.chapter_index for draft in content_drafts)
-            last_chapter = max(draft.chapter_index for draft in content_drafts)
-            rag_chunks = await _get_ordered_chapter_chunks(
-                db,
-                novel_id,
-                first_chapter,
-                last_chapter,
-            )
-            requested_chapters = {draft.chapter_index for draft in content_drafts}
-            for chunk in rag_chunks:
-                chapter_index = getattr(chunk, "chapter_index", None)
-                if chapter_index in requested_chapters:
-                    chunks_by_chapter.setdefault(chapter_index, []).append(chunk)
-
         chapters: list[dict[str, Any]] = []
         for draft in content_drafts:
             idx = draft.chapter_index
-            chapter_chunks = chunks_by_chapter.get(idx, [])
-            content = (
-                "\n\n".join(
-                    f"[RAG chunk {chunk.chunk_index}] {chunk.text}"
-                    for chunk in chapter_chunks
-                )
-                or draft.content
-            )
             chapters.append(
                 {
                     "chapter_index": idx,
                     "title": draft.title or f"第{idx}章",
-                    "content": content,
+                    # RAG is a derived candidate index. Extraction always consumes
+                    # the authoritative writing draft text, never cached chunk text.
+                    "content": draft.content,
                     "rag_warnings": warnings_by_chapter.get(idx, []),
                 }
             )

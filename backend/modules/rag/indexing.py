@@ -14,15 +14,11 @@ from collections.abc import Callable
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.rag.chunk_annotation import build_chunk_create
-from modules.rag.chunking import ChineseNovelChunk, ChunkingService
+from modules.rag.chunking import ChunkingService
 from modules.rag.contracts import RagIndexReport
 from modules.rag.embedding_writer import EmbeddingWriter
-from modules.rag.models import RagChunk
 from modules.rag.repositories import RagChunkRepository
-from modules.rag.source_collection import (
-    collect_annotation_sources,
-    collect_chapter_sources,
-)
+from modules.rag.source_collection import collect_chapter_sources
 
 
 class IndexingService:
@@ -44,9 +40,16 @@ class IndexingService:
         db: AsyncSession,
         novel_id: uuid.UUID,
         chapter_index: int,
+        *,
+        content_mode: str = "canonical",
     ) -> int:
         """索引指定章节的正文到 RAG 库，返回创建的 chunk 数。"""
-        report = await self.index_chapter_with_report(db, novel_id, chapter_index)
+        report = await self.index_chapter_with_report(
+            db,
+            novel_id,
+            chapter_index,
+            content_mode=content_mode,
+        )
         return report.chunks_created
 
     async def index_chapter_with_report(
@@ -54,25 +57,62 @@ class IndexingService:
         db: AsyncSession,
         novel_id: uuid.UUID,
         chapter_index: int,
+        *,
+        content_mode: str = "canonical",
     ) -> RagIndexReport:
         """索引指定章节并返回诊断报告。"""
         started_at = time.monotonic()
-        sources = await collect_chapter_sources(db, novel_id, chapter_index)
+        sources = await collect_chapter_sources(
+            db,
+            novel_id,
+            chapter_index,
+            content_mode=content_mode,
+        )
         if sources is None:
-            return RagIndexReport(chapter_index=chapter_index, chunks_created=0)
+            await self._repo.replace_chapter_chunks(
+                db,
+                novel_id,
+                source_type="chapter_text",
+                chapter_index=chapter_index,
+                items=[],
+                content_mode=content_mode,
+            )
+            return RagIndexReport(
+                chapter_index=chapter_index,
+                content_mode=content_mode,
+                chunks_created=0,
+            )
 
         chunks = self._chunking.split_chinese_novel(sources.content)
         if not chunks:
-            return RagIndexReport(chapter_index=chapter_index, chunks_created=0)
+            await self._repo.replace_chapter_chunks(
+                db,
+                novel_id,
+                source_type="chapter_text",
+                chapter_index=chapter_index,
+                items=[],
+                content_mode=content_mode,
+            )
+            return RagIndexReport(
+                chapter_index=chapter_index,
+                content_mode=content_mode,
+                source_draft_id=sources.source_draft_id,
+                source_content_hash=sources.source_content_hash,
+                chunks_created=0,
+            )
 
         chunk_items = [
             build_chunk_create(
                 cn_chunk,
                 chapter_index=chapter_index,
+                content_mode=content_mode,
+                source_draft_id=sources.source_draft_id,
+                source_content_hash=sources.source_content_hash,
                 chunking=self._chunking,
                 project_terms=sources.project_terms,
                 entity_importance_map=sources.entity_importance_map,
                 scenes_for_chapter=sources.scenes_for_chapter,
+                scene_spans_for_chapter=sources.scene_spans_for_chapter,
             )
             for cn_chunk in chunks
         ]
@@ -82,6 +122,7 @@ class IndexingService:
             source_type="chapter_text",
             chapter_index=chapter_index,
             items=chunk_items,
+            content_mode=content_mode,
         )
 
         await db.flush()
@@ -101,6 +142,9 @@ class IndexingService:
 
         return RagIndexReport(
             chapter_index=chapter_index,
+            content_mode=content_mode,
+            source_draft_id=sources.source_draft_id,
+            source_content_hash=sources.source_content_hash,
             chunks_created=len(created_chunks),
             warnings=embedding_result.warnings,
             embedding_failed_count=embedding_result.failed_count,
@@ -114,100 +158,30 @@ class IndexingService:
         chapter_index: int,
         old_content: str,
         new_content: str,
+        *,
+        content_mode: str = "working",
     ) -> RagIndexReport:
-        """增量索引：仅重建变更区域的 chunk。
+        """Compatibility entry point that performs a version-bound full replace.
 
-        使用 difflib.SequenceMatcher 识别文本变更，保留未变区域的已有 chunk。
-        变更率 >= 30% 时自动回退到全量重建，避免大量碎片。
+        Reusing chunks across draft IDs would make their source hash and offsets
+        unverifiable. ``old_content``/``new_content`` remain accepted for wire
+        compatibility, but the current concrete writing source is authoritative.
         """
-        import difflib
+        from dataclasses import replace
 
-        warnings: list[str] = []
-
-        change_ratio = len(new_content) / max(len(old_content), 1)
-        if change_ratio > 1.3 or change_ratio < 0.7:
-            warnings.append(
-                f"文本变更率 {abs(1 - change_ratio):.0%} >= 30%，自动回退全量重建"
-            )
-            return await self.index_chapter_with_report(db, novel_id, chapter_index)
-
-        matcher = difflib.SequenceMatcher(None, old_content, new_content)
-        opcodes = matcher.get_opcodes()
-
-        old_chunks = await self._repo.find_by_chapter(db, novel_id, chapter_index)
-        old_by_offset: dict[tuple[int, int], RagChunk] = {}
-        for c in old_chunks:
-            if c.start_offset is not None and c.end_offset is not None:
-                old_by_offset[(c.start_offset, c.end_offset)] = c
-
-        scenes_for_chapter, project_terms, entity_importance_map = (
-            await collect_annotation_sources(db, novel_id, chapter_index)
+        del old_content, new_content
+        report = await self.index_chapter_with_report(
+            db,
+            novel_id,
+            chapter_index,
+            content_mode=content_mode,
         )
-
-        created_chunks: list[RagChunk] = []
-        reused_old_ids: set[uuid.UUID] = set()
-        embedding_failed_count = 0
-
-        for tag, i1, i2, j1, j2 in opcodes:
-            if tag == "equal":
-                for (start, end), chunk in list(old_by_offset.items()):
-                    if start >= i1 and end <= i2:
-                        created_chunks.append(chunk)
-                        reused_old_ids.add(chunk.id)
-                        old_by_offset.pop((start, end), None)
-
-            elif tag in ("replace", "insert"):
-                new_text = new_content[j1:j2]
-                if not new_text.strip():
-                    continue
-
-                cn_chunks = self._chunking.split_chinese_novel(new_text)
-                for cn_chunk in cn_chunks:
-                    adjusted_chunk = ChineseNovelChunk(
-                        chunk_index=cn_chunk.chunk_index,
-                        text=cn_chunk.text,
-                        start_offset=j1 + cn_chunk.start_offset,
-                        end_offset=j1 + cn_chunk.end_offset,
-                        char_count=cn_chunk.char_count,
-                    )
-                    chunk_data = build_chunk_create(
-                        adjusted_chunk,
-                        chapter_index=chapter_index,
-                        chunking=self._chunking,
-                        project_terms=project_terms,
-                        entity_importance_map=entity_importance_map,
-                        scenes_for_chapter=scenes_for_chapter,
-                        chunk_index=len(created_chunks),
-                    )
-                    chunk = await self._repo.create(db, novel_id, chunk_data)
-                    created_chunks.append(chunk)
-
-        stale_chunk_ids = [
-            chunk.id
-            for chunk in old_by_offset.values()
-            if chunk.id not in reused_old_ids
-        ]
-        if stale_chunk_ids:
-            await self._repo.delete_many(db, stale_chunk_ids)
-
-        await db.flush()
-
-        new_chunks = [c for c in created_chunks if c.embedding_status == "pending"]
-        if new_chunks:
-            embedding_result = await EmbeddingWriter(self._repo).write_batch(
-                db,
-                new_chunks,
-                warning_prefix="增量 embedding 失败",
-            )
-            warnings.extend(embedding_result.warnings)
-            embedding_failed_count = embedding_result.failed_count
-
-        return RagIndexReport(
-            chapter_index=chapter_index,
-            chunks_created=len(created_chunks),
-            warnings=warnings,
-            embedding_failed_count=embedding_failed_count,
-            chunks_created_ids=[str(c.id) for c in created_chunks],
+        return replace(
+            report,
+            warnings=[
+                "版本绑定索引已使用当前正文执行全量替换",
+                *report.warnings,
+            ],
         )
 
     async def retry_embeddings(
@@ -224,7 +198,8 @@ class IndexingService:
         started_at = time.monotonic()
         allowed_statuses = {"failed", "pending_vectorization"}
         retry_statuses = [
-            status for status in (statuses or ["failed", "pending_vectorization"])
+            status
+            for status in (statuses or ["failed", "pending_vectorization"])
             if status in allowed_statuses
         ]
         if not retry_statuses:

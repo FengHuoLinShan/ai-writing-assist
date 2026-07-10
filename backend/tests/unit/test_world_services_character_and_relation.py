@@ -255,6 +255,7 @@ def _make_knowledge(**kwargs) -> CharacterKnowledge:
         "known_content": None,
         "misconception": None,
         "source_chapter_index": None,
+        "is_public_baseline": False,
         "source_memory_id": None,
         "status": "canonical",
     }

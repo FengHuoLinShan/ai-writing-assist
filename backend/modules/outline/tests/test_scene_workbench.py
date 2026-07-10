@@ -355,11 +355,13 @@ class TestSceneWorkbenchApi:
         test_project_id: str,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from modules.outline import cross_chapter_detection
         from modules.outline.cross_chapter_detection import CrossChapterDetectionService
         from modules.outline.repositories import SceneRepository
         from modules.outline.schemas import SceneCreate
-        from modules.writing.contracts import WritingDraftContract
+        from modules.writing.contracts import (
+            SourceRangeRefContract,
+            WritingDraftContract,
+        )
 
         repo = SceneRepository()
         current = await repo.create(
@@ -386,43 +388,67 @@ class TestSceneWorkbenchApi:
         )
         batch_calls: list[list[int]] = []
 
-        async def fail_retrieve(*args, **kwargs):
+        async def fail_evidence_search(*args, **kwargs):
             raise RuntimeError("rag unavailable")
 
-        async def fail_single_fetch(*args, **kwargs):
-            raise AssertionError("should not fetch fallback drafts one by one")
-
-        async def fake_batch_fetch(db, novel_id, chapter_indices):
+        async def fake_batch_fetch(
+            db,
+            novel_id,
+            chapter_indices,
+            *,
+            content_mode,
+        ):
+            assert content_mode == "working"
             batch_calls.append(list(chapter_indices))
             return [
                 WritingDraftContract(
+                    id="00000000-0000-0000-0000-000000000001",
                     novel_id=novel_id,
                     chapter_index=1,
                     content="第一章追击证据",
+                    content_hash="1" * 64,
                 ),
                 WritingDraftContract(
+                    id="00000000-0000-0000-0000-000000000002",
                     novel_id=novel_id,
                     chapter_index=2,
                     content="第二章追击证据",
+                    content_hash="2" * 64,
                 ),
             ]
 
+        async def fake_build_ref(
+            db,
+            novel_id,
+            *,
+            draft_id,
+            start_offset,
+            end_offset,
+            content_mode,
+        ):
+            chapter_index = int(draft_id[-1])
+            return SourceRangeRefContract(
+                draft_id=draft_id,
+                chapter_index=chapter_index,
+                version_number=1,
+                content_mode=content_mode,
+                start_offset=start_offset,
+                end_offset=end_offset,
+                source_hash=str(chapter_index) * 64,
+                range_hash="f" * 64,
+            )
+
         monkeypatch.setattr(
-            cross_chapter_detection.rag_facade,
-            "retrieve",
-            fail_retrieve,
+            "modules.context.facade.search_novel_evidence",
+            fail_evidence_search,
         )
         monkeypatch.setattr(
-            cross_chapter_detection,
-            "get_latest_draft_for_chapter",
-            fail_single_fetch,
-            raising=False,
-        )
-        monkeypatch.setattr(
-            cross_chapter_detection,
-            "list_latest_drafts_for_chapters",
+            "modules.writing.facade.list_manuscript_sources",
             fake_batch_fetch,
-            raising=False,
+        )
+        monkeypatch.setattr(
+            "modules.writing.facade.build_manuscript_range_ref",
+            fake_build_ref,
         )
 
         service = CrossChapterDetectionService()
@@ -835,12 +861,78 @@ class TestSceneWorkbenchApi:
 
         assert resp.status_code == 200, resp.text
         data = resp.json()
-        health_by_scene = {
-            item["scene"]["id"]: item["health"] for item in data["items"]
-        }
+        health_by_scene = {item["scene"]["id"]: item["health"] for item in data["items"]}
         assert "needs_organize" in health_by_scene[first["id"]]
         assert "needs_organize" in health_by_scene[second["id"]]
         assert data["health"]["needs_organize"]["count"] == 2
+
+    async def test_workbench_marks_imprecise_scene_span_needs_organize(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        scene = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "待重定位 Scene",
+                "chapter_ids": ["12"],
+                "scene_chunks": [{"chapter_index": 12}],
+                "goal": "目标",
+                "core_conflict": "冲突",
+                "must_happen": "必须",
+                "must_not_happen": "禁止",
+                "status": "canonical",
+                "structure_meta": {"reviewed_at": "2026-07-06T00:00:00Z"},
+            },
+        )
+
+        resp = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={"novel_id": test_project_id},
+        )
+
+        assert resp.status_code == 200, resp.text
+        item = next(
+            item for item in resp.json()["items"] if item["scene"]["id"] == scene["id"]
+        )
+        assert "needs_organize" in item["health"]
+
+    async def test_workbench_does_not_mark_exact_span_for_mapping_review(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        scene = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "精确映射 Scene",
+                "chapter_ids": ["12"],
+                "scene_chunks": [
+                    {"chapter_index": 12, "start_offset": 0, "end_offset": 4}
+                ],
+                "goal": "目标",
+                "core_conflict": "冲突",
+                "must_happen": "必须",
+                "must_not_happen": "禁止",
+                "status": "canonical",
+                "structure_meta": {"reviewed_at": "2026-07-06T00:00:00Z"},
+            },
+        )
+
+        resp = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={"novel_id": test_project_id},
+        )
+
+        assert resp.status_code == 200, resp.text
+        item = next(
+            item for item in resp.json()["items"] if item["scene"]["id"] == scene["id"]
+        )
+        assert "needs_organize" not in item["health"]
 
     async def test_reviewed_canonical_duplicate_chapters_are_not_needs_organize(
         self,
@@ -885,9 +977,7 @@ class TestSceneWorkbenchApi:
 
         assert resp.status_code == 200, resp.text
         data = resp.json()
-        health_by_scene = {
-            item["scene"]["id"]: item["health"] for item in data["items"]
-        }
+        health_by_scene = {item["scene"]["id"]: item["health"] for item in data["items"]}
         assert "needs_organize" not in health_by_scene[first["id"]]
         assert "needs_organize" not in health_by_scene[second["id"]]
         assert data["health"]["needs_organize"]["count"] == 0
@@ -1339,9 +1429,10 @@ class TestSceneWorkbenchApi:
             second["id"],
         ]
         assert preview["field_references"]["goal"][0]["role"] == "primary"
-        assert {
-            item["scene_id"] for item in preview["field_references"]["goal"]
-        } == {first["id"], second["id"]}
+        assert {item["scene_id"] for item in preview["field_references"]["goal"]} == {
+            first["id"],
+            second["id"],
+        }
 
         for scene in (first, second):
             after_preview = await async_client.get(
@@ -1536,8 +1627,9 @@ class TestSceneWorkbenchApi:
             )
             source_data = source_resp.json()
             assert source_data["status"] == "deprecated"
-            assert source_data["structure_meta"]["fused_into_scene_id"] == (
-                fused_scene["id"]
+            assert (
+                source_data["structure_meta"]["fused_into_scene_id"]
+                == (fused_scene["id"])
             )
 
     async def test_fusion_discard_does_not_create_or_change_sources(

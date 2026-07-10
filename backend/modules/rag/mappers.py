@@ -14,6 +14,8 @@ def chunk_orm_to_contract(
         novel_id=str(chunk.novel_id),
         source_type=chunk.source_type,
         source_id=str(chunk.source_id) if chunk.source_id else None,
+        content_mode=getattr(chunk, "content_mode", "canonical"),
+        source_content_hash=getattr(chunk, "source_content_hash", None),
         chapter_index=chunk.chapter_index,
         chunk_index=chunk.chunk_index,
         start_offset=chunk.start_offset,
@@ -27,6 +29,11 @@ def chunk_orm_to_contract(
         scene_id=(
             str(getattr(chunk, "scene_id", None))
             if getattr(chunk, "scene_id", None)
+            else None
+        ),
+        scene_span_id=(
+            str(getattr(chunk, "scene_span_id", None))
+            if getattr(chunk, "scene_span_id", None)
             else None
         ),
         visibility=chunk.visibility,

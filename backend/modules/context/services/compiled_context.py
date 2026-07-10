@@ -7,6 +7,7 @@ and enforces token budgets through staged eviction.
 from __future__ import annotations
 
 from enum import IntEnum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -43,7 +44,7 @@ class ContextSection(BaseModel):
     preview: str = ""
     status: str = "unknown"
     activation_reason: str = ""
-    sources: list[dict[str, str]] = Field(default_factory=list)
+    sources: list[dict[str, Any]] = Field(default_factory=list)
     can_exclude: bool = True
     excluded: bool = False
     truncated_reason: str | None = None

@@ -10,13 +10,14 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.writing.conflict_evidence import snapshot_location
 from modules.writing.models import WritingConflictCheck, WritingConflictItem, WritingDraft
 from modules.writing.schemas import WritingDraftCreate, WritingDraftUpdate
+from modules.writing.source_hashing import hash_text
 
 
 class WritingDraftRepository:
@@ -35,6 +36,7 @@ class WritingDraftRepository:
             chapter_index=data.chapter_index,
             title=data.title,
             content=data.content,
+            content_hash=hash_text(data.content),
             conflict_check_snapshot_json=None,
             provenance_json=data.provenance_json,
             version_number=await self._next_version_number(
@@ -94,12 +96,31 @@ class WritingDraftRepository:
             .where(
                 WritingDraft.novel_id == novel_id,
                 WritingDraft.chapter_index == chapter_index,
+                WritingDraft.status != "deprecated",
             )
             .order_by(WritingDraft.version_number.desc())
             .limit(1)
         )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_latest_published_by_chapter(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+    ) -> WritingDraft | None:
+        stmt = (
+            select(WritingDraft)
+            .where(
+                WritingDraft.novel_id == novel_id,
+                WritingDraft.chapter_index == chapter_index,
+                WritingDraft.status == "published",
+            )
+            .order_by(WritingDraft.version_number.desc())
+            .limit(1)
+        )
+        return (await db.execute(stmt)).scalar_one_or_none()
 
     async def get_version_history(
         self,
@@ -133,6 +154,8 @@ class WritingDraftRepository:
         )
         if draft is None:
             return None
+        if draft.status == "published":
+            raise ValueError("published drafts cannot be updated in place")
 
         update_values: dict[str, object] = {}
         for field in ("title", "content"):
@@ -143,6 +166,8 @@ class WritingDraftRepository:
         if update_values:
             for field, value in update_values.items():
                 setattr(draft, field, value)
+            if "content" in update_values:
+                draft.content_hash = hash_text(draft.content)
             db.add(draft)
             await db.flush()
 
@@ -153,36 +178,20 @@ class WritingDraftRepository:
         db: AsyncSession,
         draft_id: uuid.UUID,
     ) -> WritingDraft | None:
-        """删除单个版本。返回被删除的 draft（用于后续重排版本号）。"""
+        """软废弃单个版本，保留稳定来源引用。"""
         draft = await self.get(db, draft_id)
         if draft is None:
             return None
 
-        # 删除该版本
-        del_stmt = delete(WritingDraft).where(WritingDraft.id == draft_id)
-        await db.execute(del_stmt)
+        previous_status = draft.status
+        draft.provenance_json = {
+            **(draft.provenance_json or {}),
+            "deprecated_from_status": previous_status,
+        }
+        draft.status = "deprecated"
+        db.add(draft)
         await db.flush()
         return draft
-
-    async def renumber_versions_after_delete(
-        self,
-        db: AsyncSession,
-        novel_id: uuid.UUID,
-        chapter_index: int,
-        deleted_version: int,
-    ) -> None:
-        """删除后重排高于被删版本的版本号（-1）。"""
-        renumber_stmt = (
-            update(WritingDraft)
-            .where(
-                WritingDraft.novel_id == novel_id,
-                WritingDraft.chapter_index == chapter_index,
-                WritingDraft.version_number > deleted_version,
-            )
-            .values(version_number=WritingDraft.version_number - 1)
-        )
-        await db.execute(renumber_stmt)
-        await db.flush()
 
     async def count_versions(
         self,
@@ -190,10 +199,11 @@ class WritingDraftRepository:
         novel_id: uuid.UUID,
         chapter_index: int,
     ) -> int:
-        """返回某章版本总数"""
+        """返回某章未废弃版本数"""
         stmt = select(func.count(WritingDraft.id)).where(
             WritingDraft.novel_id == novel_id,
             WritingDraft.chapter_index == chapter_index,
+            WritingDraft.status != "deprecated",
         )
         result = await db.execute(stmt)
         return result.scalar() or 0
@@ -204,14 +214,23 @@ class WritingDraftRepository:
         novel_id: uuid.UUID,
         chapter_index: int,
     ) -> int:
-        """删除某章全部版本。返回删除的版本数。"""
-        stmt = delete(WritingDraft).where(
+        """软废弃某章全部活跃版本。"""
+        stmt = select(WritingDraft).where(
             WritingDraft.novel_id == novel_id,
             WritingDraft.chapter_index == chapter_index,
+            WritingDraft.status != "deprecated",
         )
-        result = await db.execute(stmt)
+        drafts = list((await db.execute(stmt)).scalars().all())
+        for draft in drafts:
+            draft.provenance_json = {
+                **(draft.provenance_json or {}),
+                "deprecated_from_status": draft.status,
+            }
+            draft.status = "deprecated"
+        if drafts:
+            db.add_all(drafts)
         await db.flush()
-        return result.rowcount or 0
+        return len(drafts)
 
     # ============================================================
     # 内部方法
@@ -225,7 +244,10 @@ class WritingDraftRepository:
         """列出该小说所有有草稿的章节索引（去重、升序）"""
         stmt = (
             select(WritingDraft.chapter_index)
-            .where(WritingDraft.novel_id == novel_id)
+            .where(
+                WritingDraft.novel_id == novel_id,
+                WritingDraft.status != "deprecated",
+            )
             .distinct()
             .order_by(WritingDraft.chapter_index)
         )
@@ -243,7 +265,10 @@ class WritingDraftRepository:
                 WritingDraft.chapter_index.label("chapter_index"),
                 func.max(WritingDraft.version_number).label("version_number"),
             )
-            .where(WritingDraft.novel_id == novel_id)
+            .where(
+                WritingDraft.novel_id == novel_id,
+                WritingDraft.status != "deprecated",
+            )
             .group_by(WritingDraft.chapter_index)
             .subquery()
         )
@@ -254,7 +279,10 @@ class WritingDraftRepository:
                 (WritingDraft.chapter_index == latest_versions.c.chapter_index)
                 & (WritingDraft.version_number == latest_versions.c.version_number),
             )
-            .where(WritingDraft.novel_id == novel_id)
+            .where(
+                WritingDraft.novel_id == novel_id,
+                WritingDraft.status != "deprecated",
+            )
             .order_by(WritingDraft.chapter_index, WritingDraft.id)
         )
         result = await db.execute(stmt)
@@ -280,6 +308,7 @@ class WritingDraftRepository:
             .where(
                 WritingDraft.novel_id == novel_id,
                 WritingDraft.chapter_index.in_(requested),
+                WritingDraft.status != "deprecated",
             )
             .group_by(WritingDraft.chapter_index)
             .subquery()
@@ -291,9 +320,8 @@ class WritingDraftRepository:
                     WritingDraft.novel_id.label("novel_id"),
                     WritingDraft.chapter_index.label("chapter_index"),
                     WritingDraft.title.label("title"),
-                    func.substr(WritingDraft.content, 1, content_limit).label(
-                        "content"
-                    ),
+                    func.substr(WritingDraft.content, 1, content_limit).label("content"),
+                    WritingDraft.content_hash.label("content_hash"),
                     WritingDraft.version_number.label("version_number"),
                     WritingDraft.status.label("status"),
                     WritingDraft.conflict_check_snapshot_json.label(
@@ -321,11 +349,60 @@ class WritingDraftRepository:
                 (WritingDraft.chapter_index == latest_versions.c.chapter_index)
                 & (WritingDraft.version_number == latest_versions.c.version_number),
             )
-            .where(WritingDraft.novel_id == novel_id)
+            .where(
+                WritingDraft.novel_id == novel_id,
+                WritingDraft.status != "deprecated",
+            )
             .order_by(WritingDraft.chapter_index)
         )
         result = await db.execute(stmt)
         return result.scalars().all()
+
+    async def list_latest_by_mode(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_indices: list[int],
+        *,
+        content_mode: str,
+    ) -> Sequence[WritingDraft]:
+        """Return one concrete source version per requested chapter."""
+        requested = sorted({idx for idx in chapter_indices if idx >= 1})
+        if not requested:
+            return []
+        conditions = [
+            WritingDraft.novel_id == novel_id,
+            WritingDraft.chapter_index.in_(requested),
+        ]
+        if content_mode == "canonical":
+            conditions.append(WritingDraft.status == "published")
+        elif content_mode == "working":
+            conditions.append(WritingDraft.status != "deprecated")
+        else:
+            raise ValueError("content_mode must be canonical or working")
+        latest_versions = (
+            select(
+                WritingDraft.chapter_index.label("chapter_index"),
+                func.max(WritingDraft.version_number).label("version_number"),
+            )
+            .where(*conditions)
+            .group_by(WritingDraft.chapter_index)
+            .subquery()
+        )
+        stmt = (
+            select(WritingDraft)
+            .join(
+                latest_versions,
+                (WritingDraft.chapter_index == latest_versions.c.chapter_index)
+                & (WritingDraft.version_number == latest_versions.c.version_number),
+            )
+            .where(
+                WritingDraft.novel_id == novel_id,
+                WritingDraft.status != "deprecated",
+            )
+            .order_by(WritingDraft.chapter_index)
+        )
+        return (await db.execute(stmt)).scalars().all()
 
     async def project_stats(
         self,
@@ -338,7 +415,10 @@ class WritingDraftRepository:
                 WritingDraft.chapter_index.label("chapter_index"),
                 func.max(WritingDraft.version_number).label("version_number"),
             )
-            .where(WritingDraft.novel_id == novel_id)
+            .where(
+                WritingDraft.novel_id == novel_id,
+                WritingDraft.status != "deprecated",
+            )
             .group_by(WritingDraft.chapter_index)
             .subquery()
         )
@@ -376,7 +456,10 @@ class WritingDraftRepository:
                 WritingDraft.chapter_index.label("chapter_index"),
                 func.max(WritingDraft.version_number).label("version_number"),
             )
-            .where(WritingDraft.novel_id.in_(requested))
+            .where(
+                WritingDraft.novel_id.in_(requested),
+                WritingDraft.status != "deprecated",
+            )
             .group_by(WritingDraft.novel_id, WritingDraft.chapter_index)
             .subquery()
         )
@@ -417,11 +500,27 @@ class WritingDraftRepository:
         draft = await self.get_latest_by_chapter(db, novel_id, chapter_index)
         if draft is None:
             raise ValueError(f"No draft found for chapter {chapter_index}")
+        if draft.status == "published":
+            raise ValueError("published drafts cannot be updated in place")
         draft.title = title
         draft.content = content
+        draft.content_hash = hash_text(content)
         db.add(draft)
         await db.flush()
         return draft
+
+    async def has_published_from(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+    ) -> bool:
+        stmt = select(func.count(WritingDraft.id)).where(
+            WritingDraft.novel_id == novel_id,
+            WritingDraft.chapter_index >= chapter_index,
+            WritingDraft.status == "published",
+        )
+        return int((await db.execute(stmt)).scalar() or 0) > 0
 
     async def set_conflict_check_snapshot(
         self,
@@ -605,10 +704,7 @@ class WritingConflictCheckRepository:
             [check.id for check in checks],
             novel_id,
         )
-        return [
-            (check, items_by_check_id.get(check.id, []))
-            for check in checks
-        ], total
+        return [(check, items_by_check_id.get(check.id, [])) for check in checks], total
 
     async def latest_check(
         self,

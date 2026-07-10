@@ -12,12 +12,18 @@ from fastapi import status as http_status
 
 from core.api_params import NovelIdQuery
 from core.dependencies import DbSession
+from modules.context.contracts import VisibilityContextContract
 from modules.context.facade import compile_with_tiers
 from modules.context.facade import confirm_context as _confirm_context
 from modules.context.facade import get_context_snapshot as _get_context_snapshot
+from modules.context.facade import grep_novel_evidence as _grep_novel_evidence
+from modules.context.facade import inspect_novel_target as _inspect_novel_target
 from modules.context.facade import list_context_snapshots as _list_context_snapshots
 from modules.context.facade import preview_activation as _preview_activation
+from modules.context.facade import read_novel_evidence as _read_novel_evidence
 from modules.context.facade import run_snapshot_maintenance as _run_snapshot_maintenance
+from modules.context.facade import search_novel_evidence as _search_novel_evidence
+from modules.context.facade import trace_novel_evidence as _trace_novel_evidence
 from modules.context.markdown_renderer import render_compiled_context
 from modules.context.schemas import (
     ContextActivationPreviewRequest,
@@ -33,8 +39,18 @@ from modules.context.schemas import (
     ContextSnapshotMaintenanceResponse,
     ContextSnapshotResponse,
     ContextTierCompileResponse,
+    EvidenceGrepRequest,
+    EvidenceInspectRequest,
+    EvidenceInspectResponse,
+    EvidenceReadRequest,
+    EvidenceReadResponse,
+    EvidenceSearchRequest,
+    EvidenceSearchResponse,
+    EvidenceTraceRequest,
+    EvidenceTraceResponse,
 )
 from modules.context.services.review_projection import build_tier_compile_response
+from modules.writing.contracts import SourceRangeRefContract
 
 _VALID_SCOPES: frozenset[str] = frozenset(
     {"project", "world", "world_character", "arc", "chapter", "full"}
@@ -74,6 +90,15 @@ def _validate_character_reveal_mode(
             status_code=400,
             detail="character 揭示模式必须提供 viewpoint_character_id",
         )
+    if (
+        request.reveal_mode in {"reader", "character"}
+        and request.visible_until_chapter is None
+        and request.chapter_index is None
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="reader/character 揭示模式必须提供可见截止章",
+        )
 
 
 @router.post("/compile", response_model=ContextTierCompileResponse)
@@ -96,6 +121,9 @@ async def compile_context(
         budget_tokens=request.budget_tokens,
         scene_id=request.scene_id,
         chapter_index=request.chapter_index,
+        visible_until_chapter=request.visible_until_chapter,
+        visible_until_scene_id=request.visible_until_scene_id,
+        visible_until_offset=request.visible_until_offset,
         arc_id=request.arc_id,
         entity_ids=request.entity_ids,
         character_ids=request.character_ids,
@@ -104,6 +132,7 @@ async def compile_context(
         enable_geo_filter=request.enable_geo_filter,
         viewpoint_character_id=request.viewpoint_character_id,
         context_mode=request.context_mode,
+        content_mode=request.content_mode,
         include_pending_objects=request.include_pending_objects,
         excluded_asset_ids=request.excluded_asset_ids,
         user_note=request.user_note,
@@ -133,6 +162,9 @@ async def render_context(
         budget_tokens=request.budget_tokens,
         scene_id=request.scene_id,
         chapter_index=request.chapter_index,
+        visible_until_chapter=request.visible_until_chapter,
+        visible_until_scene_id=request.visible_until_scene_id,
+        visible_until_offset=request.visible_until_offset,
         arc_id=request.arc_id,
         entity_ids=request.entity_ids,
         character_ids=request.character_ids,
@@ -141,6 +173,7 @@ async def render_context(
         enable_geo_filter=request.enable_geo_filter,
         viewpoint_character_id=request.viewpoint_character_id,
         context_mode=request.context_mode,
+        content_mode=request.content_mode,
         include_pending_objects=request.include_pending_objects,
         excluded_asset_ids=request.excluded_asset_ids,
         user_note=request.user_note,
@@ -175,6 +208,9 @@ async def confirm_context(
         task=request.task,
         scope=request.scope,
         chapter_index=request.chapter_index,
+        visible_until_chapter=request.visible_until_chapter,
+        visible_until_scene_id=request.visible_until_scene_id,
+        visible_until_offset=request.visible_until_offset,
         scene_id=request.scene_id,
         arc_id=request.arc_id,
         entity_ids=request.entity_ids,
@@ -185,11 +221,113 @@ async def confirm_context(
         viewpoint_character_id=request.viewpoint_character_id,
         budget_tokens=request.budget_tokens,
         context_mode=request.context_mode,
+        content_mode=request.content_mode,
         include_pending_objects=request.include_pending_objects,
         excluded_asset_ids=request.excluded_asset_ids,
         user_note=request.user_note,
     )
     return ContextConfirmationResponse(**confirmation.__dict__)
+
+
+def _visibility(request) -> VisibilityContextContract:
+    return VisibilityContextContract(**request.model_dump())
+
+
+@router.post("/evidence/grep", response_model=EvidenceSearchResponse)
+async def grep_evidence(
+    db: DbSession,
+    request: EvidenceGrepRequest,
+) -> EvidenceSearchResponse:
+    result = await _grep_novel_evidence(
+        db,
+        novel_id=request.novel_id,
+        pattern=request.pattern,
+        content_mode=request.content_mode,
+        visibility=_visibility(request.visibility),
+        chapter_from=request.chapter_from,
+        chapter_to=request.chapter_to,
+        case_sensitive=request.case_sensitive,
+        skip=request.skip,
+        limit=request.limit,
+    )
+    return EvidenceSearchResponse(**result)
+
+
+@router.post("/evidence/search", response_model=EvidenceSearchResponse)
+async def search_evidence(
+    db: DbSession,
+    request: EvidenceSearchRequest,
+) -> EvidenceSearchResponse:
+    result = await _search_novel_evidence(
+        db,
+        novel_id=request.novel_id,
+        query=request.query,
+        content_mode=request.content_mode,
+        visibility=_visibility(request.visibility),
+        scopes=list(request.scopes),
+        chapter_from=request.chapter_from,
+        chapter_to=request.chapter_to,
+        top_k=request.top_k,
+    )
+    return EvidenceSearchResponse(**result)
+
+
+@router.post("/evidence/read", response_model=EvidenceReadResponse)
+async def read_evidence(
+    db: DbSession,
+    request: EvidenceReadRequest,
+) -> EvidenceReadResponse:
+    if request.source_ref.content_mode != request.content_mode:
+        raise HTTPException(status_code=400, detail="source_ref content_mode mismatch")
+    try:
+        result = await _read_novel_evidence(
+            db,
+            novel_id=request.novel_id,
+            source_ref=SourceRangeRefContract(**request.source_ref.model_dump()),
+            visibility=_visibility(request.visibility),
+            before=request.before,
+            after=request.after,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return EvidenceReadResponse(**result)
+
+
+@router.post("/evidence/inspect", response_model=EvidenceInspectResponse)
+async def inspect_evidence(
+    db: DbSession,
+    request: EvidenceInspectRequest,
+) -> EvidenceInspectResponse:
+    try:
+        result = await _inspect_novel_target(
+            db,
+            novel_id=request.novel_id,
+            target_ref=request.target_ref,
+            content_mode=request.content_mode,
+            visibility=_visibility(request.visibility),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return EvidenceInspectResponse(**result)
+
+
+@router.post("/evidence/trace", response_model=EvidenceTraceResponse)
+async def trace_evidence(
+    db: DbSession,
+    request: EvidenceTraceRequest,
+) -> EvidenceTraceResponse:
+    try:
+        result = await _trace_novel_evidence(
+            db,
+            novel_id=request.novel_id,
+            target_ref=request.target_ref,
+            claim_path=request.claim_path,
+            content_mode=request.content_mode,
+            visibility=_visibility(request.visibility),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return EvidenceTraceResponse(**result)
 
 
 @router.get("/activation-preview", response_model=ContextActivationPreviewResponse)

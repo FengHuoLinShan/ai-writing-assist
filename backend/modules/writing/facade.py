@@ -9,11 +9,19 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.writing.contracts import WritingDraftContract, WritingProjectStatsContract
+from modules.writing.contracts import (
+    ManuscriptReadContract,
+    ManuscriptSearchHitContract,
+    SourceRangeRefContract,
+    WritingDraftContract,
+    WritingProjectStatsContract,
+)
+from modules.writing.manuscript_source import ManuscriptSourceService
 from modules.writing.schemas import WritingDraftCreate
 from modules.writing.services import WritingDraftService
 
 _service = WritingDraftService()
+_manuscript_source = ManuscriptSourceService()
 
 
 async def create_draft_only(
@@ -129,3 +137,65 @@ async def list_project_writing_stats(
 ) -> dict[str, WritingProjectStatsContract]:
     """批量获取项目正文统计（每章只统计最新版本）。"""
     return await _service.list_project_stats(db, novel_ids)
+
+
+async def list_manuscript_sources(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_indices: list[int],
+    *,
+    content_mode: str = "canonical",
+) -> list[WritingDraftContract]:
+    return await _manuscript_source.list_sources(
+        db,
+        novel_id,
+        chapter_indices,
+        content_mode=content_mode,
+    )
+
+
+async def grep_manuscript(
+    db: AsyncSession,
+    novel_id: str,
+    pattern: str,
+    **kwargs,
+) -> tuple[list[ManuscriptSearchHitContract], int, list[int]]:
+    return await _manuscript_source.grep(db, novel_id, pattern, **kwargs)
+
+
+async def read_manuscript_range(
+    db: AsyncSession,
+    novel_id: str,
+    source_ref: SourceRangeRefContract,
+    *,
+    before: int = 3,
+    after: int = 3,
+    max_end_offset: int | None = None,
+) -> ManuscriptReadContract:
+    return await _manuscript_source.read(
+        db,
+        novel_id,
+        source_ref,
+        before=before,
+        after=after,
+        max_end_offset=max_end_offset,
+    )
+
+
+async def build_manuscript_range_ref(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    draft_id: str,
+    start_offset: int,
+    end_offset: int,
+    content_mode: str,
+) -> SourceRangeRefContract:
+    return await _manuscript_source.build_range_ref(
+        db,
+        novel_id,
+        draft_id=draft_id,
+        start_offset=start_offset,
+        end_offset=end_offset,
+        content_mode=content_mode,
+    )

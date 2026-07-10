@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import asdict
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -13,8 +14,6 @@ from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.outline.models import Scene
 from modules.outline.repositories import SceneRepository
-from modules.rag import facade as rag_facade
-from modules.writing.facade import list_latest_drafts_for_chapters
 from shared.utils import parse_uuid
 
 logger = logging.getLogger(__name__)
@@ -175,6 +174,13 @@ class CrossChapterDetectionService:
         chain: list[Scene],
         next_scene: Scene,
     ) -> tuple[list[dict[str, Any]], str | None]:
+        from modules.context.contracts import VisibilityContextContract
+        from modules.context.facade import search_novel_evidence
+        from modules.writing.facade import (
+            build_manuscript_range_ref,
+            list_manuscript_sources,
+        )
+
         chapters = sorted({*_scene_chapters(chain[-1]), *_scene_chapters(next_scene)})
         query = " ".join(
             filter(
@@ -189,26 +195,29 @@ class CrossChapterDetectionService:
         )[:500]
         evidence: list[dict[str, Any]] = []
         try:
-            bundle = await rag_facade.retrieve(
+            result = await search_novel_evidence(
                 db,
-                novel_id,
-                query or "跨章 Scene 边界",
+                novel_id=novel_id,
+                query=query or "跨章 Scene 边界",
+                content_mode="working",
+                visibility=VisibilityContextContract(mode="author"),
+                scopes=["manuscript"],
+                chapter_from=chapters[0] if chapters else None,
+                chapter_to=chapters[-1] if chapters else None,
                 top_k=6,
-                reference_chapter_index=chapters[0] if chapters else None,
             )
-            for chunk in bundle.chunks[:6]:
+            for hit in (result.get("hits") or [])[:6]:
                 evidence.append(
                     {
-                        "source_type": "rag",
-                        "rag_chunk_id": chunk.id,
-                        "scene_id": chunk.scene_id,
-                        "chapter_index": chunk.chapter_index,
-                        "chunk_index": chunk.chunk_index,
-                        "snippet": _clip(chunk.text),
+                        "source_type": "manuscript_evidence",
+                        "source_ref": hit.get("source_ref"),
+                        "scene_refs": hit.get("scene_refs") or [],
+                        "chapter_index": hit.get("chapter_index"),
+                        "snippet": _clip(str(hit.get("snippet") or "")),
                     }
                 )
             if evidence:
-                return evidence, "rag_degraded" if bundle.degraded else None
+                return evidence, "rag_degraded" if result.get("degraded") else None
         except Exception:
             logger.info(
                 "RAG evidence unavailable for cross-chapter detection",
@@ -216,17 +225,33 @@ class CrossChapterDetectionService:
             )
 
         fallback_chapters = chapters[:3]
-        drafts = await list_latest_drafts_for_chapters(db, novel_id, fallback_chapters)
+        drafts = await list_manuscript_sources(
+            db,
+            novel_id,
+            fallback_chapters,
+            content_mode="working",
+        )
         draft_by_chapter = {draft.chapter_index: draft for draft in drafts}
         for chapter in fallback_chapters:
             draft = draft_by_chapter.get(chapter)
-            if draft is None:
+            content = draft.content or "" if draft is not None else ""
+            if draft is None or not draft.id or not content:
                 continue
+            end_offset = min(len(content), SNIPPET_LIMIT)
+            source_ref = await build_manuscript_range_ref(
+                db,
+                novel_id,
+                draft_id=draft.id,
+                start_offset=0,
+                end_offset=end_offset,
+                content_mode="working",
+            )
             evidence.append(
                 {
-                    "source_type": "latest_draft",
+                    "source_type": "manuscript_fallback",
                     "chapter_index": chapter,
-                    "snippet": _clip(draft.content),
+                    "source_ref": asdict(source_ref),
+                    "snippet": content[:end_offset],
                 }
             )
         return evidence, "draft_fallback"

@@ -44,7 +44,7 @@ class TestIndexChapterWithReport:
             # Assert
             assert result is expected
             mock_indexing.index_chapter_with_report.assert_awaited_once_with(
-                db, uuid.UUID(hex=novel_id), 3
+                db, uuid.UUID(hex=novel_id), 3, content_mode="canonical"
             )
 
     @pytest.mark.asyncio

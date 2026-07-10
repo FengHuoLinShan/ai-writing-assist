@@ -15,7 +15,9 @@ from modules.context.contracts import (
     ContextConfirmationContract,
     ContextSnapshotContract,
     ContextSnapshotRequest,
+    ImportContextActivationContract,
     StructureContextBundle,
+    VisibilityContextContract,
 )
 from modules.context.markdown_renderer import (
     render_compiled_context as _render_compiled_context,
@@ -37,6 +39,12 @@ _confirmation_service = ContextConfirmationService()
 _confirmed_ai_action_service = ConfirmedAIActionService(_confirmation_service)
 _snapshot_service = ContextSnapshotService()
 _hidden_guard_builder = HiddenGuardBuilder()
+
+
+def _evidence_service():
+    from modules.context.novel_evidence import NovelEvidenceService
+
+    return NovelEvidenceService()
 
 
 def render_context_markdown(context: StructureContextBundle) -> str:
@@ -65,7 +73,12 @@ async def compile_structure_context(
     task: str,
     scope: str,
     chapter_index: int | None = None,
+    visible_until_chapter: int | None = None,
+    visible_until_scene_id: str | None = None,
+    visible_until_offset: int | None = None,
     arc_id: str | None = None,
+    map_id: str | None = None,
+    focus_entity_id: str | None = None,
     entity_ids: list[str] | None = None,
     character_ids: list[str] | None = None,
     location_ids: list[str] | None = None,
@@ -73,6 +86,7 @@ async def compile_structure_context(
     enable_geo_filter: bool = False,
     viewpoint_character_id: str | None = None,
     context_mode: str = "canonical",
+    content_mode: str = "canonical",
     include_pending_objects: bool = False,
     excluded_asset_ids: dict[str, list[str]] | None = None,
     user_note: str | None = None,
@@ -94,6 +108,7 @@ async def compile_structure_context(
             - chapter: 加载单章所有相关上下文
             - full: 加载所有上下文（有限预算）
         chapter_index: 当前章节索引（scope=chapter 时推荐提供）
+        visible_until_chapter: RAG 读者进度上界；默认由 loader 使用当前章
         arc_id: 当前篇章 ID（scope=arc 时推荐提供）
         entity_ids: 指定关注的世界对象 ID 列表
         character_ids: 指定关注的人物 ID 列表
@@ -114,7 +129,12 @@ async def compile_structure_context(
         task=task,
         scope=scope,
         chapter_index=chapter_index,
+        visible_until_chapter=visible_until_chapter,
+        visible_until_scene_id=visible_until_scene_id,
+        visible_until_offset=visible_until_offset,
         arc_id=arc_id,
+        map_id=map_id,
+        focus_entity_id=focus_entity_id,
         entity_ids=entity_ids,
         character_ids=character_ids,
         location_ids=location_ids,
@@ -122,11 +142,60 @@ async def compile_structure_context(
         enable_geo_filter=enable_geo_filter,
         viewpoint_character_id=viewpoint_character_id,
         context_mode=context_mode,
+        content_mode=content_mode,
         include_pending_objects=include_pending_objects,
         excluded_asset_ids=excluded_asset_ids or {},
         user_note=user_note,
     )
     return await _compiler.compile(db, options)
+
+
+async def prepare_import_context_activation(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    scene_id: str,
+    context_mode: str = "working",
+    budget_tokens: int = 4000,
+    prior_neighbor_limit: int = 2,
+    visible_until_chapter: int | None = None,
+    visible_until_offset: int | None = None,
+) -> ImportContextActivationContract:
+    """Build the only cross-module context input consumed by Phase 2a."""
+    from modules.context.services.import_activation import ImportContextActivationService
+
+    return await ImportContextActivationService().prepare(
+        db,
+        novel_id=novel_id,
+        scene_id=scene_id,
+        context_mode=context_mode,
+        budget_tokens=budget_tokens,
+        prior_neighbor_limit=prior_neighbor_limit,
+        visible_until_chapter=visible_until_chapter,
+        visible_until_offset=visible_until_offset,
+    )
+
+
+async def get_import_scene_source_refs(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    scene_id: str,
+    content_mode: str = "working",
+    visible_until_chapter: int | None = None,
+    visible_until_offset: int | None = None,
+) -> list[dict]:
+    """Return validated source refs for deep-import snapshot provenance."""
+    from modules.context.services.import_activation import ImportContextActivationService
+
+    return await ImportContextActivationService().source_refs(
+        db,
+        novel_id=novel_id,
+        scene_id=scene_id,
+        content_mode=content_mode,
+        visible_until_chapter=visible_until_chapter,
+        visible_until_offset=visible_until_offset,
+    )
 
 
 async def compile_with_tiers(
@@ -204,6 +273,9 @@ async def confirm_context(
     task: str,
     scope: str,
     chapter_index: int | None = None,
+    visible_until_chapter: int | None = None,
+    visible_until_scene_id: str | None = None,
+    visible_until_offset: int | None = None,
     scene_id: str | None = None,
     arc_id: str | None = None,
     entity_ids: list[str] | None = None,
@@ -214,6 +286,7 @@ async def confirm_context(
     viewpoint_character_id: str | None = None,
     budget_tokens: int = 4000,
     context_mode: str = "canonical",
+    content_mode: str = "canonical",
     include_pending_objects: bool = False,
     excluded_asset_ids: dict[str, list[str]] | None = None,
     user_note: str | None = None,
@@ -225,6 +298,9 @@ async def confirm_context(
         task=task,
         scope=scope,
         chapter_index=chapter_index,
+        visible_until_chapter=visible_until_chapter,
+        visible_until_scene_id=visible_until_scene_id,
+        visible_until_offset=visible_until_offset,
         scene_id=scene_id,
         arc_id=arc_id,
         entity_ids=entity_ids,
@@ -235,10 +311,140 @@ async def confirm_context(
         viewpoint_character_id=viewpoint_character_id,
         budget_tokens=budget_tokens,
         context_mode=context_mode,
+        content_mode=content_mode,
         include_pending_objects=include_pending_objects,
         excluded_asset_ids=excluded_asset_ids,
         user_note=user_note,
     )
+
+
+async def grep_novel_evidence(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    pattern: str,
+    content_mode: str,
+    visibility: VisibilityContextContract,
+    chapter_from: int | None = None,
+    chapter_to: int | None = None,
+    case_sensitive: bool = False,
+    skip: int = 0,
+    limit: int = 20,
+) -> dict:
+    return await _evidence_service().grep(
+        db,
+        novel_id=novel_id,
+        pattern=pattern,
+        content_mode=content_mode,
+        visibility=visibility,
+        chapter_from=chapter_from,
+        chapter_to=chapter_to,
+        case_sensitive=case_sensitive,
+        skip=skip,
+        limit=limit,
+    )
+
+
+async def search_novel_evidence(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    query: str,
+    content_mode: str,
+    visibility: VisibilityContextContract,
+    scopes: list[str],
+    chapter_from: int | None = None,
+    chapter_to: int | None = None,
+    top_k: int = 12,
+) -> dict:
+    return await _evidence_service().search(
+        db,
+        novel_id=novel_id,
+        query=query,
+        content_mode=content_mode,
+        visibility=visibility,
+        scopes=scopes,
+        chapter_from=chapter_from,
+        chapter_to=chapter_to,
+        top_k=top_k,
+    )
+
+
+async def read_novel_evidence(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    source_ref,
+    visibility: VisibilityContextContract,
+    before: int = 3,
+    after: int = 3,
+) -> dict:
+    return await _evidence_service().read(
+        db,
+        novel_id=novel_id,
+        source_ref=source_ref,
+        visibility=visibility,
+        before=before,
+        after=after,
+    )
+
+
+async def inspect_novel_target(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    target_ref: dict,
+    content_mode: str,
+    visibility: VisibilityContextContract,
+) -> dict:
+    return await _evidence_service().inspect(
+        db,
+        novel_id=novel_id,
+        target_ref=target_ref,
+        content_mode=content_mode,
+        visibility=visibility,
+    )
+
+
+async def trace_novel_evidence(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    target_ref: dict,
+    claim_path: str,
+    visibility: VisibilityContextContract,
+    content_mode: str = "canonical",
+) -> dict:
+    return await _evidence_service().trace(
+        db,
+        novel_id=novel_id,
+        target_ref=target_ref,
+        claim_path=claim_path,
+        content_mode=content_mode,
+        visibility=visibility,
+    )
+
+
+async def record_evidence_link(
+    db: AsyncSession,
+    **kwargs,
+) -> dict:
+    """Validate the original-text reference before persisting provenance."""
+    return await _evidence_service().record_link(db, **kwargs)
+
+
+async def record_unresolved_evidence_link(
+    db: AsyncSession,
+    **kwargs,
+) -> dict:
+    return await _evidence_service().record_unresolved_link(db, **kwargs)
+
+
+async def locate_scene_quote(
+    db: AsyncSession,
+    **kwargs,
+):
+    return await _evidence_service().locate_scene_quote(db, **kwargs)
 
 
 async def require_confirmation(

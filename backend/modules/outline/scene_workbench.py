@@ -172,13 +172,22 @@ class SceneWorkbenchService:
             all_active_scenes,
         )
         duplicate_chapter_ids = self._duplicate_scene_chapter_ids(all_active_scenes)
+        mapping_review_scene_ids = await self.repo.get_scene_ids_needing_span_review(
+            db,
+            nid,
+        )
 
         visible_scenes = scenes
         if health:
             visible_scenes = [
                 scene
                 for scene in scenes
-                if health in self._scene_health(scene, duplicate_chapter_ids)
+                if health
+                in self._scene_health(
+                    scene,
+                    duplicate_chapter_ids,
+                    mapping_review_scene_ids,
+                )
             ]
             if limit is not None:
                 visible_scenes = visible_scenes[skip : skip + limit]
@@ -188,7 +197,11 @@ class SceneWorkbenchService:
         items = [
             SceneWorkbenchItem(
                 scene=SceneResponse.model_validate(scene),
-                health=self._scene_health(scene, duplicate_chapter_ids),
+                health=self._scene_health(
+                    scene,
+                    duplicate_chapter_ids,
+                    mapping_review_scene_ids,
+                ),
                 chapter_range=self._chapter_range(scene.chapter_ids or []),
                 summary=scene.goal or scene.core_conflict or scene.emotional_beat,
             )
@@ -197,7 +210,11 @@ class SceneWorkbenchService:
 
         counts = {key: 0 for key in HEALTH_DEFS}
         for scene in all_matching_scenes:
-            for key in self._scene_health(scene, duplicate_chapter_ids):
+            for key in self._scene_health(
+                scene,
+                duplicate_chapter_ids,
+                mapping_review_scene_ids,
+            ):
                 counts[key] += 1
         counts["unassigned"] += len(unassigned_chapters)
         total = len(all_matching_scenes)
@@ -301,8 +318,7 @@ class SceneWorkbenchService:
             related_reveals=await self._related_reveal_summary(db, novel_id, start, end),
             map_summary_impact={
                 "message": (
-                    "目标 Scene 将承接来源 Scene 的章节映射；"
-                    "地图摘要将在写作页重新读取。"
+                    "目标 Scene 将承接来源 Scene 的章节映射；地图摘要将在写作页重新读取。"
                 )
             },
             warnings=["关联资产仅提示，不会自动阻断合并。"],
@@ -444,10 +460,7 @@ class SceneWorkbenchService:
             ],
             primary_scene_id=review.primary_scene_id,
             field_references={
-                field: [
-                    ref.model_dump(mode="json", exclude_none=True)
-                    for ref in refs
-                ]
+                field: [ref.model_dump(mode="json", exclude_none=True) for ref in refs]
                 for field, refs in review.field_references.items()
             },
             field_sources=review.field_sources,
@@ -872,6 +885,7 @@ class SceneWorkbenchService:
         self,
         scene: Scene,
         duplicate_chapter_ids: set[str] | None = None,
+        mapping_review_scene_ids: set[uuid.UUID] | None = None,
     ) -> list[str]:
         health: list[str] = []
         meta = scene.structure_meta or {}
@@ -889,7 +903,9 @@ class SceneWorkbenchService:
             for field in ("goal", "core_conflict", "must_happen", "must_not_happen")
         ):
             health.append("missing_setup")
-        if self._needs_organize(scene, duplicate_chapter_ids or set()):
+        if scene.id in (mapping_review_scene_ids or set()) or self._needs_organize(
+            scene, duplicate_chapter_ids or set()
+        ):
             health.append("needs_organize")
         return health
 
@@ -1149,8 +1165,7 @@ class SceneWorkbenchService:
         for plan in result.scalars().all():
             stages = plan.reveal_stages or []
             if any(
-                start <= int(stage.get("chapter_index", 0)) <= end
-                for stage in stages
+                start <= int(stage.get("chapter_index", 0)) <= end for stage in stages
             ):
                 count += 1
         return {"count": count}

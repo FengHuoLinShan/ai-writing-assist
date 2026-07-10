@@ -1228,6 +1228,57 @@ class TestRagFacade:
         assert result.total <= 3
 
     @pytest.mark.asyncio
+    async def test_retrieve_visible_until_chapter_excludes_future_chunks(
+        self,
+        db_with_project: AsyncSession,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+
+        await create_chunk(
+            db_with_project,
+            novel_id,
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=1,
+                text="秘密线索在第一章出现。",
+                importance=0.5,
+            ),
+        )
+        await create_chunk(
+            db_with_project,
+            novel_id,
+            RagChunkCreate(
+                source_type="chapter_text",
+                chapter_index=2,
+                text="秘密线索在第二章揭晓。",
+                importance=0.9,
+            ),
+        )
+        await create_chunk(
+            db_with_project,
+            novel_id,
+            RagChunkCreate(
+                source_type="outline",
+                text="秘密线索的无章节索引。",
+                importance=0.7,
+            ),
+        )
+        await db_with_project.flush()
+
+        result = await retrieve(
+            db_with_project,
+            novel_id,
+            "秘密线索",
+            visible_until_chapter=1,
+            top_k=10,
+        )
+
+        chapters = {chunk.chapter_index for chunk in result.chunks}
+        assert 2 not in chapters
+        assert 1 in chapters
+        assert None in chapters
+
+    @pytest.mark.asyncio
     async def test_retrieve_with_filters(
         self,
         db_with_project: AsyncSession,

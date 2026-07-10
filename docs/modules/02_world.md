@@ -26,7 +26,10 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - `entity_revisions` — 实体快照版本表（旧版快照；当前活跃回滚优先使用 `TextArchive`，无归档时回退到 `EntityRevision`）
 - `characters` — 人物档案（entity_id PK+FK → core_entities.id）
 - `character_knowledge` — 人物知识边界
-- `map_configs` / `map_tiles` / `map_location_bindings` / `map_markers` / `map_territory_tiles` / `map_observations` / `map_facts` — 动态地图子系统表，详见 `docs/modules/15_map.md`
+- `species_profiles` / `faction_profiles` / `location_profiles` / `rule_profiles` / `item_profiles` / `secret_profiles` / `entity_profile_templates` / `generic_entity_profiles` — 世界对象的类型化 Profile 与模板
+- `generation_prompt_templates` / `generation_prompt_template_revisions` / `world_bible_pages` / `world_bible_page_revisions` / `world_bible_page_projections` — 生成模板与世界书资产
+- `knowledge_tags` / `character_knowledge_tags` / `asset_knowledge_tags` / `knowledge_tag_exclusions` / `knowledge_visibility_policies` / `reader_reveal_policies` / `creation_suggestion_queue` / `conflict_check_queue` — 知识标签、可见性和待复核工作队列
+- `map_configs` / `map_tiles` / `map_location_bindings` / `map_location_layouts` / `map_terrain_layers` / `map_terrain_regions` / `map_terrain_patches` / `map_terrain_bindings` / `map_markers` / `map_territory_tiles` / `map_observations` / `map_facts` — 动态地图子系统表，详见 `docs/modules/15_map.md`
 - ~~`entity_candidates`~~ — 已废弃，候选对象直接用 `core_entities.status="candidate"` 表达
 - ~~`relationships`~~ — 已废弃，使用 `entity_relations`
 - ~~`entity_aliases`~~ — 已移除，别名存 `core_entities.content_json.aliases` JSONB
@@ -59,6 +62,10 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - **EntityExtractionService** — RAG 有序 chunk → LLM 抽取 → 实体入库
 - **CharacterService** — 人物 CRUD + 知识边界（从 character 模块迁入）
 - **CharacterKnowledgeService** — 人物知识边界管理
+
+`CharacterKnowledge.source_chapter_index` 表示人物学到该知识的章节。角色视角查询只纳入
+严格早于可见截止章的记录；同章但没有更精确学习位置、或缺少来源章的旧数据默认排除。
+只有明确 `is_public_baseline=true` 的开场公开知识可作为无来源章例外。
 - 动态地图服务 — 详见 `docs/modules/15_map.md`
 
 ### services 子包布局
@@ -211,3 +218,9 @@ DELETE /api/world/knowledge/{knowledge_id}
 - 复杂跨类型实体消歧
 - 所有 Mention 实时 embedding
 - 独立知识图谱数据库
+
+## World Background Aggregation
+
+`world.facade.get_world_background()` 是 context 的只读世界背景接口。它从世界对象、
+关系、已确认地图事实和人物知识边界派生带来源、状态、敏感级别、分组、优先级与 token
+估算的条目；该聚合不新增正史表，也不把 projection 写回事实层。

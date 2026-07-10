@@ -8,8 +8,9 @@ outline 模块把事实层资产组织成剧情结构资产，服务写作、地
 
 - 剧情线 `plot_threads`
 - 篇章纲 `outline_arcs`
-- 章节卡 `chapter_cards`
 - Scene `scenes`
+- SceneSpan `scene_spans`（由 `scene_chunks` 派生的只读查询索引）
+- SceneChapterLink `scene_chapter_links`（Scene 与章节的轻量关联）
 - 伏笔计划 `foreshadowing_plans`
 - 揭示计划 `reveal_plans`
 
@@ -117,6 +118,39 @@ AI Scene 草稿统一由 `SceneDraftReviewService` 生成。`fusion/preview` 要
 递归扩展建议，不直接改库。前端打开建议后进入同一个 Scene 草稿审稿界面，
 由用户选择主 Scene 并确认编辑后再复用 `fusion/save` 保存。
 
+### SceneSpan 派生读模型
+
+`scene_spans` 是 outline 拥有的派生读模型，用于把 Scene 的逻辑卡片映射到
+具体章节文本片段。权威输入仍是 `scenes.scene_chunks`；现有 API/前端继续返回
+`scene_chunks`，不把 `scene_spans` 作为新的编辑入口。
+
+同步规则：
+
+- `SceneRepository` 统一从 `scene_chunks` 同步 `scene_chapter_links` 和
+  `scene_spans`，覆盖 create、create_many、update、Workbench merge/split/fusion、
+  断章、deprecated 和 deep-import cleanup。
+- Workbench 的 `start_pos/end_pos` 映射为 `start_offset/end_offset`；deep-import 的
+  `start_paragraph/end_paragraph` 保留为段落边界；缺失 offset 时允许 span offset 为
+  null。
+- `scene_spans.source/status` 镜像 Scene，不建立独立生命周期。默认只读查询排除
+  `deprecated` span。
+- span 以 `(novel_id, scene_id, content_mode, part_no)` 唯一，并保存
+  `source_draft_id/source_content_hash/mapping_status/anchor_hash`。新正文版本使用
+  anchor 字面匹配重定位：唯一命中为 `reanchored`，无精确范围为
+  `chapter_only`，歧义/缺失为 `unresolved`。只有精确绑定当前源 hash 的
+  span 可自动归因证据；`chapter_only` / `unresolved` 会进入 Scene
+  工作台“待整理”人工复核入口。
+- 跨模块调用只能通过 `modules.outline.facade.get_scene_spans_by_chapter()` /
+  `get_scene_spans_for_scene()` 获取 `SceneSpanContract`。
+
+`scene_summary_checkpoints` 是可重建的派生摘要，保存可见截止位置、source refs
+与 `based_on_hash`。checkpoint 只能消费截止位置以前的精确 span；hash 失效时
+忽略。缺少 checkpoint 时只降级为可见原文摘录，不使用可能包含未来内容的
+完整 Scene 卡摘要。
+
+`get_reader_reveal_decision()` 是 `reveal_plans` 的确定性读者可见性 seam。
+同章但无法确定先后的 reveal stage 不视为已揭示；context 在返回对象前会再执行该判定。
+
 ## 结构资产智能去重
 
 outline 模块拥有剧情线、篇章纲、Scene、伏笔和揭示的去重判断与应用规则。
@@ -145,6 +179,12 @@ RAG 片段或资产摘要作为证据交给 LLM 判断 `merge`、`deprecate_dupl
 ```python
 async def get_scene(...)
 async def get_scene_contract(...)
+async def get_scene_spans_by_chapter(...)
+async def get_scene_spans_for_scene(...)
+async def bind_scene_spans_to_source(...)
+async def get_scene_summary_checkpoint(...)
+async def rebuild_scene_summary_checkpoint(...)
+async def get_reader_reveal_decision(...)
 async def get_scenes_by_novel(...)
 async def get_scenes_by_chapter(...)
 async def suggest_structure_dedup(...)

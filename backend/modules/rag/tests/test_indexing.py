@@ -21,6 +21,225 @@ def repo() -> RagChunkRepository:
 
 
 @pytest.mark.asyncio
+async def test_index_state_coalesces_requests_and_requeues_latest_source(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from unittest.mock import MagicMock, patch
+
+    from modules.rag.contracts import RagIndexReport
+    from modules.rag.index_state import RagIndexStateService
+    from modules.writing.facade import create_draft_only
+
+    first_source = await create_draft_only(
+        db_session,
+        test_project_id,
+        19,
+        content="第一个工作稿",
+    )
+    service = RagIndexStateService()
+    enqueue = MagicMock(side_effect=["task-1", "task-2"])
+    with patch("modules.rag.index_state.enqueue_task", enqueue):
+        first = await service.request(
+            db_session,
+            novel_id=test_project_id,
+            chapter_index=19,
+            content_mode="working",
+        )
+        duplicate = await service.request(
+            db_session,
+            novel_id=test_project_id,
+            chapter_index=19,
+            content_mode="working",
+        )
+
+        assert first["task_id"] == "task-1"
+        assert duplicate["task_id"] is None
+        assert enqueue.call_count == 1
+
+        await service.mark_running(
+            db_session,
+            novel_id=test_project_id,
+            chapter_index=19,
+            content_mode="working",
+        )
+        second_source = await create_draft_only(
+            db_session,
+            test_project_id,
+            19,
+            content="执行中又产生的最新工作稿",
+        )
+        refreshed = await service.request(
+            db_session,
+            novel_id=test_project_id,
+            chapter_index=19,
+            content_mode="working",
+        )
+        assert refreshed["task_id"] is None
+        assert refreshed["requested_source_id"] == second_source.id
+        assert enqueue.call_count == 1
+
+        requeued = await service.finish(
+            db_session,
+            novel_id=test_project_id,
+            report=RagIndexReport(
+                chapter_index=19,
+                content_mode="working",
+                source_draft_id=first_source.id,
+                source_content_hash=first_source.content_hash,
+                chunks_created=1,
+            ),
+        )
+
+    assert requeued == "task-2"
+    assert enqueue.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_mark_index_dirty_records_publish_source_without_extra_task(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from unittest.mock import MagicMock, patch
+
+    from modules.rag.index_state import RagIndexStateService
+    from modules.writing.facade import create_published_draft_only
+
+    source = await create_published_draft_only(
+        db_session,
+        test_project_id,
+        20,
+        content="新发布正文",
+    )
+    enqueue = MagicMock()
+    with patch("modules.rag.index_state.enqueue_task", enqueue):
+        state = await RagIndexStateService().mark_dirty(
+            db_session,
+            novel_id=test_project_id,
+            chapter_index=20,
+            content_mode="canonical",
+        )
+
+    assert state["status"] == "pending"
+    assert state["requested_source_id"] == source.id
+    assert state["requested_hash"] == source.content_hash
+    enqueue.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_direct_and_queued_index_claims_skip_duplicate_execution(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from modules.rag.contracts import RagIndexReport
+    from modules.rag.index_state import RagIndexStateService
+    from modules.writing.facade import create_published_draft_only
+
+    source = await create_published_draft_only(
+        db_session,
+        test_project_id,
+        21,
+        content="只应索引一次",
+    )
+    service = RagIndexStateService()
+    await service.mark_dirty(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=21,
+        content_mode="canonical",
+    )
+
+    assert await service.begin_direct(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=21,
+        content_mode="canonical",
+    )
+    assert not await service.begin_direct(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=21,
+        content_mode="canonical",
+    )
+    assert not await service.mark_running(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=21,
+        content_mode="canonical",
+    )
+
+    await service.finish(
+        db_session,
+        novel_id=test_project_id,
+        report=RagIndexReport(
+            chapter_index=21,
+            content_mode="canonical",
+            source_draft_id=source.id,
+            source_content_hash=source.content_hash,
+            chunks_created=1,
+        ),
+    )
+
+    assert not await service.begin_direct(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=21,
+        content_mode="canonical",
+    )
+    assert await service.begin_direct(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=21,
+        content_mode="canonical",
+        force=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_legacy_queued_index_claim_creates_missing_state(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from modules.rag.index_state import RagIndexStateService
+    from modules.writing.facade import create_draft_only
+
+    source = await create_draft_only(
+        db_session,
+        test_project_id,
+        22,
+        content="旧入队路径仍可建立状态",
+    )
+    service = RagIndexStateService()
+
+    assert await service.mark_running(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=22,
+        content_mode="working",
+    )
+    state = await service.freshness(
+        db_session,
+        novel_id=test_project_id,
+        content_mode="working",
+        chapter_from=22,
+        chapter_to=22,
+    )
+
+    assert state["total"] == 1
+    assert state["statuses"] == ["running"]
+    stored = await service._get(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=22,
+        content_mode="working",
+        lock=False,
+    )
+    assert stored is not None
+    assert str(stored.requested_source_id) == source.id
+    assert stored.requested_hash == source.content_hash
+
+
+@pytest.mark.asyncio
 async def test_embedding_writer_updates_loaded_chunks_without_refetching() -> None:
     """Embedding writer 已持有 chunk，不应每个 embedding 再按 id 查询。"""
     from modules.rag.embedding_writer import EmbeddingWriter
@@ -162,6 +381,17 @@ async def test_collect_annotation_sources_uses_chapter_scene_lookup(
         assert chapter_index == 2
         return [scene]
 
+    async def _get_scene_spans_by_chapter(
+        db,
+        novel_id_arg: str,
+        chapter_index: int,
+        **_kwargs,
+    ):
+        calls.append("chapter_spans")
+        assert novel_id_arg == str(novel_id)
+        assert chapter_index == 2
+        return []
+
     async def _load_terms(*args, **kwargs):
         return []
 
@@ -181,6 +411,12 @@ async def test_collect_annotation_sources_uses_chapter_scene_lookup(
         _get_scenes_by_chapter,
         raising=False,
     )
+    monkeypatch.setattr(
+        outline_facade,
+        "get_scene_spans_by_chapter",
+        _get_scene_spans_by_chapter,
+        raising=False,
+    )
     monkeypatch.setattr(source_collection, "_load_project_terms", _load_terms)
     monkeypatch.setattr(
         source_collection,
@@ -188,16 +424,60 @@ async def test_collect_annotation_sources_uses_chapter_scene_lookup(
         lambda name: _importance_map,
     )
 
-    scenes, terms, importance = await source_collection.collect_annotation_sources(
-        None,  # type: ignore[arg-type]
-        novel_id,
-        2,
-    )
+    (
+        scenes,
+        spans,
+        terms,
+        importance,
+    ) = await source_collection.collect_annotation_sources(None, novel_id, 2)  # type: ignore[arg-type]
 
-    assert calls == ["chapter_scenes"]
+    assert calls == ["chapter_scenes", "chapter_spans"]
     assert scenes == [scene]
+    assert spans == []
     assert terms == []
     assert importance == {}
+
+
+def test_build_chunk_create_prefers_scene_span_overlap() -> None:
+    from modules.rag.chunk_annotation import build_chunk_create
+    from modules.rag.chunking import ChineseNovelChunk, ChunkingService
+
+    scene_id = uuid.uuid4()
+    span_id = uuid.uuid4()
+    fallback_scene_id = uuid.uuid4()
+    cn_chunk = ChineseNovelChunk(
+        chunk_index=0,
+        text="命中 span 的正文片段",
+        start_offset=30,
+        end_offset=50,
+        char_count=9,
+    )
+
+    data = build_chunk_create(
+        cn_chunk,
+        chapter_index=2,
+        chunking=ChunkingService(),
+        project_terms=[],
+        entity_importance_map={},
+        scenes_for_chapter=[
+            {
+                "id": str(fallback_scene_id),
+                "scene_chunks": [{"chapter_index": 2, "start_pos": 0, "end_pos": 100}],
+            }
+        ],
+        scene_spans_for_chapter=[
+            SimpleNamespace(
+                id=str(span_id),
+                scene_id=str(scene_id),
+                start_offset=20,
+                end_offset=60,
+                mapping_status="exact",
+            )
+        ],
+    )
+
+    assert data.scene_id == str(scene_id)
+    assert data.scene_span_id == str(span_id)
 
 
 @pytest.mark.asyncio
@@ -256,6 +536,7 @@ async def test_index_chapter_bulk_creates_chunks(
             db_session,
             nid_uuid,
             1,
+            content_mode="working",
         )
 
     assert repo.replace_calls == 1
@@ -276,6 +557,7 @@ async def test_replace_chapter_chunks_is_idempotent_for_same_chapter(
     first = [
         RagChunkCreate(
             source_type="chapter_text",
+            content_mode="working",
             chapter_index=1,
             chunk_index=0,
             text="旧 chunk 0",
@@ -283,6 +565,7 @@ async def test_replace_chapter_chunks_is_idempotent_for_same_chapter(
         ),
         RagChunkCreate(
             source_type="chapter_text",
+            content_mode="working",
             chapter_index=1,
             chunk_index=1,
             text="旧 chunk 1",
@@ -292,6 +575,7 @@ async def test_replace_chapter_chunks_is_idempotent_for_same_chapter(
     second = [
         RagChunkCreate(
             source_type="chapter_text",
+            content_mode="working",
             chapter_index=1,
             chunk_index=0,
             text="新 chunk 0",
@@ -319,6 +603,7 @@ async def test_replace_chapter_chunks_is_idempotent_for_same_chapter(
         nid,
         1,
         source_type="chapter_text",
+        content_mode="working",
     )
     assert [(chunk.chunk_index, chunk.text) for chunk in chunks] == [(0, "新 chunk 0")]
 
@@ -375,6 +660,69 @@ async def test_delete_by_chapter_removes_chunks(
 
 
 @pytest.mark.asyncio
+async def test_deleted_rag_data_can_be_fully_rebuilt_from_writing(
+    db_session: AsyncSession,
+    repo: RagChunkRepository,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from unittest.mock import AsyncMock, patch
+
+    from modules.rag.facade import index_chapter_with_report
+    from modules.writing.facade import create_draft_only
+
+    content = "原文是唯一事实源，派生索引可删除重建。" * 20
+    draft = await create_draft_only(
+        db_session,
+        test_project_id,
+        6,
+        content=content,
+    )
+    with patch("infrastructure.llm.client.LLMClient") as client_cls:
+        client = AsyncMock()
+        client.generate_embedding = AsyncMock(side_effect=Exception("offline"))
+        client_cls.return_value = client
+        first = await index_chapter_with_report(
+            db_session,
+            test_project_id,
+            6,
+            content_mode="working",
+        )
+
+    assert first.chunks_created > 0
+    await repo.delete_by_novel(db_session, uuid.UUID(test_project_id))
+    assert (
+        await repo.find_by_chapter(
+            db_session,
+            uuid.UUID(test_project_id),
+            6,
+            content_mode="working",
+        )
+        == []
+    )
+
+    with patch("infrastructure.llm.client.LLMClient") as client_cls:
+        client = AsyncMock()
+        client.generate_embedding = AsyncMock(side_effect=Exception("offline"))
+        client_cls.return_value = client
+        rebuilt = await index_chapter_with_report(
+            db_session,
+            test_project_id,
+            6,
+            content_mode="working",
+        )
+
+    chunks = await repo.find_by_chapter(
+        db_session,
+        uuid.UUID(test_project_id),
+        6,
+        content_mode="working",
+    )
+    assert len(chunks) == rebuilt.chunks_created == first.chunks_created
+    assert all(chunk.source_id == uuid.UUID(draft.id or "") for chunk in chunks)
+    assert all(chunk.source_content_hash == draft.content_hash for chunk in chunks)
+
+
+@pytest.mark.asyncio
 async def test_delete_by_chapter_no_op_when_none(
     db_session: AsyncSession,
     repo: RagChunkRepository,
@@ -414,19 +762,29 @@ async def test_index_chapter_creates_chunks_with_character_ids(
     await db_session.flush()
 
     # 执行索引
-    chunk_count = await index_chapter(db_session, test_project_id, 1)
+    chunk_count = await index_chapter(
+        db_session,
+        test_project_id,
+        1,
+        content_mode="working",
+    )
     assert chunk_count > 0, f"应创建至少 1 个 chunk，实际创建 {chunk_count}"
 
     # 验证 chunk 包含 character_ids
-    chunks = await repo.find_by_chapter(db_session, nid_uuid, 1)
+    chunks = await repo.find_by_chapter(
+        db_session,
+        nid_uuid,
+        1,
+        content_mode="working",
+    )
     assert len(chunks) > 0, "应能找到第 1 章的 chunk"
 
-    # CoreEntity 角色的 ID 出现在 entity_ids（list_entity_terms 返回 type="entity"）
-    all_entity_ids = []
+    # CoreEntity 角色的 ID 按 entity_type 归入 character_ids。
+    all_character_ids = []
     for c in chunks:
-        all_entity_ids.extend(c.entity_ids or [])
-    assert test_character_id in all_entity_ids, (
-        f"chunk 应包含角色 entity ID {test_character_id}，实际包含: {all_entity_ids}"
+        all_character_ids.extend(c.character_ids or [])
+    assert test_character_id in all_character_ids, (
+        f"chunk 应包含角色 ID {test_character_id}，实际包含: {all_character_ids}"
     )
 
 
@@ -453,6 +811,7 @@ async def test_index_chapter_replaces_old_chunks(
             source_type="chapter_text",
             chapter_index=1,
             text="旧内容。",
+            content_mode="working",
         ),
     )
 
@@ -469,11 +828,21 @@ async def test_index_chapter_replaces_old_chunks(
     await db_session.flush()
 
     # 索引新内容
-    chunk_count = await index_chapter(db_session, test_project_id, 1)
+    chunk_count = await index_chapter(
+        db_session,
+        test_project_id,
+        1,
+        content_mode="working",
+    )
     assert chunk_count > 0
 
     # 验证只有新 chunk，旧 chunk 被替换
-    chunks = await repo.find_by_chapter(db_session, nid_uuid, 1)
+    chunks = await repo.find_by_chapter(
+        db_session,
+        nid_uuid,
+        1,
+        content_mode="working",
+    )
     for c in chunks:
         assert "旧内容" not in c.text, "旧 chunk 应已被删除"
 
@@ -517,7 +886,12 @@ async def test_index_chapter_with_embeddings(
         mock_client.generate_embedding = AsyncMock(side_effect=_fake_batch_embedding)
         mock_client_cls.return_value = mock_client
 
-        chunk_count = await index_chapter(db_session, test_project_id, 1)
+        chunk_count = await index_chapter(
+            db_session,
+            test_project_id,
+            1,
+            content_mode="working",
+        )
 
     assert chunk_count > 0, "应创建 chunks"
 
@@ -533,13 +907,16 @@ async def test_index_chapter_with_embeddings(
 
 
 @pytest.mark.asyncio
-async def test_incremental_index_reuses_equal_chunks_without_mutating_iteration(
+async def test_incremental_index_replaces_chunks_with_current_version_binding(
     db_session: AsyncSession,
     repo: RagChunkRepository,
     test_project_id: str,  # noqa: F811
 ):
-    """增量索引复用 unchanged chunk 时不能边遍历 dict 边删除 key。"""
+    """兼容增量入口必须用当前 draft/hash 全量替换旧 chunk。"""
+    from unittest.mock import AsyncMock, patch
+
     from modules.rag.indexing import IndexingService
+    from modules.writing.facade import create_draft_only
 
     nid_uuid = uuid.UUID(hex=test_project_id)
     old_chunk = await repo.create(
@@ -547,6 +924,7 @@ async def test_incremental_index_reuses_equal_chunks_without_mutating_iteration(
         nid_uuid,
         RagChunkCreate(
             source_type="chapter_text",
+            content_mode="working",
             chapter_index=1,
             chunk_index=0,
             start_offset=0,
@@ -558,96 +936,73 @@ async def test_incremental_index_reuses_equal_chunks_without_mutating_iteration(
     )
     await db_session.flush()
 
-    report = await IndexingService(repo=repo).index_chapter_incremental(
+    draft = await create_draft_only(
+        db_session,
+        test_project_id,
+        1,
+        content="完全相同",
+    )
+
+    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.generate_embedding = AsyncMock(side_effect=Exception("offline"))
+        mock_client_cls.return_value = mock_client
+        report = await IndexingService(repo=repo).index_chapter_incremental(
+            db_session,
+            nid_uuid,
+            1,
+            old_content="完全相同",
+            new_content="完全相同",
+            content_mode="working",
+        )
+
+    chunks = await repo.find_by_chapter(
         db_session,
         nid_uuid,
         1,
-        old_content="完全相同",
-        new_content="完全相同",
+        content_mode="working",
     )
-
-    chunks = await repo.find_by_chapter(db_session, nid_uuid, 1)
-    assert report.chunks_created_ids == [str(old_chunk.id)]
-    assert [chunk.id for chunk in chunks] == [old_chunk.id]
+    assert old_chunk.id not in {chunk.id for chunk in chunks}
+    assert chunks
+    assert all(str(chunk.source_id) == draft.id for chunk in chunks)
+    assert all(chunk.source_content_hash == draft.content_hash for chunk in chunks)
+    assert "全量替换" in report.warnings[0]
 
 
 @pytest.mark.asyncio
-async def test_incremental_index_bulk_deletes_stale_chunks(
+async def test_incremental_index_delegates_to_version_bound_full_index(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """增量索引清理旧 chunk 时不应逐个 delete/flush。"""
-    from modules.rag import indexing
+    """兼容入口不再复用旧版本 chunk。"""
+    from unittest.mock import AsyncMock
+
+    from modules.rag.contracts import RagIndexReport
     from modules.rag.indexing import IndexingService
 
-    reused_id = uuid.uuid4()
-    stale_id = uuid.uuid4()
-    created_id = uuid.uuid4()
     novel_id = uuid.uuid4()
-    old_chunks = [
-        SimpleNamespace(
-            id=reused_id,
-            start_offset=0,
-            end_offset=5,
-            text="aaaaa",
-            embedding_status="succeeded",
-        ),
-        SimpleNamespace(
-            id=stale_id,
-            start_offset=5,
-            end_offset=10,
-            text="bbbbb",
-            embedding_status="succeeded",
-        ),
-    ]
+    service = IndexingService()
+    full_report = RagIndexReport(
+        chapter_index=1,
+        content_mode="working",
+        source_draft_id=str(uuid.uuid4()),
+        source_content_hash="a" * 64,
+        chunks_created=2,
+    )
+    full_index = AsyncMock(return_value=full_report)
+    monkeypatch.setattr(service, "index_chapter_with_report", full_index)
 
-    class Repo:
-        def __init__(self) -> None:
-            self.deleted_many: list[list[uuid.UUID]] = []
-
-        async def find_by_chapter(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
-            return old_chunks
-
-        async def create(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
-            return SimpleNamespace(
-                id=created_id,
-                start_offset=5,
-                end_offset=10,
-                text="ccccc",
-                embedding_status="succeeded",
-            )
-
-        async def delete_many(self, _db, chunk_ids):  # type: ignore[no-untyped-def]
-            self.deleted_many.append(list(chunk_ids))
-            return len(chunk_ids)
-
-        async def delete(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
-            raise AssertionError("incremental index should bulk-delete stale chunks")
-
-    class DB:
-        def __init__(self) -> None:
-            self.flush_count = 0
-
-        async def flush(self) -> None:
-            self.flush_count += 1
-
-    async def empty_annotation_sources(*_args, **_kwargs):  # type: ignore[no-untyped-def]
-        return [], [], {}
-
-    repo = Repo()
-    db = DB()
-    monkeypatch.setattr(indexing, "collect_annotation_sources", empty_annotation_sources)
-
-    report = await IndexingService(repo=repo).index_chapter_incremental(  # type: ignore[arg-type]
-        db,  # type: ignore[arg-type]
+    report = await service.index_chapter_incremental(
+        SimpleNamespace(),  # type: ignore[arg-type]
         novel_id,
         1,
         old_content="aaaaabbbbb",
         new_content="aaaaaccccc",
+        content_mode="working",
     )
 
-    assert repo.deleted_many == [[stale_id]]
-    assert report.chunks_created_ids == [str(reused_id), str(created_id)]
-    assert db.flush_count == 1
+    full_index.assert_awaited_once()
+    assert report.source_draft_id == full_report.source_draft_id
+    assert "全量替换" in report.warnings[0]
 
 
 @pytest.mark.asyncio
@@ -719,7 +1074,12 @@ async def test_index_chapter_uses_cn_novel_index_and_project_terms(
         )
         mock_client_cls.return_value = mock_client
 
-        report = await index_chapter_with_report(db_session, test_project_id, 1)
+        report = await index_chapter_with_report(
+            db_session,
+            test_project_id,
+            1,
+            content_mode="working",
+        )
 
     assert report.chunks_created > 0
     assert report.embedding_failed_count == report.chunks_created
@@ -731,8 +1091,8 @@ async def test_index_chapter_uses_cn_novel_index_and_project_terms(
     assert all(c.chunk_index is not None for c in chunks)
     assert all(c.start_offset is not None and c.end_offset is not None for c in chunks)
     assert all(c.char_count == len(c.text) for c in chunks)
-    # CoreEntity 角色的 ID 作为 entity_id（item["type"] == "entity"）匹配
-    assert any(str(char_id) in (c.entity_ids or []) for c in chunks)
+    # CoreEntity 角色按 entity_type 进入 character_ids。
+    assert any(str(char_id) in (c.character_ids or []) for c in chunks)
     assert any(str(entity_id) in (c.entity_ids or []) for c in chunks)
     assert all(c.embedding_status == "failed" for c in chunks)
 
@@ -771,7 +1131,12 @@ async def test_index_chapter_embedding_empty_when_no_llm(
         mock_client_cls.return_value = mock_client
 
         # 不应抛出异常
-        chunk_count = await index_chapter(db_session, test_project_id, 1)
+        chunk_count = await index_chapter(
+            db_session,
+            test_project_id,
+            1,
+            content_mode="working",
+        )
 
     assert chunk_count > 0, "即使 embedding 失败也应创建 chunks"
     chunks = await repo.find_by_chapter(db_session, nid_uuid, 1)
@@ -808,7 +1173,7 @@ async def test_reindex_novel_task_rebuilds_all_chapters_with_report(
         id=uuid.uuid4(),
         task_type="rag_reindex_novel",
         status="running",
-        meta={"novel_id": test_project_id, "force": True},
+        meta={"novel_id": test_project_id, "force": True, "content_mode": "working"},
         progress=0.0,
     )
     db_session.add(task)
@@ -840,7 +1205,12 @@ async def test_index_chapter_skips_no_draft(
     """RED: 无草稿的章节应返回 0"""
     from modules.rag.facade import index_chapter
 
-    count = await index_chapter(db_session, test_project_id, 99)
+    count = await index_chapter(
+        db_session,
+        test_project_id,
+        99,
+        content_mode="working",
+    )
     assert count == 0, "无草稿章节应返回 0"
 
 
@@ -876,7 +1246,12 @@ async def test_index_chapter_replaces_stale_chunks_on_update(
         mock_client = AsyncMock()
         mock_client.generate_embedding = AsyncMock(return_value=fake_embedding)
         mock_client_cls.return_value = mock_client
-        result = await index_chapter_with_report(db_session, test_project_id, 1)
+        result = await index_chapter_with_report(
+            db_session,
+            test_project_id,
+            1,
+            content_mode="working",
+        )
 
     assert result.chunks_created > 0
     chunks = await repo.find_by_chapter(db_session, nid_uuid, 1)
@@ -900,7 +1275,12 @@ async def test_index_chapter_replaces_stale_chunks_on_update(
         mock_client = AsyncMock()
         mock_client.generate_embedding = AsyncMock(return_value=fake_embedding)
         mock_client_cls.return_value = mock_client
-        result = await index_chapter_with_report(db_session, test_project_id, 1)
+        result = await index_chapter_with_report(
+            db_session,
+            test_project_id,
+            1,
+            content_mode="working",
+        )
 
     assert result.chunks_created > 0
     chunks = await repo.find_by_chapter(db_session, nid_uuid, 1)
@@ -944,7 +1324,12 @@ async def test_index_chapter_with_report_marks_failed_embeddings(
             side_effect=Exception("embedding down"),
         )
         mock_client_cls.return_value = mock_client
-        result = await index_chapter_with_report(db_session, test_project_id, 1)
+        result = await index_chapter_with_report(
+            db_session,
+            test_project_id,
+            1,
+            content_mode="working",
+        )
 
     chunks = await repo.find_by_chapter(db_session, nid_uuid, 1)
     assert any(c.embedding_status == "failed" for c in chunks)
@@ -1007,7 +1392,12 @@ async def test_index_chapter_annotates_scene_id(
         mock_client.generate_embedding = AsyncMock(side_effect=embed_exc)
         mock_client_cls.return_value = mock_client
 
-        report = await index_chapter_with_report(db_session, test_project_id, 1)
+        report = await index_chapter_with_report(
+            db_session,
+            test_project_id,
+            1,
+            content_mode="working",
+        )
 
     assert report.chunks_created > 0
     chunks = await repo.find_by_chapter(db_session, nid_uuid, 1)
@@ -1015,15 +1405,18 @@ async def test_index_chapter_annotates_scene_id(
     assert any(str(c.scene_id) == str(scene.id) for c in chunks), (
         f"至少有一个 chunk 应被标注 scene_id {scene.id}"
     )
+    assert any(c.scene_span_id is not None for c in chunks), (
+        "至少有一个 chunk 应被标注 scene_span_id"
+    )
 
 
 @pytest.mark.asyncio
-async def test_index_chapter_uses_chapter_scene_fallback_without_offsets(
+async def test_index_chapter_does_not_attribute_chapter_only_scene_span(
     db_session: AsyncSession,
     repo: RagChunkRepository,
     test_project_id: str,  # noqa: F811
 ):
-    """只有段落映射、没有字符偏移时，应回退到章节级 scene_id。"""
+    """只有章节/段落映射时，不得自动将 chunk 归因到 Scene。"""
     import uuid as _uuid
     from unittest.mock import AsyncMock, patch
 
@@ -1036,7 +1429,7 @@ async def test_index_chapter_uses_chapter_scene_fallback_without_offsets(
     scene_repo = SceneRepository()
 
     content = "克莱恩在廷根整理线索，确认占卜与梦境的关系。" * 30
-    scene = await scene_repo.create(
+    await scene_repo.create(
         db_session,
         nid_uuid,
         SceneCreate(
@@ -1071,12 +1464,17 @@ async def test_index_chapter_uses_chapter_scene_fallback_without_offsets(
         mock_client.generate_embedding = AsyncMock(side_effect=Exception("offline"))
         mock_client_cls.return_value = mock_client
 
-        report = await index_chapter_with_report(db_session, test_project_id, 1)
+        report = await index_chapter_with_report(
+            db_session,
+            test_project_id,
+            1,
+            content_mode="working",
+        )
 
     assert report.chunks_created > 0
     chunks = await repo.find_by_chapter(db_session, nid_uuid, 1)
     assert chunks
-    assert all(str(c.scene_id) == str(scene.id) for c in chunks)
+    assert all(c.scene_id is None and c.scene_span_id is None for c in chunks)
 
 
 @pytest.mark.asyncio
@@ -1109,7 +1507,12 @@ async def test_rebuild_novel_with_chapter_range(
         id=uuid.uuid4(),
         task_type="rag_reindex_novel",
         status="running",
-        meta={"novel_id": test_project_id, "start_chapter": 2, "end_chapter": 2},
+        meta={
+            "novel_id": test_project_id,
+            "start_chapter": 2,
+            "end_chapter": 2,
+            "content_mode": "working",
+        },
         progress=0.0,
     )
     db_session.add(task)

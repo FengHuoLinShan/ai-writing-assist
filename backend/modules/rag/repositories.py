@@ -39,7 +39,25 @@ class RagChunkRepository:
 
     @staticmethod
     def _parse_scene_id(scene_id: str | None) -> uuid.UUID | None:
-        return uuid.UUID(hex=scene_id) if scene_id else None
+        return uuid.UUID(str(scene_id)) if scene_id else None
+
+    @staticmethod
+    def _parse_optional_uuid(value: str | None) -> uuid.UUID | None:
+        return uuid.UUID(str(value)) if value else None
+
+    @staticmethod
+    def _append_visible_until_filter(
+        conditions: list[ColumnElement[bool]],
+        visible_until_chapter: int | None,
+    ) -> None:
+        if visible_until_chapter is None:
+            return
+        conditions.append(
+            or_(
+                RagChunk.chapter_index <= visible_until_chapter,
+                RagChunk.chapter_index.is_(None),
+            )
+        )
 
     # ============================================================
     # 基础 CRUD
@@ -79,10 +97,17 @@ class RagChunkRepository:
         source_type: str,
         chapter_index: int,
         items: Sequence[RagChunkCreate],
+        content_mode: str = "canonical",
     ) -> list[RagChunk]:
         """Replace one chapter/source chunk stream with idempotent keyed upserts."""
         if not items:
-            await self.delete_by_chapter(db, novel_id, source_type, chapter_index)
+            await self.delete_by_chapter(
+                db,
+                novel_id,
+                source_type,
+                chapter_index,
+                content_mode=content_mode,
+            )
             return []
 
         for item in items:
@@ -101,10 +126,7 @@ class RagChunkRepository:
 
         await self._lock_chapter_chunks(db, novel_id, source_type, chapter_index)
 
-        rows = [
-            self._chunk_row(novel_id, item)
-            for item in items
-        ]
+        rows = [self._chunk_row(novel_id, item) for item in items]
         await self._upsert_chapter_chunk_rows(db, rows)
 
         current_chunk_indices = list(
@@ -115,6 +137,7 @@ class RagChunkRepository:
             RagChunk.novel_id == novel_id,
             RagChunk.source_type == source_type,
             RagChunk.chapter_index == chapter_index,
+            RagChunk.content_mode == items[0].content_mode,
             or_(
                 RagChunk.index_version.notin_(index_versions),
                 RagChunk.chunk_index.is_(None),
@@ -128,6 +151,7 @@ class RagChunkRepository:
             novel_id,
             chapter_index,
             source_type=source_type,
+            content_mode=items[0].content_mode,
         )
 
     def _build_chunk(
@@ -146,6 +170,8 @@ class RagChunkRepository:
             "novel_id": novel_id,
             "source_type": data.source_type,
             "source_id": uuid.UUID(hex=data.source_id) if data.source_id else None,
+            "content_mode": data.content_mode,
+            "source_content_hash": data.source_content_hash,
             "chapter_index": data.chapter_index,
             "chunk_index": data.chunk_index,
             "start_offset": data.start_offset,
@@ -156,7 +182,8 @@ class RagChunkRepository:
             "entity_ids": data.entity_ids or [],
             "character_ids": data.character_ids or [],
             "thread_ids": data.thread_ids or [],
-            "scene_id": uuid.UUID(hex=data.scene_id) if data.scene_id else None,
+            "scene_id": self._parse_optional_uuid(data.scene_id),
+            "scene_span_id": self._parse_optional_uuid(data.scene_span_id),
             "visibility": data.visibility or "author_only",
             "importance": data.importance if data.importance is not None else 0.5,
             "index_version": data.index_version,
@@ -210,6 +237,7 @@ class RagChunkRepository:
                 RagChunk.chapter_index == row["chapter_index"],
                 RagChunk.chunk_index == row["chunk_index"],
                 RagChunk.index_version == row["index_version"],
+                RagChunk.content_mode == row["content_mode"],
             ]
             if row["source_type"] != "chapter_text":
                 conditions.append(RagChunk.source_id == row["source_id"])
@@ -341,13 +369,18 @@ class RagChunkRepository:
         novel_id: uuid.UUID,
         source_type: str,
         chapter_index: int,
+        *,
+        content_mode: str | None = None,
     ) -> int:
         """删除指定章节和来源类型的全部片段，返回删除数"""
-        stmt = delete(RagChunk).where(
+        conditions = [
             RagChunk.novel_id == novel_id,
             RagChunk.source_type == source_type,
             RagChunk.chapter_index == chapter_index,
-        )
+        ]
+        if content_mode is not None:
+            conditions.append(RagChunk.content_mode == content_mode)
+        stmt = delete(RagChunk).where(*conditions)
         result = await db.execute(stmt)
         await db.flush()
         return result.rowcount
@@ -412,6 +445,7 @@ class RagChunkRepository:
         *,
         source_type: str = "chapter_text",
         visibility: str | None = None,
+        content_mode: str = "canonical",
     ) -> list[RagChunk]:
         """按章节范围读取有序 chunk。"""
         conditions = [
@@ -419,6 +453,7 @@ class RagChunkRepository:
             RagChunk.source_type == source_type,
             RagChunk.chapter_index >= start_chapter,
             RagChunk.chapter_index <= end_chapter,
+            RagChunk.content_mode == content_mode,
         ]
         if visibility is not None:
             conditions.append(RagChunk.visibility == visibility)
@@ -451,9 +486,13 @@ class RagChunkRepository:
         if visibility is not None:
             conditions.append(RagChunk.visibility == visibility)
 
-        stmt = select(RagChunk).where(and_(*conditions)).order_by(
-            RagChunk.importance.desc(),
-            RagChunk.id.asc(),
+        stmt = (
+            select(RagChunk)
+            .where(and_(*conditions))
+            .order_by(
+                RagChunk.importance.desc(),
+                RagChunk.id.asc(),
+            )
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -474,9 +513,13 @@ class RagChunkRepository:
         if visibility is not None:
             conditions.append(RagChunk.visibility == visibility)
 
-        stmt = select(RagChunk).where(and_(*conditions)).order_by(
-            RagChunk.importance.desc(),
-            RagChunk.id.asc(),
+        stmt = (
+            select(RagChunk)
+            .where(and_(*conditions))
+            .order_by(
+                RagChunk.importance.desc(),
+                RagChunk.id.asc(),
+            )
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -489,6 +532,7 @@ class RagChunkRepository:
         *,
         source_type: str | None = None,
         visibility: str | None = None,
+        content_mode: str | None = None,
     ) -> list[RagChunk]:
         """按章节索引检索"""
         conditions = [
@@ -499,12 +543,18 @@ class RagChunkRepository:
             conditions.append(RagChunk.source_type == source_type)
         if visibility is not None:
             conditions.append(RagChunk.visibility == visibility)
+        if content_mode is not None:
+            conditions.append(RagChunk.content_mode == content_mode)
 
-        stmt = select(RagChunk).where(and_(*conditions)).order_by(
-            RagChunk.importance.desc(),
-            RagChunk.chapter_index.asc(),
-            RagChunk.chunk_index.asc(),
-            RagChunk.id.asc(),
+        stmt = (
+            select(RagChunk)
+            .where(and_(*conditions))
+            .order_by(
+                RagChunk.importance.desc(),
+                RagChunk.chapter_index.asc(),
+                RagChunk.chunk_index.asc(),
+                RagChunk.id.asc(),
+            )
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -526,6 +576,8 @@ class RagChunkRepository:
         scene_id: str | None = None,
         strict_scene_filter: bool = False,
         visibility: str | None = None,
+        visible_until_chapter: int | None = None,
+        content_mode: str = "canonical",
         limit: int = 20,
     ) -> list[RagChunk]:
         """关键词检索 — 使用简单的 SQL LIKE 文本匹配
@@ -533,7 +585,10 @@ class RagChunkRepository:
         不依赖 PostgreSQL full-text search，保持 SQLite 兼容。
         返回按匹配度粗略排序的结果。
         """
-        conditions = [RagChunk.novel_id == novel_id]
+        conditions = [
+            RagChunk.novel_id == novel_id,
+            RagChunk.content_mode == content_mode,
+        ]
 
         # 构建关键词条件（OR 逻辑，匹配任意关键词即返回）
         query_terms = keyword_query_terms(query)
@@ -544,8 +599,7 @@ class RagChunkRepository:
                 pattern = f"%{term}%"
                 keyword_conditions.append(RagChunk.text.ilike(pattern))
             keyword_rank = sum(
-                case((condition, 1), else_=0)
-                for condition in keyword_conditions
+                case((condition, 1), else_=0) for condition in keyword_conditions
             )
             conditions.append(or_(*keyword_conditions))
 
@@ -564,6 +618,7 @@ class RagChunkRepository:
             )
         if chapter_index is not None:
             conditions.append(RagChunk.chapter_index == chapter_index)
+        self._append_visible_until_filter(conditions, visible_until_chapter)
         scene_uuid = self._parse_scene_id(scene_id)
         if scene_uuid is not None:
             conditions.append(RagChunk.scene_id == scene_uuid)
@@ -609,6 +664,8 @@ class RagChunkRepository:
         scene_id: str | None = None,
         strict_scene_filter: bool = False,
         visibility: str | None = None,
+        visible_until_chapter: int | None = None,
+        content_mode: str = "canonical",
         top_k: int = 12,
         ef_search: int = 40,
     ) -> list[tuple[RagChunk, float]]:
@@ -633,6 +690,8 @@ class RagChunkRepository:
                 scene_id=scene_id,
                 strict_scene_filter=strict_scene_filter,
                 visibility=visibility,
+                visible_until_chapter=visible_until_chapter,
+                content_mode=content_mode,
                 top_k=top_k,
             )
 
@@ -642,6 +701,7 @@ class RagChunkRepository:
         conditions = [
             RagChunk.novel_id == novel_id,
             RagChunk.embedding.is_not(None),
+            RagChunk.content_mode == content_mode,
         ]
         if entity_ids:
             conditions.append(
@@ -657,6 +717,7 @@ class RagChunkRepository:
             )
         if chapter_index is not None:
             conditions.append(RagChunk.chapter_index == chapter_index)
+        self._append_visible_until_filter(conditions, visible_until_chapter)
         scene_uuid = self._parse_scene_id(scene_id)
         if scene_uuid is not None:
             conditions.append(RagChunk.scene_id == scene_uuid)
@@ -691,6 +752,8 @@ class RagChunkRepository:
         scene_id: str | None = None,
         strict_scene_filter: bool = False,
         visibility: str | None = None,
+        visible_until_chapter: int | None = None,
+        content_mode: str = "canonical",
         top_k: int = 12,
     ) -> list[tuple[RagChunk, float]]:
         """SQLite 回退：Python 层计算余弦相似度"""
@@ -699,6 +762,7 @@ class RagChunkRepository:
         conditions = [
             RagChunk.novel_id == novel_id,
             RagChunk.embedding.is_not(None),
+            RagChunk.content_mode == content_mode,
         ]
         if entity_ids:
             conditions.append(
@@ -714,6 +778,7 @@ class RagChunkRepository:
             )
         if chapter_index is not None:
             conditions.append(RagChunk.chapter_index == chapter_index)
+        self._append_visible_until_filter(conditions, visible_until_chapter)
         scene_uuid = self._parse_scene_id(scene_id)
         if scene_uuid is not None:
             conditions.append(RagChunk.scene_id == scene_uuid)

@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -170,7 +171,7 @@ class ContextCompiler:
                     logger.warning(msg)
                     warnings.append(msg)
 
-        bundle.warnings = warnings
+        bundle.warnings = list(dict.fromkeys([*bundle.warnings, *warnings]))
         return bundle
 
     async def compile_with_tiers(
@@ -189,6 +190,7 @@ class ContextCompiler:
             scene_id=options.scene_id,
             scene_index=scene_index,
             chapter_index=options.chapter_index,
+            reveal_mode=options.reveal_mode,
         )
         sections.extend(constraint_sections)
         sections, exclusion_warnings = self._apply_section_exclusions(
@@ -261,6 +263,10 @@ class ContextCompiler:
 
         if options is not None and options.reveal_mode == "character":
             sections.extend(self._build_character_reveal_sections(bundle, options))
+            return sections
+
+        if options is not None and options.reveal_mode == "reader":
+            sections.extend(self._build_reader_reveal_sections(bundle, options))
             return sections
 
         if bundle.scene:
@@ -431,6 +437,101 @@ class ContextCompiler:
 
         return sections
 
+    def _build_reader_reveal_sections(
+        self,
+        bundle: StructureContextBundle,
+        options: CompileOptions,
+    ) -> list[ContextSection]:
+        """Build a reader-view package from already visibility-checked evidence.
+
+        Reader mode deliberately excludes author planning assets such as full Scene
+        cards, plot threads, memories, outline arcs, and character profiles. Those
+        assets can contain future facts even when an individual loader has applied
+        field-level redaction.
+        """
+        sections: list[ContextSection] = []
+        status = options.context_mode
+
+        visible_world = self._format_reader_visible_world(bundle.world_entities)
+        if visible_world:
+            sections.append(
+                self._make_section(
+                    key="reader_visible_world",
+                    tier=Tier.P1,
+                    title="读者已知世界信息",
+                    content=visible_world,
+                    status=status,
+                    activation_reason="ReaderRevealPolicy 与截止位置过滤后",
+                    sources=self._safe_sources_from_items(
+                        bundle.world_entities,
+                        default_type="world_entity",
+                        status=status,
+                    ),
+                )
+            )
+
+        visible_evidence = self._format_reader_visible_evidence(bundle.rag_chunks)
+        if visible_evidence:
+            sections.append(
+                self._make_section(
+                    key="reader_visible_manuscript",
+                    tier=Tier.P1,
+                    title="读者可见正文证据",
+                    content=visible_evidence,
+                    status=status,
+                    activation_reason="正文来源位置与 hash 复核后",
+                    sources=self._safe_sources_from_items(
+                        bundle.rag_chunks,
+                        default_type="writing_source",
+                        status=status,
+                    ),
+                    truncatable_per_item=True,
+                )
+            )
+
+        if bundle.project:
+            content = self._format_project_style(bundle.project)
+            if content:
+                sections.append(
+                    self._make_section(
+                        key="style_assets",
+                        tier=Tier.P3,
+                        title="项目风格与基础设定",
+                        content=content,
+                        status="canonical",
+                        activation_reason="不含剧情事实的项目风格资料",
+                        sources=self._safe_sources_from_items(
+                            [bundle.project],
+                            default_type="project",
+                            status="canonical",
+                        ),
+                    )
+                )
+
+        if bundle.warnings:
+            content = "\n".join(f"- {warning}" for warning in bundle.warnings)
+            sections.append(
+                self._make_section(
+                    key="compiler_warnings",
+                    tier=Tier.P4,
+                    title="编译警告",
+                    content=content,
+                    status="system",
+                    activation_reason="编译过程产生的提示",
+                    sources=[
+                        {
+                            "type": "compiler",
+                            "id": "compiler_warnings",
+                            "label": "编译警告",
+                            "status": "system",
+                        }
+                    ],
+                    can_exclude=False,
+                )
+            )
+
+        return sections
+
     def _build_character_reveal_sections(
         self,
         bundle: StructureContextBundle,
@@ -511,9 +612,7 @@ class ContextCompiler:
                 )
             )
 
-            director_constraints = self._format_scene_director_constraints(
-                bundle.scene
-            )
+            director_constraints = self._format_scene_director_constraints(bundle.scene)
             sections.append(
                 self._make_section(
                     key="scene_director_constraints",
@@ -646,7 +745,7 @@ class ContextCompiler:
         content: str,
         status: str,
         activation_reason: str,
-        sources: list[dict[str, str]],
+        sources: list[dict[str, Any]],
         can_exclude: bool = True,
         truncatable_per_item: bool = False,
     ) -> ContextSection:
@@ -692,6 +791,31 @@ class ContextCompiler:
                 f"- {label}: {value}" for label, value in fields if value
             )
         return "\n".join(profile_lines) or "未找到 POV 角色档案。"
+
+    @staticmethod
+    def _format_reader_visible_world(world_entities: list) -> str:
+        lines: list[str] = []
+        for item in world_entities or []:
+            if not isinstance(item, dict):
+                continue
+            text = item.get("reader_reveal_content") or item.get("public_info")
+            if not text:
+                continue
+            name = item.get("name") or item.get("entity_id") or item.get("id")
+            lines.append(f"- {name}: {text}" if name else f"- {text}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_reader_visible_evidence(rag_chunks: list) -> str:
+        lines: list[str] = []
+        for item in rag_chunks or []:
+            if not isinstance(item, dict):
+                continue
+            text = item.get("text")
+            source_ref = item.get("source_ref")
+            if text and isinstance(source_ref, dict):
+                lines.append(f"- {text}")
+        return "\n".join(lines)
 
     @staticmethod
     def _format_role_visible_knowledge(world_entities: list) -> str:
@@ -825,8 +949,8 @@ class ContextCompiler:
         *,
         default_type: str,
         status: str,
-    ) -> list[dict[str, str]]:
-        sources: list[dict[str, str]] = []
+    ) -> list[dict[str, Any]]:
+        sources: list[dict[str, Any]] = []
         for index, item in enumerate(items or []):
             if isinstance(item, dict):
                 source_id = (
@@ -850,6 +974,9 @@ class ContextCompiler:
                 for field in ("chapter_index", "scene_id"):
                     if item.get(field) is not None:
                         source[field] = str(item.get(field))
+                if isinstance(item.get("source_ref"), dict):
+                    source["source_ref"] = dict(item["source_ref"])
+                    source["source_hash"] = item["source_ref"].get("source_hash")
             else:
                 source = {
                     "type": default_type,
@@ -866,8 +993,8 @@ class ContextCompiler:
         *,
         default_type: str,
         status: str,
-    ) -> list[dict[str, str]]:
-        sources: list[dict[str, str]] = []
+    ) -> list[dict[str, Any]]:
+        sources: list[dict[str, Any]] = []
         for index, item in enumerate(items or []):
             if isinstance(item, dict):
                 source_id = (
@@ -893,12 +1020,14 @@ class ContextCompiler:
                 label = str(item)
                 item_status = status
                 source_type = default_type
-            sources.append(
-                {
-                    "type": str(source_type),
-                    "id": str(source_id),
-                    "label": str(label)[:80],
-                    "status": item_status,
-                }
-            )
+            source = {
+                "type": str(source_type),
+                "id": str(source_id),
+                "label": str(label)[:80],
+                "status": item_status,
+            }
+            if isinstance(item, dict) and isinstance(item.get("source_ref"), dict):
+                source["source_ref"] = dict(item["source_ref"])
+                source["source_hash"] = item["source_ref"].get("source_hash")
+            sources.append(source)
         return sources

@@ -43,6 +43,12 @@ async def build_snapshot_health_summary(...) -> dict
 async def mark_stale_running_snapshots(...) -> int
 async def prune_rendered_context(...) -> int
 async def run_snapshot_maintenance(...) -> dict
+async def grep_novel_evidence(...) -> dict
+async def search_novel_evidence(...) -> dict
+async def read_novel_evidence(...) -> dict
+async def inspect_novel_target(...) -> dict
+async def trace_novel_evidence(...) -> dict
+async def record_evidence_link(...) -> EvidenceLinkContract
 ```
 
 `create_context_snapshot()`、`mark_context_snapshot_succeeded()` 和
@@ -55,6 +61,7 @@ async def run_snapshot_maintenance(...) -> dict
 |----|------|
 | `context_confirmations` | AI 参考资料确认记录，保存 `action`、`scope`、`context_mode`、`selected_asset_ids`、`result_refs`、`stale_reasons` |
 | `context_snapshots` | 自动 AI 调用上下文审计记录，保存 `task_id`、`workflow_id`、`phase`、`context_mode`、`included_asset_ids`、摘要、`prompt_hash`、token/section metadata、`result_refs`、错误信息和可选 `rendered_context` |
+| `evidence_links` | 使用 `TargetRef + claim_path` 将对象/人物知识/结构字段连到 `SourceRangeRef`；只记录 provenance，不判定事实真假 |
 
 `context_confirmations` 和 `context_snapshots` 是两套语义：
 
@@ -84,6 +91,11 @@ Loader 聚合业务资料
 - `sources`：来源摘要，包含 `type/id/label/status`
 - `can_exclude` 与 `excluded`：本次操作是否允许排除、是否已排除
 - `truncated_reason`：预算裁剪原因
+
+`reader` 编译使用独立的最小 section 路径：只保留用户任务、
+ReaderRevealPolicy/公开基线允许的世界信息、从 writing 回读且 hash
+校验通过的正文证据和不含剧情事实的项目风格。完整 Scene 卡、
+剧情线、记忆、篇章纲和未过滤的动态约束不进入 reader `CompiledContext`。
 
 `budget_events` 记录预算执行过程，包含 `section_key`、`event_type`、`reason`、`before_tokens`、`after_tokens`、`tier`。被 evict 的 section 不再返回正文，但会通过 `budget_events` 告知前端“已移除”；被 truncate 的 section 保留裁剪后的正文和裁剪原因。
 
@@ -124,6 +136,54 @@ V1 复用 `excluded_asset_ids`，约定：
 - `PlotThreadsLoader(get_active_threads_fn=...)`
 - `OutlineArcLoader(get_arc_by_chapter_fn=...)`
 
+`RagChunksLoader` 会把 `CompileOptions.visible_until_chapter` 传给 RAG 的
+`visible_until_chapter` 硬过滤；当该字段为空且存在 `chapter_index` 时，默认用当前章
+作为读者进度上界。范围型上下文（例如深度导入 Phase 3 结构生成）必须显式传入范围
+结束章，避免只用起始章过度过滤后续证据。`reference_chapter_index` 仍只作为 RAG
+时间衰减评分 hint。
+
+RAG loader 不会直接把 chunk text 视为事实。它按 `source_id` 从 writing 重读
+当前原文、校验 source hash，然后才生成 section 的 source refs/hash metadata；
+过期块被丢弃并返回降级警告。
+
+## 小说证据服务与可见性
+
+`NovelEvidenceService` 在 context 内集中编排 writing、RAG、outline 和 world，
+对外只暴露确定性 grep/search/read/inspect/trace，不是自主选择工具的 Agent。
+
+`VisibilityContextContract` 有三种模式：
+
+- `author`：无剧透截止。
+- `reader`：必须有 `cutoff_chapter`，可选同章 `cutoff_scene_id/cutoff_offset`。
+- `character`：除上述截止外必须有 `character_id`。
+
+writing、RAG、SceneSpan/checkpoint、ReaderRevealPolicy 和 CharacterKnowledge 各层先过滤，
+context 在返回前再校验来源位置。CharacterKnowledge 只在学习位置严格早于
+截止章时生效；同章无顺序、缺少章且未标记 `is_public_baseline` 的旧数据默认排除并告警。
+编译和对象检查会明示这类保守降级；inspect/trace 还会从 writing
+回读 evidence link，伪造或失效引用不计入证据，并返回 `index_fresh=false`。
+
+深度导入只在 schema 校验通过且 quote 能唯一定位到当前可见原文时，在事实写入同一
+savepoint 记录 active evidence link。无法定位时只记 `needs_review` 与原因，
+不伪造 offset/source ref。
+
+```http
+POST /api/context/evidence/grep
+POST /api/context/evidence/search
+POST /api/context/evidence/read
+POST /api/context/evidence/inspect
+POST /api/context/evidence/trace
+```
+
+## Deep Import Activation
+
+`prepare_import_context_activation()` 是 Phase 2a 的唯一跨模块预检入口。它通过
+outline facade 获取当前 Scene 与最多两个前序 brief，通过 world facade 获取派生世界
+背景，并读取当前 Scene 在可见截止章/offset 以前的精确正文范围。后续
+Scene 和跨章 Scene 中越过截止的 span 永不进入该 activation；Phase 2b
+别名/关系对账保留全局证据语义。activation、预算事件和来源摘要写入 context snapshot
+metadata，不产生正史事实。
+
 ## 快照生命周期维护
 
 `context_snapshots` 的生命周期治理由 context 模块拥有，入口是 facade 和只读/维护 API：
@@ -162,8 +222,11 @@ POST /api/context/snapshots/maintenance
 | `scope` | `project / world / world_character / arc / chapter / full` |
 | `scene_id` | Scene-centric 编译入口 |
 | `context_mode` | `canonical` 或 `working` |
+| `content_mode` | 正文事实源和 RAG 索引视图：`canonical` / `working` |
 | `include_pending_objects` | 是否纳入待确认对象 |
 | `reveal_mode` | `author_safe / author_full / reader / character` |
+| `visible_until_chapter` | RAG 读者进度上界；为空时单章上下文默认使用 `chapter_index` |
+| `visible_until_scene_id/visible_until_offset` | 可选同章 Scene/字符截止点 |
 | `budget_tokens` | 总预算，前端默认 4000 |
 | `excluded_asset_ids.context_sections` | 本次临时排除的可选 context section key |
 

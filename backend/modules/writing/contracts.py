@@ -21,6 +21,7 @@ class WritingDraftContract:
     id: str | None = None
     title: str | None = None
     content: str | None = None
+    content_hash: str = ""
     version_number: int = 1
     status: str = "draft"
     conflict_check_snapshot_json: dict | None = None
@@ -36,3 +37,41 @@ class WritingProjectStatsContract:
     novel_id: str
     chapter_count: int = 0
     word_count: int = 0
+
+
+@dataclass(frozen=True)
+class SourceRangeRefContract:
+    """Stable reference to one range in a concrete writing draft version."""
+
+    draft_id: str
+    chapter_index: int
+    version_number: int
+    content_mode: str
+    start_offset: int
+    end_offset: int
+    source_hash: str
+    range_hash: str
+
+
+@dataclass(frozen=True)
+class ManuscriptSearchHitContract:
+    """One literal manuscript hit backed by a SourceRangeRef."""
+
+    source_ref: SourceRangeRefContract
+    title: str | None
+    snippet: str
+    match_start: int
+    match_end: int
+
+
+@dataclass(frozen=True)
+class ManuscriptReadContract:
+    """Validated original-text read with paragraph context."""
+
+    source_ref: SourceRangeRefContract
+    title: str | None
+    text: str
+    highlight_start: int
+    highlight_end: int
+    paragraph_before: int
+    paragraph_after: int

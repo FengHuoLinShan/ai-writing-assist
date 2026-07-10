@@ -1147,6 +1147,10 @@ class CharacterKnowledgeCreate(BaseModel):
         description="角色的误解内容（false_belief 或 misunderstood 时使用）",
     )
     source_chapter_index: int | None = Field(None, ge=0, description="信息来源章节")
+    is_public_baseline: bool = Field(
+        default=False,
+        description="无来源章节时，是否为人物从开场就已知的公开基线",
+    )
     source_memory_id: str | None = Field(None, description="关联的 memory 记录 ID")
     status: str = Field(default="canonical", max_length=32, description="状态")
 
@@ -1162,6 +1166,7 @@ class CharacterKnowledgeUpdate(BaseModel):
     known_content: Annotated[str | None, Field(None)]
     misconception: Annotated[str | None, Field(None)]
     source_chapter_index: Annotated[int | None, Field(None, ge=0)]
+    is_public_baseline: bool | None = None
     source_memory_id: Annotated[str | None, Field(None)]
     status: Annotated[str | None, Field(None, max_length=32)]
 
@@ -1187,6 +1192,7 @@ class CharacterKnowledgeResponse(BaseModel):
     known_content: str | None = None
     misconception: str | None = None
     source_chapter_index: int | None = None
+    is_public_baseline: bool = False
     source_memory_id: str | None = None
     status: str = "canonical"
     created_at: datetime | None = None

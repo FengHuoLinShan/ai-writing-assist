@@ -22,6 +22,10 @@ class RagChunkContract:
     """来源类型"""
     source_id: str | None = None
     """来源对象 ID"""
+    content_mode: str = "canonical"
+    """正文版本视图"""
+    source_content_hash: str | None = None
+    """索引建立时的正文 hash"""
     chapter_index: int | None = None
     """关联章节索引"""
     chunk_index: int | None = None
@@ -44,6 +48,8 @@ class RagChunkContract:
     """关联的剧情线 ID 列表"""
     scene_id: str | None = None
     """关联的 Scene ID"""
+    scene_span_id: str | None = None
+    """关联的 SceneSpan ID"""
     visibility: str = "author_only"
     """信息可见性"""
     importance: float = 0.5
@@ -68,6 +74,8 @@ class RagQueryContract:
 
     query: str
     """检索查询文本"""
+    content_mode: str = "canonical"
+    """检索 canonical / working 索引"""
     entity_ids: list[str] | None = None
     """限制关联的世界对象 ID 列表"""
     character_ids: list[str] | None = None
@@ -76,6 +84,8 @@ class RagQueryContract:
     """限制关联的剧情线 ID 列表"""
     chapter_index: int | None = None
     """限制关联章节索引"""
+    visible_until_chapter: int | None = None
+    """读者进度上界；只召回该章节及之前的片段"""
     scene_id: str | None = None
     """限制关联 Scene ID"""
     strict_scene_filter: bool = False
@@ -110,6 +120,9 @@ class RagIndexReport:
     """RAG 索引结果报告"""
 
     chapter_index: int
+    content_mode: str = "canonical"
+    source_draft_id: str | None = None
+    source_content_hash: str | None = None
     chunks_created: int = 0
     warnings: list[str] = field(default_factory=list)
     embedding_failed_count: int = 0

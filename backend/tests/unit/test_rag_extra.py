@@ -631,10 +631,17 @@ class TestTasks:
             chunks_created_ids=["c1", "c2"],
         )
 
-        with patch(
-            "modules.rag.facade.index_chapter_with_report", new_callable=AsyncMock
-        ) as mock_index:
+        with (
+            patch(
+                "modules.rag.facade.index_chapter_with_report",
+                new_callable=AsyncMock,
+            ) as mock_index,
+            patch("modules.rag.index_state.RagIndexStateService") as state_class,
+        ):
             mock_index.return_value = report
+            state_class.return_value.mark_running = AsyncMock()
+            state_class.return_value.finish = AsyncMock(return_value=None)
+            state_class.return_value.fail = AsyncMock()
 
             from modules.rag.tasks import handle_rag_index_chapter
 
@@ -691,10 +698,16 @@ class TestTasks:
         reset()
         register("writing.list_chapter_indices", AsyncMock(return_value=[1, 2]))
 
-        with patch(
-            "modules.rag.facade.index_chapter_with_report", new_callable=AsyncMock
-        ) as mock_index:
+        with (
+            patch(
+                "modules.rag.facade.index_chapter_with_report",
+                new_callable=AsyncMock,
+            ) as mock_index,
+            patch("modules.rag.index_state.RagIndexStateService") as state_cls,
+        ):
             mock_index.return_value = report
+            state_cls.return_value.begin_direct = AsyncMock(return_value=True)
+            state_cls.return_value.finish = AsyncMock()
 
             from modules.rag.tasks import handle_rag_reindex_novel
 
@@ -709,6 +722,35 @@ class TestTasks:
             assert len(result["chapters"]) == 2
             task.update_progress.assert_called()
 
+        reset()
+
+    @pytest.mark.asyncio
+    async def test_handle_rag_reindex_novel_coalesces_running_chapter(self):
+        """A rebuild must not execute beside an indexer that already owns the row."""
+        reset()
+        register("writing.list_chapter_indices", AsyncMock(return_value=[1]))
+
+        with (
+            patch(
+                "modules.rag.facade.index_chapter_with_report",
+                new_callable=AsyncMock,
+            ) as mock_index,
+            patch("modules.rag.index_state.RagIndexStateService") as state_cls,
+        ):
+            state_cls.return_value.begin_direct = AsyncMock(return_value=False)
+
+            from modules.rag.tasks import handle_rag_reindex_novel
+
+            db = AsyncMock()
+            task = SimpleNamespace(meta={"novel_id": "n1"})
+            task.update_progress = MagicMock()
+
+            result = await handle_rag_reindex_novel(db, task)
+
+        assert result["chunks_created"] == 0
+        assert result["chapters"][0]["coalesced"] is True
+        assert "已合并" in result["warnings"][0]
+        mock_index.assert_not_awaited()
         reset()
 
     @pytest.mark.asyncio
@@ -734,10 +776,16 @@ class TestTasks:
         reset()
         register("writing.list_chapter_indices", AsyncMock(return_value=[1, 2, 3, 4, 5]))
 
-        with patch(
-            "modules.rag.facade.index_chapter_with_report", new_callable=AsyncMock
-        ) as mock_index:
+        with (
+            patch(
+                "modules.rag.facade.index_chapter_with_report",
+                new_callable=AsyncMock,
+            ) as mock_index,
+            patch("modules.rag.index_state.RagIndexStateService") as state_cls,
+        ):
             mock_index.return_value = report
+            state_cls.return_value.begin_direct = AsyncMock(return_value=True)
+            state_cls.return_value.finish = AsyncMock()
 
             from modules.rag.tasks import handle_rag_reindex_novel
 

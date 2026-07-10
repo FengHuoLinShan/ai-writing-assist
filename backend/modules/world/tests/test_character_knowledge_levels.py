@@ -179,6 +179,72 @@ class TestCharacterKnowledgeApiLevels:
         assert resp.status_code == 201
         assert resp.json()["knowledge_level"] == "restricted"
 
+    async def test_visibility_excludes_unknown_chapter_except_public_baseline(
+        self,
+        async_client,
+        db_session: AsyncSession,
+    ) -> None:
+        from modules.world.repositories import CharacterKnowledgeRepository
+
+        project = await async_client.post(
+            "/api/projects",
+            json={
+                "title": "知识可见性",
+                "genre": "奇幻",
+                "tone": "正剧",
+                "language": "zh",
+            },
+        )
+        novel_id = project.json()["id"]
+        character_entity = await async_client.post(
+            f"/api/world/entities?novel_id={novel_id}",
+            json={"entity_type": "character", "name": "阿澜", "status": "canonical"},
+        )
+        character_id = character_entity.json()["id"]
+        character = await async_client.post(
+            f"/api/world/characters?novel_id={novel_id}",
+            json={"entity_id": character_id, "name": "阿澜"},
+        )
+        assert character.status_code == 201
+        target = await async_client.post(
+            f"/api/world/entities?novel_id={novel_id}",
+            json={"entity_type": "secret", "name": "旧塔密钥", "status": "canonical"},
+        )
+        target_id = target.json()["id"]
+        records = (
+            ("早期已知", 49, False),
+            ("同章才知", 50, False),
+            ("旧数据未定位", None, False),
+            ("开场公开基线", None, True),
+        )
+        for known_content, chapter, is_public_baseline in records:
+            response = await async_client.post(
+                f"/api/world/characters/{character_id}/knowledge?novel_id={novel_id}",
+                json={
+                    "character_id": character_id,
+                    "target_type": "entity",
+                    "target_id": target_id,
+                    "knowledge_level": "partial",
+                    "known_content": known_content,
+                    "source_chapter_index": chapter,
+                    "is_public_baseline": is_public_baseline,
+                },
+            )
+            assert response.status_code == 201
+
+        visible = await CharacterKnowledgeRepository().get_by_target(
+            db_session,
+            uuid.UUID(novel_id),
+            uuid.UUID(character_id),
+            [uuid.UUID(target_id)],
+            visible_until_chapter=50,
+        )
+
+        assert {item.known_content for item in visible} == {
+            "早期已知",
+            "开场公开基线",
+        }
+
 
 # ============================================================
 # CharacterService 过滤行为

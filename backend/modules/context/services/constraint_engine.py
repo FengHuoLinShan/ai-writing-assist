@@ -40,9 +40,16 @@ class ConstraintEngine:
         scene_id: str | None = None,
         scene_index: int | None = None,
         chapter_index: int | None = None,
+        reveal_mode: str = "author_safe",
     ) -> list[ContextSection]:
         sections: list[ContextSection] = []
         sections.extend(await self._static_constraints("zh"))
+        if reveal_mode in {"reader", "character"}:
+            # Dynamic constraints are authored from complete Scene cards,
+            # knowledge records and future foreshadowing plans. Reader/character
+            # packages already contain deterministically filtered equivalents;
+            # rendering the raw constraints here would reintroduce spoilers.
+            return sections
         sections.extend(await self._scene_constraints(db, novel_id, scene_id=scene_id))
         sections.extend(
             await self._knowledge_constraints(db, novel_id, chapter_index=chapter_index)

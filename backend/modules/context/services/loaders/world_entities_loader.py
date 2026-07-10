@@ -58,6 +58,7 @@ class WorldEntitiesLoader(Loader):
                 entity_ids=limited_ids,
                 reveal_mode=options.reveal_mode,
                 limit=all_limit,
+                current_chapter=options.visible_until_chapter or options.chapter_index,
             )
             entities = [e.model_dump() for e in ctx.entities] if ctx else []
             bundle.world_entities = entities
@@ -69,6 +70,7 @@ class WorldEntitiesLoader(Loader):
                 options.novel_id,
                 reveal_mode=options.reveal_mode,
                 limit=core_limit + normal_limit,
+                current_chapter=options.visible_until_chapter or options.chapter_index,
             )
             entities = [e.model_dump() for e in ctx.entities] if ctx else []
             entities.sort(key=lambda e: e.get("importance", 0.0), reverse=True)
@@ -91,3 +93,44 @@ class WorldEntitiesLoader(Loader):
             for ent in bundle.world_entities:
                 if ent.get("hidden_truth"):
                     ent["hidden_truth"] = f"{AUTHOR_ONLY_WARNING} {ent['hidden_truth']}"
+        if options.reveal_mode in {"reader", "character"}:
+            await self._apply_reader_visibility(db, options, bundle)
+
+    async def _apply_reader_visibility(
+        self,
+        db: AsyncSession,
+        options: CompileOptions,
+        bundle: StructureContextBundle,
+    ) -> None:
+        from modules.outline.facade import get_reader_reveal_decision
+
+        cutoff = options.visible_until_chapter or options.chapter_index
+        if cutoff is None:
+            bundle.world_entities = []
+            bundle.warnings.append("读者/角色视角缺少截止章，已保守排除世界对象")
+            return
+        visible: list[dict] = []
+        for item in bundle.world_entities:
+            if item.get("status") != "canonical":
+                continue
+            decision = await get_reader_reveal_decision(
+                db,
+                novel_id=options.novel_id,
+                target_type=(
+                    "character" if item.get("entity_type") == "character" else "entity"
+                ),
+                target_id=str(item.get("entity_id") or item.get("id") or ""),
+                cutoff_chapter=cutoff,
+            )
+            redacted = dict(item)
+            redacted["hidden_truth"] = None
+            if decision.has_policy:
+                redacted["reader_reveal_content"] = decision.reveal_content
+                if not decision.revealed:
+                    redacted["summary"] = None
+            else:
+                # `summary` is an author-facing synopsis. Without an explicit
+                # reveal policy only the public baseline is safe for readers.
+                redacted["summary"] = redacted.get("public_info")
+            visible.append(redacted)
+        bundle.world_entities = visible

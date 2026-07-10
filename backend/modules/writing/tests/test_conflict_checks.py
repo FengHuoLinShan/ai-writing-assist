@@ -393,7 +393,7 @@ async def test_conflict_check_history_batches_item_loading(
 
 
 @pytest.mark.asyncio
-async def test_draft_only_autosave_creates_draft_without_publish_task(
+async def test_draft_only_autosave_creates_draft_and_requests_working_rag_index(
     async_client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
@@ -413,7 +413,9 @@ async def test_draft_only_autosave_creates_draft_without_publish_task(
     body = resp.json()
     assert body["chapter_index"] == 3
     result = await db_session.execute(select(AsyncTask))
-    assert result.scalars().all() == []
+    tasks = list(result.scalars().all())
+    assert [task.task_type for task in tasks] == ["rag_index_chapter"]
+    assert tasks[0].meta["content_mode"] == "working"
 
 
 @pytest.mark.asyncio

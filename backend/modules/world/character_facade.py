@@ -85,12 +85,15 @@ async def filter_context_by_character_knowledge(
     novel_id: str,
     character_id: str,
     context_items: list[dict],
+    *,
+    visible_until_chapter: int | None = None,
 ) -> list[dict]:
     filtered, _, _ = await _character_service.filter_context_by_character_knowledge(
         db,
         novel_id,
         character_id,
         context_items,
+        visible_until_chapter=visible_until_chapter,
     )
     return filtered
 

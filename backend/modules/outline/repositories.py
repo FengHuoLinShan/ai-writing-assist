@@ -7,7 +7,13 @@ from typing import Any, ClassVar
 from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.outline.models import OutlineArc, PlotThread, Scene, SceneChapterLink
+from modules.outline.models import (
+    OutlineArc,
+    PlotThread,
+    Scene,
+    SceneChapterLink,
+    SceneSpan,
+)
 from modules.outline.schemas import (
     OutlineArcCreate,
     OutlineArcUpdate,
@@ -33,9 +39,7 @@ def apply_structure_asset_filters(
     if source is not None:
         conditions.append(model.provenance_meta["source"].as_string() == source)
     if workflow_id is not None:
-        conditions.append(
-            model.provenance_meta["workflow_id"].as_string() == workflow_id
-        )
+        conditions.append(model.provenance_meta["workflow_id"].as_string() == workflow_id)
     if needs_review is not None:
         conditions.append(
             model.provenance_meta["needs_review"].as_boolean() == needs_review
@@ -535,6 +539,96 @@ class SceneRepository:
                 continue
         return sorted(indices)
 
+    def scene_spans_for_scene(self, scene: Scene) -> list[SceneSpan]:
+        parts: list[dict[str, Any]] = []
+        for raw_order, chunk in enumerate(scene.scene_chunks or []):
+            if not isinstance(chunk, dict):
+                continue
+            chapter_index = self._first_int(chunk, ("chapter_index", "chapter_id"))
+            if chapter_index is None:
+                continue
+            start_offset = self._first_int(chunk, ("start_offset", "start_pos"))
+            end_offset = self._first_int(chunk, ("end_offset", "end_pos"))
+            start_paragraph = self._first_int(chunk, ("start_paragraph",))
+            end_paragraph = self._first_int(chunk, ("end_paragraph",))
+            parts.append(
+                {
+                    "chapter_index": chapter_index,
+                    "start_offset": start_offset,
+                    "end_offset": end_offset,
+                    "start_paragraph": start_paragraph,
+                    "end_paragraph": end_paragraph,
+                    "source_draft_id": chunk.get("source_draft_id"),
+                    "source_content_hash": chunk.get("source_content_hash"),
+                    "mapping_status": (
+                        "exact"
+                        if start_offset is not None and end_offset is not None
+                        else "chapter_only"
+                    ),
+                    "anchor_hash": chunk.get("anchor_hash"),
+                    "anchor_excerpt": chunk.get("anchor_excerpt"),
+                    "raw_order": raw_order,
+                }
+            )
+
+        parts.sort(
+            key=lambda part: (
+                part["chapter_index"],
+                part["start_offset"] if part["start_offset"] is not None else 10**12,
+                (
+                    part["start_paragraph"]
+                    if part["start_paragraph"] is not None
+                    else 10**12
+                ),
+                part["raw_order"],
+            )
+        )
+        return [
+            SceneSpan(
+                novel_id=scene.novel_id,
+                scene_id=scene.id,
+                chapter_index=part["chapter_index"],
+                content_mode="canonical",
+                source_draft_id=(
+                    uuid.UUID(str(part["source_draft_id"]))
+                    if part["source_draft_id"]
+                    else None
+                ),
+                source_content_hash=part["source_content_hash"],
+                start_offset=part["start_offset"],
+                end_offset=part["end_offset"],
+                start_paragraph=part["start_paragraph"],
+                end_paragraph=part["end_paragraph"],
+                part_no=part_no,
+                mapping_status=part["mapping_status"],
+                anchor_hash=part["anchor_hash"],
+                anchor_excerpt=part["anchor_excerpt"],
+                source=scene.source or "manual",
+                status=scene.status or "draft",
+            )
+            for part_no, part in enumerate(parts)
+        ]
+
+    @staticmethod
+    def _first_int(chunk: dict[str, Any], keys: tuple[str, ...]) -> int | None:
+        for key in keys:
+            value = chunk.get(key)
+            if value is None:
+                continue
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    async def sync_scene_indexes(
+        self,
+        db: AsyncSession,
+        scene: Scene,
+    ) -> None:
+        await self.sync_chapter_links(db, scene)
+        await self.sync_scene_spans(db, scene)
+
     async def sync_chapter_links(
         self,
         db: AsyncSession,
@@ -556,6 +650,22 @@ class SceneRepository:
         ]
         if links:
             db.add_all(links)
+        await db.flush()
+
+    async def sync_scene_spans(
+        self,
+        db: AsyncSession,
+        scene: Scene,
+    ) -> None:
+        await db.execute(
+            delete(SceneSpan).where(
+                SceneSpan.novel_id == scene.novel_id,
+                SceneSpan.scene_id == scene.id,
+            )
+        )
+        spans = self.scene_spans_for_scene(scene)
+        if spans:
+            db.add_all(spans)
         await db.flush()
 
     async def backfill_chapter_links(
@@ -591,6 +701,89 @@ class SceneRepository:
             link_count = len(links)
         await db.flush()
         return link_count
+
+    async def backfill_scene_spans(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID | None = None,
+    ) -> int:
+        conditions = []
+        if novel_id is not None:
+            conditions.append(Scene.novel_id == novel_id)
+        stmt = select(Scene)
+        if conditions:
+            stmt = stmt.where(*conditions)
+        result = await db.execute(stmt)
+        scenes: Sequence[Scene] = result.scalars().all()
+        delete_stmt = delete(SceneSpan)
+        if novel_id is not None:
+            delete_stmt = delete_stmt.where(SceneSpan.novel_id == novel_id)
+        await db.execute(delete_stmt)
+        spans: list[SceneSpan] = []
+        for scene in scenes:
+            spans.extend(self.scene_spans_for_scene(scene))
+        if spans:
+            db.add_all(spans)
+        await db.flush()
+        return len(spans)
+
+    async def get_scene_spans_by_chapter(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+        *,
+        statuses: tuple[str, ...] = ("draft", "canonical"),
+        content_mode: str = "canonical",
+    ) -> list[SceneSpan]:
+        conditions = [
+            SceneSpan.novel_id == novel_id,
+            SceneSpan.chapter_index == chapter_index,
+            SceneSpan.content_mode == content_mode,
+        ]
+        if statuses:
+            conditions.append(SceneSpan.status.in_(statuses))
+        stmt = (
+            select(SceneSpan).where(*conditions).order_by(SceneSpan.part_no, SceneSpan.id)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_scene_spans_for_scene(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        scene_id: uuid.UUID,
+        *,
+        statuses: tuple[str, ...] | None = None,
+        content_mode: str = "canonical",
+    ) -> list[SceneSpan]:
+        conditions = [
+            SceneSpan.novel_id == novel_id,
+            SceneSpan.scene_id == scene_id,
+            SceneSpan.content_mode == content_mode,
+        ]
+        if statuses:
+            conditions.append(SceneSpan.status.in_(statuses))
+        stmt = (
+            select(SceneSpan).where(*conditions).order_by(SceneSpan.part_no, SceneSpan.id)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_scene_ids_needing_span_review(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> set[uuid.UUID]:
+        """Return active Scenes with source mappings needing manual review."""
+        stmt = select(SceneSpan.scene_id).where(
+            SceneSpan.novel_id == novel_id,
+            SceneSpan.status.in_(("draft", "canonical")),
+            SceneSpan.mapping_status.in_(("chapter_only", "unresolved")),
+        )
+        result = await db.execute(stmt)
+        return set(result.scalars().all())
 
     async def _get_by_chapter_json_fallback(
         self,
@@ -644,7 +837,7 @@ class SceneRepository:
         scene = self._build_scene(novel_id, data)
         db.add(scene)
         await db.flush()
-        await self.sync_chapter_links(db, scene)
+        await self.sync_scene_indexes(db, scene)
         return scene
 
     async def create_many(
@@ -658,18 +851,8 @@ class SceneRepository:
             return []
         db.add_all(scenes)
         await db.flush()
-        links = [
-            SceneChapterLink(
-                novel_id=scene.novel_id,
-                scene_id=scene.id,
-                chapter_index=chapter_index,
-            )
-            for scene in scenes
-            for chapter_index in self.chapter_indices_for_scene(scene)
-        ]
-        if links:
-            db.add_all(links)
-            await db.flush()
+        for scene in scenes:
+            await self.sync_scene_indexes(db, scene)
         return scenes
 
     async def get(self, db: AsyncSession, scene_id: uuid.UUID) -> Scene | None:
@@ -756,8 +939,7 @@ class SceneRepository:
             conditions.append(Scene.structure_meta["phase"].as_string() == phase)
         if phase1a_fallback is not None:
             conditions.append(
-                Scene.structure_meta["phase1a_fallback"].as_boolean()
-                == phase1a_fallback
+                Scene.structure_meta["phase1a_fallback"].as_boolean() == phase1a_fallback
             )
         if q:
             pattern = f"%{q.strip().lower()}%"
@@ -975,8 +1157,8 @@ class SceneRepository:
             db.add(scene)
             await db.flush()
 
-        if {"scene_chunks", "chapter_ids"} & fields_set:
-            await self.sync_chapter_links(db, scene)
+        if {"scene_chunks", "chapter_ids", "source", "status"} & fields_set:
+            await self.sync_scene_indexes(db, scene)
         return scene
 
     async def deprecate_with_reference(
@@ -1003,13 +1185,15 @@ class SceneRepository:
                 scene.scene_chunks = []
 
         db.add_all(scene_list)
+        await db.flush()
         if clear_mapping:
             await db.execute(
                 delete(SceneChapterLink).where(
                     SceneChapterLink.scene_id.in_([scene.id for scene in scene_list])
                 )
             )
-        await db.flush()
+        for scene in scene_list:
+            await self.sync_scene_spans(db, scene)
         return len(scene_list)
 
     async def delete(self, db: AsyncSession, scene_id: uuid.UUID) -> bool:

@@ -52,12 +52,15 @@ async def _load_project_terms(
 
         entity_terms = await _list_entity_terms(db, novel_id_str)
         for item in entity_terms:
+            target_type = (
+                "character" if item.get("entity_type") == "character" else "entity"
+            )
             for term in item.get("terms", []):
                 _add_term(
                     terms,
                     term=term,
                     target_id=str(item["id"]),
-                    target_type="entity",
+                    target_type=target_type,
                 )
     except Exception:
         # 世界对象词典失败不应阻断章节索引。

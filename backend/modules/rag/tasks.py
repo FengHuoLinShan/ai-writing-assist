@@ -25,6 +25,7 @@ async def handle_rag_index_chapter(db, task):
     meta = task.meta or {}
     novel_id = meta.get("novel_id", "")
     chapter_index = int(meta.get("chapter_index", 0))
+    content_mode = str(meta.get("content_mode") or "canonical")
 
     if not novel_id:
         raise ValueError("novel_id is required for rag_index_chapter")
@@ -32,8 +33,46 @@ async def handle_rag_index_chapter(db, task):
         raise ValueError("chapter_index must be >= 1 for rag_index_chapter")
 
     from modules.rag.facade import index_chapter_with_report
+    from modules.rag.index_state import RagIndexStateService
 
-    report = await index_chapter_with_report(db, novel_id, chapter_index)
+    state_service = RagIndexStateService()
+    claimed = await state_service.mark_running(
+        db,
+        novel_id=novel_id,
+        chapter_index=chapter_index,
+        content_mode=content_mode,
+    )
+    if not claimed:
+        return {
+            "chapter_index": chapter_index,
+            "content_mode": content_mode,
+            "chunks_created": 0,
+            "embedding_failed_count": 0,
+            "warnings": ["索引任务已合并或当前版本已是最新"],
+            "coalesced": True,
+        }
+
+    try:
+        report = await index_chapter_with_report(
+            db,
+            novel_id,
+            chapter_index,
+            content_mode=content_mode,
+        )
+    except Exception as exc:
+        await state_service.fail(
+            db,
+            novel_id=novel_id,
+            chapter_index=chapter_index,
+            content_mode=content_mode,
+            error=str(exc),
+        )
+        raise
+    followup_task_id = await state_service.finish(
+        db,
+        novel_id=novel_id,
+        report=report,
+    )
 
     logger.info(
         "Indexed chapter %d: %d chunks created",
@@ -43,9 +82,13 @@ async def handle_rag_index_chapter(db, task):
 
     return {
         "chapter_index": chapter_index,
+        "content_mode": content_mode,
+        "source_draft_id": report.source_draft_id,
+        "source_content_hash": report.source_content_hash,
         "chunks_created": report.chunks_created,
         "embedding_failed_count": report.embedding_failed_count,
         "warnings": report.warnings,
+        "followup_task_id": followup_task_id,
     }
 
 
@@ -63,11 +106,13 @@ async def handle_rag_reindex_novel(db, task):
     novel_id = meta.get("novel_id", "")
     start_chapter = meta.get("start_chapter")
     end_chapter = meta.get("end_chapter")
+    content_mode = str(meta.get("content_mode") or "canonical")
 
     if not novel_id:
         raise ValueError("novel_id is required for rag_reindex_novel")
 
     from modules.rag.facade import index_chapter_with_report
+    from modules.rag.index_state import RagIndexStateService
 
     _list_chapter_indices = _container_get("writing.list_chapter_indices")
 
@@ -82,13 +127,50 @@ async def handle_rag_reindex_novel(db, task):
     warnings: list[str] = []
     chunks_created = 0
     embedding_failed_count = 0
+    state_service = RagIndexStateService()
 
     for pos, chapter_index in enumerate(chapter_indices, start=1):
         if total:
             task.update_progress((pos - 1) / total)
             await db.flush()
 
-        report = await index_chapter_with_report(db, novel_id, chapter_index)
+        claimed = await state_service.begin_direct(
+            db,
+            novel_id=novel_id,
+            chapter_index=chapter_index,
+            content_mode=content_mode,
+            force=True,
+        )
+        if not claimed:
+            warning = f"第 {chapter_index} 章已有索引任务执行中，本次重建已合并"
+            warnings.append(warning)
+            chapters.append(
+                {
+                    "chapter_index": chapter_index,
+                    "chunks_created": 0,
+                    "embedding_failed_count": 0,
+                    "warnings": [warning],
+                    "coalesced": True,
+                }
+            )
+            continue
+        try:
+            report = await index_chapter_with_report(
+                db,
+                novel_id,
+                chapter_index,
+                content_mode=content_mode,
+            )
+            await state_service.finish(db, novel_id=novel_id, report=report)
+        except Exception as exc:
+            await state_service.fail(
+                db,
+                novel_id=novel_id,
+                chapter_index=chapter_index,
+                content_mode=content_mode,
+                error=str(exc),
+            )
+            raise
         chunks_created += report.chunks_created
         embedding_failed_count += report.embedding_failed_count
         warnings.extend(report.warnings)
@@ -106,6 +188,7 @@ async def handle_rag_reindex_novel(db, task):
 
     return {
         "total_chapters": total,
+        "content_mode": content_mode,
         "chunks_created": chunks_created,
         "embedding_failed_count": embedding_failed_count,
         "warnings": warnings,

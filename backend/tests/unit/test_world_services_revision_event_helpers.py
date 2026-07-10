@@ -244,7 +244,7 @@ class TestEntityRevisionService:
                 "importance_level": "core",
                 "reveal_level": "author_only",
                 "status": "canonical",
-            }
+            },
         )
         entity_repo.update = AsyncMock(return_value=entity)
         repo.get_revision = AsyncMock(return_value=revision)
@@ -312,7 +312,7 @@ class TestEntityRevisionService:
         revision = _mock_revision(
             entity_id=entity_id,
             novel_id=novel_id,
-            snapshot={"entity_type": "character", "name": "Old Name"}
+            snapshot={"entity_type": "character", "name": "Old Name"},
         )
         repo.get_revision = AsyncMock(return_value=revision)
         entity_repo.update = AsyncMock(return_value=None)
@@ -775,10 +775,10 @@ class TestDraftProvider:
     def teardown_method(self):
         reset()
 
-    async def test_draft_provider_loads_draft_and_rag_chapters(
+    async def test_draft_provider_uses_authoritative_draft_after_indexing(
         self,
     ):
-        """Happy path: uses RAG chunks when available."""
+        """RAG chunks remain derived candidates and never replace writing text."""
         db = MagicMock()
         novel_id = str(uuid.uuid4())
         draft = MagicMock()
@@ -805,7 +805,7 @@ class TestDraftProvider:
         assert len(result) == 1
         assert result[0]["chapter_index"] == 1
         assert result[0]["title"] == "Chapter One"
-        assert "[RAG chunk 0] rag text" in result[0]["content"]
+        assert result[0]["content"] == "draft text"
 
     async def test_writing_draft_provider_load_chapters_no_rag_fallback_to_draft(self):
         """Boundary: empty RAG chunks falls back to draft.content."""

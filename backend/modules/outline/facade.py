@@ -23,21 +23,29 @@ from modules.outline.deep_import_repair_facade import (  # noqa: F401
     get_deep_import_structure_output_count,
     get_deep_import_structure_payload,
     reindex_scenes_for_deep_import_repair,
+    select_deep_import_fallback_reveal_target,
 )
 from modules.outline.foreshadowing_facade import (  # noqa: F401
     get_active_foreshadowing,
 )
+from modules.outline.reveal_facade import get_reader_reveal_decision  # noqa: F401
 from modules.outline.scene_facade import (  # noqa: F401
     batch_create_scenes,
+    bind_scene_spans_to_source,
     count_scenes_by_novel,
     create_scene,
     get_next_scene_index,
     get_scene,
+    get_scene_context_window,
     get_scene_contract,
+    get_scene_spans_by_chapter,
+    get_scene_spans_for_scene,
+    get_scene_summary_checkpoint,
     get_scenes_by_chapter,
     get_scenes_by_novel,
     get_scenes_by_provenance_key,
     get_scenes_by_provenance_keys,
+    rebuild_scene_summary_checkpoint,
     split_scene_chunk_to_new_chapter,
     update_scene,
 )
@@ -48,6 +56,7 @@ from modules.outline.structure_dedup_facade import (  # noqa: F401
 
 __all__ = [
     "apply_structure_dedup",
+    "bind_scene_spans_to_source",
     "batch_create_scenes",
     "count_scenes_by_novel",
     "create_scene",
@@ -63,13 +72,20 @@ __all__ = [
     "get_deep_import_structure_output_count",
     "get_deep_import_structure_payload",
     "get_next_scene_index",
+    "get_reader_reveal_decision",
     "get_scene",
+    "get_scene_context_window",
     "get_scene_contract",
+    "get_scene_spans_by_chapter",
+    "get_scene_spans_for_scene",
+    "get_scene_summary_checkpoint",
     "get_scenes_by_chapter",
     "get_scenes_by_novel",
     "get_scenes_by_provenance_key",
     "get_scenes_by_provenance_keys",
     "reindex_scenes_for_deep_import_repair",
+    "rebuild_scene_summary_checkpoint",
+    "select_deep_import_fallback_reveal_target",
     "split_scene_chunk_to_new_chapter",
     "suggest_structure_dedup",
     "update_scene",
