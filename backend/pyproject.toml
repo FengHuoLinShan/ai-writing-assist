@@ -83,8 +83,18 @@ asyncio_default_fixture_loop_scope = "function"
 testpaths = [
     "modules",
     "infrastructure",
-    "tests",
-    "app",
+    "tests/unit",
+    "tests/integration",
+    "tests/modules",
+    "tests/prompt_contracts",
+    "tests/test_api.py",
+    "tests/test_outline_api.py",
+    "tests/test_world_testonly_route.py",
+]
+addopts = [
+    "--strict-markers",
+    "-m",
+    "not e2e and not real_llm and not external_data",
 ]
 python_files = ["tests.py", "*_test.py", "test_*.py"]
 filterwarnings = [
@@ -95,6 +105,7 @@ markers = [
     "integration: Integration/flow tests",
     "e2e: end-to-end tests requiring PostgreSQL/pgvector",
     "real_llm: tests that call a real LLM provider; disabled by default",
+    "external_data: tests that require an explicitly supplied local source file",
 ]
 
 [tool.ruff]

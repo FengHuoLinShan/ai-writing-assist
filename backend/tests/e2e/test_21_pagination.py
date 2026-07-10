@@ -53,12 +53,6 @@ class TestPagination:
         items = data.get("items", [])
         assert len(items) <= 2
 
-    async def test_pagination_geo_locations_with_limit_respects_page_size(self, ctx):
-        pytest.skip("端点已移除: /api/geo/locations")
-
-    async def test_pagination_timeline_events_with_limit_returns_data(self, ctx):
-        pytest.skip("端点已移除: /api/novels/{pid}/timeline/events")
-
     async def test_pagination_outline_threads_with_limit_respects_page_size(self, ctx):
         """大纲剧情线分页应遵守 limit 参数"""
         # Arrange
@@ -83,8 +77,10 @@ class TestPagination:
         items = data.get("items", [])
         assert len(items) <= 2
 
-    async def test_pagination_outline_chapters_with_limit_returns_data(self, ctx):
-        pytest.skip("端点已移除: /api/outline/chapters")
+    async def test_pagination_outline_scenes_with_limit_returns_data(self, ctx):
+        client, pid = ctx
+        data = await self._check(client, f"/api/outline/scenes?novel_id={pid}&limit=2")
+        assert len(data.get("items", [])) <= 2
 
     async def test_pagination_imports_with_limit_returns_data(self, ctx):
         """导入记录分页应返回数据"""
@@ -96,9 +92,6 @@ class TestPagination:
 
         # Assert
         assert data is not None
-
-    async def test_pagination_review_get_by_id_after_create_returns_200(self, ctx):
-        pytest.skip("端点已移除: /api/review")
 
     async def test_pagination_world_entities_with_large_limit_does_not_crash(self, ctx):
         """超大 limit 不应导致分页查询崩溃"""

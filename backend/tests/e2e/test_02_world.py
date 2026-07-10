@@ -295,13 +295,50 @@ class TestAliasCRUD:
         return async_client, meta["project_id"], meta["entity_ids"]
 
     async def test_alias_create_for_entity_returns_201(self, ctx):
-        pytest.skip("端点已移除: /api/world/aliases")
+        client, pid, eids = ctx
+        response = await client.post(
+            f"/api/world/aliases?novel_id={pid}",
+            json={
+                "entity_id": eids["克莱恩·莫雷蒂"],
+                "alias": "愚者",
+                "alias_type": "title",
+            },
+        )
+        assert response.status_code == 201, response.text
+        assert response.json()["alias"] == "愚者"
 
     async def test_alias_list_by_entity_returns_all_aliases(self, ctx):
-        pytest.skip("端点已移除: /api/world/aliases")
+        client, pid, eids = ctx
+        await client.post(
+            f"/api/world/aliases?novel_id={pid}",
+            json={
+                "entity_id": eids["克莱恩·莫雷蒂"],
+                "alias": "周明瑞",
+                "alias_type": "name",
+            },
+        )
+        response = await client.get(f"/api/world/aliases?novel_id={pid}&q=周明瑞")
+        assert response.status_code == 200, response.text
+        assert response.json()["total"] == 1
+        assert response.json()["items"][0]["entity_id"] == eids["克莱恩·莫雷蒂"]
 
     async def test_alias_delete_returns_204(self, ctx):
-        pytest.skip("端点已移除: /api/world/aliases")
+        client, pid, eids = ctx
+        await client.post(
+            f"/api/world/aliases?novel_id={pid}",
+            json={
+                "entity_id": eids["克莱恩·莫雷蒂"],
+                "alias": "克莱恩",
+                "alias_type": "name",
+            },
+        )
+        response = await client.delete(
+            f"/api/world/entities/{eids['克莱恩·莫雷蒂']}/aliases",
+            params={"novel_id": pid, "alias": "克莱恩"},
+        )
+        assert response.status_code == 200, response.text
+        listed = await client.get(f"/api/world/aliases?novel_id={pid}&q=克莱恩")
+        assert listed.json()["total"] == 0
 
 
 class TestWorldCandidateAndGraphFlows:
@@ -314,10 +351,40 @@ class TestWorldCandidateAndGraphFlows:
         return async_client, meta["project_id"], meta["entity_ids"]
 
     async def test_candidate_accept_creates_canonical_entity(self, ctx):
-        pytest.skip("端点已移除: /api/world/candidates")
+        client, pid, _ = ctx
+        created = await client.post(
+            f"/api/world/entities?novel_id={pid}",
+            json={"name": "待确认遗物", "entity_type": "item", "status": "candidate"},
+        )
+        assert created.status_code == 201, created.text
+        entity_id = created.json()["id"]
+        promoted = await client.post(
+            f"/api/world/entities/{entity_id}/promote?novel_id={pid}",
+            json={"approved_by": "e2e"},
+        )
+        assert promoted.status_code == 200, promoted.text
+        assert promoted.json()["status"] == "canonical"
 
     async def test_candidate_ignore_updates_suggested_action(self, ctx):
-        pytest.skip("端点已移除: /api/world/candidates")
+        client, pid, eids = ctx
+        candidate = await client.post(
+            f"/api/world/entities?novel_id={pid}",
+            json={"name": "愚者", "entity_type": "character", "status": "candidate"},
+        )
+        assert candidate.status_code == 201, candidate.text
+        candidate_id = candidate.json()["id"]
+        resolved = await client.post(
+            f"/api/world/entities/{candidate_id}/resolve-as-alias?novel_id={pid}",
+            json={
+                "target_entity_id": eids["克莱恩·莫雷蒂"],
+                "alias": "愚者",
+                "alias_type": "title",
+            },
+        )
+        assert resolved.status_code == 200, resolved.text
+        assert resolved.json()["candidate_entity_id"] == candidate_id
+        merged = await client.get(f"/api/world/entities/{candidate_id}?novel_id={pid}")
+        assert merged.json()["status"] == "merged"
 
     async def test_task_submit_entity_extraction_returns_pending_task(self, ctx):
         """提交实体抽取任务应返回 pending 状态的任务"""
@@ -358,4 +425,19 @@ class TestWorldCandidateAndGraphFlows:
     async def test_world_entity_related_graph_returns_list_with_expected_fields(
         self, ctx
     ):
-        pytest.skip("端点已移除: /api/world/entities/{eid}/related")
+        client, pid, eids = ctx
+        created = await client.post(
+            f"/api/world/relations?novel_id={pid}",
+            json={
+                "source_id": eids["克莱恩·莫雷蒂"],
+                "target_id": eids["值夜者"],
+                "relation_type": "member_of",
+            },
+        )
+        assert created.status_code == 201, created.text
+        response = await client.get(
+            f"/api/world/entities/{eids['克莱恩·莫雷蒂']}/relations?novel_id={pid}"
+        )
+        assert response.status_code == 200, response.text
+        items = response.json()["items"]
+        assert any(item["id"] == created.json()["id"] for item in items)

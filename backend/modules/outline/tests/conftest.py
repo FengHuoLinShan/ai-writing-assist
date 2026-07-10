@@ -19,44 +19,6 @@ def other_novel_id() -> str:
     return str(uuid.uuid4())
 
 
-@pytest_asyncio.fixture
-async def test_project_id(db_session: AsyncSession) -> str:
-    """创建一个测试项目并返回其 ID"""
-    from modules.project.models import Project
-
-    pid = uuid.uuid4()
-    p = Project(
-        id=pid,
-        title="测试小说",
-        genre="奇幻悬疑",
-        tone="黑暗",
-        language="zh",
-        current_stage="世界构建中",
-    )
-    db_session.add(p)
-    await db_session.flush()
-    return str(pid)
-
-
-@pytest_asyncio.fixture
-async def test_entity_id(db_session: AsyncSession, test_project_id: str) -> str:
-    """创建一个测试世界对象并返回其 ID"""
-    from modules.world.models import CoreEntity
-
-    eid = uuid.uuid4()
-    e = CoreEntity(
-        id=eid,
-        novel_id=uuid.UUID(hex=test_project_id),
-        entity_type="item",
-        name="测试物品",
-        summary="一个测试物品",
-        status="canonical",
-    )
-    db_session.add(e)
-    await db_session.flush()
-    return str(eid)
-
-
 @pytest.fixture
 def thread_data() -> PlotThreadCreate:
     return PlotThreadCreate(
