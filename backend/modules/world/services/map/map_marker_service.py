@@ -44,8 +44,13 @@ class MapMarkerService:
         mid = parse_uuid(map_id, "map_id")
         sid = parse_uuid(scene_id, "scene_id") if scene_id else None
 
-        markers = await self.repo.get_by_map_and_scene(
-            db, nid, mid, scene_id=sid, scene_index=None
+        markers = await self.repo.get_by_map_and_scene_for_entity_statuses(
+            db,
+            nid,
+            mid,
+            statuses=["canonical"],
+            scene_id=sid,
+            scene_index=None,
         )
         return [MapMarkerResponse.model_validate(m) for m in markers]
 
@@ -58,7 +63,7 @@ class MapMarkerService:
     ) -> MapMarkerResponse:
         config = await self._ctx.require_map(db, novel_id, map_id)
         self._ctx.assert_hex_in_bounds(config, data.hex_q, data.hex_r)
-        await self._ctx.require_entity(db, novel_id, data.entity_id)
+        await self._ctx.require_canonical_entity(db, novel_id, data.entity_id)
 
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
@@ -98,6 +103,11 @@ class MapMarkerService:
                 f"MapMarker {marker_id} not found",
                 code="map_marker_not_found",
             )
+        await self._ctx.require_canonical_entity(
+            db,
+            novel_id,
+            str(marker.entity_id),
+        )
 
         values: dict[str, Any] = {}
         for field in (

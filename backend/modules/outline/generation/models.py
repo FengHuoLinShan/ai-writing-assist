@@ -19,6 +19,10 @@ class GeneratedThread(BaseModel):
     current_stage: str | None = None
     related_character_names: list[str] = []
     related_entity_names: list[str] = []
+    confidence: float | None = None
+    needs_review: bool = False
+    review_reason: str = ""
+    supporting_scene_ids: list[str] = []
 
 
 class GeneratedArc(BaseModel):
@@ -37,6 +41,10 @@ class GeneratedArc(BaseModel):
     related_character_names: list[str] = []
     related_entity_names: list[str] = []
     related_thread_names: list[str] = []
+    confidence: float | None = None
+    needs_review: bool = False
+    review_reason: str = ""
+    supporting_scene_ids: list[str] = []
 
 
 class ForeshadowingPlan(BaseModel):
@@ -45,6 +53,10 @@ class ForeshadowingPlan(BaseModel):
     planned_seed_chapter: int | None = None
     planned_payoff_chapter: int | None = None
     status: str = "draft"
+    confidence: float | None = None
+    needs_review: bool = False
+    review_reason: str = ""
+    supporting_scene_ids: list[str] = []
 
 
 class RevealPlan(BaseModel):
@@ -52,6 +64,10 @@ class RevealPlan(BaseModel):
     target_type: str = "world_entity"
     secret_summary: str | None = None
     status: str = "draft"
+    confidence: float | None = None
+    needs_review: bool = False
+    review_reason: str = ""
+    supporting_scene_ids: list[str] = []
 
 
 class OffscreenProgress(BaseModel):

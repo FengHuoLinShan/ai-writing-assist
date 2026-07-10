@@ -54,7 +54,7 @@ test.describe("Outline View — 真实 LLM 生成（诡秘之主 1-3 章）", ()
     }
   })
 
-  test("AI 生成结构使用第 1-3 章正文并刷新到剧情线/篇章纲列表", async ({ page }) => {
+  test("AI 生成结构使用第 1-3 章正文，检查建议后采用到剧情线/篇章纲列表", async ({ page }) => {
     // Given: Scene 子标签为空态
     await expect(page.locator(SEL.emptyState)).toContainText("暂无 Scene")
 
@@ -68,7 +68,11 @@ test.describe("Outline View — 真实 LLM 生成（诡秘之主 1-3 章）", ()
 
     // 提交生成（真实 LLM，设置较长超时）
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
-    await expect(page.locator(SEL.toastContainer)).toContainText("结构生成完成", { timeout: 200000 })
+    await expect(page.locator(SEL.toastContainer)).toContainText("剧情结构建议已生成", { timeout: 200000 })
+    await page.locator('[data-action="view-outline-generate-preview"]').click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("剧情结构建议预览")
+    await page.getByRole("button", { name: "采用到工作结构" }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("剧情结构已采用", { timeout: 15000 })
 
     // Then: 切换到剧情线子标签，列表出现条目
     await page.locator('[data-action="nav-threads"]').click()

@@ -465,6 +465,7 @@ const mapView = {
       const data = await api.world.listEntities({
         ...baseParams,
         novel_id: state.currentProjectId,
+        display_state: "active",
         skip,
         limit,
       })

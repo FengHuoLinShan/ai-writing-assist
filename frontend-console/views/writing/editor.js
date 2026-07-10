@@ -10,6 +10,7 @@
  */
 
 import { findCurrentScene as locateCurrentScene } from "../../shared/sceneLocator.js"
+import { writingAssetDisplay } from "../../shared/assetDisplayState.js"
 
 /**
  * @param {Object} deps
@@ -19,8 +20,9 @@ import { findCurrentScene as locateCurrentScene } from "../../shared/sceneLocato
  * @param {Function} [deps.onWordcountUpdate] - (stats) => void，stats: { chapterWords, todayWords, saveState }
  * @param {Function} [deps.onSaveStatusChange] - (text) => void
  * @param {Function} [deps.onSceneChange] - (sceneId) => void
+ * @param {Function} [deps.onDraftAdopted] - (draft) => void
  */
-export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatusChange, onSceneChange }) {
+export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatusChange, onSceneChange, onDraftAdopted }) {
   const editor = {
     // 当前编辑器状态
     _currentChapter: null,
@@ -120,19 +122,39 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
       }
     }
 
-    container.querySelectorAll('[data-action="ack-pov-validation-risk"]').forEach((btn) => {
-      btn.addEventListener("click", () => {
+    container.querySelectorAll('[data-action="adopt-draft-candidate"]').forEach((btn) => {
+      btn.addEventListener("click", async () => {
         btn.disabled = true
-        btn.textContent = "已确认风险"
-        toast("请人工复核该候选，确认无越权信息后再采用", "warning")
+        try {
+          await adoptDraftCandidate()
+        } finally {
+          if (editor._draftStatus === "candidate") btn.disabled = false
+        }
       })
     })
+  }
+
+  async function adoptDraftCandidate() {
+    if (!editor._currentDraftId || editor._draftStatus !== "candidate") return null
+    try {
+      const response = await api.writing.adoptDraftCandidate(editor._currentDraftId, state.currentProjectId)
+      const draft = response?.draft || response
+      _applyDraft(draft, { isReadonly: false })
+      toast("已采用到工作稿", "success")
+      _notifyWordcountUpdate()
+      if (onDraftAdopted) await onDraftAdopted(draft)
+      return draft
+    } catch (err) {
+      toast(err.message || "采用到工作稿失败", "error")
+      return null
+    }
   }
 
   async function autosave() {
     _clearAutoSaveTimer()
     if (editor._currentSavePromise) return
     if (!editor._currentChapter) return
+    if (editor._isReadonly || editor._draftStatus === "candidate") return
 
     // 无 draftId 时无法自动保存；由 orchestrator 决定是否需要创建新草稿
     if (!editor._currentDraftId) return
@@ -204,7 +226,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
   }
 
   function setReadonly(readonly) {
-    editor._isReadonly = Boolean(readonly)
+    editor._isReadonly = ["candidate", "deprecated"].includes(editor._draftStatus) || Boolean(readonly)
   }
 
   function setPublishStatus(text) {
@@ -272,6 +294,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     if (patch.lastSavedContent !== undefined) editor._lastSavedContent = patch.lastSavedContent
     if (patch.chapter !== undefined) editor._currentChapter = patch.chapter
     if (patch.provenanceJson !== undefined) editor._currentProvenanceJson = patch.provenanceJson || null
+    if (["candidate", "deprecated"].includes(editor._draftStatus)) editor._isReadonly = true
     _notifyWordcountUpdate()
     _updateSaveStatus()
   }
@@ -315,8 +338,11 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     const versionInfo = document.getElementById("writing-version-info")
     const versionLabel = editor._currentVersionNumber ? `v${editor._currentVersionNumber}` : ""
     const readOnlyLabel = editor._isReadonly ? "（只读）" : ""
+    const draftLabel = editor._currentDraftId
+      ? writingAssetDisplay({ status: editor._draftStatus }).label
+      : ""
     if (versionInfo) {
-      versionInfo.textContent = `${versionLabel} ${readOnlyLabel}`.trim() || "未选择版本"
+      versionInfo.textContent = [versionLabel, draftLabel, readOnlyLabel].filter(Boolean).join(" · ") || "未选择版本"
     }
 
     const chapterTitle = document.getElementById("writing-chapter-title")
@@ -354,13 +380,13 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     const buttonsContainer = document.getElementById("writing-editor-buttons")
     if (buttonsContainer) {
       const existingRestore = buttonsContainer.querySelector('[data-action="restore-from-version"]')
-      if (editor._isReadonly && !existingRestore) {
+      if (editor._isReadonly && editor._draftStatus !== "candidate" && !existingRestore) {
         const restoreBtn = document.createElement("button")
         restoreBtn.className = "btn btn-primary"
         restoreBtn.setAttribute("data-action", "restore-from-version")
         restoreBtn.textContent = "基于此版本创建"
         buttonsContainer.insertBefore(restoreBtn, buttonsContainer.firstChild)
-      } else if (!editor._isReadonly && existingRestore) {
+      } else if ((!editor._isReadonly || editor._draftStatus === "candidate") && existingRestore) {
         existingRestore.remove()
       }
     }
@@ -420,9 +446,12 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     const hasSelection = editor._currentChapter !== null
     const versionInfo = editor._currentVersionNumber ? `v${editor._currentVersionNumber}` : ""
     const readOnlyLabel = editor._isReadonly ? "（只读）" : ""
-    const draftLabel = editor._currentDraftId ? `${versionInfo} ${readOnlyLabel}` : ""
+    const draftDisplay = writingAssetDisplay({ status: editor._draftStatus })
+    const draftLabel = editor._currentDraftId ? `${versionInfo} · ${draftDisplay.label} ${readOnlyLabel}` : ""
     const saveStatus = saveStatusText()
-    const disabledReason = hasSelection ? "当前版本只读，需基于此版本创建后再编辑" : "请先选择章节"
+    const disabledReason = hasSelection
+      ? (editor._draftStatus === "candidate" ? "待处理建议只读，请先采用到工作稿" : "当前版本只读，需基于此版本创建后再编辑")
+      : "请先选择章节"
     const focusMode = Boolean(state._focusMode)
 
     const saveBadgeClass = _saveBadgeClass(saveStatus)
@@ -438,7 +467,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
             <span id="writing-save-status" class="writing-save-badge ${esc(saveBadgeClass)}">${esc(saveStatus)}</span>
           </div>
           <div class="writing-editor-buttons" id="writing-editor-buttons">
-            ${editor._isReadonly ? `<button class="btn btn-primary" data-action="restore-from-version">基于此版本创建</button>` : ""}
+            ${editor._isReadonly && editor._draftStatus !== "candidate" ? `<button class="btn btn-primary" data-action="restore-from-version">基于此版本创建</button>` : ""}
             <button class="btn" data-action="autosave" id="btn-autosave" ${hasSelection && !editor._isReadonly ? "" : "disabled"} title="${hasSelection && !editor._isReadonly ? "暂存当前编辑内容" : esc(disabledReason)}">${editor._restoreSourceVersion ? "发布为新版本" : "暂存"}</button>
             <button class="btn btn-primary" data-action="publish" id="btn-publish" ${hasSelection && !editor._isReadonly ? "" : "disabled"} title="${hasSelection && !editor._isReadonly ? "发布当前章节版本" : esc(disabledReason)}">发布</button>
             <button class="btn btn-primary" data-action="run-conflict-check" id="btn-conflict-check" ${hasSelection && !editor._isReadonly ? "" : "disabled"}>剧情设定冲突检查</button>
@@ -516,6 +545,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
 
     const status = validation?.status || "not_applicable"
     const statusMeta = _povValidationStatusMeta(status)
+    const isPending = editor._draftStatus === "candidate"
     const fields = [
       ["perception", "感知"],
       ["interpretation", "判断 / 误解"],
@@ -536,7 +566,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
           </div>
         `)
         .join("")
-      : `<div class="writing-pov-warnings">结构化角色视角解析失败，已保留原始候选文本。</div>`
+      : `<div class="writing-pov-warnings">结构化角色视角解析失败，已保留原始建议文本。</div>`
     const dialogueHtml = _renderPovDialogueCandidates(povView?.dialogue_candidates)
     const warnings = Array.isArray(validation?.warnings) ? validation.warnings : []
     const findings = Array.isArray(validation?.findings) ? validation.findings : []
@@ -554,22 +584,22 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     const warningsHtml = warnings.length
       ? `<div class="writing-pov-warnings">${warnings.map((item) => esc(item)).join(" · ")}</div>`
       : ""
-    const riskButton = status === "failed"
-      ? `<button class="btn btn-sm btn-danger" data-action="ack-pov-validation-risk" type="button">仍然采用</button>`
+    const adoptButton = isPending
+      ? `<button class="btn btn-sm ${status === "failed" ? "btn-danger" : "btn-primary"}" data-action="adopt-draft-candidate" type="button">${status === "failed" ? "确认风险并采用到工作稿" : "采用到工作稿"}</button>`
       : ""
 
     return `
       <section class="pov-candidate-panel writing-pov-panel">
         <div class="writing-pov-header">
           <div>
-            <div class="writing-pov-title">角色视角候选</div>
-            <div class="writing-pov-subtitle">该结果仍是候选草稿，正史变更需人工确认。</div>
+            <div class="writing-pov-title">${isPending ? "角色视角建议预览" : "角色视角诊断"}</div>
+            <div class="writing-pov-subtitle">${isPending ? "该建议尚未进入工作稿，请检查风险后决定是否采用。" : "当前内容已进入工作稿，以下诊断用于提示写作风险。"}</div>
           </div>
           <span class="writing-pov-status" style="color:${esc(statusMeta.color)};">${esc(statusMeta.label)}</span>
         </div>
         <div class="writing-pov-alert" style="border-color:${esc(statusMeta.color)};">
           ${esc(statusMeta.message)}
-          ${riskButton}
+          ${adoptButton}
           ${findingsHtml}
           ${warningsHtml}
         </div>
@@ -585,7 +615,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     if (!Array.isArray(candidates) || candidates.length === 0) return ""
     return `
       <div class="writing-pov-dialogue">
-        <div class="writing-pov-dialogue-label">台词候选</div>
+        <div class="writing-pov-dialogue-label">台词建议</div>
         <div class="writing-pov-dialogue-list">
           ${candidates.slice(0, 4).map((item) => `
             <div class="writing-pov-dialogue-item">
@@ -603,14 +633,14 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
       return {
         color: "var(--danger, #ef4444)",
         label: "高风险",
-        message: "该候选可能使用了 POV 角色当前不知道的信息。不会自动插入正文；采用前必须人工复核。",
+        message: "该建议可能使用了 POV 角色当前不知道的信息。不会自动进入工作稿；采用前必须人工检查。",
       }
     }
     if (status === "warning") {
       return {
         color: "var(--warning, #f59e0b)",
         label: "有警告",
-        message: "该候选存在角色视角风险提示，采用前建议复核。",
+        message: "该建议存在角色视角风险提示，采用前建议检查。",
       }
     }
     if (status === "passed") {
@@ -623,7 +653,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     return {
       color: "var(--text-dim)",
       label: "未检查",
-      message: "该候选没有可用的角色视角诊断结果。",
+      message: "该建议没有可用的角色视角诊断结果。",
     }
   }
 
@@ -669,7 +699,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
       const draftData = await api.writing.get(draftId, state.currentProjectId)
       _applyDraft(draftData, options)
     } catch (err) {
-      toast("加载草稿失败：" + (err.message || "未知错误"), "error")
+      toast("加载工作稿失败：" + (err.message || "未知错误"), "error")
       editor._currentContent = ""
       editor._currentTitle = ""
     }
@@ -682,7 +712,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     editor._currentVersionNumber = options.versionNumber ?? draftData.version_number ?? null
     editor._currentUpdatedAt = draftData.updated_at || null
     editor._lastSavedContent = draftData.content || ""
-    editor._isReadonly = Boolean(options.isReadonly)
+    editor._isReadonly = ["candidate", "deprecated"].includes(draftData.status) || Boolean(options.isReadonly)
     editor._restoreSourceVersion = options.restoreSourceVersion || null
     editor._draftStatus = draftData.status || "draft"
     editor._lastPublishStatus = draftData.status === "published" ? "发布成功" : null
@@ -867,6 +897,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
 
   return {
     loadChapter,
+    adoptDraftCandidate,
     render,
     bindEvents,
     autosave,

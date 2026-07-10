@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.models import AsyncTask
+from modules.imports.adoption_policy import build_authorization_snapshot
 from modules.imports.entity_extraction.scene_entity_extraction import (
     SceneEntityExtractionService,
 )
@@ -59,9 +60,38 @@ from modules.imports.workflow_llm_adapters import (
     _run_deep_import_structured_call,
 )
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
-from modules.imports.workflow_structure_phase import ensure_minimum_structure_outputs
+from modules.imports.workflow_structure_phase import (
+    ensure_minimum_structure_outputs,
+    phase3_quality_stats,
+)
 from modules.writing.contracts import WritingDraftContract
 from shared.deep_import_settings import DEEP_IMPORT_DEFAULT_SETTINGS
+
+
+def _authorized_task_meta(
+    novel_id: str,
+    *,
+    start_chapter: int = 1,
+    end_chapter: int = 5,
+    stage: str | None = None,
+) -> dict:
+    snapshot = build_authorization_snapshot(
+        novel_id=novel_id,
+        start_chapter=start_chapter,
+        end_chapter=end_chapter,
+        adoption_policy="user_authorized_pipeline",
+        authorization_confirmed=True,
+        stage=stage,
+    )
+    return {
+        "novel_id": novel_id,
+        "start_chapter": start_chapter,
+        "end_chapter": end_chapter,
+        "stage": stage,
+        "adoption_policy": "user_authorized_pipeline",
+        "authorization_confirmed": True,
+        "authorization_snapshot": snapshot,
+    }
 
 
 def test_scene_item_accepts_constraint_lists_from_llm() -> None:
@@ -81,6 +111,43 @@ def test_scene_item_accepts_constraint_lists_from_llm() -> None:
     scene = output.scenes[0]
     assert scene.must_happen == "林澈拿到铜钥匙；发现北境航道"
     assert scene.must_not_happen == "钥匙丢失；航线图被毁"
+
+
+def test_phase3_quality_stats_counts_unique_review_assets_from_provenance() -> None:
+    stats = phase3_quality_stats(
+        {
+            "total_threads": 1,
+            "total_arcs": 1,
+            "threads": [{"id": "t1", "needs_review": True}],
+            "arcs": [
+                {
+                    "id": "a1",
+                    "provenance_meta": {"needs_review": True},
+                }
+            ],
+            "extra_sections": {
+                "foreshadowing_plans": [
+                    {"id": "f1", "needs_review": False}
+                ],
+                "reveal_plans": [
+                    {
+                        "id": None,
+                        "target_name": "待消歧目标",
+                        "needs_review": True,
+                    },
+                ],
+                "uncertain_items": [],
+            },
+        },
+        failed=False,
+    )
+
+    assert stats["review_asset_count"] == 3
+    assert stats["review_asset_ids"] == [
+        "outline_arc:a1",
+        "plot_thread:t1",
+        "reveal_plan:unresolved:0:待消歧目标",
+    ]
 
 
 def test_phase_runner_request_defaults_and_required_fields() -> None:
@@ -2869,7 +2936,7 @@ class TestDeepImportWorkflowAutoRun:
             "reveal_plan",
             "reveal_plan",
         ]
-        assert updated["warnings"] == ["结构类别输出不足，已补充待复核结构候选。"]
+        assert updated["warnings"] == ["结构类别输出不足，已补充待处理结构建议。"]
         thread_service.create.assert_not_awaited()
         arc_service.create.assert_not_awaited()
         thread_service.create_batch.assert_awaited_once()
@@ -2882,6 +2949,28 @@ class TestDeepImportWorkflowAutoRun:
         reveal_service.create_batch.assert_awaited_once()
         assert len(foreshadowing_service.create_batch.await_args.args[2]) == 1
         assert len(reveal_service.create_batch.await_args.args[2]) == 3
+        for service in (
+            thread_service,
+            arc_service,
+            foreshadowing_service,
+            reveal_service,
+        ):
+            for payload in service.create_batch.await_args.args[2]:
+                assert payload.provenance_meta["needs_review"] is True
+                assert payload.provenance_meta["confidence"] == 0.0
+                assert payload.provenance_meta["review_reason"]
+                assert payload.provenance_meta["supporting_scene_ids"] == []
+        fallback_summaries = [
+            updated["threads"][-1],
+            updated["arcs"][-1],
+            updated["extra_sections"]["foreshadowing_plans"][-1],
+            updated["extra_sections"]["reveal_plans"][-1],
+        ]
+        assert all(item["needs_review"] is True for item in fallback_summaries)
+        assert all(
+            item["provenance_meta"]["supporting_scene_ids"] == []
+            for item in fallback_summaries
+        )
 
     @pytest.mark.asyncio
     async def test_workflow_constant_monkeypatch_controls_structure_fallback_target(
@@ -3450,6 +3539,18 @@ class TestDeepImportOrchestrator:
     """测试深度导入入口编排器保持 facade/task 返回契约。"""
 
     @pytest.mark.asyncio
+    async def test_start_rejects_implicit_authorization(self):
+        orchestrator = DeepImportOrchestrator()
+
+        with pytest.raises(ValueError, match="authorization_confirmed must be true"):
+            await orchestrator.start(
+                db=AsyncMock(),
+                novel_id=str(uuid.uuid4()),
+                start_chapter=1,
+                end_chapter=3,
+            )
+
+    @pytest.mark.asyncio
     async def test_start_returns_confirmation_without_enqueue_when_duplicates_exist(self):
         orchestrator = DeepImportOrchestrator()
         orchestrator._check_duplicate_import = AsyncMock(return_value="已有派生数据")
@@ -3462,6 +3563,7 @@ class TestDeepImportOrchestrator:
             start_chapter=1,
             end_chapter=3,
             force=False,
+            authorization_confirmed=True,
         )
 
         assert result == {
@@ -3492,19 +3594,26 @@ class TestDeepImportOrchestrator:
             start_chapter=1,
             end_chapter=3,
             force=True,
+            authorization_confirmed=True,
         )
 
         orchestrator._deprecate_derived_data.assert_awaited_once_with(db, "novel-1", 1, 3)
-        orchestrator._enqueue_deep_import.assert_called_once_with(
-            db,
-            "novel-1",
-            1,
-            3,
-            context_mode="working",
-            include_pending_objects=True,
-            high_quality=False,
-        )
+        _, enqueue_kwargs = orchestrator._enqueue_deep_import.call_args
+        assert enqueue_kwargs["context_mode"] == "working"
+        assert enqueue_kwargs["include_pending_objects"] is True
+        assert enqueue_kwargs["high_quality"] is False
+        snapshot = enqueue_kwargs["authorization_snapshot"]
+        assert snapshot["adoption_policy"] == "user_authorized_pipeline"
+        assert snapshot["authorization_confirmed"] is True
+        assert snapshot["scope"] == {
+            "novel_id": "novel-1",
+            "start_chapter": 1,
+            "end_chapter": 3,
+            "stage": None,
+        }
         db.flush.assert_awaited_once()
+        assert result.pop("adoption_policy") == "user_authorized_pipeline"
+        assert result.pop("authorization_snapshot") == snapshot
         assert result == {
             "workflow_id": str(task_id),
             "task_id": str(task_id),
@@ -3616,6 +3725,10 @@ class TestDeepImportOrchestrator:
             "deprecated_structure_assets": 0,
             "hard_deleted_assets": 0,
             "cleanup_mode": "soft_deprecate",
+            "rolled_back_delta_logs": 0,
+            "rolled_back_map_observations": 0,
+            "rolled_back_aliases": 0,
+            "rolled_back_relations": 0,
             "skipped_delta_logs": 0,
             "skipped_map_observations": 0,
             "cleanup_todo": None,
@@ -3866,6 +3979,47 @@ class TestDeepImportOrchestrator:
         assert untouched_arc.status == "draft"
 
     @pytest.mark.asyncio
+    async def test_run_task_rejects_missing_or_unconfirmed_authorization_snapshot(
+        self,
+    ):
+        orchestrator = DeepImportOrchestrator()
+        orchestrator.workflow.run_step = AsyncMock()
+        db = AsyncMock()
+
+        missing_task = Mock(id=uuid.uuid4(), meta={"novel_id": "n1"})
+        missing_task.update_progress = Mock()
+        with pytest.raises(ValueError, match="authorization_snapshot is required"):
+            await orchestrator.run_task(db, missing_task)
+
+        unconfirmed_meta = _authorized_task_meta("n1")
+        unconfirmed_meta["authorization_snapshot"] = {
+            **unconfirmed_meta["authorization_snapshot"],
+            "authorization_confirmed": False,
+        }
+        unconfirmed_task = Mock(id=uuid.uuid4(), meta=unconfirmed_meta)
+        unconfirmed_task.update_progress = Mock()
+        with pytest.raises(
+            ValueError,
+            match="authorization_snapshot.authorization_confirmed must be true",
+        ):
+            await orchestrator.run_task(db, unconfirmed_task)
+
+        mismatched_meta = _authorized_task_meta("n1")
+        mismatched_meta["authorization_snapshot"] = {
+            **mismatched_meta["authorization_snapshot"],
+            "scope": {
+                **mismatched_meta["authorization_snapshot"]["scope"],
+                "novel_id": "another-novel",
+            },
+        }
+        mismatched_task = Mock(id=uuid.uuid4(), meta=mismatched_meta)
+        mismatched_task.update_progress = Mock()
+        with pytest.raises(ValueError, match="scope does not match task meta"):
+            await orchestrator.run_task(db, mismatched_task)
+
+        orchestrator.workflow.run_step.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_run_task_returns_task_result_contract(self):
         orchestrator = DeepImportOrchestrator()
         progress = DeepImportProgress(
@@ -3891,13 +4045,32 @@ class TestDeepImportOrchestrator:
         orchestrator.workflow.run_step = AsyncMock(return_value=progress)
         task = Mock(
             id=uuid.uuid4(),
-            meta={"novel_id": "n1", "start_chapter": 2, "end_chapter": 4},
+            meta=_authorized_task_meta(
+                "n1",
+                start_chapter=2,
+                end_chapter=4,
+            ),
         )
         task.update_progress = Mock()
         db = AsyncMock()
 
         result = await orchestrator.run_task(db, task)
 
+        assert result.pop("adoption_policy") == "user_authorized_pipeline"
+        authorization_snapshot = result.pop("authorization_snapshot")
+        assert authorization_snapshot["authorization_confirmed"] is True
+        assert "legacy_internal_default" not in authorization_snapshot
+        asset_summary = result.pop("asset_summary")
+        assert asset_summary["adopted"] == 0
+        assert asset_summary["review"] == 0
+        assert asset_summary["not_adopted"] == 0
+        assert set(asset_summary["by_kind"]) == {
+            "scene",
+            "entity",
+            "relation",
+            "alias",
+            "structure",
+        }
         assert result == {
             "workflow_type": "deep_import",
             "stage": None,
@@ -3954,7 +4127,7 @@ class TestDeepImportOrchestrator:
         orchestrator = DeepImportOrchestrator()
         progress = DeepImportProgress(phase="done", message="完成")
         orchestrator.workflow.run_step = AsyncMock(return_value=progress)
-        task = Mock(id=uuid.uuid4(), meta={"novel_id": "n1"})
+        task = Mock(id=uuid.uuid4(), meta=_authorized_task_meta("n1"))
         task.update_progress = Mock()
         db = AsyncMock()
 
@@ -3994,7 +4167,11 @@ class TestDeepImportOrchestrator:
         orchestrator.workflow.run_step = AsyncMock(side_effect=run_step)
         task = Mock(
             id=uuid.uuid4(),
-            meta={"novel_id": "n1", "start_chapter": 1, "end_chapter": 2},
+            meta=_authorized_task_meta(
+                "n1",
+                start_chapter=1,
+                end_chapter=2,
+            ),
         )
         task.update_progress = Mock()
         db = AsyncMock()
@@ -4020,7 +4197,11 @@ class TestDeepImportOrchestrator:
         orchestrator.workflow.run_step = AsyncMock(return_value=progress)
         task = Mock(
             id=task_id,
-            meta={"novel_id": "n1", "start_chapter": 2, "end_chapter": 4},
+            meta=_authorized_task_meta(
+                "n1",
+                start_chapter=2,
+                end_chapter=4,
+            ),
             result={
                 "workflow_id": str(task_id),
                 "phase": "running",
@@ -4092,6 +4273,7 @@ class TestDeepImportOrchestrator:
             include_existing_scenes=True,
             generate_scenes=False,
             fast_structured=True,
+            persist=True,
         )
 
 
@@ -4143,6 +4325,7 @@ class TestDeepImportRecoveryApi:
             "workflow_id": task_id,
             "status": "cancelled",
             "cleanup_summary": {"deprecated_scenes": 0},
+            "message": "深度导入恢复已放弃",
         }
 
         with patch(
@@ -4156,7 +4339,24 @@ class TestDeepImportRecoveryApi:
             )
 
         assert response.status_code == 200
-        assert response.json() == expected
+        body = response.json()
+        assert body["task_id"] == expected["task_id"]
+        assert body["workflow_id"] == expected["workflow_id"]
+        assert body["status"] == "cancelled"
+        assert body["cleanup_summary"] == {
+            "deprecated_scenes": 0,
+            "deprecated_entities": 0,
+            "deprecated_structure_assets": 0,
+            "hard_deleted_assets": 0,
+            "cleanup_mode": "soft_deprecate",
+            "rolled_back_delta_logs": 0,
+            "rolled_back_map_observations": 0,
+            "rolled_back_aliases": 0,
+            "rolled_back_relations": 0,
+            "skipped_delta_logs": 0,
+            "skipped_map_observations": 0,
+            "cleanup_todo": None,
+        }
         abandon.assert_awaited_once()
 
 
@@ -4809,14 +5009,12 @@ class TestSceneEntityExtractionProgress:
         service._run_alias_relation_phase.assert_not_awaited()
 
     @pytest.mark.asyncio
-    @patch("modules.world.facade.merge_candidate_into_entity", new_callable=AsyncMock)
     @patch("modules.world.facade.find_similar_entities", new_callable=AsyncMock)
     @patch("modules.world.facade.create_entity", new_callable=AsyncMock)
     async def test_phase2_persist_entities_collects_action_and_dedup_stats(
         self,
         mock_create,
         mock_find_similar,
-        mock_merge,
     ):
         service = SceneEntityExtractionService()
         target_id = str(uuid.uuid4())
@@ -4887,15 +5085,24 @@ class TestSceneEntityExtractionProgress:
                 persistence_stats=stats,
             )
 
-        assert created == 2
-        mock_merge.assert_awaited_once()
+        assert created == 3
+        assert mock_create.await_count == 3
+        high_confidence_payload = mock_create.await_args_list[0].args[2]
+        assert high_confidence_payload["status"] == "candidate"
+        assert (
+            high_confidence_payload["content_json"]["_meta"][
+                "suggested_target_entity_id"
+            ]
+            == target_id
+        )
         assert stats["action_counts"] == {
             "create_new": 1,
             "link_to_existing": 1,
             "ignore": 1,
             "temporary_only": 1,
         }
-        assert stats["dedup_counts"]["auto_merged"] == 1
+        assert stats["dedup_counts"]["auto_merged"] == 0
+        assert stats["dedup_counts"]["review_suggested"] == 2
         assert stats["dedup_counts"]["skipped"] == 0
         assert stats["linked_to_existing"] == 1
         assert stats["ignored"] == 1
@@ -4913,11 +5120,11 @@ class TestHandleDeepImportTaskResult:
         class FakeTask:
             def __init__(self):
                 self.id = uuid.uuid4()
-                self.meta = {
-                    "novel_id": str(uuid.uuid4()),
-                    "start_chapter": 1,
-                    "end_chapter": 3,
-                }
+                self.meta = _authorized_task_meta(
+                    str(uuid.uuid4()),
+                    start_chapter=1,
+                    end_chapter=3,
+                )
                 self.result = {}
                 self.progress_values = []
 

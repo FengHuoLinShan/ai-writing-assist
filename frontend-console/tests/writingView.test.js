@@ -157,6 +157,37 @@ describe("writingView onEnter", () => {
   })
 })
 
+describe("writingView suggestion isolation", () => {
+  it("does not expose a candidate preview as the current working draft", () => {
+    state.currentProjectId = "p1"
+    writingView._initSubModules()
+    writingView._currentChapter = 1
+    writingView._editor.setState({
+      chapter: 1,
+      draftId: "candidate-1",
+      draftStatus: "candidate",
+      isReadonly: false,
+      content: "建议正文",
+    })
+
+    writingView._syncSharedStateToSubModules()
+
+    expect(state._currentDraftId).toBeNull()
+    expect(state._currentSuggestionDraftId).toBe("candidate-1")
+    expect(state._isReadonly).toBe(true)
+
+    writingView._editor.setState({
+      draftId: "working-2",
+      draftStatus: "draft",
+      isReadonly: false,
+    })
+    writingView._syncSharedStateToSubModules()
+
+    expect(state._currentDraftId).toBe("working-2")
+    expect(state._currentSuggestionDraftId).toBeNull()
+  })
+})
+
 describe("writingView render", () => {
   it("loading 状态显示加载中", async () => {
     writingView._loading = true
@@ -197,7 +228,7 @@ describe("writingView render", () => {
     await writingView._selectChapter(1)
 
     const html = await writingView.render()
-    expect(html).toContain("AI 生成草稿")
+    expect(html).toContain("AI 正文建议")
     expect(html).toContain("场景（scene）自动提取")
     expect(html).toContain("世界对象与别名/关系自动提取")
     expect(html).toContain("剧情线自动提取")
@@ -497,6 +528,18 @@ describe("writingView conflict check", () => {
     runSpy.mockRestore()
   })
 
+  it("不会把只读待处理建议作为工作稿运行冲突检查", async () => {
+    writingView._editor.setState({ draftStatus: "candidate", isReadonly: true })
+    const runSpy = vi.spyOn(writingView._conflictCheck, "run").mockResolvedValue()
+
+    await writingView._runConflictCheck()
+
+    expect(api.writing.autosave).not.toHaveBeenCalled()
+    expect(runSpy).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("当前内容只读；待处理建议不会作为工作稿检查", "warning")
+    runSpy.mockRestore()
+  })
+
   it("定位冲突来源设置编辑器选区", () => {
     document.body.innerHTML = '<textarea id="writing-editor">主角死亡。王后沉默。</textarea>'
     const editor = document.getElementById("writing-editor")
@@ -549,6 +592,18 @@ describe("writingView deep import / auto extraction", () => {
     `
     await handler()
 
+    expect(api.imports.startStage).toHaveBeenCalledWith(
+      "scenes",
+      "p1",
+      1,
+      3,
+      false,
+      false,
+      {
+        adoption_policy: "user_authorized_pipeline",
+        authorization_confirmed: true,
+      },
+    )
     expect(startTaskSpy).toHaveBeenCalledWith(expect.objectContaining({ taskId: "task-1" }))
     startTaskSpy.mockRestore()
   })
@@ -1168,6 +1223,26 @@ describe("writingView AI extract chapter cards", () => {
 })
 
 describe("writingView scene map summary", () => {
+  it("opens the exact map target supplied by scene or conflict evidence", () => {
+    state.currentProjectId = "p1"
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null)
+
+    writingView._openMap({
+      kind: "map_object",
+      mode: "map",
+      map_id: "m1",
+      scene_id: "s1",
+      focus_entity_id: "e1",
+      observation_id: "o1",
+    })
+
+    expect(openSpy).toHaveBeenCalledWith(
+      "#workbench/p1/map?map_id=m1&scene_id=s1&focus_entity_id=e1&mode=map",
+      "_blank",
+      "noopener",
+    )
+  })
+
   it("scene面板显示地图摘要", async () => {
     state.currentProjectId = "p1"
     mockChapterList()

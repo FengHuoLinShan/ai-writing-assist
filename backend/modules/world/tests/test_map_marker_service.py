@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import DomainError
+from modules.world.map_repositories import MapMarkerRepository
 from modules.world.map_schemas import (
     MapConfigCreate,
     MapMarkerCreate,
@@ -84,6 +85,67 @@ class TestMapMarkerCRUD:
         )
         markers = await marker_svc.list(db_session, world_map.novel_id, world_map.id)
         assert len(markers) >= 1
+
+    @pytest.mark.asyncio
+    async def test_create_marker_rejects_pending_compatibility_shadow(
+        self,
+        db_session: AsyncSession,
+        world_map,
+    ) -> None:
+        shadow_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=shadow_id,
+                novel_id=uuid.UUID(hex=world_map.novel_id),
+                entity_type="character",
+                name="AI 待处理人物",
+                status="candidate",
+                content_json={
+                    "_meta": {
+                        "compatibility_shadow": True,
+                        "suggestion_id": str(uuid.uuid4()),
+                    }
+                },
+            )
+        )
+        await db_session.flush()
+
+        with pytest.raises(DomainError) as exc:
+            await MapMarkerService().create(
+                db_session,
+                world_map.novel_id,
+                world_map.id,
+                MapMarkerCreate(
+                    entity_id=str(shadow_id),
+                    marker_type="character",
+                    hex_q=1,
+                    hex_r=1,
+                ),
+            )
+
+        assert exc.value.status_code == 400
+        assert exc.value.code == "unadopted_map_entity"
+
+        legacy = await MapMarkerRepository().create(
+            db_session,
+            uuid.UUID(hex=world_map.novel_id),
+            uuid.UUID(world_map.id),
+            {
+                "entity_id": shadow_id,
+                "marker_type": "character",
+                "hex_q": 1,
+                "hex_r": 1,
+                "label": "旧影子标记",
+                "style_json": {},
+                "visible": True,
+            },
+        )
+        listed = await MapMarkerService().list(
+            db_session,
+            world_map.novel_id,
+            world_map.id,
+        )
+        assert str(legacy.id) not in {item.id for item in listed}
 
     @pytest.mark.asyncio
     async def test_update_marker(self, db_session: AsyncSession, world_map):

@@ -40,6 +40,18 @@ class DeepImportProgress(BaseModel):
         default=None,
         description="分阶段自动提取标识: scenes / world_objects / plot_structure",
     )
+    adoption_policy: str = Field(
+        default="user_authorized_pipeline",
+        description="用户启动流水线时确认的资产采用策略",
+    )
+    authorization_snapshot: dict[str, Any] = Field(
+        default_factory=dict,
+        description="流水线启动时的授权范围与时间快照",
+    )
+    asset_summary: dict[str, Any] = Field(
+        default_factory=dict,
+        description="按已采用/待处理/未采用聚合的资产结果",
+    )
     phase: str = Field(
         default="pending",
         description="阶段: pending / running / done / failed",

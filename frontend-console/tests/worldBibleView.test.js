@@ -71,7 +71,7 @@ describe("worldBibleView", () => {
       novel_id: "p1",
       title: "种族设定",
       page_type: "species",
-      status: "draft",
+      status: "canonical",
     })
     expect(router.refresh).toHaveBeenCalled()
   })
@@ -240,6 +240,7 @@ describe("worldBibleView", () => {
       "p1",
     )
     expect(worldBibleView._aiResult.suggestions[0].id).toBe("s1")
+    expect(toast).toHaveBeenCalledWith("建议已生成，采用后才会写入", "success")
   })
 
   it("创设建议弹窗用可读卡片展示而不是 raw JSON", async () => {

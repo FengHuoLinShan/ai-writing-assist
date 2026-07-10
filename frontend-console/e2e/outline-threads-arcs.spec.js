@@ -95,8 +95,10 @@ test.describe("Outline View — 剧情线与篇章纲", () => {
     await page.locator('[data-action="nav-threads"]').click()
     await expect(page.locator(SEL.dataTable)).toContainText("待删除剧情线")
 
-    // When: 点击删除按钮，确认删除
-    await page.locator('[data-action="delete-thread"]').first().click()
+    // When: 打开该行操作菜单，点击删除并确认
+    const threadRow = page.locator("tr").filter({ hasText: "待删除剧情线" })
+    await threadRow.locator(".action-menu-btn").click()
+    await threadRow.locator('[data-action="delete-thread"]').click()
     await expect(page.locator(SEL.modalOverlay)).not.toHaveClass(/hidden/)
     await page.locator(SEL.modalFooter).locator(SEL.btnDanger).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("已删除", { timeout: 10000 })
@@ -188,7 +190,7 @@ test.describe("Outline View — 剧情线与篇章纲", () => {
     await page.locator('[data-action="apply-outline-structure-filters"]').click()
     await expect(page.locator(SEL.dataTable)).toContainText("导入主线")
     await expect(page.locator(SEL.dataTable)).toContainText("深度导入")
-    await expect(page.locator(SEL.dataTable)).toContainText("需复核")
+    await expect(page.locator(SEL.dataTable)).toContainText("需要人工检查")
     await expect(page.locator(SEL.dataTable)).not.toContainText("人工支线")
 
     await page.locator('[data-action="nav-arcs"]').click()
@@ -199,7 +201,7 @@ test.describe("Outline View — 剧情线与篇章纲", () => {
     await page.locator('[data-action="apply-outline-structure-filters"]').click()
     await expect(page.locator(SEL.dataTable)).toContainText("导入篇章纲")
     await expect(page.locator(SEL.dataTable)).toContainText("深度导入")
-    await expect(page.locator(SEL.dataTable)).toContainText("需复核")
+    await expect(page.locator(SEL.dataTable)).toContainText("需要人工检查")
     await expect(page.locator(SEL.dataTable)).not.toContainText("人工篇章纲")
   })
 
@@ -245,8 +247,10 @@ test.describe("Outline View — 剧情线与篇章纲", () => {
     await page.locator('[data-action="nav-arcs"]').click()
     await expect(page.locator(SEL.dataTable)).toContainText("待删除篇章")
 
-    // When: 点击删除按钮，确认删除
-    await page.locator('[data-action="delete-arc"]').first().click()
+    // When: 打开该行操作菜单，点击删除并确认
+    const arcRow = page.locator("tr").filter({ hasText: "待删除篇章" })
+    await arcRow.locator(".action-menu-btn").click()
+    await arcRow.locator('[data-action="delete-arc"]').click()
     await expect(page.locator(SEL.modalOverlay)).not.toHaveClass(/hidden/)
     await page.locator(SEL.modalFooter).locator(SEL.btnDanger).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("已删除", { timeout: 10000 })

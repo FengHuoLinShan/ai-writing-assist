@@ -128,11 +128,11 @@ describe("sceneWorkbenchView", () => {
     expect(html).not.toContain(">清空</button>")
     expect(html).toContain('data-action="start-selected-merge"')
     expect(html).toContain('data-action="review-selected-scenes"')
-    expect(html).toContain("复核选中项")
-    expect(html.indexOf("复核选中项")).toBeLessThan(html.indexOf("机械合并"))
+    expect(html).toContain("标记选中项已检查")
+    expect(html.indexOf("标记选中项已检查")).toBeLessThan(html.indexOf("机械合并"))
     expect(html).toContain("机械合并")
     expect(html).toContain('data-action="start-ai-fusion-draft"')
-    expect(html).toContain("AI 融合草稿")
+    expect(html).toContain("AI 融合建议")
     expect(html).toContain("拆分/整理")
     expect(html).not.toContain(">整理</button>")
   })
@@ -210,6 +210,9 @@ describe("sceneWorkbenchView", () => {
     api.imports.startStage.mockResolvedValue({ task_id: "scene-task" })
     sceneWorkbenchView._showSceneAutoExtractForm()
     expect(showModal.mock.calls[0][1].html).toContain("需要标准提取约8倍时间")
+    expect(showModal.mock.calls[0][1].html).toContain("自动采用通过门禁")
+    expect(showModal.mock.calls[0][1].html).toContain("进入待处理")
+    expect(showModal.mock.calls[0][2][0].text).toBe("确认并开始提取")
     document.body.innerHTML += `
       <input id="scene-auto-extract-start" value="1" />
       <input id="scene-auto-extract-end" value="5" />
@@ -225,6 +228,10 @@ describe("sceneWorkbenchView", () => {
       5,
       false,
       false,
+      {
+        adoption_policy: "user_authorized_pipeline",
+        authorization_confirmed: true,
+      },
     )
     expect(toast).toHaveBeenCalledWith(
       "场景（scene）自动提取任务已提交：scene-task",
@@ -250,6 +257,10 @@ describe("sceneWorkbenchView", () => {
       5,
       false,
       true,
+      {
+        adoption_policy: "user_authorized_pipeline",
+        authorization_confirmed: true,
+      },
     )
   })
 
@@ -280,6 +291,10 @@ describe("sceneWorkbenchView", () => {
       160,
       false,
       false,
+      {
+        adoption_policy: "user_authorized_pipeline",
+        authorization_confirmed: true,
+      },
     )
     expect(api.imports.startStage).toHaveBeenNthCalledWith(
       2,
@@ -289,6 +304,10 @@ describe("sceneWorkbenchView", () => {
       160,
       true,
       false,
+      {
+        adoption_policy: "user_authorized_pipeline",
+        authorization_confirmed: true,
+      },
     )
     expect(toast).toHaveBeenCalledWith(
       "场景（scene）自动提取任务已提交：scene-task",
@@ -453,7 +472,7 @@ describe("sceneWorkbenchView", () => {
     expect(html).toContain("scene-workbench")
     expect(html).toContain("scene-workbench__organize")
     expect(html).toContain("scene-workbench__detail")
-    expect(html).toContain("未复核")
+    expect(html).toContain("需要人工检查")
     expect(html).toContain("未关联章节")
     expect(html).toContain("缺设定")
     expect(html).toContain("待整理")
@@ -500,9 +519,9 @@ describe("sceneWorkbenchView", () => {
     const html = await sceneWorkbenchView.render()
 
     expect(html).toContain('data-action="mark-scene-reviewed"')
-    expect(html).toContain("复核通过")
-    expect(html).toContain("来源与复核")
-    expect(html).toContain("未复核")
+    expect(html).toContain("采用")
+    expect(html).toContain("来源与注意")
+    expect(html).toContain("需要人工检查")
   })
 
   it("saves editable scene fields through outline updateScene", async () => {
@@ -572,7 +591,7 @@ describe("sceneWorkbenchView", () => {
         reviewed_from: "scene_workbench",
       }),
     })
-    expect(toast).toHaveBeenCalledWith("Scene 已标记为已复核/已整理", "success")
+    expect(toast).toHaveBeenCalledWith("Scene 已采用", "success")
     expect(router.refresh).not.toHaveBeenCalled()
     expect(document.querySelector(".scene-workbench__organize").scrollTop).toBe(84)
   })
@@ -623,7 +642,7 @@ describe("sceneWorkbenchView", () => {
       }),
     })
     expect(sceneWorkbenchView._selectedFusionSceneIds.size).toBe(0)
-    expect(toast).toHaveBeenCalledWith("已复核 2 个 Scene", "success")
+    expect(toast).toHaveBeenCalledWith("已处理 2 个 Scene", "success")
     expect(router.refresh).not.toHaveBeenCalled()
     expect(document.querySelector(".scene-workbench__organize").scrollTop).toBe(91)
   })
@@ -649,7 +668,7 @@ describe("sceneWorkbenchView", () => {
     sceneWorkbenchView._bindEvents()
     document.querySelector(".scene-workbench__organize").scrollTop = 55
 
-    expect(document.body.textContent).toContain("取消复核选中项")
+    expect(document.body.textContent).toContain("标记选中项需检查")
 
     await sceneWorkbenchView._toggleSelectedSceneReview()
 
@@ -667,7 +686,7 @@ describe("sceneWorkbenchView", () => {
       },
     })
     expect(sceneWorkbenchView._selectedFusionSceneIds.size).toBe(0)
-    expect(toast).toHaveBeenCalledWith("已取消复核 2 个 Scene", "success")
+    expect(toast).toHaveBeenCalledWith("已将 2 个 Scene 标记为需要人工检查", "success")
     expect(router.refresh).not.toHaveBeenCalled()
     expect(document.querySelector(".scene-workbench__organize").scrollTop).toBe(55)
   })
@@ -702,7 +721,7 @@ describe("sceneWorkbenchView", () => {
       source_workflow_id: "wf-1",
       needs_review: true,
     })
-    expect(toast).toHaveBeenCalledWith("Scene 已标记为需复核", "success")
+    expect(toast).toHaveBeenCalledWith("Scene 已标记为需要人工检查", "success")
     expect(router.refresh).not.toHaveBeenCalled()
     expect(document.querySelector(".scene-workbench__organize").scrollTop).toBe(73)
   })
@@ -757,7 +776,7 @@ describe("sceneWorkbenchView", () => {
     const call = showModal.mock.calls[1]
     const [title, , buttons] = call
     const body = modalHtmlFromCall(call)
-    expect(title).toBe("Scene AI 草稿审稿")
+    expect(title).toBe("Scene AI 建议预览")
     expect(body).toContain("潜入与撤离")
     expect(body).toContain("取得密信并撤离")
     expect(body).toContain("章节跨度较大")
@@ -970,8 +989,8 @@ describe("sceneWorkbenchView", () => {
     const call = showModal.mock.calls[0]
     const [title, , buttons] = call
     const body = modalHtmlFromCall(call)
-    expect(title).toBe("Scene AI 草稿审稿")
-    expect(body).toContain("AI 拆分草稿")
+    expect(title).toBe("Scene AI 建议预览")
+    expect(body).toContain("AI 拆分建议")
     expect(body).toContain("scene-split-0-title")
     document.body.innerHTML = body
     document.getElementById("scene-split-0-title").value = "用户前半"

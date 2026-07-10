@@ -129,7 +129,8 @@ describe("writingConflictModal", () => {
     expect(body).toContain("&lt;script&gt;alert(1)&lt;/script&gt;")
     expect(body).toContain("地图&lt;script&gt;alert(2)&lt;/script&gt;")
     expect(body).toContain("旧城&lt;script&gt;alert(3)&lt;/script&gt;")
-    expect(body).toContain("依赖待确认地图观察")
+    expect(body).toContain("依赖待处理地图观察")
+    expect(body).not.toContain("依赖待确认地图观察")
     expect(body).toContain("map_object")
     expect(body).toContain('data-conflict-open-source="i1"')
     expect(body).not.toContain("<script>")
@@ -146,7 +147,7 @@ describe("writingConflictModal", () => {
     })
 
     const body = showModal.mock.calls[0][1].html
-    expect(body).toContain("本次检查包含待确认对象")
+    expect(body).toContain("本次检查包含待处理内容")
     expect(body).not.toContain("结果需复核")
   })
 

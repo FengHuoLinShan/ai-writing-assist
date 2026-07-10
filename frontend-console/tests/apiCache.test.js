@@ -392,4 +392,72 @@ describe("api.js request headers", () => {
     const init = globalThis.fetch.mock.calls[0][1]
     expect(init.headers.Authorization).toBe("Bearer test-token")
   })
+
+  it("sends the explicit import authorization snapshot for stage starts", async () => {
+    mockJsonResponse({ task_id: "import-1" })
+
+    await window.api.imports.startStage("scenes", "p1", 1, 3, false, true, {
+      adoption_policy: "user_authorized_pipeline",
+      authorization_confirmed: true,
+    })
+
+    const [url, init] = globalThis.fetch.mock.calls[0]
+    expect(url).toContain("/api/imports/stages/scenes")
+    expect(JSON.parse(init.body)).toMatchObject({
+      novel_id: "p1",
+      start_chapter: 1,
+      end_chapter: 3,
+      high_quality: true,
+      adoption_policy: "user_authorized_pipeline",
+      authorization_confirmed: true,
+    })
+  })
+
+  it("fails closed before starting an import without user authorization", async () => {
+    mockJsonResponse({ task_id: "should-not-start" })
+
+    await expect(window.api.imports.startStage("scenes", "p1", 1, 3))
+      .rejects.toThrow("必须获得用户授权")
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+  })
+
+  it("posts edited Scene preview data to the explicit apply endpoint", async () => {
+    mockJsonResponse({ status: "applied", scene_ids: ["scene-1"], total_scenes: 1 })
+
+    await window.api.outline.applyChapterScenePreview({
+      novel_id: "p1",
+      context_confirmation_id: "confirm-1",
+      source_task_id: "task-1",
+      draft_scenes: [{ title: "用户修订" }],
+      confirmed: true,
+    })
+
+    const [url, init] = globalThis.fetch.mock.calls[0]
+    expect(url).toContain("/api/outline/chapter-scenes/apply")
+    expect(JSON.parse(init.body)).toMatchObject({
+      source_task_id: "task-1",
+      draft_scenes: [{ title: "用户修订" }],
+      confirmed: true,
+    })
+  })
+
+  it("posts edited outline preview data to the explicit apply endpoint", async () => {
+    mockJsonResponse({ status: "applied", total_threads: 1, total_arcs: 0, total_scenes: 0 })
+
+    await window.api.outline.applyStructurePreview({
+      novel_id: "p1",
+      context_confirmation_id: "confirm-1",
+      source_task_id: "task-1",
+      draft_structure: { threads: [{ name: "用户修订" }] },
+      confirmed: true,
+    })
+
+    const [url, init] = globalThis.fetch.mock.calls[0]
+    expect(url).toContain("/api/outline/generate/apply")
+    expect(JSON.parse(init.body)).toMatchObject({
+      source_task_id: "task-1",
+      draft_structure: { threads: [{ name: "用户修订" }] },
+      confirmed: true,
+    })
+  })
 })

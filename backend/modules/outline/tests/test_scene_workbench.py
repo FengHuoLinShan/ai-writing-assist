@@ -18,13 +18,26 @@ async def _create_scene(
     novel_id: str,
     payload: dict,
 ) -> dict:
+    requested_status = payload.get("status")
+    create_payload = dict(payload)
+    if requested_status == "deprecated":
+        create_payload["status"] = "draft"
     resp = await client.post(
         "/api/outline/scenes",
         params={"novel_id": novel_id},
-        json=payload,
+        json=create_payload,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    scene = resp.json()
+    if requested_status == "deprecated":
+        update = await client.patch(
+            f"/api/outline/scenes/{scene['id']}",
+            params={"novel_id": novel_id},
+            json={"status": "deprecated"},
+        )
+        assert update.status_code == 200, update.text
+        return update.json()
+    return scene
 
 
 async def _create_draft(
@@ -467,19 +480,21 @@ class TestSceneWorkbenchApi:
     async def test_workbench_includes_candidate_scenes(
         self,
         async_client: AsyncClient,
+        db_session: AsyncSession,
         test_project_id: str,
     ) -> None:
-        scene = await _create_scene(
-            async_client,
-            test_project_id,
-            {
-                "scene_index": 0,
-                "title": "候选 Scene",
-                "source": "deep_import",
-                "status": "candidate",
-                "chapter_ids": ["1"],
-            },
+        from modules.outline.models import Scene
+
+        legacy_scene = Scene(
+            novel_id=uuid.UUID(test_project_id),
+            scene_index=0,
+            title="候选 Scene",
+            source="deep_import",
+            status="candidate",
+            chapter_ids=["1"],
         )
+        db_session.add(legacy_scene)
+        await db_session.flush()
 
         resp = await async_client.get(
             "/api/outline/scene-workbench",
@@ -488,7 +503,9 @@ class TestSceneWorkbenchApi:
 
         assert resp.status_code == 200, resp.text
         data = resp.json()
-        assert [item["scene"]["id"] for item in data["items"]] == [scene["id"]]
+        assert [item["scene"]["id"] for item in data["items"]] == [
+            str(legacy_scene.id)
+        ]
         assert data["items"][0]["health"][:1] == ["unreviewed"]
 
     async def test_workbench_filters_deep_import_scene_metadata(
@@ -1581,6 +1598,9 @@ class TestSceneWorkbenchApi:
             first["id"],
             second["id"],
         ]
+        assert data["fused_scene"]["structure_meta"]["needs_review"] is False
+        assert data["fused_scene"]["structure_meta"]["adopted_at"]
+        assert data["fused_scene"]["structure_meta"]["source"] == "manual_fusion"
         assert data["fused_scene"]["chapter_ids"] == ["1", "2"]
 
         for scene in (first, second):
@@ -1712,6 +1732,9 @@ class TestSceneWorkbenchApi:
         assert fused_scene["chapter_ids"] == ["2"]
         assert fused_scene["status"] == "draft"
         assert fused_scene["structure_meta"]["reviewed_at"] == "manual"
+        assert fused_scene["structure_meta"]["needs_review"] is False
+        assert fused_scene["structure_meta"]["adopted_at"]
+        assert fused_scene["structure_meta"]["source"] == "manual_fusion"
         assert fused_scene["structure_meta"]["fused_from_scene_ids"] == [
             first["id"],
             second["id"],

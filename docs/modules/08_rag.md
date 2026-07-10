@@ -45,7 +45,8 @@ models/repositories，也不为 `scene_span_id` 建跨模块硬 FK。
 
 章节正文 chunk 的幂等键包含 `content_mode`；`source_id` 指向执行时选中的
 writing draft，`source_content_hash` 记录其 hash。canonical/working 索引独立替换，
-彼此不覆盖。
+彼此不覆盖。writing 的 working 选择只包含已采用的 draft/published/canonical 兼容状态；
+未采用 AI `candidate` 不会成为 RAG 正文来源。
 
 autosave/publish 调用 `request_chapter_index()` 幂等标脏状态；对同一状态键仅保留
 一个 pending/running 任务，执行时重读最新 requested source。RAG 文本仅用于候选召回，

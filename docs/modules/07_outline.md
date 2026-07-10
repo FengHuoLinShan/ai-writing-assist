@@ -4,6 +4,10 @@
 
 outline 模块负责把事实层资产组织成“可执行的剧情计划”。
 
+作者界面把人工 Scene/结构编辑视为普通工作内容；AI 合并、拆分、补全和章节 Scene 抽取
+先返回可编辑预览，只有显式应用后才写入普通 Scene。旧 `candidate` 仅兼容读取，不再允许
+作为新 Scene 写入状态；`needs_review` 是注意原因，不是第二套生命周期。
+
 当前活跃对象：
 
 - `plot_threads`：剧情线
@@ -81,6 +85,8 @@ POST   /api/outline/scene-workbench/split/preview
 POST   /api/outline/scene-workbench/split
 POST   /api/outline/scene-workbench/fusion/preview
 POST   /api/outline/scene-workbench/fusion/save
+POST   /api/outline/chapter-scenes/extract
+POST   /api/outline/chapter-scenes/apply
 
 POST   /api/outline/foreshadowing
 GET    /api/outline/foreshadowing
@@ -160,7 +166,7 @@ Scene 工作台是 Scene 管理、章节映射和结构整理的主入口；大�
 
 第一版健康项固定为：
 
-- `未复核`：导入 / AI 生成来源仍处于草稿或候选，且缺少人工复核标记
+- `需要人工检查`：导入来源带 `needs_review`、低质量或缺少人工检查标记；它是注意原因
 - `未关联章节`：Scene 没有关联章节，或存在有正文草稿但未归入任何 Scene 的章节
 - `缺设定`：目标、核心冲突、必须发生、禁止发生等关键字段缺失
 - `待整理`：人工标记、重复章节映射、chunk/chapter 不一致，或
@@ -171,12 +177,12 @@ Scene 工作台是 Scene 管理、章节映射和结构整理的主入口；大�
 不自动阻断。合并来源 Scene 标记为 `deprecated` 而不是硬删除；拆分只调整映射并
 创建新 Scene，不修改正文内容。
 
-Scene 工作台区分机械合并和 AI 融合草稿。机械合并由目标 Scene 吸收来源 Scene，
+Scene 工作台区分机械合并和 AI 融合建议。机械合并由目标 Scene 吸收来源 Scene，
 来源标记为 `deprecated`；AI 融合先由用户选择 `primary_scene_id`，`fusion/preview`
-返回可编辑草稿、字段来源引用和冲突提示，再由用户选择保留原 Scene、保存并废弃原
+返回可编辑建议、字段来源引用和冲突提示，再由用户选择保留原 Scene、保存并废弃原
 Scene、放弃结果或继续编辑后保存。只有“保存并废弃原 Scene”会把来源 Scene 标记为
 `deprecated`；所有融合新 Scene 都记录 `structure_meta.fused_from_scene_ids` 和主
-Scene 信息。
+Scene 信息，并在采用时写入 `adopted_at`、来源并清除 `needs_review`。
 
 剧情线、篇章纲、伏笔和揭示列表支持按 `status`、`source`、`workflow_id`、
 `needs_review`、分页参数筛选；`source` / `workflow_id` / `needs_review` 来自

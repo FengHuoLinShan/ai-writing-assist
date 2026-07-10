@@ -1,4 +1,5 @@
 import { confirmAiReference } from "../shared/aiReferenceModal.js"
+import { authorFacingStateText } from "../shared/assetDisplayState.js"
 
 const severityLabels = {
   high: "高",
@@ -32,7 +33,7 @@ export function showWritingConflictModal({
       <div class="writing-conflict-modal__meta">
         <span>检查范围：第 ${esc(check?.chapter_index || "-")} 章</span>
         <span>问题 ${items.length} 条</span>
-        ${check?.include_candidates ? "<span>包含待确认对象</span>" : ""}
+        ${check?.include_candidates ? "<span>包含待处理内容</span>" : ""}
       </div>
       <div class="writing-conflict-list">
         ${renderConflictGroup("规则命中", ruleItems)}
@@ -71,7 +72,7 @@ function renderConflictGroup(title, items) {
 function renderAiReviewGroup(check, items) {
   const status = check?.ai_review_status || "not_requested"
   const pendingCopy = check?.include_candidates
-    ? '<span class="pill pill-warning">本次检查包含待确认对象</span>'
+    ? '<span class="pill pill-warning">本次检查包含待处理内容</span>'
     : ""
   return `
     <section class="writing-conflict-group writing-conflict-group--ai">
@@ -93,7 +94,7 @@ function renderAiReviewGroup(check, items) {
 
 function renderConflictItem(item) {
   const needsReview = item.needs_review
-    ? '<span class="pill pill-warning">需复核</span>'
+    ? '<span class="pill pill-warning">需要人工检查</span>'
     : ""
   const aiBadge = item.is_ai_judgment ? '<span class="pill">AI 判断</span>' : ""
   const confidence = typeof item.confidence === "number"
@@ -130,7 +131,7 @@ function renderEvidence(item) {
   const location = item.location_json || {}
   const source = location.source || null
   const openTarget = location.open_target || null
-  const needsReviewReason = location.needs_review_reason || item.needs_review_reason || ""
+  const needsReviewReason = authorFacingStateText(location.needs_review_reason || item.needs_review_reason || "")
   if (!source && !openTarget && !needsReviewReason) return ""
 
   const sourceModule = source?.module || item.source_module || "-"
@@ -148,7 +149,7 @@ function renderEvidence(item) {
         <span>字段</span><strong>${esc(sourceField)}</strong>
         <span>类型</span><strong>${esc(sourceType)}</strong>
         <span>摘录</span><strong>${esc(sourceExcerpt)}</strong>
-        <span>复核</span><strong>${esc(needsReviewReason || "-")}</strong>
+        <span>注意原因</span><strong>${esc(needsReviewReason || "-")}</strong>
         <span>打开</span><strong>${esc(openTargetKind)}</strong>
       </div>
     </details>
@@ -193,7 +194,7 @@ function renderSuggestion(item) {
       <div class="writing-conflict-suggestion__head">
         <strong>${esc(suggestion.strategy || "AI 修复建议")}</strong>
         <button class="btn btn-sm" data-conflict-copy-suggestion="${esc(item.id)}">复制</button>
-        <button class="btn btn-sm btn-primary" data-conflict-apply-suggestion="${esc(item.id)}">应用草稿</button>
+        <button class="btn btn-sm btn-primary" data-conflict-apply-suggestion="${esc(item.id)}">采用到工作稿</button>
       </div>
       <textarea class="form-textarea" rows="4" data-conflict-suggestion-draft="${esc(item.id)}">${esc(suggestion.suggested_text ?? "")}</textarea>
       ${suggestion.rationale ? `<small>${esc(suggestion.rationale)}</small>` : ""}
@@ -302,7 +303,7 @@ function bindConflictModalEvents({
         } else if (updated?.ai_review_status === "running") {
           toast("AI 软冲突判断仍在后台运行，可稍后重新打开检查记录", "warning")
         } else if (updated?.ai_review_status === "partial") {
-          toast("AI 软冲突判断部分生成，部分结果需复核", "warning")
+          toast("AI 软冲突判断部分生成，部分结果需要人工检查", "warning")
         } else {
           toast("AI 软冲突判断已生成", "success")
         }

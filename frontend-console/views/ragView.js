@@ -517,6 +517,9 @@ const ragView = {
           <label><input type="checkbox" data-search-scope="manuscript" checked /> 正文</label>
           <label><input type="checkbox" data-search-scope="world" /> 世界对象</label>
           <label><input type="checkbox" data-search-scope="outline" /> 结构</label>
+          <label title="待处理内容尚未采用，纳入后需人工检查">
+            <input type="checkbox" id="rag-include-pending" /> 包含待处理世界对象
+          </label>
         </div>
       </div>
       <div id="rag-results">
@@ -543,7 +546,14 @@ const ragView = {
       const options = { signal: this._ensureAbortController().signal }
       let data
       if (payload.search_kind === "literal" && api.context?.grepEvidence) {
-        const { search_kind: _kind, query: pattern, scopes: _scopes, top_k: limit, ...rest } = payload
+        const {
+          search_kind: _kind,
+          query: pattern,
+          scopes: _scopes,
+          include_pending_objects: _pending,
+          top_k: limit,
+          ...rest
+        } = payload
         data = await api.context.grepEvidence({ ...rest, pattern, limit }, options)
       } else if (api.context?.searchEvidence) {
         const { search_kind: _kind, ...request } = payload
@@ -632,6 +642,7 @@ const ragView = {
         character_id: characterId,
       },
       scopes: scopes.length ? scopes : ["manuscript"],
+      include_pending_objects: Boolean(document.getElementById("rag-include-pending")?.checked),
       chapter_from: integer("rag-chapter-from"),
       chapter_to: integer("rag-chapter-to"),
       top_k: 12,
@@ -837,9 +848,9 @@ const ragView = {
         toast("索引重建任务已提交", "success")
       } else {
         this._rebuildProgress = null
-        this._rebuildInfo = "暂无可索引草稿"
+        this._rebuildInfo = "暂无可索引工作稿"
         this._updateRebuildProgressDOM()
-        toast("暂无可索引草稿", "info")
+        toast("暂无可索引工作稿", "info")
       }
       for (const warning of (result.warnings || [])) {
         toast(warning, "warning")

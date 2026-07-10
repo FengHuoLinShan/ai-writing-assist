@@ -22,9 +22,10 @@ def _int_or_default(value: object, default: int) -> int:
 
 @task_handler("plot_structure_generate")
 async def handle_plot_structure_generate(db, task):
-    """处理剧情结构生成任务
+    """处理 legacy 剧情结构 preview 生成任务。
 
-    根据已有世界对象和人物，AI 生成剧情线和篇章纲。
+    根据已有世界对象和人物生成剧情线和篇章纲 preview，
+    不直接持久化，也不能绕过新的确认采用路径。
 
     Task meta 参数：
     - novel_id: 项目 ID
@@ -51,11 +52,12 @@ async def handle_plot_structure_generate(db, task):
         novel_id=novel_id,
         start_chapter=start_chapter,
         end_chapter=end_chapter,
+        persist=False,
     )
     task.update_progress(0.85)
 
     logger.info(
-        "Plot structure generation complete: %d threads, %d arcs",
+        "Plot structure preview complete: %d threads, %d arcs",
         result["total_threads"],
         result["total_arcs"],
     )
@@ -68,8 +70,9 @@ async def handle_plot_structure_generate(db, task):
 async def handle_chapter_card_extraction(db, task):
     """兼容旧任务类型：章节卡生成尚未有独立 domain handler。
 
-    当前真实生成入口是 outline 的 plot_structure_generate / /api/outline/generate，
-    会生成 scenes。这里注册旧 task type，避免 worker 以“无 handler”失败，并让
+    当前真实生成入口是 /api/outline/generate，只产生 preview，
+    经 /api/outline/generate/apply 确认后才写入。这里注册旧 task type，
+    避免 worker 以“无 handler”失败，并让
     前端轮询可以看到结构化 unsupported 结果。
     """
     meta = task.meta or {}
@@ -99,7 +102,7 @@ async def handle_chapter_card_extraction(db, task):
         "end_chapter": end_chapter,
         "message": (
             "chapter_card_extraction is not implemented as an async task. "
-            "Use plot_structure_generate or /api/outline/generate to create scenes."
+            "Use /api/outline/generate to create a preview, then apply it."
         ),
     }
 
@@ -117,7 +120,7 @@ async def handle_chapter_scene_generate(db, task):
         "task_type": "chapter_scene_generate",
         "message": (
             "chapter_scene_generate is not implemented as an async task. "
-            "Use plot_structure_generate or /api/outline/generate to create scenes."
+            "Use /api/outline/generate to create a preview, then apply it."
         ),
     }
 
@@ -174,7 +177,7 @@ async def handle_outline_analyze(db, task):
 
 @task_handler("outline_generate")
 async def handle_outline_generate(db, task):
-    """处理确认后的剧情结构生成任务。"""
+    """处理确认上下文后的剧情结构 preview 生成任务。"""
     from modules.outline.ai_workflow_service import OutlineAIWorkflowService
 
     meta = task.meta or {}
@@ -197,7 +200,7 @@ async def handle_outline_generate(db, task):
         progress_callback=task.update_progress,
     )
     logger.info(
-        "Outline generation complete: %d threads, %d arcs",
+        "Outline preview generation complete: %d threads, %d arcs",
         result["total_threads"],
         result["total_arcs"],
     )

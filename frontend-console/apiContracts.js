@@ -43,6 +43,7 @@
   function define(method, path, {
     requiredParams = [],
     requiredQuery = [],
+    requiredBody = [],
     hasBody = false,
     timeout = DEFAULT_TIMEOUT,
     timeoutKind = "default",
@@ -52,6 +53,7 @@
       path,
       requiredParams,
       requiredQuery,
+      requiredBody,
       hasBody,
       timeout,
       timeoutKind,
@@ -89,10 +91,14 @@
       hasBody: true,
     }),
 
-    "imports.deepImport": define("POST", () => "/imports/deep", { hasBody: true }),
+    "imports.deepImport": define("POST", () => "/imports/deep", {
+      hasBody: true,
+      requiredBody: ["adoption_policy", "authorization_confirmed"],
+    }),
     "imports.startStage": define("POST", (params) => stagePath(params || {}, "imports.startStage"), {
       requiredParams: ["stage"],
       hasBody: true,
+      requiredBody: ["adoption_policy", "authorization_confirmed"],
     }),
     "imports.resumeDeepImport": define("POST", () => "/imports/deep/resume", { hasBody: true }),
     "imports.abandonDeepImport": define("POST", () => "/imports/deep/abandon", { hasBody: true }),
@@ -158,6 +164,10 @@
       requiredQuery: ["novel_id"],
       hasBody: true,
     }),
+    "writing.adoptDraftCandidate": define("POST", ({ draftId }) => `/writing/drafts/${required(draftId, "draftId", "writing.adoptDraftCandidate")}/adopt`, {
+      requiredParams: ["draftId"],
+      requiredQuery: ["novel_id"],
+    }),
     "writing.getDraft": define("GET", ({ chapterIndex }) => `/writing/chapters/${required(chapterIndex, "chapterIndex", "writing.getDraft")}/draft`, {
       requiredParams: ["chapterIndex"],
       requiredQuery: ["novel_id"],
@@ -170,6 +180,15 @@
     "writing.enqueueConflictAiReview": define("POST", ({ checkId }) => `/writing/conflict-checks/${required(checkId, "checkId", "writing.enqueueConflictAiReview")}/ai-review-task`, {
       requiredParams: ["checkId"],
       hasBody: true,
+    }),
+
+    "outline.applyStructurePreview": define("POST", () => "/outline/generate/apply", {
+      hasBody: true,
+      requiredBody: ["novel_id", "context_confirmation_id", "source_task_id", "draft_structure", "confirmed"],
+    }),
+    "outline.applyChapterScenePreview": define("POST", () => "/outline/chapter-scenes/apply", {
+      hasBody: true,
+      requiredBody: ["novel_id", "context_confirmation_id", "source_task_id", "draft_scenes", "confirmed"],
     }),
 
     "rag.search": define("POST", () => "/rag/retrieve", {

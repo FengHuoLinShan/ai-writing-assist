@@ -1,3 +1,5 @@
+import { authorFacingStateText } from "./assetDisplayState.js"
+
 const ACTIVE_WORKFLOWS_KEY = "novel_active_workflows_v1"
 const LEGACY_DEEP_IMPORT_KEY = "novel_deepImportTaskId"
 const LEGACY_WORLD_EXTRACT_KEY = "novel_world_extract_task"
@@ -19,7 +21,7 @@ const WORKFLOW_LABELS = {
   world_entity_extraction: "补抽世界对象",
   plot_structure_generate: "生成剧情结构",
   outline_generate: "生成剧情结构",
-  outline_chapter_scenes_extract: "生成章节与场景结构",
+  outline_chapter_scenes_extract: "章节/Scene 卡建议",
   chapter_card_generation: "生成章节卡",
   chapter_scene_generate: "生成章节与场景结构",
   writing_generate: "生成正文",
@@ -115,7 +117,9 @@ function inferMessage({ status, workflowType, result, meta, percent }) {
     workflowType === "chapter_card_generation"
     || workflowType === "chapter_scene_generate"
     || workflowType === "outline_chapter_scenes_extract"
-  ) return "正在生成章节与场景结构"
+  ) return workflowType === "outline_chapter_scenes_extract"
+    ? "正在生成章节/Scene 卡建议"
+    : "正在生成章节与场景结构"
   if (workflowType === "writing_generate") return "正在生成正文"
   if (workflowType === "plot_analysis") return "正在分析剧情"
   return RUNNING_STATUSES.has(status) ? "任务运行中" : STATUS_LABELS[status] || "任务状态未知"
@@ -224,7 +228,7 @@ export function sanitizeTaskErrorMessage(message, workflowType = "task") {
   ]
   if (technicalMarkers.some((marker) => text.includes(marker))) {
     if (workflowType === "publish_chapter") {
-      return "发布失败。草稿已保存，请稍后重试。"
+      return "发布失败。工作稿已保存，请稍后重试。"
     }
     return "后台任务失败，请稍后重试。"
   }
@@ -243,7 +247,7 @@ export function normalizeTaskProgress(task, workflowType = undefined) {
 
   const hasPercent = percent != null
   const label = WORKFLOW_LABELS[type] || meta.label || "后台任务"
-  const message = inferMessage({ status, workflowType: type, result, meta, percent })
+  const message = authorFacingStateText(inferMessage({ status, workflowType: type, result, meta, percent }))
 
   const rawErrorMessage = raw.error_message || result.error_message || result.error || null
 
@@ -264,8 +268,9 @@ export function normalizeTaskProgress(task, workflowType = undefined) {
     cancelled: status === "cancelled",
     terminal: TERMINAL_STATUSES.has(status),
     errorMessage: sanitizeTaskErrorMessage(rawErrorMessage, type),
-    warnings: collectWarnings(result, meta),
-    resultSummary: buildResultSummary(result, type),
+    warnings: collectWarnings(result, meta).map(authorFacingStateText),
+    resultSummary: authorFacingStateText(buildResultSummary(result, type)),
+    assetSummary: safeObject(result.asset_summary || result.assetSummary),
     phaseArtifacts: safeObject(result.phase_artifacts),
     progressEvents: safeArray(result.progress_events),
     acceptanceChecks: safeArray(result.acceptance_checks),

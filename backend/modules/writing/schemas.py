@@ -10,7 +10,48 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+def project_writing_draft_state(
+    status: str | None,
+    provenance_json: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Project compatibility statuses into the author-facing draft state."""
+    normalized_status = str(status or "draft").strip().lower()
+    provenance = dict(provenance_json or {})
+
+    if normalized_status == "candidate":
+        display_state = "review"
+    elif normalized_status == "deprecated":
+        display_state = "archived"
+    else:
+        display_state = "active"
+
+    raw_source = str(provenance.get("source") or "").strip().lower()
+    if raw_source in {"writing_generate", "ai", "llm"}:
+        source = "ai_generated"
+    elif raw_source:
+        source = raw_source
+    else:
+        source = "manual"
+
+    attention_reasons: list[str] = []
+    pov_validation = provenance.get("pov_validation")
+    if isinstance(pov_validation, dict):
+        validation_status = str(pov_validation.get("status") or "").lower()
+        if validation_status not in {"", "ok", "passed", "not_applicable"}:
+            attention_reasons.append("pov_risk")
+        if pov_validation.get("warnings"):
+            attention_reasons.append("parse_warning")
+        if pov_validation.get("findings"):
+            attention_reasons.append("fact_risk")
+
+    return {
+        "display_state": display_state,
+        "source": source,
+        "attention_reasons": list(dict.fromkeys(attention_reasons)),
+    }
 
 # ============================================================
 # 请求 Schema
@@ -91,8 +132,22 @@ class WritingDraftResponse(BaseModel):
     status: str = "draft"
     conflict_check_snapshot_json: dict | None = None
     provenance_json: dict[str, Any] | None = None
+    display_state: Literal["active", "review", "archived"] | None = None
+    source: str | None = None
+    attention_reasons: list[str] = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def derive_author_state(self) -> WritingDraftResponse:
+        projection = project_writing_draft_state(self.status, self.provenance_json)
+        if self.display_state is None:
+            self.display_state = projection["display_state"]
+        if self.source is None:
+            self.source = projection["source"]
+        if not self.attention_reasons:
+            self.attention_reasons = projection["attention_reasons"]
+        return self
 
     @field_validator("created_at", "updated_at", mode="before")
     @classmethod
@@ -128,6 +183,25 @@ class WritingDraftResponse(BaseModel):
         if v is None or isinstance(v, dict):
             return v
         return None
+
+    @field_validator("display_state", mode="before")
+    @classmethod
+    def coerce_display_state(cls, v: object) -> str | None:
+        if isinstance(v, str) and v in {"active", "review", "archived"}:
+            return v
+        return None
+
+    @field_validator("source", mode="before")
+    @classmethod
+    def coerce_source(cls, v: object) -> str | None:
+        return v if isinstance(v, str) else None
+
+    @field_validator("attention_reasons", mode="before")
+    @classmethod
+    def coerce_attention_reasons(cls, v: object) -> list[str]:
+        if isinstance(v, list):
+            return [str(item) for item in v]
+        return []
 
 
 class DraftListItem(BaseModel):
@@ -181,11 +255,11 @@ class ChapterSplitRequest(BaseModel):
 
 
 class WritingGenerateRequest(BaseModel):
-    """AI 正文候选草稿生成请求。"""
+    """AI 正文建议生成请求。"""
 
     novel_id: str = Field(..., description="小说项目 ID")
     chapter_index: int = Field(..., ge=1, description="章节索引")
-    title: str | None = Field(None, max_length=500, description="候选草稿标题")
+    title: str | None = Field(None, max_length=500, description="正文建议标题")
     instruction: str | None = Field(None, max_length=4000, description="生成要求")
     context_confirmation_id: str = Field(..., description="AI 参考资料确认 ID")
 

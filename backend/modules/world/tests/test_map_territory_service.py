@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import DomainError
+from modules.world.map_repositories import MapTerritoryRepository
 from modules.world.map_schemas import (
     MapConfigCreate,
     MapTerritoryCreate,
@@ -63,8 +64,6 @@ class TestMapTerritoryService:
         world_map,
         organization_entity_id: str,
     ):
-        from modules.world.map_repositories import MapTerritoryRepository
-
         svc = MapTerritoryService()
         await svc.create(
             db_session,
@@ -129,6 +128,60 @@ class TestMapTerritoryService:
                 ),
             )
         assert exc.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_create_territory_rejects_pending_compatibility_shadow(
+        self,
+        db_session: AsyncSession,
+        world_map,
+    ) -> None:
+        shadow_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=shadow_id,
+                novel_id=uuid.UUID(hex=world_map.novel_id),
+                entity_type="organization",
+                name="AI 待处理势力",
+                status="candidate",
+                content_json={
+                    "_meta": {
+                        "compatibility_shadow": True,
+                        "suggestion_id": str(uuid.uuid4()),
+                    }
+                },
+            )
+        )
+        await db_session.flush()
+
+        with pytest.raises(DomainError) as exc:
+            await MapTerritoryService().create(
+                db_session,
+                world_map.novel_id,
+                str(world_map.id),
+                MapTerritoryCreate(
+                    faction_entity_id=str(shadow_id),
+                    hexes=[{"hex_q": 1, "hex_r": 1}],
+                ),
+            )
+
+        assert exc.value.status_code == 400
+        assert exc.value.code == "unadopted_map_entity"
+
+        legacy = await MapTerritoryRepository().create_batch(
+            db_session,
+            uuid.UUID(hex=world_map.novel_id),
+            uuid.UUID(hex=world_map.id),
+            shadow_id,
+            [{"hex_q": 1, "hex_r": 1, "style_override": {}}],
+        )
+        listed = await MapTerritoryService().list(
+            db_session,
+            world_map.novel_id,
+            str(world_map.id),
+        )
+        assert {item.id for item in listed}.isdisjoint(
+            {str(item.id) for item in legacy}
+        )
 
     @pytest.mark.asyncio
     async def test_create_territory_out_of_bounds(self, db_session: AsyncSession):

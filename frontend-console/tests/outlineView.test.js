@@ -6,6 +6,8 @@ import outlineView from "../views/outlineView.js"
 import { resetState, clearDocument, captureModalHandler, autoConfirm } from "./helpers.js"
 
 beforeEach(() => {
+  outlineView._stopOutlineGeneratePolling?.()
+  localStorage.clear()
   resetState({ currentSubView: "scenes" })
   outlineView._threads = []
   outlineView._arcs = []
@@ -24,7 +26,16 @@ beforeEach(() => {
   outlineView._plotAutoExtractProgress = null
   outlineView._plotAutoExtractPoller = null
   outlineView._plotAutoExtractMeta = null
+  outlineView._outlineGenerateTaskId = null
+  outlineView._outlineGenerateProgress = null
+  outlineView._outlineGeneratePoller = null
+  outlineView._outlineGenerateMeta = null
+  outlineView._outlineGeneratePreview = null
   vi.clearAllMocks()
+})
+
+afterEach(() => {
+  outlineView._stopOutlineGeneratePolling?.()
 })
 
 describe("outlineView onEnter", () => {
@@ -170,16 +181,16 @@ describe("outlineView 批量操作", () => {
     expect(toast).toHaveBeenCalledWith(expect.stringContaining("成功 1 / 1"), "success")
   })
 
-  it("批量复核剧情线确认按钮不使用删除文案", () => {
+  it("批量采用剧情线确认按钮不使用删除文案", () => {
     outlineView._threads = [{ id: "t1", name: "主线" }]
     outlineView._bulkSelections["outline-threads"] = new Set(["t1"])
 
     outlineView._runBulkAction("outline-threads", "review-threads")
 
     expect(confirmAction).toHaveBeenCalledWith(
-      "确定对选中的 1 项执行「批量复核剧情线」吗？",
+      "确定对选中的 1 项执行「批量采用 / 标记已检查」吗？",
       expect.any(Function),
-      "确认复核",
+      "确认处理",
     )
   })
 
@@ -237,24 +248,24 @@ describe("outlineView render", () => {
     expect(html).toContain(expected)
   })
 
-  it("深度导入草稿伏笔和揭示显示中文状态", async () => {
+  it("深度导入工作稿伏笔和揭示显示中文状态", async () => {
     outlineView._loading = false
     state.currentProjectId = "p1"
 
     state.currentSubView = "foreshadowing"
     outlineView._foreshadowing = [{ id: "f1", summary: "线索", status: "draft", planned_seed_chapter: 3 }]
     let html = await outlineView.render()
-    expect(html).toContain("草稿")
+    expect(html).toContain("工作稿")
     expect(html).not.toContain(">draft<")
 
     state.currentSubView = "reveals"
     outlineView._reveals = [{ id: "r1", secret_summary: "秘密", status: "draft", reveal_stages: [{ stage_index: 0, chapter_index: 5 }] }]
     html = await outlineView.render()
-    expect(html).toContain("草稿")
+    expect(html).toContain("工作稿")
     expect(html).not.toContain(">draft<")
   })
 
-  it("结构资产列表显示深度导入和需复核标记", async () => {
+  it("结构资产列表显示深度导入和注意原因", async () => {
     outlineView._loading = false
     state.currentSubView = "threads"
     state.currentProjectId = "p1"
@@ -274,13 +285,13 @@ describe("outlineView render", () => {
     const html = await outlineView.render()
 
     expect(html).toContain("深度导入")
-    expect(html).toContain("需复核")
+    expect(html).toContain("需要人工检查")
     expect(html).toContain("structure_analysis")
     expect(html).toContain('data-action="mark-thread-reviewed"')
-    expect(html).toContain("复核通过")
+    expect(html).toContain("采用")
   })
 
-  it("草稿状态本身不推断为需复核", async () => {
+  it("工作稿状态本身不推断为需要人工检查", async () => {
     outlineView._loading = false
     state.currentSubView = "threads"
     state.currentProjectId = "p1"
@@ -295,11 +306,11 @@ describe("outlineView render", () => {
     const html = await outlineView.render()
     const rowHtml = html.match(/<tr[^>]*data-id="t1"[^>]*>[\s\S]*?<\/tr>/)?.[0] || ""
 
-    expect(rowHtml).toContain("草稿")
-    expect(rowHtml).not.toContain("需复核")
+    expect(rowHtml).toContain("工作稿")
+    expect(rowHtml).not.toContain("需要人工检查")
   })
 
-  it("草稿加 needs_review=true 才显示需复核", async () => {
+  it("工作稿加 needs_review=true 才显示需要人工检查", async () => {
     outlineView._loading = false
     state.currentSubView = "threads"
     state.currentProjectId = "p1"
@@ -314,8 +325,8 @@ describe("outlineView render", () => {
     const html = await outlineView.render()
     const rowHtml = html.match(/<tr[^>]*data-id="t1"[^>]*>[\s\S]*?<\/tr>/)?.[0] || ""
 
-    expect(rowHtml).toContain("草稿")
-    expect(rowHtml).toContain("需复核")
+    expect(rowHtml).toContain("工作稿")
+    expect(rowHtml).toContain("需要人工检查")
     expect(rowHtml).toContain('data-action="mark-thread-reviewed"')
   })
 
@@ -354,7 +365,7 @@ describe("outlineView render", () => {
         review_previous_status: "candidate",
       }),
     })
-    expect(toast).toHaveBeenCalledWith("剧情线已标记为已复核", "success")
+    expect(toast).toHaveBeenCalledWith("剧情线已采用", "success")
     expect(router.refresh).not.toHaveBeenCalled()
     expect(document.getElementById("workspace-content").scrollTop).toBe(92)
   })
@@ -384,7 +395,7 @@ describe("outlineView render", () => {
         needs_review: true,
       },
     })
-    expect(toast).toHaveBeenCalledWith("剧情线已标记为需复核", "success")
+    expect(toast).toHaveBeenCalledWith("剧情线已标记为需要人工检查", "success")
   })
 
   it("剧情线超过一页时显示分页控制", async () => {
@@ -531,8 +542,8 @@ describe("_narrativeTagLabel", () => {
   it("返回正确的中文标签", () => {
     expect(outlineView._narrativeTagLabel("hook")).toBe("钩子")
     expect(outlineView._narrativeTagLabel("climax")).toBe("阶段高潮")
-    expect(outlineView._narrativeTagLabel("draft")).toBe("草稿")
-    expect(outlineView._narrativeTagLabel(null)).toBe("草稿")
+    expect(outlineView._narrativeTagLabel("draft")).toBe("未标注")
+    expect(outlineView._narrativeTagLabel(null)).toBe("未标注")
     expect(outlineView._narrativeTagLabel("unknown")).toBe("unknown")
   })
 })
@@ -583,14 +594,107 @@ describe("helpers", () => {
       start_chapter: 1,
       end_chapter: 5,
     })
-    expect(toast).toHaveBeenCalledWith("剧情结构生成任务已提交", "success")
+    expect(api.context.confirm).toHaveBeenCalledWith(expect.objectContaining({
+      action: "outline.generate",
+      include_pending_objects: false,
+    }))
+    expect(toast).toHaveBeenCalledWith("剧情结构建议生成任务已提交", "success")
     expect(result).toEqual({ task_id: "task-1", status: "pending" })
+  })
+
+  it("keeps a completed outline generation as an editable preview until explicit adoption", async () => {
+    state.currentProjectId = "p1"
+    const draftStructure = {
+      threads: [{ name: "AI 主线", summary: "原摘要", start_chapter: 1, display_state: "review" }],
+      arcs: [],
+      scenes: [],
+      foreshadowing_plans: [],
+      reveal_plans: [],
+      offscreen_progress: [],
+      risks: [],
+      questions_for_user: [],
+      turning_points: [],
+      uncertain_items: [{ description: "章节跨度可能过大" }],
+      diagnostics: {},
+    }
+    outlineView._outlineGenerateMeta = { context_confirmation_id: "confirm-1", start_chapter: 1, end_chapter: 5 }
+    outlineView._outlineGenerateProgress = {
+      taskId: "task-1",
+      status: "done",
+      statusLabel: "已完成",
+      message: "任务完成",
+      percent: 100,
+      terminal: true,
+      warnings: [],
+    }
+
+    const preview = outlineView._captureOutlineGeneratePreview({
+      id: "task-1",
+      task_type: "outline_generate",
+      result: {
+        source_task_id: "task-1",
+        context_confirmation_id: "confirm-1",
+        draft_structure: draftStructure,
+        warnings: ["一项需要作者判断"],
+        requires_apply: true,
+      },
+    })
+
+    expect(preview).toBeTruthy()
+    expect(outlineView._renderOutlineGenerateProgress()).toContain('data-action="view-outline-generate-preview"')
+    const html = outlineView._renderOutlineGeneratePreview()
+    expect(html).toContain("待处理建议")
+    expect(html).toContain("一项需要作者判断")
+    expect(html).toContain("章节跨度可能过大")
+    document.body.innerHTML = html
+    document.querySelector('[data-outline-preview-field="name"]').value = "作者修订主线"
+    api.outline.applyStructurePreview.mockResolvedValue({
+      status: "applied",
+      total_threads: 1,
+      total_arcs: 0,
+      total_scenes: 0,
+    })
+
+    const result = await outlineView._applyOutlineGeneratePreview()
+
+    expect(api.outline.applyStructurePreview).toHaveBeenCalledWith(expect.objectContaining({
+      novel_id: "p1",
+      context_confirmation_id: "confirm-1",
+      source_task_id: "task-1",
+      confirmed: true,
+      draft_structure: expect.objectContaining({
+        threads: [expect.objectContaining({ name: "作者修订主线", display_state: "review" })],
+      }),
+    }))
+    expect(result.status).toBe("applied")
+    expect(outlineView._outlineGeneratePreview).toBeNull()
+    expect(toast).toHaveBeenCalledWith("剧情结构已采用：剧情线 1 · 篇章纲 0 · Scene 0", "success")
+  })
+
+  it("does not present a legacy plot_structure_generate task as adoptable", () => {
+    outlineView._outlineGenerateMeta = { context_confirmation_id: "confirm-1" }
+    const preview = outlineView._captureOutlineGeneratePreview({
+      id: "legacy-task",
+      task_type: "plot_structure_generate",
+      result: {
+        source_task_id: "legacy-task",
+        context_confirmation_id: "confirm-1",
+        draft_structure: { threads: [{ name: "旧结果" }] },
+        requires_apply: true,
+      },
+    })
+
+    expect(preview).toBeNull()
+    expect(outlineView._outlineGeneratePreview).toBeNull()
   })
 
   it("submits plot structure auto extraction stage task", async () => {
     state.currentProjectId = "p1"
     api.imports.startStage.mockResolvedValue({ task_id: "plot-task" })
     outlineView._showPlotStructureAutoExtractForm()
+    expect(showModal.mock.calls[0][1].html).toContain("自动采用通过门禁")
+    expect(showModal.mock.calls[0][1].html).toContain("进入待处理")
+    expect(showModal.mock.calls[0][2][0].text).toBe("确认并开始提取")
     document.body.innerHTML += `
       <input id="plot-auto-extract-start" value="2" />
       <input id="plot-auto-extract-end" value="8" />
@@ -603,6 +707,12 @@ describe("helpers", () => {
       "p1",
       2,
       8,
+      false,
+      false,
+      {
+        adoption_policy: "user_authorized_pipeline",
+        authorization_confirmed: true,
+      },
     )
     expect(api.outline.generate).not.toHaveBeenCalled()
     expect(toast).toHaveBeenCalledWith(

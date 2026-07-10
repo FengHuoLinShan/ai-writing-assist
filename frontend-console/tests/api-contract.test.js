@@ -201,6 +201,18 @@ describe("前后端 API 契约", () => {
       .toBe("/imports/stages/world-objects")
     expect(contractPath("imports.startStage", { stage: "plot_structure" }))
       .toBe("/imports/stages/plot-structure")
+    expect(getApiContract("imports.deepImport").requiredBody)
+      .toEqual(["adoption_policy", "authorization_confirmed"])
+    expect(getApiContract("imports.startStage").requiredBody)
+      .toEqual(["adoption_policy", "authorization_confirmed"])
+    expect(contractPath("outline.applyStructurePreview"))
+      .toBe("/outline/generate/apply")
+    expect(getApiContract("outline.applyStructurePreview").requiredBody)
+      .toEqual(["novel_id", "context_confirmation_id", "source_task_id", "draft_structure", "confirmed"])
+    expect(contractPath("outline.applyChapterScenePreview"))
+      .toBe("/outline/chapter-scenes/apply")
+    expect(getApiContract("outline.applyChapterScenePreview").requiredBody)
+      .toEqual(["novel_id", "context_confirmation_id", "source_task_id", "draft_scenes", "confirmed"])
 
     expect(getApiContract("context.confirm")).toMatchObject({
       method: "POST",
@@ -220,6 +232,8 @@ describe("前后端 API 契约", () => {
 
     expect(contractPath("writing.runConflictAiReview", { checkId: "check-1" }))
       .toBe("/writing/conflict-checks/check-1/ai-review")
+    expect(contractPath("writing.adoptDraftCandidate", { draftId: "draft-1" }, { novel_id: "novel-1" }))
+      .toBe("/writing/drafts/draft-1/adopt?novel_id=novel-1")
     expect(contractPath("writing.enqueueConflictAiReview", { checkId: "check-1" }))
       .toBe("/writing/conflict-checks/check-1/ai-review-task")
   })

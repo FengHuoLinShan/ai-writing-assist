@@ -124,7 +124,7 @@ const mapQuickCreateView = {
         </div>
         <label class="map-layer-toggle">
           <input type="checkbox" id="map-quick-include-candidates" ${this._includeCandidates ? "checked" : ""} />
-          包含待确认候选
+          包含待处理地点
         </label>
         <div id="map-quick-preview">
           ${this._renderPreviewTable()}

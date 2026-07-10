@@ -343,9 +343,10 @@ class ObjectDraftGenerateRequest(BaseModel):
 
 
 class ObjectDraftGenerateResponse(BaseModel):
-    """生成中心对象草稿生成响应。"""
+    """生成中心建议响应；entity 保留旧草稿 wire contract。"""
 
     entity: CoreEntityResponse
+    suggestion: CreationSuggestionResponse
     quality_mode: ObjectDraftQualityMode
     model: str = ""
     provider: str = ""
@@ -422,9 +423,46 @@ class CoreEntityDraftSuggestionPayload(BaseModel):
     public_info: str | None = None
     hidden_truth: str | None = None
     content_json: dict[str, Any] = Field(default_factory=dict)
+    importance: float = Field(default=0.5, ge=0.0, le=1.0)
     importance_level: str = Field(default="normal", max_length=16)
     reveal_level: str = Field(default="author_only", max_length=16)
     source_refs: list[WorldBibleSourceRef] = Field(default_factory=list)
+
+
+class EntityRelationSuggestionPayload(BaseModel):
+    """待处理关系建议；确认后由 world 创建已采用关系。"""
+
+    source_id: str
+    target_id: str
+    relation_type: str = Field(..., min_length=1, max_length=64)
+    description: str | None = None
+    strength: float = Field(default=0.5, ge=0.0, le=1.0)
+    source_chapter_id: str | None = None
+    quote: str | None = None
+    source_refs: list[WorldBibleSourceRef] = Field(default_factory=list)
+
+    @field_validator("source_id", "target_id", "source_chapter_id")
+    @classmethod
+    def coerce_optional_relation_uuid(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return str(uuid.UUID(value))
+
+
+class EntityAliasSuggestionPayload(BaseModel):
+    """待处理别名建议；确认后内联写入目标 CoreEntity。"""
+
+    entity_id: str
+    alias: str = Field(..., min_length=1, max_length=255)
+    alias_type: str = Field(default="name", max_length=20)
+    source_chapter_index: int | None = Field(default=None, ge=0)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    source_refs: list[WorldBibleSourceRef] = Field(default_factory=list)
+
+    @field_validator("entity_id")
+    @classmethod
+    def coerce_alias_entity_uuid(cls, value: str) -> str:
+        return str(uuid.UUID(value))
 
 
 # ============================================================
@@ -481,7 +519,7 @@ class CoreEntityCreate(BaseModel):
         description="揭示层级：author_only/hinted/revealed/fully_known",
     )
     status: str = Field(
-        default="draft",
+        default="canonical",
         max_length=32,
         description="状态",
     )
@@ -489,6 +527,11 @@ class CoreEntityCreate(BaseModel):
         None,
         max_length=64,
         description="创建者标识",
+    )
+    approved_by: str | None = Field(
+        None,
+        max_length=64,
+        description="采用者标识；已采用对象默认与创建者一致",
     )
     force_create: bool = Field(
         default=False,
@@ -546,7 +589,11 @@ class CoreEntityResponse(BaseModel):
     importance: float = 0.5
     importance_level: str = "normal"
     reveal_level: str = "author_only"
-    status: str = "draft"
+    status: str = "canonical"
+    display_state: Literal["active", "review", "archived"] | None = None
+    source: str | None = None
+    attention_reasons: list[str] = Field(default_factory=list)
+    suggested_action: str | None = None
     embedding_text: str | None = None
     created_by: str | None = None
     approved_by: str | None = None
@@ -558,6 +605,25 @@ class CoreEntityResponse(BaseModel):
     def coerce_uuid(cls, v: object) -> str:
         return _uuid_validator(v)
 
+    @model_validator(mode="after")
+    def derive_author_state(self) -> CoreEntityResponse:
+        from modules.world.asset_state import project_entity_state
+
+        projection = project_entity_state(
+            status=self.status,
+            content_json=self.content_json,
+            created_by=self.created_by,
+        )
+        if self.display_state is None:
+            self.display_state = projection["display_state"]
+        if self.source is None:
+            self.source = projection["source"]
+        if not self.attention_reasons:
+            self.attention_reasons = projection["attention_reasons"]
+        if self.suggested_action is None:
+            self.suggested_action = projection["suggested_action"]
+        return self
+
 
 class CoreEntityListResponse(BaseModel):
     """核心实体列表响应"""
@@ -567,7 +633,7 @@ class CoreEntityListResponse(BaseModel):
 
 
 class EntityPromoteRequest(BaseModel):
-    """将草稿/候选实体提升为正史的请求"""
+    """采用兼容 draft/candidate 实体的请求。"""
 
     approved_by: str | None = Field(
         default="manual",
@@ -736,6 +802,10 @@ class EntityRelationCreate(BaseModel):
         max_length=16,
         description="状态",
     )
+    review_meta: dict[str, Any] | None = Field(
+        default=None,
+        description="来源与人工复核审计元数据",
+    )
 
 
 class EntityRelationUpdate(BaseModel):
@@ -771,6 +841,9 @@ class EntityRelationReviewEditRequest(BaseModel):
 class EntityRelationResponse(BaseModel):
     """关系响应"""
 
+    # ``EntityRelation`` already exposes an ORM relationship named ``source``.
+    # Read the author-facing provenance from a non-colliding validation alias;
+    # the public serialized field remains ``source``.
     model_config = ConfigDict(from_attributes=True)
 
     id: str
@@ -787,6 +860,10 @@ class EntityRelationResponse(BaseModel):
     quote: str | None = None
     review_meta: dict | None = None
     status: str = "canonical"
+    display_state: Literal["active", "review", "archived"] | None = None
+    source: str | None = Field(default=None, validation_alias="author_source")
+    attention_reasons: list[str] = Field(default_factory=list)
+    suggested_action: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -802,6 +879,24 @@ class EntityRelationResponse(BaseModel):
     @classmethod
     def coerce_uuid(cls, v: object) -> str | None:
         return _optional_uuid_validator(v)
+
+    @model_validator(mode="after")
+    def derive_author_state(self) -> EntityRelationResponse:
+        from modules.world.asset_state import project_relation_state
+
+        projection = project_relation_state(
+            status=self.status,
+            review_meta=self.review_meta,
+        )
+        if self.display_state is None:
+            self.display_state = projection["display_state"]
+        if self.source is None:
+            self.source = projection["source"]
+        if not self.attention_reasons:
+            self.attention_reasons = projection["attention_reasons"]
+        if self.suggested_action is None:
+            self.suggested_action = projection["suggested_action"]
+        return self
 
 
 class EntityRelationListResponse(BaseModel):
@@ -1236,7 +1331,7 @@ class WorldEntityContext(BaseModel):
     importance: float = 0.5
     importance_level: str = "normal"
     reveal_level: str = "author_only"
-    status: str = "draft"
+    status: str = "canonical"
     aliases: list[str] = Field(default_factory=list)
     related_entity_ids: list[str] = Field(default_factory=list)
 
@@ -1613,6 +1708,10 @@ class CreationSuggestionResponse(BaseModel):
     evidence_refs_json: list = Field(default_factory=list)
     risk_level: str
     status: str
+    display_state: Literal["active", "review", "archived"] | None = None
+    source: str | None = None
+    attention_reasons: list[str] = Field(default_factory=list)
+    suggested_action: str | None = None
     result_ref_json: dict = Field(default_factory=dict)
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -1622,10 +1721,51 @@ class CreationSuggestionResponse(BaseModel):
     def coerce_suggestion_uuid(cls, v: object) -> str:
         return _uuid_validator(v)
 
+    @model_validator(mode="after")
+    def derive_author_state(self) -> CreationSuggestionResponse:
+        from modules.world.asset_state import project_suggestion_state
+
+        projection = project_suggestion_state(
+            status=self.status,
+            source_module=self.source_module,
+            risk_level=self.risk_level,
+            payload_json=self.payload_json,
+        )
+        if self.display_state is None:
+            self.display_state = projection["display_state"]
+        if self.source is None:
+            self.source = projection["source"]
+        if not self.attention_reasons:
+            self.attention_reasons = projection["attention_reasons"]
+        if self.suggested_action is None:
+            self.suggested_action = projection["suggested_action"]
+        return self
+
 
 class CreationSuggestionListResponse(BaseModel):
     items: list[CreationSuggestionResponse]
     total: int
+
+
+class CoreEntitySuggestionEditConfirmRequest(BaseModel):
+    """编辑世界对象建议，并在同一裁决中采用。"""
+
+    entity_type: str | None = Field(default=None, min_length=1, max_length=64)
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    summary: str | None = Field(default=None, max_length=5000)
+    public_info: str | None = None
+    hidden_truth: str | None = None
+    content_json: dict[str, Any] | None = None
+    importance: float | None = Field(default=None, ge=0.0, le=1.0)
+    importance_level: str | None = Field(default=None, max_length=16)
+    reveal_level: str | None = Field(default=None, max_length=16)
+
+    @field_validator("entity_type")
+    @classmethod
+    def normalize_optional_entity_type(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _normalize_entity_type(value)
 
 
 class SuggestionDecisionResponse(BaseModel):

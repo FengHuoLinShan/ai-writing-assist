@@ -112,9 +112,22 @@ class TestCharacterKnowledgeApiLevels:
         assert entity_resp.status_code == 201
         entity_id = entity_resp.json()["id"]
 
+        character_entity_resp = await async_client.post(
+            f"/api/world/entities?novel_id={novel_id}",
+            json={
+                "entity_type": "character",
+                "name": "POV角色",
+                "status": "canonical",
+            },
+        )
+        assert character_entity_resp.status_code == 201
+
         char_resp = await async_client.post(
             f"/api/world/characters?novel_id={novel_id}",
-            json={"entity_id": entity_id, "name": "POV角色"},
+            json={
+                "entity_id": character_entity_resp.json()["id"],
+                "name": "POV角色",
+            },
         )
         assert char_resp.status_code == 201
         character_id = char_resp.json()["entity_id"]
@@ -159,9 +172,22 @@ class TestCharacterKnowledgeApiLevels:
         assert entity_resp.status_code == 201
         entity_id = entity_resp.json()["id"]
 
+        character_entity_resp = await async_client.post(
+            f"/api/world/entities?novel_id={novel_id}",
+            json={
+                "entity_type": "character",
+                "name": "守护者",
+                "status": "canonical",
+            },
+        )
+        assert character_entity_resp.status_code == 201
+
         char_resp = await async_client.post(
             f"/api/world/characters?novel_id={novel_id}",
-            json={"entity_id": entity_id, "name": "守护者"},
+            json={
+                "entity_id": character_entity_resp.json()["id"],
+                "name": "守护者",
+            },
         )
         assert char_resp.status_code == 201
         character_id = char_resp.json()["entity_id"]

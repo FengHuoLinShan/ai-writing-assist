@@ -513,6 +513,122 @@ class TestRelationValidation:
         assert "家人相依" in relation.quote
         assert relation.strength == 0.8
 
+    @pytest.mark.asyncio
+    async def test_import_candidate_does_not_mutate_existing_canonical_relation(
+        self,
+        db_session: AsyncSession,
+        relation_service: EntityRelationService,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        await _create_project(db_session, novel_id)
+        entity_service = WorldEntityService()
+        source = await entity_service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(entity_type="character", name="甲"),
+        )
+        target = await entity_service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(entity_type="character", name="乙"),
+        )
+        created = await relation_service.create_or_merge(
+            db_session,
+            novel_id,
+            EntityRelationCreate(
+                source_id=source.id,
+                target_id=target.id,
+                relation_type="ally_of",
+                description="已采用描述",
+                quote="已采用证据",
+                strength=0.4,
+                status="canonical",
+                review_meta={"source": "manual"},
+            ),
+        )
+
+        duplicate = await relation_service.create_or_merge(
+            db_session,
+            novel_id,
+            EntityRelationCreate(
+                source_id=source.id,
+                target_id=target.id,
+                relation_type="ally_of",
+                description="未采用导入描述",
+                quote="未采用证据",
+                strength=0.9,
+                status="candidate",
+                review_meta={"source": "deep_import", "workflow_id": "wf-1"},
+            ),
+        )
+
+        assert duplicate["action"] == "deduplicated"
+        relation = await relation_service.repo.get(
+            db_session,
+            uuid.UUID(str(created["relation"].id)),
+        )
+        assert relation is not None
+        assert relation.status == "canonical"
+        assert relation.description == "已采用描述"
+        assert relation.quote == "已采用证据"
+        assert relation.strength == 0.4
+        assert relation.review_meta == {"source": "manual"}
+
+    @pytest.mark.asyncio
+    async def test_relation_candidate_rollback_is_workflow_scoped_and_idempotent(
+        self,
+        db_session: AsyncSession,
+        relation_service: EntityRelationService,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        await _create_project(db_session, novel_id)
+        entity_service = WorldEntityService()
+        source = await entity_service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(entity_type="character", name="甲"),
+        )
+        target = await entity_service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(entity_type="character", name="乙"),
+        )
+        created = await relation_service.create_or_merge(
+            db_session,
+            novel_id,
+            EntityRelationCreate(
+                source_id=source.id,
+                target_id=target.id,
+                relation_type="knows",
+                status="candidate",
+                review_meta={"source": "deep_import", "workflow_id": "wf-1"},
+            ),
+        )
+
+        assert (
+            await relation_service.rollback_deep_import_candidates_by_workflow(
+                db_session,
+                novel_id,
+                "wf-1",
+            )
+            == 1
+        )
+        relation = await relation_service.repo.get(
+            db_session,
+            uuid.UUID(str(created["relation"].id)),
+        )
+        assert relation is not None
+        assert relation.status == "deprecated"
+        assert relation.review_meta["rolled_back"] is True
+        assert (
+            await relation_service.rollback_deep_import_candidates_by_workflow(
+                db_session,
+                novel_id,
+                "wf-1",
+            )
+            == 0
+        )
+
 
 # ============================================================
 # 人物知识边界 false_belief 校验
@@ -745,7 +861,11 @@ class TestWorldObjectManagementAPI:
         entity = await service.create(
             db_session,
             novel_id,
-            WorldEntityCreate(entity_type="character", name="草稿角色"),
+            WorldEntityCreate(
+                entity_type="character",
+                name="草稿角色",
+                status="draft",
+            ),
         )
         assert entity.status == "draft"
 

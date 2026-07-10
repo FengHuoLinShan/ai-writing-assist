@@ -229,6 +229,82 @@ async def test_reader_trace_excludes_unresolved_source_and_invisible_target(
 
 
 @pytest.mark.asyncio
+async def test_author_can_inspect_pending_world_entity_with_warning(
+    db_session,
+    test_project_id,
+) -> None:
+    from modules.world.facade import create_entity
+
+    entity = await create_entity(
+        db_session,
+        test_project_id,
+        {
+            "name": "待处理暗号",
+            "entity_type": "secret",
+            "summary": "作者待裁决的世界对象",
+            "status": "candidate",
+        },
+    )
+
+    result = await inspect_novel_target(
+        db_session,
+        novel_id=test_project_id,
+        target_ref={
+            "target_type": "world_entity",
+            "target_id": str(entity["id"]),
+            "target_path": "summary",
+        },
+        content_mode="working",
+        visibility=VisibilityContextContract(mode="author"),
+    )
+
+    assert result["visible"] is True
+    assert result["item"]["entity_id"] == str(entity["id"])
+    assert "包含未采用对象" in result["warnings"]
+
+
+@pytest.mark.asyncio
+async def test_world_evidence_search_excludes_pending_by_default_and_requires_opt_in(
+    db_session,
+    test_project_id,
+) -> None:
+    from modules.world.facade import create_entity
+
+    entity = await create_entity(
+        db_session,
+        test_project_id,
+        {
+            "name": "未采用的星门密语",
+            "entity_type": "secret",
+            "summary": "只应在显式开关开启后命中",
+            "status": "candidate",
+        },
+    )
+
+    default_result = await search_novel_evidence(
+        db_session,
+        novel_id=test_project_id,
+        query="星门密语",
+        content_mode="working",
+        visibility=VisibilityContextContract(mode="author"),
+        scopes=["world"],
+    )
+    opted_in = await search_novel_evidence(
+        db_session,
+        novel_id=test_project_id,
+        query="星门密语",
+        content_mode="working",
+        visibility=VisibilityContextContract(mode="author"),
+        scopes=["world"],
+        include_pending_objects=True,
+    )
+
+    assert default_result["hits"] == []
+    assert opted_in["hits"][0]["target_ref"]["target_id"] == str(entity["id"])
+    assert "包含未采用对象" in opted_in["warnings"]
+
+
+@pytest.mark.asyncio
 async def test_reader_reveal_policy_redacts_until_prior_stage(
     db_session,
     test_project_id,

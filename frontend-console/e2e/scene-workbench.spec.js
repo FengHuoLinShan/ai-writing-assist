@@ -88,7 +88,7 @@ test.describe("Scene 工作台", () => {
     page.once("dialog", (dialog) => dialog.accept("2"))
     await page.locator('[data-action="start-split-scene"]').click()
 
-    await expect(page.locator("#modal-title")).toHaveText("Scene AI 草稿审稿")
+    await expect(page.locator("#modal-title")).toHaveText("Scene AI 建议预览")
     let scenes = await listScenesOrdered(project.id)
     expect(scenes).toHaveLength(1)
 
@@ -156,11 +156,11 @@ test.describe("Scene 工作台", () => {
     await expect(page.locator("#modal-title")).toHaveText("选择主 Scene")
     await page.evaluate(() => {
       const button = Array.from(document.querySelectorAll("#modal-footer button"))
-        .find((item) => item.textContent?.includes("生成 AI 融合草稿"))
+        .find((item) => item.textContent?.includes("生成 AI 融合建议"))
       button?.click()
     })
 
-    await expect(page.locator("#modal-title")).toHaveText("Scene AI 草稿审稿")
+    await expect(page.locator("#modal-title")).toHaveText("Scene AI 建议预览")
     await expect(page.locator("#modal-body")).toContainText("找到线索")
     await expect(page.locator("#modal-body")).toContainText("确认走私路线")
     const footerLayout = await page.evaluate(() => {
@@ -229,10 +229,10 @@ test.describe("Scene 工作台", () => {
       await expect(page.locator("#modal-title")).toHaveText("选择主 Scene")
       await page.evaluate(() => {
         const button = Array.from(document.querySelectorAll("#modal-footer button"))
-          .find((item) => item.textContent?.includes("生成 AI 融合草稿"))
+          .find((item) => item.textContent?.includes("生成 AI 融合建议"))
         button?.click()
       })
-      await expect(page.locator("#modal-title")).toHaveText("Scene AI 草稿审稿")
+      await expect(page.locator("#modal-title")).toHaveText("Scene AI 建议预览")
     }
     const clickFusionButton = async (text) => {
       await page.evaluate((label) => {

@@ -61,6 +61,9 @@ describe("createAutoExtraction", () => {
     expect(body).toContain("auto-extract-end")
     expect(body).toContain('value="1"')
     expect(body).toContain('value="5"')
+    expect(body).toContain("自动采用通过门禁")
+    expect(body).toContain("进入待处理")
+    expect(modal.showModalHtml.mock.calls[0][2][0].text).toBe("确认并开始提取")
   })
 
   it("showDeepImportForm renders scenes form", () => {
@@ -102,7 +105,18 @@ describe("createAutoExtraction", () => {
     `
     await buttons[0].handler()
 
-    expect(api.imports.startStage).toHaveBeenCalledWith("scenes", "p1", 1, 3, false, true)
+    expect(api.imports.startStage).toHaveBeenCalledWith(
+      "scenes",
+      "p1",
+      1,
+      3,
+      false,
+      true,
+      {
+        adoption_policy: "user_authorized_pipeline",
+        authorization_confirmed: true,
+      },
+    )
     expect(onTaskStarted).toHaveBeenCalledWith(expect.objectContaining({
       taskId: "t1",
       workflowType: "scene_auto_extraction",
@@ -139,6 +153,10 @@ describe("createAutoExtraction", () => {
     `
     await buttons[0].handler()
 
+    expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({
+      action: "outline.chapter_scenes.extract",
+      include_pending_objects: false,
+    }))
     expect(api.outline.extractChapterScenes).toHaveBeenCalledWith(expect.objectContaining({
       novel_id: "p1",
       chapter_index: 1,
@@ -147,12 +165,15 @@ describe("createAutoExtraction", () => {
     }))
     expect(onTaskStarted).toHaveBeenCalledWith(expect.objectContaining({
       taskId: "c1",
-      workflowType: "chapter_card_generation",
+      workflowType: "outline_chapter_scenes_extract",
       stage: "chapter_cards",
-      label: "章节/Scene 卡提取",
+      label: "章节/Scene 卡建议",
       startChapter: 1,
       endChapter: 2,
+      confirmationId: "conf-1",
     }))
+    expect(api.outline.listScenesOrdered).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("章节/Scene 卡建议已进入后台，完成后需采用", "success")
   })
 
   it("warns when there are no chapters to extract cards from", () => {

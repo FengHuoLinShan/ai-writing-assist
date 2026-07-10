@@ -80,6 +80,37 @@ def _deep_import_provenance(workflow_id: str | None) -> dict[str, Any]:
     }
 
 
+def _item_provenance(
+    base: dict[str, Any],
+    item: Any,
+) -> dict[str, Any]:
+    """Merge deterministic per-item attention/evidence into structure provenance."""
+    meta = dict(base)
+    confidence = getattr(item, "confidence", None)
+    needs_review = bool(getattr(item, "needs_review", False))
+    review_reason = str(getattr(item, "review_reason", "") or "")
+    supporting_scene_ids = [
+        str(scene_id)
+        for scene_id in (getattr(item, "supporting_scene_ids", []) or [])
+        if scene_id
+    ]
+    if confidence is not None:
+        meta["confidence"] = float(confidence)
+    if supporting_scene_ids:
+        meta["supporting_scene_ids"] = list(dict.fromkeys(supporting_scene_ids))
+    if review_reason:
+        meta["review_reason"] = review_reason
+    if meta.get("adopted_at"):
+        meta["needs_review"] = False
+        if needs_review:
+            meta["reviewed_attention_reasons"] = [
+                review_reason or "generated_item_needs_review"
+            ]
+    else:
+        meta["needs_review"] = bool(meta.get("needs_review")) or needs_review
+    return meta
+
+
 @dataclass
 class PersistResult:
     """持久化结果。"""
@@ -150,10 +181,15 @@ class PlotStructurePersister:
         entity_name_to_id: dict[str, str],
         character_name_to_id: dict[str, str],
         workflow_id: str | None = None,
+        provenance_meta_override: dict[str, Any] | None = None,
+        strict: bool = False,
     ) -> PersistResult:
         """持久化解析结果。"""
         result = PersistResult()
-        provenance_meta = _deep_import_provenance(workflow_id)
+        provenance_meta = {
+            **_deep_import_provenance(workflow_id),
+            **dict(provenance_meta_override or {}),
+        }
 
         existing_threads, existing_arcs = await self._check_duplicates(
             db, novel_id, start_chapter, end_chapter
@@ -176,6 +212,7 @@ class PlotStructurePersister:
             character_name_to_id,
             entity_name_to_id,
             provenance_meta,
+            strict=strict,
         )
         result.threads = created_threads
         result.total_threads = len(created_threads)
@@ -192,6 +229,7 @@ class PlotStructurePersister:
             character_name_to_id,
             entity_name_to_id,
             provenance_meta,
+            strict=strict,
         )
         result.arcs = created_arcs
         result.total_arcs = len(created_arcs)
@@ -204,8 +242,9 @@ class PlotStructurePersister:
             entity_name_to_id,
             character_name_to_id,
             provenance_meta,
+            strict=strict,
         )
-        created_foreshadowing, created_reveals = plans_result
+        created_foreshadowing, created_reveals, unresolved_reveals = plans_result
 
         created_scenes = await self._persist_scenes(
             db,
@@ -213,13 +252,15 @@ class PlotStructurePersister:
             start_chapter,
             end_chapter,
             parsed.scenes,
+            provenance_meta,
+            strict=strict,
         )
         result.scenes = created_scenes
         result.total_scenes = len(created_scenes)
 
         result.extra_sections = {
             "foreshadowing_plans": created_foreshadowing,
-            "reveal_plans": created_reveals,
+            "reveal_plans": [*created_reveals, *unresolved_reveals],
             "offscreen_progress": [p.model_dump() for p in parsed.offscreen_progress],
             "risks": [r.model_dump() for r in parsed.risks],
             "questions_for_user": [q.model_dump() for q in parsed.questions_for_user],
@@ -255,12 +296,15 @@ class PlotStructurePersister:
         character_name_to_id: dict[str, str],
         entity_name_to_id: dict[str, str],
         provenance_meta: dict[str, Any],
+        *,
+        strict: bool = False,
     ) -> list[dict]:
         """持久化剧情线。"""
         thread_payloads: list[PlotThreadCreate] = []
         for t in threads:
             if not t.name:
                 continue
+            item_provenance = _item_provenance(provenance_meta, t)
 
             thread_char_ids = [
                 character_name_to_id[n]
@@ -284,7 +328,7 @@ class PlotStructurePersister:
                 current_stage=t.current_stage,
                 related_character_ids=thread_char_ids,
                 related_entity_ids=thread_entity_ids,
-                provenance_meta=dict(provenance_meta),
+                provenance_meta=item_provenance,
                 status="draft",
             )
             thread_payloads.append(thread_data)
@@ -300,6 +344,8 @@ class PlotStructurePersister:
             )
         except Exception as exc:
             logger.warning("Failed to create thread batch: %s", exc)
+            if strict:
+                raise
             created: list[dict] = []
             for thread_data in thread_payloads:
                 try:
@@ -313,6 +359,10 @@ class PlotStructurePersister:
                             "id": str(thread_resp.id),
                             "name": thread_resp.name,
                             "thread_type": thread_resp.thread_type,
+                            "needs_review": bool(
+                                thread_data.provenance_meta.get("needs_review")
+                            ),
+                            "provenance_meta": dict(thread_data.provenance_meta),
                         }
                     )
                 except Exception as item_exc:
@@ -323,13 +373,23 @@ class PlotStructurePersister:
                     )
             return created
 
+        if strict and len(created_threads) != len(thread_payloads):
+            raise RuntimeError("thread batch persistence was incomplete")
+
         return [
             {
                 "id": str(thread_resp.id),
                 "name": thread_resp.name,
                 "thread_type": thread_resp.thread_type,
+                "needs_review": bool(
+                    thread_data.provenance_meta.get("needs_review")
+                ),
+                "provenance_meta": dict(thread_data.provenance_meta),
             }
-            for thread_resp in created_threads
+            for thread_resp, thread_data in zip(
+                created_threads,
+                thread_payloads,
+            )
         ]
 
     async def _persist_arcs(
@@ -343,12 +403,15 @@ class PlotStructurePersister:
         character_name_to_id: dict[str, str],
         entity_name_to_id: dict[str, str],
         provenance_meta: dict[str, Any],
+        *,
+        strict: bool = False,
     ) -> list[dict]:
         """持久化篇章纲。"""
         arc_payloads: list[OutlineArcCreate] = []
         for a in arcs:
             if not a.title:
                 continue
+            item_provenance = _item_provenance(provenance_meta, a)
 
             arc_related_thread_ids = [
                 thread_name_to_id[n]
@@ -382,7 +445,7 @@ class PlotStructurePersister:
                 related_thread_ids=arc_related_thread_ids,
                 related_character_ids=arc_related_char_ids,
                 related_entity_ids=arc_related_entity_ids,
-                provenance_meta=dict(provenance_meta),
+                provenance_meta=item_provenance,
                 status="draft",
             )
             arc_payloads.append(arc_data)
@@ -398,6 +461,8 @@ class PlotStructurePersister:
             )
         except Exception as exc:
             logger.warning("Failed to create arc batch: %s", exc)
+            if strict:
+                raise
             created: list[dict] = []
             for arc_data in arc_payloads:
                 try:
@@ -411,6 +476,10 @@ class PlotStructurePersister:
                             "id": str(arc_resp.id),
                             "title": arc_resp.title,
                             "arc_index": arc_resp.arc_index,
+                            "needs_review": bool(
+                                arc_data.provenance_meta.get("needs_review")
+                            ),
+                            "provenance_meta": dict(arc_data.provenance_meta),
                         }
                     )
                 except Exception as item_exc:
@@ -421,13 +490,23 @@ class PlotStructurePersister:
                     )
             return created
 
+        if strict and len(created_arcs) != len(arc_payloads):
+            raise RuntimeError("arc batch persistence was incomplete")
+
         return [
             {
                 "id": str(arc_resp.id),
                 "title": arc_resp.title,
                 "arc_index": arc_resp.arc_index,
+                "needs_review": bool(
+                    arc_data.provenance_meta.get("needs_review")
+                ),
+                "provenance_meta": dict(arc_data.provenance_meta),
             }
-            for arc_resp in created_arcs
+            for arc_resp, arc_data in zip(
+                created_arcs,
+                arc_payloads,
+            )
         ]
 
     async def _persist_foreshadowing_and_reveals(
@@ -439,13 +518,16 @@ class PlotStructurePersister:
         entity_name_to_id: dict[str, str],
         character_name_to_id: dict[str, str],
         provenance_meta: dict[str, Any],
-    ) -> tuple[list[dict], list[dict]]:
+        *,
+        strict: bool = False,
+    ) -> tuple[list[dict], list[dict], list[dict]]:
         """持久化伏笔计划和揭示计划。"""
         created_foreshadowing: list[dict] = []
         foreshadowing_payloads: list[ForeshadowingPlanCreate] = []
         for fp in foreshadowing_plans:
             if not fp.name:
                 continue
+            item_provenance = _item_provenance(provenance_meta, fp)
             try:
                 foreshadowing_payloads.append(
                     ForeshadowingPlanCreate(
@@ -455,12 +537,14 @@ class PlotStructurePersister:
                         hidden_meaning=getattr(fp, "hidden_meaning", None),
                         planned_seed_chapter=fp.planned_seed_chapter,
                         planned_payoff_chapter=fp.planned_payoff_chapter,
-                        provenance_meta=dict(provenance_meta),
+                        provenance_meta=item_provenance,
                         status="draft",
                     )
                 )
             except Exception as exc:
                 logger.warning("Failed to create foreshadowing '%s': %s", fp.name, exc)
+                if strict:
+                    raise
         if foreshadowing_payloads:
             try:
                 plans = await self._foreshadowing_service.create_batch(
@@ -472,30 +556,76 @@ class PlotStructurePersister:
                     {
                         "id": str(plan.id),
                         "name": plan.name,
+                        "needs_review": bool(
+                            payload.provenance_meta.get("needs_review")
+                        ),
+                        "provenance_meta": dict(payload.provenance_meta),
                     }
-                    for plan in plans
+                    for plan, payload in zip(plans, foreshadowing_payloads)
                 )
             except Exception as exc:
                 logger.warning("Failed to create foreshadowing batch: %s", exc)
+                if strict:
+                    raise
+            if strict and len(created_foreshadowing) != len(
+                foreshadowing_payloads
+            ):
+                raise RuntimeError("foreshadowing batch persistence was incomplete")
 
         created_reveals: list[dict] = []
+        unresolved_reveals: list[dict] = []
         reveal_payloads: list[RevealPlanCreate] = []
         reveal_target_names: list[str] = []
         for rp in reveal_plans:
             if not rp.target_name:
                 continue
+            item_provenance = _item_provenance(provenance_meta, rp)
             target_id = entity_name_to_id.get(rp.target_name) or character_name_to_id.get(
                 rp.target_name
             )
+            if target_id is None:
+                if strict:
+                    raise ValueError(
+                        f"reveal target could not be resolved: {rp.target_name}"
+                    )
+                logger.warning(
+                    "Skipping unresolved reveal target '%s'",
+                    rp.target_name,
+                )
+                unresolved_meta = {
+                    **item_provenance,
+                    "needs_review": True,
+                    "review_reason": "; ".join(
+                        dict.fromkeys(
+                            filter(
+                                None,
+                                [
+                                    item_provenance.get("review_reason"),
+                                    "unresolved_reveal_target",
+                                ],
+                            )
+                        )
+                    ),
+                }
+                unresolved_reveals.append(
+                    {
+                        "id": None,
+                        "target_name": rp.target_name,
+                        "secret_summary": rp.secret_summary,
+                        "display_state": "review",
+                        "needs_review": True,
+                        "review_reason": unresolved_meta["review_reason"],
+                        "provenance_meta": unresolved_meta,
+                    }
+                )
+                continue
             try:
                 reveal_payloads.append(
                     RevealPlanCreate(
                         target_type=rp.target_type,
-                        target_id=uuid.UUID(
-                            target_id or "00000000-0000-0000-0000-000000000000"
-                        ),
+                        target_id=uuid.UUID(target_id),
                         secret_summary=rp.secret_summary or "",
-                        provenance_meta=dict(provenance_meta),
+                        provenance_meta=item_provenance,
                         status="draft",
                     )
                 )
@@ -506,6 +636,8 @@ class PlotStructurePersister:
                     rp.target_name,
                     exc,
                 )
+                if strict:
+                    raise
         if reveal_payloads:
             try:
                 plans = await self._reveal_service.create_batch(
@@ -517,13 +649,25 @@ class PlotStructurePersister:
                     {
                         "id": str(plan.id),
                         "target_name": target_name,
+                        "needs_review": bool(
+                            payload.provenance_meta.get("needs_review")
+                        ),
+                        "provenance_meta": dict(payload.provenance_meta),
                     }
-                    for plan, target_name in zip(plans, reveal_target_names, strict=True)
+                    for plan, target_name, payload in zip(
+                        plans,
+                        reveal_target_names,
+                        reveal_payloads,
+                    )
                 )
             except Exception as exc:
                 logger.warning("Failed to create reveal batch: %s", exc)
+                if strict:
+                    raise
+            if strict and len(created_reveals) != len(reveal_payloads):
+                raise RuntimeError("reveal batch persistence was incomplete")
 
-        return created_foreshadowing, created_reveals
+        return created_foreshadowing, created_reveals, unresolved_reveals
 
     async def _persist_scenes(
         self,
@@ -532,8 +676,12 @@ class PlotStructurePersister:
         start_chapter: int,
         end_chapter: int,
         scenes: list[GeneratedScene],
+        provenance_meta: dict[str, Any] | None = None,
+        *,
+        strict: bool = False,
     ) -> list[dict]:
         """持久化 Scene 卡。"""
+        scene_provenance = dict(provenance_meta or {})
         next_scene_index = await self._scene_service.get_next_scene_index(
             db,
             str(novel_id),
@@ -564,9 +712,10 @@ class PlotStructurePersister:
                 must_happen=s.must_happen,
                 must_not_happen=s.must_not_happen,
                 narrative_tag=_truncate(s.narrative_tag, 32, "draft"),
-                source="ai",
+                source=str(scene_provenance.get("source") or "ai"),
                 scene_chunks=chunks,
                 chapter_ids=chapter_ids,
+                structure_meta=scene_provenance,
                 status="draft",
             )
             scene_payloads.append(scene_data.model_dump())
@@ -583,6 +732,8 @@ class PlotStructurePersister:
             )
         except Exception as exc:
             logger.warning("Failed to create scene batch: %s", exc)
+            if strict:
+                raise
             created: list[dict[str, Any]] = []
             for payload in scene_payloads:
                 try:
@@ -605,6 +756,9 @@ class PlotStructurePersister:
                         item_exc,
                     )
             return created
+
+        if strict and len(created_scenes) != len(scene_payloads):
+            raise RuntimeError("scene batch persistence was incomplete")
 
         return [
             {

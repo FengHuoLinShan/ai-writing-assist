@@ -74,6 +74,31 @@ async def test_list_aliases_returns_alias_for_entity(
 
 
 @pytest.mark.asyncio
+async def test_alias_under_archived_entity_is_projected_as_history(
+    novel_id: str,
+    alias_service: EntityAliasService,
+) -> None:
+    entity = _make_entity(
+        status="ignored",
+        content_json={
+            "aliases": [
+                {
+                    "alias": "旧称",
+                    "type": "name",
+                    "status": "canonical",
+                    "source": "manual",
+                }
+            ]
+        },
+    )
+    alias_service.repo.list_by_novel = AsyncMock(return_value=[entity])
+
+    aliases = await alias_service.list_aliases(MagicMock(), novel_id)
+
+    assert aliases[0]["display_state"] == "archived"
+
+
+@pytest.mark.asyncio
 async def test_list_aliases_pagination(
     novel_id: str,
     alias_service: EntityAliasService,
@@ -158,6 +183,35 @@ async def test_list_aliases_page_filters_before_pagination(
 
 
 @pytest.mark.asyncio
+async def test_list_aliases_page_filters_legacy_shadow_alias_by_display_state(
+    novel_id: str,
+    alias_service: EntityAliasService,
+) -> None:
+    shadow = _make_entity(
+        status="candidate",
+        content_json={
+            "_meta": {
+                "compatibility_shadow": True,
+                "suggestion_id": str(uuid.uuid4()),
+            },
+            "aliases": [{"alias": "影子称号", "type": "title"}],
+        },
+    )
+    alias_service.repo.list_by_novel = AsyncMock(return_value=[shadow])
+
+    page = await alias_service.list_aliases_page(
+        MagicMock(),
+        novel_id,
+        display_state="review",
+    )
+
+    assert page["total"] == 1
+    assert page["items"][0]["alias"] == "影子称号"
+    assert page["items"][0]["display_state"] == "review"
+    assert page["items"][0]["managed_by_suggestion"] is True
+
+
+@pytest.mark.asyncio
 async def test_create_alias_adds_to_content_json(
     novel_id: str,
     alias_service: EntityAliasService,
@@ -173,7 +227,13 @@ async def test_create_alias_adds_to_content_json(
     assert result["entity_id"] == str(entity.id)
     assert result["alias"] == "Art"
     assert result["alias_type"] == "nickname"
-    assert entity.content_json["aliases"] == [{"alias": "Art", "type": "nickname"}]
+    stored = entity.content_json["aliases"][0]
+    assert stored["alias"] == "Art"
+    assert stored["type"] == "nickname"
+    assert stored["status"] == "confirmed"
+    assert stored["source"] == "manual"
+    assert stored["needs_review"] is False
+    assert result["display_state"] == "active"
     db.flush.assert_awaited_once()
 
 
@@ -194,10 +254,14 @@ async def test_create_alias_appends_to_existing_content_json(
     )
 
     assert result["alias"] == "King Arthur"
-    assert entity.content_json["aliases"] == [
-        {"alias": "Art", "type": "nickname"},
-        {"alias": "King Arthur", "type": "title"},
-    ]
+    assert entity.content_json["aliases"][0] == {
+        "alias": "Art",
+        "type": "nickname",
+    }
+    stored = entity.content_json["aliases"][1]
+    assert stored["alias"] == "King Arthur"
+    assert stored["type"] == "title"
+    assert stored["status"] == "confirmed"
     db.flush.assert_awaited_once()
 
 
@@ -356,6 +420,9 @@ async def test_edit_alias_renames_type_and_confirms_review_preserving_provenance
     assert updated["scene_id"] == "scene-1"
     assert updated["confidence"] == 0.92
     assert updated["quote"] == "called Art"
+    assert updated["user_edited"] is True
+    assert updated["edited_by"] == "manual"
+    assert updated["edited_at"]
     assert result["alias"] == "King Arthur"
     assert result["alias_type"] == "title"
     assert result["affected_ids"] == [str(entity.id)]
@@ -516,7 +583,7 @@ async def test_list_aliases_handles_string_aliases(
 
 
 @pytest.mark.asyncio
-async def test_append_candidate_alias_upgrades_existing_plain_alias(
+async def test_append_candidate_alias_does_not_demote_existing_active_alias(
     novel_id: str,
     alias_service: EntityAliasService,
 ) -> None:
@@ -540,22 +607,139 @@ async def test_append_candidate_alias_upgrades_existing_plain_alias(
         quote="有人称他为 Art。",
     )
 
-    assert appended is True
+    assert appended is False
     assert entity.content_json["aliases"] == [
-        {
-            "alias": "Art",
-            "type": "nickname",
-            "status": "candidate",
-            "source": "deep_import",
-            "workflow_id": "wf-1",
-            "scene_id": "scene-1",
-            "scene_index": 7,
-            "confidence": 0.82,
-            "quote": "有人称他为 Art。",
-            "needs_review": True,
-        }
+        {"alias": "Art", "type": "nickname"}
     ]
-    db.flush.assert_awaited_once()
+    db.flush.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_append_candidate_alias_rejects_pending_suggestion_shadow(
+    novel_id: str,
+    alias_service: EntityAliasService,
+) -> None:
+    entity = _make_entity(
+        novel_id=novel_id,
+        status="candidate",
+        content_json={
+            "_meta": {
+                "compatibility_shadow": True,
+                "suggestion_id": str(uuid.uuid4()),
+            }
+        },
+    )
+    alias_service.repo.get = AsyncMock(return_value=entity)
+
+    with pytest.raises(DomainValidationError, match="authoritative suggestion queue"):
+        await alias_service.append_candidate_alias(
+            AsyncMock(),
+            novel_id,
+            str(entity.id),
+            alias="Shadow Alias",
+            workflow_id="wf-1",
+        )
+
+
+@pytest.mark.asyncio
+async def test_rollback_deep_import_candidate_aliases_is_scoped_and_preserves_active(
+    novel_id: str,
+    alias_service: EntityAliasService,
+) -> None:
+    entity = _make_entity(
+        novel_id=novel_id,
+        content_json={
+            "aliases": [
+                {
+                    "alias": "待回滚",
+                    "type": "alias",
+                    "status": "candidate",
+                    "source": "deep_import",
+                    "workflow_id": "wf-1",
+                    "needs_review": True,
+                },
+                {
+                    "alias": "已采用",
+                    "type": "title",
+                    "status": "canonical",
+                    "source": "deep_import",
+                    "workflow_id": "wf-1",
+                },
+                {
+                    "alias": "其他任务",
+                    "type": "alias",
+                    "status": "candidate",
+                    "source": "deep_import",
+                    "workflow_id": "wf-2",
+                    "needs_review": True,
+                },
+            ]
+        },
+    )
+    alias_service.repo.list_by_novel = AsyncMock(return_value=[entity])
+
+    db = MagicMock()
+    db.flush = AsyncMock()
+
+    count = await alias_service.rollback_deep_import_candidates_by_workflow(
+        db,
+        novel_id,
+        "wf-1",
+    )
+
+    aliases = entity.content_json["aliases"]
+    assert count == 1
+    assert aliases[0]["status"] == "ignored"
+    assert aliases[0]["rolled_back"] is True
+    assert aliases[1]["status"] == "canonical"
+    assert aliases[2]["status"] == "candidate"
+
+
+@pytest.mark.asyncio
+async def test_rollback_preserves_manually_edited_unconfirmed_candidate_alias(
+    novel_id: str,
+    alias_service: EntityAliasService,
+) -> None:
+    entity = _make_entity(
+        novel_id=novel_id,
+        content_json={
+            "aliases": [
+                {
+                    "alias": "旧称",
+                    "type": "alias",
+                    "status": "candidate",
+                    "source": "deep_import",
+                    "workflow_id": "wf-1",
+                    "needs_review": True,
+                }
+            ]
+        },
+    )
+    alias_service.repo.get = AsyncMock(return_value=entity)
+    alias_service.repo.list_by_novel = AsyncMock(return_value=[entity])
+    db = MagicMock()
+    db.flush = AsyncMock()
+
+    await alias_service.edit_alias(
+        db,
+        novel_id,
+        str(entity.id),
+        "旧称",
+        alias="作者修改的称呼",
+        confirm_review=False,
+    )
+    count = await alias_service.rollback_deep_import_candidates_by_workflow(
+        db,
+        novel_id,
+        "wf-1",
+    )
+
+    alias = entity.content_json["aliases"][0]
+    assert count == 0
+    assert alias["status"] == "candidate"
+    assert alias["alias"] == "作者修改的称呼"
+    assert alias["user_edited"] is True
+    assert alias["edited_by"] == "manual"
 
 
 @pytest.mark.asyncio

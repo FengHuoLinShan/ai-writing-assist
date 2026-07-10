@@ -13,6 +13,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.models import AsyncTask
+from modules.imports.adoption_policy import (
+    DEFAULT_ADOPTION_POLICY,
+    SUPPORTED_ADOPTION_POLICIES,
+    build_asset_summary,
+    build_authorization_snapshot,
+    empty_asset_summary,
+)
 from modules.imports.contracts import TaskNotFoundError
 from modules.imports.service_progress_limits import trim_progress_diagnostics
 from modules.imports.workflow import DeepImportWorkflow
@@ -48,7 +55,16 @@ class DeepImportOrchestrator:
         end_chapter: int,
         force: bool = False,
         high_quality: bool = False,
+        adoption_policy: str = DEFAULT_ADOPTION_POLICY,
+        authorization_confirmed: bool = False,
     ) -> dict[str, Any]:
+        authorization_snapshot = build_authorization_snapshot(
+            novel_id=novel_id,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            adoption_policy=adoption_policy,
+            authorization_confirmed=authorization_confirmed,
+        )
         warning = await self._check_duplicate_import(
             db, novel_id, start_chapter, end_chapter
         )
@@ -73,13 +89,17 @@ class DeepImportOrchestrator:
             context_mode="working",
             include_pending_objects=True,
             high_quality=high_quality,
+            authorization_snapshot=authorization_snapshot,
         )
+        await self._initialize_task_result(db, task_id, authorization_snapshot)
         await db.flush()
         return {
             "workflow_id": str(task_id),
             "task_id": str(task_id),
             "status": "pending",
             "requires_confirmation": False,
+            "adoption_policy": adoption_policy,
+            "authorization_snapshot": authorization_snapshot,
             "message": f"深度导入任务已提交（第{start_chapter}-{end_chapter}章）",
         }
 
@@ -93,9 +113,19 @@ class DeepImportOrchestrator:
         stage: str,
         force: bool = False,
         high_quality: bool = False,
+        adoption_policy: str = DEFAULT_ADOPTION_POLICY,
+        authorization_confirmed: bool = False,
     ) -> dict[str, Any]:
         if stage not in STAGE_TASK_TYPES:
             raise ValueError(f"unsupported deep import stage: {stage}")
+        authorization_snapshot = build_authorization_snapshot(
+            novel_id=novel_id,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            adoption_policy=adoption_policy,
+            authorization_confirmed=authorization_confirmed,
+            stage=stage,
+        )
 
         if stage == "scenes":
             warning = await self._check_duplicate_import(
@@ -125,7 +155,9 @@ class DeepImportOrchestrator:
             context_mode="working",
             include_pending_objects=True,
             high_quality=high_quality,
+            authorization_snapshot=authorization_snapshot,
         )
+        await self._initialize_task_result(db, task_id, authorization_snapshot)
         await db.flush()
         return {
             "workflow_id": str(task_id),
@@ -134,6 +166,8 @@ class DeepImportOrchestrator:
             "requires_confirmation": False,
             "workflow_type": STAGE_TASK_TYPES[stage],
             "stage": stage,
+            "adoption_policy": adoption_policy,
+            "authorization_snapshot": authorization_snapshot,
             "message": self._stage_pending_message(stage, start_chapter, end_chapter),
         }
 
@@ -149,11 +183,13 @@ class DeepImportOrchestrator:
             raise ValueError("novel_id is required for deep_import")
 
         progress = self._progress_from_task(task)
+        self._hydrate_authorization(progress, meta)
 
         async def _record_progress(
             updated: DeepImportProgress,
             progress_value: float,
         ) -> None:
+            updated.asset_summary = build_asset_summary(updated.quality_stats)
             task.result = updated.model_dump(mode="json")
             task.update_progress(progress_value)
             await db.commit()
@@ -172,6 +208,7 @@ class DeepImportOrchestrator:
             high_quality=high_quality,
             on_progress=_record_progress,
         )
+        self._hydrate_authorization(progress, meta)
         return self._result_from_progress(progress)
 
     async def run_stage_task(
@@ -192,6 +229,7 @@ class DeepImportOrchestrator:
             raise ValueError(f"novel_id is required for {task.task_type}")
 
         progress = self._progress_from_task(task)
+        self._hydrate_authorization(progress, meta)
         progress.workflow_type = str(task.task_type)
         progress.stage = stage
         progress.total_steps = 1
@@ -202,6 +240,7 @@ class DeepImportOrchestrator:
         ) -> None:
             updated.workflow_type = str(task.task_type)
             updated.stage = stage
+            updated.asset_summary = build_asset_summary(updated.quality_stats)
             task.result = updated.model_dump(mode="json")
             task.update_progress(progress_value)
             await db.commit()
@@ -246,6 +285,7 @@ class DeepImportOrchestrator:
             )
         else:
             raise ValueError(f"unsupported deep import stage: {stage}")
+        self._hydrate_authorization(progress, meta)
         return self._result_from_progress(progress)
 
     def _progress_from_task(self, task: Any) -> DeepImportProgress:
@@ -275,6 +315,55 @@ class DeepImportOrchestrator:
         if progress.phase == "running":
             progress.phase = "pending"
         return progress
+
+    @staticmethod
+    def _hydrate_authorization(
+        progress: DeepImportProgress,
+        meta: dict[str, Any],
+    ) -> None:
+        snapshot = meta.get("authorization_snapshot")
+        if not isinstance(snapshot, dict):
+            raise ValueError("authorization_snapshot is required")
+        if snapshot.get("authorization_confirmed") is not True:
+            raise ValueError(
+                "authorization_snapshot.authorization_confirmed must be true"
+            )
+        adoption_policy = snapshot.get("adoption_policy")
+        if adoption_policy not in SUPPORTED_ADOPTION_POLICIES:
+            raise ValueError(
+                f"unsupported authorization snapshot policy: {adoption_policy}"
+            )
+        if not snapshot.get("authorized_at"):
+            raise ValueError("authorization_snapshot.authorized_at is required")
+        scope = snapshot.get("scope")
+        if not isinstance(scope, dict):
+            raise ValueError("authorization_snapshot.scope is required")
+        expected_scope = {
+            "novel_id": meta.get("novel_id"),
+            "start_chapter": int(meta.get("start_chapter", 1)),
+            "end_chapter": int(meta.get("end_chapter", 5)),
+            "stage": meta.get("stage"),
+        }
+        if any(scope.get(key) != value for key, value in expected_scope.items()):
+            raise ValueError("authorization_snapshot scope does not match task meta")
+        progress.adoption_policy = str(adoption_policy)
+        progress.authorization_snapshot = dict(snapshot)
+        progress.asset_summary = build_asset_summary(progress.quality_stats)
+
+    @staticmethod
+    async def _initialize_task_result(
+        db: AsyncSession,
+        task_id: str,
+        authorization_snapshot: dict[str, Any],
+    ) -> None:
+        task = await db.get(AsyncTask, _parse_uuid(str(task_id)))
+        if task is None:
+            return
+        task.result = {
+            "adoption_policy": authorization_snapshot["adoption_policy"],
+            "authorization_snapshot": authorization_snapshot,
+            "asset_summary": empty_asset_summary(),
+        }
 
     async def resume_interrupted(
         self,
@@ -332,14 +421,18 @@ class DeepImportOrchestrator:
         workflow_id: str,
     ) -> dict[str, Any]:
         """Soft-deprecate business assets written by an abandoned workflow."""
-        from modules.memory.facade import count_deep_import_delta_logs_by_workflow
+        from modules.memory.facade import (
+            rollback_deep_import_delta_logs_by_workflow,
+        )
         from modules.outline.facade import (
             deprecate_deep_import_scenes_by_workflow,
             deprecate_deep_import_structure_assets_by_workflow,
         )
         from modules.world.facade import (
-            count_deep_import_map_observations_by_workflow,
             deprecate_deep_import_entities_by_workflow,
+            rollback_deep_import_aliases_by_workflow,
+            rollback_deep_import_map_observations_by_workflow,
+            rollback_deep_import_relations_by_workflow,
         )
 
         deprecated_scenes = await deprecate_deep_import_scenes_by_workflow(
@@ -359,33 +452,42 @@ class DeepImportOrchestrator:
                 workflow_id,
             )
         )
-        skipped_delta_logs = await count_deep_import_delta_logs_by_workflow(
+        rolled_back_delta_logs = await rollback_deep_import_delta_logs_by_workflow(
             db,
             novel_id,
             workflow_id,
         )
-        skipped_map_observations = (
-            await count_deep_import_map_observations_by_workflow(
+        rolled_back_map_observations = (
+            await rollback_deep_import_map_observations_by_workflow(
                 db,
                 novel_id,
                 workflow_id,
             )
         )
-        cleanup_todo = None
-        if skipped_delta_logs or skipped_map_observations:
-            cleanup_todo = (
-                "delta logs and candidate map observations are counted but not "
-                "mutated until their owning modules expose an abandon-cleanup policy"
-            )
+        rolled_back_aliases = await rollback_deep_import_aliases_by_workflow(
+            db,
+            novel_id,
+            workflow_id,
+        )
+        rolled_back_relations = await rollback_deep_import_relations_by_workflow(
+            db,
+            novel_id,
+            workflow_id,
+        )
         return {
             "deprecated_scenes": deprecated_scenes,
             "deprecated_entities": deprecated_entities,
             "deprecated_structure_assets": deprecated_structure_assets,
             "hard_deleted_assets": 0,
             "cleanup_mode": "soft_deprecate",
-            "skipped_delta_logs": skipped_delta_logs,
-            "skipped_map_observations": skipped_map_observations,
-            "cleanup_todo": cleanup_todo,
+            "rolled_back_delta_logs": rolled_back_delta_logs,
+            "rolled_back_map_observations": rolled_back_map_observations,
+            "rolled_back_aliases": rolled_back_aliases,
+            "rolled_back_relations": rolled_back_relations,
+            # Deprecated wire aliases retained during the compatibility window.
+            "skipped_delta_logs": 0,
+            "skipped_map_observations": 0,
+            "cleanup_todo": None,
         }
 
     async def _get_recoverable_deep_import_task(
@@ -428,7 +530,10 @@ class DeepImportOrchestrator:
             db, novel_id, status_filter=["draft", "canonical"]
         )
         overlapping_scenes = [
-            s for s in scenes if self._scene_overlaps_range(s, start_chapter, end_chapter)
+            s
+            for s in scenes
+            if self._is_workflow_owned_deep_import_scene(s)
+            and self._scene_overlaps_range(s, start_chapter, end_chapter)
         ]
         overlapping_entities = await list_auto_ingested_entities(
             db,
@@ -462,7 +567,10 @@ class DeepImportOrchestrator:
             db, novel_id, status_filter=["draft", "canonical"]
         )
         for scene in scenes:
-            if self._scene_overlaps_range(scene, start_chapter, end_chapter):
+            if (
+                self._is_workflow_owned_deep_import_scene(scene)
+                and self._scene_overlaps_range(scene, start_chapter, end_chapter)
+            ):
                 await update_scene(db, novel_id, scene["id"], {"status": "deprecated"})
                 deprecated_scenes += 1
 
@@ -492,6 +600,7 @@ class DeepImportOrchestrator:
         context_mode: str = "working",
         include_pending_objects: bool = True,
         high_quality: bool = False,
+        authorization_snapshot: dict[str, Any],
     ):
         from infrastructure.tasks.enqueuer import enqueue_task
 
@@ -505,6 +614,11 @@ class DeepImportOrchestrator:
                 "context_mode": context_mode,
                 "include_pending_objects": include_pending_objects,
                 "high_quality": high_quality,
+                "adoption_policy": authorization_snapshot["adoption_policy"],
+                "authorization_confirmed": authorization_snapshot[
+                    "authorization_confirmed"
+                ],
+                "authorization_snapshot": authorization_snapshot,
             },
         )
 
@@ -520,6 +634,7 @@ class DeepImportOrchestrator:
         context_mode: str = "working",
         include_pending_objects: bool = True,
         high_quality: bool = False,
+        authorization_snapshot: dict[str, Any],
     ):
         from infrastructure.tasks.enqueuer import enqueue_task
 
@@ -534,6 +649,11 @@ class DeepImportOrchestrator:
                 "context_mode": context_mode,
                 "include_pending_objects": include_pending_objects,
                 "high_quality": high_quality,
+                "adoption_policy": authorization_snapshot["adoption_policy"],
+                "authorization_confirmed": authorization_snapshot[
+                    "authorization_confirmed"
+                ],
+                "authorization_snapshot": authorization_snapshot,
             },
         )
 
@@ -561,11 +681,26 @@ class DeepImportOrchestrator:
         return any(start <= idx <= end for idx in indices)
 
     @staticmethod
+    def _is_workflow_owned_deep_import_scene(scene: dict[str, Any]) -> bool:
+        if str(scene.get("source") or "") != "deep_import":
+            return False
+        structure_meta = scene.get("structure_meta")
+        if not isinstance(structure_meta, dict):
+            return False
+        return bool(structure_meta.get("workflow_id")) or (
+            structure_meta.get("auto_ingested") is True
+        )
+
+    @staticmethod
     def _result_from_progress(progress: DeepImportProgress) -> dict[str, Any]:
         trim_progress_diagnostics(progress)
+        progress.asset_summary = build_asset_summary(progress.quality_stats)
         return {
             "workflow_type": progress.workflow_type,
             "stage": progress.stage,
+            "adoption_policy": progress.adoption_policy,
+            "authorization_snapshot": progress.authorization_snapshot,
+            "asset_summary": progress.asset_summary,
             "phase": progress.phase,
             "current_step": (
                 progress.current_step.value if progress.current_step else None

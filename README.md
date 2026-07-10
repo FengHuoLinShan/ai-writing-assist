@@ -23,17 +23,28 @@ AI 长篇小说创作辅助系统，提供从**导入 → 世界构建 → 记�
 | 模块 | 核心能力 |
 |------|---------|
 | **project** | 小说项目 CRUD、novel_id 全局隔离（零跨模块依赖） |
-| **world** | 核心实体、人物、事件、关系、动态地图、AI 实体抽取、状态组装 |
+| **world** | 核心实体、人物、事件、关系、动态地图、待处理建议与作者展示状态投影 |
 | **memory** | `memory_events` 事件溯源与 `memory_snapshots` 全景快照 |
 | **outline** | 剧情线、篇章纲、Scene、伏笔计划、揭示计划 |
 | **rag** | canonical/working 独立分块、embedding 与混合候选召回；证据输出由 context 重读 writing 原文校验 hash |
 | **context** | 分层编译 LLM 上下文、提供 AI 参考资料审查台、管理确认记录与自动上下文快照审计 |
-| **writing** | 草稿 CRUD、Scene 树写作工作台、发布后触发索引与记忆更新 |
-| **imports** | 外部文件解析、深度导入三阶段工作流、Scene 切分与实体/结构抽取 |
+| **writing** | 工作稿/已发布正文、AI 正文建议采用、Scene 树工作台、发布后索引与记忆更新 |
+| **imports** | 外部文件解析、经批量授权的深度导入、Scene 切分、实体/结构抽取与异常汇总 |
 | **settings** | 全局 LLM 默认、全局作者偏好与项目级偏好覆盖；API Key 始终项目级 |
 | **infrastructure/tasks** | PostgreSQL 队列的异步任务调度（enqueuer → worker），不是业务模块 |
 
 前端当前注册 11 个视图路由：`project` / `world` / `rag` / `outline` / `scene` / `writing` / `map` / `generate` / `llm` / `settings` / `project-settings`。`rag` 在产品导航显示为“小说检索”，默认进入检索页，索引维护为第二子页。主导航不显示兼容 `llm` 路由；旧 `context` hash 会重定向到生成中心任务页。地图已升级为侧边栏一级入口，`world` 内的旧地图子入口仅保留兼容跳转。
+
+## 作者可见资产状态
+
+产品界面不要求作者理解各模块的 `draft`、`candidate`、`proposal`、`canonical` 等内部状态：
+
+- 结构化资产统一显示为“待处理 / 已采用 / 历史”；冲突、低置信和需人工检查作为注意原因展示。
+- 正文只使用“工作稿 / 已发布”；AI 文本在采用前是待处理建议，采用后复制为普通工作稿。
+- 人工创建世界对象、关系和别名时，保存即表示采用。
+- 深度导入在启动时一次说明并记录自动采用范围；异常结果进入待处理，完成页汇总已采用/待处理/未采用。
+
+兼容期 API 继续返回原始状态字段，并按领域增加 `display_state`、`source`、`attention_reasons`、`suggested_action` 等派生字段。任务状态、地图 Observation/Fact 分层和上下文 `canonical/working` 模式仍保留其技术含义。
 
 ## 快速开始
 

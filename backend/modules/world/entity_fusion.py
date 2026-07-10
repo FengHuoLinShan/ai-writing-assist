@@ -211,7 +211,9 @@ class WorldEntityFusionService:
             if source.status == "canonical" and target.status == "canonical":
                 if not item.allow_canonical_merge:
                     skipped += 1
-                    warnings.append(f"需要二次确认才能合并正史对象：{source.name}")
+                    warnings.append(
+                        f"需要二次确认才能合并已采用对象：{source.name}"
+                    )
                     continue
                 allow_canonical = True
             else:
@@ -527,13 +529,13 @@ def _deterministic_decision(
                 return EntityFusionDecision(
                     action="merge",
                     confidence=max(score, 0.98),
-                    reason="别名命中且来源仍是候选/草稿，建议合并到更稳定对象。",
+                    reason="别名命中且来源仍待处理，建议合并到更稳定对象。",
                     alias=source.name,
                 )
             return EntityFusionDecision(
                 action="needs_review",
                 confidence=max(score, 0.9),
-                reason="正史对象存在别名命中，需要人工确认是否合并或仅保留别名。",
+                reason="已采用对象存在别名命中，需要人工确认是否合并或仅保留别名。",
                 alias=source.name,
             )
         return EntityFusionDecision(

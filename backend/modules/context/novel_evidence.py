@@ -95,6 +95,7 @@ class NovelEvidenceService:
         content_mode: str,
         visibility: VisibilityContextContract,
         scopes: list[str],
+        include_pending_objects: bool = False,
         chapter_from: int | None = None,
         chapter_to: int | None = None,
         top_k: int = 12,
@@ -128,16 +129,17 @@ class NovelEvidenceService:
             warnings.extend(manuscript_warnings)
             degraded = degraded or manuscript_degraded
         if "world" in scopes:
-            hits.extend(
-                await self._search_world(
-                    db,
-                    novel_id=novel_id,
-                    query=query,
-                    content_mode=content_mode,
-                    visibility=visibility,
-                    limit=top_k,
-                )
+            world_hits, world_warnings = await self._search_world(
+                db,
+                novel_id=novel_id,
+                query=query,
+                content_mode=content_mode,
+                visibility=visibility,
+                include_pending_objects=include_pending_objects,
+                limit=top_k,
             )
+            hits.extend(world_hits)
+            warnings.extend(world_warnings)
         if "outline" in scopes:
             outline, outline_warnings, outline_degraded = await self._search_outline(
                 db,
@@ -744,18 +746,32 @@ class NovelEvidenceService:
         return hits, warnings, bool(result.degraded or warnings)
 
     async def _search_world(
-        self, db, *, novel_id, query, content_mode, visibility, limit
+        self,
+        db,
+        *,
+        novel_id,
+        query,
+        content_mode,
+        visibility,
+        include_pending_objects,
+        limit,
     ):
         from modules.world.facade import list_entities
 
+        allow_pending = include_pending_objects and visibility.mode == "author"
         items = await list_entities(
             db,
             novel_id,
-            statuses=["canonical", "draft", "candidate"],
+            statuses=(
+                ["canonical", "draft", "candidate"]
+                if allow_pending
+                else ["canonical"]
+            ),
             limit=max(limit * 4, 50),
         )
         needle = query.lower()
         hits = []
+        warnings: list[str] = []
         for item in items:
             target = {
                 "target_type": "world_entity",
@@ -771,6 +787,7 @@ class NovelEvidenceService:
             )
             if not inspected["visible"]:
                 continue
+            warnings.extend(inspected.get("warnings") or [])
             visible_item = inspected["item"] or {}
             visible_text = "\n".join(
                 str(visible_item.get(key) or "")
@@ -800,7 +817,7 @@ class NovelEvidenceService:
             )
             if len(hits) >= limit:
                 break
-        return hits
+        return hits, list(dict.fromkeys(warnings))
 
     async def _search_outline(
         self, db, *, novel_id, query, content_mode, visibility, limit
@@ -895,15 +912,22 @@ class NovelEvidenceService:
                 entity_ids=[target.target_id],
                 reveal_mode=reveal_mode,
                 current_chapter=visibility.cutoff_chapter,
+                include_review=visibility.mode == "author",
             )
             entities = [item.model_dump() for item in bundle.entities]
             item = entities[0] if entities else None
+            if (
+                visibility.mode == "author"
+                and item is not None
+                and item.get("status") != "canonical"
+            ):
+                warnings.append("包含未采用对象")
             if (
                 visibility.mode != "author"
                 and item is not None
                 and item.get("status") != "canonical"
             ):
-                warnings.append("非正史对象不对读者/角色视角开放")
+                warnings.append("未采用对象不对读者/角色视角开放")
                 return None, warnings
             if visibility.mode != "author" and item is not None:
                 from modules.outline.facade import get_reader_reveal_decision

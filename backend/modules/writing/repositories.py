@@ -19,6 +19,8 @@ from modules.writing.models import WritingConflictCheck, WritingConflictItem, Wr
 from modules.writing.schemas import WritingDraftCreate, WritingDraftUpdate
 from modules.writing.source_hashing import hash_text
 
+WORKING_DRAFT_STATUSES = ("draft", "published", "canonical")
+
 
 class WritingDraftRepository:
     """正文草稿数据访问"""
@@ -84,6 +86,24 @@ class WritingDraftRepository:
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_for_update(
+        self,
+        db: AsyncSession,
+        draft_id: uuid.UUID,
+    ) -> WritingDraft | None:
+        """Lock one draft while an adoption transition is decided.
+
+        PostgreSQL serializes concurrent adopters on this row. SQLite ignores
+        ``FOR UPDATE`` in tests while preserving the same repository interface.
+        """
+        stmt = (
+            select(WritingDraft)
+            .where(WritingDraft.id == draft_id)
+            .with_for_update()
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def get_latest_by_chapter(
         self,
         db: AsyncSession,
@@ -96,7 +116,7 @@ class WritingDraftRepository:
             .where(
                 WritingDraft.novel_id == novel_id,
                 WritingDraft.chapter_index == chapter_index,
-                WritingDraft.status != "deprecated",
+                WritingDraft.status.in_(WORKING_DRAFT_STATUSES),
             )
             .order_by(WritingDraft.version_number.desc())
             .limit(1)
@@ -208,6 +228,21 @@ class WritingDraftRepository:
         result = await db.execute(stmt)
         return result.scalar() or 0
 
+    async def count_working_versions(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+    ) -> int:
+        """Return versions that can act as the chapter's editable/published source."""
+        stmt = select(func.count(WritingDraft.id)).where(
+            WritingDraft.novel_id == novel_id,
+            WritingDraft.chapter_index == chapter_index,
+            WritingDraft.status.in_(WORKING_DRAFT_STATUSES),
+        )
+        result = await db.execute(stmt)
+        return result.scalar() or 0
+
     async def delete_all_versions(
         self,
         db: AsyncSession,
@@ -246,7 +281,7 @@ class WritingDraftRepository:
             select(WritingDraft.chapter_index)
             .where(
                 WritingDraft.novel_id == novel_id,
-                WritingDraft.status != "deprecated",
+                WritingDraft.status.in_(WORKING_DRAFT_STATUSES),
             )
             .distinct()
             .order_by(WritingDraft.chapter_index)
@@ -267,7 +302,7 @@ class WritingDraftRepository:
             )
             .where(
                 WritingDraft.novel_id == novel_id,
-                WritingDraft.status != "deprecated",
+                WritingDraft.status.in_(WORKING_DRAFT_STATUSES),
             )
             .group_by(WritingDraft.chapter_index)
             .subquery()
@@ -281,7 +316,7 @@ class WritingDraftRepository:
             )
             .where(
                 WritingDraft.novel_id == novel_id,
-                WritingDraft.status != "deprecated",
+                WritingDraft.status.in_(WORKING_DRAFT_STATUSES),
             )
             .order_by(WritingDraft.chapter_index, WritingDraft.id)
         )
@@ -308,7 +343,7 @@ class WritingDraftRepository:
             .where(
                 WritingDraft.novel_id == novel_id,
                 WritingDraft.chapter_index.in_(requested),
-                WritingDraft.status != "deprecated",
+                WritingDraft.status.in_(WORKING_DRAFT_STATUSES),
             )
             .group_by(WritingDraft.chapter_index)
             .subquery()
@@ -336,7 +371,10 @@ class WritingDraftRepository:
                     (WritingDraft.chapter_index == latest_versions.c.chapter_index)
                     & (WritingDraft.version_number == latest_versions.c.version_number),
                 )
-                .where(WritingDraft.novel_id == novel_id)
+                .where(
+                    WritingDraft.novel_id == novel_id,
+                    WritingDraft.status.in_(WORKING_DRAFT_STATUSES),
+                )
                 .order_by(WritingDraft.chapter_index)
             )
             result = await db.execute(stmt)
@@ -351,7 +389,7 @@ class WritingDraftRepository:
             )
             .where(
                 WritingDraft.novel_id == novel_id,
-                WritingDraft.status != "deprecated",
+                WritingDraft.status.in_(WORKING_DRAFT_STATUSES),
             )
             .order_by(WritingDraft.chapter_index)
         )
@@ -377,7 +415,7 @@ class WritingDraftRepository:
         if content_mode == "canonical":
             conditions.append(WritingDraft.status == "published")
         elif content_mode == "working":
-            conditions.append(WritingDraft.status != "deprecated")
+            conditions.append(WritingDraft.status.in_(WORKING_DRAFT_STATUSES))
         else:
             raise ValueError("content_mode must be canonical or working")
         latest_versions = (
@@ -396,10 +434,7 @@ class WritingDraftRepository:
                 (WritingDraft.chapter_index == latest_versions.c.chapter_index)
                 & (WritingDraft.version_number == latest_versions.c.version_number),
             )
-            .where(
-                WritingDraft.novel_id == novel_id,
-                WritingDraft.status != "deprecated",
-            )
+            .where(WritingDraft.novel_id == novel_id, *conditions[2:])
             .order_by(WritingDraft.chapter_index)
         )
         return (await db.execute(stmt)).scalars().all()
@@ -417,7 +452,7 @@ class WritingDraftRepository:
             )
             .where(
                 WritingDraft.novel_id == novel_id,
-                WritingDraft.status != "deprecated",
+                WritingDraft.status.in_(WORKING_DRAFT_STATUSES),
             )
             .group_by(WritingDraft.chapter_index)
             .subquery()
@@ -458,7 +493,7 @@ class WritingDraftRepository:
             )
             .where(
                 WritingDraft.novel_id.in_(requested),
-                WritingDraft.status != "deprecated",
+                WritingDraft.status.in_(WORKING_DRAFT_STATUSES),
             )
             .group_by(WritingDraft.novel_id, WritingDraft.chapter_index)
             .subquery()

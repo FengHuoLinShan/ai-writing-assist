@@ -35,6 +35,12 @@ export function createWritingSubModules(orchestrator, deps) {
     toast,
     onWordcountUpdate: (stats) => orchestrator._onWordcountUpdate(stats),
     onSaveStatusChange: (text) => orchestrator._onSaveStatusChange(text),
+    onDraftAdopted: async () => {
+      await orchestrator._versions?.load?.(orchestrator._currentChapter)
+      orchestrator._syncChapterMetaToTree?.(orchestrator._currentChapter)
+      orchestrator._syncSharedStateToSubModules?.()
+      await orchestrator._rerender?.()
+    },
     onSceneChange: (sceneId) => {
       orchestrator._syncSharedStateToSubModules()
       orchestrator._scenePanel.update(sceneId, orchestrator._currentChapter)
@@ -101,7 +107,7 @@ export function createWritingSubModules(orchestrator, deps) {
     modal,
     esc,
     onInsertText: (text) => editor.insertTextAtCursor(text),
-    onOpenMap: () => scenePanel.openMap(),
+    onOpenMap: (target) => orchestrator._openMap(target),
     onNavigateOutline: (hint) => {
       router.navigate("outline", null)
       if (hint) toast(hint, "info")

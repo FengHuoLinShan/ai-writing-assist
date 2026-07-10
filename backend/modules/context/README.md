@@ -223,12 +223,14 @@ POST /api/context/snapshots/maintenance
 | `scene_id` | Scene-centric 编译入口 |
 | `context_mode` | `canonical` 或 `working` |
 | `content_mode` | 正文事实源和 RAG 索引视图：`canonical` / `working` |
-| `include_pending_objects` | 是否纳入待确认对象 |
+| `include_pending_objects` | 是否显式纳入未采用/review 对象；默认 false |
 | `reveal_mode` | `author_safe / author_full / reader / character` |
 | `visible_until_chapter` | RAG 读者进度上界；为空时单章上下文默认使用 `chapter_index` |
 | `visible_until_scene_id/visible_until_offset` | 可选同章 Scene/字符截止点 |
 | `budget_tokens` | 总预算，前端默认 4000 |
 | `excluded_asset_ids.context_sections` | 本次临时排除的可选 context section key |
+
+`WorldEntitiesLoader` 会把 `include_pending_objects` 下推为 world facade 的 `include_review`，并在响应侧再按 `display_state/status` 防御过滤。`false` 只保留 active/canonical 对象；`true` 可额外包含 review 对象，但仍排除 archived，并返回“上下文包含未采用的世界对象”警告。
 
 ## 兼容字段说明
 

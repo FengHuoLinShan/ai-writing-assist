@@ -39,7 +39,12 @@ class MapLocationLayoutService:
         await self._ctx.require_map(db, novel_id, map_id)
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
-        layouts = await self._layout_repo.get_by_map(db, nid, mid)
+        layouts = await self._layout_repo.get_by_map_for_entity_statuses(
+            db,
+            nid,
+            mid,
+            statuses=["canonical"],
+        )
         return MapLocationLayoutListResponse(
             items=[
                 MapLocationLayoutResponse.model_validate(layout) for layout in layouts
@@ -69,7 +74,7 @@ class MapLocationLayoutService:
             seen.add(item.location_entity_id)
             location_entity_ids.append(item.location_entity_id)
             self._ctx.assert_hex_in_bounds(config, item.center_hex_q, item.center_hex_r)
-        await self._ctx.require_entities(
+        await self._ctx.require_canonical_entities(
             db,
             novel_id,
             location_entity_ids,

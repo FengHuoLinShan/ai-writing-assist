@@ -135,9 +135,10 @@ describe("createScenePanel", () => {
 
   it("opens map via callback", async () => {
     state.currentProjectId = "p1"
+    const openTarget = { mode: "map", map_id: "m1", scene_id: "s1" }
     api.world.getMapSceneSummary.mockResolvedValue({
       primary_location: { name: "北港" },
-      open_target: { map_id: "m1", scene_id: "s1" },
+      open_target: openTarget,
     })
     const onOpenMap = vi.fn()
     const panel = createTestPanel({ onOpenMap })
@@ -153,7 +154,7 @@ describe("createScenePanel", () => {
     panel.bindEvents(document.body)
 
     document.querySelector('[data-action="open-map"]').click()
-    expect(onOpenMap).toHaveBeenCalledWith("s1")
+    expect(onOpenMap).toHaveBeenCalledWith(openTarget)
   })
 
   it("switches cockpit tab via callback", async () => {

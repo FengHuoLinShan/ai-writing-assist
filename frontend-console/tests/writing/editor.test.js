@@ -76,6 +76,85 @@ describe("createEditor", () => {
     expect(editor.saveStatusText()).toBe("已保存")
   })
 
+  it("默认加载到 candidate 时只作为待处理建议预览且不会自动保存", async () => {
+    state.currentProjectId = "p1"
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [{ id: "candidate-1", version_number: 3 }],
+    })
+    api.writing.get.mockResolvedValue({
+      id: "candidate-1",
+      content: "AI 建议正文",
+      title: "AI 建议",
+      version_number: 3,
+      status: "candidate",
+    })
+
+    const editor = createTestEditor()
+    await editor.loadChapter(1)
+    document.body.innerHTML = editor.render()
+
+    expect(editor.getDraftStatus()).toBe("candidate")
+    expect(editor.isReadonly()).toBe(true)
+    expect(document.getElementById("writing-editor").readOnly).toBe(true)
+    expect(document.getElementById("btn-autosave").disabled).toBe(true)
+    expect(document.body.textContent).toContain("待处理")
+    expect(document.querySelector('[data-action="restore-from-version"]')).toBeNull()
+
+    await editor.autosave()
+    expect(api.writing.autosave).not.toHaveBeenCalled()
+  })
+
+  it("按 ID 加载 candidate 不能被 isReadonly=false 变成工作稿", async () => {
+    state.currentProjectId = "p1"
+    api.writing.get.mockResolvedValue({
+      id: "candidate-by-id",
+      content: "按 ID 打开的建议",
+      title: "建议",
+      version_number: 4,
+      status: "candidate",
+    })
+
+    const editor = createTestEditor()
+    await editor.loadChapter(1, { draftId: "candidate-by-id", isReadonly: false })
+
+    expect(editor.getDraftId()).toBe("candidate-by-id")
+    expect(editor.getDraftStatus()).toBe("candidate")
+    expect(editor.isReadonly()).toBe(true)
+  })
+
+  it("采用 candidate 后切换到 API 返回的可编辑工作稿", async () => {
+    state.currentProjectId = "p1"
+    api.writing.get.mockResolvedValue({
+      id: "candidate-1",
+      content: "AI 建议正文",
+      title: "AI 建议",
+      version_number: 3,
+      status: "candidate",
+    })
+    api.writing.adoptDraftCandidate.mockResolvedValue({
+      id: "working-4",
+      content: "AI 建议正文",
+      title: "AI 建议",
+      version_number: 4,
+      status: "draft",
+      updated_at: "2026-07-10T10:00:00Z",
+    })
+    const onDraftAdopted = vi.fn()
+    const editor = createTestEditor({ onDraftAdopted })
+    await editor.loadChapter(1, { draftId: "candidate-1" })
+
+    const adopted = await editor.adoptDraftCandidate()
+
+    expect(api.writing.adoptDraftCandidate).toHaveBeenCalledWith("candidate-1", "p1")
+    expect(adopted.id).toBe("working-4")
+    expect(editor.getDraftId()).toBe("working-4")
+    expect(editor.getDraftStatus()).toBe("draft")
+    expect(editor.isReadonly()).toBe(false)
+    expect(onDraftAdopted).toHaveBeenCalledWith(expect.objectContaining({ id: "working-4" }))
+    expect(editor.render()).toContain("工作稿")
+    expect(editor.render()).not.toContain("采用到工作稿")
+  })
+
   it("published 首次暂存后切换到 copy-on-write 新 draft ID", async () => {
     state.currentProjectId = "p1"
     api.writing.getVersionHistory.mockResolvedValue({
@@ -197,6 +276,7 @@ describe("createEditor", () => {
     editor.setState({
       chapter: 1,
       draftId: "d-pov",
+      draftStatus: "candidate",
       title: "POV 候选",
       content: "正文候选",
       provenanceJson: {
@@ -229,20 +309,28 @@ describe("createEditor", () => {
 
     const html = editor.render()
 
-    expect(html).toContain("角色视角候选")
+    expect(html).toContain("角色视角建议预览")
     expect(html).toContain("高风险")
     expect(html).toContain("秦岚听见警报声。")
     expect(html).toContain("别碰控制台。")
-    expect(html).toContain("仍然采用")
+    expect(html).toContain("确认风险并采用到工作稿")
     expect(html).toContain("疑似越权片段")
     expect(html).toContain("已过滤的隐藏事实")
     expect(html).not.toContain("hidden_source_text")
   })
 
-  it("POV failed candidate requires explicit acknowledgement action", () => {
+  it("POV 高风险 candidate 提供显式采用动作而不是确认即生效", async () => {
+    state.currentProjectId = "p1"
+    api.writing.adoptDraftCandidate.mockResolvedValue({
+      id: "working-2",
+      content: "正文建议",
+      status: "draft",
+    })
     const editor = createTestEditor()
     editor.setState({
       chapter: 1,
+      draftId: "candidate-1",
+      draftStatus: "candidate",
       content: "正文候选",
       provenanceJson: {
         generation_profile: "pov_character",
@@ -252,15 +340,13 @@ describe("createEditor", () => {
     document.body.innerHTML = editor.render()
 
     editor.bindEvents(document.body)
-    const button = document.querySelector('[data-action="ack-pov-validation-risk"]')
-    button.click()
+    const button = document.querySelector('[data-action="adopt-draft-candidate"]')
+    await button.click()
+    await Promise.resolve()
 
-    expect(button.disabled).toBe(true)
-    expect(button.textContent).toBe("已确认风险")
-    expect(toast).toHaveBeenCalledWith(
-      "请人工复核该候选，确认无越权信息后再采用",
-      "warning",
-    )
+    expect(api.writing.adoptDraftCandidate).toHaveBeenCalledWith("candidate-1", "p1")
+    expect(editor.getDraftId()).toBe("working-2")
+    expect(editor.isReadonly()).toBe(false)
   })
 
   it("普通 draft 没有 provenance_json 时不显示 POV panel", async () => {
@@ -273,7 +359,7 @@ describe("createEditor", () => {
     const editor = createTestEditor()
     await editor.loadChapter(1)
 
-    expect(editor.render()).not.toContain("角色视角候选")
+    expect(editor.render()).not.toContain("角色视角建议预览")
   })
 
   it("dispose 清理计时器与事件监听", async () => {

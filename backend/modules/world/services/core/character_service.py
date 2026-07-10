@@ -62,13 +62,14 @@ class CharacterService(
         """创建人物前校验关联 CoreEntity 存在且属于当前项目。"""
         nid = parse_uuid(novel_id, "novel_id")
         eid = parse_uuid(data.entity_id, "entity_id")
-        entity = await self._entity_repo.get(db, eid)
-        if (
-            entity is None
-            or entity.novel_id != nid
-            or getattr(entity, "status", None) == "deprecated"
-        ):
-            raise NotFoundError(f"CoreEntity {data.entity_id} not found")
+        await self._require_canonical_entity(
+            db,
+            nid,
+            eid,
+            raw_id=data.entity_id,
+            entity_type="character",
+            label="CoreEntity",
+        )
         try:
             obj = await self.repo.create(db, nid, data)
         except IntegrityError as exc:
@@ -76,6 +77,51 @@ class CharacterService(
                 f"CoreEntity {data.entity_id} not found or conflict"
             ) from exc
         return self._to_response(obj)
+
+    async def get(  # type: ignore[override]
+        self,
+        db: AsyncSession,
+        id: str,
+        *,
+        novel_id: str,
+    ) -> CharacterResponse:
+        cid = parse_uuid(id, self.id_param)
+        nid = parse_uuid(novel_id, "novel_id")
+        character = await self.repo.get(db, cid)
+        self._assert_found_in_novel(character, id, nid)
+        await self._require_canonical_entity(
+            db,
+            nid,
+            cid,
+            raw_id=id,
+            entity_type="character",
+            label="Character",
+        )
+        return self._to_response(character)
+
+    async def update(  # type: ignore[override]
+        self,
+        db: AsyncSession,
+        id: str,
+        data: CharacterUpdate,
+        *,
+        novel_id: str,
+    ) -> CharacterResponse:
+        cid = parse_uuid(id, self.id_param)
+        nid = parse_uuid(novel_id, "novel_id")
+        character = await self.repo.get(db, cid)
+        self._assert_found_in_novel(character, id, nid)
+        await self._require_canonical_entity(
+            db,
+            nid,
+            cid,
+            raw_id=id,
+            entity_type="character",
+            label="Character",
+        )
+        updated = await self.repo.update(db, character, data)
+        self._assert_found_in_novel(updated, id, nid)
+        return self._to_response(updated)
 
     async def list(  # type: ignore[override]
         self,
@@ -115,6 +161,14 @@ class CharacterService(
         existing = await self.repo.get(db, cid)
         if existing is None or existing.novel_id != nid:
             self._raise_404(character_id)
+        await self._require_canonical_entity(
+            db,
+            nid,
+            cid,
+            raw_id=character_id,
+            entity_type="character",
+            label="Character",
+        )
         update_data = CharacterUpdate(
             current_state=current_state,
             current_emotion=current_emotion,
@@ -348,6 +402,17 @@ class CharacterService(
         char = await self.repo.get(db, weid)
         if char is None or char.novel_id != nid:
             return None
+        try:
+            await self._require_canonical_entity(
+                db,
+                nid,
+                weid,
+                raw_id=world_entity_id,
+                entity_type="character",
+                label="Character",
+            )
+        except (NotFoundError, ValidationError):
+            return None
         return str(char.entity_id)
 
     async def find_by_name(
@@ -376,13 +441,22 @@ class CharacterService(
         char = await self.repo.get(db, cid)
         if char is None or char.novel_id != nid:
             self._raise_404(character_id)
-        location = await self._entity_repo.get(db, loc_id)
-        if (
-            location is None
-            or location.novel_id != nid
-            or getattr(location, "status", None) == "deprecated"
-        ):
-            raise NotFoundError("Location not found in this novel")
+        await self._require_canonical_entity(
+            db,
+            nid,
+            cid,
+            raw_id=character_id,
+            entity_type="character",
+            label="Character",
+        )
+        await self._require_canonical_entity(
+            db,
+            nid,
+            loc_id,
+            raw_id=location_id,
+            entity_type="location",
+            label="Location",
+        )
         await self.repo.update_character_meta_location(
             db,
             cid,
@@ -400,6 +474,14 @@ class CharacterService(
         """查某 location 下的所有正史 character。"""
         nid = parse_uuid(novel_id, "novel_id")
         loc_id = parse_uuid(location_id, "location_id")
+        await self._require_canonical_entity(
+            db,
+            nid,
+            loc_id,
+            raw_id=location_id,
+            entity_type="location",
+            label="Location",
+        )
         return await self.repo.find_characters_by_location(db, nid, loc_id)
 
     async def get_location_id(
@@ -414,4 +496,54 @@ class CharacterService(
         char = await self.repo.get(db, cid)
         if char is None or char.novel_id != nid:
             return None
-        return await self.repo.get_character_location_id(db, cid)
+        try:
+            await self._require_canonical_entity(
+                db,
+                nid,
+                cid,
+                raw_id=character_id,
+                entity_type="character",
+                label="Character",
+            )
+        except (NotFoundError, ValidationError):
+            return None
+        location_id = await self.repo.get_character_location_id(db, cid)
+        if location_id is None:
+            return None
+        try:
+            location_uuid = parse_uuid(location_id, "location_id")
+            await self._require_canonical_entity(
+                db,
+                nid,
+                location_uuid,
+                raw_id=location_id,
+                entity_type="location",
+                label="Location",
+            )
+        except (NotFoundError, ValidationError, ValueError):
+            return None
+        return location_id
+
+    async def _require_canonical_entity(
+        self,
+        db: AsyncSession,
+        novel_id,
+        entity_id,
+        *,
+        raw_id: str,
+        entity_type: str,
+        label: str,
+    ):
+        entity = await self._entity_repo.get(db, entity_id)
+        if (
+            entity is None
+            or entity.novel_id != novel_id
+            or entity.status != "canonical"
+        ):
+            raise NotFoundError(f"{label} {raw_id} not found in this novel")
+        if entity.entity_type != entity_type:
+            raise ValidationError(
+                f"{label} {raw_id} must reference a {entity_type} CoreEntity",
+                status_code=422,
+            )
+        return entity

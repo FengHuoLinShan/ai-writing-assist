@@ -145,7 +145,7 @@ export function createScenePanel({
       scene_without_location: "当前 Scene 暂无主地点",
       character_cross_map: "人物上一场在其他地图，需确认移动合理性",
     }
-    return messages[warning.code] || "地图空间连续性需复核"
+    return messages[warning.code] || "地图空间连续性需要人工检查"
   }
 
   function scheduleMapSummaryLoad(currentScene) {
@@ -215,7 +215,10 @@ export function createScenePanel({
       toast(target.fallback_message, "warning")
     }
     if (typeof onOpenMap === "function") {
-      onOpenMap(target.scene_id || currentScene?.id)
+      onOpenMap({
+        ...target,
+        scene_id: target.scene_id || currentScene?.id,
+      })
     }
   }
 

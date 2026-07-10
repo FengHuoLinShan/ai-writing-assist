@@ -69,7 +69,7 @@ test.describe("写作工作台 — 版本冲突", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("已被其他会话更新", { timeout: 10000 })
   })
 
-  test("候选地图风险 — 用户勾选待确认对象后保留跨模块证据并可打开来源", async ({ page }) => {
+  test("待处理地图风险 — 用户勾选待处理内容后保留跨模块证据并可打开来源", async ({ page }) => {
     const draft = await createDraft(
       testProjectId,
       1,
@@ -172,19 +172,19 @@ test.describe("写作工作台 — 版本冲突", () => {
     })
     await expect(page.locator(SEL.modalOverlay)).toContainText("旧约门粮仓火势")
     await expect(page.locator(SEL.modalOverlay)).toContainText("候选地图证据")
-    await expect(page.locator(SEL.modalOverlay)).toContainText("本次检查包含待确认对象")
+    await expect(page.locator(SEL.modalOverlay)).toContainText("本次检查包含待处理内容")
 
     const mapRiskItem = page.locator(".writing-conflict-item", {
       hasText: "地图/世界状态风险",
     }).first()
     await expect(mapRiskItem).toContainText("world")
-    await expect(mapRiskItem).toContainText("需复核")
+    await expect(mapRiskItem).toContainText("需要人工检查")
     await mapRiskItem.locator(".writing-conflict-evidence-drawer summary").click()
     await expect(mapRiskItem.locator(".writing-conflict-evidence-drawer")).toContainText("world")
     await expect(mapRiskItem.locator(".writing-conflict-evidence-drawer")).toContainText("地图摘要")
     await expect(mapRiskItem.locator(".writing-conflict-evidence-drawer")).toContainText("地图风险")
     await expect(mapRiskItem.locator(".writing-conflict-evidence-drawer")).toContainText("map_object")
-    await expect(mapRiskItem.locator(".writing-conflict-evidence-drawer")).toContainText("依赖待确认地图观察")
+    await expect(mapRiskItem.locator(".writing-conflict-evidence-drawer")).toContainText("依赖待处理地图观察")
 
     const popupPromise = page.waitForEvent("popup")
     await mapRiskItem.getByRole("button", { name: "来源" }).click()

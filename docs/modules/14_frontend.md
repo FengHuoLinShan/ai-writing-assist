@@ -36,14 +36,14 @@
 | 视图 | 当前职责 |
 |------|----------|
 | `projectView` | 项目 CRUD、回收站、导入入口 |
-| `writingView` | Scene 树 + 编辑器 + Scene 面板；版本历史；深度导入；Scene 地图摘要跳转 |
-| `worldView` | 对象库、候选清洗、关系、别名；世界书支持编辑、图鉴和筛选三种内部展示；`map` 子标签现在只做兼容跳转 |
+| `writingView` | Scene 树 + 工作稿编辑器 + AI 建议采用 + Scene 面板；版本历史；授权深度导入；Scene 地图摘要跳转 |
+| `worldView` | 对象库、统一待处理（对象/关系/别名）、历史筛选；世界书支持编辑、图鉴和筛选三种内部展示；`map` 子标签现在只做兼容跳转 |
 | `mapWorkspaceView` | 地图一级工作台，总览、最近地图、地图树、图层开关、搜索、聚焦；世界动态总控台、活地图、叙事透镜切换、电影化播放 |
 | `mapView` | 具体地图渲染与编辑：地形、地点绑定、标记、势力范围；浏览态地点标签避让与聚合 |
 | `outlineView` | 剧情线、篇章纲、Scene、伏笔、揭示、结构生成 |
 | `sceneWorkbenchView` | `scene` 一级路由；Scene 管理、筛选、拆分/合并、复核与深度导入 Scene 整理 |
 | `ragView` | 检索、章节索引、索引重建 |
-| `generateView` | 生成中心 Chatbox：自由共创、粘贴外部对话、可选附带正文，并承担上下文任务预览 / 编译入口和手动生成世界对象数据库草稿 |
+| `generateView` | 生成中心 Chatbox：自由共创、粘贴外部对话、可选附带正文，并承担上下文任务预览 / 编译入口和生成待处理世界对象建议 |
 | `globalSettingsView` | `settings` 路由；管理全局 LLM 默认、全局作者偏好、引用此默认的项目列表和本地偏好迁移；全局 LLM 默认不存 API Key |
 | `projectSettingsView` | `project-settings` 路由；管理项目 LLM 主配置、深度导入参数和项目作者偏好；展示 effective source 并支持字段恢复继承 |
 
@@ -79,10 +79,19 @@
 - `GET /api/world/maps/scene-summary` 的地图摘要展示，包括危机、风险和空间 warning
 - 跳转到地图工作台并携带 `scene_id` / `focus_entity_id`
 
+## 作者展示状态
+
+- `shared/assetDisplayState.js` 是前端唯一通用映射：结构资产显示“待处理 / 已采用 / 历史”，正文显示“待处理 / 工作稿 / 已发布”。页面不得自行再维护 `candidate` / `canonical` 文案表。
+- `attention_reasons`、低置信、冲突和 `needs_review` 显示为注意标签，不替代主状态。
+- 主列表默认隐藏历史；只有显式选择历史/raw status 筛选时加载或展示。
+- API 保留原始 `status/review_state/fact_status` 兼容字段，前端优先消费领域 `display_state`，必要时才由共享 helper 回退映射。
+- AI 正文建议在编辑器中以只读预览打开；“采用到工作稿”成功后加载服务端新 draft 并恢复编辑/自动保存。
+- deep import/stage 启动入口必须先展示自动采用范围并取得明确授权，完成卡展示 `asset_summary` 的已采用/待处理/未采用三类汇总。
+
 ## 结构整理补充
 
 - `sceneWorkbenchView` 是 Scene 管理主入口，支持按 status / source / workflow_id / needs_review / phase 等条件筛选深度导入结果。
-- Scene 工作台把机械合并和 AI 融合草稿分成两个入口。AI 融合前必须在卡片中选择主 Scene，随后显示字段级审稿表：AI 草稿、主 Scene 原值、其他来源 Scene 原值并列；保存模式包括保留原 Scene、保存并废弃原 Scene、放弃结果、继续编辑后保存。手动融合输出使用 `source="manual_fusion"`。
+- Scene 工作台把机械合并和 AI 融合建议分成两个入口。AI 融合前必须在卡片中选择主 Scene，随后显示字段级预览表：AI 建议、主 Scene 原值、其他来源 Scene 原值并列；保存模式包括保留原 Scene、保存并废弃原 Scene、放弃结果、继续编辑后保存。手动融合输出使用 `source="manual_fusion"`。
 - `outlineView` 的剧情线、篇章纲、伏笔、揭示列表支持按 status / deep_import source / workflow_id / needs_review 筛选，用于整理 Phase 3 结构资产。
 - 筛选只改变视图，不自动 promote、deprecated 或删除资产；状态变更必须来自明确按钮、选择器或二次确认操作。
 
@@ -96,9 +105,9 @@
 - 地图工作台消费同一套 dashboard / map state，支持“世界动态总控台 / 活地图 / 叙事透镜”三视图、上方语义气泡带、低动效模式
 - 地图工作台同时消费 `GET /api/world/maps/{map_id}/playback`，按 typed observation 展示人物旅程、势力变化、危机推进、资源控制和状态变化播放轨道
 - 动态队列、语义气泡和播放事件可打开对象信息框；信息框展示名称、类型、时间、状态、来源、地点/空间锚点，并提供修改和打开检查器
-- observation 支持确认、忽略、标记冲突，并可在确认前编辑候选字段、来源引用和字段差异；fact 支持回滚、废弃、恢复确认，并保持技术 ID 不进入可见文本
+- observation 在界面统一显示为待处理，支持采用、忽略、标记冲突，并可在采用前编辑字段、来源引用和字段差异；fact 显示为已采用，支持回滚、废弃、恢复，并保持技术 ID 不进入可见文本
 - 写作冲突 AI 修复建议以可编辑草稿展示，用户显式插入当前正文编辑器后才影响草稿内容
-- 批量修改分组按对象类型和地图时间展示，可通过 `batch-actions` 对候选 observation 执行批量确认、忽略和标记冲突；“打开检查器”会按对象聚焦刷新右侧检查器
+- 批量修改分组按对象类型和地图时间展示，可通过 `batch-actions` 对待处理 observation 执行批量采用、忽略和标记冲突；“打开检查器”会按对象聚焦刷新右侧检查器
 - `mapLayoutEngine.js` 负责前端自动布局、标签避让、聚合簇和语义气泡排队；`mapView` 浏览态地点中心标签使用该布局结果避免高密度重叠
 - 支持从写作流打开最近相关地图
 

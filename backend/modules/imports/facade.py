@@ -11,6 +11,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.imports.adoption_policy import DEFAULT_ADOPTION_POLICY
 from modules.imports.orchestrator import DeepImportOrchestrator
 from modules.imports.schemas import ImportResponse
 from modules.imports.services import ImportService
@@ -36,6 +37,8 @@ async def start_deep_import(
     end_chapter: int,
     force: bool = False,
     high_quality: bool = False,
+    adoption_policy: str = DEFAULT_ADOPTION_POLICY,
+    authorization_confirmed: bool = False,
 ) -> dict[str, Any]:
     """提交深度导入任务（异步）
 
@@ -48,6 +51,8 @@ async def start_deep_import(
         end_chapter,
         force=force,
         high_quality=high_quality,
+        adoption_policy=adoption_policy,
+        authorization_confirmed=authorization_confirmed,
     )
 
 
@@ -60,6 +65,8 @@ async def start_deep_import_stage(
     stage: str,
     force: bool = False,
     high_quality: bool = False,
+    adoption_policy: str = DEFAULT_ADOPTION_POLICY,
+    authorization_confirmed: bool = False,
 ) -> dict[str, Any]:
     """提交分阶段自动提取任务。"""
     return await _orchestrator.start_stage(
@@ -70,6 +77,8 @@ async def start_deep_import_stage(
         stage=stage,
         force=force,
         high_quality=high_quality,
+        adoption_policy=adoption_policy,
+        authorization_confirmed=authorization_confirmed,
     )
 
 

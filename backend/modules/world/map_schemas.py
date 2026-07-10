@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # ============================================================
 # 类型白名单（PRD §5.5 / §6.1）
@@ -500,6 +500,10 @@ class MapTerrainStateResponse(BaseModel):
     regions: list[MapTerrainRegionResponse] = Field(default_factory=list)
     patches: list[MapTerrainPatchResponse] = Field(default_factory=list)
     bindings: list[MapTerrainBindingResponse] = Field(default_factory=list)
+    candidate_bindings: list[MapTerrainBindingResponse] = Field(
+        default_factory=list,
+        description="显式预览的待处理地形绑定；默认响应为空",
+    )
 
 
 # ============================================================
@@ -531,15 +535,23 @@ class MapStateResponse(BaseModel):
     terrain_bindings: list[MapTerrainBindingResponse] = Field(default_factory=list)
     candidate_location_bindings: list[MapLocationBindingResponse] = Field(
         default_factory=list,
-        description="待确认地点绑定图层：关联 CoreEntity.status=candidate",
+        description="待处理地点绑定图层：关联 CoreEntity.status=candidate",
+    )
+    candidate_location_layouts: list[MapLocationLayoutResponse] = Field(
+        default_factory=list,
+        description="关联 draft/candidate 地点的待处理布局节点",
     )
     candidate_markers: list = Field(
         default_factory=list,
-        description="待确认动态标记图层：关联 CoreEntity.status=candidate",
+        description="待处理动态标记图层：关联 CoreEntity.status=candidate",
     )
     candidate_territories: list = Field(
         default_factory=list,
-        description="待确认势力范围图层：关联 CoreEntity.status=candidate",
+        description="待处理势力范围图层：关联 CoreEntity.status=candidate",
+    )
+    candidate_terrain_bindings: list[MapTerrainBindingResponse] = Field(
+        default_factory=list,
+        description="待处理地形绑定：未采用地点或非 confirmed 绑定",
     )
     scene: dict | None = None  # P1
 
@@ -845,6 +857,10 @@ class MapObservationResponse(BaseModel):
     value_json: dict | None = None
     confidence: float
     review_state: str
+    display_state: Literal["active", "review", "archived"] | None = None
+    source: str | None = None
+    attention_reasons: list[str] = Field(default_factory=list)
+    suggested_action: str | None = None
     source_ref: dict | None = None
     evidence_text: str | None = None
     scene_id: str | None = None
@@ -862,6 +878,25 @@ class MapObservationResponse(BaseModel):
     @classmethod
     def _coerce_optional_uuid(cls, v: object) -> str | None:
         return _optional_uuid_validator(v)
+
+    @model_validator(mode="after")
+    def derive_author_state(self) -> MapObservationResponse:
+        from modules.world.asset_state import project_map_state
+
+        projection = project_map_state(
+            status=self.review_state,
+            source_ref=self.source_ref,
+            confidence=self.confidence,
+        )
+        if self.display_state is None:
+            self.display_state = projection["display_state"]
+        if self.source is None:
+            self.source = projection["source"]
+        if not self.attention_reasons:
+            self.attention_reasons = projection["attention_reasons"]
+        if self.suggested_action is None:
+            self.suggested_action = projection["suggested_action"]
+        return self
 
 
 class MapObservationListResponse(BaseModel):
@@ -885,6 +920,10 @@ class MapFactResponse(BaseModel):
     value_json: dict | None = None
     confidence: float
     fact_status: str
+    display_state: Literal["active", "review", "archived"] | None = None
+    source: str | None = None
+    attention_reasons: list[str] = Field(default_factory=list)
+    suggested_action: str | None = None
     source_ref: dict | None = None
     evidence_text: str | None = None
     scene_id: str | None = None
@@ -908,6 +947,25 @@ class MapFactResponse(BaseModel):
     @classmethod
     def _coerce_optional_uuid(cls, v: object) -> str | None:
         return _optional_uuid_validator(v)
+
+    @model_validator(mode="after")
+    def derive_author_state(self) -> MapFactResponse:
+        from modules.world.asset_state import project_map_state
+
+        projection = project_map_state(
+            status=self.fact_status,
+            source_ref=self.source_ref,
+            confidence=self.confidence,
+        )
+        if self.display_state is None:
+            self.display_state = projection["display_state"]
+        if self.source is None:
+            self.source = projection["source"]
+        if not self.attention_reasons:
+            self.attention_reasons = projection["attention_reasons"]
+        if self.suggested_action is None:
+            self.suggested_action = projection["suggested_action"]
+        return self
 
 
 class MapFactListResponse(BaseModel):
@@ -981,6 +1039,10 @@ class MapDashboardQueueItem(BaseModel):
     confidence: float | None = None
     review_state: str | None = None
     fact_status: str | None = None
+    display_state: Literal["active", "review", "archived"] | None = None
+    source: str | None = None
+    attention_reasons: list[str] = Field(default_factory=list)
+    suggested_action: str | None = None
 
 
 class MapDashboardInspector(BaseModel):
@@ -1043,6 +1105,10 @@ class MapPlaybackEvent(BaseModel):
     source_chapter_index: int | None = None
     risk_level: Literal["info", "warning", "danger"] = "info"
     confidence: float | None = None
+    display_state: Literal["active", "review", "archived"] | None = None
+    source: str | None = None
+    attention_reasons: list[str] = Field(default_factory=list)
+    suggested_action: str | None = None
 
 
 class MapPlaybackTrack(BaseModel):

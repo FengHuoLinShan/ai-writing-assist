@@ -138,7 +138,7 @@ const writingView = {
     const editorEl = document.getElementById("writing-editor")
     if (editorEl && this._editor) {
       this._editor.setState({ content: editorEl.value })
-      if (editorEl.value?.trim?.() && this._currentChapter) {
+      if (!this._editor.isReadonly?.() && editorEl.value?.trim?.() && this._currentChapter) {
         this._editor.saveBackup(editorEl.value, this._editor.getTitle())
       }
     }
@@ -256,6 +256,8 @@ const writingView = {
       "resume-deep-import": () => this._deepImportRecovery?.resume?.(),
       "abandon-deep-import": () => this._deepImportRecovery?.abandon?.(),
       "view-deep-import-audit": () => this._deepImportRecovery?.showAuditDetails?.(),
+      "view-scene-preview": () => this._deepImportRecovery?.showScenePreview?.(),
+      "discard-scene-preview": () => this._deepImportRecovery?.discardScenePreview?.(),
       "open-outline": () => router.navigate("outline", null),
       "open-scene-workbench": () => {
         const scene = this._scenePanel?.getCurrentScene?.()
@@ -365,7 +367,9 @@ const writingView = {
     state._currentSceneId = scene?.id || null
     state._currentContent = editor?.getContent?.() ?? null
     state._currentTitle = editor?.getTitle?.() ?? null
-    state._currentDraftId = editor?.getDraftId?.() ?? null
+    const isSuggestionPreview = editor?.getDraftStatus?.() === "candidate"
+    state._currentDraftId = isSuggestionPreview ? null : (editor?.getDraftId?.() ?? null)
+    state._currentSuggestionDraftId = isSuggestionPreview ? (editor?.getDraftId?.() ?? null) : null
     state._currentVersionNumber = editor?.getVersionNumber?.() ?? null
     state._currentUpdatedAt = editor?.getUpdatedAt?.() ?? null
     state._isReadonly = editor?.isReadonly?.() ?? false
@@ -575,9 +579,13 @@ const writingView = {
       toast("请先选择章节", "warning")
       return
     }
+    if (this._editor?.isReadonly?.()) {
+      toast("当前内容只读；待处理建议需先采用到工作稿", "warning")
+      return
+    }
     const content = this._editor.getContent().trim()
     if (!content) {
-      toast("草稿内容不能为空", "warning")
+      toast("工作稿内容不能为空", "warning")
       return
     }
     const title = this._editor.getTitle() || `第 ${this._currentChapter} 章`
@@ -598,6 +606,10 @@ const writingView = {
   async _runConflictCheck() {
     if (!state.currentProjectId || this._currentChapter === null) {
       toast("请先选择章节", "warning")
+      return
+    }
+    if (this._editor?.isReadonly?.()) {
+      toast("当前内容只读；待处理建议不会作为工作稿检查", "warning")
       return
     }
     await this._editor.autosave()
@@ -623,14 +635,24 @@ const writingView = {
     if (el) el.textContent = text || ""
   },
 
-  _openMap(sceneId) {
+  _openMap(targetOrSceneId) {
     const projectId = state.currentProjectId
     if (!projectId) {
       toast("请先选择项目", "warning")
       return
     }
     const currentScene = this._scenePanel?.getCurrentScene?.()
-    const url = buildMapUrl({ projectId, sceneId: sceneId || currentScene?.id })
+    const target = targetOrSceneId && typeof targetOrSceneId === "object"
+      ? targetOrSceneId
+      : { scene_id: targetOrSceneId }
+    const mapId = target.map_id || null
+    const url = buildMapUrl({
+      projectId,
+      mapId,
+      sceneId: target.scene_id || currentScene?.id,
+      focusEntityId: target.focus_entity_id || null,
+      mode: target.mode || (mapId ? "map" : "overview"),
+    })
     window.open(url, "_blank", "noopener")
   },
 
@@ -692,6 +714,8 @@ const writingView = {
     this._syncInjectedStateToSubModules()
     await this._editor?.loadChapter?.(chapterIndex)
     await this._versions?.load?.(chapterIndex)
+    this._syncChapterMetaToTree(chapterIndex)
+    this._syncSharedStateToSubModules()
     await this._rerender()
   },
 }

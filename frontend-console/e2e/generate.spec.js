@@ -157,7 +157,7 @@ test.describe("生成中心模块", () => {
     await expect(page.locator("#topbar-generate-note")).toContainText("先自由聊")
     await expect(page.locator("#workspace-content")).toContainText("人物")
     await expect(page.locator("#workspace-content")).toContainText("高质量")
-    await expect(page.locator("#workspace-content")).toContainText("生成对象（数据库草稿）")
+    await expect(page.locator("#workspace-content")).toContainText("生成世界对象建议")
     await expect(page.locator("#workspace-content")).toContainText("自由对话")
     await expect(page.locator("#workspace-content")).toContainText("任务")
     await expect(page.locator("#workspace-content")).toContainText("上下文预览")
@@ -172,14 +172,15 @@ test.describe("生成中心模块", () => {
     await expect(page.locator(SEL.modalTitle)).not.toHaveText("AI 参考资料")
   })
 
-  test("粘贴外部对话后生成数据库草稿", async ({ page }) => {
+  test("粘贴外部对话后生成世界对象建议", async ({ page }) => {
     await page.locator("#generate-chat-input").fill("外部 Chatbox：反派不是纯恶人。")
     await page.locator("#generate-quality-pro").check()
-    await page.getByRole("button", { name: "生成对象（数据库草稿）" }).click()
+    await page.getByRole("button", { name: "生成世界对象建议" }).click()
 
     await expect(page.locator("#generate-result")).toContainText("沈无咎", { timeout: 15000 })
-    await expect(page.locator("#generate-result")).toContainText("draft")
-    await expect(page.locator("#generate-result")).toContainText("打开世界对象")
+    await expect(page.locator("#generate-result")).toContainText("待处理")
+    await expect(page.locator("#generate-result")).not.toContainText("draft")
+    await expect(page.locator("#generate-result")).toContainText("前往待处理")
   })
 
   test("任务标签可执行上下文编译", async ({ page }) => {
@@ -205,7 +206,7 @@ test.describe("生成中心模块", () => {
   })
 
   test("没有聊天或粘贴内容时给出警告", async ({ page }) => {
-    await page.getByRole("button", { name: "生成对象（数据库草稿）" }).click()
+    await page.getByRole("button", { name: "生成世界对象建议" }).click()
 
     await expect(page.locator(SEL.toastContainer)).toContainText("请先聊天或粘贴已有对话到输入框", { timeout: 10000 })
   })

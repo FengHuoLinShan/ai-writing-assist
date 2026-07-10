@@ -19,6 +19,7 @@ beforeEach(() => {
   mapWorkspaceView._activeSceneId = null
   mapWorkspaceView._focusEntityId = null
   mapWorkspaceView._focusedDynamicItemId = null
+  mapWorkspaceView._showHistory = false
   mapWorkspaceView._rebuildMapIndexes?.()
   mapWorkspaceView._resetDynamicSummary?.()
   mapWorkspaceView._resetPlayback?.()
@@ -245,7 +246,7 @@ describe("mapWorkspaceView overview", () => {
 
     expect(mapWorkspaceView._layers.candidate).toBe(false)
     expect(html).toContain('data-layer="candidate"')
-    expect(html).toContain("待确认")
+    expect(html).toContain("待处理")
     expect(html).not.toMatch(/data-layer="candidate"[\s\S]*?checked/)
   })
 
@@ -318,7 +319,8 @@ describe("mapWorkspaceView overview", () => {
 
     expect(container.textContent).toContain("沈砚")
     expect(container.textContent).toContain("Scene 42")
-    expect(container.textContent).toContain("待确认")
+    expect(container.textContent).toContain("洛阳外城：待处理")
+    expect(container.textContent).not.toContain("待确认")
     expect(container.textContent).toContain("置信度 82%")
     expect(container.textContent).toContain("洛阳外城")
     expect(container.textContent).toContain("检查器")
@@ -570,14 +572,14 @@ describe("mapWorkspaceView overview", () => {
     const body = modalHtmlFromCall(call)
     expect(title).toContain("沈砚入城")
     expect(body).toContain("Scene 1")
-    expect(body).toContain("待确认")
+    expect(body).toContain("待处理")
     expect(body).toContain("人物动态")
     expect(body).toContain("洛阳内城")
     expect(body).toContain("东门")
     expect(body).not.toContain("technical-object-id")
     expect(actions.map((action) => action.text)).toEqual([
       "修改",
-      "确认",
+      "采用",
       "忽略",
       "标记冲突",
       "打开检查器",
@@ -840,7 +842,98 @@ describe("mapWorkspaceView overview", () => {
     expect(html).toContain("人物")
     expect(html).toContain("Scene 1")
     expect(html).toContain("Scene 2")
-    expect(html).toContain("2 待确认")
+    expect(html).toContain("2 待处理")
+  })
+
+  it("counts conflicted observations as pending attention and hides history by default", () => {
+    mapWorkspaceView._dynamicSummary = {
+      dashboard: {
+        title: "世界动态总控台",
+        dynamic_queue: [
+          {
+            item_id: "candidate-1",
+            item_kind: "observation",
+            object_type: "character",
+            title: "候选位置",
+            review_state: "candidate",
+          },
+          {
+            item_id: "conflicted-1",
+            item_kind: "observation",
+            object_type: "character",
+            title: "冲突位置",
+            review_state: "conflicted",
+          },
+          {
+            item_id: "fact-1",
+            item_kind: "fact",
+            object_type: "character",
+            title: "已采用位置",
+            fact_status: "confirmed",
+          },
+          {
+            item_id: "ignored-1",
+            item_kind: "observation",
+            object_type: "character",
+            title: "历史位置",
+            review_state: "ignored",
+          },
+        ],
+        batch_groups: [],
+      },
+      observations: [],
+      facts: [],
+    }
+
+    mapWorkspaceView._rebuildDynamicIndexes()
+    const html = mapWorkspaceView._renderDynamicSummary()
+
+    expect(html).toContain("2 待处理 · 1 已采用")
+    expect(html).toContain("存在冲突")
+    expect(html).toContain("查看历史 1")
+    expect(html).not.toContain("历史位置")
+    expect(mapWorkspaceView._dynamicIndexes.candidateIdsByGroup.get("character"))
+      .toEqual(["candidate-1", "conflicted-1"])
+
+    mapWorkspaceView._showHistory = true
+    expect(mapWorkspaceView._renderDynamicSummary()).toContain("历史位置")
+  })
+
+  it("只在作者打开历史时加载 ignored 观察及 rolled-back/deprecated 事实", async () => {
+    mapWorkspaceView._activeMapId = "m1"
+    mapWorkspaceView._dynamicSummary = {
+      dashboard: { title: "世界动态总控台", dynamic_queue: [], batch_groups: [] },
+      observations: [],
+      facts: [],
+      historyItems: [],
+      historyLoaded: false,
+      historyLoading: false,
+    }
+    api.world.listMapObservations.mockResolvedValue({
+      items: [{ id: "obs-old", review_state: "ignored", target_name: "已忽略密道" }],
+    })
+    api.world.listMapFacts.mockImplementation((_mapId, _novelId, factStatus) => ({
+      items: factStatus === "deprecated"
+        ? [{ id: "fact-deprecated", fact_status: "deprecated", target_name: "已废弃旧路" }]
+        : [{ id: "fact-old", fact_status: "rolled_back", target_name: "已回滚驻地" }],
+    }))
+
+    expect(mapWorkspaceView._renderDynamicSummary()).toContain("查看历史")
+    expect(api.world.listMapObservations).not.toHaveBeenCalled()
+
+    await mapWorkspaceView._toggleHistory()
+
+    expect(api.world.listMapObservations).toHaveBeenCalledWith("m1", "p1", "ignored")
+    expect(api.world.listMapFacts).toHaveBeenCalledWith("m1", "p1", "rolled_back")
+    expect(api.world.listMapFacts).toHaveBeenCalledWith("m1", "p1", "deprecated")
+    expect(mapWorkspaceView._renderDynamicSummary()).toContain("已忽略密道")
+    expect(mapWorkspaceView._renderDynamicSummary()).toContain("已回滚驻地")
+    expect(mapWorkspaceView._renderDynamicSummary()).toContain("已废弃旧路")
+
+    await mapWorkspaceView._toggleHistory()
+    await mapWorkspaceView._toggleHistory()
+    expect(api.world.listMapObservations).toHaveBeenCalledTimes(1)
+    expect(api.world.listMapFacts).toHaveBeenCalledTimes(2)
   })
 
   it("requests focused dashboard for dynamic items without entity ids", async () => {
@@ -921,8 +1014,8 @@ describe("mapWorkspaceView overview", () => {
     const inspector = container.querySelector(".map-inspector")
 
     expect(inspector.textContent).toContain("东门密道")
-    expect(inspector.textContent).toContain("候选 1")
-    expect(inspector.textContent).toContain("事实 1")
+    expect(inspector.textContent).toContain("待处理 1")
+    expect(inspector.textContent).toContain("已采用 1")
     expect(inspector.textContent).not.toContain("西市码头")
     expect(inspector.textContent).not.toContain("obs1")
   })
@@ -940,7 +1033,7 @@ describe("mapWorkspaceView overview", () => {
     await mapWorkspaceView._confirmObservation("obs1")
 
     expect(api.world.confirmMapObservation).toHaveBeenCalledWith("m1", "obs1", "p1")
-    expect(toast).toHaveBeenCalledWith("地图事实已确认", "success")
+    expect(toast).toHaveBeenCalledWith("地图事实已采用", "success")
   })
 
   it("opens a searched location on its detail map", async () => {

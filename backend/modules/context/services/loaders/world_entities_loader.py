@@ -19,6 +19,52 @@ from modules.context.services.protocol import Loader
 logger = logging.getLogger(__name__)
 
 _GetWorldContextFn = Callable[..., Awaitable[Any]]
+_ACTIVE_WORLD_STATUSES = frozenset({"active", "canonical", "confirmed", "published"})
+_ARCHIVED_WORLD_STATUSES = frozenset(
+    {"accepted", "deprecated", "ignored", "merged", "rejected", "rolled_back"}
+)
+
+
+def _entity_dict(entity: Any) -> dict[str, Any]:
+    if isinstance(entity, dict):
+        return dict(entity)
+    if hasattr(entity, "model_dump"):
+        return dict(entity.model_dump())
+    return {
+        key: value
+        for key, value in vars(entity).items()
+        if not key.startswith("_")
+    }
+
+
+def _project_display_state(entity: dict[str, Any]) -> str:
+    projected = str(entity.get("display_state") or "").strip().lower()
+    if projected in {"active", "review", "archived"}:
+        return projected
+    status = str(entity.get("status") or "canonical").strip().lower()
+    if status in _ACTIVE_WORLD_STATUSES:
+        return "active"
+    if status in _ARCHIVED_WORLD_STATUSES:
+        return "archived"
+    return "review"
+
+
+def _filter_world_entities(
+    entities: list[dict[str, Any]],
+    *,
+    include_pending_objects: bool,
+) -> list[dict[str, Any]]:
+    visible: list[dict[str, Any]] = []
+    for raw_entity in entities:
+        entity = dict(raw_entity)
+        display_state = _project_display_state(entity)
+        entity["display_state"] = display_state
+        if display_state == "archived":
+            continue
+        if display_state == "review" and not include_pending_objects:
+            continue
+        visible.append(entity)
+    return visible
 
 
 async def _default_get_world_context(*args: Any, **kwargs: Any) -> Any:
@@ -59,8 +105,13 @@ class WorldEntitiesLoader(Loader):
                 reveal_mode=options.reveal_mode,
                 limit=all_limit,
                 current_chapter=options.visible_until_chapter or options.chapter_index,
+                include_review=options.include_pending_objects,
             )
-            entities = [e.model_dump() for e in ctx.entities] if ctx else []
+            raw_entities = [_entity_dict(e) for e in ctx.entities] if ctx else []
+            entities = _filter_world_entities(
+                raw_entities,
+                include_pending_objects=options.include_pending_objects,
+            )
             bundle.world_entities = entities
             bundle.budget_used["core_entities"] = min(len(entities), core_limit)
             bundle.budget_used["normal_entities"] = max(0, len(entities) - core_limit)
@@ -71,8 +122,13 @@ class WorldEntitiesLoader(Loader):
                 reveal_mode=options.reveal_mode,
                 limit=core_limit + normal_limit,
                 current_chapter=options.visible_until_chapter or options.chapter_index,
+                include_review=options.include_pending_objects,
             )
-            entities = [e.model_dump() for e in ctx.entities] if ctx else []
+            raw_entities = [_entity_dict(e) for e in ctx.entities] if ctx else []
+            entities = _filter_world_entities(
+                raw_entities,
+                include_pending_objects=options.include_pending_objects,
+            )
             entities.sort(key=lambda e: e.get("importance", 0.0), reverse=True)
 
             core_entities = [
@@ -87,6 +143,12 @@ class WorldEntitiesLoader(Loader):
             bundle.world_entities = core_entities + normal_entities
             bundle.budget_used["core_entities"] = len(core_entities)
             bundle.budget_used["normal_entities"] = len(normal_entities)
+
+        if any(
+            entity.get("display_state") == "review"
+            for entity in bundle.world_entities
+        ):
+            bundle.warnings.append("上下文包含未采用的世界对象")
 
         # Reveal 过滤
         if options.reveal_mode == "author_safe":

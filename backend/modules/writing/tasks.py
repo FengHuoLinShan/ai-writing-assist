@@ -152,7 +152,7 @@ async def handle_publish_chapter(db, task):
 
 @task_handler("writing_generate")
 async def handle_writing_generate(db, task):
-    """处理 AI 正文候选草稿生成任务。"""
+    """处理 AI 正文建议生成任务。"""
     from modules.context.facade import bind_confirmed_action_result
     from modules.writing.services import WritingGenerationService
 

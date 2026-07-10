@@ -46,6 +46,8 @@ from modules.world.entity_facade import (  # noqa: F401
     list_entity_terms,
     merge_candidate_into_entity,
     repair_deep_import_alias_metadata,
+    rollback_deep_import_aliases_by_workflow,
+    rollback_deep_import_relations_by_workflow,
     suggest_entity_fusion,
     update_entity,
     upsert_relation,
@@ -62,6 +64,7 @@ from modules.world.event_facade import (  # noqa: F401
 from modules.world.map_facade import (  # noqa: F401
     count_deep_import_map_observations_by_workflow,
     create_map_observation_from_delta_event,
+    rollback_deep_import_map_observations_by_workflow,
 )
 from modules.world.worldbuilding_facade import (  # noqa: F401
     get_world_background,

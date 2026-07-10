@@ -14,7 +14,17 @@ from core.config import get_settings
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.token_estimation import estimate_token_count
 from modules.outline.generation.context_builder import PlotStructureContextBuilder
-from modules.outline.generation.parser import PlotStructureParser
+from modules.outline.generation.models import (
+    ForeshadowingPlan,
+    GeneratedArc,
+    GeneratedScene,
+    GeneratedThread,
+    OffscreenProgress,
+    Question,
+    RevealPlan,
+    Risk,
+)
+from modules.outline.generation.parser import ParsedPlotStructure, PlotStructureParser
 from modules.outline.generation.persister import PlotStructurePersister
 from modules.outline.services import (
     ForeshadowingPlanService,
@@ -63,11 +73,12 @@ class PlotStructureGenerator:
         generate_scenes: bool = True,
         fast_structured: bool = False,
         high_quality: bool = False,
+        persist: bool = False,
     ) -> dict[str, Any]:
-        """为指定章节范围生成剧情结构并持久化。
+        """为指定章节范围生成剧情结构。
 
-        接口与重构前保持一致：返回包含 total_threads / total_arcs /
-        total_scenes / threads / arcs / scenes / extra_sections / warnings 的字典。
+        默认只返回可编辑 preview；只有已授权自动流水线才应显式
+        传入 ``persist=True``。
         """
         nid = parse_uuid(novel_id, "novel_id")
 
@@ -140,7 +151,7 @@ class PlotStructureGenerator:
                 novel_id,
                 workflow_id=workflow_id,
             )
-            return {
+            data = {
                 "total_threads": 0,
                 "total_arcs": 0,
                 "total_scenes": 0,
@@ -154,6 +165,39 @@ class PlotStructureGenerator:
                 "audit_summary": audit_summary,
                 "snapshot_health_summary": snapshot_health_summary,
             }
+            if not persist:
+                data.update(
+                    {
+                        "draft_structure": self._empty_draft_structure(),
+                        "requires_apply": False,
+                        "display_state": "review",
+                    }
+                )
+            return data
+
+        if not persist:
+            data = self._preview_result(parsed, warnings=context.warnings)
+            if snapshot_id is not None:
+                from modules.context.facade import succeed_context_snapshot
+
+                await succeed_context_snapshot(
+                    db,
+                    snapshot_id=snapshot_id,
+                    result_refs=[],
+                )
+                data["audit_summary"] = self._audit_summary(
+                    snapshot_count=1,
+                    succeeded=1,
+                    failed=0,
+                )
+                data["snapshot_health_summary"] = (
+                    await self._snapshot_health_summary(
+                        db,
+                        novel_id,
+                        workflow_id=workflow_id,
+                    )
+                )
+            return data
 
         try:
             if snapshot_id is not None:
@@ -205,6 +249,203 @@ class PlotStructureGenerator:
                 await db.commit()
             raise
         return data
+
+    async def apply_preview(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
+        draft_structure: dict[str, Any],
+        provenance_meta: dict[str, Any],
+    ) -> dict[str, Any]:
+        """校验并将作者确认过的结构 preview 写入普通工作资产。"""
+        nid = parse_uuid(novel_id, "novel_id")
+        parsed = self._parse_preview_structure(draft_structure)
+        context = await self._context_builder.build(
+            db,
+            novel_id,
+            start_chapter,
+            end_chapter,
+            context_mode="canonical",
+            include_pending_objects=False,
+            include_chapter_texts=False,
+            include_existing_scenes=False,
+        )
+        async with db.begin_nested():
+            result = await self._persister.persist(
+                db,
+                nid,
+                start_chapter,
+                end_chapter,
+                parsed,
+                entity_name_to_id=context.entity_name_to_id,
+                character_name_to_id=context.character_name_to_id,
+                provenance_meta_override=provenance_meta,
+                strict=True,
+            )
+        return result.to_dict()
+
+    @staticmethod
+    def result_refs(data: dict[str, Any]) -> list[dict[str, str]]:
+        """返回已持久化结构的稳定结果引用。"""
+        return PlotStructureGenerator._result_refs(data)
+
+    @staticmethod
+    def _preview_result(
+        parsed: ParsedPlotStructure,
+        *,
+        warnings: list[str],
+    ) -> dict[str, Any]:
+        draft = {
+            "threads": PlotStructureGenerator._preview_items(parsed.threads),
+            "arcs": PlotStructureGenerator._preview_items(parsed.arcs),
+            "scenes": PlotStructureGenerator._preview_items(parsed.scenes),
+            "foreshadowing_plans": PlotStructureGenerator._preview_items(
+                parsed.foreshadowing_plans
+            ),
+            "reveal_plans": PlotStructureGenerator._preview_items(
+                parsed.reveal_plans
+            ),
+            "offscreen_progress": PlotStructureGenerator._preview_items(
+                parsed.offscreen_progress
+            ),
+            "risks": PlotStructureGenerator._preview_items(parsed.risks),
+            "questions_for_user": PlotStructureGenerator._preview_items(
+                parsed.questions_for_user
+            ),
+            "turning_points": list(parsed.turning_points or []),
+            "uncertain_items": list(parsed.uncertain_items or []),
+            "diagnostics": dict(parsed.diagnostics or {}),
+        }
+        return {
+            "total_threads": len(draft["threads"]),
+            "total_arcs": len(draft["arcs"]),
+            "total_scenes": len(draft["scenes"]),
+            "existing_threads_count": 0,
+            "existing_arcs_count": 0,
+            "threads": draft["threads"],
+            "arcs": draft["arcs"],
+            "scenes": draft["scenes"],
+            "extra_sections": {
+                "foreshadowing_plans": draft["foreshadowing_plans"],
+                "reveal_plans": draft["reveal_plans"],
+                "offscreen_progress": draft["offscreen_progress"],
+                "risks": draft["risks"],
+                "questions_for_user": draft["questions_for_user"],
+                "turning_points": draft["turning_points"],
+                "uncertain_items": draft["uncertain_items"],
+                "structure_diagnostics": draft["diagnostics"],
+            },
+            "warnings": list(warnings),
+            "draft_structure": draft,
+            "requires_apply": any(
+                bool(draft[key])
+                for key in (
+                    "threads",
+                    "arcs",
+                    "scenes",
+                    "foreshadowing_plans",
+                    "reveal_plans",
+                    "offscreen_progress",
+                    "risks",
+                    "questions_for_user",
+                    "turning_points",
+                    "uncertain_items",
+                )
+            ),
+            "display_state": "review",
+        }
+
+    @staticmethod
+    def _preview_items(items: list[Any]) -> list[dict[str, Any]]:
+        return [
+            {
+                **item.model_dump(mode="json"),
+                "display_state": "review",
+                "source": "ai_generated",
+                "needs_review": True,
+            }
+            for item in items
+        ]
+
+    @staticmethod
+    def _empty_draft_structure() -> dict[str, Any]:
+        return {
+            "threads": [],
+            "arcs": [],
+            "scenes": [],
+            "foreshadowing_plans": [],
+            "reveal_plans": [],
+            "offscreen_progress": [],
+            "risks": [],
+            "questions_for_user": [],
+            "turning_points": [],
+            "uncertain_items": [],
+            "diagnostics": {},
+        }
+
+    @staticmethod
+    def _parse_preview_structure(
+        draft_structure: dict[str, Any],
+    ) -> ParsedPlotStructure:
+        if not isinstance(draft_structure, dict):
+            raise ValueError("draft_structure must be an object")
+
+        def parse_items(key: str, model: type[Any]) -> list[Any]:
+            raw_items = draft_structure.get(key, [])
+            if not isinstance(raw_items, list):
+                raise ValueError(f"draft_structure.{key} must be a list")
+            if not all(isinstance(item, dict) for item in raw_items):
+                raise ValueError(f"draft_structure.{key} items must be objects")
+            return [model.model_validate(item) for item in raw_items]
+
+        turning_points = draft_structure.get("turning_points", [])
+        uncertain_items = draft_structure.get("uncertain_items", [])
+        diagnostics = draft_structure.get("diagnostics", {})
+        if not isinstance(turning_points, list):
+            raise ValueError("draft_structure.turning_points must be a list")
+        if not isinstance(uncertain_items, list):
+            raise ValueError("draft_structure.uncertain_items must be a list")
+        if not isinstance(diagnostics, dict):
+            raise ValueError("draft_structure.diagnostics must be an object")
+
+        threads = parse_items("threads", GeneratedThread)
+        arcs = parse_items("arcs", GeneratedArc)
+        scenes = parse_items("scenes", GeneratedScene)
+        foreshadowing_plans = parse_items(
+            "foreshadowing_plans", ForeshadowingPlan
+        )
+        reveal_plans = parse_items("reveal_plans", RevealPlan)
+        required_text_fields = (
+            ("threads", threads, "name"),
+            ("arcs", arcs, "title"),
+            ("scenes", scenes, "title"),
+            ("foreshadowing_plans", foreshadowing_plans, "name"),
+            ("reveal_plans", reveal_plans, "target_name"),
+        )
+        for key, items, field in required_text_fields:
+            if any(not str(getattr(item, field, "") or "").strip() for item in items):
+                raise ValueError(
+                    f"draft_structure.{key} items require non-empty {field}"
+                )
+
+        return ParsedPlotStructure(
+            threads=threads,
+            arcs=arcs,
+            scenes=scenes,
+            foreshadowing_plans=foreshadowing_plans,
+            reveal_plans=reveal_plans,
+            offscreen_progress=parse_items(
+                "offscreen_progress", OffscreenProgress
+            ),
+            risks=parse_items("risks", Risk),
+            questions_for_user=parse_items("questions_for_user", Question),
+            turning_points=turning_points,
+            uncertain_items=uncertain_items,
+            diagnostics=diagnostics,
+        )
 
     async def _create_structure_snapshot(
         self,

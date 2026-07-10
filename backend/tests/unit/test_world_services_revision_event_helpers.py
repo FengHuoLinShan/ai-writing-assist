@@ -58,6 +58,10 @@ def _mock_entity(**overrides):
         "importance_level": "normal",
         "reveal_level": "author_only",
         "status": "draft",
+        "display_state": None,
+        "source": None,
+        "attention_reasons": [],
+        "suggested_action": None,
         "embedding_text": None,
         "created_by": None,
         "approved_by": None,
@@ -83,6 +87,14 @@ def _mock_event(**overrides):
     for k, v in defaults.items():
         setattr(ev, k, v)
     return ev
+
+
+def _canonical_core_entity(novel_id: uuid.UUID, entity_type: str):
+    return MagicMock(
+        novel_id=novel_id,
+        status="canonical",
+        entity_type=entity_type,
+    )
 
 
 def _mock_revision(**overrides):
@@ -478,6 +490,13 @@ class TestEventService:
         svc, repo = _make_event_service()
         ev = _mock_event()
         repo.get = AsyncMock(return_value=ev)
+        svc._entity_repo = MagicMock()
+        svc._entity_repo.get = AsyncMock(
+            side_effect=[
+                _canonical_core_entity(ev.novel_id, "event"),
+                _canonical_core_entity(ev.novel_id, "location"),
+            ]
+        )
         db = MagicMock()
 
         # Act
@@ -536,7 +555,10 @@ class TestEventService:
         ev = _mock_event()
         svc._entity_repo = MagicMock()
         svc._entity_repo.get = AsyncMock(
-            return_value=MagicMock(novel_id=ev.novel_id, status="canonical")
+            side_effect=[
+                _canonical_core_entity(ev.novel_id, "event"),
+                _canonical_core_entity(ev.novel_id, "location"),
+            ]
         )
         repo.create = AsyncMock(return_value=ev)
         db = MagicMock()
@@ -589,6 +611,13 @@ class TestEventService:
         ev = _mock_event()
         repo.get = AsyncMock(return_value=ev)
         repo.update = AsyncMock(return_value=ev)
+        svc._entity_repo = MagicMock()
+        svc._entity_repo.get = AsyncMock(
+            side_effect=[
+                _canonical_core_entity(ev.novel_id, "event"),
+                _canonical_core_entity(ev.novel_id, "location"),
+            ]
+        )
         db = MagicMock()
         from modules.world.schemas import EventUpdate
 

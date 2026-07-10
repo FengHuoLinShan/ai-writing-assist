@@ -95,3 +95,16 @@ async def count_deep_import_delta_logs_by_workflow(
         novel_id,
         workflow_id,
     )
+
+
+async def rollback_deep_import_delta_logs_by_workflow(
+    db: AsyncSession,
+    novel_id: str,
+    workflow_id: str,
+) -> int:
+    """Soft-rollback workflow-owned import delta logs while retaining provenance."""
+    return await _memory.rollback_deep_import_delta_logs_by_workflow(
+        db,
+        novel_id,
+        workflow_id,
+    )

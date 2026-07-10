@@ -32,7 +32,7 @@ describe("aiReferenceModal", () => {
     expect(document.getElementById("modal-title")?.textContent).toBe("AI 参考资料")
     expect(document.getElementById("ai-ref-scope")?.value).toBe("chapter")
     expect(document.getElementById("ai-ref-chapter")?.value).toBe("3")
-    expect(document.body.textContent).toContain("待确认对象")
+    expect(document.body.textContent).toContain("待处理内容")
     expect(document.body.textContent).not.toContain("candidate asset")
     expect(document.body.textContent).not.toContain("Markdown")
     expect(document.querySelector("#ai-ref-markdown")).toBeNull()
@@ -47,6 +47,7 @@ describe("aiReferenceModal", () => {
 
     expect(document.getElementById("ai-ref-scope")?.value).toBe("project")
     expect(document.getElementById("ai-ref-chapter")?.value).toBe("")
+    expect(document.getElementById("ai-ref-include-pending")?.checked).toBe(false)
   })
 
   it("重新整理会提交当前选择并渲染摘要", async () => {
@@ -120,7 +121,7 @@ describe("aiReferenceModal", () => {
     expect(document.getElementById("ai-ref-summary")?.innerHTML).toContain("context_sections: 2")
     expect(document.getElementById("ai-ref-summary")?.textContent).toContain("RAG 证据包")
     expect(document.getElementById("ai-ref-summary")?.textContent).toContain("已裁剪")
-    expect(document.getElementById("ai-ref-summary")?.textContent).toContain("包含待确认对象，结果需复核")
+    expect(document.getElementById("ai-ref-summary")?.textContent).toContain("包含待处理内容，结果需要人工检查")
     expect(document.getElementById("ai-ref-summary")?.innerHTML).not.toContain("<script>bad</script>")
     expect(document.getElementById("ai-ref-summary")?.textContent).toContain("范围较大")
   })

@@ -1,4 +1,5 @@
 import { renderContextSummary } from "./contextSummaryRenderer.js"
+import { contextContentModeLabel } from "./assetDisplayState.js"
 
 export function confirmAiReference(options) {
   return new Promise((resolve, reject) => {
@@ -102,13 +103,13 @@ function renderBody(options) {
           </label>
           <label>模式
             <select id="ai-ref-context-mode" class="form-select">
-              ${option("canonical", "正史", contextMode)}
-              ${option("working", "工作稿", contextMode)}
+              ${option("canonical", contextContentModeLabel("canonical"), contextMode)}
+              ${option("working", contextContentModeLabel("working"), contextMode)}
             </select>
           </label>
           <label class="ai-ref-checkbox">
             <input id="ai-ref-include-pending" type="checkbox" ${options.include_pending_objects ? "checked" : ""} />
-            <span>包含待确认对象</span>
+            <span>包含待处理内容</span>
           </label>
         </div>
         <label>排除资产 ID

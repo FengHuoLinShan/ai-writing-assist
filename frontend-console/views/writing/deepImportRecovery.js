@@ -153,6 +153,15 @@ export function createDeepImportRecovery({
       currentOperation: result.current_operation || null,
       currentItem: result.current_item || {},
       qualityStats: result.quality_stats || {},
+      assetSummary: result.asset_summary || result.assetSummary || {},
+      requiresApply: result.requires_apply === true,
+      draftScenes: Array.isArray(result.draft_scenes) ? result.draft_scenes : [],
+      applyStatus: result.apply_status || null,
+      confirmationId: result.context_confirmation_id
+        || task?.meta?.context_confirmation_id
+        || task?.meta?.confirmationId
+        || progress?.confirmationId
+        || null,
       phaseArtifacts: result.phase_artifacts || {},
       acceptanceChecks: result.acceptance_checks || [],
       diagnosticCounts: result.diagnostic_counts || {},
@@ -223,6 +232,7 @@ export function createDeepImportRecovery({
         diagnostic_counts: p.diagnosticCounts || {},
         phase2_throttle_reasons: p.throttleReasons || [],
         quality_rerun: p.qualityRerun || {},
+        asset_summary: p.assetSummary || {},
       },
     }, p.workflowType || "deep_import")
   }
@@ -231,7 +241,12 @@ export function createDeepImportRecovery({
     const pid = currentProjectId()
     if (!pid) return
 
-    const supportedTypes = new Set(["deep_import", ...AUTO_EXTRACTION_WORKFLOW_TYPES])
+    const supportedTypes = new Set([
+      "deep_import",
+      "chapter_card_generation",
+      "outline_chapter_scenes_extract",
+      ...AUTO_EXTRACTION_WORKFLOW_TYPES,
+    ])
     let workflow = null
     try {
       workflow = recoverActiveWorkflows(pid)
@@ -253,6 +268,9 @@ export function createDeepImportRecovery({
           const recoveryProgress = buildProgressFromTask(
             task, result, task.status === "failed" ? 0 : 100, "",
           )
+          recoveryProgress.confirmationId = recoveryProgress.confirmationId
+            || workflow?.meta?.confirmationId
+            || null
           if (hasRecoveryPrompt(recoveryProgress)) {
             taskId = recoveredTaskId
             progress = { ...recoveryProgress, workflowType, stage, label }
@@ -282,6 +300,10 @@ export function createDeepImportRecovery({
               || result.audit_summary || result.auditSummary || {},
           }
         }
+        if (progress?.requiresApply && progress.draftScenes?.length && progress.applyStatus !== "applied") {
+          notifyStatus()
+          return
+        }
         clearWorkflow(recoveredTaskId)
         notifyStatus()
         return
@@ -295,8 +317,12 @@ export function createDeepImportRecovery({
       const recoveredStepLabel = workflowType === "deep_import"
         ? computeDeepImportStepLabel(result, label)
         : (result.current_step ? `Phase: ${result.current_step}` : label)
+      const recoveredProgress = buildProgressFromTask(task, result, recoveredPercent, "")
+      recoveredProgress.confirmationId = recoveredProgress.confirmationId
+        || workflow?.meta?.confirmationId
+        || null
       progress = {
-        ...buildProgressFromTask(task, result, recoveredPercent, ""),
+        ...recoveredProgress,
         workflowType,
         stage,
         label,
@@ -334,6 +360,7 @@ export function createDeepImportRecovery({
     startChapter,
     endChapter,
     highQuality = false,
+    confirmationId = null,
   }) {
     if (!newTaskId) return
     const config = stageConfig(stage || "scenes")
@@ -353,6 +380,10 @@ export function createDeepImportRecovery({
       qualityStatus: "pending",
       auditSummary: {},
       snapshotHealthSummary: {},
+      requiresApply: false,
+      draftScenes: [],
+      applyStatus: null,
+      confirmationId,
     }
     persistActiveWorkflow({
       taskId: newTaskId,
@@ -360,7 +391,13 @@ export function createDeepImportRecovery({
       label: label || config.label,
       projectId: currentProjectId(),
       view: "writing",
-      meta: { startChapter, endChapter, stage: stage || "scenes", highQuality },
+      meta: {
+        startChapter,
+        endChapter,
+        stage: stage || "scenes",
+        highQuality,
+        confirmationId,
+      },
     })
     notifyStatus()
     startPolling()
@@ -429,6 +466,12 @@ export function createDeepImportRecovery({
         if (task.status === "done" || result.phase === "done") {
           progress.percent = 100
           progress.phase = "done"
+          if (progress.requiresApply && progress.draftScenes.length && progress.applyStatus !== "applied") {
+            pausePolling()
+            notifyStatus()
+            toast?.(`${currentLabel}已生成 ${progress.draftScenes.length} 条待处理建议`, "info")
+            return
+          }
           stopPolling()
           if (progress.qualityStatus === "partial") {
             toast?.(`${currentLabel}部分完成，请查看降级原因`, "warning")
@@ -495,7 +538,7 @@ export function createDeepImportRecovery({
       ["Round", p.currentRound],
       ["章节范围", p.currentChapterRange],
       ["当前章节", p.currentChapter],
-      ["Scene candidate", p.currentSceneCandidateId],
+      ["当前 Scene 建议", p.currentSceneCandidateId],
       ["窗口", p.currentWindow],
       ["操作", p.currentOperation],
       ["当前项", p.currentItem?.kind],
@@ -536,7 +579,7 @@ export function createDeepImportRecovery({
       empty_result: "空结果",
       fallback_scene_count: "fallback Scene",
       fused_scene_count: "融合 Scene",
-      needs_review_scene_count: "待复核",
+      needs_review_scene_count: "需要人工检查",
     }
     const orderedKeys = [
       "total_batches",
@@ -591,10 +634,10 @@ export function createDeepImportRecovery({
       current_chapter: "当前章节",
       current_chapter_range: "章节范围",
       committed_scenes: "已写入 Scene",
-      deprecated_scenes: "已废弃 Scene",
+      deprecated_scenes: "历史 Scene",
       committed_entities: "已写入实体",
-      deprecated_entities: "已废弃实体",
-      pending_scene_candidates: "待处理候选",
+      deprecated_entities: "历史实体",
+      pending_scene_candidates: "待处理 Scene",
     }
     const summaryItems = Object.entries(summary)
       .filter(([, value]) => value !== null && value !== undefined && value !== "")
@@ -659,6 +702,151 @@ export function createDeepImportRecovery({
     `
   }
 
+  function hasPendingScenePreview() {
+    return Boolean(
+      progress?.requiresApply
+      && progress?.applyStatus !== "applied"
+      && Array.isArray(progress?.draftScenes)
+      && progress.draftScenes.length > 0,
+    )
+  }
+
+  function renderScenePreviewActions() {
+    if (!hasPendingScenePreview()) return ""
+    return `
+      <div class="deep-import-recovery__actions" aria-label="待处理 Scene 建议">
+        <button class="btn btn-sm btn-primary writing-deep-import-btn" data-action="view-scene-preview">
+          查看并采用待处理 Scene 建议（${escapeHtml(progress.draftScenes.length)}）
+        </button>
+        <button class="btn btn-sm writing-deep-import-btn" data-action="discard-scene-preview">不采用这些建议</button>
+      </div>
+    `
+  }
+
+  function showScenePreview() {
+    if (!hasPendingScenePreview()) {
+      toast?.("暂无待处理 Scene 建议", "info")
+      return
+    }
+    const fields = progress.draftScenes.map((scene, index) => `
+      <article class="writing-scene-preview-card" data-scene-preview-index="${index}">
+        <h4>Scene 建议 ${index + 1}</h4>
+        <div class="form-group">
+          <label>标题</label>
+          <input class="form-input" id="scene-preview-${index}-title" value="${escapeHtml(scene.title || "")}" />
+        </div>
+        <div class="form-group">
+          <label>章节</label>
+          <input class="form-input" id="scene-preview-${index}-chapters" value="${escapeHtml((scene.chapter_ids || []).join(", "))}" />
+        </div>
+        <div class="form-group">
+          <label>目标</label>
+          <textarea class="form-textarea" id="scene-preview-${index}-goal" rows="2">${escapeHtml(scene.goal || "")}</textarea>
+        </div>
+        <div class="form-group">
+          <label>核心冲突</label>
+          <textarea class="form-textarea" id="scene-preview-${index}-conflict" rows="2">${escapeHtml(scene.core_conflict || "")}</textarea>
+        </div>
+        <div class="form-group">
+          <label>情感节奏</label>
+          <textarea class="form-textarea" id="scene-preview-${index}-emotion" rows="2">${escapeHtml(scene.emotional_beat || "")}</textarea>
+        </div>
+        <div class="form-group">
+          <label>必须发生</label>
+          <textarea class="form-textarea" id="scene-preview-${index}-must" rows="2">${escapeHtml(scene.must_happen || "")}</textarea>
+        </div>
+        <div class="form-group">
+          <label>禁止发生</label>
+          <textarea class="form-textarea" id="scene-preview-${index}-must-not" rows="2">${escapeHtml(scene.must_not_happen || "")}</textarea>
+        </div>
+      </article>
+    `).join("")
+    const body = `
+      <p class="writing-form-hint">这些内容仍是待处理建议。你可以先修改；只有点击“采用全部到工作 Scene”后才会写入。</p>
+      <div class="writing-scene-preview-list">${fields}</div>
+    `
+    const show = modalApi.showModalHtml || modalApi.showHtml
+    show?.("待处理 Scene 建议", body, [
+      {
+        text: "稍后处理",
+        class: "btn-ghost",
+        handler: () => (modalApi.closeModal || modalApi.close)?.(),
+      },
+      {
+        text: "采用全部到工作 Scene",
+        class: "btn-primary",
+        handler: () => applyScenePreview(readScenePreviewDrafts()),
+      },
+    ])
+  }
+
+  function readScenePreviewDrafts() {
+    return (progress?.draftScenes || []).map((scene, index) => {
+      const value = (suffix) => document.getElementById(`scene-preview-${index}-${suffix}`)?.value ?? ""
+      return {
+        title: value("title").trim() || scene.title || `Scene ${index + 1}`,
+        goal: value("goal"),
+        core_conflict: value("conflict"),
+        emotional_beat: value("emotion"),
+        must_happen: value("must"),
+        must_not_happen: value("must-not"),
+        narrative_tag: scene.narrative_tag || "draft",
+        chapter_ids: value("chapters").split(/[,，\s]+/).map((item) => item.trim()).filter(Boolean),
+        scene_chunks: Array.isArray(scene.scene_chunks) ? scene.scene_chunks : [],
+        pov_character_id: scene.pov_character_id || null,
+        structure_meta: { ...(scene.structure_meta || {}) },
+      }
+    })
+  }
+
+  async function applyScenePreview(draftScenes = null) {
+    if (!hasPendingScenePreview()) return null
+    if (!taskId || !progress.confirmationId) {
+      toast?.("Scene 建议缺少来源确认，无法采用", "error")
+      return null
+    }
+    const editedDrafts = Array.isArray(draftScenes) ? draftScenes : progress.draftScenes
+    try {
+      const response = await api.outline.applyChapterScenePreview({
+        novel_id: currentProjectId(),
+        context_confirmation_id: progress.confirmationId,
+        source_task_id: taskId,
+        draft_scenes: editedDrafts,
+        confirmed: true,
+      })
+      const appliedCount = response?.total_scenes ?? response?.scene_ids?.length ?? editedDrafts.length
+      const completedTaskId = taskId
+      progress = null
+      taskId = null
+      clearWorkflow(completedTaskId)
+      ;(modalApi.closeModal || modalApi.close)?.()
+      api.clearCache?.()
+      notifyStatus()
+      toast?.(`已采用 ${appliedCount} 个工作 Scene`, "success")
+      await onDone?.()
+      return response
+    } catch (err) {
+      toast?.(err.message || "采用 Scene 建议失败", "error")
+      return null
+    }
+  }
+
+  function discardScenePreview() {
+    if (!hasPendingScenePreview()) return Promise.resolve()
+    let confirmedWork = Promise.resolve()
+    modalApi.confirmAction("确定不采用这些 Scene 建议？预览任务记录仍会保留。", () => {
+      confirmedWork = Promise.resolve().then(() => {
+        const completedTaskId = taskId
+        progress = null
+        taskId = null
+        clearWorkflow(completedTaskId)
+        notifyStatus()
+        toast?.("Scene 建议未采用", "info")
+      })
+    }, "确认不采用")
+    return confirmedWork
+  }
+
   function renderBar() {
     if (!progress) return ""
     const normalized = normalizeProgress()
@@ -679,6 +867,7 @@ export function createDeepImportRecovery({
         currentPositionHtml,
         qualityStatsHtml,
         recoveryHtml,
+        renderScenePreviewActions(),
         renderAuditSummary(),
         actionsHtml,
       ].filter(Boolean).join(""),
@@ -720,7 +909,7 @@ export function createDeepImportRecovery({
     const currentTaskId = taskId
     if (!currentTaskId) return Promise.resolve()
     let confirmedWork = Promise.resolve()
-    const message = "确认放弃深度导入恢复？后端会删除/废弃已写入的 Scene/实体，并停止继续恢复。"
+    const message = "确认放弃深度导入恢复？后端会清理或将已写入的 Scene/实体转入历史，并停止继续恢复。"
     modalApi.confirmAction(message, () => {
       confirmedWork = (async () => {
         try {
@@ -820,6 +1009,9 @@ export function createDeepImportRecovery({
     resume,
     abandon,
     showAuditDetails,
+    showScenePreview,
+    applyScenePreview,
+    discardScenePreview,
     dismiss,
     dispose,
     getState,

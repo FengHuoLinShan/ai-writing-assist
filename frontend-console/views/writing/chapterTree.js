@@ -461,7 +461,7 @@ export function createChapterTree({
     },
 
     _chapterStatusLabel(idx) {
-      return { empty: "未写", draft: "草稿", published: "已发布" }[this._chapterStatus(idx)] || "未知"
+      return { empty: "未写", draft: "工作稿", published: "已发布" }[this._chapterStatus(idx)] || "未知"
     },
 
     _chapterWordcount(idx) {

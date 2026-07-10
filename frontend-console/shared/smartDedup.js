@@ -357,8 +357,8 @@ export function createSmartDedupManager({
         merge: "合并",
         alias_only: "登记别名",
         deprecate_duplicate: "废弃重复项",
-        needs_review: "复核",
-      }[item.action] || item.action || "复核"
+        needs_review: "需要人工检查",
+      }[item.action] || item.action || "需要人工检查"
       const assetLabel = {
         world_entity: "世界对象",
         plot_thread: "剧情线",
@@ -384,8 +384,8 @@ export function createSmartDedupManager({
         merge: `保留「${primary.primaryTitle}」，合并「${primary.duplicateTitle}」`,
         alias_only: `登记为别名：将「${primary.duplicateTitle}」登记到「${primary.primaryTitle}」`,
         deprecate_duplicate: `废弃「${primary.duplicateTitle}」，关联到「${primary.primaryTitle}」`,
-        needs_review: "仅复核，不会直接应用",
-      }[item.action] || "需要复核后处理"
+        needs_review: "仅标记需要人工检查，不会直接应用",
+      }[item.action] || "需要人工检查后处理"
       const riskNotice = this._isHighRiskSuggestion(item) ? `
         <div style="margin-top:8px;padding:8px;border:1px solid var(--warning);border-radius:var(--radius-md);color:var(--warning);font-size:12px;">
           高风险别名命中：默认不选中。确认这确实是同一对象后再手动勾选应用。
@@ -394,7 +394,7 @@ export function createSmartDedupManager({
       const canonical = item.requires_canonical_confirmation ? `
         <label style="display:block;margin-top:6px;color:var(--warning);font-size:12px;">
           <input type="checkbox" data-smart-dedup-canonical="${esc(index)}" ${draft.allowCanonicalMerge ? "checked" : ""} />
-          确认合并两个正史对象
+          我理解这会合并两个已采用对象
         </label>
       ` : ""
       return `

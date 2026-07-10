@@ -60,6 +60,9 @@ class WritingDraftContract:
     status: str
     conflict_check_snapshot_json: dict | None
     provenance_json: dict[str, Any] | None
+    display_state: str  # active / review / archived
+    source: str         # manual / ai_generated / ...
+    attention_reasons: list[str]
     created_at: datetime | None
     updated_at: datetime | None
 ```
@@ -71,6 +74,7 @@ async def create_draft_only(db: AsyncSession, novel_id: str, chapter_index: int,
 async def create_published_draft_only(db: AsyncSession, novel_id: str, chapter_index: int, title: str | None = None, content: str = "") -> WritingDraftContract
 async def create_draft(db: AsyncSession, novel_id: str, chapter_index: int, title: str | None = None, content: str = "") -> tuple[WritingDraftContract, str]
 async def get_draft(db: AsyncSession, novel_id: str, draft_id: str) -> WritingDraftContract | None
+async def adopt_candidate_to_working(db: AsyncSession, novel_id: str, draft_id: str, *, adopted_by: str = "author") -> WritingDraftContract
 async def get_latest_draft_for_chapter(db: AsyncSession, novel_id: str, chapter_index: int) -> WritingDraftContract | None
 async def list_latest_drafts_for_chapters(db: AsyncSession, novel_id: str, chapter_indices: list[int], *, content_limit: int | None = None) -> list[WritingDraftContract]
 async def list_chapter_indices(db: AsyncSession, novel_id: str) -> list[int]
@@ -81,10 +85,10 @@ async def build_manuscript_range_ref(db, novel_id, draft_id, start_offset, end_o
 ```
 
 通过 `facade.create_draft` 创建已发布正文版本并提交 `publish_chapter` 章节发布任务；`facade.create_published_draft_only` 只创建已发布正文版本，不入队；`facade.create_draft_only` 仅创建草稿，不会提交发布任务。facade create 系列返回跨模块 `WritingDraftContract`，API 层负责适配为 `WritingDraftResponse`。导入模块等内部调用方不需要直接访问 RAG 模块。
-AI 生成候选稿会在 `provenance_json` 中记录 `source_confirmation_id` 和来源任务。
+AI 生成结果会在 `provenance_json` 中记录 `source_confirmation_id` 和来源任务。兼容期内底层仍以 `candidate` 保存建议，但 API/contract 投影为 `display_state=review` 和 `source=ai_generated`，不将其当作工作稿。
 
 `canonical` 严格选择每章最新非废弃 `published` 版本；缺失时返回警告，
-不回退到 working。`working` 选择最新非废弃版本。`SourceRangeRefContract`
+不回退到 working。`working` 只选择已采用的 `draft / published / canonical` 兼容状态；未采用 `candidate` 不进入章节最新稿、项目统计、原文 grep 或 RAG working 来源。`SourceRangeRefContract`
 包含 draft/version/mode/offset 与 source/range hash；范围不得跨章，读取时必须
 重新校验 novel 归属、源 hash 和范围 hash。V1 grep 只支持有上限、可分页的
 字面匹配，不接受正则表达式。
@@ -102,6 +106,7 @@ Writing 服务需要同步 outline 结构时通过可注入 port 调用：断章
 ```http
 POST /api/writing/drafts                          → 发布草稿（新版本 + publish_chapter 任务）
 GET  /api/writing/drafts/{id}                     → 获取草稿
+POST /api/writing/drafts/{id}/adopt               → 将 AI 建议复制为最新工作稿，原建议归档
 PUT  /api/writing/drafts/{id}                     → 暂存；published 首次编辑 copy-on-write 为新 working ID
 DELETE /api/writing/drafts/{id}                   → 软废弃单个版本
 DELETE /api/writing/chapters/{chapter_index}      → 软废弃整章所有版本
@@ -124,6 +129,8 @@ split provider 同步 Scene chunk；该操作不入队 `publish_chapter`。
 
 已发布版本不得原地修改。单版本/整章删除仅将状态改为 `deprecated`，
 `version_number` 永不重排；只有项目永久删除可通过外键级联硬删除。
+
+采用 AI 建议使用 copy-on-adopt：新建一个最高 `version_number` 的普通 `draft`，写入 `adopted_from_candidate_id / adopted_at / adopted_by`；原 candidate 改为 `deprecated` 并记录 `adoption_result_draft_id`。这使采用结果即使晚于其他手工保存也会成为最新 working，同时保留建议历史。
 
 `POST /api/writing/conflict-checks` 默认只做规则层检查。请求体的 `include_candidates` 默认为 `false`；写作页会在检查前弹出确认，只有用户勾选“包含待确认对象”时才传 `true`。
 

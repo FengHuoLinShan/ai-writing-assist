@@ -11,7 +11,8 @@ from modules.writing.facade import (
     grep_manuscript,
     read_manuscript_range,
 )
-from modules.writing.schemas import WritingDraftUpdate
+from modules.writing.repositories import WritingDraftRepository
+from modules.writing.schemas import WritingDraftCreate, WritingDraftUpdate
 from modules.writing.services import WritingDraftService
 
 
@@ -50,6 +51,76 @@ async def test_canonical_and_working_sources_are_distinct(
 
     assert canonical[0].source_ref.draft_id == published.id
     assert working[0].source_ref.draft_id != published.id
+
+
+@pytest.mark.asyncio
+async def test_candidate_is_excluded_until_copy_on_adopt_makes_it_latest(
+    db_session,
+    test_project_id,
+) -> None:
+    repo = WritingDraftRepository()
+    await create_published_draft_only(
+        db_session,
+        test_project_id,
+        2,
+        "第二章",
+        "已发布内容",
+    )
+    candidate = await repo.create_with_status(
+        db_session,
+        WritingDraftCreate(
+            novel_id=test_project_id,
+            chapter_index=2,
+            title="AI 建议",
+            content="待采用的关键线索",
+            provenance_json={"source": "writing_generate", "model": "test"},
+        ),
+        status="candidate",
+    )
+    newer_working = await create_draft_only(
+        db_session,
+        test_project_id,
+        2,
+        "人工工作稿",
+        "候选之后又保存的工作内容",
+    )
+
+    before, _, _ = await grep_manuscript(
+        db_session,
+        test_project_id,
+        "待采用的关键线索",
+        content_mode="working",
+    )
+    assert before == []
+
+    adopted = await WritingDraftService().adopt_candidate_to_working(
+        db_session,
+        str(candidate.id),
+        test_project_id,
+        adopted_by="test-author",
+    )
+
+    assert adopted.id != str(candidate.id)
+    assert adopted.version_number > newer_working.version_number
+    assert adopted.status == "draft"
+    assert adopted.display_state == "active"
+    assert adopted.source == "ai_generated"
+    assert adopted.provenance_json["adopted_from_candidate_id"] == str(candidate.id)
+    assert adopted.provenance_json["adopted_by"] == "test-author"
+    assert adopted.provenance_json["model"] == "test"
+
+    archived_candidate = await repo.get(db_session, candidate.id)
+    assert archived_candidate is not None
+    assert archived_candidate.status == "deprecated"
+    assert archived_candidate.provenance_json["adoption_result_draft_id"] == adopted.id
+
+    after, _, _ = await grep_manuscript(
+        db_session,
+        test_project_id,
+        "待采用的关键线索",
+        content_mode="working",
+    )
+    assert after[0].source_ref.draft_id == adopted.id
 
 
 @pytest.mark.asyncio

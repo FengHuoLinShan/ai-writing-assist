@@ -60,9 +60,15 @@ class WorldEntityService(
     ) -> CoreEntityResponse:
         nid = parse_uuid(novel_id, "novel_id")
 
-        # 手动创建默认标记来源
+        # 人工创建本身已经表达采用意图。显式传入 draft/candidate 的旧调用方
+        # 仍保持原状态，只有默认创建收敛为 canonical。
+        create_updates: dict[str, str] = {}
         if not data.created_by:
-            data = data.model_copy(update={"created_by": "manual"})
+            create_updates["created_by"] = "manual"
+        if data.status == "canonical" and not data.approved_by:
+            create_updates["approved_by"] = data.created_by or "manual"
+        if create_updates:
+            data = data.model_copy(update=create_updates)
 
         if not data.force_create:
             similar = await self.repo.find_similar_by_search_text(
@@ -105,6 +111,7 @@ class WorldEntityService(
         *,
         entity_type: str | None = None,
         status: str | None = None,
+        display_state: str | None = None,
         q: str | None = None,
         source: str | None = None,
         workflow_id: str | None = None,
@@ -121,12 +128,15 @@ class WorldEntityService(
     ) -> CoreEntityListResponse:
         """带 filter 的 list, 返 ListResponse 包装 (不是 tuple)。"""
         nid = parse_uuid(novel_id, "novel_id")
+        if display_state not in {None, "active", "review", "archived"}:
+            raise ValidationError("Invalid display_state")
         limit = min(limit, MAX_PAGE_SIZE)
         items, total = await self.repo.get_by_novel(
             db,
             nid,
             entity_type=entity_type,
             status=status,
+            display_state=display_state,
             q=q,
             source=source,
             workflow_id=workflow_id,
@@ -157,6 +167,7 @@ class WorldEntityService(
         data: CoreEntityUpdate,
         *,
         novel_id: str,
+        _from_suggestion_queue: bool = False,
     ) -> CoreEntityResponse:
         """更新实体前为当前状态打快照；snapshot 失败不阻断主流程。"""
         from modules.world.services.core.entity_revision_service import (
@@ -169,16 +180,30 @@ class WorldEntityService(
         self._assert_found_in_novel(existing, id, nid)
         assert existing is not None
 
+        if self._is_suggestion_compatibility_shadow(existing) and not (
+            _from_suggestion_queue
+        ):
+            raise ValidationError(
+                "该实体由待处理建议管理，请通过对应建议执行编辑或裁决"
+            )
+
         changed = data.model_dump(exclude_unset=True)
         if changed.get("status") == "canonical" and existing.status != "canonical":
             raise ValidationError(
-                "Use /entities/{entity_id}/promote "
-                "to promote entities to canonical"
+                "Use /entities/{entity_id}/promote to promote entities to canonical"
             )
 
         if self._should_mark_user_edited(existing, changed):
-            content_json = dict(existing.content_json or {})
-            meta = dict(content_json.get("_meta") or {})
+            submitted_content = changed.get("content_json")
+            content_json = dict(
+                submitted_content
+                if isinstance(submitted_content, dict)
+                else (existing.content_json or {})
+            )
+            meta = {
+                **dict((existing.content_json or {}).get("_meta") or {}),
+                **dict(content_json.get("_meta") or {}),
+            }
             meta.update(
                 {
                     "user_edited": True,
@@ -240,6 +265,33 @@ class WorldEntityService(
             and meta.get("user_edited") is not True
         )
 
+    @staticmethod
+    def _is_suggestion_compatibility_shadow(entity: Any) -> bool:
+        meta = (getattr(entity, "content_json", None) or {}).get("_meta") or {}
+        return (
+            getattr(entity, "status", None) in {"draft", "candidate"}
+            and meta.get("compatibility_shadow") is True
+            and bool(meta.get("suggestion_id"))
+        )
+
+    async def delete(
+        self,
+        db: AsyncSession,
+        id: str,
+        *,
+        novel_id: str,
+    ) -> None:
+        rid = parse_uuid(id, "entity_id")
+        nid = parse_uuid(novel_id, "novel_id")
+        existing = await self.repo.get(db, rid)
+        self._assert_found_in_novel(existing, id, nid)
+        assert existing is not None
+        if self._is_suggestion_compatibility_shadow(existing):
+            raise ValidationError(
+                "该实体由待处理建议管理，请通过对应建议执行忽略"
+            )
+        await super().delete(db, id, novel_id=novel_id)
+
     # ============================================================
     # Promote: 将草稿/候选实体提升为正史
     # ============================================================
@@ -251,6 +303,7 @@ class WorldEntityService(
         data: EntityPromoteRequest,
         *,
         novel_id: str,
+        _from_suggestion_queue: bool = False,
     ) -> EntityPromoteResponse:
         """将 draft/candidate 状态实体提升为 canonical。
 
@@ -267,12 +320,30 @@ class WorldEntityService(
         if entity.status not in {"draft", "candidate"}:
             raise ValidationError(
                 f"无法提升状态为 '{entity.status}' 的实体，"
-                "仅 draft/candidate 可被提升为正史"
+                "只有待处理的 draft/candidate 实体可以采用"
             )
 
+        content_json = dict(entity.content_json or {})
+        meta = dict(content_json.get("_meta") or {})
+        if meta.get("compatibility_shadow") is True and not _from_suggestion_queue:
+            raise ValidationError(
+                "该实体由待处理建议管理，请通过对应建议执行采用"
+            )
+
+        approved_by = data.approved_by or "manual"
+        if _from_suggestion_queue:
+            meta["compatibility_shadow"] = False
+            meta["compatibility_shadow_adopted"] = True
+            meta["suggestion_disposition"] = "accepted"
+        meta["needs_review"] = False
+        meta["reviewed_at"] = datetime.now(UTC).isoformat()
+        meta["reviewed_by"] = approved_by
+        meta["reviewed_from"] = "entity_promote"
+        content_json["_meta"] = meta
         update_data = CoreEntityUpdate(
             status="canonical",
-            approved_by=data.approved_by or "manual",
+            approved_by=approved_by,
+            content_json=content_json,
         )
         updated = await self.repo.update(db, entity, update_data)
         self._assert_found_in_novel(updated, entity_id, nid)

@@ -5,6 +5,7 @@ import mapView from "./mapView.js"
 import { buildMapLayout } from "./mapLayoutEngine.js"
 import mapQuickCreateView from "./mapQuickCreateView.js"
 import { parseMapRouteContext } from "./mapRouteContext.js"
+import { authorFacingStateText, mapAssetDisplay } from "../shared/assetDisplayState.js"
 
 const RECENT_PREFIX = "novel_map_recent:"
 
@@ -43,6 +44,7 @@ const mapWorkspaceView = {
   _focusedDynamicItemId: null,
   _viewMode: "dashboard",
   _lowMotion: false,
+  _showHistory: false,
   _layers: { ...DEFAULT_LAYERS },
   _dynamicSummary: {
     mapId: null,
@@ -51,6 +53,9 @@ const mapWorkspaceView = {
     dashboard: null,
     observations: [],
     facts: [],
+    historyItems: [],
+    historyLoaded: false,
+    historyLoading: false,
     error: null,
   },
   _playback: {
@@ -65,6 +70,7 @@ const mapWorkspaceView = {
   _pendingTimers: new Set(),
 
   async onEnter() {
+    this._showHistory = false
     await this._loadData()
   },
 
@@ -341,6 +347,7 @@ const mapWorkspaceView = {
 
   _resetDynamicSummary(mapId = null) {
     this._focusedDynamicItemId = null
+    this._showHistory = false
     this._dynamicSummary = {
       mapId,
       sceneId: this._activeSceneId,
@@ -351,6 +358,9 @@ const mapWorkspaceView = {
       dashboard: null,
       observations: [],
       facts: [],
+      historyItems: [],
+      historyLoaded: false,
+      historyLoading: false,
       error: null,
     }
     this._dynamicIndexes = createDynamicIndexes()
@@ -452,7 +462,7 @@ const mapWorkspaceView = {
       events: "事件",
       items: "物品",
       territories: "势力",
-      candidate: "待确认",
+      candidate: "待处理",
     }
     return Object.entries(labels).map(([key, label]) => `
       <label class="map-layer-toggle">
@@ -557,14 +567,24 @@ const mapWorkspaceView = {
     if (!dashboard) {
       return `<p class="map-muted-text">暂无世界动态</p>`
     }
-    const queue = dashboard.dynamic_queue || []
+    const dashboardItems = dashboard.dynamic_queue || []
+    const activeItems = dashboardItems.filter((item) => !mapAssetDisplay(item).isHistory)
+    const historyItems = [
+      ...dashboardItems.filter((item) => mapAssetDisplay(item).isHistory),
+      ...(summary.historyItems || []),
+    ]
+    const historyCount = historyItems.length
+    const queue = this._showHistory ? [...activeItems, ...historyItems] : activeItems
     const inspector = this._focusedInspector(dashboard)
-    const candidateCount = queue.filter((item) => item.item_kind === "observation" && item.review_state === "candidate").length
-    const factCount = queue.filter((item) => item.item_kind === "fact").length
+    const candidateCount = queue.filter((item) => mapAssetDisplay(item).displayState === "review").length
+    const factCount = queue.filter((item) => item.item_kind === "fact" && !mapAssetDisplay(item).isHistory).length
     return `
       <div class="map-dynamic-header">
         <h3>${esc(dashboard.title || "世界动态总控台")}</h3>
-        <span>${candidateCount} 待确认 · ${factCount} 已确认</span>
+        <span>${candidateCount} 待处理 · ${factCount} 已采用</span>
+        <button class="btn btn-sm" data-action="map-toggle-history" ${summary.historyLoading ? "disabled" : ""}>
+          ${summary.historyLoading ? "加载历史…" : this._showHistory ? "隐藏历史" : ((summary.historyLoaded || historyCount) ? `查看历史 ${historyCount}` : "查看历史")}
+        </button>
       </div>
       ${this._renderFirstVisualLayer(dashboard.first_visual_layer || {})}
       ${this._renderPlaybackPanel()}
@@ -580,13 +600,13 @@ const mapWorkspaceView = {
   },
 
   _renderFirstVisualLayer(layer) {
-    const risks = layer.top_risks || []
+    const risks = (layer.top_risks || []).map(authorFacingStateText)
     const characters = layer.main_characters || []
     return `
       <section class="map-dashboard-priority">
         <div>
           <span>主线危机</span>
-          <strong>${esc(layer.main_crisis || "暂无主线危机")}</strong>
+          <strong>${esc(authorFacingStateText(layer.main_crisis) || "暂无主线危机")}</strong>
         </div>
         <div>
           <span>主要对象</span>
@@ -601,24 +621,105 @@ const mapWorkspaceView = {
   },
 
   _renderQueueItem(item) {
-    const canReview = item.item_kind === "observation" && item.review_state === "candidate"
+    const display = mapAssetDisplay(item)
+    const canReview = item.item_kind === "observation" && display.displayState === "review"
     const riskClass = item.risk_level === "danger" ? " is-danger" : item.risk_level === "warning" ? " is-warning" : ""
     return `
       <article class="map-dynamic-item${riskClass}" data-action="map-open-dynamic-item" data-id="${esc(item.item_id)}">
         <div class="map-dynamic-title">${esc(item.title || "地图事实")}</div>
         <div class="map-dynamic-meta">
-          ${esc(item.time_label || "时间待确认")} · ${esc(item.status_label || "待判断")}
+          ${esc(item.time_label || "时间未确定")} · ${esc(display.label)}
           ${item.confidence !== null && item.confidence !== undefined ? ` · 置信度 ${Math.round(item.confidence * 100)}%` : ""}
         </div>
-        <div class="map-dynamic-source">${esc(item.source_summary || "来源待确认")}</div>
+        <div class="map-dynamic-source">${esc(item.source_summary || "来源未确定")}</div>
+        ${display.attentionReasons.length ? `<div class="map-dynamic-attention">${display.attentionReasons.map((reason) => `<span class="badge badge-warning">${esc(reason)}</span>`).join("")}</div>` : ""}
         ${canReview
           ? `<div class="map-dynamic-actions">
-              <button class="btn btn-sm btn-primary" data-action="map-confirm-observation" data-id="${esc(item.item_id)}">确认</button>
+              <button class="btn btn-sm btn-primary" data-action="map-confirm-observation" data-id="${esc(item.item_id)}">采用</button>
               <button class="btn btn-sm" data-action="map-ignore-observation" data-id="${esc(item.item_id)}">忽略</button>
             </div>`
           : ""}
       </article>
     `
+  },
+
+  _historyQueueItem(item, itemKind) {
+    const sceneIndex = item.scene_index ?? item.time_anchor?.scene_index
+    const chapterIndex = item.source_chapter_index
+    return {
+      ...item,
+      item_id: item.item_id || item.id,
+      item_kind: itemKind,
+      title: item.title || item.target_name || item.dynamic_type || "历史地图记录",
+      object_type: item.object_type || item.target_entity_type || item.dynamic_type || "world",
+      time_label: item.time_label
+        || (sceneIndex != null ? `Scene ${sceneIndex}` : "")
+        || (chapterIndex != null ? `第 ${chapterIndex} 章` : "")
+        || "时间未确定",
+      source_summary: item.source_summary || item.evidence_text || "来源已保留",
+      status_label: "历史",
+    }
+  },
+
+  async _toggleHistory() {
+    if (this._showHistory) {
+      this._showHistory = false
+      this._updateWorkspaceLayoutDom()
+      return
+    }
+    if (!this._activeMapId || !state.currentProjectId) return
+    if (!this._dynamicSummary?.historyLoaded) {
+      this._dynamicSummary.historyLoading = true
+      this._updateWorkspaceLayoutDom()
+      try {
+        const [observationPage, rolledBackFactPage, deprecatedFactPage] = await Promise.all([
+          api.world.listMapObservations(
+            this._activeMapId,
+            state.currentProjectId,
+            "ignored",
+          ),
+          api.world.listMapFacts(
+            this._activeMapId,
+            state.currentProjectId,
+            "rolled_back",
+          ),
+          api.world.listMapFacts(
+            this._activeMapId,
+            state.currentProjectId,
+            "deprecated",
+          ),
+        ])
+        const observations = observationPage?.items || observationPage || []
+        const factsById = new Map()
+        for (const factPage of [rolledBackFactPage, deprecatedFactPage]) {
+          for (const fact of factPage?.items || factPage || []) {
+            const id = fact?.id || fact?.item_id
+            if (id) factsById.set(String(id), fact)
+          }
+        }
+        const facts = Array.from(factsById.values())
+        const historyObservations = observations.map((item) => this._historyQueueItem(item, "observation"))
+        const historyFacts = facts.map((item) => this._historyQueueItem(item, "fact"))
+        this._dynamicSummary.historyItems = [...historyObservations, ...historyFacts]
+        this._dynamicSummary.observations = [
+          ...(this._dynamicSummary.observations || []),
+          ...historyObservations,
+        ]
+        this._dynamicSummary.facts = [
+          ...(this._dynamicSummary.facts || []),
+          ...historyFacts,
+        ]
+        this._dynamicSummary.historyLoaded = true
+        this._rebuildDynamicIndexes()
+      } catch (err) {
+        toast(`历史记录加载失败：${err.message || "未知错误"}`, "warning")
+        return
+      } finally {
+        this._dynamicSummary.historyLoading = false
+      }
+    }
+    this._showHistory = true
+    this._updateWorkspaceLayoutDom()
   },
 
   _renderInspector(inspector) {
@@ -629,12 +730,15 @@ const mapWorkspaceView = {
     const evidence = inspector.source_evidence || []
     const timeline = inspector.timeline || []
     const actions = inspector.available_actions || []
+    const inspectorStatus = candidates.some((item) => mapAssetDisplay(item).displayState === "review")
+      ? "待处理"
+      : (facts.some((item) => !mapAssetDisplay(item).isHistory) ? "已采用" : "待判断")
     return `
       <div class="map-dynamic-section map-inspector">
         <h4>检查器</h4>
         <article class="map-dynamic-item">
           <div class="map-dynamic-title">${esc(inspector.title || "暂无世界动态")}</div>
-          <div class="map-dynamic-meta">${esc(inspector.status_label || "待判断")}</div>
+          <div class="map-dynamic-meta">${esc(inspectorStatus)}</div>
           ${inspector.type_label || inspector.location_label || inspector.spatial_anchor_label
             ? `<div class="map-dynamic-meta">
                 ${[inspector.type_label, inspector.location_label, inspector.spatial_anchor_label].filter(Boolean).map((text) => esc(text)).join(" · ")}
@@ -642,9 +746,9 @@ const mapWorkspaceView = {
             : ""}
           <div class="map-dynamic-source">${esc(inspector.summary || "")}</div>
           <div class="map-inspector-counts">
-            <span>候选 ${candidates.length}</span>
-            <span>事实 ${facts.length}</span>
-            <span>冲突 ${conflicts.length}</span>
+            <span>待处理 ${candidates.filter((item) => mapAssetDisplay(item).displayState === "review").length}</span>
+            <span>已采用 ${facts.filter((item) => !mapAssetDisplay(item).isHistory).length}</span>
+            <span>注意 ${conflicts.length}</span>
           </div>
           ${evidence.length
             ? `<ul class="map-evidence-list">${evidence.slice(0, 3).map((text) => `<li>${esc(text)}</li>`).join("")}</ul>`
@@ -653,7 +757,7 @@ const mapWorkspaceView = {
             ? `<div class="map-inspector-timeline">
                 ${timeline.slice(0, 4).map((item) => `
                   <button class="link-button" data-action="map-open-dynamic-item" data-id="${esc(item.item_id)}">
-                    ${esc(item.time_label || "时间待确认")} · ${esc(item.title || "地图对象")}
+                    ${esc(item.time_label || "时间未确定")} · ${esc(item.title || "地图对象")}
                   </button>
                 `).join("")}
               </div>`
@@ -723,7 +827,10 @@ const mapWorkspaceView = {
 
   _rebuildDynamicIndexes() {
     const indexes = createDynamicIndexes()
-    const queue = this._dynamicSummary?.dashboard?.dynamic_queue || []
+    const queue = [
+      ...(this._dynamicSummary?.dashboard?.dynamic_queue || []),
+      ...(this._dynamicSummary?.historyItems || []),
+    ]
     for (const item of queue) {
       if (item.item_id) indexes.byItemId.set(item.item_id, item)
       if (item.id) indexes.byItemId.set(item.id, item)
@@ -733,7 +840,7 @@ const mapWorkspaceView = {
       }
       indexes.queueByObjectKey.get(objectKey).push(item)
       const groupKey = item.object_type || item.dynamic_type || "unknown"
-      if (item.item_kind === "observation" && item.review_state === "candidate") {
+      if (item.item_kind === "observation" && mapAssetDisplay(item).displayState === "review") {
         if (!indexes.candidateIdsByGroup.has(groupKey)) {
           indexes.candidateIdsByGroup.set(groupKey, [])
         }
@@ -784,11 +891,11 @@ const mapWorkspaceView = {
           <div class="map-batch-row">
             <span>${esc(group.group_label)}</span>
             <strong>${group.count}</strong>
-            <small>${group.candidate_count} 待确认 · ${group.confirmed_count} 已确认</small>
+            <small>${this._pendingGroupCount(group)} 待处理 · ${group.confirmed_count} 已采用</small>
             ${this._renderBatchTimeGroups(group.time_groups || [])}
             <div class="map-batch-actions">
-              ${this._renderBatchButton(group, "confirm", "确认候选")}
-              ${this._renderBatchButton(group, "ignore", "忽略候选")}
+              ${this._renderBatchButton(group, "confirm", "采用待处理项")}
+              ${this._renderBatchButton(group, "ignore", "忽略待处理项")}
               ${this._renderBatchButton(group, "conflict", "标记冲突")}
             </div>
           </div>
@@ -802,15 +909,20 @@ const mapWorkspaceView = {
     return `
       <div class="map-batch-times">
         ${timeGroups.slice(0, 4).map((timeGroup) => `
-          <small>${esc(timeGroup.time_label || "时间待确认")} · ${esc(timeGroup.candidate_count || 0)} 待确认 · ${esc(timeGroup.confirmed_count || 0)} 已确认</small>
+          <small>${esc(timeGroup.time_label || "时间未确定")} · ${esc(this._pendingGroupCount(timeGroup))} 待处理 · ${esc(timeGroup.confirmed_count || 0)} 已采用</small>
         `).join("")}
       </div>
     `
   },
 
   _renderBatchButton(group, action, label) {
-    const disabled = group.candidate_count > 0 ? "" : "disabled"
-    return `<button class="btn btn-sm" data-action="map-batch-review" data-group="${esc(group.group_key)}" data-review-action="${esc(action)}" ${disabled}>${esc(group.candidate_count > 0 ? label : "无待处理候选")}</button>`
+    const pendingCount = this._pendingGroupCount(group)
+    const disabled = pendingCount > 0 ? "" : "disabled"
+    return `<button class="btn btn-sm" data-action="map-batch-review" data-group="${esc(group.group_key)}" data-review-action="${esc(action)}" ${disabled}>${esc(pendingCount > 0 ? label : "无待处理项")}</button>`
+  },
+
+  _pendingGroupCount(group = {}) {
+    return Number(group.pending_count ?? group.review_count ?? group.candidate_count ?? 0) || 0
   },
 
   _renderPlaybackPanel() {
@@ -842,7 +954,7 @@ const mapWorkspaceView = {
         ${active
           ? `<article class="map-dynamic-item ${active.risk_level === "danger" ? "is-danger" : active.risk_level === "warning" ? "is-warning" : ""}" data-action="map-open-dynamic-item" data-id="${esc(active.event_id)}">
               <div class="map-dynamic-title">${esc(active.title)}</div>
-              <div class="map-dynamic-meta">${esc(active.time_label)} · ${esc(active.status_label)}</div>
+              <div class="map-dynamic-meta">${esc(active.time_label)} · ${esc(this._mapStatusLabel(active))}</div>
               <div class="map-dynamic-source">${esc(active.change_summary || active.source_summary || "")}</div>
             </article>`
           : ""}
@@ -894,6 +1006,9 @@ const mapWorkspaceView = {
       dashboard: null,
       observations: [],
       facts: [],
+      historyItems: [],
+      historyLoaded: false,
+      historyLoading: false,
       error: null,
     }
     this._playback = {
@@ -935,6 +1050,9 @@ const mapWorkspaceView = {
           .filter((item) => item.item_kind === "observation"),
         facts: (dashboard.dynamic_queue || [])
           .filter((item) => item.item_kind === "fact"),
+        historyItems: [],
+        historyLoaded: false,
+        historyLoading: false,
         error: null,
       }
       this._playback = {
@@ -958,6 +1076,9 @@ const mapWorkspaceView = {
         dashboard: null,
         observations: [],
         facts: [],
+        historyItems: [],
+        historyLoaded: false,
+        historyLoading: false,
         error: "地图动态事实暂不可用",
       }
       this._playback = {
@@ -1009,13 +1130,13 @@ const mapWorkspaceView = {
   async _confirmObservation(id) {
     const item = this._dynamicObservation(id)
     const name = item?.title || item?.target_name || "地图映射"
-    return confirmAction(`确认地图映射「${name}」为正式事实？`, async () => {
+    return confirmAction(`采用地图映射“${name}”并写入当前有效事实？`, async () => {
       try {
         await api.world.confirmMapObservation(this._activeMapId, id, state.currentProjectId)
-        toast("地图事实已确认", "success")
+        toast("地图事实已采用", "success")
         await this._loadDynamicSummary({ force: true })
       } catch (err) {
-        toast(`确认失败：${err.message || "未知错误"}`, "error")
+        toast(`采用失败：${err.message || "未知错误"}`, "error")
       }
     })
   },
@@ -1066,7 +1187,7 @@ const mapWorkspaceView = {
 
   _actionLabel(action) {
     return {
-      confirm: "可确认",
+      confirm: "可采用",
       ignore: "可忽略",
       conflict: "可标记冲突",
       rollback: "可回滚",
@@ -1074,12 +1195,22 @@ const mapWorkspaceView = {
     }[action] || action
   },
 
+  _mapStatusLabel(item = {}) {
+    if (item.item_kind || item.review_state || item.fact_status) return mapAssetDisplay(item).label
+    return {
+      "待确认": "待处理",
+      "候选": "待处理",
+      "已确认": "已采用",
+      "冲突": "待处理",
+    }[item.status_label] || item.status_label || "待判断"
+  },
+
   _showDynamicObjectInfo(id) {
     const item = this._findDynamicItem(id)
     if (!item) return
     const title = item.title || "地图对象"
-    const status = item.status_label || "待判断"
-    const time = item.time_label || "时间待确认"
+    const status = mapAssetDisplay(item).label
+    const time = item.time_label || "时间未确定"
     const summary = item.change_summary || item.source_summary || "暂无来源摘要"
     const actions = this._dynamicObjectActions(item)
     const detailLine = [item.type_label, item.location_label, item.spatial_anchor_label]
@@ -1177,14 +1308,14 @@ const mapWorkspaceView = {
         <input class="form-input" value="${esc(item.title || "地图对象")}" disabled />
       </div>
       <div class="form-group">
-        <label>${isFact ? "事实状态" : "候选状态"}</label>
+        <label>展示状态</label>
         <select class="form-select" id="map-object-edit-status">
           ${isFact
             ? ["confirmed", "rolled_back", "deprecated"].map((value) => `<option value="${value}" ${value === statusValue ? "selected" : ""}>${esc(this._factStatusLabel(value))}</option>`).join("")
             : [
-                ["candidate", "待确认"],
-                ["ignored", "已忽略"],
-                ["conflicted", "冲突"],
+                ["candidate", "待处理"],
+                ["ignored", "历史（已忽略）"],
+                ["conflicted", "待处理 · 存在冲突"],
               ].map(([value, label]) => `<option value="${value}" ${value === statusValue ? "selected" : ""}>${esc(label)}</option>`).join("")}
         </select>
       </div>
@@ -1203,7 +1334,7 @@ const mapWorkspaceView = {
           try {
             payload = this._readObservationEditPayload(nextStatus)
           } catch (err) {
-            toast(err.message || "地图候选字段格式不正确", "error")
+            toast(err.message || "地图待处理项字段格式不正确", "error")
             return
           }
           closeModal()
@@ -1247,7 +1378,7 @@ const mapWorkspaceView = {
     if (item.item_kind === "observation") {
       return [
         {
-          text: "确认",
+          text: "采用",
           class: "btn-primary",
           handler: () => {
             closeModal()
@@ -1291,7 +1422,7 @@ const mapWorkspaceView = {
           },
         },
         {
-          text: "恢复确认",
+          text: "恢复采用",
           class: "btn-primary",
           handler: () => {
             closeModal()
@@ -1320,10 +1451,10 @@ const mapWorkspaceView = {
   _reviewStateLabel(reviewState) {
     const state = typeof reviewState === "object" ? reviewState?.review_state : reviewState
     return {
-      candidate: "待确认",
-      ignored: "已忽略",
-      conflicted: "冲突",
-    }[state] || state || "待确认"
+      candidate: "待处理",
+      ignored: "历史（已忽略）",
+      conflicted: "待处理（存在冲突）",
+    }[state] || state || "待处理"
   },
 
   async _updateObservationReview(id, reviewState) {
@@ -1358,9 +1489,9 @@ const mapWorkspaceView = {
 
   _factStatusLabel(status) {
     return {
-      confirmed: "已确认",
-      rolled_back: "已回滚",
-      deprecated: "已废弃",
+      confirmed: "已采用",
+      rolled_back: "历史（已回滚）",
+      deprecated: "历史（已废弃）",
     }[status] || "待判断"
   },
 
@@ -1385,11 +1516,11 @@ const mapWorkspaceView = {
   async _batchReviewGroup(groupKey, action) {
     const ids = this._candidateIdsForGroup(groupKey)
     if (!ids.length) {
-      toast("该分组暂无待处理候选", "info")
+      toast("该分组暂无待处理项", "info")
       return
     }
-    const label = { confirm: "确认", ignore: "忽略", conflict: "标记冲突" }[action] || "处理"
-    return confirmAction(`${label}该分组的 ${ids.length} 条地图候选？`, async () => {
+    const label = { confirm: "采用", ignore: "忽略", conflict: "标记冲突" }[action] || "处理"
+    return confirmAction(`${label}该分组的 ${ids.length} 条地图待处理项？`, async () => {
       try {
         const apiAction = {
           confirm: "confirm_observations",
@@ -1450,6 +1581,9 @@ const mapWorkspaceView = {
       if (action === "map-playback-start") return runAction(() => this._startPlayback())
       if (action === "map-playback-stop") return runAction(() => this._stopPlayback())
       if (action === "map-batch-review") return runAction(() => this._batchReviewGroup(target.dataset.group, target.dataset.reviewAction))
+      if (action === "map-toggle-history") {
+        return runAction(() => this._toggleHistory())
+      }
       if (action === "map-open-dynamic-item") {
         return runAction(() => this._showDynamicObjectInfo(target.dataset.id))
       }

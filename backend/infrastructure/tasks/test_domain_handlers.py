@@ -77,6 +77,7 @@ async def test_plot_structure_generate_reports_coarse_progress() -> None:
         await handle_plot_structure_generate(AsyncMock(), task)
 
     assert task.progress_updates == [0.1, 0.85, 0.95]
+    assert generator.generate.await_args.kwargs["persist"] is False
 
 
 @pytest.mark.asyncio

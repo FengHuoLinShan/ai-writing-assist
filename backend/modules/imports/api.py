@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Literal
 
 from fastapi import APIRouter, Body, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field, model_validator
@@ -37,12 +38,55 @@ class DeepImportRequest(BaseModel):
     end_chapter: int = Field(default=0, ge=0)
     force: bool = False
     high_quality: bool = False
+    adoption_policy: Literal["user_authorized_pipeline"] = (
+        "user_authorized_pipeline"
+    )
+    authorization_confirmed: bool = Field(
+        ...,
+        description="已理解并授权流水线按 adoption_policy 写入资产",
+    )
 
     @model_validator(mode="after")
     def validate_chapter_range(self) -> DeepImportRequest:
         if self.end_chapter and self.end_chapter < self.start_chapter:
             raise ValueError("end_chapter must be >= start_chapter")
+        if self.authorization_confirmed is not True:
+            raise ValueError("authorization_confirmed must be true")
         return self
+
+
+class DeepImportCleanupSummaryResponse(BaseModel):
+    """Workflow cleanup result with legacy aliases kept for wire compatibility."""
+
+    deprecated_scenes: int = 0
+    deprecated_entities: int = 0
+    deprecated_structure_assets: int = 0
+    hard_deleted_assets: int = 0
+    cleanup_mode: Literal["soft_deprecate"] = "soft_deprecate"
+    rolled_back_delta_logs: int = 0
+    rolled_back_map_observations: int = 0
+    rolled_back_aliases: int = 0
+    rolled_back_relations: int = 0
+    skipped_delta_logs: int = Field(
+        0,
+        description="兼容旧字段；已由 rolled_back_delta_logs 取代",
+    )
+    skipped_map_observations: int = Field(
+        0,
+        description="兼容旧字段；已由 rolled_back_map_observations 取代",
+    )
+    cleanup_todo: str | None = Field(
+        None,
+        description="兼容旧字段；当前清理已在放弃时完成",
+    )
+
+
+class DeepImportAbandonResponse(BaseModel):
+    workflow_id: str
+    task_id: str
+    status: Literal["cancelled"]
+    cleanup_summary: DeepImportCleanupSummaryResponse
+    message: str = "深度导入恢复已放弃"
 
 
 async def _resolve_end_chapter(db: DbSession, request: DeepImportRequest) -> int:
@@ -176,6 +220,8 @@ async def submit_deep_import(
         end_chapter,
         force=body.force,
         high_quality=body.high_quality,
+        adoption_policy=body.adoption_policy,
+        authorization_confirmed=body.authorization_confirmed,
     )
     return result
 
@@ -199,6 +245,8 @@ async def _submit_stage(
         stage=stage,
         force=body.force,
         high_quality=body.high_quality,
+        adoption_policy=body.adoption_policy,
+        authorization_confirmed=body.authorization_confirmed,
     )
 
 
@@ -256,11 +304,11 @@ async def resume_deep_import(
     return result
 
 
-@router.post("/deep/abandon")
+@router.post("/deep/abandon", response_model=DeepImportAbandonResponse)
 async def abandon_deep_import(
     db: DbSession,
     body: dict = Body(..., description="放弃深度导入恢复参数"),
-) -> dict:
+) -> DeepImportAbandonResponse:
     """放弃被中断的深度导入流程并返回清理摘要
 
     请求体：
@@ -280,4 +328,4 @@ async def abandon_deep_import(
         raise HTTPException(404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, detail=str(exc)) from exc
-    return result
+    return DeepImportAbandonResponse.model_validate(result)

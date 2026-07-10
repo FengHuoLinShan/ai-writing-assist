@@ -24,9 +24,16 @@ class MapDynamicHelperMixin:
     """Private dynamic-map helper methods kept as a compatibility mixin."""
 
     def _queue_item_from_observation(self, item: Any) -> MapDashboardQueueItem:
+        from modules.world.asset_state import project_map_state
+
         title = self._display_title(item)
         object_type = self._display_object_type(item)
         status_label = self._status_label(item.review_state)
+        projection = project_map_state(
+            status=item.review_state,
+            source_ref=item.source_ref,
+            confidence=item.confidence,
+        )
         risk_level = self._risk_level(
             dynamic_type=item.dynamic_type,
             status=item.review_state,
@@ -61,11 +68,19 @@ class MapDynamicHelperMixin:
             risk_level=risk_level,
             confidence=item.confidence,
             review_state=item.review_state,
+            **projection,
         )
 
     def _queue_item_from_fact(self, item: Any) -> MapDashboardQueueItem:
+        from modules.world.asset_state import project_map_state
+
         title = self._display_title(item)
         object_type = self._display_object_type(item)
+        projection = project_map_state(
+            status=item.fact_status,
+            source_ref=item.source_ref,
+            confidence=item.confidence,
+        )
         return MapDashboardQueueItem(
             item_id=str(item.id),
             item_kind="fact",
@@ -99,6 +114,7 @@ class MapDynamicHelperMixin:
             ),
             confidence=item.confidence,
             fact_status=item.fact_status,
+            **projection,
         )
 
     def _build_dashboard_inspector(
@@ -111,7 +127,8 @@ class MapDynamicHelperMixin:
         candidates = [
             item
             for item in queue
-            if item.item_kind == "observation" and item.review_state == "candidate"
+            if item.item_kind == "observation"
+            and item.review_state in {"candidate", "conflicted"}
         ]
         facts = [item for item in queue if item.item_kind == "fact"]
         conflicts = [
@@ -134,7 +151,7 @@ class MapDynamicHelperMixin:
             title=primary.title if primary else "暂无世界动态",
             status_label=primary.status_label if primary else "等待地图事实",
             summary=(
-                "右侧检查器汇总候选映射、正式事实、冲突风险和来源证据。"
+                "右侧检查器汇总待处理观察、已采用事实、注意原因和来源证据。"
                 if queue
                 else "暂无可检查的地图事实。"
             ),
@@ -162,11 +179,7 @@ class MapDynamicHelperMixin:
         risk_summary: list[str],
     ) -> dict[str, Any]:
         crisis = next((item for item in queue if item.dynamic_type == "crisis"), None)
-        characters = [
-            item.title
-            for item in queue
-            if item.object_type == "character"
-        ][:5]
+        characters = [item.title for item in queue if item.object_type == "character"][:5]
         scene_events = [
             item.title
             for item in queue
@@ -197,7 +210,13 @@ class MapDynamicHelperMixin:
                 },
             )
             group["count"] += 1
-            if item.item_kind == "observation" and item.review_state == "candidate":
+            # ``candidate_count`` is a compatibility field used by existing
+            # clients for the author-facing pending total.  Conflicted
+            # observations remain pending work and must not disappear from it.
+            if item.item_kind == "observation" and item.review_state in {
+                "candidate",
+                "conflicted",
+            }:
                 group["candidate_count"] += 1
             if item.item_kind == "fact":
                 group["confirmed_count"] += 1
@@ -229,11 +248,7 @@ class MapDynamicHelperMixin:
         queue: list[MapDashboardQueueItem],
         focus_entity_id: str,
     ) -> list[MapDashboardQueueItem]:
-        return [
-            item
-            for item in queue
-            if item.target_entity_id == focus_entity_id
-        ]
+        return [item for item in queue if item.target_entity_id == focus_entity_id]
 
     def _filter_queue_for_item(
         self,
@@ -257,11 +272,7 @@ class MapDynamicHelperMixin:
         queue: list[MapDashboardQueueItem],
         scene_id: str,
     ) -> list[MapDashboardQueueItem]:
-        return [
-            item
-            for item in queue
-            if item.debug_ref.get("scene_id") == scene_id
-        ]
+        return [item for item in queue if item.debug_ref.get("scene_id") == scene_id]
 
     def _storyline_label(
         self,
@@ -286,7 +297,14 @@ class MapDynamicHelperMixin:
         status = getattr(item, "review_state", None) or getattr(item, "fact_status", None)
         if status == "ignored":
             return None
+        from modules.world.asset_state import project_map_state
+
         dynamic_type = self._normalize_dynamic_type(item.dynamic_type)
+        projection = project_map_state(
+            status=status,
+            source_ref=item.source_ref,
+            confidence=item.confidence,
+        )
         return MapPlaybackEvent(
             event_id=str(item.id),
             event_kind="observation" if kind == "observation" else "fact",
@@ -306,6 +324,7 @@ class MapDynamicHelperMixin:
                 confidence=item.confidence,
             ),
             confidence=item.confidence,
+            **projection,
         )
 
     def _build_playback_tracks(
@@ -342,7 +361,7 @@ class MapDynamicHelperMixin:
             return f"{field_label}：{self._format_change_value(new_value)}"
         if item.evidence_text:
             return item.evidence_text
-        return "状态变化待确认"
+        return "状态变化待处理"
 
     @staticmethod
     def _is_blank_change_value(value: Any) -> bool:
@@ -400,7 +419,7 @@ class MapDynamicHelperMixin:
             for key, raw in value.items()
             if raw is not None and not isinstance(raw, dict | list)
         ][:3]
-        return "；".join(scalar_pairs) if scalar_pairs else "结构化候选"
+        return "；".join(scalar_pairs) if scalar_pairs else "结构化建议"
 
     def _display_title(self, item: Any) -> str:
         value = item.value_json or {}
@@ -591,11 +610,11 @@ class MapDynamicHelperMixin:
     def _change_field_label(field: Any) -> str:
         text = str(field or "").strip()
         if text.startswith("entities[") or text in {"entities", "entity"}:
-            return "对象候选"
+            return "对象建议"
         if text.startswith("relations[") or text in {"relations", "relation"}:
-            return "关系候选"
+            return "关系建议"
         if text.startswith("aliases[") or text in {"aliases", "alias"}:
-            return "别名候选"
+            return "别名建议"
         if text.startswith("deltas[") or text in {"delta", "delta_event"}:
             return "世界动态"
         return text or "状态变化"
@@ -669,21 +688,21 @@ class MapDynamicHelperMixin:
         )
         if chapter_index is not None:
             return f"第 {chapter_index} 章"
-        return "时间待确认"
+        return "时间待补充"
 
     def _status_label(self, status: str | None) -> str:
         return {
-            "candidate": "待确认",
-            "confirmed": "已确认",
+            "candidate": "待处理",
+            "confirmed": "已采用",
             "ignored": "已忽略",
-            "conflicted": "有冲突",
+            "conflicted": "待处理",
             "rolled_back": "已回滚",
             "deprecated": "已废弃",
         }.get(status or "", "待判断")
 
     def _source_summary(self, item: Any) -> str:
         source_ref = item.source_ref or {}
-        source = source_ref.get("source") or source_ref.get("operation") or "来源待确认"
+        source = source_ref.get("source") or source_ref.get("operation") or "来源待补充"
         evidence = item.evidence_text or ""
         if evidence:
             return f"{source} · {evidence}"
@@ -713,9 +732,9 @@ class MapDynamicHelperMixin:
             "concept": "概念",
             "faction": "势力",
             "person": "人物",
-            "entity_candidate": "对象候选",
-            "relation_candidate": "关系候选",
-            "alias_candidate": "别名候选",
+            "entity_candidate": "对象建议",
+            "relation_candidate": "关系建议",
+            "alias_candidate": "别名建议",
             "resource": "资源",
             "crisis": "危机",
             "status": "状态",

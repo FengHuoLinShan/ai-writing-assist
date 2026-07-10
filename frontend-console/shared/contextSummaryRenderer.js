@@ -1,3 +1,5 @@
+import { contextContentModeLabel } from "./assetDisplayState.js"
+
 export function renderContextSummary(summary = {}) {
   const selected = summary.selected_asset_ids || {}
   const warnings = summary.warnings || []
@@ -6,8 +8,8 @@ export function renderContextSummary(summary = {}) {
   const budgetEvents = Array.isArray(summary.budget_events) ? summary.budget_events : []
   const totalTokens = sections.reduce((sum, section) => sum + (Number(section.token_count) || 0), 0)
   const optionLines = [
-    ["模式", summary.context_mode === "working" ? "工作稿" : "正史"],
-    ["待确认对象", summary.include_pending_objects ? "包含" : "不包含"],
+    ["模式", contextContentModeLabel(summary.context_mode)],
+    ["待处理内容", summary.include_pending_objects ? "包含" : "不包含"],
     ["范围", summary.scope || "-"],
     ["Token", totalTokens ? `${totalTokens}` : "-"],
     ["确认时间", summary.compiled_at || "-"],
@@ -26,7 +28,7 @@ export function renderContextSummary(summary = {}) {
       <div class="ai-ref-section">
         <div class="ai-ref-section-title">参考资料摘要</div>
         ${renderAssetCounts(selected)}
-        ${summary.include_pending_objects ? '<div class="ai-ref-warning-note">包含待确认对象，结果需复核</div>' : ""}
+        ${summary.include_pending_objects ? '<div class="ai-ref-warning-note">包含待处理内容，结果需要人工检查</div>' : ""}
       </div>
       ${sections.length ? `
         <div class="ai-ref-section">
@@ -103,9 +105,9 @@ function renderBudgetEvent(event) {
 function renderStatus(status) {
   const labels = {
     system: "系统",
-    canonical: "正史",
-    working: "工作稿",
-    candidate: "待确认",
+    canonical: contextContentModeLabel("canonical", { compact: true }),
+    working: contextContentModeLabel("working", { compact: true }),
+    candidate: contextContentModeLabel("candidate", { compact: true }),
     mixed: "混合",
     unknown: "未知",
   }

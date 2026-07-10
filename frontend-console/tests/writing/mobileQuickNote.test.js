@@ -36,6 +36,7 @@ beforeEach(() => {
   state._currentContent = null
   state._currentVersionNumber = null
   state._currentUpdatedAt = null
+  state._isReadonly = false
 })
 
 afterEach(() => {
@@ -65,6 +66,19 @@ describe("createMobileQuickNote", () => {
     state._currentChapter = 1
     vi.stubGlobal("window", { innerWidth: 1200 })
     const note = createTestNote()
+    expect(note.shouldRender()).toBe(false)
+    vi.unstubAllGlobals()
+  })
+
+  it("does not turn a read-only suggestion preview into an editable mobile work draft", () => {
+    state.currentProjectId = "p1"
+    state._currentChapter = 1
+    state._currentContent = "待处理建议"
+    state._isReadonly = true
+    vi.stubGlobal("window", { innerWidth: 400 })
+
+    const note = createTestNote()
+
     expect(note.shouldRender()).toBe(false)
     vi.unstubAllGlobals()
   })
@@ -115,7 +129,7 @@ describe("createMobileQuickNote", () => {
       "p1",
     )
     expect(onSaved).toHaveBeenCalled()
-    expect(toast).toHaveBeenCalledWith("已保存到草稿", "success")
+    expect(toast).toHaveBeenCalledWith("已保存到工作稿", "success")
   })
 
   it("creates new draft when save button clicked without current draft id", async () => {

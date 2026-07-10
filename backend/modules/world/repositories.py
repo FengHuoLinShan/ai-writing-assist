@@ -48,6 +48,7 @@ def _relation_upsert_lock(key: tuple[str, str, str, str, str]) -> asyncio.Lock:
         _RELATION_UPSERT_LOCKS.popitem(last=False)
     return lock
 
+
 from modules.world.models import (  # noqa: E402
     Character,
     CharacterKnowledge,
@@ -96,8 +97,9 @@ class CoreEntityRepository:
             importance=data.importance or 0.5,
             importance_level=data.importance_level or "normal",
             reveal_level=data.reveal_level or "author_only",
-            status=data.status or "draft",
+            status=data.status or "canonical",
             created_by=data.created_by,
+            approved_by=data.approved_by,
         )
         db.add(entity)
         await db.flush()
@@ -112,7 +114,7 @@ class CoreEntityRepository:
         name: str,
         summary: str | None = None,
         content_json: dict | None = None,
-        status: str = "draft",
+        status: str = "canonical",
     ) -> CoreEntity:
         entity = CoreEntity(
             novel_id=novel_id,
@@ -141,6 +143,7 @@ class CoreEntityRepository:
         *,
         entity_type: str | None = None,
         status: str | None = None,
+        display_state: str | None = None,
         q: str | None = None,
         source: str | None = None,
         workflow_id: str | None = None,
@@ -158,8 +161,14 @@ class CoreEntityRepository:
             conditions.append(CoreEntity.entity_type == entity_type)
         if status:
             conditions.append(CoreEntity.status == status)
-        else:
+        elif display_state is None:
             conditions.append(CoreEntity.status != "deprecated")
+        if display_state is not None:
+            from modules.world.asset_state import statuses_for_display_state
+
+            display_statuses = statuses_for_display_state(display_state)
+            if display_statuses:
+                conditions.append(CoreEntity.status.in_(tuple(display_statuses)))
         if q:
             query = q.strip()
             if query:
@@ -180,8 +189,7 @@ class CoreEntityRepository:
             )
         if workflow_id:
             conditions.append(
-                CoreEntity.content_json["_meta"]["workflow_id"].as_string()
-                == workflow_id
+                CoreEntity.content_json["_meta"]["workflow_id"].as_string() == workflow_id
             )
         if needs_review is not None:
             conditions.append(
@@ -231,6 +239,7 @@ class CoreEntityRepository:
         *,
         entity_type: str | None = None,
         status: str | None = None,
+        display_state: str | None = None,
         q: str | None = None,
         source: str | None = None,
         workflow_id: str | None = None,
@@ -249,6 +258,7 @@ class CoreEntityRepository:
             novel_id,
             entity_type=entity_type,
             status=status,
+            display_state=display_state,
             q=q,
             source=source,
             workflow_id=workflow_id,
@@ -279,6 +289,7 @@ class CoreEntityRepository:
         *,
         entity_type: str | None = None,
         status: str | None = None,
+        display_state: str | None = None,
         q: str | None = None,
         source: str | None = None,
         workflow_id: str | None = None,
@@ -297,6 +308,7 @@ class CoreEntityRepository:
             novel_id,
             entity_type=entity_type,
             status=status,
+            display_state=display_state,
             q=q,
             source=source,
             workflow_id=workflow_id,
@@ -319,6 +331,7 @@ class CoreEntityRepository:
             novel_id,
             entity_type=entity_type,
             status=status,
+            display_state=display_state,
             q=q,
             source=source,
             workflow_id=workflow_id,
@@ -340,13 +353,18 @@ class CoreEntityRepository:
         db: AsyncSession,
         novel_id: uuid.UUID,
         entity_ids: list[uuid.UUID],
+        *,
+        statuses: Sequence[str] | None = None,
     ) -> list[CoreEntity]:
         if not entity_ids:
             return []
-        stmt = select(CoreEntity).where(
+        conditions = [
             CoreEntity.novel_id == novel_id,
             CoreEntity.id.in_(entity_ids),
-        )
+        ]
+        if statuses:
+            conditions.append(CoreEntity.status.in_(tuple(statuses)))
+        stmt = select(CoreEntity).where(*conditions)
         result = await db.execute(stmt)
         items: Sequence[CoreEntity] = result.scalars().all()
         return list(items)
@@ -742,6 +760,23 @@ class CoreEntityRepository:
 class EventRepository:
     """事件数据访问"""
 
+    @staticmethod
+    def _active_conditions() -> list[Any]:
+        """只返回挂在已采用事件与地点下的扩展记录。"""
+        canonical_event = exists().where(
+            CoreEntity.id == Event.entity_id,
+            CoreEntity.novel_id == Event.novel_id,
+            CoreEntity.entity_type == "event",
+            CoreEntity.status == "canonical",
+        )
+        canonical_location = exists().where(
+            CoreEntity.id == Event.location_entity_id,
+            CoreEntity.novel_id == Event.novel_id,
+            CoreEntity.entity_type == "location",
+            CoreEntity.status == "canonical",
+        )
+        return [canonical_event, canonical_location]
+
     async def create(
         self,
         db: AsyncSession,
@@ -777,7 +812,7 @@ class EventRepository:
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[Event], int]:
-        conditions = [Event.novel_id == novel_id]
+        conditions = [Event.novel_id == novel_id, *self._active_conditions()]
         count_stmt = select(func.count(Event.entity_id)).where(*conditions)
         total = (await db.execute(count_stmt)).scalar() or 0
 
@@ -803,6 +838,7 @@ class EventRepository:
             .where(
                 Event.novel_id == novel_id,
                 Event.source_chapter_id == chapter_id,
+                *self._active_conditions(),
             )
             .order_by(Event.timeline_order, Event.entity_id)
         )
@@ -818,7 +854,7 @@ class EventRepository:
     ) -> list[Event]:
         stmt = (
             select(Event)
-            .where(Event.novel_id == novel_id)
+            .where(Event.novel_id == novel_id, *self._active_conditions())
             .order_by(Event.timeline_order, Event.entity_id)
             .limit(limit)
         )
@@ -899,6 +935,7 @@ class EntityRelationRepository:
             if data.caused_by_event_id
             else None,
             quote=data.quote,
+            review_meta=data.review_meta or {},
             status=data.status or "canonical",
         )
         db.add(rel)
@@ -958,19 +995,15 @@ class EntityRelationRepository:
             conditions.append(EntityRelation.strength <= strength_max)
         stmt = self._with_endpoint_loads(select(EntityRelation))
         if q and q.strip():
-            stmt = (
-                stmt.join(
-                    CoreEntity,
-                    or_(
-                        EntityRelation.source_id == CoreEntity.id,
-                        EntityRelation.target_id == CoreEntity.id,
-                    ),
-                )
-                .distinct()
-            )
+            stmt = stmt.join(
+                CoreEntity,
+                or_(
+                    EntityRelation.source_id == CoreEntity.id,
+                    EntityRelation.target_id == CoreEntity.id,
+                ),
+            ).distinct()
         stmt = (
-            stmt
-            .where(*conditions)
+            stmt.where(*conditions)
             .offset(skip)
             .limit(limit)
             .order_by(EntityRelation.created_at.desc(), EntityRelation.id.desc())
@@ -1524,6 +1557,15 @@ class EntityRevisionRepository:
 class CharacterRepository:
     """人物数据访问"""
 
+    @staticmethod
+    def _canonical_owner_condition():
+        return exists().where(
+            CoreEntity.id == Character.entity_id,
+            CoreEntity.novel_id == Character.novel_id,
+            CoreEntity.entity_type == "character",
+            CoreEntity.status == "canonical",
+        )
+
     async def create(
         self,
         db: AsyncSession,
@@ -1573,7 +1615,10 @@ class CharacterRepository:
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> list[Character]:
-        conditions = [Character.novel_id == novel_id]
+        conditions = [
+            Character.novel_id == novel_id,
+            self._canonical_owner_condition(),
+        ]
         stmt = (
             select(Character)
             .where(*conditions)
@@ -1593,7 +1638,10 @@ class CharacterRepository:
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[Character], int]:
-        conditions = [Character.novel_id == novel_id]
+        conditions = [
+            Character.novel_id == novel_id,
+            self._canonical_owner_condition(),
+        ]
         count_stmt = select(func.count(Character.entity_id)).where(*conditions)
         total = (await db.execute(count_stmt)).scalar() or 0
         items = await self.list_by_novel(db, novel_id, skip=skip, limit=limit)
@@ -1610,6 +1658,7 @@ class CharacterRepository:
         stmt = select(Character).where(
             Character.novel_id == novel_id,
             Character.entity_id.in_(character_ids),
+            self._canonical_owner_condition(),
         )
         result = await db.execute(stmt)
         items: Sequence[Character] = result.scalars().all()
@@ -1704,6 +1753,7 @@ class CharacterRepository:
                 Character.novel_id == novel_id,
                 Character.name == name,
                 Character.status == "canonical",
+                self._canonical_owner_condition(),
             )
             .limit(1)
         )
@@ -1741,6 +1791,7 @@ class CharacterRepository:
             Character.novel_id == novel_id,
             Character.status == "canonical",
             Character.meta["location_id"].as_string() == str(location_id),
+            self._canonical_owner_condition(),
         )
         result = await db.execute(stmt)
         characters: Sequence[Character] = result.scalars().all()
@@ -1773,6 +1824,55 @@ class CharacterRepository:
 
 class CharacterKnowledgeRepository:
     """人物知识数据访问"""
+
+    _GENERIC_CORE_TARGET_TYPES = {"entity", "world_entity", "object"}
+    _TYPED_CORE_TARGET_TYPES = {"character", "event", "location", "item", "faction"}
+
+    @staticmethod
+    def _canonical_character_condition():
+        return exists().where(
+            CoreEntity.id == CharacterKnowledge.character_id,
+            CoreEntity.novel_id == CharacterKnowledge.novel_id,
+            CoreEntity.entity_type == "character",
+            CoreEntity.status == "canonical",
+        )
+
+    @classmethod
+    def _canonical_target_condition(cls):
+        """已知 CoreEntity 目标只在已采用时可进入默认上下文。"""
+        known_types = cls._GENERIC_CORE_TARGET_TYPES | cls._TYPED_CORE_TARGET_TYPES
+        generic_target = and_(
+            CharacterKnowledge.target_type.in_(cls._GENERIC_CORE_TARGET_TYPES),
+            exists().where(
+                CoreEntity.id == CharacterKnowledge.target_id,
+                CoreEntity.novel_id == CharacterKnowledge.novel_id,
+                CoreEntity.status == "canonical",
+            ),
+        )
+        typed_targets = [
+            and_(
+                CharacterKnowledge.target_type == target_type,
+                exists().where(
+                    CoreEntity.id == CharacterKnowledge.target_id,
+                    CoreEntity.novel_id == CharacterKnowledge.novel_id,
+                    CoreEntity.entity_type == target_type,
+                    CoreEntity.status == "canonical",
+                ),
+            )
+            for target_type in cls._TYPED_CORE_TARGET_TYPES
+        ]
+        return or_(
+            CharacterKnowledge.target_type.not_in(known_types),
+            generic_target,
+            *typed_targets,
+        )
+
+    @classmethod
+    def _active_conditions(cls) -> list[Any]:
+        return [
+            cls._canonical_character_condition(),
+            cls._canonical_target_condition(),
+        ]
 
     async def create(
         self,
@@ -1820,6 +1920,7 @@ class CharacterKnowledgeRepository:
         conditions = [
             CharacterKnowledge.novel_id == novel_id,
             CharacterKnowledge.character_id == character_id,
+            *self._active_conditions(),
         ]
         count_stmt = select(func.count(CharacterKnowledge.id)).where(*conditions)
         total = (await db.execute(count_stmt)).scalar() or 0
@@ -1843,7 +1944,10 @@ class CharacterKnowledgeRepository:
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> list[CharacterKnowledge]:
-        conditions = [CharacterKnowledge.novel_id == novel_id]
+        conditions = [
+            CharacterKnowledge.novel_id == novel_id,
+            *self._active_conditions(),
+        ]
         stmt = (
             select(CharacterKnowledge)
             .where(*conditions)
@@ -1863,7 +1967,10 @@ class CharacterKnowledgeRepository:
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> tuple[list[CharacterKnowledge], int]:
-        conditions = [CharacterKnowledge.novel_id == novel_id]
+        conditions = [
+            CharacterKnowledge.novel_id == novel_id,
+            *self._active_conditions(),
+        ]
         count_stmt = select(func.count(CharacterKnowledge.id)).where(*conditions)
         total = (await db.execute(count_stmt)).scalar() or 0
         items = await self.list_by_novel(db, novel_id, skip=skip, limit=limit)
@@ -1880,6 +1987,7 @@ class CharacterKnowledgeRepository:
         conditions = [
             CharacterKnowledge.novel_id == novel_id,
             CharacterKnowledge.character_id == character_id,
+            *self._active_conditions(),
         ]
         if target_ids:
             conditions.append(CharacterKnowledge.target_id.in_(target_ids))
@@ -1888,8 +1996,7 @@ class CharacterKnowledgeRepository:
                 or_(
                     and_(
                         CharacterKnowledge.source_chapter_index.is_not(None),
-                        CharacterKnowledge.source_chapter_index
-                        < visible_until_chapter,
+                        CharacterKnowledge.source_chapter_index < visible_until_chapter,
                     ),
                     and_(
                         CharacterKnowledge.source_chapter_index.is_(None),

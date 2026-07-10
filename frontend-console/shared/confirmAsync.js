@@ -11,6 +11,7 @@ export function confirmAsync(
   return new Promise((resolve) => {
     let settled = false
     let observer = null
+    let cancelButtonTimer = null
 
     const settle = (value) => {
       if (settled) return
@@ -36,13 +37,18 @@ export function confirmAsync(
       modalOverlay?.removeEventListener("click", onOverlayClick)
       document.removeEventListener("keydown", onKeyDown, true)
       observer?.disconnect()
+      if (cancelButtonTimer !== null) clearTimeout(cancelButtonTimer)
+      cancelButtonTimer = null
     }
 
     confirmAction(message, onConfirm, confirmText)
-    setTimeout(() => {
-      const cancelBtn = document.querySelector(".modal-content .btn:not(.btn-primary)")
-      if (cancelBtn) cancelBtn.onclick = onCancel
-    }, 50)
+    if (!settled) {
+      cancelButtonTimer = setTimeout(() => {
+        if (settled || typeof document === "undefined") return
+        const cancelBtn = document.querySelector(".modal-content .btn:not(.btn-primary)")
+        if (cancelBtn) cancelBtn.onclick = onCancel
+      }, 50)
+    }
 
     modalClose?.addEventListener("click", onCloseClick)
     modalOverlay?.addEventListener("click", onOverlayClick)

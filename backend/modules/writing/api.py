@@ -256,7 +256,7 @@ async def generate_writing_candidate(
     db: DbSession,
     data: WritingGenerateRequest,
 ) -> WritingGenerateResponse:
-    """提交 AI 正文候选草稿生成任务。"""
+    """提交 AI 正文建议生成任务；采用前不进入工作稿。"""
     try:
         await prepare_confirmed_ai_action(
             db,
@@ -348,6 +348,31 @@ async def get_draft(
 ) -> WritingDraftResponse:
     """获取指定草稿"""
     return await _service.get_draft(db, draft_id, novel_id)
+
+
+@router.post("/drafts/{draft_id}/adopt", response_model=WritingDraftResponse)
+async def adopt_candidate_to_working(
+    db: DbSession,
+    draft_id: str = Path(..., description="AI 正文建议 ID"),
+    *,
+    novel_id: NovelIdQuery,
+) -> WritingDraftResponse:
+    """将 AI 正文建议显式采用到普通工作稿。"""
+    from modules.rag.facade import request_chapter_index
+
+    result = await _service.adopt_candidate_to_working(
+        db,
+        draft_id,
+        novel_id,
+        adopted_by="author",
+    )
+    await request_chapter_index(
+        db,
+        novel_id,
+        result.chapter_index,
+        content_mode="working",
+    )
+    return result
 
 
 @router.put("/drafts/{draft_id}", response_model=WritingDraftResponse)

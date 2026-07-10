@@ -69,7 +69,7 @@ export function createPublishManager({ state, api, toast, modal, esc, onStatusCh
     }
 
     if (!content || !content.trim()) {
-      toast("草稿内容不能为空", "warning")
+      toast("工作稿内容不能为空", "warning")
       return
     }
 
@@ -174,7 +174,7 @@ export function createPublishManager({ state, api, toast, modal, esc, onStatusCh
           const errMsg = sanitizeTaskErrorMessage(
             task.error_message || task.result?.error_message || task.result?.error,
             "publish_chapter",
-          ) || "发布任务失败。草稿已保存，请稍后重试。"
+          ) || "发布任务失败。工作稿已保存，请稍后重试。"
           _publishProgress.message = errMsg
           _publishProgress.showModal = true
           onStatusChange("发布失败")
@@ -191,9 +191,9 @@ export function createPublishManager({ state, api, toast, modal, esc, onStatusCh
       } catch (err) {
         if (_publishProgress) {
           const errMsg = sanitizeTaskErrorMessage(
-            err?.message || "发布状态查询失败。草稿已保存，请稍后重试。",
+            err?.message || "发布状态查询失败。工作稿已保存，请稍后重试。",
             "publish_chapter",
-          ) || "发布状态查询失败。草稿已保存，请稍后重试。"
+          ) || "发布状态查询失败。工作稿已保存，请稍后重试。"
           _publishProgress.phase = "failed"
           _publishProgress.message = errMsg
           _publishProgress.showModal = true
@@ -219,7 +219,7 @@ export function createPublishManager({ state, api, toast, modal, esc, onStatusCh
     _errorModalVisible = true
     modal.showHtml("发布失败", `
       <p>${esc(msg)}</p>
-      <p class="writing-publish-error">草稿已保存成功。您可以手动重试失败的步骤。</p>
+      <p class="writing-publish-error">工作稿已保存成功。您可以手动重试失败的步骤。</p>
       <div class="writing-publish-actions">
         <button class="btn" id="btn-dismiss-publish-modal">关闭</button>
         <button class="btn btn-primary" id="btn-retry-failed">手动重试</button>

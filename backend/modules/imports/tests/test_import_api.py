@@ -342,7 +342,12 @@ async def test_deep_import_empty_project_returns_clear_error(
     novel_id = sample_project["id"]
     resp = await async_client.post(
         "/api/imports/deep",
-        json={"novel_id": novel_id, "start_chapter": 1, "end_chapter": 0},
+        json={
+            "novel_id": novel_id,
+            "start_chapter": 1,
+            "end_chapter": 0,
+            "authorization_confirmed": True,
+        },
     )
     assert resp.status_code == 400
     assert "章节" in resp.json()["detail"]
@@ -357,7 +362,12 @@ async def test_deep_import_explicit_range_valid(
     novel_id = sample_project["id"]
     resp = await async_client.post(
         "/api/imports/deep",
-        json={"novel_id": novel_id, "start_chapter": 5, "end_chapter": 1},
+        json={
+            "novel_id": novel_id,
+            "start_chapter": 5,
+            "end_chapter": 1,
+            "authorization_confirmed": True,
+        },
     )
     assert resp.status_code == 422
     assert "end_chapter must be >= start_chapter" in resp.text
@@ -380,7 +390,12 @@ async def test_deep_import_range_limit_returns_400_without_task(
 
     resp = await async_client.post(
         "/api/imports/deep",
-        json={"novel_id": novel_id, "start_chapter": 1, "end_chapter": 3},
+        json={
+            "novel_id": novel_id,
+            "start_chapter": 1,
+            "end_chapter": 3,
+            "authorization_confirmed": True,
+        },
     )
 
     assert resp.status_code == 400
@@ -407,7 +422,12 @@ async def test_stage_range_limit_returns_400_without_task(
 
     resp = await async_client.post(
         "/api/imports/stages/scenes",
-        json={"novel_id": novel_id, "start_chapter": 4, "end_chapter": 6},
+        json={
+            "novel_id": novel_id,
+            "start_chapter": 4,
+            "end_chapter": 6,
+            "authorization_confirmed": True,
+        },
     )
 
     assert resp.status_code == 400
@@ -437,7 +457,12 @@ async def test_deep_import_stage_endpoints_enqueue_expected_task(
 
     resp = await async_client.post(
         endpoint,
-        json={"novel_id": novel_id, "start_chapter": 1, "end_chapter": 5},
+        json={
+            "novel_id": novel_id,
+            "start_chapter": 1,
+            "end_chapter": 5,
+            "authorization_confirmed": True,
+        },
     )
 
     assert resp.status_code == 201
@@ -454,6 +479,15 @@ async def test_deep_import_stage_endpoints_enqueue_expected_task(
     assert task.meta["start_chapter"] == 1
     assert task.meta["end_chapter"] == 5
     assert task.meta["high_quality"] is False
+    assert task.meta["adoption_policy"] == "user_authorized_pipeline"
+    assert task.meta["authorization_confirmed"] is True
+    assert task.meta["authorization_snapshot"]["scope"]["stage"]
+    assert task.meta["authorization_snapshot"]["rollback"] == {
+        "supported": True,
+        "mode": "workflow_owned_soft_deprecate",
+    }
+    assert task.result["authorization_snapshot"] == task.meta["authorization_snapshot"]
+    assert task.result["asset_summary"]["adopted"] == 0
 
 
 @pytest.mark.asyncio
@@ -471,6 +505,7 @@ async def test_scene_stage_endpoint_accepts_high_quality_flag(
             "start_chapter": 1,
             "end_chapter": 5,
             "high_quality": True,
+            "authorization_confirmed": True,
         },
     )
 
@@ -492,10 +527,36 @@ async def test_deep_import_stage_endpoint_validates_chapter_range(
     novel_id = sample_project["id"]
     resp = await async_client.post(
         "/api/imports/stages/scenes",
-        json={"novel_id": novel_id, "start_chapter": 5, "end_chapter": 1},
+        json={
+            "novel_id": novel_id,
+            "start_chapter": 5,
+            "end_chapter": 1,
+            "authorization_confirmed": True,
+        },
     )
     assert resp.status_code == 422
     assert "end_chapter must be >= start_chapter" in resp.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("authorization_value", [None, False])
+async def test_deep_import_requires_explicit_pipeline_authorization(
+    async_client: AsyncClient,
+    sample_project: dict,
+    authorization_value: bool | None,
+) -> None:
+    payload = {
+        "novel_id": sample_project["id"],
+        "start_chapter": 1,
+        "end_chapter": 1,
+    }
+    if authorization_value is not None:
+        payload["authorization_confirmed"] = authorization_value
+
+    response = await async_client.post("/api/imports/deep", json=payload)
+
+    assert response.status_code == 422
+    assert "authorization_confirmed" in response.text
 
 
 @pytest.mark.asyncio

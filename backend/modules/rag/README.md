@@ -31,7 +31,8 @@ rag 模块负责从结构化小说知识库和文本片段中检索与当前创�
 
 章节正文索引要求 `chunk_index` 和 `index_version` 始终存在。幂等键包含
 `content_mode`，canonical 与 working 分别重建；`source_id/source_content_hash`
-必须指向实际执行时选中的 draft。
+必须指向实际执行时选中的 draft。working 来源只读取 writing 已采用版本；未采用 AI
+`candidate` 不进入 latest working 或 RAG 索引。
 
 ## 检索类型
 
@@ -178,5 +179,5 @@ cd ../.. && make test-real-llm
 - 复杂 GraphRAG 社区摘要
 - Neo4j
 - 实时全量 Mention embedding
-- 自动合并正史对象
+- 自动合并已采用世界对象
 - 复杂 reranker

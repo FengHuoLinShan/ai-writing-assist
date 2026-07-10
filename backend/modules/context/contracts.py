@@ -55,7 +55,7 @@ class CompileOptions:
     content_mode: str = "canonical"
     """正文来源视图：canonical / working"""
     include_pending_objects: bool = False
-    """是否包含待确认对象"""
+    """是否包含待处理对象"""
     excluded_asset_ids: dict[str, list[str]] = field(default_factory=dict)
     """本次编译显式排除的资产 ID"""
     user_note: str | None = None

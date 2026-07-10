@@ -560,6 +560,36 @@ describe("mapView 列表渲染", () => {
     expect(mapView._maps[0].name).toBe("九州")
   })
 
+  it("地点、标记和势力选择器只加载已采用实体", async () => {
+    globalThis.state.currentProjectId = "p1"
+    api.world.listEntities.mockImplementation(async (params) => ({
+      items: params.display_state === "active"
+        ? [{ id: `active-${params.entity_type}`, entity_type: params.entity_type }]
+        : [{
+            id: `shadow-${params.entity_type}`,
+            entity_type: params.entity_type,
+            status: "candidate",
+            content_json: { _meta: { compatibility_shadow: true } },
+          }],
+    }))
+
+    await mapView._loadLocations()
+    await mapView._loadAllEntities()
+
+    expect(api.world.listEntities).toHaveBeenCalledTimes(6)
+    for (const [params] of api.world.listEntities.mock.calls) {
+      expect(params).toMatchObject({
+        novel_id: "p1",
+        display_state: "active",
+        skip: 0,
+        limit: 50,
+      })
+    }
+    expect(mapView._locations.map((entity) => entity.id)).toEqual(["active-location"])
+    expect(mapView._allEntities.every((entity) => entity.id.startsWith("active-"))).toBe(true)
+    expect(mapView._allEntities.some((entity) => entity.id.startsWith("shadow-"))).toBe(false)
+  })
+
   it("listMaps 失败时显示地图列表加载失败提示", async () => {
     globalThis.state.currentProjectId = "p1"
     api.world.listMaps.mockRejectedValue(new Error("网络失败"))
@@ -1671,7 +1701,7 @@ describe("mapHexRenderer candidate and context layers", () => {
     ], 30, 0, 0)
 
     expect(ctx._calls.arc).toBe(1)
-    expect(ctx._calls.fillText.some(([text]) => text === "待确认")).toBe(true)
+    expect(ctx._calls.fillText.some(([text]) => text === "待处理")).toBe(true)
   })
 
   it("drawCandidateBindings uses dashed pending outline", () => {

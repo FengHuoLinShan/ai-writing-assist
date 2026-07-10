@@ -90,6 +90,22 @@ async def get_draft(
     return await _service.get_draft_contract(db, novel_id, draft_id)
 
 
+async def adopt_candidate_to_working(
+    db: AsyncSession,
+    novel_id: str,
+    draft_id: str,
+    *,
+    adopted_by: str = "author",
+) -> WritingDraftContract:
+    """Adopt an AI writing suggestion into the normal working-draft lifecycle."""
+    return await _service.adopt_candidate_to_working_contract(
+        db,
+        draft_id,
+        novel_id,
+        adopted_by=adopted_by,
+    )
+
+
 async def get_latest_draft_for_chapter(
     db: AsyncSession,
     novel_id: str,

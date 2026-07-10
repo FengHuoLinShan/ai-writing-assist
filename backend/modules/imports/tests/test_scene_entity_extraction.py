@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from contextlib import ExitStack, contextmanager
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -2203,7 +2204,7 @@ async def test_extract_by_scenes_continues_after_single_transport_failure() -> N
             "modules.world.facade.get_world_context",
             new_callable=AsyncMock,
             return_value=Mock(entities=[]),
-        ),
+        ) as world_context,
         patch.object(
             svc,
             "_process_scene",
@@ -2227,6 +2228,13 @@ async def test_extract_by_scenes_continues_after_single_transport_failure() -> N
     assert result["skipped_scenes"] == 0
     assert result["stopped_early"] is False
     assert process_scene.await_count == 2
+    world_context.assert_awaited_once_with(
+        db,
+        "00000000-0000-0000-0000-000000000001",
+        reveal_mode="author_safe",
+        limit=500,
+        include_review=True,
+    )
 
 
 @pytest.mark.asyncio
@@ -3157,6 +3165,38 @@ async def test_small_sample_bulk_uses_llm_supplement_before_fallback() -> None:
     assert result["supplemental_llm_created"] == 13
     assert result["fallback_created"] == 0
     assert result["created_entity_ids"][0] == "llm-entity-0"
+
+
+@pytest.mark.asyncio
+async def test_small_sample_supplement_includes_review_entities_for_dedup() -> None:
+    svc = SceneEntityExtractionService()
+    svc._load_small_sample_chapters_text = AsyncMock(return_value="chapter text")
+    svc._call_llm_extraction = AsyncMock(return_value=SimpleNamespace(entities=[]))
+    svc._persist_entities = AsyncMock(return_value=0)
+    world_context = AsyncMock(return_value=SimpleNamespace(entities=[]))
+    nid = uuid.uuid4()
+    db = Mock()
+
+    with patch(
+        "modules.world.facade.get_world_context",
+        world_context,
+    ):
+        result = await BulkSceneEntityExtractor(svc).supplement_with_llm(
+            db,
+            nid,
+            [{"chapter_ids": ["1"]}],
+            needed=3,
+            workflow_id="wf-review-dedup",
+        )
+
+    assert result == {"created": 0, "created_entity_ids": []}
+    world_context.assert_awaited_once_with(
+        db,
+        str(nid),
+        reveal_mode="author_safe",
+        limit=500,
+        include_review=True,
+    )
 
 
 @pytest.mark.asyncio

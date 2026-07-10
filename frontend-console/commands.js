@@ -160,9 +160,8 @@ registerCommand("world", async () => {
 }, "打开世界对象页")
 
 registerCommand("candidates", async () => {
-  toast("候选管理已移除，AI 抽取直接自动入库。前往「对象库」查看。", "info")
-  router.navigate("world", "objects")
-}, "候选管理（已废弃，AI 直接自动入库）")
+  router.navigate("world", "review-objects")
+}, "打开待处理内容")
 
 registerCommand("rag", async (args) => {
   if (args[0] === "search" && args[1]) {
@@ -180,7 +179,7 @@ registerCommand("context", async () => {
 
 registerCommand("writing", async () => {
   router.navigate("writing")
-}, "打开草稿导出页")
+}, "打开写作工作台")
 
 registerCommand("generate", async () => {
   router.navigate("generate")

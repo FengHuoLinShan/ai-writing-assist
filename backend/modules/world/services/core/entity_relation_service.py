@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.crud import CrudService
@@ -87,6 +88,15 @@ class EntityRelationService(
     def _assert_active_relation_endpoint(self, entity: Any, field_name: str) -> None:
         if getattr(entity, "status", None) in _RETIRED_ENTITY_STATUSES:
             raise ValidationError(f"{field_name} cannot be retired entity")
+        meta = dict((getattr(entity, "content_json", None) or {}).get("_meta") or {})
+        if (
+            getattr(entity, "status", None) in {"draft", "candidate"}
+            and meta.get("compatibility_shadow") is True
+            and meta.get("suggestion_id")
+        ):
+            raise ValidationError(
+                f"{field_name} must adopt its authoritative suggestion first"
+            )
 
     def _relation_snapshot(self, rel: EntityRelation) -> dict[str, object]:
         return {
@@ -131,6 +141,44 @@ class EntityRelationService(
     def _to_response(self, obj: EntityRelation) -> EntityRelationResponse:
         return self._response_with_endpoint_names(obj)
 
+    async def rollback_deep_import_candidates_by_workflow(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        workflow_id: str,
+    ) -> int:
+        """Archive untouched candidate relations owned by one import workflow."""
+        nid = parse_uuid(novel_id, "novel_id")
+        result = await db.execute(
+            select(EntityRelation)
+            .where(
+                EntityRelation.novel_id == nid,
+                EntityRelation.status == "candidate",
+            )
+            .with_for_update()
+        )
+        rolled_back_at = datetime.now(UTC).isoformat()
+        count = 0
+        for relation in result.scalars().all():
+            meta = dict(relation.review_meta or {})
+            if (
+                meta.get("workflow_id") != workflow_id
+                or meta.get("user_edited") is True
+                or meta.get("reviewed_by") == "manual"
+            ):
+                continue
+            relation.status = "deprecated"
+            relation.review_meta = {
+                **meta,
+                "rolled_back": True,
+                "rolled_back_at": rolled_back_at,
+                "rollback_reason": "workflow_abandoned",
+            }
+            db.add(relation)
+            count += 1
+        await db.flush()
+        return count
+
     # ============================================================
     # Override: create 加端点有效性与重复校验
     # ============================================================
@@ -151,6 +199,8 @@ class EntityRelationService(
             sid,
             tid,
         )
+        self._assert_active_relation_endpoint(source, "source_id")
+        self._assert_active_relation_endpoint(target, "target_id")
 
         duplicate = await self.repo.find_duplicate_relation(
             db,
@@ -187,6 +237,8 @@ class EntityRelationService(
             sid,
             tid,
         )
+        self._assert_active_relation_endpoint(source, "source_id")
+        self._assert_active_relation_endpoint(target, "target_id")
 
         existing = await self.repo.find_duplicate_relation(
             db,
@@ -205,9 +257,24 @@ class EntityRelationService(
             )
             return {"action": "created", "relation": response}
 
+        # A review-only import must never mutate an already adopted relation.
+        # Treat the matching active edge as deterministic dedup and leave its
+        # content, provenance, and strength untouched until an author makes an
+        # explicit decision through the suggestion/review flow.
+        if existing.status == "canonical" and data.status != "canonical":
+            return {
+                "action": "deduplicated",
+                "relation": self._response_with_endpoint_names(existing),
+            }
+
         existing.description = _merge_text(existing.description, data.description)
         existing.quote = _merge_text(existing.quote, data.quote)
         existing.strength = max(float(existing.strength or 0.0), float(data.strength))
+        if data.review_meta:
+            existing.review_meta = {
+                **(existing.review_meta or {}),
+                **data.review_meta,
+            }
         if existing.status != "canonical" and data.status:
             existing.status = data.status
         if existing.source_chapter_id is None and data.source_chapter_id:
@@ -283,12 +350,15 @@ class EntityRelationService(
             raise NotFoundError(f"EntityRelation {id} not found")
         if data.status is not None and before["status"] != updated.status:
             after = self._relation_snapshot(updated)
-            updated.review_meta = self._review_meta(
-                action="relation_status_updated",
-                before=before,
-                after=after,
-                reviewed_from="world_relations_update",
-            )
+            updated.review_meta = {
+                **(updated.review_meta or {}),
+                **self._review_meta(
+                    action="relation_status_updated",
+                    before=before,
+                    after=after,
+                    reviewed_from="world_relations_update",
+                ),
+            }
             db.add(updated)
             await db.flush()
         return self._response_with_endpoint_names(updated)
@@ -345,12 +415,15 @@ class EntityRelationService(
             rel.status = "canonical"
 
         after = self._relation_snapshot(rel)
-        rel.review_meta = self._review_meta(
-            action="relation_review_edit",
-            before=before,
-            after=after,
-            reviewed_from="world_relations_review_edit",
-        )
+        rel.review_meta = {
+            **(rel.review_meta or {}),
+            **self._review_meta(
+                action="relation_review_edit",
+                before=before,
+                after=after,
+                reviewed_from="world_relations_review_edit",
+            ),
+        }
         db.add(rel)
         await db.flush()
         rel = await self.repo.get(db, rid) or rel
@@ -473,6 +546,8 @@ class EntityRelationService(
             sid,
             tid,
         )
+        self._assert_active_relation_endpoint(source, "source_id")
+        self._assert_active_relation_endpoint(target, "target_id")
         rel = await self.repo.upsert(
             db,
             nid,

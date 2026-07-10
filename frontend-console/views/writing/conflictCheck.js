@@ -108,10 +108,10 @@ export function createConflictCheck({
         <div class="writing-conflict-options">
           <label class="writing-checkbox-label">
             <input id="writing-conflict-include-candidates" type="checkbox" />
-            <span>包含待确认对象</span>
+            <span>包含待处理内容</span>
           </label>
           <p class="writing-form-hint">
-            包含后，依赖待确认对象的检查结果会标记为需复核；不会修改正文、Scene、地图或正史。
+            包含后，依赖待处理内容的检查结果会标记注意原因；不会修改正文、Scene、地图或已采用设定。
           </p>
         </div>
       `
@@ -238,7 +238,7 @@ export function createConflictCheck({
       },
       onApplySuggestion: (_itemId, text) => {
         onInsertText?.(text)
-        toast("AI 建议草稿已插入当前正文", "success")
+        toast("AI 建议已采用到当前工作稿", "success")
       },
       onLocate: (itemId) => locateItem(check, itemId),
       onOpenSource: (itemId) => openSource(check, itemId),
@@ -278,7 +278,7 @@ export function createConflictCheck({
       return
     }
     if (openTargetKind === "map_scene" || openTargetKind === "map_object") {
-      onOpenMap?.()
+      onOpenMap?.(openTarget)
       return
     }
     if (openTargetKind === "outline_scene") {
@@ -298,7 +298,7 @@ export function createConflictCheck({
       return
     }
     if (item?.source_module === "world") {
-      onOpenMap?.()
+      onOpenMap?.(openTarget)
       return
     }
     if (item?.source_module === "outline") {

@@ -245,6 +245,7 @@ class SceneEntityExtractionService:
             novel_id,
             reveal_mode="author_safe",
             limit=500,
+            include_review=True,
         )
         existing_context = (
             "\n".join(

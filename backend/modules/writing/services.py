@@ -37,6 +37,7 @@ from modules.writing.pov_generation import (
     prompt_hash,
 )
 from modules.writing.repositories import (
+    WORKING_DRAFT_STATUSES,
     WritingConflictCheckRepository,
     WritingDraftRepository,
 )
@@ -55,6 +56,7 @@ from modules.writing.schemas import (
     WritingDraftCreate,
     WritingDraftResponse,
     WritingDraftUpdate,
+    project_writing_draft_state,
 )
 from modules.writing.text_sanitizer import sanitize_writing_text
 from shared.utils import parse_uuid as _shared_parse_uuid
@@ -218,6 +220,68 @@ class WritingDraftService:
             raise NotFoundError(f"Draft {draft_id} not found")
         return WritingDraftResponse.model_validate(draft)
 
+    async def adopt_candidate_to_working(
+        self,
+        db: AsyncSession,
+        draft_id: str,
+        novel_id: str,
+        *,
+        adopted_by: str = "author",
+    ) -> WritingDraftResponse:
+        """Adopt one AI suggestion into the ordinary working-draft lifecycle."""
+        did = _parse_uuid(draft_id, "draft")
+        nid = _parse_uuid(novel_id, "novel")
+        draft = await self._repo.get_for_update(db, did)
+        if draft is None or draft.novel_id != nid:
+            raise NotFoundError(f"Draft {draft_id} not found")
+        if draft.status != "candidate":
+            raise ValidationError("Only a candidate writing suggestion can be adopted")
+
+        adopted_at = datetime.now(UTC).isoformat()
+        adopted_provenance = {
+            **(draft.provenance_json or {}),
+            "adopted_from_candidate_id": str(draft.id),
+            "adopted_at": adopted_at,
+            "adopted_by": adopted_by,
+        }
+        adopted = await self._repo.create(
+            db,
+            WritingDraftCreate(
+                novel_id=str(draft.novel_id),
+                chapter_index=draft.chapter_index,
+                title=draft.title,
+                content=draft.content,
+                provenance_json=adopted_provenance,
+            ),
+        )
+        draft.provenance_json = {
+            **(draft.provenance_json or {}),
+            "deprecated_from_status": "candidate",
+            "adoption_result_draft_id": str(adopted.id),
+            "adopted_at": adopted_at,
+            "adopted_by": adopted_by,
+        }
+        draft.status = "deprecated"
+        db.add(draft)
+        await db.flush()
+        return WritingDraftResponse.model_validate(adopted)
+
+    async def adopt_candidate_to_working_contract(
+        self,
+        db: AsyncSession,
+        draft_id: str,
+        novel_id: str,
+        *,
+        adopted_by: str = "author",
+    ) -> WritingDraftContract:
+        adopted = await self.adopt_candidate_to_working(
+            db,
+            draft_id,
+            novel_id,
+            adopted_by=adopted_by,
+        )
+        return self._to_contract(adopted)
+
     async def update_draft(
         self,
         db: AsyncSession,
@@ -293,14 +357,18 @@ class WritingDraftService:
         if draft is None or str(draft.novel_id) != str(nid):
             raise NotFoundError(f"Draft {draft_id} not found")
 
-        # 业务规则：至少保留 1 个版本
-        version_count = await self._repo.count_versions(
-            db,
-            draft.novel_id,
-            draft.chapter_index,
-        )
-        if version_count <= 1:
-            raise ValidationError("Cannot delete the last version of a chapter")
+        # 待处理建议不能充当章节工作稿。只有删除工作/已发布版本时，
+        # 才需要保证仍有至少一个可用的章节来源。
+        if draft.status in WORKING_DRAFT_STATUSES:
+            working_version_count = await self._repo.count_working_versions(
+                db,
+                draft.novel_id,
+                draft.chapter_index,
+            )
+            if working_version_count <= 1:
+                raise ValidationError(
+                    "Cannot delete the last working version of a chapter"
+                )
 
         deleted = await self._repo.delete(db, did)
         if deleted is None:
@@ -424,6 +492,10 @@ class WritingDraftService:
     @staticmethod
     def _to_contract(draft: object) -> WritingDraftContract:
         """将 ORM draft 转为契约对象"""
+        projection = project_writing_draft_state(
+            getattr(draft, "status", "draft"),
+            getattr(draft, "provenance_json", None),
+        )
         return WritingDraftContract(
             id=str(draft.id) if getattr(draft, "id", None) is not None else None,
             novel_id=str(draft.novel_id),  # type: ignore[union-attr]
@@ -435,6 +507,9 @@ class WritingDraftService:
             status=draft.status,  # type: ignore[union-attr]
             conflict_check_snapshot_json=draft.conflict_check_snapshot_json,  # type: ignore[union-attr]
             provenance_json=draft.provenance_json,  # type: ignore[union-attr]
+            display_state=projection["display_state"],
+            source=projection["source"],
+            attention_reasons=projection["attention_reasons"],
             created_at=draft.created_at,  # type: ignore[union-attr]
             updated_at=draft.updated_at,  # type: ignore[union-attr]
         )
@@ -443,6 +518,10 @@ class WritingDraftService:
     def _projection_to_contract(row: object) -> WritingDraftContract:
         """将最新草稿投影结果转为契约对象。"""
         mapping = row._mapping if hasattr(row, "_mapping") else row  # noqa: SLF001
+        projection = project_writing_draft_state(
+            mapping["status"],  # type: ignore[index]
+            mapping["provenance_json"],  # type: ignore[index]
+        )
         return WritingDraftContract(
             id=str(mapping["id"]) if mapping["id"] is not None else None,  # type: ignore[index]
             novel_id=str(mapping["novel_id"]),  # type: ignore[index]
@@ -454,6 +533,9 @@ class WritingDraftService:
             status=mapping["status"],  # type: ignore[index]
             conflict_check_snapshot_json=mapping["conflict_check_snapshot_json"],  # type: ignore[index]
             provenance_json=mapping["provenance_json"],  # type: ignore[index]
+            display_state=projection["display_state"],
+            source=projection["source"],
+            attention_reasons=projection["attention_reasons"],
             created_at=mapping["created_at"],  # type: ignore[index]
             updated_at=mapping["updated_at"],  # type: ignore[index]
         )
@@ -925,7 +1007,7 @@ class WritingConflictCheckService:
             message = (
                 _read_field(warning, "message")
                 or _read_field(warning, "code")
-                or "地图状态需复核"
+                or "地图状态需要人工检查"
             )
             depends_on_candidate = bool(_read_field(warning, "depends_on_candidate"))
             evidence_excerpt = _read_field(warning, "evidence_excerpt") or message
@@ -933,7 +1015,7 @@ class WritingConflictCheckService:
                 "kind": "map_scene",
                 "scene_id": scene_id,
             }
-            needs_review_reason = "依赖待确认地图观察" if depends_on_candidate else None
+            needs_review_reason = "依赖待处理地图观察" if depends_on_candidate else None
             severity = "medium" if _read_field(warning, "level") == "warning" else "low"
             items.append(
                 {
@@ -1060,7 +1142,7 @@ class WritingConflictCheckService:
 
 
 class WritingGenerationService:
-    """AI 正文候选草稿生成服务。"""
+    """AI 正文建议生成服务。"""
 
     def __init__(
         self,
@@ -1115,7 +1197,7 @@ class WritingGenerationService:
                 context_markdown=confirmed_context.rendered_markdown,
             )
             system_prompt = (
-                "你是小说正文生成助手。输出正文候选稿本身，"
+                "你是小说正文生成助手。输出正文建议本身，"
                 "不要添加解释、标题栏或 Markdown 围栏。"
             )
             response_format = None
@@ -1173,7 +1255,7 @@ class WritingGenerationService:
             content_sanitized = sanitize_writing_text(content)
             content = content_sanitized.text or ""
 
-        candidate_title = title or f"第{chapter_index}章 AI 候选"
+        candidate_title = title or f"第{chapter_index}章 正文建议"
         title_sanitized = sanitize_writing_text(candidate_title)
 
         provenance = {
@@ -1218,7 +1300,7 @@ def _build_writing_generation_prompt(
 ) -> str:
     note = instruction.strip() if instruction else "无额外要求"
     return (
-        f"请基于以下已确认的 AI 参考资料，生成第 {chapter_index} 章的正文候选稿。\n\n"
+        f"请基于以下已确认的 AI 参考资料，生成第 {chapter_index} 章的正文建议。\n\n"
         f"本次额外要求：{note}\n\n"
         f"## AI 参考资料\n\n{context_markdown}"
     )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,6 +53,21 @@ class SceneWorkbenchService:
         data: SceneCreate,
     ) -> SceneResponse:
         return await self._scene_service.create(db, novel_id, data)
+
+    async def validate_mapping_chapters(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        chapter_ids: list[str] | None,
+        scene_chunks: list[dict] | None,
+    ) -> None:
+        """Validate author-supplied Scene mappings against this novel's chapters."""
+        await self._validate_mapping_chapters(
+            db,
+            novel_id,
+            chapter_ids,
+            scene_chunks,
+        )
 
     async def update_scene(
         self,
@@ -497,6 +513,11 @@ class SceneWorkbenchService:
         )
         source_meta = dict(source.structure_meta or {})
         source_meta["split_at_chapter_index"] = data.split_chapter_index
+        if data.draft_scenes:
+            source_meta = self._adopted_structure_meta(
+                source_meta,
+                source="scene_split_preview",
+            )
         source_update_payload: dict[str, Any] = {
             "chapter_ids": keep,
             "scene_chunks": keep_chunks,
@@ -547,7 +568,6 @@ class SceneWorkbenchService:
             "must_not_happen",
             "narrative_tag",
             "pov_character_id",
-            "status",
         }
         return {key: value for key, value in draft.items() if key in allowed}
 
@@ -617,6 +637,10 @@ class SceneWorkbenchService:
             sources,
             overrides,
             primary_scene_id=data.primary_scene_id,
+        )
+        payload["structure_meta"] = self._adopted_structure_meta(
+            payload.get("structure_meta"),
+            source=str(payload.get("source") or "manual_fusion"),
         )
         await self._validate_fusion_override_chapters(db, novel_id, overrides)
         created = await self.repo.create(
@@ -1098,7 +1122,23 @@ class SceneWorkbenchService:
                 "split_from_scene_id": str(source.id),
                 "split_at_chapter_index": data.split_chapter_index,
                 "needs_organize": True,
+                "needs_review": False,
+                "adopted_at": datetime.now(UTC).isoformat(),
+                "source": "manual",
             },
+        }
+
+    @staticmethod
+    def _adopted_structure_meta(
+        structure_meta: dict[str, Any] | None,
+        *,
+        source: str,
+    ) -> dict[str, Any]:
+        return {
+            **dict(structure_meta or {}),
+            "needs_review": False,
+            "adopted_at": datetime.now(UTC).isoformat(),
+            "source": source,
         }
 
     async def _shift_later_scenes(self, db: AsyncSession, new_scene: Scene) -> None:

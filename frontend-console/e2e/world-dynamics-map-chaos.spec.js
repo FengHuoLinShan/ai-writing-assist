@@ -264,7 +264,8 @@ test.describe("世界动态地图混乱路径", () => {
     await expect(summary).toContainText("世界动态总控台")
     await expect(summary).toContainText("暗门传闻")
     await expect(summary).toContainText("沈砚")
-    await expect(summary).toContainText("待确认")
+    await expect(summary).toContainText("待处理")
+    await expect(summary).not.toContainText("待确认")
     await expect(summary).toContainText("批量修改")
     await expect(summary).not.toContainText(uuidPattern)
 
@@ -315,10 +316,15 @@ test.describe("世界动态地图混乱路径", () => {
 
     await openWorkbench(page, fixture.project, "world", "objects")
     await expect(page.locator(SEL.dataTable)).toContainText("沈砚", { timeout: 10000 })
+    const entityRow = page.locator(SEL.tableRow(fixture.entities.shen.id))
+    await entityRow.locator(".action-menu-btn").click()
     const popupPromise = page.waitForEvent("popup")
-    await page.locator(SEL.tableRow(fixture.entities.shen.id)).getByRole("button", { name: "打开地图" }).click()
+    await entityRow.getByRole("button", { name: "打开地图" }).click()
     const popup = await popupPromise
-    await popup.waitForFunction(() => !state.loading, { timeout: 10000 })
+    await popup.waitForFunction(
+      () => typeof state !== "undefined" && !state.loading,
+      { timeout: 10000 },
+    )
     expect(popup.url()).toContain(`focus_entity_id=${fixture.entities.shen.id}`)
     await expect(popup.locator("#map-dynamic-summary")).toContainText("世界动态总控台", {
       timeout: 10000,

@@ -23,11 +23,11 @@
 | P0 | 地图聚合状态（map + breadcrumbs + tiles + bindings） | ✅ | `MapConfigService.get_state` | 主视图 |
 | P0 | 详图快速生成（中心 city + 外 road） | ✅ | `MapConfigService.generate` | 编辑工具栏 |
 | P0 | 快速创建地图预览与地点多选落库 | ✅ | `MapQuickCreateService` | `mapQuickCreateView.js` |
-| P0 | 地图观察事实候选与正式事实底座 | ✅ | `MapDynamicFactService` | 工作台动态事实摘要 |
+| P0 | 地图 Observation/Fact 证据与事实底座 | ✅ | `MapDynamicFactService` | 待处理/已采用动态事实摘要 |
 | P1 | 世界动态总控台（首屏层 / 动态队列 / 检查器 / 批量分组） | ✅ | `MapDynamicFactService.get_dashboard` | 工作台右侧总控台 |
 | P1 | 统一地图打开目标（写作页 / 世界对象页 / 默认地图入口） | ✅ | `GET /open-target` | `writingView.js` / `worldView.js` / `mapWorkspaceView.js` |
 | P1 | 对象信息框与检查器聚焦 | ✅ | dashboard queue / inspector 扩展字段 | 动态队列、语义气泡、播放事件统一打开信息框 |
-| P1 | 候选批量动作与事实状态修改 | ✅ | `POST /{map_id}/batch-actions` | 批量确认、忽略、标记冲突、软更新 fact 状态 |
+| P1 | 待处理批量动作与事实状态修改 | ✅ | `POST /{map_id}/batch-actions` | 批量采用、忽略、标记冲突、软更新 fact 状态 |
 | P1 | Scene 时间层与动态标记（character/event/item） | ✅ | `MapMarkerService` | Scene 导航 + 标记工具 |
 | P2 | 组织势力范围（territory tiles） | ✅ | `MapTerritoryService` | 势力范围工具 |
 | P2 | 聚焦模式（按组织过滤势力范围） | ✅ | `GET /{map_id}/focus` | 聚焦按钮 |
@@ -108,6 +108,8 @@
 `map_id`、`location_entity_id`、中心 hex、占用半径、锁定状态、布局来源、版本、
 `sync_geo_setting` 与扩展 `meta`。同一地图内每个地点最多一条布局记录；它服务快速创建、
 拖拽与布局恢复，不替代 `map_location_bindings` 的地点→hex 事实绑定。
+布局写入只接受已采用地点；默认列表隐藏关联待处理或归档地点的遗留布局，
+聚合状态只把 draft/candidate owner 的遗留布局放入显式 candidate 分层。
 
 ### 地形图层与区域
 
@@ -122,6 +124,9 @@
 
 这些表均按 `novel_id` 和 `map_id` 隔离。图层/区域/patch 的增删改由
 `MapTerrainService` 原子处理，前端不能只改本地画布后假定持久化已完成。
+地形绑定的正式写入与更新必须关联已采用地点；默认读取只返回
+`review_state="confirmed"` 且 owner 为 canonical 的绑定，显式
+`include_candidates=true` 才返回 `candidate_bindings`。
 
 ### `map_markers` — 动态标记（P1）
 
@@ -153,7 +158,7 @@
 
 **约束**：`UNIQUE(map_id, faction_entity_id, hex_q, hex_r)`。
 
-### `map_observations` — 地图观察事实候选（世界动态 P0）
+### `map_observations` — 地图观察层（世界动态 P0）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -164,16 +169,16 @@
 | `target_entity_type` / `target_name` | VARCHAR | 作者界面优先显示名称和类型文案 |
 | `dynamic_type` | VARCHAR(64) | `location` / `status` / `boundary` / `crisis` / `resource` / `semantic` / `delta_event` 等 |
 | `time_anchor` / `spatial_anchor` | JSONB | Scene/章节/地图/hex/地点等锚点 |
-| `value_json` | JSONB | 观察到的候选状态或值 |
+| `value_json` | JSONB | 观察到的状态或值 |
 | `confidence` | FLOAT | 置信度 0~1 |
 | `review_state` | VARCHAR(32) | `candidate` / `confirmed` / `ignored` / `conflicted` |
 | `source_ref` | JSONB | 来源引用，如 `delta_log_id`、`context_snapshot_id` |
 | `evidence_text` | TEXT | 可读来源证据摘要 |
 | `scene_id` / `scene_index` / `source_chapter_index` | UUID / INT | 来源时间锚点 |
 
-`deep import` Phase 2 仍写 `memory.delta_log`，同时把每条 `delta_event` 接入 `map_observations`，默认 `review_state="candidate"`，不直接写正式事实。
+`deep import` Phase 2 仍写 `memory.delta_log`，同时把每条 `delta_event` 接入 `map_observations`，默认原始 `review_state="candidate"`，不直接写 Fact；作者界面统一显示“待处理”。
 
-### `map_facts` — 已确认时间化地图事实（世界动态 P0）
+### `map_facts` — 已采用时间化地图事实（世界动态 P0）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -183,12 +188,12 @@
 | `map_id` / `target_entity_id` | UUID FK, nullable | 关联地图和对象 |
 | `target_entity_type` / `target_name` | VARCHAR | 作者界面显示文案 |
 | `dynamic_type` | VARCHAR(64) | 与 observation 一致 |
-| `time_anchor` / `spatial_anchor` / `value_json` | JSONB | 已确认事实内容 |
+| `time_anchor` / `spatial_anchor` / `value_json` | JSONB | 已采用事实内容 |
 | `confidence` | FLOAT | 来源置信度 |
 | `fact_status` | VARCHAR(32) | `confirmed` / `rolled_back` / `deprecated` |
 | `source_ref` / `evidence_text` | JSONB / TEXT | 来源引用和证据摘要 |
 
-确认 observation 会生成或复用 `map_facts`；忽略 observation 只更新审查状态，不硬删除候选。
+采用 observation 会生成或复用 `map_facts`；忽略 observation 只更新审查状态，不硬删除观察记录。响应保留 raw `review_state/fact_status`，同时派生 `display_state/source/attention_reasons/suggested_action`；`conflicted` 仍是待处理并附冲突原因。
 
 ---
 
@@ -242,7 +247,7 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET/PUT | `/{map_id}/location-layouts?novel_id={}` | 读取或替换地点布局节点 |
-| GET | `/{map_id}/terrain?novel_id={}` | 读取图层、区域、patch 与绑定的地形状态 |
+| GET | `/{map_id}/terrain?novel_id={}&include_candidates={false|true}` | 读取图层、区域、patch 与绑定；默认只含 active 绑定 |
 | PUT | `/{map_id}/terrain/layers/{layer_id}/patches?novel_id={}` | 替换一层的 patch 集合 |
 | POST | `/{map_id}/terrain/regions/{region_id}/bindings?novel_id={}` | 创建区域与地点绑定 |
 | PATCH | `/{map_id}/terrain/bindings/{binding_id}?novel_id={}` | 修改区域绑定复核/metadata |
@@ -270,14 +275,14 @@
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/{map_id}/observations?novel_id={}&review_state={}` | 地图观察事实候选列表 |
-| POST | `/{map_id}/observations?novel_id={}` | 创建地图观察事实候选 |
+| GET | `/{map_id}/observations?novel_id={}&review_state={}` | 地图 observation 列表（未转 Fact 项显示为待处理） |
+| POST | `/{map_id}/observations?novel_id={}` | 创建地图 observation |
 | PATCH | `/{map_id}/observations/{observation_id}?novel_id={}` | 更新 observation 审查状态 |
 | POST | `/{map_id}/observations/batch-review?novel_id={}` | 批量确认、忽略或标记冲突 observation |
-| POST | `/{map_id}/batch-actions?novel_id={}` | 新批量动作入口：确认/忽略/冲突候选、更新 fact 状态、记录图层可见性 patch |
-| POST | `/{map_id}/observations/{observation_id}/confirm?novel_id={}` | 确认 observation 并生成/复用 `map_facts` |
+| POST | `/{map_id}/batch-actions?novel_id={}` | 批量动作入口：采用/忽略/冲突 observation、更新 fact 状态、记录图层可见性 patch |
+| POST | `/{map_id}/observations/{observation_id}/confirm?novel_id={}` | 采用 observation 并生成/复用 `map_facts`（路径名保留兼容） |
 | POST | `/{map_id}/observations/{observation_id}/ignore?novel_id={}` | 忽略 observation，不生成正式事实 |
-| GET | `/{map_id}/facts?novel_id={}&fact_status={}` | 已确认地图事实列表 |
+| GET | `/{map_id}/facts?novel_id={}&fact_status={}` | 已采用地图事实列表 |
 | PATCH | `/{map_id}/facts/{fact_id}?novel_id={}` | 软更新 fact 状态：`confirmed` / `rolled_back` / `deprecated` |
 
 ### `MapStateResponse` 结构
@@ -290,6 +295,10 @@
   "location_bindings": [ /* MapLocationBindingResponse */ ],
   "markers": [ /* MapMarkerResponse，无则为 [] */ ],
   "territories": [ /* MapTerritoryResponse，无则为 [] */ ],
+  "location_layouts": [ /* canonical-owner MapLocationLayoutResponse */ ],
+  "terrain_bindings": [ /* confirmed + canonical-owner MapTerrainBindingResponse */ ],
+  "candidate_location_layouts": [ /* draft/candidate-owner legacy preview */ ],
+  "candidate_terrain_bindings": [ /* 待处理地形绑定 */ ],
   "scene": { "id": "...", "index": 12, "title": "...", "chapter_title": null } | null
 }
 ```
@@ -305,7 +314,7 @@
 - `map_type` 和 `terrain_type` 均为白名单，`Literal` 校验失败返回 **422**。
 - `grid_width` / `grid_height` 范围 `[1, 200]`，`hex_size` `[4, 200]`。
 - `template` 仅在 `map_type = "world"` 时生效：`blank` / `continent` / `islands`；非 world 类型创建时自动使用 `blank`。
-- `parent_map_id` 必须存在且属于同 novel；`parent_entity_id` 必须存在、属于同 novel 且 `entity_type = "location"`。
+- `parent_map_id` 必须存在且属于同 novel；`parent_entity_id` 必须存在、属于同 novel、`entity_type = "location"` 且已经采用。默认 list/get/state 与后续操作隐藏 owner 已待处理或归档的遗留详图。
 - 同层级（同 `novel_id` + 同 `parent_map_id`）下 `name` 唯一，冲突返回 **409**。
 
 ### 地形编辑
@@ -373,7 +382,7 @@
 - `worldView`：人物、地点、组织、事件等对象行提供“打开地图”，通过 `open-target` 生成含 `focus_entity_id` 的地图 URL；无地图上下文时显示 fallback。
 - `writingView`：Scene 面板展示地图摘要、危机、风险和 warning，并通过 `open_target` 打开地图工作台。
 - `mapView`：地图编辑器本体；浏览模式下地点中心标签消费布局引擎，密集时自动偏移、缩短、图标化或聚合。
-- `mapLayoutEngine.js`：纯前端布局引擎，根据视图模式、焦点、风险、候选/正式状态和视口空间，派生标签、聚合簇、语义气泡与低动效状态。
+- `mapLayoutEngine.js`：纯前端布局引擎，根据视图模式、焦点、风险、待处理/已采用状态和视口空间，派生标签、聚合簇、语义气泡与低动效状态。
 - `mapRouteContext.js`：处理从写作页或其他工作流带入的 `map_id` / `scene_id` / `focus_entity_id`
 
 ### 跨 novel 隔离

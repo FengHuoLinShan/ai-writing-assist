@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import func, select
 
-from core.errors import NotFoundError
+from core.errors import NotFoundError, ValidationError
 from infrastructure.llm.schemas import LLMCallResponse
 from infrastructure.tasks.models import AsyncTask
 from modules.imports.worldbuilding_risk import ImportWriteRiskClassifier
@@ -17,7 +17,11 @@ from modules.world.models import (
     WorldBiblePageRevision,
 )
 from modules.world.schemas import (
+    CoreEntityDraftSuggestionPayload,
+    CoreEntitySuggestionEditConfirmRequest,
     CreationSuggestionCreate,
+    EntityMergeRequest,
+    EntityResolveAsAliasRequest,
     WorldBibleAiGenerateRequest,
     WorldBiblePageCreate,
     WorldProfileUpsertRequest,
@@ -105,8 +109,7 @@ def test_worldbuilding_service_hub_reexports_concept_services_by_identity() -> N
         is knowledge_tag_service.KnowledgeTagService
     )
     assert (
-        worldbuilding_service.WorldProfileService
-        is profile_service.WorldProfileService
+        worldbuilding_service.WorldProfileService is profile_service.WorldProfileService
     )
     assert (
         worldbuilding_service.SuggestionQueueService
@@ -117,8 +120,7 @@ def test_worldbuilding_service_hub_reexports_concept_services_by_identity() -> N
         is suggestion_queue_service.SuggestionAlreadyProcessedError
     )
     assert (
-        worldbuilding_service.WorldBibleService
-        is world_bible_service.WorldBibleService
+        worldbuilding_service.WorldBibleService is world_bible_service.WorldBibleService
     )
     assert (
         worldbuilding_service.ProjectionRefreshConflictError
@@ -278,14 +280,335 @@ async def test_suggestion_duplicate_confirm_returns_domain_error(
             novel_id=project_novel_id,
             source_module="imports",
             review_group="import_knowledge",
-            target_type="reader_reveal_policy",
+            target_type="core_entity",
             risk_level="high",
+            payload_json={
+                "entity_type": "concept",
+                "name": "长夜纪元",
+            },
         ),
     )
     accepted = await service.confirm(db_session, project_novel_id, suggestion.id)
     assert accepted.status == "accepted"
     with pytest.raises(SuggestionAlreadyProcessedError):
         await service.confirm(db_session, project_novel_id, suggestion.id)
+    with pytest.raises(SuggestionAlreadyProcessedError):
+        await service.reject(db_session, project_novel_id, suggestion.id)
+
+
+@pytest.mark.asyncio
+async def test_reject_archives_compatibility_shadow_and_blocks_repeat_decisions(
+    db_session,
+    project_novel_id: str,
+) -> None:
+    service = SuggestionQueueService()
+    suggestion, shadow = await service.create_core_entity_suggestion(
+        db_session,
+        novel_id=project_novel_id,
+        source_module="world_extraction",
+        review_group="manual_extract",
+        payload=CoreEntityDraftSuggestionPayload(
+            entity_type="concept",
+            name="废弃的建议",
+        ),
+        compatibility_status="candidate",
+        compatibility_created_by="ai_import",
+    )
+    assert shadow is not None
+
+    rejected = await service.reject(db_session, project_novel_id, suggestion.id)
+
+    stored_shadow = await db_session.get(CoreEntity, uuid.UUID(shadow.id))
+    assert rejected.status == "rejected"
+    assert rejected.result_ref_json["status"] == "archived"
+    assert stored_shadow.status == "ignored"
+    assert stored_shadow.content_json["_meta"]["needs_review"] is False
+    assert (
+        stored_shadow.content_json["_meta"]["reviewed_from"]
+        == "creation_suggestion_reject"
+    )
+    with pytest.raises(SuggestionAlreadyProcessedError):
+        await service.reject(db_session, project_novel_id, suggestion.id)
+    with pytest.raises(SuggestionAlreadyProcessedError):
+        await service.confirm(db_session, project_novel_id, suggestion.id)
+
+
+@pytest.mark.asyncio
+async def test_compatibility_shadow_cannot_bypass_authoritative_suggestion_queue(
+    db_session,
+    project_novel_id: str,
+) -> None:
+    from modules.world.schemas import (
+        CoreEntityUpdate,
+        EntityPromoteRequest,
+        EntityRelationCreate,
+    )
+    from modules.world.services.core.dedup_service import EntityDedupService
+    from modules.world.services.core.entity_alias_service import EntityAliasService
+    from modules.world.services.core.entity_relation_service import (
+        EntityRelationService,
+    )
+    from modules.world.services.core.entity_service import WorldEntityService
+
+    service = SuggestionQueueService()
+    suggestion, shadow = await service.create_core_entity_suggestion(
+        db_session,
+        novel_id=project_novel_id,
+        source_module="world_extraction",
+        review_group="manual_extract",
+        payload=CoreEntityDraftSuggestionPayload(
+            entity_type="concept",
+            name="待处理星门",
+        ),
+        compatibility_status="candidate",
+        compatibility_created_by="ai_import",
+    )
+    assert shadow is not None
+    entities = WorldEntityService()
+
+    with pytest.raises(ValidationError, match="待处理建议"):
+        await entities.promote(
+            db_session,
+            shadow.id,
+            EntityPromoteRequest(),
+            novel_id=project_novel_id,
+        )
+    with pytest.raises(ValidationError, match="待处理建议"):
+        await entities.update(
+            db_session,
+            shadow.id,
+            CoreEntityUpdate(status="ignored"),
+            novel_id=project_novel_id,
+        )
+    with pytest.raises(ValidationError, match="待处理建议"):
+        await entities.delete(db_session, shadow.id, novel_id=project_novel_id)
+
+    target = await _create_entity(
+        db_session,
+        project_novel_id,
+        "concept",
+        "已采用星门",
+    )
+    with pytest.raises(ValidationError, match="authoritative suggestion queue"):
+        await EntityDedupService().merge_candidate_into_entity(
+            db_session,
+            project_novel_id,
+            shadow.id,
+            str(target.id),
+        )
+    with pytest.raises(ValidationError, match="authoritative suggestion queue"):
+        await EntityAliasService().resolve_candidate_as_alias(
+            db_session,
+            project_novel_id,
+            shadow.id,
+            target_entity_id=str(target.id),
+            alias="星门",
+        )
+    with pytest.raises(ValidationError, match="authoritative suggestion queue"):
+        await EntityAliasService().create_alias(
+            db_session,
+            project_novel_id,
+            shadow.id,
+            "影子别名",
+        )
+    with pytest.raises(ValidationError, match="authoritative suggestion"):
+        await EntityRelationService().create(
+            db_session,
+            project_novel_id,
+            EntityRelationCreate(
+                source_id=shadow.id,
+                target_id=str(target.id),
+                relation_type="related_to",
+            ),
+        )
+    with pytest.raises(ValidationError, match="authoritative suggestion"):
+        await EntityRelationService().create_or_merge(
+            db_session,
+            project_novel_id,
+            EntityRelationCreate(
+                source_id=shadow.id,
+                target_id=str(target.id),
+                relation_type="related_to",
+            ),
+        )
+    with pytest.raises(ValidationError, match="authoritative suggestion"):
+        await EntityRelationService().upsert(
+            db_session,
+            project_novel_id,
+            shadow.id,
+            str(target.id),
+            "related_to",
+        )
+
+    stored_suggestion = await db_session.get(
+        CreationSuggestion,
+        uuid.UUID(suggestion.id),
+    )
+    stored_shadow = await db_session.get(CoreEntity, uuid.UUID(shadow.id))
+    assert stored_suggestion.status == "pending"
+    assert stored_shadow.status == "candidate"
+
+    accepted = await service.confirm(db_session, project_novel_id, suggestion.id)
+    await db_session.refresh(stored_shadow)
+    assert accepted.status == "accepted"
+    assert stored_shadow.status == "canonical"
+    assert stored_shadow.content_json["_meta"]["compatibility_shadow"] is False
+    assert stored_shadow.content_json["_meta"]["compatibility_shadow_adopted"] is True
+
+    updated = await entities.update(
+        db_session,
+        shadow.id,
+        CoreEntityUpdate(summary="采用后可编辑"),
+        novel_id=project_novel_id,
+    )
+    assert updated.summary == "采用后可编辑"
+
+
+@pytest.mark.asyncio
+async def test_core_entity_suggestion_can_be_edited_and_adopted_atomically(
+    db_session,
+    project_novel_id: str,
+) -> None:
+    service = SuggestionQueueService()
+    suggestion, shadow = await service.create_core_entity_suggestion(
+        db_session,
+        novel_id=project_novel_id,
+        source_module="world_extraction",
+        review_group="manual_extract",
+        payload=CoreEntityDraftSuggestionPayload(
+            entity_type="concept",
+            name="旧名",
+            summary="旧概要",
+        ),
+        compatibility_status="candidate",
+    )
+    assert shadow is not None
+
+    accepted = await service.edit_and_confirm_core_entity(
+        db_session,
+        project_novel_id,
+        suggestion.id,
+        CoreEntitySuggestionEditConfirmRequest(
+            name="新名",
+            summary="编辑后采用的概要",
+        ),
+    )
+
+    stored_shadow = await db_session.get(CoreEntity, uuid.UUID(shadow.id))
+    assert accepted.status == "accepted"
+    assert accepted.payload_json["name"] == "新名"
+    assert stored_shadow.name == "新名"
+    assert stored_shadow.summary == "编辑后采用的概要"
+    assert stored_shadow.status == "canonical"
+    assert stored_shadow.content_json["_meta"]["compatibility_shadow"] is False
+
+
+@pytest.mark.asyncio
+async def test_core_entity_suggestion_can_merge_into_adopted_entity(
+    db_session,
+    project_novel_id: str,
+) -> None:
+    target = await _create_entity(
+        db_session,
+        project_novel_id,
+        "concept",
+        "星门",
+    )
+    service = SuggestionQueueService()
+    suggestion, shadow = await service.create_core_entity_suggestion(
+        db_session,
+        novel_id=project_novel_id,
+        source_module="world_extraction",
+        review_group="manual_extract",
+        payload=CoreEntityDraftSuggestionPayload(
+            entity_type="concept",
+            name="古代星门",
+            summary="失落文明留下的星门。",
+        ),
+        compatibility_status="candidate",
+    )
+    assert shadow is not None
+
+    accepted = await service.merge_core_entity(
+        db_session,
+        project_novel_id,
+        suggestion.id,
+        EntityMergeRequest(target_entity_id=str(target.id)),
+    )
+
+    stored_shadow = await db_session.get(CoreEntity, uuid.UUID(shadow.id))
+    await db_session.refresh(target)
+    assert accepted.status == "accepted"
+    assert accepted.result_ref_json["type"] == "core_entity_merge"
+    assert accepted.result_ref_json["id"] == str(target.id)
+    assert stored_shadow.status == "merged"
+    assert stored_shadow.content_json["merged_into"] == str(target.id)
+    assert "失落文明留下的星门" in (target.summary or "")
+
+
+@pytest.mark.asyncio
+async def test_core_entity_suggestion_can_become_alias_of_adopted_entity(
+    db_session,
+    project_novel_id: str,
+) -> None:
+    target = await _create_entity(
+        db_session,
+        project_novel_id,
+        "character",
+        "林岚",
+    )
+    service = SuggestionQueueService()
+    suggestion, shadow = await service.create_core_entity_suggestion(
+        db_session,
+        novel_id=project_novel_id,
+        source_module="world_extraction",
+        review_group="manual_extract",
+        payload=CoreEntityDraftSuggestionPayload(
+            entity_type="character",
+            name="岚姐",
+        ),
+        compatibility_status="candidate",
+    )
+    assert shadow is not None
+
+    accepted = await service.resolve_core_entity_as_alias(
+        db_session,
+        project_novel_id,
+        suggestion.id,
+        EntityResolveAsAliasRequest(
+            target_entity_id=str(target.id),
+            alias="岚姐",
+        ),
+    )
+
+    stored_shadow = await db_session.get(CoreEntity, uuid.UUID(shadow.id))
+    await db_session.refresh(target)
+    aliases = target.content_json.get("aliases") or []
+    assert accepted.status == "accepted"
+    assert accepted.result_ref_json["type"] == "core_entity_alias"
+    assert stored_shadow.status == "merged"
+    assert stored_shadow.content_json["resolved_as"] == "alias"
+    assert any(item.get("alias") == "岚姐" for item in aliases)
+
+
+@pytest.mark.asyncio
+async def test_suggestion_unknown_target_type_is_rejected_before_write(
+    db_session,
+    project_novel_id: str,
+) -> None:
+    with pytest.raises(ValidationError, match="Unsupported suggestion target_type"):
+        await SuggestionQueueService().create(
+            db_session,
+            CreationSuggestionCreate(
+                novel_id=project_novel_id,
+                target_type="reader_reveal_policy",
+            ),
+        )
+
+    count = (
+        await db_session.execute(select(func.count(CreationSuggestion.id)))
+    ).scalar_one()
+    assert count == 0
 
 
 @pytest.mark.asyncio
@@ -357,12 +680,16 @@ async def test_world_bible_page_patch_suggestion_confirm_updates_page_and_revisi
     assert "补写内容" in refreshed.free_text
     assert refreshed.version_number == 2
     revisions = (
-        await db_session.execute(
-            select(WorldBiblePageRevision).where(
-                WorldBiblePageRevision.page_id == uuid.UUID(page.id)
+        (
+            await db_session.execute(
+                select(WorldBiblePageRevision).where(
+                    WorldBiblePageRevision.page_id == uuid.UUID(page.id)
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(revisions) == 1
     assert revisions[0].revision_reason == "ai_suggestion"
 
@@ -415,9 +742,87 @@ async def test_world_bible_new_page_and_object_draft_suggestions_confirm(
     )
     assert created_page.title == "星海规则"
     assert created_page.status == "confirmed"
-    assert entity.status == "draft"
+    assert entity.status == "canonical"
+    assert entity.approved_by == "manual"
     assert entity.created_by == "ai_world_bible"
     assert entity.content_json["_meta"]["source_refs"][0]["page_id"] == page.id
+
+
+@pytest.mark.asyncio
+async def test_relation_and_alias_suggestions_use_validated_domain_handlers(
+    db_session,
+    project_novel_id: str,
+) -> None:
+    source = await _create_entity(
+        db_session,
+        project_novel_id,
+        "character",
+        "沈砚",
+    )
+    target = await _create_entity(
+        db_session,
+        project_novel_id,
+        "organization",
+        "巡夜司",
+    )
+    service = SuggestionQueueService()
+    relation_suggestion = await service.create(
+        db_session,
+        CreationSuggestionCreate(
+            novel_id=project_novel_id,
+            source_module="imports",
+            review_group="phase2",
+            target_type="entity_relation",
+            payload_json={
+                "source_id": str(source.id),
+                "target_id": str(target.id),
+                "relation_type": "member_of",
+                "description": "沈砚加入巡夜司。",
+            },
+            evidence_refs_json=[{"scene_id": "scene-1"}],
+        ),
+    )
+    alias_suggestion = await service.create(
+        db_session,
+        CreationSuggestionCreate(
+            novel_id=project_novel_id,
+            source_module="imports",
+            review_group="phase2",
+            target_type="entity_alias",
+            payload_json={
+                "entity_id": str(source.id),
+                "alias": "夜巡人",
+                "alias_type": "title",
+                "confidence": 0.88,
+            },
+        ),
+    )
+
+    accepted_relation = await service.confirm(
+        db_session,
+        project_novel_id,
+        relation_suggestion.id,
+    )
+    accepted_alias = await service.confirm(
+        db_session,
+        project_novel_id,
+        alias_suggestion.id,
+    )
+
+    relation = await db_session.get(
+        EntityRelation,
+        uuid.UUID(accepted_relation.result_ref_json["id"]),
+    )
+    await db_session.refresh(source)
+    alias = next(
+        item for item in source.content_json["aliases"] if item["alias"] == "夜巡人"
+    )
+    assert relation.status == "canonical"
+    assert relation.review_meta["source"] == "imports"
+    assert accepted_relation.display_state == "archived"
+    assert alias["status"] == "canonical"
+    assert alias["source"] == "imports"
+    assert accepted_alias.result_ref_json["entity_id"] == str(source.id)
 
 
 @pytest.mark.asyncio

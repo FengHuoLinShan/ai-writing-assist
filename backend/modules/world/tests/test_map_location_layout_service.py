@@ -8,11 +8,13 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import DomainError
+from modules.world.map_repositories import MapLocationLayoutRepository
 from modules.world.map_schemas import (
     MapConfigCreate,
     MapLocationLayoutItem,
     MapLocationLayoutReplaceRequest,
 )
+from modules.world.models import CoreEntity
 from modules.world.services.map.map_location_layout import MapLocationLayoutService
 from modules.world.services.map.map_state_assembler import MapStateAssembler
 from modules.world.services.map_service import MapConfigService
@@ -39,7 +41,7 @@ async def test_replace_location_layouts_batches_entity_validation() -> None:
         async def require_entity(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
             raise AssertionError("layout replace must validate locations in batch")
 
-        async def require_entities(
+        async def require_canonical_entities(
             self,
             _db,
             requested_novel_id,
@@ -183,6 +185,74 @@ async def test_replace_location_layout_rejects_cross_novel_location(
         )
 
     assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_layout_write_rejects_pending_owner_and_legacy_row_is_review_only(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    shadow = CoreEntity(
+        id=uuid.uuid4(),
+        novel_id=uuid.UUID(novel_id),
+        entity_type="location",
+        name="待处理港口",
+        status="candidate",
+    )
+    db_session.add(shadow)
+    created = await MapConfigService().create(
+        db_session,
+        novel_id,
+        MapConfigCreate(name="世界", map_type="world", grid_width=8, grid_height=8),
+    )
+    request = MapLocationLayoutReplaceRequest(
+        layouts=[
+            MapLocationLayoutItem(
+                location_entity_id=str(shadow.id),
+                center_hex_q=1,
+                center_hex_r=1,
+            )
+        ]
+    )
+
+    with pytest.raises(DomainError) as exc:
+        await MapLocationLayoutService().replace(
+            db_session,
+            novel_id,
+            created.id,
+            request,
+        )
+    assert exc.value.code == "unadopted_map_entity"
+
+    await MapLocationLayoutRepository().create(
+        db_session,
+        uuid.UUID(novel_id),
+        uuid.UUID(created.id),
+        {
+            "location_entity_id": shadow.id,
+            "center_hex_q": 1,
+            "center_hex_r": 1,
+            "occupy_radius": 1,
+            "locked": False,
+            "layout_source": "legacy",
+            "layout_version": 1,
+            "sync_geo_setting": False,
+            "meta": {},
+        },
+    )
+
+    listed = await MapLocationLayoutService().list(
+        db_session,
+        novel_id,
+        created.id,
+    )
+    state = await MapStateAssembler().assemble(db_session, novel_id, created.id)
+    assert listed.items == []
+    assert state.location_layouts == []
+    assert [item.location_entity_id for item in state.candidate_location_layouts] == [
+        str(shadow.id)
+    ]
 
 
 @pytest.mark.asyncio

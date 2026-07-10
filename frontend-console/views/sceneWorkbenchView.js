@@ -7,19 +7,21 @@ import {
   recoverActiveWorkflows,
 } from "../shared/workflowProgress.js"
 import { renderWorkflowCard } from "../shared/progressRenderer.js"
+import { structureAssetDisplay } from "../shared/assetDisplayState.js"
+import { importAuthorizationNotice, importAuthorizationPayload } from "../shared/importAuthorization.js"
 
 const HEALTH_ORDER = [
-  ["unreviewed", "未复核"],
+  ["unreviewed", "需要人工检查"],
   ["unassigned", "未关联章节"],
   ["missing_setup", "缺设定"],
   ["needs_organize", "待整理"],
 ]
 
 const STATUS_OPTIONS = [
-  ["draft", "草稿"],
-  ["candidate", "候选"],
-  ["canonical", "正史"],
-  ["deprecated", "废弃"],
+  ["draft", "工作稿"],
+  ["candidate", "待处理"],
+  ["canonical", "已采用"],
+  ["deprecated", "历史"],
 ]
 
 const SOURCE_OPTIONS = [
@@ -61,7 +63,7 @@ const SCENE_FILTER_DEFAULTS = {
 }
 
 const TAG_OPTIONS = [
-  ["draft", "草稿"],
+  ["draft", "未标注"],
   ["hook", "钩子"],
   ["inciting_incident", "激励事件"],
   ["rising_action", "冲突升级"],
@@ -225,7 +227,7 @@ const sceneWorkbenchView = {
         </label>
         ${this._filterSelect("scene-filter-status", "状态", this._filters.status, STATUS_OPTIONS, "全部状态")}
         ${this._filterSelect("scene-filter-source", "来源", this._filters.source, SOURCE_OPTIONS, "全部来源")}
-        ${this._filterSelect("scene-filter-needs-review", "复核", this._filters.needs_review, [["true", "需复核"], ["false", "无需复核"]], "全部复核")}
+        ${this._filterSelect("scene-filter-needs-review", "注意", this._filters.needs_review, [["true", "需要人工检查"], ["false", "无注意项"]], "全部注意原因")}
         <div class="scene-filter-actions">
           <button class="btn btn-sm" data-action="toggle-advanced-scene-filters">${this._advancedFiltersOpen ? "▾" : "▸"} 高级</button>
           <button class="btn btn-sm btn-primary" data-action="apply-scene-filters">应用</button>
@@ -259,7 +261,7 @@ const sceneWorkbenchView = {
           const active = activeHealth === key ? "active" : ""
           return `
             <button class="scene-health-filter ${active}" data-action="filter-health" data-id="${esc(key)}">
-              <span>${esc(item.label || fallback)}</span>
+              <span>${esc(this._healthLabel(key))}</span>
               <strong>${esc(item.count ?? 0)}</strong>
             </button>
           `
@@ -345,17 +347,22 @@ const sceneWorkbenchView = {
     const reviewItems = this._selectedSceneItems()
     const allSelectedReviewed = reviewItems.length > 0
       && reviewItems.every((item) => this._sceneReviewState(item).reviewed)
+    const hasUnadoptedSelection = reviewItems.some((item) => (
+      structureAssetDisplay(item.scene).displayState !== "active"
+    ))
     const disabled = count < 2 ? "disabled" : ""
     const hint = count < 2 ? `再选 ${2 - count} 个即可融合` : "已可开始融合"
     const selectionLabel = allVisibleSelected ? "取消全选" : "全选当前列表"
     const selectionTitle = allVisibleSelected ? "取消选择当前列表中的 Scene" : "选择当前列表中的全部 Scene"
-    const reviewLabel = allSelectedReviewed ? "取消复核选中项" : "复核选中项"
+    const reviewLabel = allSelectedReviewed
+      ? "标记选中项需检查"
+      : (hasUnadoptedSelection ? "采用选中项" : "标记选中项已检查")
     const reviewClass = allSelectedReviewed ? "" : "btn-primary"
     const reviewTitle = count === 0
-      ? "请先选择要复核的 Scene"
+      ? "请先选择要处理的 Scene"
       : allSelectedReviewed
-        ? "将选中的 Scene 标记为需复核"
-        : "将选中的 Scene 标记为已复核/已整理"
+        ? "将选中的 Scene 标记为需要人工检查"
+        : (hasUnadoptedSelection ? "采用选中的 Scene" : "将选中的 Scene 标记为已检查")
     return `
       <div class="scene-fusion-toolbar" aria-label="Scene 批量操作">
         <div class="scene-fusion-toolbar__status">
@@ -370,8 +377,8 @@ const sceneWorkbenchView = {
         <button class="btn btn-sm" data-action="start-selected-merge" ${disabled} title="${count < 2 ? hint : "机械合并：目标 Scene 吸收其他 Scene"}">
           机械合并
         </button>
-        <button class="btn btn-sm btn-primary" data-action="start-ai-fusion-draft" ${disabled} title="${count < 2 ? hint : "为选中的 Scene 生成 AI 融合草稿"}">
-          AI 融合草稿
+        <button class="btn btn-sm btn-primary" data-action="start-ai-fusion-draft" ${disabled} title="${count < 2 ? hint : "为选中的 Scene 生成 AI 融合建议"}">
+          AI 融合建议
         </button>
       </div>
     `
@@ -405,8 +412,8 @@ const sceneWorkbenchView = {
       : ""
     const reviewState = this._sceneReviewState(item)
     const reviewLabel = reviewState.reviewed
-      ? `已复核 · ${this._formatReviewTime(reviewState.reviewedAt)}`
-      : "未复核"
+      ? `已检查 · ${this._formatReviewTime(reviewState.reviewedAt)}`
+      : (reviewState.needsReview ? "需要人工检查" : "无注意项")
     return `
       <div class="scene-detail-panel">
         <div class="scene-detail-panel__head">
@@ -431,7 +438,7 @@ const sceneWorkbenchView = {
         <section class="scene-detail-summary">
           <div><strong>章节映射</strong><span>${esc(item.chapter_range || "未关联章节")}</span></div>
           <div><strong>关联资产预览</strong><span>剧情线 / 伏笔 / 揭示 / 地图摘要将在整理预览中展示</span></div>
-          <div><strong>来源与复核</strong><span>${esc(this._sourceLabel(scene.source))} · ${esc(this._statusLabel(scene.status))} · ${esc(reviewLabel)}</span></div>
+          <div><strong>来源与注意</strong><span>${esc(this._sourceLabel(scene.source))} · ${esc(this._statusLabel(scene.status))} · ${esc(reviewLabel)}</span></div>
         </section>
         <div class="scene-detail-actions">
           ${this._renderReviewAction(item, "detail")}
@@ -475,7 +482,9 @@ const sceneWorkbenchView = {
   },
 
   _filteredItems() {
-    return this._workbench?.items || []
+    const items = this._workbench?.items || []
+    if (this._filters.status) return items
+    return items.filter((item) => !structureAssetDisplay(item.scene || {}).isHistory)
   },
 
   _selectedSceneId() {
@@ -599,11 +608,12 @@ const sceneWorkbenchView = {
     if (!sceneId) return ""
     const state = this._sceneReviewState(item)
     const size = placement === "row" ? "btn-sm" : ""
-    if (state.reviewed) {
-      return `<button class="btn ${size} scene-review-action" data-action="mark-scene-unreviewed" data-id="${esc(sceneId)}">取消复核</button>`
-    }
+    if (state.reviewed) return ""
+    const display = structureAssetDisplay(item.scene)
+    if (display.displayState === "active" && !state.needsReview) return ""
     const primary = state.needsReview ? "btn-primary" : ""
-    return `<button class="btn ${size} ${primary} scene-review-action" data-action="mark-scene-reviewed" data-id="${esc(sceneId)}">复核通过</button>`
+    const label = display.displayState === "active" ? "标记已检查" : "采用"
+    return `<button class="btn ${size} ${primary} scene-review-action" data-action="mark-scene-reviewed" data-id="${esc(sceneId)}">${label}</button>`
   },
 
   _formatReviewTime(value) {
@@ -716,14 +726,14 @@ const sceneWorkbenchView = {
       return
     }
     await api.outline.updateScene(sceneId, state.currentProjectId, this._sceneReviewPayload(scene))
-    toast("Scene 已标记为已复核/已整理", "success")
+    toast(structureAssetDisplay(scene).displayState === "active" ? "Scene 已标记为已检查" : "Scene 已采用", "success")
     await this._refreshWorkbenchInPlace()
   },
 
   async _reviewSelectedScenes() {
     const scenes = this._selectedSceneItems().map((item) => item.scene).filter(Boolean)
     if (!scenes.length) {
-      toast("请先选择要复核的 Scene", "warning")
+      toast("请先选择要处理的 Scene", "warning")
       return
     }
 
@@ -744,17 +754,17 @@ const sceneWorkbenchView = {
     this._selectedFusionSceneIds = new Set(failedIds)
     const successCount = results.length - failedIds.length
     if (successCount) {
-      toast(`已复核 ${successCount} 个 Scene`, failedIds.length ? "warning" : "success")
+      toast(`已处理 ${successCount} 个 Scene`, failedIds.length ? "warning" : "success")
       await this._refreshWorkbenchInPlace()
       return
     }
-    toast("选中 Scene 复核失败", "error")
+    toast("选中 Scene 处理失败", "error")
   },
 
   async _toggleSelectedSceneReview() {
     const selectedItems = this._selectedSceneItems()
     if (!selectedItems.length) {
-      toast("请先选择要复核的 Scene", "warning")
+      toast("请先选择要处理的 Scene", "warning")
       return
     }
     const allReviewed = selectedItems.every((item) => this._sceneReviewState(item).reviewed)
@@ -788,11 +798,11 @@ const sceneWorkbenchView = {
     this._selectedFusionSceneIds = new Set(failedIds)
     const successCount = results.length - failedIds.length
     if (successCount) {
-      toast(`已取消复核 ${successCount} 个 Scene`, failedIds.length ? "warning" : "success")
+      toast(`已将 ${successCount} 个 Scene 标记为需要人工检查`, failedIds.length ? "warning" : "success")
       await this._refreshWorkbenchInPlace()
       return
     }
-    toast("选中 Scene 取消复核失败", "error")
+    toast("选中 Scene 注意状态更新失败", "error")
   },
 
   async _markSceneUnreviewed(sceneId) {
@@ -807,7 +817,7 @@ const sceneWorkbenchView = {
     delete meta.reviewed_by
     delete meta.reviewed_from
     await api.outline.updateScene(sceneId, state.currentProjectId, { structure_meta: meta })
-    toast("Scene 已标记为需复核", "success")
+    toast("Scene 已标记为需要人工检查", "success")
     await this._refreshWorkbenchInPlace()
   },
 
@@ -929,7 +939,7 @@ const sceneWorkbenchView = {
     const cards = scenes.map((scene, index) => {
       const meta = scene.structure_meta || {}
       const flags = [
-        meta.needs_review ? "需复核" : "",
+        meta.needs_review ? "需要人工检查" : "",
         meta.phase1a_fallback ? "fallback" : "",
         meta.boundary_status ? `边界:${meta.boundary_status}` : "",
         meta.confidence != null ? `置信度:${meta.confidence}` : "",
@@ -947,7 +957,7 @@ const sceneWorkbenchView = {
     showModalHtml("选择主 Scene", cards, [
       { text: "取消", class: "", handler: () => closeModal() },
       {
-        text: "生成 AI 融合草稿",
+        text: "生成 AI 融合建议",
         class: "btn-primary",
         handler: async () => {
           const primarySceneId = document.querySelector('input[name="primary-scene-id"]:checked')?.value
@@ -979,7 +989,7 @@ const sceneWorkbenchView = {
       ? preview.source_scene_ids
       : fallbackSourceIds
     this._activeDraftReview = preview || null
-    showModalHtml("Scene AI 草稿审稿", this._renderDraftReview(preview), [
+    showModalHtml("Scene AI 建议预览", this._renderDraftReview(preview), [
       {
         text: "保留原 Scene + 保存融合 Scene",
         class: "btn-primary",
@@ -1034,7 +1044,7 @@ const sceneWorkbenchView = {
         </section>
         <div class="scene-draft-review-grid">
           <div class="scene-draft-review-head">字段</div>
-          <div class="scene-draft-review-head">AI 草稿</div>
+          <div class="scene-draft-review-head">AI 建议</div>
           <div class="scene-draft-review-head">主 Scene 原值</div>
           <div class="scene-draft-review-head">其他 Scene 原值</div>
           ${row("title", "标题", `<input class="form-input" id="scene-fusion-title" value="${esc(fused.title || "")}" />`)}
@@ -1124,7 +1134,7 @@ const sceneWorkbenchView = {
       split_chapter_index: splitChapterIndex,
     }
     const preview = await api.outline.previewSceneSplit(state.currentProjectId, request)
-    showModalHtml("Scene AI 草稿审稿", this._renderSplitDraftReview(preview), [
+    showModalHtml("Scene AI 建议预览", this._renderSplitDraftReview(preview), [
       { text: "取消", class: "", handler: () => closeModal() },
       {
         text: "确认拆分",
@@ -1183,14 +1193,14 @@ const sceneWorkbenchView = {
     return `
       <div class="scene-fusion-preview">
         <section class="scene-fusion-preview__meta">
-          <div><strong>操作</strong><span>AI 拆分草稿</span></div>
+          <div><strong>操作</strong><span>AI 拆分建议</span></div>
           ${warnings ? `<ul>${warnings}</ul>` : ""}
         </section>
         <div class="scene-draft-review-grid">
           <div class="scene-draft-review-head">字段</div>
           <div class="scene-draft-review-head">原 Scene</div>
-          <div class="scene-draft-review-head">草稿 A</div>
-          <div class="scene-draft-review-head">草稿 B</div>
+          <div class="scene-draft-review-head">建议 A</div>
+          <div class="scene-draft-review-head">建议 B</div>
           ${rows}
         </div>
         ${this._renderPreview(preview)}
@@ -1239,11 +1249,12 @@ const sceneWorkbenchView = {
   },
 
   _healthLabel(key) {
-    return this._workbench?.health?.[key]?.label || HEALTH_ORDER.find(([k]) => k === key)?.[1] || key
+    const raw = this._workbench?.health?.[key]?.label || HEALTH_ORDER.find(([k]) => k === key)?.[1] || key
+    return ["未复核", "需复核"].includes(raw) ? "需要人工检查" : raw
   },
 
   _statusLabel(status) {
-    return Object.fromEntries(STATUS_OPTIONS)[status] || status || "草稿"
+    return structureAssetDisplay({ status }).label
   },
 
   _sourceLabel(source) {
@@ -1388,9 +1399,10 @@ const sceneWorkbenchView = {
         <input id="scene-auto-extract-high-quality" type="checkbox" />
         更高质量 <span class="scene-quality-option__hint">需要标准提取约8倍时间</span>
       </label>
+      <p class="writing-form-hint" role="note">${esc(importAuthorizationNotice())}</p>
     `
     showModalHtml("场景（scene）自动提取", formHtml, [{
-      text: "开始提取",
+      text: "确认并开始提取",
       class: "btn-primary",
       handler: async () => {
         const start = parseInt(document.getElementById("scene-auto-extract-start")?.value || "1", 10)
@@ -1411,6 +1423,7 @@ const sceneWorkbenchView = {
         end,
         force,
         highQuality,
+        importAuthorizationPayload(),
       )
       if (result.requires_confirmation) {
         const confirmed = await new Promise((resolve) => {
@@ -1546,7 +1559,7 @@ const sceneWorkbenchView = {
       `
     }).join("")
     showModalHtml("跨章 Scene 建议", rows, [{
-      text: "打开 AI 融合草稿",
+      text: "打开 AI 融合建议",
       class: "btn-primary",
       handler: async () => {
         const selected = document.querySelector('input[name="cross-chapter-suggestion"]:checked')?.value

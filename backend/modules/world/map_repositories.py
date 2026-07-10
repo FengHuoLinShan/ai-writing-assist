@@ -13,7 +13,18 @@ import logging
 import uuid
 from typing import Any, ClassVar
 
-from sqlalchemy import String, and_, cast, delete, func, literal, or_, select, update
+from sqlalchemy import (
+    String,
+    and_,
+    cast,
+    delete,
+    exists,
+    func,
+    literal,
+    or_,
+    select,
+    update,
+)
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -130,6 +141,18 @@ class MapEntityRepository[ModelT]:
 class MapConfigRepository:
     """地图配置数据访问。"""
 
+    @staticmethod
+    def _active_parent_condition():
+        return or_(
+            MapConfig.parent_entity_id.is_(None),
+            exists().where(
+                CoreEntity.id == MapConfig.parent_entity_id,
+                CoreEntity.novel_id == MapConfig.novel_id,
+                CoreEntity.entity_type == "location",
+                CoreEntity.status == "canonical",
+            ),
+        )
+
     async def get(self, db: AsyncSession, map_id: uuid.UUID) -> MapConfig | None:
         stmt = select(MapConfig).where(MapConfig.id == map_id)
         result = await db.execute(stmt)
@@ -145,7 +168,10 @@ class MapConfigRepository:
         limit: int = 100,
     ) -> tuple[list[MapConfig], int]:
         """列出地图，可按 parent_map_id 过滤（None 表顶层）。"""
-        conditions: list[Any] = [MapConfig.novel_id == novel_id]
+        conditions: list[Any] = [
+            MapConfig.novel_id == novel_id,
+            self._active_parent_condition(),
+        ]
         if parent_map_id is not None:
             conditions.append(MapConfig.parent_map_id == parent_map_id)
 
@@ -170,7 +196,10 @@ class MapConfigRepository:
         parent_map_id: uuid.UUID | None = None,
     ) -> MapConfig | None:
         """返回当前排序下的第一张地图，不执行分页总数查询。"""
-        conditions: list[Any] = [MapConfig.novel_id == novel_id]
+        conditions: list[Any] = [
+            MapConfig.novel_id == novel_id,
+            self._active_parent_condition(),
+        ]
         if parent_map_id is not None:
             conditions.append(MapConfig.parent_map_id == parent_map_id)
 
@@ -632,6 +661,28 @@ class MapLocationLayoutRepository(MapEntityRepository[MapLocationLayout]):
 
     model_class = MapLocationLayout
 
+    async def get_by_map_for_entity_statuses(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        *,
+        statuses: list[str],
+    ) -> list[MapLocationLayout]:
+        stmt = (
+            select(MapLocationLayout)
+            .join(CoreEntity, CoreEntity.id == MapLocationLayout.location_entity_id)
+            .where(
+                MapLocationLayout.novel_id == novel_id,
+                MapLocationLayout.map_id == map_id,
+                CoreEntity.novel_id == novel_id,
+                CoreEntity.status.in_(statuses),
+            )
+            .order_by(MapLocationLayout.created_at, MapLocationLayout.id)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
     async def replace_for_map(
         self,
         db: AsyncSession,
@@ -794,6 +845,28 @@ class MapTerrainBindingRepository(MapEntityRepository[MapTerrainBinding]):
     """手绘地形与地点绑定数据访问。"""
 
     model_class = MapTerrainBinding
+
+    async def get_by_map_for_entity_statuses(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        *,
+        statuses: list[str],
+    ) -> list[MapTerrainBinding]:
+        stmt = (
+            select(MapTerrainBinding)
+            .join(CoreEntity, CoreEntity.id == MapTerrainBinding.location_entity_id)
+            .where(
+                MapTerrainBinding.novel_id == novel_id,
+                MapTerrainBinding.map_id == map_id,
+                CoreEntity.novel_id == novel_id,
+                CoreEntity.status.in_(statuses),
+            )
+            .order_by(MapTerrainBinding.created_at, MapTerrainBinding.id)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
 
 
 # ============================================================

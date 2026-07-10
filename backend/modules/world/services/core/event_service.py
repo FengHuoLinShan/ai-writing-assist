@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.crud import CrudService
-from core.errors import NotFoundError
+from core.errors import NotFoundError, ValidationError
 from modules.world.models import Event
 from modules.world.repositories import CoreEntityRepository, EventRepository
 from modules.world.schemas import (
@@ -40,14 +40,35 @@ class EventService(
         data: EventCreate,
     ) -> EventResponse:
         nid = parse_uuid(novel_id, "novel_id")
-        await self._assert_entity_in_novel(db, data.entity_id, nid, "Event entity")
+        await self._assert_entity_in_novel(
+            db,
+            data.entity_id,
+            nid,
+            "Event entity",
+            entity_type="event",
+        )
         await self._assert_entity_in_novel(
             db,
             data.location_entity_id,
             nid,
             "Event location",
+            entity_type="location",
         )
         return await super().create(db, novel_id, data)
+
+    async def get(  # type: ignore[override]
+        self,
+        db: AsyncSession,
+        id: str,
+        *,
+        novel_id: str,
+    ) -> EventResponse:
+        eid = parse_uuid(id, self.id_param)
+        nid = parse_uuid(novel_id, "novel_id")
+        event = await self.repo.get(db, eid)
+        self._assert_found_in_novel(event, id, nid)
+        await self._assert_active_event(db, event, nid, raw_id=id)
+        return self._to_response(event)
 
     async def update(
         self,
@@ -58,14 +79,27 @@ class EventService(
         novel_id: str,
     ) -> EventResponse:
         nid = parse_uuid(novel_id, "novel_id")
-        if data.location_entity_id is not None:
-            await self._assert_entity_in_novel(
-                db,
-                data.location_entity_id,
-                nid,
-                "Event location",
-            )
-        return await super().update(db, id, data, novel_id=novel_id)
+        eid = parse_uuid(id, self.id_param)
+        event = await self.repo.get(db, eid)
+        self._assert_found_in_novel(event, id, nid)
+        await self._assert_entity_in_novel(
+            db,
+            id,
+            nid,
+            "Event entity",
+            entity_type="event",
+        )
+        location_id = data.location_entity_id or str(event.location_entity_id)
+        await self._assert_entity_in_novel(
+            db,
+            location_id,
+            nid,
+            "Event location",
+            entity_type="location",
+        )
+        updated = await self.repo.update(db, eid, data)
+        self._assert_found_in_novel(updated, id, nid)
+        return self._to_response(updated)
 
     async def _assert_entity_in_novel(
         self,
@@ -73,15 +107,45 @@ class EventService(
         entity_id: str,
         novel_id,
         label: str,
+        *,
+        entity_type: str,
     ) -> None:
         eid = parse_uuid(entity_id, "entity_id")
         entity = await self._entity_repo.get(db, eid)
         if (
             entity is None
             or entity.novel_id != novel_id
-            or getattr(entity, "status", None) == "deprecated"
+            or entity.status != "canonical"
         ):
             raise NotFoundError(f"{label} not found in this novel")
+        if entity.entity_type != entity_type:
+            raise ValidationError(
+                f"{label} must reference a {entity_type} CoreEntity",
+                status_code=422,
+            )
+
+    async def _assert_active_event(
+        self,
+        db: AsyncSession,
+        event: Event,
+        novel_id,
+        *,
+        raw_id: str,
+    ) -> None:
+        await self._assert_entity_in_novel(
+            db,
+            raw_id,
+            novel_id,
+            "Event entity",
+            entity_type="event",
+        )
+        await self._assert_entity_in_novel(
+            db,
+            str(event.location_entity_id),
+            novel_id,
+            "Event location",
+            entity_type="location",
+        )
 
     # ============================================================
     # 特例方法 (深度不同的部分, 不归 base)

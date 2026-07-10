@@ -2,6 +2,7 @@
  * World Bible / Worldbuilding Workspace v1.
  */
 import { pollTaskProgress } from "../shared/workflowProgress.js"
+import { displayStateBadgeClass, worldAssetDisplay } from "../shared/assetDisplayState.js"
 
 const PROJECTION_TYPE = "context_brief"
 const BIBLE_AI_TEMPLATES = [
@@ -17,7 +18,7 @@ const BIBLE_AI_TARGETS = [
   { value: "chat", label: "只聊天" },
   { value: "page_patch", label: "补写当前页" },
   { value: "new_page", label: "新建世界书页" },
-  { value: "world_object_draft", label: "世界对象草稿" },
+  { value: "world_object_draft", label: "世界对象建议" },
 ]
 const BIBLE_DISPLAY_MODES = new Set(["editor", "gallery", "filter"])
 const BIBLE_PAGE_TYPES = {
@@ -289,7 +290,8 @@ const worldBibleView = {
 
   _renderPageCard(page) {
     const meta = this._typeMeta(page.page_type)
-    const statusClass = `badge-${page.status || "draft"}`
+    const display = worldAssetDisplay(page)
+    const statusClass = displayStateBadgeClass(display.displayState)
     return `
       <article class="world-bible-page-card" style="--world-bible-type-color:${esc(meta.color)};">
         <div class="world-bible-page-card__band"></div>
@@ -299,7 +301,7 @@ const worldBibleView = {
             <h3>${esc(page.title || "未命名页面")}</h3>
             <div class="world-bible-page-card__meta">
               <span>${esc(meta.title)}</span>
-              <span class="badge ${esc(statusClass)}">${esc(this._statusLabel(page.status))}</span>
+              <span class="badge ${esc(statusClass)}">${esc(display.label)}</span>
             </div>
           </div>
         </div>
@@ -323,15 +325,7 @@ const worldBibleView = {
   },
 
   _statusLabel(status) {
-    return {
-      canonical: "正史",
-      draft: "草稿",
-      candidate: "候选",
-      deprecated: "废弃",
-      pending: "待处理",
-      done: "完成",
-      failed: "失败",
-    }[status] || status || "草稿"
+    return worldAssetDisplay({ status }).label
   },
 
   _pageExcerpt(page) {
@@ -431,7 +425,7 @@ const worldBibleView = {
       <div class="world-bible-panel__header">
         <div>
           <h2>${esc(page.title)}</h2>
-          <div class="world-bible-page-meta">${esc(page.page_type)} · ${esc(page.status)}</div>
+          <div class="world-bible-page-meta">${esc(page.page_type)} · ${esc(worldAssetDisplay(page).label)}</div>
         </div>
         <div class="world-bible-panel__actions">
           <button class="btn btn-sm" data-action="bible-toggle-ai">${this._aiOpen ? "收起 AI" : "AI 创建/整理"}</button>
@@ -454,7 +448,7 @@ const worldBibleView = {
       <aside class="bible-ai-sidebar">
         <div>
           <div class="bible-ai-sidebar__title">AI 创建/整理</div>
-          <div class="bible-ai-sidebar__hint">生成结果会先进入创设建议，确认后才写入页面或对象草稿。</div>
+          <div class="bible-ai-sidebar__hint">生成结果会先进入待处理建议，采用后才写入页面或世界对象。</div>
         </div>
         <div class="bible-ai-chip-row">
           <span class="badge">当前页：${esc(page.title)}</span>
@@ -575,7 +569,7 @@ const worldBibleView = {
               novel_id: state.currentProjectId,
               title,
               page_type: document.getElementById("bible-create-type")?.value || "custom",
-              status: "draft",
+              status: "canonical",
             })
             this._activePage = page
             this._displayMode = "editor"
@@ -642,7 +636,7 @@ const worldBibleView = {
       )
       if (response.reply) this._aiMessages.push({ role: "assistant", content: response.reply })
       this._aiResult = response
-      toast(outputTarget === "chat" ? "AI 已回复" : "建议已生成，确认后才会写入", "success")
+      toast(outputTarget === "chat" ? "AI 已回复" : "建议已生成，采用后才会写入", "success")
       router.refresh()
     } catch (err) {
       this._aiResult = { error: err.message || "生成失败" }
@@ -793,7 +787,7 @@ const worldBibleView = {
   },
 
   _renderSuggestionsModal() {
-    if (!this._suggestions.length) return `<div class="empty-state"><p>暂无待审核建议</p></div>`
+    if (!this._suggestions.length) return `<div class="empty-state"><p>暂无待处理建议</p></div>`
     const base = this._suggestionBatchBase()
     return `
       <div class="world-bible-suggestion-list">
@@ -802,8 +796,8 @@ const worldBibleView = {
             批量范围：${esc(base.review_group)} · ${esc(base.target_type)} · ${esc(base.action_schema)}
           </div>
           <div class="world-bible-suggestion-actions">
-            <button class="btn btn-sm btn-primary" data-action="bible-batch-confirm">批量确认</button>
-            <button class="btn btn-sm" data-action="bible-batch-reject">批量拒绝</button>
+            <button class="btn btn-sm btn-primary" data-action="bible-batch-confirm">批量采用</button>
+            <button class="btn btn-sm" data-action="bible-batch-reject">批量忽略</button>
           </div>
         </div>
         ${this._suggestions.map((item) => `
@@ -813,8 +807,8 @@ const worldBibleView = {
             <div class="world-bible-suggestion-risk">风险：${esc(item.risk_level)} · ${esc(item.action_schema)}</div>
             ${this._renderSuggestionPreview(item)}
             <div class="world-bible-suggestion-item__actions">
-              <button class="btn btn-sm btn-primary" data-bible-confirm-suggestion="${esc(item.id)}">确认</button>
-              <button class="btn btn-sm" data-bible-reject-suggestion="${esc(item.id)}">拒绝</button>
+              <button class="btn btn-sm btn-primary" data-bible-confirm-suggestion="${esc(item.id)}">采用</button>
+              <button class="btn btn-sm" data-bible-reject-suggestion="${esc(item.id)}">忽略</button>
             </div>
           </div>
         `).join("")}
@@ -900,7 +894,7 @@ const worldBibleView = {
     return {
       world_bible_page_patch: "补写当前页",
       world_bible_page: "新建世界书页",
-      core_entity_draft: "世界对象草稿",
+      core_entity_draft: "世界对象建议",
       profile_field: "档案字段",
     }[targetType] || targetType || "创设建议"
   },
@@ -958,7 +952,7 @@ const worldBibleView = {
     try {
       if (accepted) await api.world.confirmSuggestion(id, state.currentProjectId)
       else await api.world.rejectSuggestion(id, state.currentProjectId)
-      toast(accepted ? "建议已确认" : "建议已拒绝", "success")
+      toast(accepted ? "建议已采用" : "建议已忽略", "success")
       if (accepted) {
         await this._load()
         router.refresh()

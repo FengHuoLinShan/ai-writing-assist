@@ -4,9 +4,10 @@
 
 import { confirmAiReference } from "../shared/aiReferenceModal.js"
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
+import { worldAssetDisplay } from "../shared/assetDisplayState.js"
 
 const BUILTIN_TEMPLATE_PROMPTS = {
-  none: "不预设对象类型，按用户聊天内容自由收束为一个有用的世界对象草稿。",
+  none: "不预设对象类型，按用户聊天内容自由收束为一个有用的世界对象建议。",
   character: "聚焦人物卡：动机、欲望、恐惧、秘密、能力边界、外貌、性格、关系钩子、声音风格和剧情用途。",
   event: "聚焦事件卡：起因、参与方、过程、结果、隐性真相、影响范围、后续钩子和可揭示层级。",
   item: "聚焦物品卡：外观、来源、能力或用途、限制代价、归属关系、秘密、失控风险和剧情钩子。",
@@ -200,7 +201,7 @@ const generateView = {
               ></textarea>
               <div class="generate-chat-actions">
                 <button class="btn" data-action="send-chat-message">发送</button>
-                <button class="btn btn-primary" data-action="generate-object-draft">生成对象（数据库草稿）</button>
+                <button class="btn btn-primary" data-action="generate-object-draft">生成世界对象建议</button>
               </div>
             </div>
           </div>
@@ -228,7 +229,7 @@ const generateView = {
             <div class="card-title">结果</div>
             <div id="generate-result" class="generate-result">
               ${this._lastEntity ? this._renderEntityResult(this._lastEntity) : `
-                <p class="generate-empty-copy">聊天不会写入数据库。点击“生成对象（数据库草稿）”后，结果会作为世界对象草稿保存。</p>
+                <p class="generate-empty-copy">聊天不会写入世界设定。点击“生成世界对象建议”后，结果会进入待处理，采用后才成为当前有效设定。</p>
               `}
             </div>
           </div>
@@ -294,13 +295,13 @@ const generateView = {
           <div class="generate-result-actions">
             <button class="btn btn-primary" data-action="generate-pov-prose">生成角色视角正文</button>
           </div>
-          <p class="generate-empty-copy">生成结果保存为候选正文草稿；结构化 POV 面板和泄漏诊断由写作页读取 provenance 展示。</p>
+          <p class="generate-empty-copy">生成结果先保存为正文建议；采用到工作稿后才能继续编辑和发布。结构化 POV 面板会展示泄漏诊断。</p>
         </div>
         <div class="card">
           <div class="card-title">结果</div>
           <div id="generate-pov-result" class="generate-result">
             ${this._lastPovSubmission ? this._renderPovSubmission(this._lastPovSubmission) : `
-              <p class="generate-empty-copy">选择章节、Scene 和视角角色后生成候选正文。</p>
+              <p class="generate-empty-copy">选择章节、Scene 和视角角色后生成正文建议。</p>
             `}
           </div>
           ${scene || role || form.chapterIndex ? `
@@ -731,13 +732,13 @@ const generateView = {
     this._renderMessages()
     this._persistState()
     const resultEl = document.getElementById("generate-result")
-    if (resultEl) resultEl.innerHTML = '<div class="loading">正在生成数据库草稿...</div>'
+    if (resultEl) resultEl.innerHTML = '<div class="loading">正在生成世界对象建议...</div>'
     let controller = null
     try {
       this._setBusy(true)
       controller = this._trackRequestController()
       const response = await api.generate.generateObjectDraft(this._buildPayload(), { signal: controller.signal })
-      this._lastEntity = response?.entity || null
+      this._lastEntity = response?.suggestion || response?.entity || null
       if (resultEl) {
         resultEl.replaceChildren()
         if (this._lastEntity) {
@@ -750,7 +751,7 @@ const generateView = {
         }
       }
       this._persistState()
-      toast("对象草稿已生成", "success")
+      toast("世界对象建议已进入待处理", "success")
     } catch (err) {
       if (resultEl) {
         resultEl.replaceChildren(this._renderInlineError(`生成失败：${err.message || "未知错误"}`))
@@ -771,7 +772,7 @@ const generateView = {
       const data = await api.writing.listChapters(state.currentProjectId)
       const summaries = Array.isArray(data.chapters) ? data.chapters : []
       if (!summaries.length) {
-        toast("当前项目还没有正文，可直接聊天或粘贴外部对话生成草稿", "info")
+        toast("当前项目还没有正文，可直接聊天或粘贴外部对话生成建议", "info")
         return
       }
       const chapters = await this._runInBatches(summaries.slice(0, 60), 5, async (item) => {
@@ -859,13 +860,15 @@ const generateView = {
   },
 
   _renderEntityResult(entity) {
+    const content = entity.payload_json || entity.entity || entity
+    const display = worldAssetDisplay({ ...content, status: entity.status || content.status || "candidate" })
     return `
       <div class="generate-result-card">
-        <div class="generate-result-title">${esc(entity.name || "未命名对象")}</div>
-        <div class="generate-result-meta">${esc(entity.entity_type || "-")} · ${esc(entity.status || "draft")}</div>
-        <p class="generate-result-summary">${esc(entity.summary || "已生成数据库草稿。")}</p>
+        <div class="generate-result-title">${esc(content.name || content.title || "未命名对象")}</div>
+        <div class="generate-result-meta">${esc(content.entity_type || entity.target_type || "-")} · ${esc(display.label)}</div>
+        <p class="generate-result-summary">${esc(content.summary || content.public_info || "世界对象建议已进入待处理。")}</p>
         <div class="generate-result-actions">
-          <button class="btn btn-sm btn-primary" data-action="open-generated-destination" data-target-view="world" data-target-subview="objects">打开世界对象</button>
+          <button class="btn btn-sm btn-primary" data-action="open-generated-destination" data-target-view="world" data-target-subview="review-objects">前往待处理</button>
           <button class="btn btn-sm" data-action="continue-chat">继续聊</button>
           <button class="btn btn-sm" data-action="generate-another">再生成一个</button>
           <button class="btn btn-sm" data-action="view-generation-context">查看上下文</button>
@@ -875,25 +878,27 @@ const generateView = {
   },
 
   _renderEntityResultNode(entity) {
+    const content = entity.payload_json || entity.entity || entity
+    const display = worldAssetDisplay({ ...content, status: entity.status || content.status || "candidate" })
     const card = document.createElement("div")
     card.className = "generate-result-card"
 
     const title = document.createElement("div")
     title.className = "generate-result-title"
-    title.textContent = entity.name || "未命名对象"
+    title.textContent = content.name || content.title || "未命名对象"
 
     const meta = document.createElement("div")
     meta.className = "generate-result-meta"
-    meta.textContent = `${entity.entity_type || "-"} · ${entity.status || "draft"}`
+    meta.textContent = `${content.entity_type || entity.target_type || "-"} · ${display.label}`
 
     const summary = document.createElement("p")
     summary.style.cssText = "font-size:13px;line-height:1.6;margin:0;"
-    summary.textContent = entity.summary || "已生成数据库草稿。"
+    summary.textContent = content.summary || content.public_info || "世界对象建议已进入待处理。"
 
     const actions = document.createElement("div")
     actions.className = "generate-result-actions"
     const buttons = [
-      ["open-generated-destination", "打开世界对象", "btn btn-sm btn-primary"],
+      ["open-generated-destination", "前往待处理", "btn btn-sm btn-primary"],
       ["continue-chat", "继续聊", "btn btn-sm"],
       ["generate-another", "再生成一个", "btn btn-sm"],
       ["view-generation-context", "查看上下文", "btn btn-sm"],
@@ -905,7 +910,7 @@ const generateView = {
       button.dataset.action = action
       if (action === "open-generated-destination") {
         button.dataset.targetView = "world"
-        button.dataset.targetSubview = "objects"
+        button.dataset.targetSubview = "review-objects"
       }
       button.textContent = label
       actions.append(button)
@@ -1011,7 +1016,7 @@ const generateView = {
     this._lastEntity = null
     const resultEl = document.getElementById("generate-result")
     if (resultEl) {
-      resultEl.innerHTML = '<p class="generate-empty-copy">可以继续基于当前聊天生成新的对象草稿。</p>'
+      resultEl.innerHTML = '<p class="generate-empty-copy">可以继续基于当前聊天生成新的世界对象建议。</p>'
     }
     this._persistState()
   },
@@ -1032,7 +1037,7 @@ const generateView = {
     const note = document.createElement("span")
     note.id = "topbar-generate-note"
     note.className = "topbar-generate-note"
-    note.textContent = "先自由聊，确定后再生成数据库草稿。"
+    note.textContent = "先自由聊，确定后再生成待处理建议。"
     moduleEl.insertAdjacentElement("afterend", note)
   },
 
@@ -1200,7 +1205,7 @@ const generateView = {
     if (resultEl) resultEl.innerHTML = '<div class="loading">正在确认参考资料...</div>'
     const povInstruction = [
       instruction?.trim() || "",
-      "请从所选 Scene 的 POV 角色有限认知出发生成正文候选草稿。",
+      "请从所选 Scene 的 POV 角色有限认知出发生成正文建议。",
       "用户指令是作者意图，不等于角色知识。",
       "角色判断、台词、内心只能使用确认上下文中该角色可见的信息。",
     ].filter(Boolean).join("\n")
@@ -1210,17 +1215,17 @@ const generateView = {
       const confirmation = await confirmAiReference({
         novel_id: state.currentProjectId,
         action: "writing.generate",
-        task: "基于所选 Scene 和 POV 角色有限认知，生成正文候选草稿",
+        task: "基于所选 Scene 和 POV 角色有限认知，生成正文建议预览",
         scope: "chapter",
         chapter_index: chapterIndex,
         scene_id: sceneId,
         reveal_mode: "character",
         viewpoint_character_id: viewpointCharacterId,
         character_ids: [viewpointCharacterId],
-        include_pending_objects: true,
+        include_pending_objects: false,
       })
       const userNote = confirmation.user_note ? `${confirmation.user_note}\n\n` : ""
-      if (resultEl) resultEl.innerHTML = '<div class="loading">正在生成正文候选...</div>'
+      if (resultEl) resultEl.innerHTML = '<div class="loading">正在生成正文建议...</div>'
       const result = await api.writing.generate({
         novel_id: state.currentProjectId,
         chapter_index: chapterIndex,
@@ -1236,7 +1241,7 @@ const generateView = {
       }
       if (resultEl) resultEl.innerHTML = this._renderPovSubmission(this._lastPovSubmission)
       this._persistState()
-      toast(`角色视角正文候选已提交：${result.task_id || result.id || result.draft_id || ""}`, "success")
+      toast(`角色视角正文建议已提交：${result.task_id || result.id || result.draft_id || ""}`, "success")
     } catch (err) {
       if (err?.message?.includes("取消")) {
         if (resultEl) resultEl.innerHTML = this._lastPovSubmission
@@ -1260,11 +1265,11 @@ const generateView = {
     const id = result.task_id || result.draft_id || result.id || result.draft?.id || ""
     return `
       <div class="generate-result-card">
-        <div class="generate-result-title">角色视角正文候选已提交</div>
+        <div class="generate-result-title">角色视角正文建议已提交</div>
         <div class="generate-result-meta">
           第 ${esc(submission.chapterIndex)} 章 · ${esc(scene?.title || scene?.name || submission.sceneId)} · ${esc(role?.name || role?.display_name || submission.viewpointCharacterId)}
         </div>
-        <p class="generate-result-summary">${id ? `任务 / 草稿：${esc(id)}` : "已生成候选正文草稿。"}</p>
+        <p class="generate-result-summary">${id ? `任务 / 建议：${esc(id)}` : "正文建议已生成，可到写作页采用到工作稿。"}</p>
         <div class="generate-result-actions">
           <button class="btn btn-sm btn-primary" data-action="open-generated-destination" data-target-view="writing" data-chapter-index="${esc(submission.chapterIndex)}">打开写作页</button>
         </div>
@@ -1481,7 +1486,7 @@ const generateView = {
     const templatePayload = this._selectedTemplatePayload()
     const params = {
       novel_id: state.currentProjectId,
-      task: "基于当前聊天和模板生成对象草稿",
+      task: "基于当前聊天和模板生成世界对象建议",
       scope: "world",
       template: templatePayload.template,
       template_name: templatePayload.template_name,

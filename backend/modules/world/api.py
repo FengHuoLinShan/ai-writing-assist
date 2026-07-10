@@ -6,6 +6,8 @@ World API 路由 — v3 因果时空网
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException, Query
 
 from core.api_params import NovelIdQuery
@@ -28,6 +30,7 @@ from modules.world.schemas import (
     CoreEntityCreate,
     CoreEntityListResponse,
     CoreEntityResponse,
+    CoreEntitySuggestionEditConfirmRequest,
     CoreEntityUpdate,
     CreationSuggestionListResponse,
     EntityAliasCreate,
@@ -180,7 +183,7 @@ async def generate_object_draft(
     db: DbSession,
     data: ObjectDraftGenerateRequest,
 ) -> ObjectDraftGenerateResponse:
-    """将 Chatbox 上下文收束为 world object 数据库草稿。"""
+    """将 Chatbox 上下文收束为待处理建议，并返回兼容草稿视图。"""
     try:
         return await _object_draft_service.generate(db, data)
     except TemplateVersionConflictError as exc:
@@ -541,6 +544,105 @@ async def confirm_world_suggestion(
 
 
 @router.post(
+    "/suggestions/{suggestion_id}/edit-confirm",
+    response_model=SuggestionDecisionResponse,
+)
+async def edit_and_confirm_world_suggestion(
+    db: DbSession,
+    suggestion_id: str,
+    data: CoreEntitySuggestionEditConfirmRequest,
+    *,
+    novel_id: NovelIdQuery,
+) -> SuggestionDecisionResponse:
+    try:
+        suggestion = await _suggestion_service.edit_and_confirm_core_entity(
+            db,
+            novel_id,
+            suggestion_id,
+            data,
+        )
+    except SuggestionAlreadyProcessedError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "status": "already_processed",
+                "suggestion_status": exc.status,
+            },
+        ) from exc
+    return SuggestionDecisionResponse(
+        status="accepted",
+        suggestion_status=suggestion.status,
+        result_ref_json=suggestion.result_ref_json,
+    )
+
+
+@router.post(
+    "/suggestions/{suggestion_id}/merge",
+    response_model=SuggestionDecisionResponse,
+)
+async def merge_world_suggestion(
+    db: DbSession,
+    suggestion_id: str,
+    data: EntityMergeRequest,
+    *,
+    novel_id: NovelIdQuery,
+) -> SuggestionDecisionResponse:
+    try:
+        suggestion = await _suggestion_service.merge_core_entity(
+            db,
+            novel_id,
+            suggestion_id,
+            data,
+        )
+    except SuggestionAlreadyProcessedError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "status": "already_processed",
+                "suggestion_status": exc.status,
+            },
+        ) from exc
+    return SuggestionDecisionResponse(
+        status="accepted",
+        suggestion_status=suggestion.status,
+        result_ref_json=suggestion.result_ref_json,
+    )
+
+
+@router.post(
+    "/suggestions/{suggestion_id}/resolve-as-alias",
+    response_model=SuggestionDecisionResponse,
+)
+async def resolve_world_suggestion_as_alias(
+    db: DbSession,
+    suggestion_id: str,
+    data: EntityResolveAsAliasRequest,
+    *,
+    novel_id: NovelIdQuery,
+) -> SuggestionDecisionResponse:
+    try:
+        suggestion = await _suggestion_service.resolve_core_entity_as_alias(
+            db,
+            novel_id,
+            suggestion_id,
+            data,
+        )
+    except SuggestionAlreadyProcessedError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "status": "already_processed",
+                "suggestion_status": exc.status,
+            },
+        ) from exc
+    return SuggestionDecisionResponse(
+        status="accepted",
+        suggestion_status=suggestion.status,
+        result_ref_json=suggestion.result_ref_json,
+    )
+
+
+@router.post(
     "/suggestions/{suggestion_id}/reject",
     response_model=SuggestionDecisionResponse,
 )
@@ -663,12 +765,16 @@ async def list_entities(
     novel_id: NovelIdQuery,
     entity_type: str | None = Query(None, description="实体类型过滤"),
     status: str | None = Query(None, description="状态过滤"),
+    display_state: Literal["active", "review", "archived"] | None = Query(
+        None,
+        description="作者展示状态过滤（兼容保留 status）",
+    ),
     q: str | None = Query(None, description="名称/别名搜索"),
     source: str | None = Query(None, description="来源过滤"),
     workflow_id: str | None = Query(None, description="深度导入 workflow ID"),
     needs_review: bool | None = Query(None, description="是否需要复核"),
     auto_ingested: bool | None = Query(None, description="是否自动导入"),
-    suggested_action: str | None = Query(None, description="候选建议动作"),
+    suggested_action: str | None = Query(None, description="待处理项的建议动作"),
     scene_id: str | None = Query(None, description="来源 Scene ID"),
     scene_index: int | None = Query(None, description="来源 Scene 索引"),
     source_chapter_index: int | None = Query(None, description="来源章节索引"),
@@ -687,6 +793,7 @@ async def list_entities(
         novel_id,
         entity_type=entity_type,
         status=status,
+        display_state=display_state,
         q=q,
         source=source,
         workflow_id=workflow_id,
@@ -908,7 +1015,7 @@ async def promote_entity(
     *,
     novel_id: NovelIdQuery,
 ) -> EntityPromoteResponse:
-    """将草稿/候选实体手动提升为正史。"""
+    """采用待处理实体；原始状态字段保持兼容。"""
     return await _entity_service.promote(
         db,
         entity_id,
@@ -1361,6 +1468,10 @@ async def list_aliases(
     *,
     novel_id: NovelIdQuery,
     q: str | None = Query(None, description="别名/对象/引用搜索"),
+    display_state: Literal["active", "review", "archived"] | None = Query(
+        None,
+        description="作者展示态过滤",
+    ),
     status: str | None = Query(None, description="状态过滤"),
     needs_review: bool | None = Query(None, description="是否需要复核"),
     source: str | None = Query(None, description="来源过滤"),
@@ -1378,6 +1489,7 @@ async def list_aliases(
         db,
         novel_id,
         q=q,
+        display_state=display_state,
         status=status,
         needs_review=needs_review,
         source=source,
@@ -1406,6 +1518,10 @@ async def create_alias(
         data.entity_id,
         data.alias,
         data.alias_type,
+        status=data.status,
+        source="manual",
+        source_chapter_index=data.source_chapter_index,
+        confidence=data.confidence,
     )
 
 

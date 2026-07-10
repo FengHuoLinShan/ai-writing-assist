@@ -34,7 +34,7 @@
 - [ ] Lint 通过
 - [ ] 跨模块依赖仅通过稳定接口（contracts/facade/DI port）
 - [ ] novel_id 隔离未破坏
-- [ ] AI 输出默认走 candidate/proposal；用户确认启动的自动流水线如直接写 canonical，已保留来源、可编辑/可回滚标记并有测试覆盖
+- [ ] AI 输出默认走待处理建议/临时预览；内部 candidate/proposal 不直接等于当前有效资产。授权自动流水线如直接采用结果，已持久化授权范围、来源、workflow、可编辑/可回滚标记并有测试覆盖
 - [ ] 无未转义动态 HTML / eval / exec 风险
 - [ ] 危险操作（合并/删除/废弃）保留二次确认
 - [ ] 不违反 `AGENTS.md` 的硬约束
@@ -49,7 +49,7 @@
 - `novel_id` 隔离、API Key 安全、LLM 输出 schema 校验
 - 未转义用户/AI/API 动态内容不得进入 HTML
 - 跨模块不直接 import 其他模块内部实现
-- 默认 candidate → 用户确认 → canonical；用户确认启动的自动流水线可写 canonical，但必须保留可编辑/可回滚标记
+- 默认待处理建议/预览 → 用户采用 → 当前有效资产；底层可保留 candidate/proposal/canonical 兼容状态。用户明确授权的自动流水线可按领域规则直接采用结果，但必须保留授权快照、来源和可编辑/可回滚标记，异常结果仍进入待处理
 
 ### Demo 阶段数据库策略
 
