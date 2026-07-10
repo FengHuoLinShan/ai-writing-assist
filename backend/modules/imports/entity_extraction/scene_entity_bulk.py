@@ -126,9 +126,7 @@ class BulkSceneEntityExtractor:
                 draft_by_chapter,
             )
             if text:
-                scene_texts.append(
-                    f"### Scene {scene.get('scene_index')}\n\n{text}"
-                )
+                scene_texts.append(f"### Scene {scene.get('scene_index')}\n\n{text}")
         if not scene_texts:
             return {
                 "created": 0,
@@ -201,7 +199,9 @@ class BulkSceneEntityExtractor:
                 nid,
                 extraction.relations,
                 scene_index=scene_index,
+                source_chapter_index=source_chapter_index,
                 workflow_id=workflow_id,
+                scene_id=scene_id,
                 context_snapshot_id=snapshot_id,
                 result_refs=result_refs,
             )

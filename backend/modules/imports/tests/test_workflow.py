@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.models import AsyncTask
 from modules.imports.entity_extraction.scene_entity_extraction import (
@@ -183,7 +184,7 @@ async def test_workflow_spine_uses_injected_phase_runner_protocols() -> None:
             3,
             DeepImportProgress(),
             workflow_id="wf-protocol",
-    )
+        )
 
     assert progress.phase == "done"
     assert progress.message == (
@@ -411,9 +412,7 @@ def test_scene_entity_output_accepts_singletons_and_text_variants_from_llm() -> 
     assert output.relations[0].description == "第一次发现；尚未公开"
     assert output.relations[0].strength == 0.8
     assert len(output.delta_events) == 1
-    assert output.delta_events[0].meta == {
-        "note": "安提哥努斯笔记被重新定位为1级封印物"
-    }
+    assert output.delta_events[0].meta == {"note": "安提哥努斯笔记被重新定位为1级封印物"}
 
 
 def test_alias_relation_output_accepts_single_alias_and_relation() -> None:
@@ -456,22 +455,26 @@ def _phase0_plan_result(
         }
         for chapter_index in range(start_chapter, end_chapter + 1)
     ]
-    windows = [] if blocked else [
-        SceneWindowPlan(
-            window_index=1,
-            window_id=f"B0001-{start_chapter}-{end_chapter}-owned-{start_chapter}-{end_chapter}",
-            covered_start=start_chapter,
-            covered_end=end_chapter,
-            owned_start=start_chapter,
-            owned_end=end_chapter,
-            chapter_indices=list(range(start_chapter, end_chapter + 1)),
-            owned_chapter_indices=list(range(start_chapter, end_chapter + 1)),
-            input_chars=1200,
-            max_tokens=13_000,
-            batch_size=end_chapter - start_chapter + 1,
-            overlap=0,
-        )
-    ]
+    windows = (
+        []
+        if blocked
+        else [
+            SceneWindowPlan(
+                window_index=1,
+                window_id=f"B0001-{start_chapter}-{end_chapter}-owned-{start_chapter}-{end_chapter}",
+                covered_start=start_chapter,
+                covered_end=end_chapter,
+                owned_start=start_chapter,
+                owned_end=end_chapter,
+                chapter_indices=list(range(start_chapter, end_chapter + 1)),
+                owned_chapter_indices=list(range(start_chapter, end_chapter + 1)),
+                input_chars=1200,
+                max_tokens=13_000,
+                batch_size=end_chapter - start_chapter + 1,
+                overlap=0,
+            )
+        ]
+    )
     return ScenePlanResult(
         chapters=[] if blocked else chapters,
         windows=windows,
@@ -966,15 +969,14 @@ async def test_phase1b_llm_prompt_requires_compact_scene_contract(monkeypatch):
     assert "目标输出9个Scene" in system_content
     assert "必须覆盖1-7章" in system_content
     assert (
-        "每个Scene只输出短字段：title、goal、must_happen、"
-        "must_not_happen、scene_chunks"
+        "每个Scene只输出短字段：title、goal、must_happen、must_not_happen、scene_chunks"
     ) in system_content
     assert "不要重写成长摘要" in system_content
     assert "不要补 core_conflict、emotional_beat、narrative_tag" in system_content
     assert "scene_chunks 内必须有 chapter_index" in system_content
     assert "source_chapter_indices 并集必须覆盖" in system_content
     assert "不要拆散同一目标/冲突/行动链延续的跨章 Scene" in user_content
-    assert "\"scene_chunks\":[{\"chapter_index\":1}]" in user_content
+    assert '"scene_chunks":[{"chapter_index":1}]' in user_content
     assert request.max_tokens == 6144
     assert kwargs["timeout_seconds"] == 90
 
@@ -1098,8 +1100,7 @@ def test_phase1b_decision_materializer_preserves_explicit_cross_chapter_chunks()
         [115],
     ]
     assert [
-        [chunk.chapter_index for chunk in scene.scene_chunks]
-        for scene in output.scenes
+        [chunk.chapter_index for chunk in scene.scene_chunks] for scene in output.scenes
     ] == [[113, 114], [115]]
 
 
@@ -1374,8 +1375,7 @@ class TestDeepImportSchema:
     def test_progress_phase_timeline_is_capped_with_recent_entries(self):
         progress = DeepImportProgress()
         progress.phase_timeline = [
-            {"phase": f"phase-{index}", "status": "done"}
-            for index in range(125)
+            {"phase": f"phase-{index}", "status": "done"} for index in range(125)
         ]
 
         from modules.imports.workflow_progress import DeepImportProgressTracker
@@ -1687,9 +1687,10 @@ class TestDeepImportWorkflowAutoRun:
 
         assert artifact["quality_stats"]["total_created"] == 1
         assert "phase2_window_diagnostics" not in artifact["quality_stats"]
-        assert artifact["diagnostics"]["phase2_windows"]["samples"][0][
-            "source_batch_id"
-        ] == "W-1"
+        assert (
+            artifact["diagnostics"]["phase2_windows"]["samples"][0]["source_batch_id"]
+            == "W-1"
+        )
         assert "prompt" not in artifact["diagnostics"]["phase2_windows"]
         assert "content" not in artifact["diagnostics"]["phase2_windows"]
         invalid_sample = artifact["diagnostics"]["invalid_scene_refs"]["samples"][0]
@@ -1809,6 +1810,39 @@ class TestDeepImportWorkflowAutoRun:
                 )
 
     @pytest.mark.asyncio
+    async def test_real_db_phase2_routes_through_scene_activation_handler(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        workflow = DeepImportWorkflow()
+        expected = {
+            "total_created": 1,
+            "activation_version": "import-context-v1",
+        }
+        handler = AsyncMock(return_value=expected)
+
+        with (
+            patch("modules.imports.workflow._container_get", return_value=handler),
+            patch(
+                "modules.imports.workflow._project_settings_for_novel",
+                new=AsyncMock(return_value={}),
+            ),
+        ):
+            result = await workflow._extract_entities_by_scene(
+                db_session,
+                "00000000-0000-0000-0000-00000000b202",
+                workflow_id="wf-activation",
+                start_chapter=78,
+                end_chapter=80,
+            )
+
+        assert result is expected
+        handler.assert_awaited_once()
+        assert handler.await_args.kwargs["novel_id"].endswith("b202")
+        assert handler.await_args.kwargs["start_chapter"] == 78
+        assert handler.await_args.kwargs["end_chapter"] == 80
+
+    @pytest.mark.asyncio
     async def test_pending_to_done(self):
         """pending 直接跑完三步到达 done"""
         workflow = DeepImportWorkflow()
@@ -1908,12 +1942,16 @@ class TestDeepImportWorkflowAutoRun:
         assert "场景（scene）自动提取完成" in result.message
         assert result.phase_artifacts["phase0_plan"]["counts"]["window_count"] == 1
         assert result.phase_artifacts["phase0_plan"]["counts"]["chapter_count"] == 5
-        assert result.phase_artifacts["phase1a_scene_slicing"]["coverage"][
-            "coverage_complete"
-        ] is True
-        assert result.phase_artifacts["phase1b_enrichment"]["coverage"][
-            "coverage_complete"
-        ] is True
+        assert (
+            result.phase_artifacts["phase1a_scene_slicing"]["coverage"][
+                "coverage_complete"
+            ]
+            is True
+        )
+        assert (
+            result.phase_artifacts["phase1b_enrichment"]["coverage"]["coverage_complete"]
+            is True
+        )
         assert result.phase_artifacts["scene_commit"]["counts"]["total_scenes"] == 2
         assert (
             result.quality_stats["scene_commit"]["rag_reindex_task_id"]
@@ -1921,8 +1959,7 @@ class TestDeepImportWorkflowAutoRun:
         )
         enqueue_rag.assert_called_once_with(db, novel_id, 1, 5)
         assert any(
-            event["event"] == "phase_started"
-            and event["phase"] == "phase0_plan"
+            event["event"] == "phase_started" and event["phase"] == "phase0_plan"
             for event in result.progress_events
         )
         assert any(
@@ -2061,13 +2098,9 @@ class TestDeepImportWorkflowAutoRun:
         assert result.phase == "done"
         assert DeepImportStep.entity_extraction.value in result.completed_steps
         assert result.quality_stats["phase2"]["total_aliases"] == 1
-        assert result.phase_artifacts["entity_extraction"]["counts"][
-            "total_created"
-        ] == 2
+        assert result.phase_artifacts["entity_extraction"]["counts"]["total_created"] == 2
         workflow._extract_entities_by_scene.assert_awaited_once()
-        assert workflow._extract_entities_by_scene.await_args.kwargs[
-            "start_chapter"
-        ] == 2
+        assert workflow._extract_entities_by_scene.await_args.kwargs["start_chapter"] == 2
         assert workflow._extract_entities_by_scene.await_args.kwargs["end_chapter"] == 7
 
     @pytest.mark.asyncio
@@ -2207,9 +2240,7 @@ class TestDeepImportWorkflowAutoRun:
 
         assert result.phase == "done"
         assert workflow._extract_entities_by_scene.await_count == 2
-        assert result.phase_artifacts["entity_extraction"]["repair"][
-            "attempted"
-        ] is True
+        assert result.phase_artifacts["entity_extraction"]["repair"]["attempted"] is True
         assert any(
             event["event"] == "artifact_produced"
             and event["phase"] == "entity_extraction"
@@ -2838,9 +2869,7 @@ class TestDeepImportWorkflowAutoRun:
             "reveal_plan",
             "reveal_plan",
         ]
-        assert updated["warnings"] == [
-            "结构类别输出不足，已补充待复核结构候选。"
-        ]
+        assert updated["warnings"] == ["结构类别输出不足，已补充待复核结构候选。"]
         thread_service.create.assert_not_awaited()
         arc_service.create.assert_not_awaited()
         thread_service.create_batch.assert_awaited_once()
@@ -2971,8 +3000,7 @@ class TestDeepImportWorkflowAutoRun:
         )
         foreshadowing_service.create_batch = AsyncMock(
             return_value=[
-                _response(name=f"第 1-60 章补强伏笔 {index}")
-                for index in range(2, 4)
+                _response(name=f"第 1-60 章补强伏笔 {index}") for index in range(2, 4)
             ]
         )
         reveal_service = Mock()
@@ -3123,9 +3151,9 @@ class TestDeepImportWorkflowAutoRun:
             "error_kind": "empty_scene_commit",
             "message": "Scene 提交阶段未创建或复用任何 Scene",
         }
-        scene_commit = {
-            item["phase"]: item for item in result.phase_timeline
-        }["scene_commit"]
+        scene_commit = {item["phase"]: item for item in result.phase_timeline}[
+            "scene_commit"
+        ]
         assert scene_commit["status"] == "failed"
         assert scene_commit["error_kind"] == "empty_scene_commit"
         assert result.last_error == {
@@ -3577,9 +3605,7 @@ class TestDeepImportOrchestrator:
     ):
         task = await _create_recoverable_deep_import_task(db_session)
 
-        result = await DeepImportOrchestrator().abandon_recovery(
-            db_session, str(task.id)
-        )
+        result = await DeepImportOrchestrator().abandon_recovery(db_session, str(task.id))
 
         assert result["task_id"] == str(task.id)
         assert result["workflow_id"] == str(task.id)
@@ -4199,12 +4225,12 @@ class TestSceneSegmentationProgress:
 
         batches = service._split_into_batches(chapters)
 
-        assert [
-            [ch["chapter_index"] for ch in batch] for batch in batches
-        ] == [[1, 2], [2, 3], [3, 4]]
-        assert all(
-            sum(len(ch["content"]) for ch in batch) <= 10 for batch in batches
-        )
+        assert [[ch["chapter_index"] for ch in batch] for batch in batches] == [
+            [1, 2],
+            [2, 3],
+            [3, 4],
+        ]
+        assert all(sum(len(ch["content"]) for ch in batch) <= 10 for batch in batches)
 
     def test_split_batches_allows_single_chapter_over_budget(self, monkeypatch):
         """单章超过预算时仍应独立成批，不能卡住。"""
@@ -4220,9 +4246,10 @@ class TestSceneSegmentationProgress:
 
         batches = service._split_into_batches(chapters)
 
-        assert [
-            [ch["chapter_index"] for ch in batch] for batch in batches
-        ] == [[1], [2, 3]]
+        assert [[ch["chapter_index"] for ch in batch] for batch in batches] == [
+            [1],
+            [2, 3],
+        ]
 
     @pytest.mark.asyncio
     async def test_generate_with_timeout_raises_llm_timeout(self):
@@ -4297,9 +4324,7 @@ class TestSceneEntityExtractionProgress:
     def test_phase2_splits_scenes_into_fixed_size_batches(self, monkeypatch):
         monkeypatch.delenv("PHASE2_BATCH_SIZE_SCENES", raising=False)
         service = SceneEntityExtractionService()
-        scenes = [
-            {"id": f"scene-{idx}", "scene_index": idx} for idx in range(1, 31)
-        ]
+        scenes = [{"id": f"scene-{idx}", "scene_index": idx} for idx in range(1, 31)]
 
         batches = service._split_scene_batches(scenes)
 
@@ -4315,9 +4340,7 @@ class TestSceneEntityExtractionProgress:
         monkeypatch.setenv("PHASE2_BATCH_SIZE_SCENES", "8")
         monkeypatch.setenv("PHASE2_BATCH_CONCURRENCY", "8")
         service = SceneEntityExtractionService()
-        scenes = [
-            {"id": f"scene-{idx}", "scene_index": idx} for idx in range(1, 18)
-        ]
+        scenes = [{"id": f"scene-{idx}", "scene_index": idx} for idx in range(1, 18)]
 
         batches = service._split_scene_batches(scenes)
 
@@ -4348,8 +4371,7 @@ class TestSceneEntityExtractionProgress:
         windows = service._phase2_boundary_windows(batches, boundary_size=2)
 
         assert [
-            [scene["scene_index"] for scene in window["scenes"]]
-            for window in windows
+            [scene["scene_index"] for scene in window["scenes"]] for window in windows
         ] == [
             [11, 12, 13, 14],
             [23, 24, 25, 26],
@@ -4375,9 +4397,14 @@ class TestSceneEntityExtractionProgress:
         ):
             windows = service._phase2_boundary_windows(batches)
 
-        assert [
-            scene["scene_index"] for scene in windows[0]["scenes"]
-        ] == [10, 11, 12, 13, 14, 15]
+        assert [scene["scene_index"] for scene in windows[0]["scenes"]] == [
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+        ]
 
     @pytest.mark.asyncio
     @patch(
@@ -4846,14 +4873,19 @@ class TestSceneEntityExtractionProgress:
             ),
         ]
 
-        created = await service._persist_entities(
-            FakeDb(),
-            uuid.uuid4(),
-            entities,
-            scene_index=1,
-            source_chapter_index=1,
-            persistence_stats=stats,
-        )
+        with patch(
+            "modules.imports.entity_extraction.scene_entity_persistence."
+            "SceneEntityPersistenceGateway._record_quote_evidence",
+            new_callable=AsyncMock,
+        ):
+            created = await service._persist_entities(
+                FakeDb(),
+                uuid.uuid4(),
+                entities,
+                scene_index=1,
+                source_chapter_index=1,
+                persistence_stats=stats,
+            )
 
         assert created == 2
         mock_merge.assert_awaited_once()

@@ -15,6 +15,7 @@ TDD vertical slices:
 
 from __future__ import annotations
 
+import os
 import uuid
 
 import pytest
@@ -28,15 +29,16 @@ from modules.world.repositories import CoreEntityRepository
 from modules.writing.facade import create_draft
 from shared.utils import parse_uuid
 
+real_llm_required = pytest.mark.skipif(
+    os.getenv("RUN_REAL_LLM_TESTS") != "1",
+    reason="真实 LLM 集成验收默认跳过；设置 RUN_REAL_LLM_TESTS=1 才运行",
+)
+
 pytestmark = [
     pytest.mark.asyncio,
-    pytest.mark.skip(
-        reason=(
-            "需要真实 LLM API，运行成本高。"
-            "如需执行：pytest tests/integration/test_extraction_pipeline.py "
-            "-v --run-expensive"
-        )
-    ),
+    pytest.mark.integration,
+    pytest.mark.real_llm,
+    real_llm_required,
 ]
 
 

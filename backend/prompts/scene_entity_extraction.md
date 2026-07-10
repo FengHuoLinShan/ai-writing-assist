@@ -17,6 +17,7 @@
 - `suggested_action`: create_new / link_to_existing / ignore / temporary_only
 - `suggested_existing_entity_name`: link_to_existing 时填写
 - `candidate_reason`: 抽取理由
+- `quote`: 能直接定位该对象的短原文引用（必填）
 - `confidence`: 置信度
 - `aliases`: 别名数组 `[{"alias": "...", "type": "..."}]`
 
@@ -37,6 +38,7 @@
 
 # 规则
 - 只抽取会在后续章节反复出现、影响剧情的长期资产。
+- 每个 entity 和 relation 的 `quote` 必须是当前 Scene 正文中可逐字定位的短文本，不得改写或概括。
 - 不抽取路人、一次性道具、代词、一次性场景元素。
 - 单个 Scene 优先输出 3~8 个最高价值对象；不要为了凑数量抽取普通食物、家具、街边路人或一次性动作。
 - 别名不创建新对象；放入 `aliases`。

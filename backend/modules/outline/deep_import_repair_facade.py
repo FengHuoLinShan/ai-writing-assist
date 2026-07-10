@@ -30,12 +30,11 @@ async def deprecate_deep_import_structure_assets_by_workflow(
     """Soft-deprecate outline structure assets from one deep import workflow."""
     from modules.outline.services import OutlineStructureCleanupService
 
-    return await (
-        OutlineStructureCleanupService().deprecate_deep_import_structure_assets_by_workflow(
-            db,
-            novel_id,
-            workflow_id,
-        )
+    service = OutlineStructureCleanupService()
+    return await service.deprecate_deep_import_structure_assets_by_workflow(
+        db,
+        novel_id,
+        workflow_id,
     )
 
 
@@ -162,6 +161,20 @@ async def ensure_deep_import_structure_minimums(
     )
 
 
+async def select_deep_import_fallback_reveal_target(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    list_entities: Any | None = None,
+) -> dict[str, Any] | None:
+    """Select a fallback reveal target without exposing outline internals."""
+    from modules.outline.deep_import_repair_service import OutlineDeepImportRepairService
+
+    return await OutlineDeepImportRepairService(
+        list_entities=list_entities,
+    ).select_fallback_reveal_target(db, novel_id)
+
+
 __all__ = [
     "deprecate_deep_import_scenes_by_workflow",
     "deprecate_deep_import_structure_assets_by_workflow",
@@ -174,4 +187,5 @@ __all__ = [
     "get_deep_import_structure_output_count",
     "get_deep_import_structure_payload",
     "reindex_scenes_for_deep_import_repair",
+    "select_deep_import_fallback_reveal_target",
 ]

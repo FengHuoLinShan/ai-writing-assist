@@ -22,8 +22,9 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - 旧 `scene_prefetch` / `scene_reinforcement` legacy pipeline 已删除；`scene_fusion` 仍作为内部兼容/修复组件保留，不进入默认 Scene 自动提取主路径
 - 深度导入保持自动流水线，不弹出“AI 参考资料”确认；Phase 3 结构分析显式使用 `context_mode="working"` 并包含待确认对象
 - 分阶段世界对象自动提取执行 Phase 2a / 2b：先基于已提交 Scene 抽取世界对象与 Delta，再补抽别名 / 关系
-- Phase 2 对大量 Scene 使用 batch 间并发、batch 内 Scene 串行的调度：默认 12 Scene / batch、6 batch 并发；真实 LLM 调参可用 `PHASE2_BATCH_SIZE_SCENES` / `PHASE2_BATCH_CONCURRENCY` 临时覆盖；每个 batch 保留局部 rolling context
-- Phase 2 只对相邻 batch 边界执行补充抽取：前批最后 2 个 Scene + 后批最前 2 个 Scene；不做全局对象融合扫描
+- Phase 2a 对已持久化 Scene 以 Scene 为并发单元；每个请求只消费当前 Scene 的版本绑定精确 span 和前序 brief，写入仍按 `scene_index` 串行归并
+- Phase 2a 已收敛为 `ImportContextActivation -> concurrent LLM -> scene_index ordered persistence`：当前 Scene 在可见截止章/offset 以前的精确 span 正文和最多两个前序 brief 是唯一 Scene-local 证据，跨章 Scene 的未来 span 与后续 Scene 都不进入 prompt。默认 LLM 并发 64，按 `64 -> 32 -> 16 -> 8` 对连续限流、超时或格式失败降载；Phase 2b 仍在 Phase 2a 后做全局别名/关系对账。
+- Phase 2a 不接收后续 Scene 或右侧边界补充证据；需要全局信息的别名、关系和连续性对账仅在 Phase 2b 执行
 - Phase 2 入库前通过 world facade 使用名称 / 别名 / embedding 去重能力；高置信重复实体会自动融合到已有对象，重复关系走 create-or-merge，并在 progress/result 中记录 action、dedup、boundary supplement 和 degraded 统计
 - Phase 3 完成后会通过 outline facade 生成结构去重建议；只自动应用同一 deep import workflow 内的高置信重复，跨已有资产的建议仅写入任务结果
 - 深度导入 Phase 2 拆为 Phase 2a 世界对象/Delta 抽取与 Phase 2b 别名/关系提取；Phase 2b 失败只降级，不丢弃已抽取对象
@@ -56,6 +57,7 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 
 - Phase 2 保持当前 handcrafted prompt/context 构造，不重接 context compiler；Phase 2a 快照记录实体抽取上下文，Phase 2b 快照记录别名/关系提取的对象索引与 Scene 摘要，二者都回写 result refs。
 - Phase 3 结构分析由深度导入调用时传入 `workflow_id` / `task_id` 并开启 `audit_context_snapshot=True`；手动 AI 操作默认不创建 snapshot。
+- Phase 3 继续复用 outline 的全书 Scene 摘要链路，不默认加载全书正文；追加 derived world background，并对空结构、无引用或无有效篇章范围执行至多一次 workflow-owned replacement rerun。
 - Phase 3 快照使用 `context_mode="working"` 和 `include_pending_objects=true`，记录结构上下文的 section/token metadata。若当前编译结果未暴露完整 asset ids，只记录可见资产并在 metadata 中说明。
 - 默认不保存完整 rendered context；调用方显式开启保留时才落库，并由 context 模块按保留策略清理。
 
@@ -194,5 +196,12 @@ POST /api/imports/deep/abandon — 放弃恢复并清理同 workflow 自动派�
 ## 测试
 
 ```bash
-pytest modules/imports/tests/
+cd backend
+pytest modules/imports/tests/ -m "not real_llm and not external_data"
+
+# 仅显式启用真实模型验收
+cd ../.. && make test-real-llm
+
+# 真实小说语料不进入默认测试；路径由调用者显式提供
+cd ../.. && make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt
 ```

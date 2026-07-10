@@ -66,6 +66,65 @@ async def _review_structure_dedup(
     )
 
 
+def structure_quality_gate(result: dict[str, Any]) -> dict[str, Any]:
+    """Hard, rerunnable Phase 3 checks; soft quality remains diagnostic only."""
+    threads = result.get("threads") or []
+    arcs = result.get("arcs") or []
+    reasons: list[str] = []
+    total_threads = int(result.get("total_threads", 0) or 0)
+    total_arcs = int(result.get("total_arcs", 0) or 0)
+    if not threads and not arcs and total_threads <= 0 and total_arcs <= 0:
+        reasons.append("empty_structure_output")
+    if arcs and all(
+        not item.get("start_chapter") or not item.get("end_chapter")
+        for item in arcs
+        if isinstance(item, dict)
+    ):
+        reasons.append("invalid_arc_chapter_range")
+    assets = [item for item in [*threads, *arcs] if isinstance(item, dict)]
+    if assets and all(
+        not (item.get("related_entity_ids") or item.get("related_scene_ids"))
+        for item in assets
+    ):
+        reasons.append("structure_references_missing")
+    return {"ok": not reasons, "reasons": reasons}
+
+
+async def rerun_structure_once_if_needed(
+    workflow: DeepImportWorkflowRuntime,
+    db: AsyncSession,
+    novel_id: str,
+    start_chapter: int,
+    end_chapter: int,
+    result: dict[str, Any],
+    *,
+    workflow_id: str | None,
+    context_mode: str,
+    include_pending_objects: bool,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    gate = structure_quality_gate(result)
+    if gate["ok"] or not workflow_id:
+        return result, {"attempted": False, **gate}
+    from modules.outline.facade import deprecate_deep_import_structure_assets_by_workflow
+
+    await deprecate_deep_import_structure_assets_by_workflow(
+        db,
+        novel_id,
+        workflow_id,
+    )
+    rerun = await workflow._analyze_structure(
+        db,
+        novel_id,
+        start_chapter,
+        end_chapter,
+        workflow_id=workflow_id,
+        context_mode=context_mode,
+        include_pending_objects=include_pending_objects,
+    )
+    rerun["quality_rerun"] = {"attempt": 1, "reasons": gate["reasons"]}
+    return rerun, {"attempted": True, **structure_quality_gate(rerun)}
+
+
 class StructureAnalysisPhaseRunner:
     """Runs Phase 3 in full-pipeline and stage-only modes."""
 
@@ -159,6 +218,18 @@ class StructureAnalysisPhaseRunner:
             progress.message = "剧情结构分析超时，已降级完成。"
         else:
             workflow._mark_step_completed(progress, DeepImportStep.structure_analysis)
+            phase3_result, structure_gate = await rerun_structure_once_if_needed(
+                workflow,
+                db,
+                novel_id,
+                start_chapter,
+                end_chapter,
+                phase3_result,
+                workflow_id=workflow_id,
+                context_mode=context_mode,
+                include_pending_objects=include_pending_objects,
+            )
+            phase3_result["structure_quality_gate"] = structure_gate
             workflow._merge_audit_summary(progress, phase3_result)
             workflow._merge_snapshot_health_summary(progress, phase3_result)
             phase3_result["structure_dedup"] = await _review_structure_dedup(
@@ -389,6 +460,18 @@ class StructureAnalysisPhaseRunner:
             )
         else:
             workflow._mark_step_completed(progress, DeepImportStep.structure_analysis)
+            phase3_result, structure_gate = await rerun_structure_once_if_needed(
+                workflow,
+                db,
+                novel_id,
+                start_chapter,
+                end_chapter,
+                phase3_result,
+                workflow_id=workflow_id,
+                context_mode=context_mode,
+                include_pending_objects=include_pending_objects,
+            )
+            phase3_result["structure_quality_gate"] = structure_gate
             workflow._merge_audit_summary(progress, phase3_result)
             workflow._merge_snapshot_health_summary(progress, phase3_result)
             phase3_result["structure_dedup"] = await _review_structure_dedup(
@@ -491,6 +574,8 @@ def phase3_quality_stats(
         "high_quality": bool(phase3_result.get("high_quality")),
         "model_override": phase3_result.get("model_override"),
         "structure_dedup": phase3_result.get("structure_dedup") or {},
+        "structure_quality_gate": phase3_result.get("structure_quality_gate") or {},
+        "quality_rerun": phase3_result.get("quality_rerun") or {},
         "failed": failed,
         "error_kind": phase3_result.get("error_kind"),
     }
@@ -560,13 +645,13 @@ async def select_fallback_reveal_target(
     db: AsyncSession,
     novel_id: str,
 ) -> dict[str, Any] | None:
-    from modules.outline.deep_import_repair_service import (
-        OutlineDeepImportRepairService,
-    )
+    from modules.outline.facade import select_deep_import_fallback_reveal_target
 
-    return await OutlineDeepImportRepairService(
+    return await select_deep_import_fallback_reveal_target(
+        db,
+        novel_id,
         list_entities=_container_get("world.list_entities"),
-    ).select_fallback_reveal_target(db, novel_id)
+    )
 
 
 def _timeout_result() -> dict[str, Any]:

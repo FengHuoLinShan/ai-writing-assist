@@ -7,6 +7,7 @@ imports 模块负责将本地小说文件解析并导入系统，创建 WritingD
 ## 数据表
 
 - `import_records` — file_name / file_type / file_size / total_chapters / imported_chapters / status / error_message
+- `imported_chapters` — 仍是活跃的章节正文表并被 world 事件/关系/版本来源 FK 引用；当前上传主路径把章节写为 `writing_drafts`，不把它当作第二个编辑入口
 
 ## 文件解析器（parsers.py）
 
@@ -59,7 +60,8 @@ DeepImportWorkflow 将 Scene 提取、实体抽取和结构分析串成全自动
 - Phase 2 Scene 实体抽取实现位于 `entity_extraction/` 子包；`modules.imports.entity_extraction` 是稳定公共导出入口，旧顶层 `scene_entity_extraction.py` 兼容 hub 已删除。
 - Phase 2a 路由选择集中在 `entity_extraction/scene_entity_strategy.py`，只决定 empty、small-sample parallel、bulk、batched 或 checkpoint resume；LLM 调用、persistence、checkpoint、prompt、timeout 和返回契约仍由子包内执行模块负责。
 - Phase 2b 基于 Phase 2a 的对象索引补抽别名和关系；失败只降级，不丢弃已抽取对象。
-- 大量 Scene 使用 batch 间并发、batch 内 Scene 串行的调度；每个 batch 保留局部 rolling context。
+- 大量 Scene 在 Phase 2a 以 Scene 为并发单元调用 LLM，再按 `scene_index`
+  串行持久化；每个请求只含当前 Scene 和前序 brief，不带后续 Scene。
 - 只对相邻 batch 边界执行补充抽取，不做全局对象融合扫描。
 - 入库前通过 world facade 使用名称 / 别名 / embedding 去重能力；高置信重复实体会自动融合到已有对象，重复关系走 create-or-merge。
 - Phase 2 的真实 LLM 调用通过 context facade 写入 `context_snapshots`，并在任务结果中记录 snapshot health、dedup、boundary supplement 和 degraded 统计。
@@ -164,3 +166,16 @@ Phase2b 稳定性可通过 `PHASE2_ALIAS_RELATION_TOTAL_TIMEOUT_SECONDS`、
 `PHASE2_ALIAS_RELATION_ENTITY_INDEX_CHAR_LIMIT` 和
 `PHASE2_ALIAS_RELATION_ENTITY_INDEX_FALLBACK_LIMIT` 调整。Phase3 深度导入模式使用
 紧凑结构 prompt：不生成新 Scene，以少量剧情线/篇章纲/伏笔/揭示作为稳定基线。
+
+## Phase 2/3 Activation And Quality
+
+Phase 2a 使用 `ImportContextActivation -> concurrent LLM -> scene_index ordered
+persistence` 单一路径。默认 LLM 并发 64，并在连续限流、超时或格式失败时按
+`64 -> 32 -> 16 -> 8` 降载；工作流的 `end_chapter` 作为可见硬截止，
+跨章 Scene 只装载截止章/offset 以前的精确 span。checkpoint 记录 activation
+version 和来源数量。Phase 2b
+在其后执行全局别名/关系 reconciliation，不回写早期 Scene 的可见性语义。
+
+Phase 3 复用 outline 的全书 Scene 摘要且不默认加载全书正文，追加 derived world
+background。空结构、无结构引用和无有效篇章范围会触发一次同 workflow 的 draft/candidate
+结构资产 replacement rerun；所有门禁与降级摘要保持在 task result 的加性诊断字段中。

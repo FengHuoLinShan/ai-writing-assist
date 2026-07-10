@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from contextlib import ExitStack, contextmanager
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -45,6 +46,19 @@ from modules.imports.llm_schemas import (
     SceneEntityExtractionOutput,
 )
 from modules.writing.contracts import WritingDraftContract
+
+
+class _FakeSavepoint:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+class _FakeNestedDb:
+    def begin_nested(self):
+        return _FakeSavepoint()
 
 
 async def _snapshot_rows(db_session: AsyncSession, novel_id: str):
@@ -194,9 +208,7 @@ def test_llm_schema_normalizes_common_score_strings() -> None:
         }
     )
     assert tolerant_candidate.boundary_status == "complete"
-    assert tolerant_candidate.evidence_anchors == [
-        {"chapter_index": 1, "quote": "锚点"}
-    ]
+    assert tolerant_candidate.evidence_anchors == [{"chapter_index": 1, "quote": "锚点"}]
     assert tolerant_candidate.merge_hints == ["无需合并"]
     assert tolerant_candidate.split_hints == []
     assert tolerant_candidate.missing_or_uncertain_items == ["无重大缺失"]
@@ -639,8 +651,14 @@ async def test_phase2b_snapshot_helper_creates_alias_relation_snapshot(
     assert raw_snapshot.included_asset_ids == []
     assert raw_snapshot.section_metadata == [
         {"name": "entity_index", "chars": len("entity-index")},
-        {"name": "scene_text", "chars": len("第 1 章正文")},
+        {
+            "name": "scene_text",
+            "chars": len("第 1 章正文"),
+            "source_refs": [],
+            "source_warning": "Invalid scene_id: scene-phase2b",
+        },
     ]
+    assert raw_snapshot.context_summary["source_ref_count"] == 0
 
 
 @pytest.mark.asyncio
@@ -784,20 +802,14 @@ async def test_persist_entities_skips_duplicate_names_in_phase() -> None:
             new_callable=AsyncMock,
             return_value={"id": "entity-1"},
         ) as create_entity,
+        patch(
+            "modules.imports.entity_extraction.scene_entity_persistence."
+            "SceneEntityPersistenceGateway._record_quote_evidence",
+            new_callable=AsyncMock,
+        ),
     ):
-        class FakeSavepoint:
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, exc_type, exc, tb):
-                return False
-
-        class FakeDb:
-            def begin_nested(self):
-                return FakeSavepoint()
-
         created = await svc._persist_entities(
-            FakeDb(),
+            _FakeNestedDb(),
             "00000000-0000-0000-0000-000000000001",
             entities,
             scene_index=1,
@@ -979,9 +991,14 @@ async def test_persist_relations_resolves_entities_in_one_batch() -> None:
             new_callable=AsyncMock,
             return_value={"action": "created", "relation": Mock(id="relation-1")},
         ),
+        patch(
+            "modules.imports.entity_extraction.scene_entity_persistence."
+            "SceneEntityPersistenceGateway._record_quote_evidence",
+            new_callable=AsyncMock,
+        ),
     ):
         created = await svc._persist_relations(
-            Mock(),
+            _FakeNestedDb(),
             "novel-1",
             [relation],
             scene_index=1,
@@ -1016,9 +1033,14 @@ async def test_persist_relations_records_relation_merge_stats() -> None:
             new_callable=AsyncMock,
             return_value={"action": "merged", "relation": Mock(id="relation-1")},
         ),
+        patch(
+            "modules.imports.entity_extraction.scene_entity_persistence."
+            "SceneEntityPersistenceGateway._record_quote_evidence",
+            new_callable=AsyncMock,
+        ),
     ):
         created = await svc._persist_relations(
-            Mock(),
+            _FakeNestedDb(),
             "novel-1",
             [relation],
             scene_index=1,
@@ -1175,6 +1197,31 @@ async def test_phase2b_links_candidate_entities_and_appends_alias_metadata(
         }
     ]
 
+    from modules.context.models import EvidenceLink
+
+    evidence = list(
+        (
+            await db_session.execute(
+                select(EvidenceLink).where(
+                    EvidenceLink.novel_id
+                    == parse_uuid(
+                        novel_with_drafts,
+                        "novel_id",
+                    )
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(evidence) == 2
+    assert {item.status for item in evidence} == {"needs_review"}
+    assert {item.precision for item in evidence} == {"unresolved"}
+    assert {item.provenance["review_reason"] for item in evidence} == {
+        "invalid_scene_id",
+        "missing_quote",
+    }
+
 
 @pytest.mark.asyncio
 async def test_phase2b_persistence_resolves_working_entities_in_one_batch() -> None:
@@ -1215,9 +1262,14 @@ async def test_phase2b_persistence_resolves_working_entities_in_one_batch() -> N
             new_callable=AsyncMock,
             return_value={"action": "created", "relation": relation},
         ),
+        patch(
+            "modules.imports.entity_extraction.scene_entity_persistence."
+            "SceneEntityPersistenceGateway._record_quote_evidence",
+            new_callable=AsyncMock,
+        ),
     ):
         result = await svc._persist_alias_relation_output(
-            Mock(),
+            _FakeNestedDb(),
             "novel-1",
             output,
             scene_index=3,
@@ -2556,6 +2608,55 @@ async def test_phase2_bulk_failure_uses_parallel_llm_fallback() -> None:
 
 
 @pytest.mark.asyncio
+async def test_persistent_phase2_scene_threads_end_chapter_into_activation() -> None:
+    svc = SceneEntityExtractionService()
+    scene_id = str(uuid.uuid4())
+    scenes = [
+        {
+            "id": scene_id,
+            "novel_id": "00000000-0000-0000-0000-000000000001",
+            "scene_index": 7,
+            "chapter_ids": ["78", "79", "80", "81"],
+        }
+    ]
+    expected = {
+        "total_created": 0,
+        "total_relations": 0,
+        "total_aliases": 0,
+        "total_deltas": 0,
+        "total_scenes": 1,
+        "degraded": False,
+        "error_kind": None,
+        "error_message": None,
+        "failed_scene_indices": [],
+        "completed_scenes": 1,
+        "skipped_scenes": 0,
+        "rerun_scenes": 0,
+        "stopped_early": False,
+        "checkpoints": {"phase2": {"scenes": []}},
+    }
+
+    with (
+        patch.object(svc, "_get_scenes", new_callable=AsyncMock, return_value=scenes),
+        patch.object(
+            svc,
+            "_process_scenes_parallel_llm",
+            new_callable=AsyncMock,
+            return_value=expected,
+        ) as activated,
+    ):
+        result = await svc.extract_by_scenes(
+            Mock(),
+            "00000000-0000-0000-0000-000000000001",
+            end_chapter=80,
+        )
+
+    assert result is expected
+    assert activated.await_args.kwargs["visible_until_chapter"] == 80
+    assert activated.await_args.args[2] == scenes
+
+
+@pytest.mark.asyncio
 async def test_parallel_llm_fallback_extracts_before_serial_persistence() -> None:
     svc = SceneEntityExtractionService()
     scenes = [
@@ -2647,10 +2748,7 @@ async def test_parallel_llm_fallback_extracts_before_serial_persistence() -> Non
     first_persist_index = min(
         index for index, event in enumerate(events) if event.startswith("persist-")
     )
-    assert all(
-        event.startswith("llm-")
-        for event in events[:first_persist_index]
-    )
+    assert all(event.startswith("llm-") for event in events[:first_persist_index])
     assert result["parallel_llm_fallback"] is True
     assert result["bulk_error_kind"] == "schema_error"
     assert result["total_created"] == 2
@@ -2988,14 +3086,17 @@ async def test_small_sample_bulk_supplements_low_entity_count() -> None:
         def begin_nested(self):
             return FakeSavepoint()
 
-    with patch(
-        "modules.world.facade.create_entity",
-        new=create_entity,
-    ), patch.object(
-        svc,
-        "_supplement_small_sample_entities_with_llm",
-        new_callable=AsyncMock,
-        return_value={"created": 0, "created_entity_ids": []},
+    with (
+        patch(
+            "modules.world.facade.create_entity",
+            new=create_entity,
+        ),
+        patch.object(
+            svc,
+            "_supplement_small_sample_entities_with_llm",
+            new_callable=AsyncMock,
+            return_value={"created": 0, "created_entity_ids": []},
+        ),
     ):
         result = await svc._supplement_small_sample_entities(
             db=FakeDb(),
@@ -3099,11 +3200,14 @@ async def test_small_sample_supplement_timeout_falls_back(monkeypatch) -> None:
         def begin_nested(self):
             return FakeSavepoint()
 
-    with patch.object(
-        svc,
-        "_supplement_small_sample_entities_with_llm",
-        new=slow_supplement,
-    ), patch("modules.world.facade.create_entity", new=create_entity):
+    with (
+        patch.object(
+            svc,
+            "_supplement_small_sample_entities_with_llm",
+            new=slow_supplement,
+        ),
+        patch("modules.world.facade.create_entity", new=create_entity),
+    ):
         result = await svc._supplement_small_sample_entities(
             db=FakeDb(),
             nid="00000000-0000-0000-0000-000000000001",

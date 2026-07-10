@@ -44,7 +44,8 @@ async def call_llm_extraction(
                     "请从以下正文中提取世界对象。优先保证长期资产召回完整："
                     "人物、地点、组织/势力、关键物品/文本、概念/规则/力量、"
                     "事件/秘密都要分别检查；同一对象用 aliases 或 "
-                    "link_to_existing 表达，不要拆成重复对象。\n\n"
+                    "link_to_existing 表达，不要拆成重复对象。"
+                    "每个对象和关系必须提供可在当前 Scene 逐字定位的 quote。\n\n"
                     f"{chapters_text}"
                 ),
             ),
@@ -71,6 +72,7 @@ async def call_llm_extraction(
             "delta_events、memory_update，不要 Markdown 或解释。"
         ),
     )
+
 
 async def call_alias_relation_extraction(
     chapters_text: str,
