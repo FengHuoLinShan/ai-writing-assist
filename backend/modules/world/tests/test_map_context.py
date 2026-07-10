@@ -120,6 +120,39 @@ async def test_require_entity_with_allowed_types(
 
 
 @pytest.mark.asyncio
+async def test_require_canonical_entity_rejects_pending_compatibility_shadow(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
+    shadow = await _create_entity(
+        db_session,
+        project_novel_id,
+        "location",
+        "AI 待处理地点",
+        status="candidate",
+    )
+    shadow.content_json = {
+        "_meta": {
+            "compatibility_shadow": True,
+            "suggestion_id": str(uuid.uuid4()),
+        }
+    }
+    await db_session.flush()
+
+    with pytest.raises(DomainError) as exc:
+        await MapContext().require_canonical_entity(
+            db_session,
+            project_novel_id,
+            str(shadow.id),
+            allowed_types={"location"},
+        )
+
+    assert exc.value.status_code == 400
+    assert exc.value.code == "unadopted_map_entity"
+    assert "尚未采用" in exc.value.detail
+
+
+@pytest.mark.asyncio
 async def test_assert_hex_in_bounds_passes(
     db_session: AsyncSession,
     project_novel_id: str,

@@ -21,7 +21,6 @@ from modules.world.map_schemas import (
     MapDynamicStateResponse,
     MapStateResponse,
 )
-from modules.world.repositories import CoreEntityRepository
 from modules.world.services.common import parse_uuid
 from modules.world.services.map.map_context import MapContext
 from modules.world.services.map.map_state_assembler import MapStateAssembler
@@ -52,7 +51,6 @@ class MapConfigService(
         self._tile_repo = MapTileRepository()
         self._binding_repo = MapLocationBindingRepository()
         self._territory_repo = MapTerritoryRepository()
-        self._entity_repo = CoreEntityRepository()
         self._ctx = MapContext()
         self._state_assembler = MapStateAssembler(
             config_repo=self.repo,
@@ -85,6 +83,16 @@ class MapConfigService(
             total=total,
         )
 
+    async def get(  # type: ignore[override]
+        self,
+        db: AsyncSession,
+        map_id: str,
+        *,
+        novel_id: str,
+    ) -> MapConfigResponse:
+        config = await self._ctx.require_map(db, novel_id, map_id)
+        return MapConfigResponse.model_validate(config)
+
     # Override: create 后生成初始 tile
     async def create(
         self,
@@ -107,20 +115,20 @@ class MapConfigService(
             parent_map_id_uuid = pid
 
         # 校验 parent_entity_id 属同 novel 且 entity_type=location（PRD §4.1/§4.3）
+        parent_entity_id_uuid: Any = None
         if data.parent_entity_id:
-            eid = parse_uuid(data.parent_entity_id, "parent_entity_id")
-            entity = await self._entity_repo.get(db, eid)
-            if entity is None or entity.novel_id != nid:
-                raise NotFoundError(
-                    f"实体 {data.parent_entity_id} 不存在",
-                    code="entity_not_found",
-                )
+            entity = await self._ctx.require_canonical_entity(
+                db,
+                novel_id,
+                data.parent_entity_id,
+            )
             if entity.entity_type != "location":
                 raise ValidationError(
                     f"实体 {entity.name} 类型为 {entity.entity_type}，"
                     "parent_entity_id 必须为 location 类型",
                     code="invalid_parent_entity_type",
                 )
+            parent_entity_id_uuid = entity.id
 
         # PostgreSQL NULL 不参与 unique 约束，业务层按同父级精确查重。
         existing = await self.repo.get_by_name(
@@ -143,11 +151,7 @@ class MapConfigService(
             "grid_height": data.grid_height,
             "hex_size": data.hex_size,
             "parent_map_id": parent_map_id_uuid,
-            "parent_entity_id": (
-                parse_uuid(data.parent_entity_id, "parent_entity_id")
-                if data.parent_entity_id
-                else None
-            ),
+            "parent_entity_id": parent_entity_id_uuid,
         }
         config = await self.repo.create(db, nid, values)
 
@@ -174,6 +178,13 @@ class MapConfigService(
         mid = parse_uuid(map_id, self.id_param)
         existing = await self.repo.get(db, mid)
         self._assert_found_in_novel(existing, map_id, nid)
+        if existing.parent_entity_id is not None:
+            await self._ctx.require_canonical_entity(
+                db,
+                novel_id,
+                str(existing.parent_entity_id),
+                allowed_types={"location"},
+            )
 
         values: dict[str, Any] = {}
         for field in (
@@ -191,6 +202,18 @@ class MapConfigService(
         obj = await self.repo.update(db, existing, values)
         self._assert_found_in_novel(obj, map_id, nid)
         return self._to_response(obj)
+
+    async def delete(  # type: ignore[override]
+        self,
+        db: AsyncSession,
+        map_id: str,
+        *,
+        novel_id: str,
+    ) -> None:
+        config = await self._ctx.require_map(db, novel_id, map_id)
+        ok = await self.repo.delete(db, config.id)
+        if not ok:
+            self._raise_404(map_id)
 
     # 新增: 聚合状态
     async def get_state(

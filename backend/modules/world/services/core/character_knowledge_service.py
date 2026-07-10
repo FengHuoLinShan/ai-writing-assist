@@ -73,6 +73,7 @@ class CharacterKnowledgeService(
         char = await self._character_repo.get(db, cid)
         if char is None or char.novel_id != nid:
             raise NotFoundError("Character not found in this novel")
+        await self._assert_character_in_novel(db, nid, cid)
         await self._assert_target_in_novel(db, nid, data.target_type, data.target_id)
         # Schema 已做基础校验；服务层再次检查作为 defense-in-depth，
         # 确保任何绕过 schema 的情况都能返回受控的 HTTP 422 错误信息。
@@ -90,19 +91,49 @@ class CharacterKnowledgeService(
         *,
         novel_id: str,
     ) -> CharacterKnowledgeResponse:
-        """update 时校验 false_belief/misunderstood 必须提供 misconception。"""
+        """update 时确保人物/目标仍已采用，并校验误解字段。"""
+        rid = parse_uuid(id, self.id_param)
+        nid = parse_uuid(novel_id, "novel_id")
+        existing = await self.repo.get(db, rid)
+        self._assert_found_in_novel(existing, id, nid)
+        await self._assert_character_in_novel(db, nid, existing.character_id)
+        await self._assert_target_in_novel(
+            db,
+            nid,
+            existing.target_type,
+            str(existing.target_id),
+        )
         # Schema 已校验；服务层保留 defense-in-depth 二次校验，统一返回 HTTP 422。
         if data.knowledge_level in {"false_belief", "misunderstood"}:
-            rid = parse_uuid(id, self.id_param)
-            existing = await self.repo.get(db, rid)
             misconception = data.misconception
-            if existing is not None and misconception is None:
+            if misconception is None:
                 misconception = existing.misconception
             _require_misconception_for_false_level(
                 data.knowledge_level,
                 misconception,
             )
-        return await super().update(db, id, data, novel_id=novel_id)
+        updated = await self.repo.update(db, rid, data)
+        self._assert_found_in_novel(updated, id, nid)
+        return self._to_response(updated)
+
+    async def _assert_character_in_novel(
+        self,
+        db: AsyncSession,
+        novel_id,
+        character_id,
+    ) -> None:
+        entity = await self._entity_repo.get(db, character_id)
+        if (
+            entity is None
+            or entity.novel_id != novel_id
+            or entity.status != "canonical"
+        ):
+            raise NotFoundError("Character not found in this novel")
+        if entity.entity_type != "character":
+            raise ValidationError(
+                "Character must reference a character CoreEntity",
+                status_code=422,
+            )
 
     async def _assert_target_in_novel(
         self,
@@ -111,25 +142,34 @@ class CharacterKnowledgeService(
         target_type: str,
         target_id: str,
     ) -> None:
-        if target_type not in {
+        generic_target_types = {
             "entity",
             "world_entity",
+            "object",
+        }
+        typed_target_types = {
             "character",
             "event",
             "location",
             "item",
             "faction",
-            "object",
-        }:
+        }
+        if target_type not in generic_target_types | typed_target_types:
             return
         tid = parse_uuid(target_id, "target_id")
         target = await self._entity_repo.get(db, tid)
         if (
             target is None
             or target.novel_id != novel_id
-            or getattr(target, "status", None) == "deprecated"
+            or target.status != "canonical"
         ):
             raise NotFoundError("Knowledge target not found in this novel")
+        if target_type in typed_target_types and target.entity_type != target_type:
+            raise ValidationError(
+                f"Knowledge target type {target_type} does not match "
+                f"CoreEntity type {target.entity_type}",
+                status_code=422,
+            )
 
     # ============================================================
     # list 加按 character_id 过滤 (base 的 list 是按 novel_id 列表)

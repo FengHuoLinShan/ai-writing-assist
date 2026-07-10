@@ -89,7 +89,7 @@ class ContextSelectionRequest(BaseModel):
     )
     include_pending_objects: bool = Field(
         default=False,
-        description="是否包含待确认对象",
+        description="是否包含待处理对象",
     )
     excluded_asset_ids: dict[str, list[str]] = Field(
         default_factory=dict,
@@ -425,6 +425,10 @@ class EvidenceSearchRequest(BaseModel):
     visibility: VisibilityContextRequest = Field(default_factory=VisibilityContextRequest)
     scopes: list[Literal["manuscript", "world", "outline"]] = Field(
         default_factory=lambda: ["manuscript"]
+    )
+    include_pending_objects: bool = Field(
+        False,
+        description="是否显式纳入待处理世界对象",
     )
     chapter_from: int | None = Field(None, ge=1)
     chapter_to: int | None = Field(None, ge=1)

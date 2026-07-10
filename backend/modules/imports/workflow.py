@@ -849,6 +849,7 @@ class DeepImportWorkflow:
             "include_existing_scenes": True,
             "generate_scenes": False,
             "fast_structured": True,
+            "persist": True,
         }
         if high_quality and _accepts_keyword(_generate, "high_quality"):
             structure_kwargs["high_quality"] = high_quality

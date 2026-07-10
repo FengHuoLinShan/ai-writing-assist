@@ -76,6 +76,24 @@ describe("progressRenderer", () => {
     expect(html).toContain("修复 1")
   })
 
+  it("renders mutually exclusive import asset outcomes", () => {
+    const html = renderWorkflowCard({
+      label: "深度导入",
+      message: "已完成",
+      statusLabel: "已完成",
+      status: "done",
+      done: true,
+      hasPercent: true,
+      percent: 100,
+      assetSummary: { adopted: 18, review: 4, not_adopted: 2 },
+    })
+
+    expect(html).toContain('aria-label="资产处理结果"')
+    expect(html).toContain("已采用 18")
+    expect(html).toContain("待处理 4")
+    expect(html).toContain("未采用 2")
+  })
+
   it("renders detailed progress collapsed by default and escaped", () => {
     const html = renderWorkflowCard({
       label: "深度导入",

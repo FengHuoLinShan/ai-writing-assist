@@ -21,6 +21,10 @@ from modules.outline.schemas import (
     OutlineArcListResponse,
     OutlineArcResponse,
     OutlineArcUpdate,
+    OutlineScenePreviewApplyRequest,
+    OutlineScenePreviewApplyResponse,
+    OutlineStructurePreviewApplyRequest,
+    OutlineStructurePreviewApplyResponse,
     PlotThreadCreate,
     PlotThreadListResponse,
     PlotThreadResponse,
@@ -574,6 +578,31 @@ async def api_generate_plot_structure(
 
 
 @router.post(
+    "/generate/apply",
+    response_model=OutlineStructurePreviewApplyResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def api_apply_structure_preview(
+    data: OutlineStructurePreviewApplyRequest,
+    db: DbSession,
+) -> OutlineStructurePreviewApplyResponse:
+    from modules.outline.ai_workflow_service import OutlineAIWorkflowService
+
+    try:
+        result = await OutlineAIWorkflowService().apply_structure_preview(
+            db,
+            novel_id=data.novel_id,
+            confirmation_id=data.context_confirmation_id,
+            source_task_id=data.source_task_id,
+            draft_structure=data.draft_structure,
+            confirmed=data.confirmed,
+        )
+    except (PermissionError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return OutlineStructurePreviewApplyResponse.model_validate(result)
+
+
+@router.post(
     "/chapter-scenes/extract",
     response_model=OutlineAiTaskResponse,
     status_code=http_status.HTTP_201_CREATED,
@@ -588,6 +617,31 @@ async def api_extract_chapter_scenes(
         action="outline.chapter_scenes.extract",
         task_type="outline_chapter_scenes_extract",
     )
+
+
+@router.post(
+    "/chapter-scenes/apply",
+    response_model=OutlineScenePreviewApplyResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def api_apply_chapter_scene_preview(
+    data: OutlineScenePreviewApplyRequest,
+    db: DbSession,
+) -> OutlineScenePreviewApplyResponse:
+    from modules.outline.ai_workflow_service import OutlineAIWorkflowService
+
+    try:
+        result = await OutlineAIWorkflowService().apply_chapter_scene_preview(
+            db,
+            novel_id=data.novel_id,
+            confirmation_id=data.context_confirmation_id,
+            source_task_id=data.source_task_id,
+            draft_scenes=data.draft_scenes,
+            confirmed=data.confirmed,
+        )
+    except (PermissionError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return OutlineScenePreviewApplyResponse.model_validate(result)
 
 
 # ============================================================

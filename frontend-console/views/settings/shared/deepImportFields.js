@@ -35,7 +35,7 @@ const DEEP_IMPORT_GROUPS = [
       { key: "small_sample_timeout_seconds", label: "小样本超时（秒）", type: "int", min: 1, max: 3600, value: 90 },
       { key: "reducer_max_tokens", label: "Reducer max tokens", type: "int", min: 1, max: 200000, value: 128 },
       { key: "reducer_timeout_seconds", label: "Reducer 超时（秒）", type: "int", min: 1, max: 3600, value: 45 },
-      { key: "compact_text_limit", label: "候选压缩字数", type: "int", min: 10, max: 5000, value: 180 },
+      { key: "compact_text_limit", label: "建议文本压缩字数", type: "int", min: 10, max: 5000, value: 180 },
       { key: "enrich_max_tokens", label: "Enrich max tokens", type: "int", min: 1, max: 200000, value: 4096 },
       { key: "enrich_timeout_seconds", label: "Enrich 超时（秒）", type: "int", min: 1, max: 7200, value: 300 },
       { key: "use_llm", label: "Fusion 使用 LLM", type: "nullableBool", value: "" },

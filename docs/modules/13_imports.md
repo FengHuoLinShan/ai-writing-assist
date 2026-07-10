@@ -25,8 +25,8 @@ imports 模块负责将本地小说文件解析并导入系统，创建 WritingD
 
 ## 深度导入流水线
 
-DeepImportWorkflow 将 Scene 提取、实体抽取和结构分析串成全自动流水线，
-直接入库无需用户中途确认。当前权威 Scene 阶段是
+DeepImportWorkflow 将 Scene 提取、实体抽取和结构分析串成受控自动流水线。启动前必须由
+用户一次性确认 `adoption_policy="user_authorized_pipeline"`；运行中不逐项打断。当前权威 Scene 阶段是
 `Phase 0 deterministic plan → Phase 1a scene slicing → Phase 1b scene enrichment → Scene commit`。
 旧 `scene_prefetch` / `scene_reinforcement` legacy pipeline 已删除；
 `scene_fusion` 仍作为内部兼容/修复组件保留，默认不进入 Scene 自动提取主路径。
@@ -52,7 +52,7 @@ DeepImportWorkflow 将 Scene 提取、实体抽取和结构分析串成全自动
 
 ### Scene commit
 - Phase 1a / 1b 都是 workflow 中间层；正式 Scene 只在 Scene commit 后写入。
-- 正式 Scene 写入携带 provenance / workflow 信息；恢复或重跑时按 provenance 跳过已提交结果。
+- 正式 Scene 写入携带 provenance / workflow / auto_ingested 信息；恢复或重跑时按 provenance 跳过已提交结果。无复核标记的结果计为已采用，`needs_review` 结果进入待处理汇总。
 - 提交前必须补齐 Scene 工作台健康检查依赖的 `core_conflict / must_happen / must_not_happen`，缺失时由来源目标和冲突保守派生。
 
 ### Phase 2a / 2b: 世界对象、Delta、别名与关系（40%）
@@ -70,7 +70,7 @@ DeepImportWorkflow 将 Scene 提取、实体抽取和结构分析串成全自动
 - 输入：全量 Scene 摘要 + 坍缩后 Delta 变更流 + 实体索引
 - LLM 输出：plot_threads / outline_arcs / foreshadowing_plans / reveal_plans
 - 四类产物分别写入对应表
-- 深度导入模式显式使用 `context_mode="working"` 并包含待确认对象。
+- 深度导入模式显式使用 `context_mode="working"` 并包含待处理对象；context 会给结果加“包含未采用内容”警告。
 - 完成后会通过 outline facade 生成结构去重建议；仅自动应用同一 deep import workflow 内的高置信重复，跨已有资产的建议只写入任务结果。
 
 ### 进度状态
@@ -90,6 +90,8 @@ DeepImportWorkflow 将 Scene 提取、实体抽取和结构分析串成全自动
 - recovery_required / recovery_summary: worker/backend 中断后提示用户手动继续或放弃恢复
 - quality_stats.phase1a：Scene slicing 覆盖、fallback、缺章与重试统计
 - quality_stats.phase1b：enrichment 成功、fallback 与复核统计
+- adoption_policy / authorization_snapshot：启动时持久化的授权策略、范围和时间
+- asset_summary：互斥的 `adopted / review / not_adopted` 总数及 Scene、实体、关系、别名、结构分项
 
 当任务能跑完但 Phase 2/3 未生成关键 AI 资产时，`phase` 仍可为 `done`，但
 `quality_status="partial"` 且 `degraded=true`。前端应把它显示为“部分完成”，
@@ -100,7 +102,10 @@ DeepImportWorkflow 将 Scene 提取、实体抽取和结构分析串成全自动
 - `requires_confirmation=true`
 - `warning`
 
-前端确认覆盖后重新提交 `force=true`，此时才创建 `deep_import` 任务。默认将旧数据标记为 deprecated；demo 阶段如重构导入派生表或重跑全量导入，也可以直接清空该小说的导入派生数据后重建。两种方式都必须保留用户确认和 novel_id 范围限制。
+前端确认覆盖后重新提交 `force=true`，此时才创建 `deep_import` 任务。清理只作用于目标
+`novel_id`/章节范围内带 `source=deep_import` 且有 workflow/auto_ingested 所有权标记的 Scene
+及自动导入对象，人工 Scene 不得被废弃。demo 阶段如重构派生表可重建开发库，但仍不得
+绕过用户授权和 novel_id 范围限制。
 
 ## 安全约束
 
@@ -123,6 +128,10 @@ POST /api/imports/deep/resume              # 用户确认后继续可恢复的�
 POST /api/imports/deep/abandon             # 放弃恢复并清理同 workflow 自动派生资产
 ```
 
+`/deep` 与三个 `/stages/*` 请求都必须显式发送
+`authorization_confirmed=true`；缺失或 false 返回 422 且不排队。任务 meta 和 result 都保存
+同一授权快照，完成页从 result 的 `asset_summary` 展示已采用/待处理/未采用。
+
 分阶段真实服务会把 compact artifact 写入现有 `async_tasks.result.phase_artifacts`：
 记录章节覆盖、阶段计数、checkpoint 摘要、repair 状态、质量状态和脱敏 provider 摘要。
 该字段只用于恢复、审计和前端轮询展示，不保存 API key、完整正文、raw prompt 或 raw LLM 输出；
@@ -137,12 +146,13 @@ coverage、checkpoint 和脱敏 provider summary。
 ## 跨模块依赖
 
 - 写入导入章节正文通过 `writing.facade.create_draft`
-- Scene 阶段通过 outline facade / DI handler 提交正式 `scenes`
+- Scene 阶段通过 outline facade / DI handler 提交已授权且带来源/回滚元数据的 `scenes`
 - Phase 2a / 2b 通过 world facade / DI handler 写入 `core_entities` / 关系数据和 Delta
 - Phase 2 后通过 `memory.facade.capture_snapshot` 记录记忆快照
 - Phase 2 / Phase 3 通过 `context.facade` 创建、标记并汇总 `context_snapshots`
 - Phase 3 通过 outline facade / DI handler 写入 `plot_threads` / `outline_arcs` / `foreshadowing_plans` / `reveal_plans`
 - 新增跨模块依赖应优先走 facade 或 DI container 注册服务；不得直接 import 其他模块 repositories/services
+- 放弃可恢复 workflow 通过各领域 facade 整批软回滚：outline/world 资产废弃、Memory DeltaLog 标记 `rolled_back`、MapObservation 转 `ignored`；所有操作按 novel/workflow 隔离并保留来源审计
 
 ## 真实服务验收与恢复证据
 

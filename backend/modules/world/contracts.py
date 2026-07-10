@@ -24,7 +24,11 @@ class CoreEntityContract:
     importance: float = 0.5
     importance_level: str = "normal"
     reveal_level: str = "author_only"
-    status: str = "draft"
+    status: str = "canonical"
+    display_state: str = "active"
+    source: str | None = None
+    attention_reasons: list[str] = field(default_factory=list)
+    suggested_action: str | None = None
 
 
 @dataclass(frozen=True)
@@ -54,6 +58,10 @@ class EntityRelationContract:
     strength: float = 0.5
     quote: str | None = None
     status: str = "canonical"
+    display_state: str = "active"
+    source: str | None = None
+    attention_reasons: list[str] = field(default_factory=list)
+    suggested_action: str | None = None
 
 
 @dataclass(frozen=True)

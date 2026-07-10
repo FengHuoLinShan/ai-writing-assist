@@ -123,14 +123,12 @@ class TestMapLocationBindingService:
             )
         )
         await db_session.flush()
-        await bind_svc.batch_create(
+        await MapLocationBindingRepository().bulk_create(
             db_session,
-            world_map.novel_id,
-            world_map.id,
-            MapLocationBindingCreate(
-                location_entity_id=str(candidate_id),
-                hexes=[{"hex_q": 5, "hex_r": 5}],
-            ),
+            uuid.UUID(hex=world_map.novel_id),
+            uuid.UUID(hex=world_map.id),
+            candidate_id,
+            [{"hex_q": 5, "hex_r": 5, "is_center": False}],
         )
         other_map = await MapConfigService().create(
             db_session,
@@ -164,6 +162,44 @@ class TestMapLocationBindingService:
         assert {row.location_entity_id for row in rows} == {
             uuid.UUID(hex=location_entity_id)
         }
+
+    @pytest.mark.asyncio
+    async def test_bind_pending_compatibility_shadow_rejected(
+        self,
+        db_session: AsyncSession,
+        world_map,
+    ) -> None:
+        shadow_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=shadow_id,
+                novel_id=uuid.UUID(hex=world_map.novel_id),
+                entity_type="location",
+                name="AI 待处理地点",
+                status="candidate",
+                content_json={
+                    "_meta": {
+                        "compatibility_shadow": True,
+                        "suggestion_id": str(uuid.uuid4()),
+                    }
+                },
+            )
+        )
+        await db_session.flush()
+
+        with pytest.raises(DomainError) as exc:
+            await MapLocationBindingService().batch_create(
+                db_session,
+                world_map.novel_id,
+                world_map.id,
+                MapLocationBindingCreate(
+                    location_entity_id=str(shadow_id),
+                    hexes=[{"hex_q": 1, "hex_r": 1, "is_center": True}],
+                ),
+            )
+
+        assert exc.value.status_code == 400
+        assert exc.value.code == "unadopted_map_entity"
 
     @pytest.mark.asyncio
     async def test_bind_non_location_entity_returns_400(

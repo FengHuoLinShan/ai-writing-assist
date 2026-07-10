@@ -28,6 +28,23 @@ function mockVisibilityState(initial = "visible") {
 }
 
 describe("normalizeTaskProgress", () => {
+  it("normalizes legacy asset-state words from backend progress text", () => {
+    const progress = normalizeTaskProgress({
+      id: "task-copy",
+      task_type: "plot_structure_auto_extraction",
+      status: "running",
+      result: {
+        message: "正在融合 Scene 候选，待确认后进入正史",
+        warnings: ["低置信候选需复核"],
+        summary: "候选 2，已确认 1",
+      },
+    })
+
+    expect(progress.message).toBe("正在融合 Scene 待处理，处理后进入已采用")
+    expect(progress.warnings).toEqual(["低置信待处理需要人工检查"])
+    expect(progress.resultSummary).toBe("待处理 2，已采用 1")
+  })
+
   it("normalizes real task progress to percentage", () => {
     const progress = normalizeTaskProgress({
       task_id: "t1",
@@ -107,7 +124,7 @@ describe("normalizeTaskProgress", () => {
       error_message: raw,
     })
 
-    expect(progress.errorMessage).toBe("发布失败。草稿已保存，请稍后重试。")
+    expect(progress.errorMessage).toBe("发布失败。工作稿已保存，请稍后重试。")
     expect(progress.errorMessage).not.toContain("DBAPIError")
     expect(progress.errorMessage).not.toContain("UPDATE async_tasks")
     expect(sanitizeTaskErrorMessage(raw, "publish_chapter")).toBe(progress.errorMessage)

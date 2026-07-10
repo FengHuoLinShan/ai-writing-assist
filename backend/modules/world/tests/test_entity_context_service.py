@@ -67,15 +67,18 @@ async def test_get_entity_context_with_entity_ids(
     assert len(bundle.entities) == 1
     assert bundle.entities[0].entity_id == str(entity.id)
     entity_service._repo.get_by_ids.assert_awaited_once()
+    assert entity_service._repo.get_by_ids.await_args.kwargs == {
+        "statuses": ("canonical",)
+    }
 
 
 @pytest.mark.asyncio
-async def test_get_entity_context_without_entity_ids_uses_list_by_novel(
+async def test_get_entity_context_without_entity_ids_queries_only_active_entities(
     novel_id: str,
     entity_service: EntityContextService,
 ) -> None:
     entity = _make_entity(name="Hero")
-    entity_service._repo.list_by_novel = AsyncMock(return_value=[entity])
+    entity_service._repo.get_by_type_and_status = AsyncMock(return_value=[entity])
     entity_service._repo.get_by_novel = AsyncMock()
     entity_service._repo.get_by_ids = AsyncMock(return_value=[])
     db = AsyncMock()
@@ -83,9 +86,66 @@ async def test_get_entity_context_without_entity_ids_uses_list_by_novel(
     bundle = await entity_service.get_entity_context(db, novel_id)
 
     assert bundle.total_count == 1
-    entity_service._repo.list_by_novel.assert_awaited_once()
+    entity_service._repo.get_by_type_and_status.assert_awaited_once_with(
+        db,
+        uuid.UUID(novel_id),
+        statuses=("canonical",),
+        limit=20,
+    )
     entity_service._repo.get_by_novel.assert_not_awaited()
     entity_service._repo.get_by_ids.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_get_entity_context_include_review_expands_query_statuses(
+    novel_id: str,
+    entity_service: EntityContextService,
+) -> None:
+    canonical = _make_entity(name="Hero", status="canonical")
+    candidate = _make_entity(name="Candidate", status="candidate")
+    entity_service._repo.get_by_type_and_status = AsyncMock(
+        return_value=[canonical, candidate]
+    )
+    db = AsyncMock()
+
+    bundle = await entity_service.get_entity_context(
+        db,
+        novel_id,
+        include_review=True,
+    )
+
+    assert [item.status for item in bundle.entities] == ["canonical", "candidate"]
+    entity_service._repo.get_by_type_and_status.assert_awaited_once_with(
+        db,
+        uuid.UUID(novel_id),
+        statuses=("canonical", "draft", "candidate", "conflicted"),
+        limit=20,
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_entity_context_with_ids_filters_review_in_query(
+    novel_id: str,
+    entity_service: EntityContextService,
+) -> None:
+    candidate = _make_entity(name="Candidate", status="candidate")
+    entity_service._repo.get_by_ids = AsyncMock(return_value=[candidate])
+    db = AsyncMock()
+
+    bundle = await entity_service.get_entity_context(
+        db,
+        novel_id,
+        entity_ids=[str(candidate.id)],
+        include_review=True,
+    )
+
+    assert bundle.total_count == 1
+    entity_service._repo.get_by_ids.assert_awaited_once_with(
+        db,
+        uuid.UUID(novel_id),
+        [candidate.id],
+        statuses=("canonical", "draft", "candidate", "conflicted"),
+    )
 
 
 @pytest.mark.asyncio
@@ -141,7 +201,7 @@ async def test_expired_temp_entity_filtered_out(
             }
         },
     )
-    entity_service._repo.list_by_novel = AsyncMock(return_value=[temp_entity])
+    entity_service._repo.get_by_type_and_status = AsyncMock(return_value=[temp_entity])
     monkeypatch.setattr(
         "modules.project.facade.get_project_context",
         AsyncMock(
@@ -169,7 +229,7 @@ async def test_non_temp_entity_always_included(
         name="Hero",
         content_json={"_meta": {"temporary": False}},
     )
-    entity_service._repo.list_by_novel = AsyncMock(return_value=[normal_entity])
+    entity_service._repo.get_by_type_and_status = AsyncMock(return_value=[normal_entity])
     monkeypatch.setattr(
         "modules.project.facade.get_project_context",
         AsyncMock(
@@ -206,7 +266,7 @@ async def test_list_entity_summaries_returns_id_name_type(
 
 
 @pytest.mark.asyncio
-async def test_list_entity_terms_only_canonical_and_draft(
+async def test_list_entity_terms_only_canonical(
     novel_id: str,
     entity_service: EntityContextService,
 ) -> None:
@@ -221,7 +281,8 @@ async def test_list_entity_terms_only_canonical_and_draft(
     terms = await entity_service.list_entity_terms(db, novel_id)
 
     names = {t["name"] for t in terms}
-    assert names == {"Canon", "Draft"}
+    assert names == {"Canon"}
+    assert "Draft" not in names
     assert "Pending" not in names
     entity_service._repo.list_by_novel.assert_awaited_once()
 

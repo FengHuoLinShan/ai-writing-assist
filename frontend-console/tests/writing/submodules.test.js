@@ -148,6 +148,25 @@ describe("createWritingSubModules", () => {
     }))
   })
 
+  it("routes a conflict evidence map target directly to the orchestrator", () => {
+    state.currentProjectId = "p1"
+    const orchestrator = createMockOrchestrator()
+    const modules = createWritingSubModules(orchestrator, createDeps())
+    const openTarget = {
+      kind: "map_object",
+      map_id: "m1",
+      scene_id: "s1",
+      focus_entity_id: "e1",
+      observation_id: "o1",
+    }
+
+    modules._conflictCheck.openSource({
+      items: [{ id: "i1", location_json: { open_target: openTarget } }],
+    }, "i1")
+
+    expect(orchestrator._openMap).toHaveBeenCalledWith(openTarget)
+  })
+
   it("routes publish status change to editor and rerender", async () => {
     state.currentProjectId = "p1"
     api.writing.publish.mockResolvedValue({ published: true })
@@ -159,6 +178,38 @@ describe("createWritingSubModules", () => {
 
     expect(modules._editor.setPublishStatus).toHaveBeenCalledWith("发布成功")
     expect(orchestrator._rerender).toHaveBeenCalled()
+  })
+
+  it("refreshes version navigation and shared state after adopting a writing suggestion", async () => {
+    state.currentProjectId = "p1"
+    api.writing.adoptDraftCandidate.mockResolvedValue({
+      id: "working-2",
+      content: "建议正文",
+      status: "draft",
+      version_number: 2,
+    })
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [{ id: "working-2", version_number: 2 }],
+    })
+    const orchestrator = createMockOrchestrator()
+    const modules = createWritingSubModules(orchestrator, createDeps())
+    orchestrator._versions = modules._versions
+    modules._editor.setState({
+      chapter: 1,
+      draftId: "candidate-1",
+      draftStatus: "candidate",
+      content: "建议正文",
+    })
+
+    await modules._editor.adoptDraftCandidate()
+
+    expect(api.writing.adoptDraftCandidate).toHaveBeenCalledWith("candidate-1", "p1")
+    expect(api.writing.getVersionHistory).toHaveBeenCalledWith(1, "p1")
+    expect(orchestrator._syncChapterMetaToTree).toHaveBeenCalledWith(1)
+    expect(orchestrator._syncSharedStateToSubModules).toHaveBeenCalled()
+    expect(orchestrator._rerender).toHaveBeenCalled()
+    expect(modules._editor.isReadonly()).toBe(false)
+    expect(modules._editor.getDraftId()).toBe("working-2")
   })
 
   it("routes autoExtraction task start to orchestrator", async () => {
@@ -180,7 +231,8 @@ describe("createWritingSubModules", () => {
 
     expect(orchestrator._onTaskStarted).toHaveBeenCalledWith(expect.objectContaining({
       taskId: "c1",
-      workflowType: "chapter_card_generation",
+      workflowType: "outline_chapter_scenes_extract",
+      confirmationId: "conf-1",
     }))
   })
 

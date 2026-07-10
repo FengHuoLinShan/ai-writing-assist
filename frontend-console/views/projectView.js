@@ -77,7 +77,7 @@ const projectView = {
             </div>
             <div class="project-status">
               <span class="status-dot ${isCanonical ? "canonical" : "draft"}"></span>
-              <span class="pill ${isCanonical ? "pill-success" : "pill-warning"}">${status === "canonical" ? "正史" : "草稿"}</span>
+              <span class="pill ${isCanonical ? "pill-success" : "pill-warning"}">${isCanonical ? "进行中" : "已归档"}</span>
             </div>
             <div class="project-title">${esc(p.title || p.name || "未命名项目")}</div>
             <div class="project-tags">
@@ -630,7 +630,7 @@ const projectView = {
         state.projects = data.items || data || []
 
         const result = await api.imports.upload(project.id, file)
-        toast(`项目「${projectName}」已创建，共解析 ${result.total_chapters || 0} 章，已保存 ${result.imported_chapters || 0} 章为章节草稿`, "success")
+        toast(`项目「${projectName}」已创建，共解析 ${result.total_chapters || 0} 章，已保存 ${result.imported_chapters || 0} 章为章节工作稿`, "success")
         api.clearCache()
         await router.navigate("writing")
         await router.refresh()
@@ -798,7 +798,7 @@ const projectView = {
         xhr.send(formData)
       })
 
-      toast(`导入完成：共解析 ${result.total_chapters || 0} 章，已保存 ${result.imported_chapters || 0} 章为章节草稿`, "success")
+      toast(`导入完成：共解析 ${result.total_chapters || 0} 章，已保存 ${result.imported_chapters || 0} 章为章节工作稿`, "success")
       api.clearCache()
       this._setUploadProgress("刷新项目", 100, "正在刷新项目...")
       await router.navigate("writing")

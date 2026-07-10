@@ -138,8 +138,10 @@ class MapStateAssembler:
             nid,
             [
                 *(b.location_entity_id for b in bindings),
+                *(layout.location_entity_id for layout in layouts),
                 *(m.entity_id for m in markers),
                 *(t.faction_entity_id for t in territories),
+                *(binding.location_entity_id for binding in terrain_bindings),
             ],
         )
         canonical_bindings, candidate_bindings = self._split_by_status(
@@ -148,9 +150,31 @@ class MapStateAssembler:
         canonical_markers, candidate_markers = self._split_by_status(
             markers, statuses, "entity_id"
         )
+        canonical_layouts, candidate_layouts = self._split_by_status(
+            layouts, statuses, "location_entity_id"
+        )
         canonical_territories, candidate_territories = self._split_by_status(
             territories, statuses, "faction_entity_id"
         )
+        canonical_owner_terrain, candidate_owner_terrain = self._split_by_status(
+            terrain_bindings,
+            statuses,
+            "location_entity_id",
+        )
+        canonical_terrain_bindings = [
+            binding
+            for binding in canonical_owner_terrain
+            if binding.review_state == "confirmed"
+        ]
+        candidate_terrain_bindings = [
+            binding
+            for binding in canonical_owner_terrain
+            if binding.review_state in {"candidate", "needs_review"}
+        ] + [
+            binding
+            for binding in candidate_owner_terrain
+            if binding.review_state != "ignored"
+        ]
 
         return MapStateResponse(
             map=MapConfigResponse.model_validate(config),
@@ -160,7 +184,8 @@ class MapStateAssembler:
                 MapLocationBindingResponse.model_validate(b) for b in canonical_bindings
             ],
             location_layouts=[
-                MapLocationLayoutResponse.model_validate(layout) for layout in layouts
+                MapLocationLayoutResponse.model_validate(layout)
+                for layout in canonical_layouts
             ],
             markers=[MapMarkerResponse.model_validate(m) for m in canonical_markers],
             territories=[
@@ -180,16 +205,24 @@ class MapStateAssembler:
             ],
             terrain_bindings=[
                 MapTerrainBindingResponse.model_validate(binding)
-                for binding in terrain_bindings
+                for binding in canonical_terrain_bindings
             ],
             candidate_location_bindings=[
                 MapLocationBindingResponse.model_validate(b) for b in candidate_bindings
+            ],
+            candidate_location_layouts=[
+                MapLocationLayoutResponse.model_validate(layout)
+                for layout in candidate_layouts
             ],
             candidate_markers=[
                 MapMarkerResponse.model_validate(m) for m in candidate_markers
             ],
             candidate_territories=[
                 MapTerritoryResponse.model_validate(t) for t in candidate_territories
+            ],
+            candidate_terrain_bindings=[
+                MapTerrainBindingResponse.model_validate(binding)
+                for binding in candidate_terrain_bindings
             ],
             scene=scene_info,
         )
@@ -225,7 +258,7 @@ class MapStateAssembler:
             db,
             nid,
             mid,
-            statuses=["candidate"],
+            statuses=["draft", "candidate"],
         )
         canonical_markers = (
             await self._marker_repo.get_by_map_and_scene_for_entity_statuses(
@@ -244,7 +277,7 @@ class MapStateAssembler:
                 mid,
                 scene_id=sid,
                 scene_index=scene_index,
-                statuses=["candidate"],
+                statuses=["draft", "candidate"],
             )
         )
         canonical_territories = (
@@ -260,7 +293,7 @@ class MapStateAssembler:
                 db,
                 nid,
                 mid,
-                statuses=["candidate"],
+                statuses=["draft", "candidate"],
             )
         )
 
@@ -303,8 +336,8 @@ class MapStateAssembler:
         candidate: list[Any] = []
         for row in rows:
             status = statuses.get(getattr(row, entity_attr))
-            if status in {"canonical", "draft"}:
+            if status == "canonical":
                 canonical.append(row)
-            elif status == "candidate":
+            elif status in {"draft", "candidate"}:
                 candidate.append(row)
         return canonical, candidate

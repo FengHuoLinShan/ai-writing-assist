@@ -544,16 +544,31 @@ def _normalize_simple_structure_refs(
     ) -> SimpleSupportedStructureItem:
         nonlocal invalid_refs
         valid_ids: list[str] = []
+        item_invalid_refs = 0
         for scene_id in item.supporting_scene_ids:
             if scene_id in scene_by_id:
                 if scene_id not in valid_ids:
                     valid_ids.append(scene_id)
             else:
                 invalid_refs += 1
+                item_invalid_refs += 1
+        review_reasons = [item.review_reason] if item.review_reason else []
+        if item.confidence < 0.7:
+            review_reasons.append("low_confidence")
+        if item_invalid_refs:
+            review_reasons.append("invalid_supporting_scene_refs_removed")
+        if not valid_ids:
+            review_reasons.append("missing_valid_supporting_scene_evidence")
         return item.model_copy(
             update={
                 "supporting_scene_ids": valid_ids,
-                "needs_review": item.needs_review or not valid_ids,
+                "needs_review": bool(
+                    item.needs_review
+                    or item.confidence < 0.7
+                    or item_invalid_refs
+                    or not valid_ids
+                ),
+                "review_reason": "; ".join(dict.fromkeys(review_reasons)),
             }
         )
 
@@ -613,6 +628,10 @@ def _simple_structure_to_parsed(
             start_chapter=_supported_start(item, scene_by_id, start_chapter),
             planned_payoff_chapter=_supported_end(item, scene_by_id, end_chapter),
             current_stage=item.current_stage or "active",
+            confidence=item.confidence,
+            needs_review=item.needs_review,
+            review_reason=item.review_reason,
+            supporting_scene_ids=item.supporting_scene_ids,
         )
         for index, item in enumerate(output.plot_threads, start=1)
         if item.title or item.summary
@@ -626,6 +645,10 @@ def _simple_structure_to_parsed(
             arc_goal=item.summary,
             core_conflict=None,
             related_character_names=[item.character_name] if item.character_name else [],
+            confidence=item.confidence,
+            needs_review=item.needs_review,
+            review_reason=item.review_reason,
+            supporting_scene_ids=item.supporting_scene_ids,
         )
         for index, item in enumerate(output.arcs, start=1)
         if item.title or item.summary or item.character_name
@@ -636,6 +659,10 @@ def _simple_structure_to_parsed(
             summary=item.summary,
             planned_seed_chapter=_supported_start(item, scene_by_id, start_chapter),
             planned_payoff_chapter=_supported_end(item, scene_by_id, end_chapter),
+            confidence=item.confidence,
+            needs_review=item.needs_review,
+            review_reason=item.review_reason,
+            supporting_scene_ids=item.supporting_scene_ids,
         )
         for item in output.foreshadowing
         if item.title or item.summary
@@ -645,6 +672,10 @@ def _simple_structure_to_parsed(
             target_name=item.title or item.summary[:24],
             target_type="world_entity",
             secret_summary=item.summary,
+            confidence=item.confidence,
+            needs_review=item.needs_review,
+            review_reason=item.review_reason,
+            supporting_scene_ids=item.supporting_scene_ids,
         )
         for item in output.reveals
         if item.title or item.summary

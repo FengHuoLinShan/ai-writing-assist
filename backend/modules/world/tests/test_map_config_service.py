@@ -328,6 +328,96 @@ class TestMapConfigValidation:
         assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
+    async def test_create_with_unadopted_parent_entity_is_rejected(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """建议队列的 compatibility shadow 不能直接成为正式地图父对象。"""
+        nid = uuid.uuid4().hex
+        await _create_project(db_session, nid)
+        location_id = uuid.uuid4()
+        db_session.add(
+            CoreEntity(
+                id=location_id,
+                novel_id=uuid.UUID(nid),
+                entity_type="location",
+                name="待处理城市",
+                status="candidate",
+                content_json={
+                    "_meta": {
+                        "compatibility_shadow": True,
+                        "suggestion_id": uuid.uuid4().hex,
+                    }
+                },
+            )
+        )
+        await db_session.flush()
+
+        with pytest.raises(DomainError) as exc:
+            await MapConfigService().create(
+                db_session,
+                nid,
+                MapConfigCreate(
+                    name="不应创建的详图",
+                    map_type="city",
+                    grid_width=5,
+                    grid_height=5,
+                    parent_entity_id=str(location_id),
+                ),
+            )
+
+        assert exc.value.status_code == 400
+        assert exc.value.code == "unadopted_map_entity"
+
+    @pytest.mark.asyncio
+    async def test_map_with_archived_parent_is_hidden_and_cannot_update(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        from modules.world.map_schemas import MapConfigUpdate
+
+        nid = uuid.uuid4().hex
+        await _create_project(db_session, nid)
+        location_id = await _create_location_entity(db_session, nid, "旧城")
+        service = MapConfigService()
+        created = await service.create(
+            db_session,
+            nid,
+            MapConfigCreate(
+                name="旧城详图",
+                map_type="city",
+                grid_width=5,
+                grid_height=5,
+                parent_entity_id=location_id,
+            ),
+        )
+        location = await db_session.get(CoreEntity, uuid.UUID(location_id))
+        assert location is not None
+        location.status = "ignored"
+        await db_session.flush()
+
+        listed = await service.list(db_session, nid)
+        assert listed.items == []
+        assert listed.total == 0
+        with pytest.raises(DomainError) as get_exc:
+            await service.get(db_session, created.id, novel_id=nid)
+        assert get_exc.value.code == "map_not_found"
+        with pytest.raises(DomainError) as state_exc:
+            await service.get_state(db_session, nid, created.id)
+        assert state_exc.value.code == "map_not_found"
+        with pytest.raises(DomainError) as delete_exc:
+            await service.delete(db_session, created.id, novel_id=nid)
+        assert delete_exc.value.code == "map_not_found"
+        with pytest.raises(DomainError) as exc:
+            await service.update(
+                db_session,
+                created.id,
+                MapConfigUpdate(name="不应更新"),
+                novel_id=nid,
+            )
+        assert exc.value.code == "unadopted_map_entity"
+
+    @pytest.mark.asyncio
     async def test_generate_on_world_map_returns_400(self, db_session):
         """B4：对 world 地图调用 generate 返回 400。"""
 

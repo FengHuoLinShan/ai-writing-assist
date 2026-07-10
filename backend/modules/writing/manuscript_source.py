@@ -15,7 +15,8 @@ from modules.writing.contracts import (
     WritingDraftContract,
 )
 from modules.writing.models import WritingDraft
-from modules.writing.repositories import WritingDraftRepository
+from modules.writing.repositories import WORKING_DRAFT_STATUSES, WritingDraftRepository
+from modules.writing.schemas import project_writing_draft_state
 from modules.writing.source_hashing import hash_text
 
 MAX_PATTERN_LENGTH = 200
@@ -221,6 +222,7 @@ def _source_ref(
 
 def _draft_contract(draft: WritingDraft) -> WritingDraftContract:
     content = draft.content or ""
+    projection = project_writing_draft_state(draft.status, draft.provenance_json)
     return WritingDraftContract(
         id=str(draft.id),
         novel_id=str(draft.novel_id),
@@ -232,6 +234,9 @@ def _draft_contract(draft: WritingDraft) -> WritingDraftContract:
         status=draft.status,
         conflict_check_snapshot_json=draft.conflict_check_snapshot_json,
         provenance_json=draft.provenance_json,
+        display_state=projection["display_state"],
+        source=projection["source"],
+        attention_reasons=projection["attention_reasons"],
         created_at=draft.created_at,
         updated_at=draft.updated_at,
     )
@@ -246,8 +251,8 @@ def _validate_content_mode(draft: WritingDraft, content_mode: str) -> None:
             raise ValidationError("canonical source must reference a published draft")
         return
     if content_mode == "working":
-        if draft.status == "deprecated":
-            raise ValidationError("working source cannot reference a deprecated draft")
+        if draft.status not in WORKING_DRAFT_STATUSES:
+            raise ValidationError("working source must reference an adopted draft")
         return
     raise ValidationError("content_mode must be canonical or working")
 

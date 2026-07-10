@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from unittest import mock
 
 import pytest
@@ -85,6 +86,11 @@ async def test_persist_calls_services_in_order(
     persister._scene_service.batch_create_models_from_dicts.return_value = [
         persister._scene_service.create.return_value
     ]
+    provenance = {
+        "source": "ai_generated",
+        "adopted_at": "2026-07-10T00:00:00+00:00",
+        "needs_review": False,
+    }
 
     result = await persister.persist(
         db=mock.AsyncMock(),
@@ -94,6 +100,7 @@ async def test_persist_calls_services_in_order(
         parsed=parsed,
         entity_name_to_id={},
         character_name_to_id={},
+        provenance_meta_override=provenance,
     )
 
     assert result.total_threads == 1
@@ -102,6 +109,88 @@ async def test_persist_calls_services_in_order(
     persister._thread_service.create_batch.assert_awaited_once()
     persister._arc_service.create_batch.assert_awaited_once()
     persister._scene_service.batch_create_models_from_dicts.assert_awaited_once()
+    thread_payload = persister._thread_service.create_batch.await_args.args[2][0]
+    arc_payload = persister._arc_service.create_batch.await_args.args[2][0]
+    scene_payload = (
+        persister._scene_service.batch_create_models_from_dicts.await_args.args[2][0]
+    )
+    assert thread_payload.provenance_meta == provenance
+    assert arc_payload.provenance_meta == provenance
+    assert scene_payload["source"] == "ai_generated"
+    assert scene_payload["structure_meta"] == provenance
+
+
+@pytest.mark.asyncio
+async def test_strict_persist_rejects_incomplete_batch(
+    persister: PlotStructurePersister,
+    parsed: ParsedPlotStructure,
+) -> None:
+    persister._thread_service.create_batch.return_value = []
+
+    with pytest.raises(RuntimeError, match="thread batch persistence was incomplete"):
+        await persister.persist(
+            db=mock.AsyncMock(),
+            novel_id=mock.Mock(hex="n1", __str__=lambda _: "n1"),
+            start_chapter=1,
+            end_chapter=3,
+            parsed=parsed,
+            entity_name_to_id={},
+            character_name_to_id={},
+            strict=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_deep_import_persist_keeps_item_review_evidence(
+    persister: PlotStructurePersister,
+) -> None:
+    parsed = ParsedPlotStructure(
+        threads=[
+            GeneratedThread(
+                name="需复核主线",
+                thread_type="main",
+                confidence=0.45,
+                needs_review=True,
+                review_reason="low_confidence",
+                supporting_scene_ids=["scene-1"],
+            )
+        ],
+        arcs=[],
+        scenes=[],
+        foreshadowing_plans=[],
+        reveal_plans=[],
+        offscreen_progress=[],
+        risks=[],
+        questions_for_user=[],
+    )
+    persister._thread_service.create_batch.return_value = [
+        PlotThreadResponse(
+            id="t1",
+            novel_id="n1",
+            name="需复核主线",
+            thread_type="main",
+        )
+    ]
+
+    result = await persister.persist(
+        db=mock.AsyncMock(),
+        novel_id=mock.Mock(hex="n1", __str__=lambda _: "n1"),
+        start_chapter=1,
+        end_chapter=3,
+        parsed=parsed,
+        entity_name_to_id={},
+        character_name_to_id={},
+        workflow_id="wf-review",
+    )
+
+    payload = persister._thread_service.create_batch.await_args.args[2][0]
+    assert payload.provenance_meta["source"] == "deep_import"
+    assert payload.provenance_meta["workflow_id"] == "wf-review"
+    assert payload.provenance_meta["needs_review"] is True
+    assert payload.provenance_meta["confidence"] == 0.45
+    assert payload.provenance_meta["review_reason"] == "low_confidence"
+    assert payload.provenance_meta["supporting_scene_ids"] == ["scene-1"]
+    assert result.threads[0]["needs_review"] is True
 
 
 @pytest.mark.asyncio
@@ -185,7 +274,7 @@ async def test_persist_creates_foreshadowing_and_reveal(
         start_chapter=1,
         end_chapter=3,
         parsed=parsed,
-        entity_name_to_id={},
+        entity_name_to_id={"目标": str(uuid.uuid4())},
         character_name_to_id={},
     )
 

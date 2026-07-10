@@ -9,6 +9,11 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.contracts import SceneContract
+from modules.world.map_repositories import (
+    MapLocationBindingRepository,
+    MapMarkerRepository,
+    MapTerritoryRepository,
+)
 from modules.world.map_schemas import (
     BindingHex,
     MapConfigCreate,
@@ -161,23 +166,21 @@ async def test_assemble_splits_canonical_and_candidate_map_facts_by_entity_statu
             hexes=[BindingHex(hex_q=1, hex_r=1, is_center=True)],
         ),
     )
-    await MapLocationBindingService().batch_create(
+    novel_uuid = uuid.UUID(hex=nid)
+    map_uuid = uuid.UUID(created.id)
+    await MapLocationBindingRepository().bulk_create(
         db_session,
-        nid,
-        created.id,
-        MapLocationBindingCreate(
-            location_entity_id=str(candidate_location.id),
-            hexes=[BindingHex(hex_q=2, hex_r=1, is_center=True)],
-        ),
+        novel_uuid,
+        map_uuid,
+        candidate_location.id,
+        [{"hex_q": 2, "hex_r": 1, "is_center": True}],
     )
-    await MapLocationBindingService().batch_create(
+    await MapLocationBindingRepository().bulk_create(
         db_session,
-        nid,
-        created.id,
-        MapLocationBindingCreate(
-            location_entity_id=str(draft_location.id),
-            hexes=[BindingHex(hex_q=3, hex_r=1, is_center=True)],
-        ),
+        novel_uuid,
+        map_uuid,
+        draft_location.id,
+        [{"hex_q": 3, "hex_r": 1, "is_center": True}],
     )
     await MapMarkerService().create(
         db_session,
@@ -191,17 +194,17 @@ async def test_assemble_splits_canonical_and_candidate_map_facts_by_entity_statu
             label="正史人物",
         ),
     )
-    await MapMarkerService().create(
+    await MapMarkerRepository().create(
         db_session,
-        nid,
-        created.id,
-        MapMarkerCreate(
-            entity_id=str(candidate_character.id),
-            marker_type="character",
-            hex_q=2,
-            hex_r=1,
-            label="待确认人物",
-        ),
+        novel_uuid,
+        map_uuid,
+        {
+            "entity_id": candidate_character.id,
+            "marker_type": "character",
+            "hex_q": 2,
+            "hex_r": 1,
+            "label": "待处理人物",
+        },
     )
     await MapTerritoryService().create(
         db_session,
@@ -212,25 +215,23 @@ async def test_assemble_splits_canonical_and_candidate_map_facts_by_entity_statu
             hexes=[TerritoryHex(hex_q=1, hex_r=1)],
         ),
     )
-    await MapTerritoryService().create(
+    await MapTerritoryRepository().create_batch(
         db_session,
-        nid,
-        created.id,
-        MapTerritoryCreate(
-            faction_entity_id=str(candidate_faction.id),
-            hexes=[TerritoryHex(hex_q=2, hex_r=1)],
-        ),
+        novel_uuid,
+        map_uuid,
+        candidate_faction.id,
+        [{"hex_q": 2, "hex_r": 1, "style_override": {}}],
     )
 
     state = await MapStateAssembler().assemble(db_session, nid, created.id)
 
     assert {b.location_entity_id for b in state.location_bindings} == {
         str(canonical_location.id),
+    }
+    assert {b.location_entity_id for b in state.candidate_location_bindings} == {
+        str(candidate_location.id),
         str(draft_location.id),
     }
-    assert [b.location_entity_id for b in state.candidate_location_bindings] == [
-        str(candidate_location.id)
-    ]
     assert [m.entity_id for m in state.markers] == [str(canonical_character.id)]
     assert [m.entity_id for m in state.candidate_markers] == [
         str(candidate_character.id)

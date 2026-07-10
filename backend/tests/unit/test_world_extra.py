@@ -225,6 +225,10 @@ def _mock_entity(**overrides) -> MagicMock:
         "importance_level": "normal",
         "reveal_level": "author_only",
         "status": "draft",
+        "display_state": None,
+        "source": None,
+        "attention_reasons": [],
+        "suggested_action": None,
         "embedding_text": None,
         "created_by": None,
         "approved_by": None,
@@ -393,7 +397,7 @@ class TestEntityServiceList:
                 )
 
             assert exc_info.value.status_code == 400
-            assert "仅 draft/candidate 可被提升为正史" in exc_info.value.message
+            assert "只有待处理的 draft/candidate 实体可以采用" in exc_info.value.message
             mock_repo.update.assert_not_called()
 
     async def test_promote_reuses_loaded_entity_for_repo_update(self) -> None:
@@ -443,16 +447,17 @@ class TestEntityContextServiceGetEntityContext:
             assert result.total_count == 1
             mock_repo.get_by_ids.assert_awaited_once()
 
-    async def test_without_entity_ids_uses_list_by_novel(self) -> None:
+    async def test_without_entity_ids_uses_status_filtered_query(self) -> None:
         db = MagicMock()
         svc = EntityContextService()
         with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
-            mock_repo.list_by_novel = AsyncMock(return_value=[])
-            mock_repo.get_by_novel = AsyncMock()
+            mock_repo.get_by_type_and_status = AsyncMock(return_value=[])
             result = await svc.get_entity_context(db, str(uuid.uuid4()), entity_ids=None)
             assert result.total_count == 0
-            mock_repo.list_by_novel.assert_awaited_once()
-            mock_repo.get_by_novel.assert_not_awaited()
+            mock_repo.get_by_type_and_status.assert_awaited_once()
+            assert mock_repo.get_by_type_and_status.await_args.kwargs["statuses"] == (
+                "canonical",
+            )
             mock_repo.get_by_ids.assert_not_called()
 
     async def test_author_only_reveal_mode_includes_hidden_truth(self) -> None:
@@ -460,7 +465,7 @@ class TestEntityContextServiceGetEntityContext:
         ent = _mock_entity(hidden_truth="deep secret")
         svc = EntityContextService()
         with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
-            mock_repo.list_by_novel = AsyncMock(return_value=[ent])
+            mock_repo.get_by_type_and_status = AsyncMock(return_value=[ent])
             result = await svc.get_entity_context(
                 db,
                 str(uuid.uuid4()),
@@ -473,7 +478,7 @@ class TestEntityContextServiceGetEntityContext:
         ent = _mock_entity(hidden_truth="secret")
         svc = EntityContextService()
         with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
-            mock_repo.list_by_novel = AsyncMock(return_value=[ent])
+            mock_repo.get_by_type_and_status = AsyncMock(return_value=[ent])
             result = await svc.get_entity_context(
                 db,
                 str(uuid.uuid4()),
@@ -490,7 +495,7 @@ class TestEntityContextServiceGetEntityContext:
         )
         svc = EntityContextService()
         with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
-            mock_repo.list_by_novel = AsyncMock(return_value=[old_temp])
+            mock_repo.get_by_type_and_status = AsyncMock(return_value=[old_temp])
             result = await svc.get_entity_context(
                 db,
                 str(uuid.uuid4()),
@@ -505,7 +510,7 @@ class TestEntityContextServiceGetEntityContext:
         normal = _mock_entity(content_json={"_meta": {}})
         svc = EntityContextService()
         with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
-            mock_repo.list_by_novel = AsyncMock(return_value=[normal])
+            mock_repo.get_by_type_and_status = AsyncMock(return_value=[normal])
             result = await svc.get_entity_context(
                 db,
                 str(uuid.uuid4()),
@@ -559,7 +564,7 @@ class TestEntityContextServiceListEntitySummaries:
 
 
 class TestEntityContextServiceListEntityTerms:
-    async def test_only_canonical_and_draft_included(self) -> None:
+    async def test_only_canonical_entities_included(self) -> None:
         db = MagicMock()
         canonical = _mock_entity(name="Hero", status="canonical")
         draft = _mock_entity(name="Sidekick", status="draft")
@@ -570,7 +575,8 @@ class TestEntityContextServiceListEntityTerms:
                 return_value=[canonical, draft, merged]
             )
             result = await svc.list_entity_terms(db, str(uuid.uuid4()))
-            assert len(result) == 2
+            assert len(result) == 1
+            assert result[0]["name"] == "Hero"
 
     async def test_extracts_aliases_from_content_json(self) -> None:
         db = MagicMock()
@@ -1689,7 +1695,7 @@ class TestContractsConstruction:
         assert c.importance == 0.5
         assert c.importance_level == "normal"
         assert c.reveal_level == "author_only"
-        assert c.status == "draft"
+        assert c.status == "canonical"
 
     def test_core_entity_contract_frozen(self) -> None:
         c = CoreEntityContract(

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -70,6 +71,10 @@ async def sample_scene(
 
 
 class TestSceneRepository:
+    def test_scene_create_rejects_legacy_candidate_status_for_new_writes(self) -> None:
+        with pytest.raises(PydanticValidationError):
+            SceneCreate(scene_index=0, status="candidate")  # type: ignore[arg-type]
+
     """SceneRepository CRUD 测试"""
 
     @pytest.mark.asyncio

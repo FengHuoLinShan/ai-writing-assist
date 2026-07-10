@@ -162,17 +162,50 @@ class OutlineDeepImportRepairService:
         return {
             "total_threads": len(threads),
             "total_arcs": len(arcs),
-            "threads": [{"id": str(item.id), "name": item.name} for item in threads],
+            "threads": [
+                {
+                    "id": str(item.id),
+                    "name": item.name,
+                    "needs_review": bool(
+                        (item.provenance_meta or {}).get("needs_review")
+                    ),
+                    "provenance_meta": dict(item.provenance_meta or {}),
+                }
+                for item in threads
+            ],
             "arcs": [
-                {"id": str(item.id), "title": item.title, "arc_index": item.arc_index}
+                {
+                    "id": str(item.id),
+                    "title": item.title,
+                    "arc_index": item.arc_index,
+                    "needs_review": bool(
+                        (item.provenance_meta or {}).get("needs_review")
+                    ),
+                    "provenance_meta": dict(item.provenance_meta or {}),
+                }
                 for item in arcs
             ],
             "extra_sections": {
                 "foreshadowing_plans": [
-                    {"id": str(item.id), "name": item.name} for item in foreshadowing
+                    {
+                        "id": str(item.id),
+                        "name": item.name,
+                        "needs_review": bool(
+                            (item.provenance_meta or {}).get("needs_review")
+                        ),
+                        "provenance_meta": dict(item.provenance_meta or {}),
+                    }
+                    for item in foreshadowing
                 ],
                 "reveal_plans": [
-                    {"id": str(item.id), "target_id": str(item.target_id)}
+                    {
+                        "id": str(item.id),
+                        "target_id": str(item.target_id),
+                        "needs_review": bool(
+                            (item.provenance_meta or {}).get("needs_review")
+                        ),
+                        "provenance_meta": dict(item.provenance_meta or {}),
+                    }
                     for item in reveals
                 ],
             },
@@ -209,6 +242,9 @@ class OutlineDeepImportRepairService:
                 "workflow_id": workflow_id,
                 "auto_ingested": True,
                 "needs_review": True,
+                "confidence": 0.0,
+                "review_reason": "category_minimum_structure_outputs",
+                "supporting_scene_ids": [],
                 "phase": "structure_analysis",
                 "fallback": "category_minimum_structure_outputs",
             }
@@ -240,6 +276,8 @@ class OutlineDeepImportRepairService:
                     "id": str(created.id),
                     "name": created.name,
                     "thread_type": created.thread_type,
+                    "needs_review": True,
+                    "provenance_meta": dict(provenance_meta),
                 }
                 result.setdefault("threads", []).append(thread_summary)
                 result["total_threads"] = int(result.get("total_threads", 0) or 0) + 1
@@ -264,7 +302,7 @@ class OutlineDeepImportRepairService:
                     entry_hook="从导入 Scene 中回收章节开端的触发事件。",
                     midpoint_turn="以章节中段的认知变化或关系变化作为转折锚点。",
                     climax="以章节范围内最强冲突或信息揭示作为高潮锚点。",
-                    result="生成待复核篇章纲候选，供用户整理、合并或删除。",
+                    result="生成待处理篇章纲建议，供用户整理、合并或删除。",
                     next_hook="用后续章节校验该篇章纲是否应保留。",
                     provenance_meta=dict(provenance_meta),
                     status="draft",
@@ -283,6 +321,8 @@ class OutlineDeepImportRepairService:
                     "id": str(created.id),
                     "title": created.title,
                     "arc_index": created.arc_index,
+                    "needs_review": True,
+                    "provenance_meta": dict(provenance_meta),
                 }
                 result.setdefault("arcs", []).append(arc_summary)
                 result["total_arcs"] = int(result.get("total_arcs", 0) or 0) + 1
@@ -320,7 +360,12 @@ class OutlineDeepImportRepairService:
                     foreshadowing_payloads,
                 )
             for created in created_foreshadowing:
-                item = {"id": str(created.id), "name": created.name}
+                item = {
+                    "id": str(created.id),
+                    "name": created.name,
+                    "needs_review": True,
+                    "provenance_meta": dict(provenance_meta),
+                }
                 foreshadowing_items.append(item)
                 created_assets.append(
                     {
@@ -372,7 +417,12 @@ class OutlineDeepImportRepairService:
                     reveal_payloads,
                 )
                 for created in created_reveals:
-                    item = {"id": str(created.id), "target_name": reveal_target["name"]}
+                    item = {
+                        "id": str(created.id),
+                        "target_name": reveal_target["name"],
+                        "needs_review": True,
+                        "provenance_meta": dict(provenance_meta),
+                    }
                     reveal_items.append(item)
                     created_assets.append(
                         {
@@ -392,7 +442,7 @@ class OutlineDeepImportRepairService:
                 created_assets
             )
             result.setdefault("warnings", []).append(
-                "结构类别输出不足，已补充待复核结构候选。"
+                "结构类别输出不足，已补充待处理结构建议。"
             )
         return result
 

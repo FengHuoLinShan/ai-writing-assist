@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.imports.llm_schemas import SceneChunk
 from modules.imports.scene_fusion import FinalSceneCandidate
 from modules.outline.repositories import SceneRepository
-from modules.outline.schemas import SceneCreate
+from modules.outline.schemas import SceneCreate, SceneUpdate
 
 
 def make_final_scene_candidate(
@@ -177,6 +177,8 @@ async def test_scene_commit_reuses_next_scene_index_for_batch(monkeypatch) -> No
     )
 
     assert result.created_count == 3
+    assert result.review_count == 3
+    assert result.adopted_count == 0
     assert single_provenance_calls == 0
     assert batch_provenance_calls == 1
     assert next_index_calls == 1
@@ -305,17 +307,18 @@ async def test_deprecated_same_key_conflicts_without_revival_or_create(
         candidate.source_chapter_indices,
         candidate.candidate_id,
     )
-    await SceneRepository().create(
+    repo = SceneRepository()
+    legacy = await repo.create(
         db_session,
         uuid.UUID(sample_novel_id),
         SceneCreate(
             scene_index=0,
             title="Deprecated imported scene",
             source="deep_import",
-            status="deprecated",
             structure_meta={"provenance_key": provenance_key},
         ),
     )
+    await repo.update(db_session, legacy.id, SceneUpdate(status="deprecated"))
     await db_session.flush()
 
     result = await SceneCommitter().commit(

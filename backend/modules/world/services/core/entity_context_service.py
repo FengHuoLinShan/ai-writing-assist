@@ -19,6 +19,15 @@ class EntityContextService:
     def __init__(self, repo: CoreEntityRepository | None = None) -> None:
         self._repo = repo or CoreEntityRepository()
 
+    @staticmethod
+    def _is_pending_suggestion_shadow(entity: CoreEntity) -> bool:
+        meta = dict((entity.content_json or {}).get("_meta") or {})
+        return bool(
+            entity.status in {"draft", "candidate"}
+            and meta.get("compatibility_shadow") is True
+            and meta.get("suggestion_id")
+        )
+
     async def get_entity_context(
         self,
         db: AsyncSession,
@@ -27,15 +36,30 @@ class EntityContextService:
         reveal_mode: str = "author_safe",
         limit: int = 20,
         current_chapter: int | None = None,
+        include_review: bool = False,
     ) -> WorldContextBundle:
-        """获取世界上下文包，支持按 ID 过滤与临时实体过期过滤。"""
+        """获取世界上下文包，默认只包含已采用对象。
+
+        ``include_review=True`` 用于需要 working context 的受控流程，
+        会额外包含 draft / candidate / conflicted；归档状态始终排除。
+        """
         nid = parse_uuid(novel_id, "novel_id")
+        statuses = (
+            ("canonical", "draft", "candidate", "conflicted")
+            if include_review
+            else ("canonical",)
+        )
 
         if entity_ids:
             eids = [parse_uuid(eid, "entity_id") for eid in entity_ids]
-            entities = await self._repo.get_by_ids(db, nid, eids)
+            entities = await self._repo.get_by_ids(db, nid, eids, statuses=statuses)
         else:
-            entities = await self._repo.list_by_novel(db, nid, limit=limit)
+            entities = await self._repo.get_by_type_and_status(
+                db,
+                nid,
+                statuses=statuses,
+                limit=limit,
+            )
 
         # Filter expired temporary entities
         if current_chapter is not None:
@@ -76,6 +100,7 @@ class EntityContextService:
         *,
         entity_type: str | None = None,
         statuses: list[str] | tuple[str, ...] | None = None,
+        display_state: str | None = None,
         limit: int = 100,
     ) -> list[dict]:
         """获取实体 ID / 名称 / 类型摘要列表。"""
@@ -83,6 +108,13 @@ class EntityContextService:
         query_kwargs = {"entity_type": entity_type, "limit": limit}
         if statuses is not None:
             query_kwargs["statuses"] = statuses
+        elif display_state is not None:
+            from modules.world.asset_state import statuses_for_display_state
+
+            display_statuses = statuses_for_display_state(display_state)
+            if display_statuses is None:
+                raise ValueError("display_state must be active, review, or archived")
+            query_kwargs["statuses"] = tuple(display_statuses)
         result = await self._repo.get_by_type_and_status(db, nid, **query_kwargs)
         return [
             {"id": item.id, "name": item.name, "entity_type": item.entity_type}
@@ -96,7 +128,7 @@ class EntityContextService:
         *,
         limit: int = 500,
     ) -> list[dict]:
-        """获取正史 + 草稿实体的检索词典项 (name + content_json.aliases)。
+        """获取已采用实体的检索词典项 (name + content_json.aliases)。
 
         别名存储约定见 core_entities.content_json.aliases (per world/CLAUDE.md)。
         """
@@ -104,7 +136,7 @@ class EntityContextService:
         entities = await self._repo.list_by_novel(db, nid, limit=limit)
         terms: list[dict] = []
         for item in entities:
-            if item.status not in ("canonical", "draft"):
+            if item.status != "canonical":
                 continue
             item_terms = [item.name]
             aliases = (item.content_json or {}).get("aliases", [])
@@ -163,6 +195,8 @@ class EntityContextService:
         for item in entities:
             if item.status not in ("canonical", "draft", "candidate"):
                 continue
+            if self._is_pending_suggestion_shadow(item):
+                continue
             if " ".join((item.name or "").strip().split()).lower() == query:
                 return str(item.id)
             aliases = (item.content_json or {}).get("aliases", [])
@@ -205,6 +239,8 @@ class EntityContextService:
         resolved: dict[str, str] = {}
         for item in entities:
             if item.status not in ("canonical", "draft", "candidate"):
+                continue
+            if self._is_pending_suggestion_shadow(item):
                 continue
             item_id = str(item.id)
             item_name = " ".join((item.name or "").strip().split()).lower()

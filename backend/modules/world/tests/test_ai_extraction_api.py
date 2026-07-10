@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -11,6 +12,120 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.tasks.models import AsyncTask
 from modules.context.facade import attach_result_ref, require_confirmation
 from modules.world.services.core.extraction_service import ExtractionResult
+
+
+@pytest.mark.asyncio
+async def test_entity_extraction_routes_new_assets_through_suggestion_queue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.world.models import CoreEntity
+    from modules.world.schemas import WorldContextBundle
+    from modules.world.services.core.extraction_service import EntityExtractionService
+
+    novel_id = str(uuid.uuid4())
+    draft_provider = SimpleNamespace(
+        load_chapters=AsyncMock(
+            return_value=[
+                {
+                    "chapter_index": 1,
+                    "title": "雨夜",
+                    "content": "沈砚在雨夜进入巡夜司。",
+                }
+            ]
+        )
+    )
+    service = EntityExtractionService(draft_provider=draft_provider)
+    entity_id = uuid.uuid4()
+    suggestion_id = uuid.uuid4()
+    entity = CoreEntity(
+        id=entity_id,
+        novel_id=uuid.UUID(novel_id),
+        entity_type="character",
+        name="沈砚",
+        summary="巡夜人",
+        public_info="雨夜入城",
+        hidden_truth="身份不明",
+        content_json={"_meta": {"auto_ingested": True}},
+        status="candidate",
+    )
+
+    monkeypatch.setattr(
+        "modules.world.facade.get_world_context",
+        AsyncMock(
+            return_value=WorldContextBundle(
+                novel_id=novel_id,
+                entities=[],
+                total_count=0,
+                reveal_mode="author_safe",
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "modules.project.facade.get_project_context",
+        AsyncMock(return_value=None),
+    )
+
+    class FakeLLM:
+        model_name = "fake-model"
+
+        async def generate_embedding(self, texts, *, is_query=False):
+            del is_query
+            return [[0.1] for _ in texts]
+
+    monkeypatch.setattr("infrastructure.llm.client.LLMClient", FakeLLM)
+    monkeypatch.setattr(
+        "infrastructure.llm.prompt_loader.load_prompt",
+        lambda *_args, **_kwargs: "extract",
+    )
+
+    async def fake_structured(_llm, _request, schema, **_kwargs):
+        return schema(
+            entities=[
+                {
+                    "name": "沈砚",
+                    "entity_type": "character",
+                    "summary": "巡夜人",
+                    "public_info": "雨夜入城",
+                    "hidden_truth": "身份不明",
+                    "importance": 0.8,
+                    "suggested_action": "create_new",
+                    "candidate_reason": "长期主角",
+                    "confidence": 0.9,
+                    "source_chapter": 1,
+                }
+            ]
+        )
+
+    monkeypatch.setattr(
+        "infrastructure.llm.agent_step_harness.run_managed_structured",
+        fake_structured,
+    )
+    service._dedup_service.find_similar_entities = AsyncMock(return_value=[])
+    service._suggestion_queue.create_core_entity_suggestion = AsyncMock(
+        return_value=(
+            SimpleNamespace(id=str(suggestion_id)),
+            SimpleNamespace(id=str(entity_id)),
+        )
+    )
+    service._entity_repo.get = AsyncMock(return_value=entity)
+    service._entity_repo.create = AsyncMock(
+        side_effect=AssertionError("extraction must not write CoreEntity directly")
+    )
+    db = AsyncMock()
+
+    result = await service.extract_entities_from_chapters(
+        db,
+        novel_id,
+        1,
+        1,
+    )
+
+    assert result.total_created == 1
+    assert result.items[0]["suggestion_id"] == str(suggestion_id)
+    queue_call = service._suggestion_queue.create_core_entity_suggestion.await_args
+    assert queue_call.kwargs["source_module"] == "world_extraction"
+    assert queue_call.kwargs["compatibility_status"] == "candidate"
+    service._entity_repo.create.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -183,13 +298,20 @@ async def test_world_entity_extraction_task_attaches_created_entity_refs(
     assert confirmation_resp.status_code == 201
     confirmation_id = confirmation_resp.json()["id"]
     entity_id = str(uuid.uuid4())
+    suggestion_id = str(uuid.uuid4())
 
     async def fake_extract(self, db, novel_id, start_chapter, end_chapter, batch_size):
         return ExtractionResult(
             total_chapters=1,
             total_created=1,
             total_skipped=0,
-            items=[{"id": entity_id, "name": "霜华剑"}],
+            items=[
+                {
+                    "id": entity_id,
+                    "suggestion_id": suggestion_id,
+                    "name": "霜华剑",
+                }
+            ],
         )
 
     monkeypatch.setattr(
@@ -225,6 +347,10 @@ async def test_world_entity_extraction_task_attaches_created_entity_refs(
         confirmation_id=confirmation_id,
     )
     assert {"type": "world_entity", "id": entity_id} in confirmation.result_refs
+    assert {
+        "type": "creation_suggestion",
+        "id": suggestion_id,
+    } in confirmation.result_refs
 
 
 @pytest.mark.asyncio
@@ -247,9 +373,9 @@ async def test_world_alias_relation_extraction_task_invokes_di_handler(
     monkeypatch.setattr(
         world_tasks,
         "_container_get",
-        lambda name: fake_handler
-        if name == "world.run_alias_relation_extraction"
-        else None,
+        lambda name: (
+            fake_handler if name == "world.run_alias_relation_extraction" else None
+        ),
     )
 
     class FakeTask:
@@ -295,9 +421,7 @@ async def test_world_alias_relation_extraction_task_requires_novel_id(
     monkeypatch.setattr(
         world_tasks,
         "_container_get",
-        lambda name: handler
-        if name == "world.run_alias_relation_extraction"
-        else None,
+        lambda name: handler if name == "world.run_alias_relation_extraction" else None,
     )
 
     class FakeTask:

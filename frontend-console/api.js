@@ -486,6 +486,18 @@ const api = {
       return post(withQuery(`/world/suggestions/${suggestionId}/confirm`, { novel_id: novelId }))
     },
 
+    async editAndConfirmSuggestion(suggestionId, payload, novelId) {
+      return post(withQuery(`/world/suggestions/${suggestionId}/edit-confirm`, { novel_id: novelId }), payload)
+    },
+
+    async mergeSuggestion(suggestionId, targetEntityId, novelId) {
+      return post(withQuery(`/world/suggestions/${suggestionId}/merge`, { novel_id: novelId }), { target_entity_id: targetEntityId })
+    },
+
+    async resolveSuggestionAsAlias(suggestionId, payload, novelId) {
+      return post(withQuery(`/world/suggestions/${suggestionId}/resolve-as-alias`, { novel_id: novelId }), payload)
+    },
+
     async rejectSuggestion(suggestionId, novelId) {
       return post(withQuery(`/world/suggestions/${suggestionId}/reject`, { novel_id: novelId }))
     },
@@ -678,8 +690,11 @@ const api = {
     async replaceLocationLayouts(mapId, payload, novelId) {
       return put(withQuery(`/world/maps/${mapId}/location-layouts`, { novel_id: novelId }), payload)
     },
-    async getMapTerrain(mapId, novelId) {
-      return request(withQuery(`/world/maps/${mapId}/terrain`, { novel_id: novelId }))
+    async getMapTerrain(mapId, novelId, includeCandidates = false) {
+      return request(withQuery(`/world/maps/${mapId}/terrain`, {
+        novel_id: novelId,
+        include_candidates: includeCandidates || undefined,
+      }))
     },
     async replaceTerrainLayerPatches(mapId, layerId, payload, novelId) {
       return put(withQuery(`/world/maps/${mapId}/terrain/layers/${layerId}/patches`, { novel_id: novelId }), payload)
@@ -855,6 +870,10 @@ const api = {
       return contractJson("writing.autosave", { draftId }, { novel_id: novelId }, payload)
     },
 
+    async adoptDraftCandidate(draftId, novelId) {
+      return contractJson("writing.adoptDraftCandidate", { draftId }, { novel_id: novelId })
+    },
+
     async autosaveDraftOnly(payload) {
       return post("/writing/drafts/autosave", payload)
     },
@@ -1003,12 +1022,34 @@ const api = {
       return request(withQuery(`/imports/${recordId}`, params))
     },
 
-    async deepImport(novelId, startChapter, endChapter, force = false, highQuality = false) {
-      return contractJson("imports.deepImport", {}, {}, { novel_id: novelId, start_chapter: startChapter, end_chapter: endChapter, force, high_quality: highQuality })
+    async deepImport(novelId, startChapter, endChapter, force = false, highQuality = false, authorization = {}) {
+      if (authorization.authorization_confirmed !== true) {
+        throw new Error("启动深度导入前必须获得用户授权")
+      }
+      return contractJson("imports.deepImport", {}, {}, {
+        novel_id: novelId,
+        start_chapter: startChapter,
+        end_chapter: endChapter,
+        force,
+        high_quality: highQuality,
+        adoption_policy: authorization.adoption_policy || "user_authorized_pipeline",
+        authorization_confirmed: true,
+      })
     },
 
-    async startStage(stage, novelId, startChapter, endChapter, force = false, highQuality = false) {
-      return contractJson("imports.startStage", { stage }, {}, { novel_id: novelId, start_chapter: startChapter, end_chapter: endChapter, force, high_quality: highQuality })
+    async startStage(stage, novelId, startChapter, endChapter, force = false, highQuality = false, authorization = {}) {
+      if (authorization.authorization_confirmed !== true) {
+        throw new Error("启动自动提取前必须获得用户授权")
+      }
+      return contractJson("imports.startStage", { stage }, {}, {
+        novel_id: novelId,
+        start_chapter: startChapter,
+        end_chapter: endChapter,
+        force,
+        high_quality: highQuality,
+        adoption_policy: authorization.adoption_policy || "user_authorized_pipeline",
+        authorization_confirmed: true,
+      })
     },
 
     async resumeDeepImport(taskId) {
@@ -1062,8 +1103,16 @@ const api = {
       return post("/outline/generate", payload)
     },
 
+    async applyStructurePreview(payload) {
+      return contractJson("outline.applyStructurePreview", {}, {}, payload)
+    },
+
     async extractChapterScenes(payload) {
       return post("/outline/chapter-scenes/extract", payload)
+    },
+
+    async applyChapterScenePreview(payload) {
+      return contractJson("outline.applyChapterScenePreview", {}, {}, payload)
     },
 
     // ---- Scene 卡 ----

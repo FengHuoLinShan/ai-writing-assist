@@ -146,13 +146,17 @@ describe("createWritingTools", () => {
     const tools = createTestTools()
     await tools.generateDraft()
 
+    expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({
+      action: "writing.generate",
+      include_pending_objects: false,
+    }))
     expect(api.writing.generate).toHaveBeenCalledWith(expect.objectContaining({
       novel_id: "p1",
       chapter_index: 1,
       instruction: "加快速度",
       context_confirmation_id: "conf-1",
     }))
-    expect(toast).toHaveBeenCalledWith("AI 生成草稿任务已提交：task-1", "success")
+    expect(toast).toHaveBeenCalledWith("AI 正文建议任务已提交：task-1", "success")
   })
 
   it("generates AI POV draft from current Scene viewpoint character", async () => {
@@ -174,14 +178,14 @@ describe("createWritingTools", () => {
     expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({
       novel_id: "p1",
       action: "writing.generate",
-      task: "基于当前 Scene 的 POV 角色有限认知，生成正文候选草稿",
+      task: "基于当前 Scene 的 POV 角色有限认知，生成正文建议预览",
       scope: "chapter",
       chapter_index: 1,
       scene_id: "scene-1",
       reveal_mode: "character",
       viewpoint_character_id: "char-1",
       character_ids: ["char-1"],
-      include_pending_objects: true,
+      include_pending_objects: false,
     }))
     expect(api.writing.generate).toHaveBeenCalledWith(expect.objectContaining({
       novel_id: "p1",
@@ -193,7 +197,20 @@ describe("createWritingTools", () => {
     expect(instruction).toContain("压低情绪")
     expect(instruction).toContain("POV 角色有限认知")
     expect(instruction).toContain("角色判断、台词、内心和行动只能使用确认上下文中该角色可见的信息")
-    expect(toast).toHaveBeenCalledWith("AI 角色视角草稿任务已提交：task-pov", "success")
+    expect(toast).toHaveBeenCalledWith("AI 角色视角建议任务已提交：task-pov", "success")
+  })
+
+  it("does not use a readonly suggestion preview as working generation context", async () => {
+    state.currentProjectId = "p1"
+    state._currentChapter = 1
+    state._isReadonly = true
+    const tools = createTestTools()
+
+    await tools.generateDraft()
+
+    expect(confirmAiReference).not.toHaveBeenCalled()
+    expect(api.writing.generate).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("当前内容只读；待处理建议不会作为工作稿参考", "warning")
   })
 
   it("stops POV draft generation when current Scene is unavailable", async () => {

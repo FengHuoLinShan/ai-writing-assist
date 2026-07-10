@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -294,7 +295,48 @@ class MemoryService:
             for item in items
             if (item.meta or {}).get("workflow_id") == workflow_id
             and (item.meta or {}).get("auto_ingested") is True
+            and (item.meta or {}).get("rolled_back") is not True
         )
+
+    async def rollback_deep_import_delta_logs_by_workflow(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        workflow_id: str,
+    ) -> int:
+        """Mark workflow-owned import deltas as rolled back without erasing audit data."""
+        nid = parse_uuid(novel_id, "novel_id")
+        stmt = (
+            select(DeltaLog)
+            .where(
+                DeltaLog.novel_id == nid,
+                DeltaLog.source == "deep_import",
+            )
+            .with_for_update()
+        )
+        result = await db.execute(stmt)
+        rolled_back_at = datetime.now(UTC).isoformat()
+        count = 0
+        for item in result.scalars().all():
+            meta = dict(item.meta or {})
+            if (
+                meta.get("workflow_id") != workflow_id
+                or meta.get("auto_ingested") is not True
+                or meta.get("rolled_back") is True
+            ):
+                continue
+            meta.update(
+                {
+                    "rolled_back": True,
+                    "rolled_back_at": rolled_back_at,
+                    "rollback_reason": "workflow_abandoned",
+                }
+            )
+            item.meta = meta
+            db.add(item)
+            count += 1
+        await db.flush()
+        return count
 
     # ============================================================
     # 全景查询

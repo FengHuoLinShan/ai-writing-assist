@@ -54,7 +54,7 @@ describe("createPublishManager", () => {
     state.currentProjectId = "p1"
     const manager = createTestManager()
     await manager.publish("   ", "标题", 1, "d1", null)
-    expect(toast).toHaveBeenCalledWith("草稿内容不能为空", "warning")
+    expect(toast).toHaveBeenCalledWith("工作稿内容不能为空", "warning")
     expect(api.writing.publish).not.toHaveBeenCalled()
   })
 

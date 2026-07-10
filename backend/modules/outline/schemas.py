@@ -206,7 +206,7 @@ class SceneCreate(BaseModel):
     chapter_ids: list[str] = []
     pov_character_id: str | None = None
     structure_meta: dict[str, Any] = {}
-    status: str = "draft"
+    status: Literal["draft", "canonical"] = "draft"
 
 
 class SceneUpdate(BaseModel):
@@ -223,7 +223,7 @@ class SceneUpdate(BaseModel):
     chapter_ids: Annotated[list[str] | None, Field(None)]
     pov_character_id: Annotated[str | None, Field(None)]
     structure_meta: Annotated[dict[str, Any] | None, Field(None)]
-    status: Annotated[str | None, Field(None, max_length=32)]
+    status: Literal["draft", "canonical", "deprecated"] | None = None
 
 
 class SceneResponse(BaseModel):
@@ -306,7 +306,7 @@ class SceneMappingUpdate(BaseModel):
     chapter_ids: list[str] | None = None
     scene_chunks: list[dict] | None = None
     structure_meta: dict[str, Any] | None = None
-    status: str | None = Field(None, max_length=32)
+    status: Literal["draft", "canonical", "deprecated"] | None = None
 
 
 class SceneMergeRequest(BaseModel):
@@ -320,7 +320,7 @@ class SceneSplitRequest(BaseModel):
     split_chapter_index: int = Field(..., ge=1)
     split_pos: int | None = Field(None, ge=1)
     new_scene_title: str | None = Field(None, max_length=255)
-    new_scene_status: str = Field("draft", max_length=32)
+    new_scene_status: Literal["draft", "canonical"] = "draft"
     draft_scenes: list[dict[str, Any]] | None = None
     confirmed: bool = False
 
@@ -483,6 +483,36 @@ class OutlineAiTaskResponse(BaseModel):
 
     task_id: str
     status: str = "pending"
+
+
+class OutlineStructurePreviewApplyRequest(BaseModel):
+    """将手动大纲 AI preview 显式采用为工作结构。"""
+
+    novel_id: str
+    context_confirmation_id: str
+    source_task_id: str
+    draft_structure: dict[str, Any]
+    confirmed: bool = False
+
+
+class OutlineStructurePreviewApplyResponse(PlotStructureGenerateResponse):
+    status: Literal["applied"] = "applied"
+
+
+class OutlineScenePreviewApplyRequest(BaseModel):
+    """将章节 Scene preview 显式采用为工作 Scene。"""
+
+    novel_id: str
+    context_confirmation_id: str
+    source_task_id: str
+    draft_scenes: list[dict[str, Any]] = Field(..., min_length=1)
+    confirmed: bool = False
+
+
+class OutlineScenePreviewApplyResponse(BaseModel):
+    status: Literal["applied"] = "applied"
+    scene_ids: list[str] = Field(default_factory=list)
+    total_scenes: int = 0
 
 
 # ============================================================

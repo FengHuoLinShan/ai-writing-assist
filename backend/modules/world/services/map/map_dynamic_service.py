@@ -117,6 +117,30 @@ class MapDynamicFactService(MapDynamicHelperMixin):
                 limit=limit,
             )
 
+    async def count_deep_import_observations_by_workflow(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        workflow_id: str,
+    ) -> int:
+        return await self._observations.count_deep_import_observations_by_workflow(
+            db,
+            novel_id,
+            workflow_id,
+        )
+
+    async def rollback_deep_import_observations_by_workflow(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        workflow_id: str,
+    ) -> int:
+        return await self._observations.rollback_deep_import_observations_by_workflow(
+            db,
+            novel_id,
+            workflow_id,
+        )
+
     async def create_observation(
         self,
         db: AsyncSession,

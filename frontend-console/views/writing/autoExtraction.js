@@ -6,6 +6,10 @@
  */
 
 import { confirmAiReference } from "../../shared/aiReferenceModal.js"
+import {
+  importAuthorizationNotice,
+  importAuthorizationPayload,
+} from "../../shared/importAuthorization.js"
 
 const AUTO_EXTRACTION_STAGES = {
   scenes: {
@@ -73,9 +77,12 @@ export function createAutoExtraction({
       <p class="writing-form-hint">
         ${escapeHtml(config.label)}会在所选章节范围内创建或补充对应结构资产。
       </p>
+      <p class="writing-form-hint" role="note">
+        ${escapeHtml(importAuthorizationNotice())}
+      </p>
     `
     modalApi.showModalHtml(config.label, formHtml, [{
-      text: "开始提取",
+      text: "确认并开始提取",
       class: "btn-primary",
       handler: async () => {
         const start = parseInt(document.getElementById("auto-extract-start")?.value || "1", 10)
@@ -98,6 +105,7 @@ export function createAutoExtraction({
     try {
       const result = await api.imports.startStage(
         stage, projectId, startChapter, endChapter, force, highQuality,
+        importAuthorizationPayload(),
       )
       if (result.requires_confirmation) {
         const confirmed = await new Promise((resolve) => {
@@ -148,11 +156,11 @@ export function createAutoExtraction({
         <input class="form-input" id="extract-end" type="number" min="1" value="${lastCh}" />
       </div>
       <p class="writing-form-hint">
-        调用 AI 分析章节内容，生成 Scene 卡（场景目标、冲突、情感节奏等）。
+        调用 AI 分析章节内容，生成待处理 Scene 卡建议（场景目标、冲突、情感节奏等）。完成后需检查并采用，才会进入工作 Scene。
       </p>
     `
     modalApi.showModalHtml("AI 提取章节卡", formHtml, [{
-      text: "开始提取",
+      text: "生成待处理建议",
       class: "btn-primary",
       handler: async () => {
         const start = parseInt(document.getElementById("extract-start")?.value || "1", 10)
@@ -166,9 +174,9 @@ export function createAutoExtraction({
             task: "章节/Scene 卡提取",
             scope: "chapter",
             chapter_index: start,
-            include_pending_objects: true,
+            include_pending_objects: false,
           })
-          toast?.("章节/Scene 卡提取任务已提交", "info")
+          toast?.("章节/Scene 卡建议生成任务已提交", "info")
           const result = await api.outline.extractChapterScenes({
             novel_id: projectId,
             context_confirmation_id: confirmation.id,
@@ -176,17 +184,16 @@ export function createAutoExtraction({
             start_chapter: start,
             end_chapter: end,
           })
-          const updatedScenes = await api.outline.listScenesOrdered(projectId) || []
           onTaskStarted?.({
             taskId: result.task_id || result.id,
-            workflowType: "chapter_card_generation",
+            workflowType: "outline_chapter_scenes_extract",
             stage: "chapter_cards",
-            label: "章节/Scene 卡提取",
+            label: "章节/Scene 卡建议",
             startChapter: start,
             endChapter: end,
+            confirmationId: confirmation.id,
           })
-          onRefresh?.(updatedScenes)
-          toast?.("章节/Scene 卡提取已进入后台", "success")
+          toast?.("章节/Scene 卡建议已进入后台，完成后需采用", "success")
         } catch (err) {
           toast?.(err.message || "提取失败", "error")
         }

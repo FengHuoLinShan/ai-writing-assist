@@ -265,6 +265,7 @@ async def search_evidence(
         content_mode=request.content_mode,
         visibility=_visibility(request.visibility),
         scopes=list(request.scopes),
+        include_pending_objects=request.include_pending_objects,
         chapter_from=request.chapter_from,
         chapter_to=request.chapter_to,
         top_k=request.top_k,

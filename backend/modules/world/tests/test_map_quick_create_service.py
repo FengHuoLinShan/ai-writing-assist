@@ -26,7 +26,7 @@ from modules.world.tests.helpers import _create_entity, _create_project
 
 
 @pytest.mark.asyncio
-async def test_quick_create_preview_uses_draft_and_canonical_by_default(
+async def test_quick_create_preview_uses_only_adopted_locations_by_default(
     db_session: AsyncSession,
 ) -> None:
     novel_id = uuid.uuid4().hex
@@ -61,7 +61,7 @@ async def test_quick_create_preview_uses_draft_and_canonical_by_default(
 
     layout_ids = {item.location_entity_id for item in preview.location_layouts}
     assert str(canonical.id) in layout_ids
-    assert str(draft.id) in layout_ids
+    assert str(draft.id) not in layout_ids
     assert str(candidate.id) not in layout_ids
     assert preview.map["grid_width"] == 40
     assert preview.map["grid_height"] == 30
@@ -80,6 +80,13 @@ async def test_quick_create_preview_includes_candidates_when_enabled(
         name="候选城",
         status="candidate",
     )
+    draft = await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="location",
+        name="建议影子港",
+        status="draft",
+    )
 
     preview = await MapQuickCreateService().preview(
         db_session,
@@ -87,9 +94,51 @@ async def test_quick_create_preview_includes_candidates_when_enabled(
         MapQuickCreatePreviewRequest(include_candidates=True),
     )
 
-    layout = preview.location_layouts[0]
-    assert layout.location_entity_id == str(candidate.id)
-    assert layout.meta == {"entity_status": "candidate"}
+    layouts = {item.location_entity_id: item for item in preview.location_layouts}
+    assert layouts[str(candidate.id)].meta == {"entity_status": "candidate"}
+    assert layouts[str(draft.id)].meta == {"entity_status": "draft"}
+
+
+@pytest.mark.asyncio
+async def test_quick_create_confirm_requires_pending_location_adoption(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    pending = await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="location",
+        name="待采用星港",
+        status="draft",
+    )
+
+    with pytest.raises(DomainValidationError) as exc_info:
+        await MapQuickCreateService().confirm(
+            db_session,
+            novel_id,
+            MapQuickCreateConfirmRequest(
+                name="不应落地的地图",
+                include_candidates=True,
+                layouts=[
+                    {
+                        "location_entity_id": str(pending.id),
+                        "center_hex_q": 5,
+                        "center_hex_r": 6,
+                        "occupy_radius": 1,
+                    }
+                ],
+            ),
+        )
+
+    assert exc_info.value.code == "unadopted_quick_create_location"
+    maps, total = await MapConfigRepository().get_by_novel(
+        db_session,
+        uuid.UUID(hex=novel_id),
+        limit=20,
+    )
+    assert maps == []
+    assert total == 0
 
 
 @pytest.mark.asyncio
@@ -231,7 +280,7 @@ async def test_quick_create_preview_warns_when_geo_relations_are_missing(
 
 
 @pytest.mark.asyncio
-async def test_quick_create_confirm_places_existing_draft_locations_and_facts(
+async def test_quick_create_confirm_places_existing_adopted_locations_and_facts(
     db_session: AsyncSession,
 ) -> None:
     novel_id = uuid.uuid4().hex
@@ -241,14 +290,14 @@ async def test_quick_create_confirm_places_existing_draft_locations_and_facts(
         novel_id,
         entity_type="location",
         name="琉璃湾",
-        status="draft",
+        status="canonical",
     )
     tower = await _create_entity(
         db_session,
         novel_id,
         entity_type="location",
         name="归潮塔群",
-        status="draft",
+        status="canonical",
     )
 
     response = await MapQuickCreateService().confirm(
@@ -286,14 +335,14 @@ async def test_quick_create_confirm_empty_layouts_do_not_fall_back_to_all(
         novel_id,
         entity_type="location",
         name="琉璃湾",
-        status="draft",
+        status="canonical",
     )
     await _create_entity(
         db_session,
         novel_id,
         entity_type="location",
         name="归潮塔群",
-        status="draft",
+        status="canonical",
     )
 
     response = await MapQuickCreateService().confirm(
@@ -327,14 +376,14 @@ async def test_quick_create_confirm_writes_only_submitted_layouts(
         novel_id,
         entity_type="location",
         name="琉璃湾",
-        status="draft",
+        status="canonical",
     )
     tower = await _create_entity(
         db_session,
         novel_id,
         entity_type="location",
         name="归潮塔群",
-        status="draft",
+        status="canonical",
     )
 
     response = await MapQuickCreateService().confirm(
@@ -381,14 +430,14 @@ async def test_quick_create_confirm_rejects_layouts_outside_preview(
         novel_id,
         entity_type="location",
         name="琉璃湾",
-        status="draft",
+        status="canonical",
     )
     faction = await _create_entity(
         db_session,
         novel_id,
         entity_type="faction",
         name="北府",
-        status="draft",
+        status="canonical",
     )
 
     with pytest.raises(DomainValidationError) as exc_info:
@@ -429,14 +478,14 @@ async def test_quick_create_confirm_reuses_existing_map_and_replaces_outputs(
         novel_id,
         entity_type="location",
         name="琉璃湾",
-        status="draft",
+        status="canonical",
     )
     tower = await _create_entity(
         db_session,
         novel_id,
         entity_type="location",
         name="归潮塔群",
-        status="draft",
+        status="canonical",
     )
 
     service = MapQuickCreateService()

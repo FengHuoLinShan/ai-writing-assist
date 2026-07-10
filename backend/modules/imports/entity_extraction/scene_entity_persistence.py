@@ -87,6 +87,42 @@ def normalize_candidate_alias_item(
     }
 
 
+def _relation_review_meta(
+    *,
+    workflow_id: str | None,
+    scene_id: str | None,
+    scene_index: int,
+    source_chapter_index: int | None,
+    quote: str | None,
+    context_snapshot_id: str | None = None,
+) -> dict[str, Any]:
+    evidence_ref = {
+        key: value
+        for key, value in {
+            "source_type": "scene",
+            "scene_id": scene_id,
+            "scene_index": scene_index,
+            "source_chapter_index": source_chapter_index,
+            "quote": quote,
+        }.items()
+        if value is not None and value != ""
+    }
+    return {
+        key: value
+        for key, value in {
+            "source": "deep_import",
+            "workflow_id": workflow_id,
+            "scene_id": scene_id,
+            "scene_index": scene_index,
+            "source_chapter_index": source_chapter_index,
+            "context_snapshot_id": context_snapshot_id,
+            "quote": quote,
+            "evidence_refs": [evidence_ref],
+        }.items()
+        if value is not None and value != ""
+    }
+
+
 class SceneEntityPersistenceGateway:
     """Persists Phase 2 entities, aliases, relations, deltas, and map observations."""
 
@@ -235,11 +271,21 @@ class SceneEntityPersistenceGateway:
                             "quote": rel.quote,
                             "strength": rel.strength,
                             "status": "candidate",
+                            "review_meta": _relation_review_meta(
+                                workflow_id=workflow_id,
+                                scene_id=scene_id,
+                                scene_index=scene_index,
+                                source_chapter_index=None,
+                                quote=rel.quote,
+                            ),
                         },
                     )
                     relation = relation_result.get("relation")
                     relation_id = getattr(relation, "id", None)
-                    if relation_id:
+                    if (
+                        relation_id
+                        and relation_result.get("action") != "deduplicated"
+                    ):
                         await self._record_quote_evidence(
                             db,
                             novel_id=novel_id,
@@ -262,7 +308,11 @@ class SceneEntityPersistenceGateway:
                 continue
             if relation_result.get("action") == "created":
                 relations_created += 1
-            if result_refs is not None and relation_id:
+            if (
+                result_refs is not None
+                and relation_id
+                and relation_result.get("action") != "deduplicated"
+            ):
                 result_refs.append(build_result_ref("entity_relation", relation_id))
 
         return {"aliases": aliases_created, "relations": relations_created}
@@ -286,7 +336,6 @@ class SceneEntityPersistenceGateway:
         from modules.world.facade import (
             create_entity,
             find_similar_entities,
-            merge_candidate_into_entity,
         )
 
         created = 0
@@ -382,6 +431,7 @@ class SceneEntityPersistenceGateway:
                     ),
                     "candidate_reason": ent.candidate_reason,
                     "confidence": ent.confidence,
+                    "suggested_target_entity_id": high_confidence_target_id,
                 },
                 "aliases": normalized_aliases,
             }
@@ -403,21 +453,7 @@ class SceneEntityPersistenceGateway:
             try:
                 async with db.begin_nested():
                     created_entity = await create_entity(db, str(nid), entity_payload)
-                    if action == "create_new" and high_confidence_target_id:
-                        await merge_candidate_into_entity(
-                            db,
-                            str(nid),
-                            created_entity["id"],
-                            high_confidence_target_id,
-                        )
-                    auto_merged = action == "create_new" and bool(
-                        high_confidence_target_id
-                    )
-                    evidence_target_id = (
-                        high_confidence_target_id
-                        if auto_merged
-                        else created_entity.get("id")
-                    )
+                    evidence_target_id = created_entity.get("id")
                     if evidence_target_id:
                         await self._record_quote_evidence(
                             db,
@@ -432,21 +468,16 @@ class SceneEntityPersistenceGateway:
                             workflow_id=workflow_id,
                             visible_until_chapter=source_chapter_index,
                         )
-                if not auto_merged:
-                    created += 1
+                created += 1
                 seen_entity_keys.add(entity_key)
                 if persistence_stats is not None:
-                    if auto_merged:
-                        persistence_stats["dedup_counts"]["auto_merged"] += 1
+                    if action == "create_new" and high_confidence_target_id:
+                        persistence_stats["dedup_counts"]["review_suggested"] += 1
                     elif action == "create_new":
                         persistence_stats["dedup_counts"]["candidate_created"] += 1
                     elif action == "link_to_existing":
                         persistence_stats["dedup_counts"]["review_suggested"] += 1
-                if result_refs is not None and auto_merged and high_confidence_target_id:
-                    result_refs.append(
-                        build_result_ref("core_entity", high_confidence_target_id)
-                    )
-                elif result_refs is not None and created_entity.get("id"):
+                if result_refs is not None and created_entity.get("id"):
                     result_refs.append(
                         build_result_ref("core_entity", created_entity["id"])
                     )
@@ -510,11 +541,22 @@ class SceneEntityPersistenceGateway:
                             "quote": rel.quote,
                             "strength": rel.strength,
                             "status": "candidate",
+                            "review_meta": _relation_review_meta(
+                                workflow_id=workflow_id,
+                                scene_id=scene_id,
+                                scene_index=scene_index,
+                                source_chapter_index=source_chapter_index,
+                                quote=rel.quote,
+                                context_snapshot_id=context_snapshot_id,
+                            ),
                         },
                     )
                     relation = relation_result.get("relation")
                     relation_id = getattr(relation, "id", None)
-                    if relation_id:
+                    if (
+                        relation_id
+                        and relation_result.get("action") != "deduplicated"
+                    ):
                         await self._record_quote_evidence(
                             db,
                             novel_id=str(nid),
@@ -530,9 +572,18 @@ class SceneEntityPersistenceGateway:
                         )
                 if relation_result.get("action") == "created":
                     created += 1
+                elif (
+                    relation_result.get("action") == "deduplicated"
+                    and persistence_stats is not None
+                ):
+                    persistence_stats["dedup_counts"]["relation_duplicate_skipped"] += 1
                 elif persistence_stats is not None:
                     persistence_stats["dedup_counts"]["relation_merged"] += 1
-                if result_refs is not None and relation_id:
+                if (
+                    result_refs is not None
+                    and relation_id
+                    and relation_result.get("action") != "deduplicated"
+                ):
                     result_refs.append(build_result_ref("entity_relation", relation_id))
             except Exception as exc:
                 logger.warning(

@@ -5,7 +5,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import NotFoundError, ValidationError
+from core.errors import NotFoundError
 from modules.world.map_repositories import (
     MapLocationBindingRepository,
 )
@@ -32,7 +32,7 @@ class MapLocationBindingService:
     ) -> None:
         self._binding_repo = binding_repo or MapLocationBindingRepository()
         self._entity_repo = entity_repo or CoreEntityRepository()
-        self._ctx = context or MapContext()
+        self._ctx = context or MapContext(entity_repo=self._entity_repo)
 
     async def batch_create(
         self,
@@ -60,21 +60,12 @@ class MapLocationBindingService:
             for item in items
         ]
         unique_location_ids = list(dict.fromkeys(location_ids))
-        entities = await self._entity_repo.get_by_ids(db, nid, unique_location_ids)
-        entities_by_id = {entity.id: entity for entity in entities}
-        for location_id in unique_location_ids:
-            entity = entities_by_id.get(location_id)
-            if entity is None:
-                raise NotFoundError(
-                    f"实体 {location_id} 不存在",
-                    code="entity_not_found",
-                )
-            if entity.entity_type != "location":
-                raise ValidationError(
-                    f"实体 {entity.name} 类型为 {entity.entity_type}，"
-                    "只接受 location 类型",
-                    code="invalid_entity_type",
-                )
+        await self._ctx.require_canonical_entities(
+            db,
+            novel_id,
+            [str(location_id) for location_id in unique_location_ids],
+            allowed_types={"location"},
+        )
 
         center_location_ids: list[Any] = []
         bindings: list[dict[str, Any]] = []
@@ -127,6 +118,12 @@ class MapLocationBindingService:
                 f"MapLocationBinding {binding_id} not found",
                 code="map_binding_not_found",
             )
+        await self._ctx.require_canonical_entity(
+            db,
+            novel_id,
+            str(binding.location_entity_id),
+            allowed_types={"location"},
+        )
 
         # 切换中心点：清同 location 的其他中心
         if data.is_center is True and not binding.is_center:

@@ -1874,6 +1874,83 @@ class TestContextCompiler:
         assert section.sources[0]["source_hash"] == "a" * 64
 
     @pytest.mark.asyncio
+    async def test_world_loader_requires_explicit_pending_opt_in(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        from modules.context.services.loaders.world_entities_loader import (
+            WorldEntitiesLoader,
+        )
+
+        entities = [
+            SimpleNamespace(
+                model_dump=lambda: {
+                    "id": "active-1",
+                    "name": "已采用对象",
+                    "status": "canonical",
+                    "importance": 0.8,
+                }
+            ),
+            SimpleNamespace(
+                model_dump=lambda: {
+                    "id": "review-1",
+                    "name": "未采用建议",
+                    "status": "candidate",
+                    "importance": 0.9,
+                }
+            ),
+            SimpleNamespace(
+                model_dump=lambda: {
+                    "id": "archived-1",
+                    "name": "已归档对象",
+                    "status": "deprecated",
+                    "importance": 1.0,
+                }
+            ),
+        ]
+
+        async def fake_get_world_context(*_args, **_kwargs):
+            return SimpleNamespace(entities=entities)
+
+        loader = WorldEntitiesLoader(fake_get_world_context)
+        base = CompileOptions(
+            novel_id=str(uuid.uuid4()),
+            task="编译世界上下文",
+            scope="world",
+            include_pending_objects=False,
+        )
+        without_pending = StructureContextBundle(
+            novel_id=base.novel_id,
+            task=base.task,
+            scope=base.scope,
+        )
+        await loader.load(db_session, base, without_pending)
+
+        assert [item["id"] for item in without_pending.world_entities] == ["active-1"]
+        assert without_pending.world_entities[0]["display_state"] == "active"
+        assert without_pending.warnings == []
+
+        with_pending_options = CompileOptions(
+            **{
+                **base.__dict__,
+                "include_pending_objects": True,
+            }
+        )
+        with_pending = StructureContextBundle(
+            novel_id=base.novel_id,
+            task=base.task,
+            scope=base.scope,
+        )
+        await loader.load(db_session, with_pending_options, with_pending)
+
+        assert [item["id"] for item in with_pending.world_entities] == [
+            "review-1",
+            "active-1",
+        ]
+        assert with_pending.world_entities[0]["display_state"] == "review"
+        assert "上下文包含未采用的世界对象" in with_pending.warnings
+
+    @pytest.mark.asyncio
     async def test_rag_loader_propagates_retrieval_warnings(
         self,
         db_session: AsyncSession,

@@ -30,6 +30,7 @@ class FakeLLM:
                         "character_name": "克莱恩",
                         "title": "身份适应弧",
                         "summary": "从求生到主动接触超凡。",
+                        "confidence": 0.4,
                         "supporting_scene_ids": ["scene-1"],
                     }
                 ],
@@ -91,7 +92,16 @@ async def test_deep_import_simple_structure_parser_converts_probe_shape() -> Non
     assert parsed is not None
     assert [thread.name for thread in parsed.threads] == ["穿越与值夜者主线"]
     assert parsed.threads[0].start_chapter == 1
+    assert parsed.threads[0].supporting_scene_ids == ["scene-1"]
+    assert parsed.threads[0].needs_review is True
+    assert "invalid_supporting_scene_refs_removed" in (
+        parsed.threads[0].review_reason
+    )
     assert [arc.title for arc in parsed.arcs] == ["身份适应弧"]
+    assert parsed.arcs[0].confidence == 0.4
+    assert parsed.arcs[0].needs_review is True
+    assert "low_confidence" in parsed.arcs[0].review_reason
+    assert parsed.arcs[0].supporting_scene_ids == ["scene-1"]
     assert [item.name for item in parsed.foreshadowing_plans] == ["灰雾空间"]
     assert [item.target_name for item in parsed.reveal_plans] == ["罗塞尔日记"]
     assert parsed.turning_points[0]["title"] == "决定加入值夜者"
@@ -148,6 +158,7 @@ async def test_deep_import_structure_generator_high_quality_uses_pro_model() -> 
         generate_scenes=False,
         fast_structured=True,
         high_quality=True,
+        persist=True,
     )
 
     assert llm.requests[0].model == "deepseek-v4-pro"

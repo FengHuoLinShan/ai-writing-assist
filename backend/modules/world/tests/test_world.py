@@ -305,7 +305,9 @@ class TestWorldEntityService:
         assert result.importance == 0.95
         assert result.importance_level == "core"
         assert result.reveal_level == "author_only"
-        assert result.status == "draft"
+        assert result.status == "canonical"
+        assert result.display_state == "active"
+        assert result.approved_by == "测试用户"
         assert result.created_by == "测试用户"
         assert result.novel_id == novel_id
         assert result.created_at is not None
@@ -457,7 +459,7 @@ class TestWorldNovelIsolation:
             WorldEntityCreate(
                 entity_type="character",
                 name="同项目人物",
-                status="draft",
+                status="canonical",
                 force_create=True,
             ),
         )
@@ -472,7 +474,7 @@ class TestWorldNovelIsolation:
             WorldEntityCreate(
                 entity_type="location",
                 name="其他项目地点",
-                status="draft",
+                status="canonical",
                 force_create=True,
             ),
         )
@@ -503,7 +505,7 @@ class TestWorldNovelIsolation:
             WorldEntityCreate(
                 entity_type="character",
                 name="同项目人物",
-                status="draft",
+                status="canonical",
                 force_create=True,
             ),
         )
@@ -518,7 +520,7 @@ class TestWorldNovelIsolation:
             WorldEntityCreate(
                 entity_type="item",
                 name="其他项目秘密",
-                status="draft",
+                status="canonical",
                 force_create=True,
             ),
         )
@@ -594,7 +596,7 @@ class TestWorldNovelIsolation:
 
         assert result.name == "创世大陆（更新版）"
         assert result.importance == 0.98
-        assert result.status == "draft"
+        assert result.status == "canonical"
 
     @pytest.mark.asyncio
     async def test_update_entity_rejects_direct_promote_to_canonical(
@@ -605,7 +607,11 @@ class TestWorldNovelIsolation:
         sample_entity_data: WorldEntityCreate,
     ) -> None:
         """PUT 不能绕过 promote 将候选资产提升为正史。"""
-        created = await entity_service.create(db_session, novel_id, sample_entity_data)
+        created = await entity_service.create(
+            db_session,
+            novel_id,
+            sample_entity_data.model_copy(update={"status": "draft"}),
+        )
 
         with pytest.raises(DomainValidationError) as exc:
             await entity_service.update(
@@ -652,6 +658,55 @@ class TestWorldNovelIsolation:
         meta = result.content_json["_meta"]
         assert meta["user_edited"] is True
         assert meta["edited_at"]
+
+    @pytest.mark.asyncio
+    async def test_reviewing_auto_ingested_entity_preserves_submitted_content(
+        self,
+        db_session: AsyncSession,
+        entity_service: WorldEntityService,
+        novel_id: str,
+    ) -> None:
+        created = await entity_service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(
+                entity_type="location",
+                name="待检查地点",
+                content_json={
+                    "aliases": ["旧名"],
+                    "_meta": {
+                        "source": "deep_import",
+                        "workflow_id": "wf-world-review",
+                        "auto_ingested": True,
+                        "needs_review": True,
+                    },
+                },
+                force_create=True,
+            ),
+        )
+
+        result = await entity_service.update(
+            db_session,
+            created.id,
+            WorldEntityUpdate(
+                content_json={
+                    "aliases": ["旧名", "新名"],
+                    "_meta": {
+                        "source": "deep_import",
+                        "workflow_id": "wf-world-review",
+                        "auto_ingested": True,
+                        "needs_review": False,
+                        "reviewed_by": "manual",
+                    },
+                }
+            ),
+            novel_id=novel_id,
+        )
+
+        assert result.content_json["aliases"] == ["旧名", "新名"]
+        assert result.content_json["_meta"]["needs_review"] is False
+        assert result.content_json["_meta"]["reviewed_by"] == "manual"
+        assert result.content_json["_meta"]["user_edited"] is True
 
     @pytest.mark.asyncio
     async def test_delete_entity(
@@ -1153,6 +1208,62 @@ async def test_merge_entity_rejects_candidate_target(
 
     assert exc.value.status_code == 422
     assert "Merge target must be draft or canonical" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_entity_list_filters_by_author_display_state(
+    async_client: AsyncClient,
+) -> None:
+    project_resp = await async_client.post(
+        "/api/projects",
+        json={
+            "title": "对象作者态筛选",
+            "genre": "奇幻",
+            "tone": "正剧",
+            "language": "zh",
+        },
+    )
+    assert project_resp.status_code == 201
+    novel_id = project_resp.json()["id"]
+    for name, status in (
+        ("已采用地点", "canonical"),
+        ("待处理对象", "candidate"),
+        ("冲突对象", "conflicted"),
+        ("已归档对象", "ignored"),
+    ):
+        created = await async_client.post(
+            f"/api/world/entities?novel_id={novel_id}",
+            json={
+                "entity_type": "location",
+                "name": name,
+                "status": status,
+                "force_create": True,
+            },
+        )
+        assert created.status_code == 201, created.text
+
+    active = await async_client.get(
+        "/api/world/entities",
+        params={"novel_id": novel_id, "display_state": "active"},
+    )
+    review = await async_client.get(
+        "/api/world/entities",
+        params={"novel_id": novel_id, "display_state": "review"},
+    )
+    archived = await async_client.get(
+        "/api/world/entities",
+        params={"novel_id": novel_id, "display_state": "archived"},
+    )
+
+    assert [
+        (item["status"], item["display_state"]) for item in active.json()["items"]
+    ] == [("canonical", "active")]
+    assert {
+        (item["status"], item["display_state"]) for item in review.json()["items"]
+    } == {("candidate", "review"), ("conflicted", "review")}
+    assert [
+        (item["status"], item["display_state"]) for item in archived.json()["items"]
+    ] == [("ignored", "archived")]
 
 
 @pytest.mark.asyncio
@@ -1901,6 +2012,13 @@ class TestUpsertRelationship:
                 status="candidate",
             ),
         )
+        rel.review_meta = {
+            "source": "deep_import",
+            "workflow_id": "wf-relation-review",
+            "confidence": 0.84,
+            "evidence_refs": [{"scene_id": "scene-1"}],
+        }
+        await db_session.flush()
 
         result = await EntityRelationService().review_edit(
             db_session,
@@ -1922,6 +2040,10 @@ class TestUpsertRelationship:
         assert rel.strength == 0.8
         assert rel.status == "canonical"
         assert rel.review_meta["reviewed_by"] == "manual"
+        assert rel.review_meta["source"] == "deep_import"
+        assert rel.review_meta["workflow_id"] == "wf-relation-review"
+        assert rel.review_meta["confidence"] == 0.84
+        assert rel.review_meta["evidence_refs"] == [{"scene_id": "scene-1"}]
         assert rel.review_meta["review_before"]["target_id"] == str(old_target.id)
         assert rel.review_meta["review_after"]["target_id"] == str(new_target.id)
         assert result["affected_ids"] == [str(rel.id)]
@@ -2118,6 +2240,12 @@ class TestUpsertRelationship:
                 status="candidate",
             ),
         )
+        rel.review_meta = {
+            "source": "deep_import",
+            "workflow_id": "wf-relation-status",
+            "confidence": 0.73,
+        }
+        await db_session.flush()
 
         updated = await EntityRelationService().update(
             db_session,
@@ -2129,6 +2257,9 @@ class TestUpsertRelationship:
         assert updated.status == "canonical"
         await db_session.refresh(rel)
         assert rel.review_meta["review_action"] == "relation_status_updated"
+        assert rel.review_meta["source"] == "deep_import"
+        assert rel.review_meta["workflow_id"] == "wf-relation-status"
+        assert rel.review_meta["confidence"] == 0.73
         assert rel.review_meta["review_before"]["status"] == "candidate"
         assert rel.review_meta["review_after"]["status"] == "canonical"
 
@@ -2152,22 +2283,24 @@ class TestUpsertRelationship:
         target_id = uuid.uuid4()
         async with factory() as session:
             session.add(Project(id=novel_id, title="关系并发测试", genre="test"))
-            session.add_all([
-                CoreEntity(
-                    id=source_id,
-                    novel_id=novel_id,
-                    entity_type="character",
-                    name="甲",
-                    status="canonical",
-                ),
-                CoreEntity(
-                    id=target_id,
-                    novel_id=novel_id,
-                    entity_type="character",
-                    name="乙",
-                    status="canonical",
-                ),
-            ])
+            session.add_all(
+                [
+                    CoreEntity(
+                        id=source_id,
+                        novel_id=novel_id,
+                        entity_type="character",
+                        name="甲",
+                        status="canonical",
+                    ),
+                    CoreEntity(
+                        id=target_id,
+                        novel_id=novel_id,
+                        entity_type="character",
+                        name="乙",
+                        status="canonical",
+                    ),
+                ]
+            )
             await session.commit()
 
         async def write_relation(description: str) -> None:
@@ -2189,9 +2322,7 @@ class TestUpsertRelationship:
                     session,
                     novel_id,
                 )
-                all_rows = (
-                    await session.execute(select(EntityRelation))
-                ).scalars().all()
+                all_rows = (await session.execute(select(EntityRelation))).scalars().all()
 
             assert total == 1
             assert len(all_rows) == 1
@@ -2412,9 +2543,8 @@ class TestFacadeLeakListEntityTerms:
         terms = await list_entity_terms(db_session, novel_id)
 
         by_name = {t["name"]: t for t in terms}
-        assert set(by_name.keys()) == {"主城", "草稿宝物"}
+        assert set(by_name.keys()) == {"主城"}
         assert by_name["主城"]["terms"] == ["主城", "王城", "都城"]
-        assert by_name["草稿宝物"]["terms"] == ["草稿宝物"]
 
 
 class TestFacadeLeakFindEntityIdByName:
@@ -2472,15 +2602,22 @@ class TestFacadeLeakGetCharacterIdByWorldEntity:
         db_session: AsyncSession,
         novel_id: str,
     ) -> None:
-        from modules.world.models import Character
+        from modules.world.models import Character, CoreEntity
 
         entity_id = uuid.uuid4()
+        owner = CoreEntity(
+            id=entity_id,
+            novel_id=uuid.UUID(hex=novel_id),
+            entity_type="character",
+            name="主角",
+            status="canonical",
+        )
         char = Character(
             entity_id=entity_id,
             novel_id=uuid.UUID(hex=novel_id),
             name="主角",
         )
-        db_session.add(char)
+        db_session.add_all([owner, char])
         await db_session.flush()
 
         result = await get_character_id_by_world_entity(
@@ -2511,16 +2648,23 @@ class TestFacadeLeakFindCharacterIdByName:
         db_session: AsyncSession,
         novel_id: str,
     ) -> None:
-        from modules.world.models import Character
+        from modules.world.models import Character, CoreEntity
 
         entity_id = uuid.uuid4()
+        owner = CoreEntity(
+            id=entity_id,
+            novel_id=uuid.UUID(hex=novel_id),
+            entity_type="character",
+            name="李白",
+            status="canonical",
+        )
         char = Character(
             entity_id=entity_id,
             novel_id=uuid.UUID(hex=novel_id),
             name="李白",
             status="canonical",
         )
-        db_session.add(char)
+        db_session.add_all([owner, char])
         await db_session.flush()
 
         result = await find_character_id_by_name(db_session, novel_id, "李白")
@@ -2558,13 +2702,20 @@ class TestFacadeLeakUpdateCharacterLocation:
             name="城门口",
             status="canonical",
         )
+        owner = CoreEntity(
+            id=entity_id,
+            novel_id=uuid.UUID(hex=novel_id),
+            entity_type="character",
+            name="主角",
+            status="canonical",
+        )
         char = Character(
             entity_id=entity_id,
             novel_id=uuid.UUID(hex=novel_id),
             name="主角",
             status="canonical",
         )
-        db_session.add_all([location, char])
+        db_session.add_all([location, owner, char])
         await db_session.flush()
 
         await update_character_location(
@@ -2594,17 +2745,32 @@ class TestFacadeLeakGetCharactersAtLocation:
         db_session: AsyncSession,
         novel_id: str,
     ) -> None:
-        from modules.world.models import Character
+        from modules.world.models import Character, CoreEntity
 
         loc_id = uuid.uuid4()
+        character_id = uuid.uuid4()
+        location = CoreEntity(
+            id=loc_id,
+            novel_id=uuid.UUID(hex=novel_id),
+            entity_type="location",
+            name="城门口",
+            status="canonical",
+        )
+        owner = CoreEntity(
+            id=character_id,
+            novel_id=uuid.UUID(hex=novel_id),
+            entity_type="character",
+            name="在城门口的人",
+            status="canonical",
+        )
         char = Character(
-            entity_id=uuid.uuid4(),
+            entity_id=character_id,
             novel_id=uuid.UUID(hex=novel_id),
             name="在城门口的人",
             status="canonical",
             meta={"location_id": str(loc_id)},
         )
-        db_session.add(char)
+        db_session.add_all([location, owner, char])
         await db_session.flush()
 
         result = await get_characters_at_location(
@@ -2623,17 +2789,32 @@ class TestFacadeLeakGetCharacterLocationId:
         db_session: AsyncSession,
         novel_id: str,
     ) -> None:
-        from modules.world.models import Character
+        from modules.world.models import Character, CoreEntity
 
         loc_id = uuid.uuid4()
+        character_id = uuid.uuid4()
+        location = CoreEntity(
+            id=loc_id,
+            novel_id=uuid.UUID(hex=novel_id),
+            entity_type="location",
+            name="当前地点",
+            status="canonical",
+        )
+        owner = CoreEntity(
+            id=character_id,
+            novel_id=uuid.UUID(hex=novel_id),
+            entity_type="character",
+            name="有位置的人",
+            status="canonical",
+        )
         char = Character(
-            entity_id=uuid.uuid4(),
+            entity_id=character_id,
             novel_id=uuid.UUID(hex=novel_id),
             name="有位置的人",
             status="canonical",
             meta={"location_id": str(loc_id)},
         )
-        db_session.add(char)
+        db_session.add_all([location, owner, char])
         await db_session.flush()
 
         result = await get_character_location_id(
@@ -2649,16 +2830,24 @@ class TestFacadeLeakGetCharacterLocationId:
         db_session: AsyncSession,
         novel_id: str,
     ) -> None:
-        from modules.world.models import Character
+        from modules.world.models import Character, CoreEntity
 
+        character_id = uuid.uuid4()
+        owner = CoreEntity(
+            id=character_id,
+            novel_id=uuid.UUID(hex=novel_id),
+            entity_type="character",
+            name="无位置",
+            status="canonical",
+        )
         char = Character(
-            entity_id=uuid.uuid4(),
+            entity_id=character_id,
             novel_id=uuid.UUID(hex=novel_id),
             name="无位置",
             status="canonical",
             meta={},
         )
-        db_session.add(char)
+        db_session.add_all([owner, char])
         await db_session.flush()
 
         result = await get_character_location_id(

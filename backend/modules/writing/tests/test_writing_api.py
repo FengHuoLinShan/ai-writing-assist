@@ -17,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.tasks.models import AsyncTask
 from modules.context.models import ContextConfirmation
 from modules.rag.repositories import RagChunkRepository
+from modules.writing.repositories import WritingDraftRepository
+from modules.writing.schemas import WritingDraftCreate
 from modules.writing.tasks import handle_publish_chapter
 
 
@@ -98,6 +100,50 @@ async def test_generate_rejects_missing_context_confirmation(
 
     assert resp.status_code == 400
     assert "context_confirmation_id" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_adopt_candidate_route_returns_new_working_draft(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    project_resp = await async_client.post(
+        "/api/projects",
+        json={"title": "AI 建议采用项目"},
+    )
+    novel_id = project_resp.json()["id"]
+    repo = WritingDraftRepository()
+    candidate = await repo.create_with_status(
+        db_session,
+        WritingDraftCreate(
+            novel_id=novel_id,
+            chapter_index=1,
+            title="AI 建议",
+            content="采用后的正文",
+            provenance_json={"source": "writing_generate", "prompt_hash": "abc"},
+        ),
+        status="candidate",
+    )
+
+    response = await async_client.post(
+        f"/api/writing/drafts/{candidate.id}/adopt?novel_id={novel_id}",
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["id"] != str(candidate.id)
+    assert data["status"] == "draft"
+    assert data["display_state"] == "active"
+    assert data["source"] == "ai_generated"
+    assert data["provenance_json"]["adopted_from_candidate_id"] == str(candidate.id)
+    assert data["provenance_json"]["adopted_by"] == "author"
+    assert data["provenance_json"]["prompt_hash"] == "abc"
+
+    duplicate = await async_client.post(
+        f"/api/writing/drafts/{candidate.id}/adopt?novel_id={novel_id}",
+    )
+    assert duplicate.status_code == 400
+    assert "Only a candidate writing suggestion can be adopted" in duplicate.text
 
 
 @pytest.mark.asyncio

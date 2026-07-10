@@ -93,7 +93,13 @@ async def _generate_with_retry(
     _generator = PlotStructureGenerator()
     result: dict[str, Any] = {}
     for attempt in range(1, MAX_LLM_RETRIES + 1):
-        result = await _generator.generate(db, novel_id, start_chapter, end_chapter)
+        result = await _generator.generate(
+            db,
+            novel_id,
+            start_chapter,
+            end_chapter,
+            persist=True,
+        )
         total = result.get("total_threads", 0)
         if total > 0:
             return result

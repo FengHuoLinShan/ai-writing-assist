@@ -9,19 +9,35 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 ## 核心原则
 
 - 对象抽取不是 NER，而是长期创作资产识别
-- AI 抽取对象默认以 `status="candidate"` 入库，等待用户确认后再进入正史
+- 手动创建对象默认直接写入 `status="canonical"`，并保留 `created_by` / `approved_by`；显式传入 `draft` / `candidate` 的旧调用仍保持原状态
 - 手动 AI 补抽必须先通过 `POST /api/context/confirm` 确认“AI 参考资料”，再调用 `POST /api/world/entities/extract`
 - AI 抽取对象以 `status="candidate"` 入库，等待用户确认、合并或忽略；不自动提升为正史
 - 别名不建新对象，存储于 `core_entities.content_json.aliases` JSONB 字段
 - 深度导入 Phase 2b 发现的别名以内联待复核形式写入 `content_json.aliases`，单条别名携带 `status/source/workflow_id/scene_id/confidence/needs_review` 元数据
 - 待复核别名可在确认前修改目标对象、别名文本和别名类型；来源、workflow、Scene、引用和置信度作为只读证据保留
-- “待确认”入口按对象 / 别名 / 关系三个子 tab 处理复核队列；对象库、别名、关系页仍保留全量管理能力
+- “待处理”入口按对象 / 别名 / 关系三个子 tab 处理复核队列；对象库、别名、关系页仍保留全量管理能力
 - `link_to_existing` / `alias_of_existing` 候选可在待确认对象队列中确认为已有对象别名，源候选标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不提升为正史
 - 深度导入 Phase 2b 发现的关系写入 `entity_relations(status="candidate")`，两端可解析到 canonical / draft / candidate 工作对象
 - 待确认关系可在确认前修改源对象、目标对象、关系类型、描述和强度；引用和来源章节作为只读证据保留，复核审计写入 `review_meta`
 - 人物扩展表 `characters` 保留历史独立 `aliases` JSONB 字段，新别名应优先写入 `core_entities.content_json.aliases`
+- `characters` / `events` / `character_knowledge` 活跃扩展只能挂在同项目、类型匹配且已采用的 `CoreEntity` 下；列表与写作上下文默认排除父对象或 CoreEntity 目标已转为待处理/已归档的历史扩展行
 - 对象分级：core / important / normal / temporary
 - 版本回滚基于 `TextArchive` 归档与 `EntityRevision` 兜底（活跃回滚路由优先查询 `TextArchive`，无归档时回退到最近 `EntityRevision` 快照）
+
+### 作者态投影
+
+对象、关系、创设建议与地图 observation/fact 响应在保留原始
+`status` / `review_state` / `fact_status` 的同时，附加稳定的作者视图字段：
+
+- `display_state`: `active` / `review` / `archived`
+- `source`: 来源模块或创建者
+- `attention_reasons`: 如 `conflict` / `needs_review` / `low_confidence`
+- `suggested_action`: 建议的下一步动作
+
+`GET /api/world/entities?display_state=active|review|archived` 可以按作者态筛选；
+旧 `status` 筛选与原始状态字段保持兼容。地图界面将 candidate / conflicted
+统一表达为“待处理”，confirmed 表达为“已采用”；冲突仍作为
+`attention_reasons=["conflict"]` 保留，不丢失原始审查态。
 
 ## 职责
 
@@ -63,6 +79,10 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
   不放宽用户确认、正史二次确认或 novel_id 隔离规则。
 - 候选合并/清洗完成后，响应会尽量返回 `affected_ids` / `merged_ids`；前端只能按精确 ID 更新本地候选列表，缺少这些字段时刷新当前 tab，不按名称或候选组猜测删除。
 - 确认为别名不是深合并：仅写入目标别名、迁移/去重关系并标记源候选为 `merged`，不得合并 summary/public_info/hidden_truth 或人物扩展字段。
+- `CreationSuggestion` 中的 `core_entity` / `core_entity_draft` 经用户确认后直接写入 `canonical`，并保留建议 ID、来源、证据与 `approved_by` 审计。
+- `entity_relation` / `entity_alias` 建议必须通过各自的 schema 验证和领域服务写入；未支持的 `target_type` 直接拒绝，不得标记为已接受后空操作。
+- 生成中心与手动 AI 章节补抽的新对象统一先写 `creation_suggestion_queue`。为保持旧 API / 批次读取契约，队列服务同时物化一条 `draft` / `candidate` 兼容影子，并以 `_meta.compatibility_shadow=true` 与 `suggestion_id` 关联；采用或编辑后采用时提升同一条对象，合并/设为别名时由队列原子裁决并归档同一影子，忽略时同步标记该影子为 `ignored`。待处理影子不能绕过队列直接 CRUD，所有裁决都必须经过建议队列的 compare-and-set 门禁。
+- imports 模块的 deep-import Scene 抽取是用户明确启动的独立受控流水线，不调用 `EntityExtractionService`；该授权路径的 candidate 写入契约仍由 imports 模块拥有。
 
 ## 数据表
 
@@ -173,6 +193,14 @@ upsert；调用方不应再实现“先查再插”的并发控制。关系复�
 
 ### map_observations / map_facts 表
 
+- `map_location_bindings` / `map_location_layouts` / `map_markers` /
+  `map_territory_tiles` / `map_terrain_bindings` 是实体拥有的正式地图图层：
+  新建或更新时关联实体必须为 `canonical`，且继续校验 `novel_id` 与实体类型。
+  默认聚合状态和各图层独立列表只返回 canonical owner；历史
+  `draft` / `candidate` owner 只进入显式 candidate preview，归档 owner 默认隐藏。
+  `GET /api/world/maps/{map_id}/terrain?include_candidates=true` 可显式返回
+  `candidate_bindings`，默认 `bindings` 只包含 confirmed 且 canonical-owner 的绑定。
+- `map_configs.parent_entity_id` 和已确认的 `map_terrain_bindings` 同样只能引用已采用的 location；候选地形绑定可保留预览，但采用前会重新校验地点状态。
 - `map_observations` 是世界动态地图的证据层：deep import `delta_events`、即时分析或人工编辑先写入 observation，默认 `review_state="candidate"`。
 - observation 必须能说明目标名称/类型、动态类型、时间锚点、空间锚点、来源引用、证据摘要、置信度和审查状态；目标实体或地图尚未解析时可为空，但不得存入跨 `novel_id` 的实体引用。
 - `map_facts` 是正式时间化地图事实，由用户确认 observation 后生成，默认 `fact_status="confirmed"`。
@@ -198,7 +226,11 @@ class CoreEntityContract:
     importance: float = 0.5
     importance_level: str = "normal"
     reveal_level: str = "author_only"
-    status: str = "draft"
+    status: str = "canonical"
+    display_state: str = "active"
+    source: str | None = None
+    attention_reasons: list[str] = field(default_factory=list)
+    suggested_action: str | None = None
 
 @dataclass(frozen=True)
 class EntityRelationContract:
@@ -211,6 +243,10 @@ class EntityRelationContract:
     strength: float = 0.5
     quote: str | None = None
     status: str = "canonical"
+    display_state: str = "active"
+    source: str | None = None
+    attention_reasons: list[str] = field(default_factory=list)
+    suggested_action: str | None = None
 
 @dataclass(frozen=True)
 class EntityRevisionContract:
@@ -293,14 +329,14 @@ Root `facade.py` 是纯 re-export hub，不定义 async wrapper 或承载业务�
 
 ```python
 # ---- CoreEntity ----
-async def list_entities(db, novel_id, *, entity_type=None, statuses=None, limit=100) -> list[dict]
+async def list_entities(db, novel_id, *, entity_type=None, statuses=None, display_state=None, limit=100) -> list[dict]
 async def list_entity_terms(db, novel_id, *, limit=500) -> list[dict]
 async def create_entity(db, novel_id, data: dict) -> dict
 async def count_entities(db, novel_id, *, status_filter=None) -> int
 async def backfill_entity_embeddings(db, novel_id, *, batch_size=64) -> int
 
 # ---- Entity Context ----
-async def get_world_context(db, novel_id, entity_ids=None, ...) -> WorldContextBundle
+async def get_world_context(db, novel_id, entity_ids=None, ..., include_review=False) -> WorldContextBundle
 async def expand_related_entities(db, novel_id, seed_entity_ids, depth=1, limit=20) -> list[CoreEntityContext]
 
 # ---- Entity Extraction ----
@@ -353,15 +389,29 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 ```
 
 `summarize_scene_map_for_writing` 返回写作模块可消费的轻量 Scene 地图摘要，包括主地点、角色/事件/势力/风险、打开地图目标和候选支持状态。它是 world → writing 的稳定边界；writing 不直接读取 `map_observations` / `map_facts` 内部表。
+默认主地点只从 `canonical` 绑定推导；只有调用方显式传入
+`include_candidates=True` 时才可纳入历史 `draft` / `candidate` 绑定，且响应会以
+`depends_on_candidate=true` 和 `candidate_review_state` 标明尚未采用。
+
+`get_world_context` 默认在查询层只返回 `canonical`，不会泄漏待处理对象。
+只有明确需要 working context 的调用方才传 `include_review=True`，此时额外
+包含 `draft` / `candidate` / `conflicted`，但始终排除已归档状态。
+`compatibility_shadow` 在待处理期间只使用 `draft` / `candidate`，不会进入默认 active context；它只用于旧读取契约与可回滚迁移。队列采用后同一对象转为 `canonical`、可正常编辑，拒绝后转入 `ignored` 历史。
 
 ## API 路由
 
 | 方法 | 路径 | 用途 |
 |------|------|------|
-| GET | `/api/world/entities` | 世界对象列表 |
-| POST | `/api/world/entities` | 创建世界对象 |
+| GET | `/api/world/entities` | 世界对象列表；可按原始 `status` 或 `display_state` 筛选 |
+| POST | `/api/world/entities` | 手动创建世界对象；未传 `status` 时默认已采用 |
+| GET | `/api/world/suggestions` | 创设建议队列，响应包含作者态投影 |
+| POST | `/api/world/suggestions/{suggestion_id}/confirm` | 确认建议；支持对象、关系、别名与世界书目标 |
+| POST | `/api/world/suggestions/{suggestion_id}/edit-confirm` | 编辑世界对象建议并原子采用 |
+| POST | `/api/world/suggestions/{suggestion_id}/merge` | 将世界对象建议合并到已采用对象 |
+| POST | `/api/world/suggestions/{suggestion_id}/resolve-as-alias` | 将世界对象建议设为已采用对象的别名 |
+| POST | `/api/world/suggestions/{suggestion_id}/reject` | 拒绝建议 |
 | POST | `/api/world/object-draft-chat` | 生成中心自由共创聊天；不写库 |
-| POST | `/api/world/object-drafts/generate` | 将生成中心聊天/粘贴内容收束为世界对象草稿 |
+| POST | `/api/world/object-drafts/generate` | 将生成中心聊天/粘贴内容收束为待处理建议；同时返回兼容草稿视图 |
 | GET | `/api/world/generation-prompt-templates` | 生成中心 Prompt 模板列表（含内置模板） |
 | POST | `/api/world/generation-prompt-templates` | 创建用户自定义 Prompt 模板 |
 | POST | `/api/world/generation-prompt-templates/validate` | 校验模板变量、危险指令和输出契约 |
@@ -406,8 +456,8 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 - 补抽结果写入 `context_confirmations.result_refs`，类型为 `world_entity`。
 - 候选提升、合并、重命名或忽略会将相关确认记录标记为 `needs_review` 或 `stale_context`，并写入 `stale_reasons`。
 - 生成中心 Chatbox 的自由聊天不创建确认记录，也不写库；只有
-  `POST /api/world/object-drafts/generate` 会创建 `status="draft"` 的
-  `core_entities` 草稿，正史提升仍走显式用户确认。
+  `POST /api/world/object-drafts/generate` 会创建待处理 `CreationSuggestion`。响应中的
+  `entity` 是保留旧 wire contract 的 `status="draft"` 兼容影子，`suggestion` 才是采用流的权威对象；确认后原地提升该影子为 `canonical`。
 - 生成中心 Prompt 模板按 `novel_id` 隔离；内置模板是只读虚拟模板，自定义模板支持
   `version_number`、内容 hash 和 revision 历史。使用 `template_id` 生成时会在 LLM
   调用前做 P1 阻断校验，并把模板版本/hash 写入草稿 `_meta`，用于提示模板漂移。

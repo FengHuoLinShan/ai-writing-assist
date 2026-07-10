@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.schemas import LLMCallResponse
-from modules.world.models import CoreEntity
+from modules.world.models import CoreEntity, CreationSuggestion
 from modules.writing.facade import create_draft_only
 
 
@@ -118,11 +120,83 @@ async def test_generate_object_draft_creates_draft_entity_with_pro_model(
     assert entity["content_json"]["character_card"]["desire"] == "重建秩序"
     assert entity["content_json"]["_meta"]["source"] == "chatbox_object_draft"
     assert entity["content_json"]["_meta"]["has_pasted_context"] is True
+    suggestion = body["suggestion"]
+    assert suggestion["status"] == "pending"
+    assert suggestion["display_state"] == "review"
+    assert suggestion["target_type"] == "core_entity_draft"
+    assert suggestion["result_ref_json"] == {
+        "type": "core_entity_compatibility",
+        "id": entity["id"],
+        "status": "pending",
+    }
+    stored_suggestion = await db_session.get(
+        CreationSuggestion,
+        uuid.UUID(suggestion["id"]),
+    )
+    assert stored_suggestion is not None
+    assert stored_suggestion.source_module == "chatbox"
+
+    confirm_resp = await async_client.post(
+        f"/api/world/suggestions/{suggestion['id']}/confirm",
+        params={"novel_id": novel_id},
+    )
+    assert confirm_resp.status_code == 200, confirm_resp.text
+    adopted = await async_client.get(
+        f"/api/world/entities/{entity['id']}",
+        params={"novel_id": novel_id},
+    )
+    assert adopted.json()["status"] == "canonical"
+    assert adopted.json()["approved_by"] == "manual"
+    assert adopted.json()["content_json"]["_meta"]["needs_review"] is False
+    assert await _entity_count(db_session) == 1
     structured_prompt = "\n".join(
         message.content for message in fake.requests[0].messages
     )
     assert "summary 字段必填" in structured_prompt
     assert "可直接显示在对象库摘要列" in structured_prompt
+
+
+@pytest.mark.asyncio
+async def test_object_suggestion_edit_confirm_route_updates_same_shadow(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _FakeLLMClient()
+    monkeypatch.setattr(
+        "modules.world.services.worldbuilding.object_draft_generation_service."
+        "LLMClient.from_project_settings",
+        lambda _settings: fake,
+    )
+    project_resp = await async_client.post(
+        "/api/projects",
+        json={"title": "编辑后采用建议"},
+    )
+    novel_id = project_resp.json()["id"]
+    generated = await async_client.post(
+        "/api/world/object-drafts/generate",
+        json={
+            "novel_id": novel_id,
+            "template": "character",
+            "messages": [{"role": "user", "content": "设计一个旧友型反派"}],
+            "quality_mode": "fast",
+        },
+    )
+    body = generated.json()
+
+    decided = await async_client.post(
+        f"/api/world/suggestions/{body['suggestion']['id']}/edit-confirm",
+        params={"novel_id": novel_id},
+        json={"name": "沈无忧", "summary": "作者修改后采用的概要。"},
+    )
+
+    assert decided.status_code == 200, decided.text
+    assert decided.json()["suggestion_status"] == "accepted"
+    stored = await db_session.get(CoreEntity, uuid.UUID(body["entity"]["id"]))
+    assert stored is not None
+    assert stored.name == "沈无忧"
+    assert stored.summary == "作者修改后采用的概要。"
+    assert stored.status == "canonical"
 
 
 @pytest.mark.asyncio

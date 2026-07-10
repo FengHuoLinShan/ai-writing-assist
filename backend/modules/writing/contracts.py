@@ -7,7 +7,7 @@ Writing 对外契约
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -28,6 +28,11 @@ class WritingDraftContract:
     provenance_json: dict[str, Any] | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    # Additive author-facing projection fields stay at the end so positional
+    # construction used by older consumers keeps its original field order.
+    display_state: str = "active"
+    source: str = "manual"
+    attention_reasons: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

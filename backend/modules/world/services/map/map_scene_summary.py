@@ -95,9 +95,7 @@ class MapSceneSummaryService:
             entity_id: getattr(entity, "status", None)
             for entity_id, entity in marker_entities.items()
         }
-        markers = [
-            m for m in markers if marker_statuses.get(m.entity_id) == "canonical"
-        ]
+        markers = [m for m in markers if marker_statuses.get(m.entity_id) == "canonical"]
         selected_map_id = self._select_map_id(markers, sid)
         if selected_map_id is None:
             selected_map_id = await self._fact_repo.find_map_for_scene(
@@ -147,7 +145,11 @@ class MapSceneSummaryService:
 
         map_markers = [m for m in markers if m.map_id == selected_map_id]
         primary_location = await self._primary_location(
-            db, nid, selected_map_id, map_markers
+            db,
+            nid,
+            selected_map_id,
+            map_markers,
+            include_candidates=include_candidates,
         )
         if selected_from_project_fallback and primary_location is None:
             warnings.append(
@@ -268,7 +270,14 @@ class MapSceneSummaryService:
         novel_id: uuid.UUID,
         map_id: uuid.UUID,
         markers: list[MapMarker],
+        *,
+        include_candidates: bool = False,
     ) -> MapSceneSummaryItem | None:
+        allowed_statuses = (
+            ["canonical", "draft", "candidate"]
+            if include_candidates
+            else ["canonical"]
+        )
         marker_hexes = list(
             dict.fromkeys((marker.hex_q, marker.hex_r) for marker in markers)
         )
@@ -278,7 +287,7 @@ class MapSceneSummaryService:
                 novel_id,
                 map_id,
                 marker_hexes,
-                statuses=["canonical", "draft"],
+                statuses=allowed_statuses,
             )
         else:
             bindings = await self._binding_repo.get_centers(db, novel_id, map_id)
@@ -290,32 +299,36 @@ class MapSceneSummaryService:
         names = {e.id: e.name for e in entities}
         statuses = {e.id: e.status for e in entities}
 
-        if not marker_hexes:
-            for binding in bindings:
-                if statuses.get(binding.location_entity_id) not in {"canonical", "draft"}:
-                    continue
-                return MapSceneSummaryItem(
-                    entity_id=str(binding.location_entity_id),
-                    name=names.get(binding.location_entity_id) or "未命名地点",
-                    map_id=str(binding.map_id),
-                    hex_q=binding.hex_q,
-                    hex_r=binding.hex_r,
-                )
-            return None
-
-        for marker in markers:
-            candidates = by_hex.get((marker.hex_q, marker.hex_r), [])
-            if not candidates:
-                continue
-            candidates.sort(key=lambda b: not b.is_center)
-            binding = candidates[0]
+        def build_item(binding: MapLocationBinding) -> MapSceneSummaryItem:
+            status = statuses.get(binding.location_entity_id)
+            depends_on_candidate = status in {"draft", "candidate"}
             return MapSceneSummaryItem(
                 entity_id=str(binding.location_entity_id),
                 name=names.get(binding.location_entity_id) or "未命名地点",
                 map_id=str(binding.map_id),
                 hex_q=binding.hex_q,
                 hex_r=binding.hex_r,
+                depends_on_candidate=depends_on_candidate,
+                candidate_review_state=status if depends_on_candidate else None,
             )
+
+        if not marker_hexes:
+            for binding in bindings:
+                if statuses.get(binding.location_entity_id) not in allowed_statuses:
+                    continue
+                return build_item(binding)
+            return None
+
+        for marker in markers:
+            candidates = [
+                binding
+                for binding in by_hex.get((marker.hex_q, marker.hex_r), [])
+                if statuses.get(binding.location_entity_id) in allowed_statuses
+            ]
+            if not candidates:
+                continue
+            candidates.sort(key=lambda b: not b.is_center)
+            return build_item(candidates[0])
         return None
 
     async def _faction_items(
@@ -446,9 +459,7 @@ class MapSceneSummaryService:
                 continue
             anchor = observation.spatial_anchor or {}
             title = (
-                observation.target_name
-                or observation.target_entity_type
-                or "地图风险"
+                observation.target_name or observation.target_entity_type or "地图风险"
             )
             open_target = {
                 "kind": "map_object",
@@ -497,10 +508,14 @@ class MapSceneSummaryService:
     ) -> tuple[str, str | None, int | None, int | None]:
         anchor = getattr(item, "spatial_anchor", None) or {}
         target_entity_id = getattr(item, "target_entity_id", None)
-        target = str(target_entity_id) if target_entity_id else getattr(
-            item,
-            "target_name",
-            None,
+        target = (
+            str(target_entity_id)
+            if target_entity_id
+            else getattr(
+                item,
+                "target_name",
+                None,
+            )
         )
         return (
             getattr(item, "dynamic_type"),
@@ -511,10 +526,10 @@ class MapSceneSummaryService:
 
     def _status_label(self, status: str | None) -> str:
         return {
-            "candidate": "待确认",
-            "confirmed": "已确认",
+            "candidate": "待处理",
+            "confirmed": "已采用",
             "ignored": "已忽略",
-            "conflicted": "有冲突",
+            "conflicted": "待处理",
         }.get(status or "", "待判断")
 
     async def _cross_map_warnings(

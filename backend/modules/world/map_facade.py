@@ -64,21 +64,21 @@ async def count_deep_import_map_observations_by_workflow(
     workflow_id: str,
 ) -> int:
     """Count unconfirmed map observations for cleanup reporting only."""
-    from sqlalchemy import select
-
-    from modules.world.map_models import MapObservation
-    from shared.utils import parse_uuid
-
-    nid = parse_uuid(novel_id, "novel_id")
-    stmt = select(MapObservation).where(
-        MapObservation.novel_id == nid,
-        MapObservation.review_state.in_(["candidate", "conflicted"]),
+    return await _map_dynamic_facts.count_deep_import_observations_by_workflow(
+        db,
+        novel_id,
+        workflow_id,
     )
-    result = await db.execute(stmt)
-    observations = result.scalars().all()
-    return sum(
-        1
-        for observation in observations
-        if (observation.source_ref or {}).get("workflow_id") == workflow_id
-        and (observation.source_ref or {}).get("auto_ingested") is True
+
+
+async def rollback_deep_import_map_observations_by_workflow(
+    db: AsyncSession,
+    novel_id: str,
+    workflow_id: str,
+) -> int:
+    """Move workflow-owned pending observations to history and retain provenance."""
+    return await _map_dynamic_facts.rollback_deep_import_observations_by_workflow(
+        db,
+        novel_id,
+        workflow_id,
     )

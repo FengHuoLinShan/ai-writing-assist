@@ -142,7 +142,7 @@ async def get_quick_create_context(
     db: DbSession,
     *,
     novel_id: NovelIdQuery,
-    include_candidates: bool = Query(False, description="是否包含待确认候选"),
+    include_candidates: bool = Query(False, description="是否包含待处理观察"),
 ) -> MapQuickCreateContextResponse:
     return await _quick_create_service.context(
         db,
@@ -280,7 +280,7 @@ async def get_map_playback(
     novel_id: NovelIdQuery,
     scene_id: str | None = Query(None, description="Scene ID"),
     focus_entity_id: str | None = Query(None, description="聚焦对象 ID"),
-    include_candidates: bool = Query(True, description="是否包含候选观察"),
+    include_candidates: bool = Query(True, description="是否包含待处理观察"),
 ) -> MapPlaybackResponse:
     return await _dynamic_fact_service.get_playback(
         db,
@@ -351,8 +351,14 @@ async def get_terrain_state(
     map_id: str,
     *,
     novel_id: NovelIdQuery,
+    include_candidates: bool = Query(default=False),
 ) -> MapTerrainStateResponse:
-    return await _terrain_service.get_state(db, novel_id, map_id)
+    return await _terrain_service.get_state(
+        db,
+        novel_id,
+        map_id,
+        include_candidates=include_candidates,
+    )
 
 
 @router.put(

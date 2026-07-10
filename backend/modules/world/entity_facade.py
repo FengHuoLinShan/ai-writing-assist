@@ -37,6 +37,7 @@ async def list_entities(
     *,
     entity_type: str | None = None,
     statuses: list[str] | tuple[str, ...] | None = None,
+    display_state: str | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     """获取世界对象摘要列表"""
@@ -45,6 +46,7 @@ async def list_entities(
         novel_id,
         entity_type=entity_type,
         statuses=statuses,
+        display_state=display_state,
         limit=limit,
     )
 
@@ -66,8 +68,9 @@ async def get_world_context(
     reveal_mode: str = "author_safe",
     limit: int = 20,
     current_chapter: int | None = None,
+    include_review: bool = False,
 ) -> WorldContextBundle:
-    """获取世界上下文"""
+    """获取世界上下文；默认只包含已采用对象。"""
     return await _context_service.get_entity_context(
         db,
         novel_id,
@@ -75,6 +78,7 @@ async def get_world_context(
         reveal_mode=reveal_mode,
         limit=limit,
         current_chapter=current_chapter,
+        include_review=include_review,
     )
 
 
@@ -165,6 +169,30 @@ async def append_candidate_alias(
         scene_index=scene_index,
         confidence=confidence,
         quote=quote,
+    )
+
+
+async def rollback_deep_import_aliases_by_workflow(
+    db: AsyncSession,
+    novel_id: str,
+    workflow_id: str,
+) -> int:
+    return await _alias_service.rollback_deep_import_candidates_by_workflow(
+        db,
+        novel_id,
+        workflow_id,
+    )
+
+
+async def rollback_deep_import_relations_by_workflow(
+    db: AsyncSession,
+    novel_id: str,
+    workflow_id: str,
+) -> int:
+    return await _relation_service.rollback_deep_import_candidates_by_workflow(
+        db,
+        novel_id,
+        workflow_id,
     )
 
 

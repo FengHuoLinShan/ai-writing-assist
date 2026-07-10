@@ -263,6 +263,17 @@ def _make_knowledge(**kwargs) -> CharacterKnowledge:
     return CharacterKnowledge(**defaults)
 
 
+def _canonical_core_entity(
+    novel_id: str | uuid.UUID,
+    entity_type: str,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        novel_id=uuid.UUID(str(novel_id)),
+        status="canonical",
+        entity_type=entity_type,
+    )
+
+
 def _make_relation(**kwargs) -> EntityRelation:
     defaults = {
         "id": uuid.uuid4(),
@@ -348,6 +359,8 @@ class TestCharacterServiceUpdateCharacterState:
         svc.repo = AsyncMock()
         svc.repo.get.return_value = char
         svc.repo.update.return_value = char
+        svc._entity_repo = AsyncMock()
+        svc._entity_repo.get.return_value = _canonical_core_entity(nid, "character")
 
         # Act
         result = await svc.update_character_state(
@@ -378,6 +391,8 @@ class TestCharacterServiceUpdateCharacterState:
         svc.repo = AsyncMock()
         svc.repo.get.return_value = char
         svc.repo.update.return_value = char
+        svc._entity_repo = AsyncMock()
+        svc._entity_repo.get.return_value = _canonical_core_entity(nid, "character")
 
         # Act
         _ = await svc.update_character_state(
@@ -751,6 +766,8 @@ class TestCharacterServiceFacadeLeaks:
         char = _make_character(entity_id=uuid.UUID(weid), novel_id=uuid.UUID(nid))
         svc.repo = AsyncMock()
         svc.repo.get.return_value = char
+        svc._entity_repo = AsyncMock()
+        svc._entity_repo.get.return_value = _canonical_core_entity(nid, "character")
 
         # Act
         result = await svc.get_id_by_world_entity(db_session, nid, weid)
@@ -819,10 +836,10 @@ class TestCharacterServiceFacadeLeaks:
         svc.repo = AsyncMock()
         svc.repo.get.return_value = char
         svc._entity_repo = AsyncMock()
-        svc._entity_repo.get.return_value = SimpleNamespace(
-            novel_id=uuid.UUID(nid),
-            status="canonical",
-        )
+        svc._entity_repo.get.side_effect = [
+            _canonical_core_entity(nid, "character"),
+            _canonical_core_entity(nid, "location"),
+        ]
 
         # Act
         await svc.update_location(db_session, nid, cid, loc_id, "forest", 3)
@@ -860,10 +877,7 @@ class TestCharacterServiceFacadeLeaks:
         nid = str(uuid.uuid4())
         entity_id = str(uuid.uuid4())
         svc._entity_repo = AsyncMock()
-        svc._entity_repo.get.return_value = SimpleNamespace(
-            novel_id=uuid.UUID(nid),
-            status="canonical",
-        )
+        svc._entity_repo.get.return_value = _canonical_core_entity(nid, "character")
         svc.repo = AsyncMock()
         svc.repo.create.side_effect = IntegrityError("stmt", "params", Exception("boom"))
 
@@ -889,16 +903,16 @@ class TestCharacterServiceFacadeLeaks:
         svc.repo = AsyncMock()
         svc.repo.get.return_value = char
         svc._entity_repo = AsyncMock()
-        svc._entity_repo.get.return_value = SimpleNamespace(
-            novel_id=uuid.uuid4(),
-            status="canonical",
-        )
+        svc._entity_repo.get.side_effect = [
+            _canonical_core_entity(nid, "character"),
+            _canonical_core_entity(uuid.uuid4(), "location"),
+        ]
 
         with pytest.raises(NotFoundError) as exc_info:
             await svc.update_location(db_session, nid, cid, loc_id, "forest", 3)
 
         assert exc_info.value.status_code == 404
-        assert exc_info.value.message == "Location not found in this novel"
+        assert exc_info.value.message == f"Location {loc_id} not found in this novel"
         svc.repo.update_character_meta_location.assert_not_called()
 
     async def test_get_characters_at_location_delegates_to_repo(
@@ -912,6 +926,8 @@ class TestCharacterServiceFacadeLeaks:
         expected = [{"id": str(uuid.uuid4()), "name": "A"}]
         svc.repo = AsyncMock()
         svc.repo.find_characters_by_location.return_value = expected
+        svc._entity_repo = AsyncMock()
+        svc._entity_repo.get.return_value = _canonical_core_entity(nid, "location")
 
         # Act
         result = await svc.get_characters_at_location(db_session, nid, loc_id)
@@ -934,6 +950,11 @@ class TestCharacterServiceFacadeLeaks:
         svc.repo = AsyncMock()
         svc.repo.get.return_value = char
         svc.repo.get_character_location_id.return_value = loc_id
+        svc._entity_repo = AsyncMock()
+        svc._entity_repo.get.side_effect = [
+            _canonical_core_entity(nid, "character"),
+            _canonical_core_entity(nid, "location"),
+        ]
 
         # Act
         result = await svc.get_location_id(db_session, nid, cid)
@@ -969,6 +990,8 @@ class TestCharacterServiceInheritedVerbs:
         char = _make_character(entity_id=uuid.UUID(cid), novel_id=uuid.UUID(nid))
         svc.repo = AsyncMock()
         svc.repo.get.return_value = char
+        svc._entity_repo = AsyncMock()
+        svc._entity_repo.get.return_value = _canonical_core_entity(nid, "character")
 
         # Act
         result = await svc.get(db_session, cid, novel_id=nid)
@@ -1003,10 +1026,7 @@ class TestCharacterServiceInheritedVerbs:
 
         # Act
         svc._entity_repo = AsyncMock()
-        svc._entity_repo.get.return_value = SimpleNamespace(
-            novel_id=uuid.UUID(nid),
-            status="canonical",
-        )
+        svc._entity_repo.get.return_value = _canonical_core_entity(nid, "character")
         result = await svc.create(db_session, nid, data)
 
         # Assert
@@ -1046,10 +1066,10 @@ class TestCharacterKnowledgeServiceCreate:
         svc._character_repo = AsyncMock()
         svc._character_repo.get.return_value = char
         svc._entity_repo = AsyncMock()
-        svc._entity_repo.get.return_value = SimpleNamespace(
-            novel_id=uuid.UUID(nid),
-            status="canonical",
-        )
+        svc._entity_repo.get.side_effect = [
+            _canonical_core_entity(nid, "character"),
+            _canonical_core_entity(nid, "character"),
+        ]
         svc.repo = AsyncMock()
         kn = _make_knowledge(novel_id=uuid.UUID(nid), character_id=uuid.UUID(cid))
         svc.repo.create.return_value = kn
@@ -1124,10 +1144,10 @@ class TestCharacterKnowledgeServiceCreate:
         svc._character_repo = AsyncMock()
         svc._character_repo.get.return_value = char
         svc._entity_repo = AsyncMock()
-        svc._entity_repo.get.return_value = SimpleNamespace(
-            novel_id=uuid.UUID(nid),
-            status="canonical",
-        )
+        svc._entity_repo.get.side_effect = [
+            _canonical_core_entity(nid, "character"),
+            _canonical_core_entity(nid, "character"),
+        ]
         svc.repo = AsyncMock()
 
         data = CharacterKnowledgeCreate.model_construct(
@@ -1208,6 +1228,11 @@ class TestCharacterKnowledgeServiceInheritedVerbs:
         svc.repo = AsyncMock()
         svc.repo.get.return_value = kn
         svc.repo.update.return_value = kn
+        svc._entity_repo = AsyncMock()
+        svc._entity_repo.get.side_effect = [
+            _canonical_core_entity(nid, "character"),
+            _canonical_core_entity(nid, "character"),
+        ]
 
         # Act
         result = await svc.update(

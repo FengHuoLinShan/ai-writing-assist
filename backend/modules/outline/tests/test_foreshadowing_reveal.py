@@ -735,6 +735,7 @@ class TestPlotStructureGenerateDuplicateRange:
                 novel_id=test_project_id,
                 start_chapter=1,
                 end_chapter=10,
+                persist=True,
             )
 
         assert data["total_threads"] == 2
@@ -774,6 +775,7 @@ class TestPlotStructureGenerateDuplicateRange:
                 include_pending_objects=True,
                 workflow_id="wf-structure",
                 audit_context_snapshot=True,
+                persist=True,
             )
 
         stmt = select(ContextSnapshot).where(
@@ -829,6 +831,7 @@ class TestPlotStructureGenerateDuplicateRange:
                     include_pending_objects=True,
                     workflow_id="wf-structure-persist-failed",
                     audit_context_snapshot=True,
+                    persist=True,
                 )
 
         await db_session.rollback()
@@ -866,6 +869,7 @@ class TestPlotStructureGenerateDuplicateRange:
                 novel_id=test_project_id,
                 start_chapter=1,
                 end_chapter=10,
+                persist=True,
             )
             first_threads = first_data["total_threads"]
             first_arcs = first_data["total_arcs"]
@@ -875,6 +879,7 @@ class TestPlotStructureGenerateDuplicateRange:
                 novel_id=test_project_id,
                 start_chapter=1,
                 end_chapter=10,
+                persist=True,
             )
 
         assert second_data["existing_threads_count"] == first_threads
@@ -1018,12 +1023,19 @@ async def test_plot_structure_persister_batches_foreshadowing_and_reveals() -> N
         reveal_service=reveal_service,
     )
 
-    created_foreshadowing, created_reveals = (
+    created_foreshadowing, created_reveals, unresolved_reveals = (
         await persister._persist_foreshadowing_and_reveals(
             mock.AsyncMock(spec=AsyncSession),
             novel_id,
             [
-                GeneratedForeshadowingPlan(name="古剑封印", summary="秘密线索"),
+                GeneratedForeshadowingPlan(
+                    name="古剑封印",
+                    summary="秘密线索",
+                    confidence=0.55,
+                    needs_review=True,
+                    review_reason="low_confidence",
+                    supporting_scene_ids=["scene-1"],
+                ),
                 GeneratedForeshadowingPlan(name="暗线伏笔", summary="第二线索"),
             ],
             [
@@ -1040,12 +1052,14 @@ async def test_plot_structure_persister_batches_foreshadowing_and_reveals() -> N
     )
 
     assert [item["name"] for item in created_foreshadowing] == ["古剑封印", "暗线伏笔"]
-    assert created_reveals == [
-        {
-            "id": str(reveal_plans[0].id),
-            "target_name": "霜华剑",
-        }
-    ]
+    assert created_foreshadowing[0]["needs_review"] is True
+    assert created_foreshadowing[0]["provenance_meta"]["confidence"] == 0.55
+    assert created_foreshadowing[0]["provenance_meta"][
+        "supporting_scene_ids"
+    ] == ["scene-1"]
+    assert created_reveals[0]["id"] == str(reveal_plans[0].id)
+    assert created_reveals[0]["target_name"] == "霜华剑"
+    assert unresolved_reveals == []
     foreshadowing_service.create.assert_not_awaited()
     reveal_service.create.assert_not_awaited()
     foreshadowing_service.create_batch.assert_awaited_once()
@@ -1053,6 +1067,45 @@ async def test_plot_structure_persister_batches_foreshadowing_and_reveals() -> N
     assert len(foreshadowing_service.create_batch.await_args.args[2]) == 2
     reveal_payload = reveal_service.create_batch.await_args.args[2][0]
     assert reveal_payload.target_id == target_id
+
+
+async def test_plot_structure_persister_keeps_unresolved_reveal_as_review() -> None:
+    from modules.outline.generation.models import RevealPlan as GeneratedRevealPlan
+    from modules.outline.generation.persister import PlotStructurePersister
+
+    reveal_service = SimpleNamespace(create_batch=mock.AsyncMock())
+    persister = PlotStructurePersister(
+        thread_service=SimpleNamespace(),
+        arc_service=SimpleNamespace(),
+        scene_service=SimpleNamespace(),
+        foreshadowing_service=SimpleNamespace(create_batch=mock.AsyncMock()),
+        reveal_service=reveal_service,
+    )
+
+    created_foreshadowing, created_reveals, unresolved_reveals = (
+        await persister._persist_foreshadowing_and_reveals(
+            mock.AsyncMock(spec=AsyncSession),
+            uuid.uuid4(),
+            [],
+            [
+                GeneratedRevealPlan(
+                    target_name="无法消歧的揭示",
+                    secret_summary="仍需作者判定目标",
+                    supporting_scene_ids=["scene-1"],
+                )
+            ],
+            entity_name_to_id={},
+            character_name_to_id={},
+            provenance_meta={"source": "deep_import", "workflow_id": "wf-1"},
+        )
+    )
+
+    assert created_foreshadowing == []
+    assert created_reveals == []
+    assert unresolved_reveals[0]["id"] is None
+    assert unresolved_reveals[0]["needs_review"] is True
+    assert unresolved_reveals[0]["review_reason"] == "unresolved_reveal_target"
+    reveal_service.create_batch.assert_not_awaited()
 
 
 async def test_plot_structure_persister_batches_threads_and_arcs() -> None:
@@ -1205,12 +1258,14 @@ async def test_plot_structure_persister_falls_back_for_thread_arc_batches() -> N
         provenance_meta={},
     )
 
-    assert created_threads == [
-        {"id": str(created_thread.id), "name": "主线", "thread_type": "main"}
-    ]
-    assert created_arcs == [
-        {"id": str(created_arc.id), "title": "卷一", "arc_index": 1}
-    ]
+    assert created_threads[0]["id"] == str(created_thread.id)
+    assert created_threads[0]["name"] == "主线"
+    assert created_threads[0]["thread_type"] == "main"
+    assert created_threads[0]["needs_review"] is False
+    assert created_arcs[0]["id"] == str(created_arc.id)
+    assert created_arcs[0]["title"] == "卷一"
+    assert created_arcs[0]["arc_index"] == 1
+    assert created_arcs[0]["needs_review"] is False
     thread_service.create_batch.assert_awaited_once()
     arc_service.create_batch.assert_awaited_once()
     assert thread_service.create.await_count == 2

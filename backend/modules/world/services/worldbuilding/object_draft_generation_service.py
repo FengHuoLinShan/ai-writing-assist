@@ -17,11 +17,12 @@ from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.project.facade import get_project_context
 from modules.world.llm_schemas import GeneratedObjectDraftOutput
 from modules.world.schemas import (
-    CoreEntityCreate,
+    CoreEntityDraftSuggestionPayload,
     ObjectDraftChatRequest,
     ObjectDraftChatResponse,
     ObjectDraftGenerateRequest,
     ObjectDraftGenerateResponse,
+    WorldBibleSourceRef,
 )
 from modules.world.services.common import parse_uuid
 from modules.world.services.core.entity_service import WorldEntityService
@@ -30,6 +31,9 @@ from modules.world.services.worldbuilding.generation_prompt_template_service imp
     GenerationPromptTemplateService,
     ResolvedGenerationTemplate,
     TemplateVersionConflictError,
+)
+from modules.world.services.worldbuilding.suggestion_queue_service import (
+    SuggestionQueueService,
 )
 
 _QUALITY_MODELS = {
@@ -45,10 +49,14 @@ class ObjectDraftGenerationService:
         self,
         *,
         entity_service: WorldEntityService | None = None,
+        suggestion_service: SuggestionQueueService | None = None,
         llm_client: LLMClient | None = None,
         template_service: GenerationPromptTemplateService | None = None,
     ) -> None:
         self._entity_service = entity_service or WorldEntityService()
+        self._suggestion_service = suggestion_service or SuggestionQueueService(
+            entity_service=self._entity_service
+        )
         self._llm_client = llm_client
         self._template_service = template_service or GenerationPromptTemplateService()
 
@@ -114,10 +122,12 @@ class ObjectDraftGenerationService:
         )
 
         content_json = self._content_json(data, response, template)
-        entity = await self._entity_service.create(
+        suggestion, entity = await self._suggestion_service.create_core_entity_suggestion(
             db,
-            data.novel_id,
-            CoreEntityCreate(
+            novel_id=data.novel_id,
+            source_module="chatbox",
+            review_group="generate_center",
+            payload=CoreEntityDraftSuggestionPayload(
                 entity_type=TEMPLATE_ENTITY_TYPES.get(
                     template.object_template,
                     "concept",
@@ -129,13 +139,23 @@ class ObjectDraftGenerationService:
                 content_json=content_json,
                 importance_level=response.importance_level or "normal",
                 reveal_level=response.reveal_level or "author_only",
-                status="draft",
-                created_by="ai_chatbox",
-                force_create=True,
+                source_refs=[
+                    WorldBibleSourceRef(
+                        source_type="writing_chapter",
+                        chapter_index=item["chapter_index"],
+                        title=item["title"],
+                    )
+                    for item in chapters
+                ],
             ),
+            compatibility_status="draft",
+            compatibility_created_by="ai_chatbox",
         )
+        if entity is None:  # pragma: no cover - guarded by compatibility_status
+            raise RuntimeError("object draft compatibility entity was not created")
         return ObjectDraftGenerateResponse(
             entity=entity,
+            suggestion=suggestion,
             quality_mode=data.quality_mode,
             model=self._model_for(data.quality_mode),
             provider=client.provider,
@@ -210,7 +230,7 @@ class ObjectDraftGenerationService:
                 role="system",
                 content=(
                     "你是中文长篇小说的自由共创助手。当前阶段只聊天发散，"
-                "不要输出 JSON，不要声称已写入数据库，不要要求用户先导入正文。"
+                    "不要输出 JSON，不要声称已写入数据库，不要要求用户先导入正文。"
                     f"当前模板是：{template.label}。"
                     f"模板提示词：{template.rendered_prompt}"
                 ),
@@ -233,9 +253,10 @@ class ObjectDraftGenerationService:
         chapters: list[dict[str, Any]],
         template: ResolvedGenerationTemplate,
     ) -> list[LLMMessage]:
-        transcript = "\n".join(
-            f"{item.role}: {item.content}" for item in data.messages
-        ) or "用户未提供站内聊天记录。"
+        transcript = (
+            "\n".join(f"{item.role}: {item.content}" for item in data.messages)
+            or "用户未提供站内聊天记录。"
+        )
         reference = self._reference_block(data.pasted_context, chapters) or "无附加资料。"
         return [
             LLMMessage(

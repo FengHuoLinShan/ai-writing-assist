@@ -22,6 +22,8 @@ class SceneCommitResult(BaseModel):
     created_count: int = 0
     skipped_count: int = 0
     conflict_count: int = 0
+    adopted_count: int = 0
+    review_count: int = 0
     created_scene_ids: list[str] = Field(default_factory=list)
     skipped_provenance_keys: list[str] = Field(default_factory=list)
     conflict_provenance_keys: list[str] = Field(default_factory=list)
@@ -91,6 +93,13 @@ class SceneCommitter:
             if active_existing:
                 result.skipped_count += 1
                 result.skipped_provenance_keys.append(provenance_key)
+                if any(
+                    bool((scene.get("structure_meta") or {}).get("needs_review"))
+                    for scene in active_existing
+                ):
+                    result.review_count += 1
+                else:
+                    result.adopted_count += 1
                 continue
             if existing_scenes:
                 result.conflict_count += 1
@@ -114,6 +123,10 @@ class SceneCommitter:
             )
             next_scene_index += 1
             result.created_count += 1
+            if candidate.needs_review:
+                result.review_count += 1
+            else:
+                result.adopted_count += 1
             result.created_scene_ids.append(created["id"])
             existing_by_key.setdefault(provenance_key, []).append(created)
         return result

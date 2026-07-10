@@ -12,7 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.outline.repositories import SceneRepository
 from modules.outline.schemas import SceneCreate
 from modules.world.map_facade import summarize_scene_map_for_writing
-from modules.world.map_repositories import MapFactRepository
+from modules.world.map_repositories import (
+    MapFactRepository,
+    MapLocationBindingRepository,
+    MapMarkerRepository,
+)
 from modules.world.map_schemas import (
     BindingHex,
     MapConfigCreate,
@@ -111,7 +115,7 @@ async def test_scene_summary_batches_primary_location_binding_lookup(
             statuses,
         ):
             batch_calls.append(list(hexes))
-            assert statuses == ["canonical", "draft"]
+            assert statuses == ["canonical"]
             return [
                 SimpleNamespace(
                     location_entity_id=uuid.uuid4(),
@@ -326,14 +330,14 @@ async def test_scene_summary_uses_quick_created_project_map_without_scene_marker
         nid,
         entity_type="location",
         name="琉璃湾",
-        status="draft",
+        status="canonical",
     )
     await _create_entity(
         db_session,
         nid,
         entity_type="location",
         name="归潮塔群",
-        status="draft",
+        status="canonical",
     )
     created = await MapQuickCreateService().confirm(
         db_session,
@@ -352,9 +356,62 @@ async def test_scene_summary_uses_quick_created_project_map_without_scene_marker
     assert body["open_target"]["map_id"] == created.map.id
     assert body["primary_location"]["name"] in {"琉璃湾", "归潮塔群"}
     assert all(
-        warning["code"] != "scene_without_map_context"
-        for warning in body["warnings"]
+        warning["code"] != "scene_without_map_context" for warning in body["warnings"]
     )
+
+
+@pytest.mark.asyncio
+async def test_scene_summary_only_exposes_draft_location_when_explicitly_included(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    scene = await _create_scene(db_session, novel_id)
+    map_resp = await MapConfigService().create(
+        db_session,
+        novel_id,
+        MapConfigCreate(name="旧地图", map_type="world", grid_width=5, grid_height=5),
+    )
+    draft_location = await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="location",
+        name="待处理港口",
+        status="draft",
+    )
+    await MapLocationBindingRepository().bulk_create(
+        db_session,
+        uuid.UUID(hex=novel_id),
+        uuid.UUID(map_resp.id),
+        draft_location.id,
+        [{"hex_q": 1, "hex_r": 1, "is_center": True}],
+    )
+
+    default_summary = await summarize_scene_map_for_writing(
+        db_session,
+        novel_id,
+        str(scene.id),
+    )
+    included_summary = await summarize_scene_map_for_writing(
+        db_session,
+        novel_id,
+        str(scene.id),
+        include_candidates=True,
+    )
+
+    assert default_summary["primary_location"] is None
+    assert default_summary["open_target"]["mode"] == "recent"
+    assert included_summary["primary_location"] == {
+        "entity_id": str(draft_location.id),
+        "name": "待处理港口",
+        "map_id": map_resp.id,
+        "hex_q": 1,
+        "hex_r": 1,
+        "depends_on_candidate": True,
+        "candidate_review_state": "draft",
+        "evidence_excerpt": None,
+        "open_target": None,
+    }
 
 
 @pytest.mark.asyncio
@@ -377,19 +434,19 @@ async def test_scene_summary_ignores_candidate_markers_for_default_context(
         name="待确认人物",
         status="candidate",
     )
-    await MapMarkerService().create(
+    await MapMarkerRepository().create(
         db_session,
-        nid,
-        map_resp.id,
-        MapMarkerCreate(
-            entity_id=str(candidate_character.id),
-            marker_type="character",
-            hex_q=1,
-            hex_r=1,
-            start_scene_id=str(scene.id),
-            start_scene_index=scene.scene_index,
-            label="待确认人物",
-        ),
+        uuid.UUID(hex=nid),
+        uuid.UUID(map_resp.id),
+        {
+            "entity_id": candidate_character.id,
+            "marker_type": "character",
+            "hex_q": 1,
+            "hex_r": 1,
+            "start_scene_id": scene.id,
+            "start_scene_index": scene.scene_index,
+            "label": "待处理人物",
+        },
     )
 
     resp = await async_client.get(
@@ -423,19 +480,19 @@ async def test_writing_map_facade_excludes_candidate_markers_by_default(
         name="待确认人物",
         status="candidate",
     )
-    await MapMarkerService().create(
+    await MapMarkerRepository().create(
         db_session,
-        nid,
-        map_resp.id,
-        MapMarkerCreate(
-            entity_id=str(candidate_character.id),
-            marker_type="character",
-            hex_q=1,
-            hex_r=1,
-            start_scene_id=str(scene.id),
-            start_scene_index=scene.scene_index,
-            label="待确认人物",
-        ),
+        uuid.UUID(hex=nid),
+        uuid.UUID(map_resp.id),
+        {
+            "entity_id": candidate_character.id,
+            "marker_type": "character",
+            "hex_q": 1,
+            "hex_r": 1,
+            "start_scene_id": scene.id,
+            "start_scene_index": scene.scene_index,
+            "label": "待处理人物",
+        },
     )
 
     summary = await summarize_scene_map_for_writing(
@@ -595,7 +652,7 @@ async def test_scene_summary_queries_confirmed_facts_by_scene_before_limit(
         include_candidates=False,
     )
 
-    assert [risk["message"] for risk in summary["risks"]] == ["粮仓起火：已确认"]
+    assert [risk["message"] for risk in summary["risks"]] == ["粮仓起火：已采用"]
     assert summary["risks"][0]["evidence_excerpt"] == "粮仓火势正在扩大"
 
 
@@ -653,7 +710,7 @@ async def test_scene_summary_queries_dynamic_facts_before_limit(
         include_candidates=False,
     )
 
-    assert [risk["message"] for risk in summary["risks"]] == ["粮仓起火：已确认"]
+    assert [risk["message"] for risk in summary["risks"]] == ["粮仓起火：已采用"]
 
 
 @pytest.mark.asyncio
@@ -713,7 +770,7 @@ async def test_scene_summary_suppresses_candidate_duplicate_of_confirmed_fact(
         include_candidates=True,
     )
 
-    assert [risk["message"] for risk in summary["risks"]] == ["粮仓起火：已确认"]
+    assert [risk["message"] for risk in summary["risks"]] == ["粮仓起火：已采用"]
     assert summary["risks"][0]["depends_on_candidate"] is False
     assert summary["risks"][0]["open_target"]["observation_id"] == observation_id
 
@@ -961,7 +1018,7 @@ async def test_scene_summary_exposes_candidate_crises_when_facade_includes_candi
     assert summary["crises"][0]["open_target"]["observation_id"] == observation_id
     assert summary["risks"][0]["level"] == "warning"
     assert summary["risks"][0]["code"] == "map_dynamic_risk"
-    assert summary["risks"][0]["message"] == "东门封锁：待确认"
+    assert summary["risks"][0]["message"] == "东门封锁：待处理"
 
 
 @pytest.mark.asyncio
@@ -971,12 +1028,8 @@ async def test_scene_summary_warns_when_character_previous_marker_is_on_other_ma
 ) -> None:
     nid = uuid.uuid4().hex
     await _create_project(db_session, nid)
-    previous_scene = await _create_scene(
-        db_session, nid, scene_index=6, title="江陵旧事"
-    )
-    current_scene = await _create_scene(
-        db_session, nid, scene_index=7, title="洛阳外城"
-    )
+    previous_scene = await _create_scene(db_session, nid, scene_index=6, title="江陵旧事")
+    current_scene = await _create_scene(db_session, nid, scene_index=7, title="洛阳外城")
     old_map = await MapConfigService().create(
         db_session,
         nid,

@@ -54,6 +54,13 @@ async def _review_structure_dedup(
             "suggestions_recorded": 0,
             "auto_applied": 0,
             "skipped_external_asset": 0,
+            "current_workflow_asset_outcomes": {
+                "review": 0,
+                "not_adopted": 0,
+                "affected": 0,
+                "review_asset_ids": [],
+                "not_adopted_asset_ids": [],
+            },
             "degraded": 0,
             "skipped": True,
             "skip_reason": "non_async_session",
@@ -557,6 +564,33 @@ def phase3_quality_stats(
         foreshadowing = len(extra_sections.get("foreshadowing_plans") or [])
     if reveals is None:
         reveals = len(extra_sections.get("reveal_plans") or [])
+    review_asset_ids: set[str] = set()
+    review_groups = (
+        ("plot_thread", list(phase3_result.get("threads") or [])),
+        ("outline_arc", list(phase3_result.get("arcs") or [])),
+        (
+            "foreshadowing_plan",
+            list(extra_sections.get("foreshadowing_plans") or []),
+        ),
+        ("reveal_plan", list(extra_sections.get("reveal_plans") or [])),
+    )
+    for asset_type, items in review_groups:
+        for index, item in enumerate(items):
+            if not isinstance(item, dict):
+                continue
+            provenance = item.get("provenance_meta")
+            if not (
+                item.get("needs_review")
+                or (
+                    isinstance(provenance, dict)
+                    and provenance.get("needs_review")
+                )
+            ):
+                continue
+            asset_id = str(item.get("id") or "").strip()
+            if not asset_id:
+                asset_id = f"unresolved:{index}:{item.get('target_name') or ''}"
+            review_asset_ids.add(f"{asset_type}:{asset_id}")
     return {
         "total_threads": int(phase3_result.get("total_threads", 0) or 0),
         "total_arcs": int(phase3_result.get("total_arcs", 0) or 0),
@@ -564,6 +598,8 @@ def phase3_quality_stats(
         "total_reveals": int(reveals or 0),
         "turning_point_count": len(extra_sections.get("turning_points") or []),
         "uncertain_count": len(extra_sections.get("uncertain_items") or []),
+        "review_asset_count": len(review_asset_ids),
+        "review_asset_ids": sorted(review_asset_ids),
         "parameter_version": diagnostics.get("parameter_version"),
         "input_mode": diagnostics.get("input_mode"),
         "prompt_level": diagnostics.get("prompt_level"),

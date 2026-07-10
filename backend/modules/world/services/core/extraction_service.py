@@ -11,10 +11,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ValidationError
 from modules.world.repositories import CoreEntityRepository
-from modules.world.schemas import CoreEntityCreate
+from modules.world.schemas import (
+    CoreEntityDraftSuggestionPayload,
+    WorldBibleSourceRef,
+)
 from modules.world.services.common import parse_uuid
 from modules.world.services.core.dedup_service import EntityDedupService
 from modules.world.services.core.draft_provider import WritingDraftProvider
+from modules.world.services.worldbuilding.suggestion_queue_service import (
+    SuggestionQueueService,
+)
 from shared.constants import SIMILARITY_HIGH_CONFIDENCE
 from shared.protocols import DraftProvider
 
@@ -51,7 +57,7 @@ class EntityExtractionService:
 
     流程（单章顺序模式）：
     WritingDraft chapters → for each chapter sequentially →
-    LLM extract(3 retries) → 3-layer dedup → persist →
+    LLM extract(3 retries) → 3-layer dedup → suggestion queue →
     update existing_context → next chapter
     """
 
@@ -60,6 +66,7 @@ class EntityExtractionService:
         self._candidate_repo = CoreEntityRepository()
         self._dedup_service = EntityDedupService()
         self._draft_provider = draft_provider or WritingDraftProvider()
+        self._suggestion_queue = SuggestionQueueService()
 
     async def extract_entities_from_chapters(
         self,
@@ -74,7 +81,7 @@ class EntityExtractionService:
         每章独立 LLM 调用，3 次重试，上下文逐步累积。
         batch_size 参数保留以兼容调用方 API，实际忽略。
         """
-        nid = parse_uuid(novel_id, "novel_id")
+        parse_uuid(novel_id, "novel_id")
 
         # 1. 读取已有正史对象作为初始 context（过滤过期临时实体）
         from modules.world.facade import get_world_context
@@ -85,6 +92,7 @@ class EntityExtractionService:
             reveal_mode="author_safe",
             limit=500,
             current_chapter=start_chapter,
+            include_review=True,
         )
         existing_context = (
             "\n".join(
@@ -320,29 +328,74 @@ class EntityExtractionService:
                         {
                             "alias": a.get("alias", "").strip(),
                             "type": a.get("type", "name"),
+                            "status": "candidate",
+                            "source": "world_extraction",
+                            "batch_id": run_batch_id,
+                            "source_chapter_index": src_ch,
+                            "confidence": min(
+                                max(extracted.confidence, 0.0),
+                                1.0,
+                            ),
+                            "needs_review": True,
                         }
                         for a in extracted.aliases
                         if isinstance(a, dict) and a.get("alias")
                     ]
 
-                entity_data = CoreEntityCreate(
-                    name=extracted.name.strip(),
-                    entity_type=extracted.entity_type,
-                    summary=extracted.summary[:2000] if extracted.summary else None,
-                    public_info=extracted.public_info,
-                    hidden_truth=extracted.hidden_truth,
-                    importance=min(max(extracted.importance, 0.0), 1.0),
-                    status="candidate",
-                    created_by="ai_import",
-                    content_json=content_json,
-                )
                 try:
-                    entity = await self._entity_repo.create(db, nid, entity_data)
+                    (
+                        suggestion,
+                        compatibility_entity,
+                    ) = await self._suggestion_queue.create_core_entity_suggestion(
+                        db,
+                        novel_id=novel_id,
+                        source_module="world_extraction",
+                        review_group=f"entity_extraction:{run_batch_id}",
+                        payload=CoreEntityDraftSuggestionPayload(
+                            name=extracted.name.strip(),
+                            entity_type=extracted.entity_type,
+                            summary=(
+                                extracted.summary[:2000] if extracted.summary else None
+                            ),
+                            public_info=extracted.public_info,
+                            hidden_truth=extracted.hidden_truth,
+                            importance=min(max(extracted.importance, 0.0), 1.0),
+                            content_json=content_json,
+                            source_refs=[
+                                WorldBibleSourceRef(
+                                    source_type="writing_chapter",
+                                    chapter_index=src_ch,
+                                )
+                            ],
+                        ),
+                        evidence_refs_json=[
+                            {
+                                "source_chapter_index": src_ch,
+                                "candidate_reason": extracted.candidate_reason,
+                            }
+                        ],
+                        risk_level=("high" if extracted.confidence < 0.5 else "medium"),
+                        compatibility_status="candidate",
+                        compatibility_created_by="ai_import",
+                    )
+                    if compatibility_entity is None:  # pragma: no cover
+                        raise RuntimeError(
+                            "entity extraction compatibility shadow was not created"
+                        )
+                    entity = await self._entity_repo.get(
+                        db,
+                        parse_uuid(compatibility_entity.id, "entity_id"),
+                    )
+                    if entity is None:  # pragma: no cover
+                        raise RuntimeError(
+                            "entity extraction compatibility shadow was not found"
+                        )
                     pending_storage_embeddings.append((entity, extracted.name.strip()))
                     total_created += 1
                     created_items.append(
                         {
                             "id": str(entity.id),
+                            "suggestion_id": suggestion.id,
                             "name": entity.name,
                             "entity_type": entity.entity_type,
                             "batch_id": run_batch_id,

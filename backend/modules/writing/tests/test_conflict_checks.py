@@ -511,7 +511,7 @@ async def test_candidate_map_evidence_marks_item_for_review(
     map_item = next(item for item in body["items"] if item["kind"] == "map_risk")
     assert map_item["needs_review"] is True
     location = map_item["location_json"]
-    assert location["needs_review_reason"] == "依赖待确认地图观察"
+    assert location["needs_review_reason"] == "依赖待处理地图观察"
     assert location["source"]["field"] == "地图风险"
     assert location["source"]["excerpt"] == "粮仓火势正在扩大"
     assert location["open_target"]["observation_id"] == "obs-1"

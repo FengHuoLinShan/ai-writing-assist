@@ -794,6 +794,7 @@ class TestImportFacadeDeepImportCompatibility:
                 novel_id=novel_id,
                 start_chapter=1,
                 end_chapter=5,
+                authorization_confirmed=True,
             )
 
         assert result == expected
@@ -808,6 +809,8 @@ class TestImportFacadeDeepImportCompatibility:
             5,
             force=False,
             high_quality=False,
+            adoption_policy="user_authorized_pipeline",
+            authorization_confirmed=True,
         )
 
     async def test_start_deep_import_force_enqueues_after_duplicate_confirmation(
@@ -834,6 +837,7 @@ class TestImportFacadeDeepImportCompatibility:
                 start_chapter=1,
                 end_chapter=5,
                 force=True,
+                authorization_confirmed=True,
             )
 
         assert result == expected
@@ -848,6 +852,8 @@ class TestImportFacadeDeepImportCompatibility:
             5,
             force=True,
             high_quality=False,
+            adoption_policy="user_authorized_pipeline",
+            authorization_confirmed=True,
         )
 
     async def test_resume_deep_import_with_valid_prev_task_reuses_original_task(
@@ -1021,7 +1027,12 @@ class TestImportApi:
         """POST /api/imports/deep end_chapter < start_chapter 应返回 422"""
         resp = await async_client.post(
             "/api/imports/deep",
-            json={"novel_id": str(uuid.uuid4()), "start_chapter": 5, "end_chapter": 3},
+            json={
+                "novel_id": str(uuid.uuid4()),
+                "start_chapter": 5,
+                "end_chapter": 3,
+                "authorization_confirmed": True,
+            },
         )
         assert resp.status_code == 422
         assert "end_chapter must be >= start_chapter" in resp.text

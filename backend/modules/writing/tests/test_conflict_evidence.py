@@ -42,7 +42,7 @@ def test_snapshot_location_keeps_lightweight_evidence() -> None:
         source_excerpt="粮仓起火：待确认",
         open_target={"kind": "map_object", "map_id": "map-1", "observation_id": "obs-1"},
         text_range={"start": 1, "end": 9},
-        needs_review_reason="依赖待确认地图观察",
+        needs_review_reason="依赖待处理地图观察",
     )
 
     trimmed = snapshot_location(location)
@@ -50,6 +50,6 @@ def test_snapshot_location_keeps_lightweight_evidence() -> None:
     assert trimmed == {
         "source": location["source"],
         "open_target": location["open_target"],
-        "needs_review_reason": "依赖待确认地图观察",
+        "needs_review_reason": "依赖待处理地图观察",
     }
     assert "text_range" not in trimmed

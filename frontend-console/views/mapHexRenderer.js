@@ -274,7 +274,7 @@ export function drawPendingBindings(ctx, pendingBindings, size, offsetX, offsetY
 }
 
 /**
- * 绘制待确认地点绑定（独立图层，弱化虚线 + 待确认标识）。
+ * 绘制待处理地点绑定（独立图层，弱化虚线 + 待处理标识）。
  */
 export function drawCandidateBindings(ctx, bindings, size, offsetX, offsetY, getOpacity = null) {
   for (const binding of bindings || []) {
@@ -362,7 +362,7 @@ export function drawCandidateMarkers(ctx, markers, size, offsetX, offsetY) {
     ctx.font = "10px sans-serif"
     ctx.textAlign = "center"
     ctx.textBaseline = "bottom"
-    ctx.fillText("待确认", x, y - style.radius - 2)
+    ctx.fillText("待处理", x, y - style.radius - 2)
   }
 }
 

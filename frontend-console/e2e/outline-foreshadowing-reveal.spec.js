@@ -214,7 +214,7 @@ test.describe("Outline View — 伏笔与揭示", () => {
     await page.locator('[data-action="apply-outline-structure-filters"]').click()
     await expect(page.locator(SEL.dataTable)).toContainText("导入伏笔")
     await expect(page.locator(SEL.dataTable)).toContainText("深度导入")
-    await expect(page.locator(SEL.dataTable)).toContainText("需复核")
+    await expect(page.locator(SEL.dataTable)).toContainText("需要人工检查")
     await expect(page.locator(SEL.dataTable)).not.toContainText("人工伏笔")
 
     await page.locator('[data-action="nav-reveals"]').click()
@@ -225,7 +225,7 @@ test.describe("Outline View — 伏笔与揭示", () => {
     await page.locator('[data-action="apply-outline-structure-filters"]').click()
     await expect(page.locator(SEL.dataTable)).toContainText("导入揭示")
     await expect(page.locator(SEL.dataTable)).toContainText("深度导入")
-    await expect(page.locator(SEL.dataTable)).toContainText("需复核")
+    await expect(page.locator(SEL.dataTable)).toContainText("需要人工检查")
     await expect(page.locator(SEL.dataTable)).not.toContainText("人工揭示")
   })
 })

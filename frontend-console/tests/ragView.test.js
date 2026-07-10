@@ -202,9 +202,22 @@ describe("ragView", () => {
           cutoff_offset: 320,
         }),
         scopes: ["manuscript", "outline"],
+        include_pending_objects: false,
       }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
+  })
+
+  it("待处理世界对象必须显式勾选才进入智能检索", () => {
+    document.body.innerHTML = `
+      <input type="checkbox" id="rag-include-pending" checked />
+      <input type="checkbox" data-search-scope="world" checked />
+    `
+
+    expect(ragView._buildEvidencePayload("星门")).toMatchObject({
+      scopes: ["world"],
+      include_pending_objects: true,
+    })
   })
 
   it("字面搜索锁定正文范围", () => {
@@ -372,7 +385,7 @@ describe("ragView", () => {
       await ragView._rebuildIndex()
 
       expect(api.tasks.get).not.toHaveBeenCalled()
-      expect(document.getElementById("rag-rebuild-progress")?.innerHTML).toContain("暂无可索引草稿")
+      expect(document.getElementById("rag-rebuild-progress")?.innerHTML).toContain("暂无可索引工作稿")
     })
 
     it("onEnter 恢复未完成的 RAG 重建任务", async () => {

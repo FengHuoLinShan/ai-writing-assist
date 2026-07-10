@@ -98,11 +98,31 @@ async def service(chapters):
     svc._dedup_service = mock.AsyncMock()
     svc._dedup_service.find_similar_entities.return_value = []
     svc._entity_repo = mock.AsyncMock()
-    mock_entity = mock.MagicMock()
-    mock_entity.id = uuid.uuid4()
-    mock_entity.name = "白砚"
-    mock_entity.entity_type = "character"
-    svc._entity_repo.create.return_value = mock_entity
+    svc._suggestion_queue = mock.AsyncMock()
+    created_entities: list[SimpleNamespace] = []
+    entities_by_id: dict[str, SimpleNamespace] = {}
+
+    async def _create_suggestion(_db, *, payload, **_kwargs):
+        entity = SimpleNamespace(
+            id=uuid.uuid4(),
+            name=payload.name,
+            entity_type=payload.entity_type,
+        )
+        created_entities.append(entity)
+        entities_by_id[str(entity.id)] = entity
+        return (
+            SimpleNamespace(id=str(uuid.uuid4())),
+            SimpleNamespace(id=str(entity.id)),
+        )
+
+    async def _get_entity(_db, entity_id):
+        return entities_by_id.get(str(entity_id))
+
+    svc._suggestion_queue.create_core_entity_suggestion.side_effect = (
+        _create_suggestion
+    )
+    svc._entity_repo.get.side_effect = _get_entity
+    svc._test_created_entities = created_entities
     return svc
 
 
@@ -417,7 +437,7 @@ class TestEntityExtractionService:
         # Assert
         assert result.total_skipped == 1
         assert result.total_created == 0
-        assert service._entity_repo.create.call_count == 0
+        assert service._suggestion_queue.create_core_entity_suggestion.call_count == 0
         assert not any(
             call.kwargs.get("is_query") is False
             for call in mock_llm_client.return_value.generate_embedding.call_args_list
@@ -647,18 +667,6 @@ class TestEntityExtractionService:
 
         instance.generate_embedding.side_effect = _mismatched_batch
 
-        created_entities: list[SimpleNamespace] = []
-
-        async def _create_entity(_db, _novel_id, entity_data):
-            entity = SimpleNamespace(
-                id=uuid.uuid4(),
-                name=entity_data.name,
-                entity_type=entity_data.entity_type,
-            )
-            created_entities.append(entity)
-            return entity
-
-        service._entity_repo.create.side_effect = _create_entity
         mock_get_context.return_value = WorldContextBundle(
             novel_id="test",
             entities=[],
@@ -681,7 +689,10 @@ class TestEntityExtractionService:
             call.kwargs["query_embedding"]
             for call in service._dedup_service.find_similar_entities.call_args_list
         ] == [None, None]
-        assert all(not hasattr(entity, "embedding") for entity in created_entities)
+        assert all(
+            not hasattr(entity, "embedding")
+            for entity in service._test_created_entities
+        )
 
     @mock.patch("modules.world.facade.find_entity_id_by_name")
     @mock.patch("modules.world.facade.get_world_context")
@@ -819,7 +830,7 @@ class TestEntityExtractionService:
         # Assert
         assert result.total_skipped == 1
         assert result.total_created == 0
-        assert service._entity_repo.create.call_count == 0
+        assert service._suggestion_queue.create_core_entity_suggestion.call_count == 0
 
     @mock.patch("modules.world.facade.find_entity_id_by_name")
     @mock.patch("modules.world.facade.get_world_context")

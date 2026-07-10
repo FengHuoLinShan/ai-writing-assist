@@ -239,6 +239,7 @@ class TestPlotStructureGenerator:
                 workflow_id="wf-structure",
                 context_mode="working",
                 include_pending_objects=True,
+                persist=True,
             )
 
         for model in (PlotThread, OutlineArc, ForeshadowingPlan, RevealPlan):
@@ -308,6 +309,7 @@ class TestPlotStructureGenerator:
                 sample_novel_id,
                 start_chapter=1,
                 end_chapter=10,
+                persist=True,
             )
 
         assert result["total_threads"] == 2
@@ -415,6 +417,7 @@ class TestPlotStructureGenerator:
                 sample_novel_id,
                 start_chapter=1,
                 end_chapter=3,
+                persist=True,
             )
 
         assert result["total_scenes"] == 2

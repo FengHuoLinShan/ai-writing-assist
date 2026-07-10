@@ -468,6 +468,15 @@ class EntityDedupService:
                 ),
                 status_code=422,
             )
+        candidate_meta = dict((candidate.content_json or {}).get("_meta") or {})
+        if candidate_meta.get("compatibility_shadow") is True and candidate_meta.get(
+            "suggestion_id"
+        ):
+            raise DomainValidationError(
+                "Suggestion compatibility entities must be resolved through the "
+                "authoritative suggestion queue",
+                status_code=409,
+            )
 
         # 2. 别名继承
         aliases_inherited = await self._inherit_aliases(db, candidate, target)

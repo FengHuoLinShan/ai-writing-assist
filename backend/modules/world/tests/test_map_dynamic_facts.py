@@ -175,6 +175,12 @@ async def test_dashboard_includes_candidate_queue_inspector_and_batch_groups(
         },
     )
     assert create_resp.status_code == 201, create_resp.text
+    conflict_resp = await async_client.patch(
+        f"/api/world/maps/{map_id}/observations/{create_resp.json()['id']}",
+        params={"novel_id": nid},
+        json={"review_state": "conflicted"},
+    )
+    assert conflict_resp.status_code == 200, conflict_resp.text
 
     resp = await async_client.get(
         f"/api/world/maps/{map_id}/dashboard",
@@ -186,12 +192,20 @@ async def test_dashboard_includes_candidate_queue_inspector_and_batch_groups(
     assert body["title"] == "世界动态总控台"
     assert body["dynamic_queue"][0]["title"] == "洛阳外城"
     assert body["dynamic_queue"][0]["item_kind"] == "observation"
-    assert body["dynamic_queue"][0]["status_label"] == "待确认"
+    assert body["dynamic_queue"][0]["status_label"] == "待处理"
+    assert body["dynamic_queue"][0]["display_state"] == "review"
+    assert body["dynamic_queue"][0]["attention_reasons"] == ["low_confidence"]
     assert body["dynamic_queue"][0]["risk_level"] == "danger"
     assert body["first_visual_layer"]["main_crisis"] == "洛阳外城"
     assert body["inspector"]["ai_candidates"][0]["title"] == "洛阳外城"
     assert body["batch_groups"][0]["group_label"] == "地点"
-    assert "洛阳外城：待确认" in body["risk_summary"]
+    assert body["batch_groups"][0]["candidate_count"] == 2
+    conflicted_item = next(
+        item for item in body["dynamic_queue"] if item["title"] == "偏门哨塔"
+    )
+    assert conflicted_item["status_label"] == "待处理"
+    assert conflicted_item["attention_reasons"] == ["conflict"]
+    assert "洛阳外城：待处理" in body["risk_summary"]
 
     facts = await async_client.get(
         f"/api/world/maps/{map_id}/facts",
@@ -263,7 +277,7 @@ async def test_dashboard_formats_deep_import_delta_candidates_for_authors(
     assert item["type_label"] == "概念"
     assert (
         item["source_summary"]
-        == "deep_import_delta_event · 对象候选：公务员考试制度（concept）："
+        == "deep_import_delta_event · 对象建议：公务员考试制度（concept）："
         "克莱恩在塔罗会提出的政治改革方案。"
     )
     assert "entities[4]" not in item["source_summary"]
@@ -277,8 +291,7 @@ async def test_dashboard_formats_deep_import_delta_candidates_for_authors(
     event = playback_resp.json()["events"][0]
     assert event["title"] == "公务员考试制度"
     assert event["change_summary"] == (
-        "对象候选：公务员考试制度（concept）："
-        "克莱恩在塔罗会提出的政治改革方案。"
+        "对象建议：公务员考试制度（concept）：克莱恩在塔罗会提出的政治改革方案。"
     )
 
 
@@ -324,7 +337,7 @@ async def test_dashboard_uses_scalar_delta_candidate_as_title(
     assert resp.status_code == 200, resp.text
     item = resp.json()["dynamic_queue"][0]
     assert item["title"] == "离奇自杀事件"
-    assert item["source_summary"] == "deep_import_delta_event · 对象候选：离奇自杀事件"
+    assert item["source_summary"] == "deep_import_delta_event · 对象建议：离奇自杀事件"
 
     playback_resp = await async_client.get(
         f"/api/world/maps/{map_id}/playback",
@@ -379,7 +392,7 @@ async def test_dashboard_uses_named_delta_field_as_title(
     item = resp.json()["dynamic_queue"][0]
     assert item["title"] == "序列途径"
     assert item["object_type"] == "entity_candidate"
-    assert item["type_label"] == "对象候选"
+    assert item["type_label"] == "对象建议"
     assert item["source_summary"] == (
         "deep_import_delta_event · 序列途径：summary："
         "魔药序列的晋升途径，每途径有多个序列。"
@@ -428,7 +441,7 @@ async def test_dashboard_uses_scalar_when_delta_field_is_technical(
     assert resp.status_code == 200, resp.text
     item = resp.json()["dynamic_queue"][0]
     assert item["title"] == "占卜家扮演法"
-    assert item["type_label"] == "对象候选"
+    assert item["type_label"] == "对象建议"
 
 
 @pytest.mark.asyncio
@@ -474,7 +487,7 @@ async def test_dashboard_formats_entity_updated_delta_title(
     item = resp.json()["dynamic_queue"][0]
     assert item["title"] == "普利兹号的状态"
     assert item["object_type"] == "entity_candidate"
-    assert item["type_label"] == "对象候选"
+    assert item["type_label"] == "对象建议"
     assert item["source_summary"] == (
         "deep_import_delta_event · 普利兹号的状态：未下水 → 已下水并试射"
     )
@@ -941,9 +954,7 @@ async def test_batch_review_and_fact_status_soft_updates_dashboard_and_playback(
         f"/api/world/maps/{map_id}/dashboard",
         params={"novel_id": nid},
     )
-    dashboard_ids = [
-        item["item_id"] for item in dashboard_after.json()["dynamic_queue"]
-    ]
+    dashboard_ids = [item["item_id"] for item in dashboard_after.json()["dynamic_queue"]]
     assert fact_id not in dashboard_ids
 
     playback_after = await async_client.get(
@@ -1002,10 +1013,7 @@ async def test_batch_review_ignore_updates_observations_in_one_statement(
         _executemany: bool,
     ) -> None:
         normalized = " ".join(statement.lower().split())
-        if (
-            normalized.startswith("select")
-            and " from map_observations" in normalized
-        ):
+        if normalized.startswith("select") and " from map_observations" in normalized:
             observation_selects.append(normalized)
         if normalized.startswith("update map_observations"):
             observation_updates.append(normalized)
@@ -1074,10 +1082,7 @@ async def test_batch_review_confirm_reuses_prefetched_observations(
         _executemany: bool,
     ) -> None:
         normalized = " ".join(statement.lower().split())
-        if (
-            normalized.startswith("select")
-            and " from map_observations" in normalized
-        ):
+        if normalized.startswith("select") and " from map_observations" in normalized:
             observation_selects.append(normalized)
         if normalized.startswith("update map_observations"):
             observation_updates.append(normalized)
@@ -1357,7 +1362,7 @@ async def test_playback_derives_typed_tracks_from_facts_and_candidates(
     assert body["events"][0]["change_summary"] == "位置：东门 → 内城"
     assert body["events"][1]["typed_observation"] == "crisis_spread"
     assert body["events"][1]["track"] == "crisis"
-    assert body["events"][1]["status_label"] == "待确认"
+    assert body["events"][1]["status_label"] == "待处理"
 
     confirmed_only = await async_client.get(
         f"/api/world/maps/{map_id}/playback",

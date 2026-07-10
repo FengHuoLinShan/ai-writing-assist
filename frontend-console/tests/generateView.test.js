@@ -129,7 +129,7 @@ describe("generateView chatbox", () => {
     expect(html).toContain("编辑模板")
     expect(html).toContain("高质量")
     expect(html).toContain("直接聊，或把其他 Chatbox 的完整讨论粘贴到这里")
-    expect(html).toContain("生成对象（数据库草稿）")
+    expect(html).toContain("生成世界对象建议")
     expect(html).toContain("自由对话")
     expect(html).toContain("角色视角正文")
     expect(html).toContain("任务")
@@ -145,7 +145,7 @@ describe("generateView chatbox", () => {
 
     generateView._mountTopbarNote()
 
-    expect(document.getElementById("topbar-generate-note")?.textContent).toBe("先自由聊，确定后再生成数据库草稿。")
+    expect(document.getElementById("topbar-generate-note")?.textContent).toBe("先自由聊，确定后再生成待处理建议。")
 
     generateView.onLeave()
 
@@ -872,14 +872,14 @@ describe("generateView POV prose tab", () => {
 
     expect(api.context.confirm).toHaveBeenCalledWith(expect.objectContaining({
       action: "writing.generate",
-      task: "基于所选 Scene 和 POV 角色有限认知，生成正文候选草稿",
+      task: "基于所选 Scene 和 POV 角色有限认知，生成正文建议预览",
       scope: "chapter",
       chapter_index: 1,
       scene_id: "scene-1",
       reveal_mode: "character",
       viewpoint_character_id: "char-1",
       character_ids: ["char-1"],
-      include_pending_objects: true,
+      include_pending_objects: false,
     }))
     expect(api.writing.generate).toHaveBeenCalledWith(expect.objectContaining({
       novel_id: "p1",
@@ -983,7 +983,7 @@ describe("generateView context integration", () => {
     expect(api.context.compile).toHaveBeenCalledWith(
       expect.objectContaining({
         novel_id: "p1",
-        task: "基于当前聊天和模板生成对象草稿",
+        task: "基于当前聊天和模板生成世界对象建议",
         messages: [{ role: "user", content: "设计一个反派" }],
       }),
       expect.anything(),

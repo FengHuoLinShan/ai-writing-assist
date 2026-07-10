@@ -25,21 +25,109 @@ import {
   normalizeTaskProgress,
   persistActiveWorkflow,
   pollTaskProgress,
+  recoverActiveWorkflows,
 } from "../shared/workflowProgress.js"
 import { renderWorkflowCard } from "../shared/progressRenderer.js"
+import {
+  assetAttentionReasons,
+  displayStateBadgeClass,
+  structureAssetDisplay,
+} from "../shared/assetDisplayState.js"
+import { importAuthorizationNotice, importAuthorizationPayload } from "../shared/importAuthorization.js"
 
 const SCENE_ALLOWED_TAGS = new Set(["draft", "hook", "inciting_incident", "rising_action", "climax", "valley", "transition", "payoff"])
 const ENTITY_ALLOWED_STATUSES = new Set(["canonical", "draft", "candidate", "deprecated"])
 const FORESHADOWING_STATUSES = ["draft", "planted", "triggered", "resolved", "abandoned"]
 const REVEAL_STATUSES = ["draft", "planned", "revealed", "resolved", "abandoned"]
 
-const FORESHADOWING_STATUS_LABELS = { draft: "草稿", planted: "已埋下", triggered: "已触发", resolved: "已兑现", abandoned: "已废弃" }
-const REVEAL_STATUS_LABELS = { draft: "草稿", planned: "计划中", revealed: "已揭示", resolved: "已解决", abandoned: "已废弃" }
+const FORESHADOWING_STATUS_LABELS = { draft: "工作稿", planted: "已埋下", triggered: "已触发", resolved: "已兑现", abandoned: "历史" }
+const REVEAL_STATUS_LABELS = { draft: "工作稿", planned: "计划中", revealed: "已揭示", resolved: "已解决", abandoned: "历史" }
 const STRUCTURE_FILTER_DEFAULTS = { status: "", source: "", workflow_id: "", needs_review: "", skip: 0, limit: 50 }
 const STRUCTURE_SOURCE_OPTIONS = [
   ["deep_import", "深度导入"],
   ["manual", "手动"],
   ["ai_generated", "AI 生成"],
+]
+
+const OUTLINE_PREVIEW_SECTIONS = [
+  {
+    key: "threads",
+    label: "剧情线",
+    fields: [
+      ["name", "名称", "text"],
+      ["summary", "摘要", "textarea"],
+      ["visible_goal", "表层目标", "textarea"],
+      ["hidden_truth", "隐藏真相", "textarea"],
+      ["start_chapter", "起始章节", "number"],
+      ["planned_payoff_chapter", "计划收束章节", "number"],
+    ],
+  },
+  {
+    key: "arcs",
+    label: "篇章纲",
+    fields: [
+      ["title", "标题", "text"],
+      ["arc_goal", "篇章目标", "textarea"],
+      ["core_conflict", "核心冲突", "textarea"],
+      ["start_chapter", "起始章节", "number"],
+      ["end_chapter", "结束章节", "number"],
+    ],
+  },
+  {
+    key: "scenes",
+    label: "Scene",
+    fields: [
+      ["title", "标题", "text"],
+      ["goal", "目标", "textarea"],
+      ["core_conflict", "核心冲突", "textarea"],
+      ["must_happen", "必须发生", "textarea"],
+      ["must_not_happen", "禁止发生", "textarea"],
+      ["chapter_start", "起始章节", "number"],
+      ["chapter_end", "结束章节", "number"],
+    ],
+  },
+  {
+    key: "foreshadowing_plans",
+    label: "伏笔",
+    fields: [
+      ["name", "名称", "text"],
+      ["summary", "摘要", "textarea"],
+      ["planned_seed_chapter", "计划埋下章节", "number"],
+      ["planned_payoff_chapter", "计划兑现章节", "number"],
+    ],
+  },
+  {
+    key: "reveal_plans",
+    label: "揭示",
+    fields: [
+      ["target_name", "揭示对象", "text"],
+      ["secret_summary", "秘密摘要", "textarea"],
+    ],
+  },
+  {
+    key: "offscreen_progress",
+    label: "幕后进展",
+    fields: [
+      ["thread_name", "关联剧情线", "text"],
+      ["offscreen_description", "幕后进展", "textarea"],
+    ],
+  },
+  {
+    key: "risks",
+    label: "风险",
+    fields: [
+      ["risk_type", "风险类型", "text"],
+      ["description", "说明", "textarea"],
+    ],
+  },
+  {
+    key: "questions_for_user",
+    label: "待作者决定",
+    fields: [
+      ["question", "问题", "textarea"],
+      ["context", "背景", "textarea"],
+    ],
+  },
 ]
 
 const outlineView = {
@@ -61,6 +149,11 @@ const outlineView = {
   _plotAutoExtractProgress: null,
   _plotAutoExtractPoller: null,
   _plotAutoExtractMeta: null,
+  _outlineGenerateTaskId: null,
+  _outlineGenerateProgress: null,
+  _outlineGeneratePoller: null,
+  _outlineGenerateMeta: null,
+  _outlineGeneratePreview: null,
   _bulkSelections: {},
 
   async onEnter() {
@@ -94,7 +187,8 @@ const outlineView = {
       promises.push(
         api.outline.listThreads(state.currentProjectId, filterParams)
           .then((data) => {
-            this._threads = data.items || data || []
+            const items = data.items || data || []
+            this._threads = filterParams.status ? items : items.filter((item) => !structureAssetDisplay(item).isHistory)
             this._structureTotals.threads = Number(data.total ?? this._threads.length) || 0
           })
           .catch(() => { this._threads = []; this._structureTotals.threads = 0 })
@@ -104,7 +198,8 @@ const outlineView = {
       promises.push(
         api.outline.listArcs(state.currentProjectId, filterParams)
           .then((data) => {
-            this._arcs = data.items || data || []
+            const items = data.items || data || []
+            this._arcs = filterParams.status ? items : items.filter((item) => !structureAssetDisplay(item).isHistory)
             this._structureTotals.arcs = Number(data.total ?? this._arcs.length) || 0
           })
           .catch(() => { this._arcs = []; this._structureTotals.arcs = 0 })
@@ -114,7 +209,8 @@ const outlineView = {
       promises.push(
         api.outline.listForeshadowing(state.currentProjectId, filterParams)
           .then((data) => {
-            this._foreshadowing = data.items || data || []
+            const items = data.items || data || []
+            this._foreshadowing = filterParams.status ? items : items.filter((item) => !structureAssetDisplay(item).isHistory)
             this._structureTotals.foreshadowing = Number(data.total ?? this._foreshadowing.length) || 0
           })
           .catch(() => { this._foreshadowing = []; this._structureTotals.foreshadowing = 0 })
@@ -124,7 +220,8 @@ const outlineView = {
       promises.push(
         api.outline.listReveals(state.currentProjectId, filterParams)
           .then((data) => {
-            this._reveals = data.items || data || []
+            const items = data.items || data || []
+            this._reveals = filterParams.status ? items : items.filter((item) => !structureAssetDisplay(item).isHistory)
             this._structureTotals.reveals = Number(data.total ?? this._reveals.length) || 0
           })
           .catch(() => { this._reveals = []; this._structureTotals.reveals = 0 })
@@ -134,11 +231,13 @@ const outlineView = {
     if (promises.length > 0) {
       await Promise.all(promises)
     }
+    this._recoverOutlineGenerateWorkflow()
     this._loading = false
   },
 
   onLeave() {
     this._stopPlotAutoExtractPolling()
+    this._stopOutlineGeneratePolling()
   },
 
   onActivate() {
@@ -209,7 +308,114 @@ const outlineView = {
     }
 
     setTimeout(() => this._bindEvents(), 0)
-    return this._renderPlotAutoExtractProgress() + html
+    return this._renderOutlineGenerateProgress() + this._renderPlotAutoExtractProgress() + html
+  },
+
+  _renderOutlineGenerateProgress() {
+    if (!this._outlineGenerateProgress) return ""
+    const rangeText = this._outlineGenerateMeta
+      ? `范围: 章节 ${this._outlineGenerateMeta.start_chapter || 1}-${this._outlineGenerateMeta.end_chapter || 10}`
+      : "范围: 所选章节"
+    const reviewAction = this._outlineGeneratePreview
+      ? `<div class="outline-preview-ready" role="status">
+          <span>建议尚未写入工作结构。请先检查和编辑，再明确采用。</span>
+          <button class="btn btn-sm btn-primary" data-action="view-outline-generate-preview">查看并采用</button>
+        </div>`
+      : ""
+    return `<div class="outline-progress-card-wrap">${renderWorkflowCard(this._outlineGenerateProgress, {
+      title: "剧情结构建议",
+      destinationLabel: rangeText,
+    })}${reviewAction}</div>`
+  },
+
+  _stopOutlineGeneratePolling() {
+    if (this._outlineGeneratePoller?.stop) this._outlineGeneratePoller.stop()
+    this._outlineGeneratePoller = null
+  },
+
+  _recoverOutlineGenerateWorkflow() {
+    if (!state.currentProjectId || this._outlineGeneratePreview || this._outlineGeneratePoller) return
+    const workflow = recoverActiveWorkflows(state.currentProjectId)
+      .find((item) => item.workflowType === "outline_generate")
+    if (!workflow?.taskId) return
+    this._outlineGenerateTaskId = workflow.taskId
+    this._outlineGenerateMeta = { ...(workflow.meta || {}) }
+    this._outlineGenerateProgress = this._outlineGenerateProgress || normalizeTaskProgress({
+      id: workflow.taskId,
+      task_id: workflow.taskId,
+      task_type: "outline_generate",
+      status: "pending",
+      meta: workflow.meta || {},
+    }, "outline_generate")
+    this._startOutlineGeneratePolling(workflow.taskId)
+  },
+
+  _startOutlineGeneratePolling(taskId) {
+    this._stopOutlineGeneratePolling()
+    this._outlineGeneratePoller = pollTaskProgress({
+      taskId,
+      workflowType: "outline_generate",
+      apiClient: api,
+      onUpdate: (progress) => {
+        this._outlineGenerateProgress = progress
+        router.renderCurrentView()
+      },
+      onDone: (progress, task) => {
+        this._outlineGeneratePoller = null
+        this._outlineGenerateProgress = progress
+        const preview = this._captureOutlineGeneratePreview(task, progress)
+        if (preview) {
+          toast("剧情结构建议已生成，请检查后再采用", "info")
+        } else {
+          clearActiveWorkflow(progress.taskId || taskId)
+          this._outlineGenerateTaskId = null
+          toast("剧情结构生成完成，但没有可采用的建议", "info")
+        }
+        router.renderCurrentView()
+      },
+      onFailed: (progress) => {
+        this._outlineGeneratePoller = null
+        this._outlineGenerateProgress = progress
+        clearActiveWorkflow(progress.taskId || taskId)
+        this._outlineGenerateTaskId = null
+        toast(`剧情结构建议生成失败: ${progress.errorMessage || "未知错误"}`, "error")
+        router.renderCurrentView()
+      },
+    })
+  },
+
+  _captureOutlineGeneratePreview(task, progress = this._outlineGenerateProgress) {
+    if (task?.task_type && task.task_type !== "outline_generate") {
+      this._outlineGeneratePreview = null
+      return null
+    }
+    const result = task?.result || progress?.raw?.result || {}
+    if (result.apply_status === "applied" || result.requires_apply !== true || !result.draft_structure) {
+      this._outlineGeneratePreview = null
+      return null
+    }
+    const sourceTaskId = result.source_task_id || task?.task_id || task?.id || progress?.taskId || this._outlineGenerateTaskId
+    const contextConfirmationId = result.context_confirmation_id || this._outlineGenerateMeta?.context_confirmation_id
+    if (!sourceTaskId || !contextConfirmationId) {
+      this._outlineGeneratePreview = null
+      return null
+    }
+    this._outlineGenerateTaskId = sourceTaskId
+    this._outlineGeneratePreview = {
+      sourceTaskId,
+      contextConfirmationId,
+      draftStructure: JSON.parse(JSON.stringify(result.draft_structure)),
+      warnings: Array.isArray(result.warnings) ? result.warnings : [],
+    }
+    return this._outlineGeneratePreview
+  },
+
+  _resetOutlineGenerateState() {
+    this._stopOutlineGeneratePolling()
+    this._outlineGenerateTaskId = null
+    this._outlineGenerateProgress = null
+    this._outlineGenerateMeta = null
+    this._outlineGeneratePreview = null
   },
 
   _renderPlotAutoExtractProgress() {
@@ -277,9 +483,9 @@ const outlineView = {
       transition: "过渡",
       hook: "钩子",
       payoff: "爽点",
-      draft: "草稿",
+      draft: "未标注",
     }
-    return map[tag] || tag || "草稿"
+    return map[tag] || tag || "未标注"
   },
 
   _structureFilterFor(subView = state.currentSubView || "threads") {
@@ -314,10 +520,10 @@ const outlineView = {
       return REVEAL_STATUSES.map((status) => [status, REVEAL_STATUS_LABELS[status] || status])
     }
     return [
-      ["canonical", "正史"],
-      ["draft", "草稿"],
-      ["candidate", "候选"],
-      ["deprecated", "废弃"],
+      ["canonical", "已采用"],
+      ["draft", "工作稿"],
+      ["candidate", "待处理"],
+      ["deprecated", "历史"],
     ]
   },
 
@@ -331,7 +537,7 @@ const outlineView = {
           <span>Workflow</span>
           <input class="form-input" id="outline-filter-workflow-id" value="${esc(filters.workflow_id)}" placeholder="workflow_id" />
         </label>
-        ${this._structureFilterSelect("outline-filter-needs-review", "复核", filters.needs_review, [["true", "需复核"], ["false", "无需复核"]], "全部复核")}
+        ${this._structureFilterSelect("outline-filter-needs-review", "注意", filters.needs_review, [["true", "需要人工检查"], ["false", "无注意项"]], "全部注意原因")}
         <div class="scene-filter-actions">
           <button class="btn btn-sm btn-primary" data-action="apply-outline-structure-filters">应用</button>
           <button class="btn btn-sm" data-action="reset-outline-structure-filters">重置</button>
@@ -384,7 +590,9 @@ const outlineView = {
     if (source === "deep_import") badges.push('<span class="badge badge-info">深度导入</span>')
     else if (source === "manual") badges.push('<span class="badge">手动</span>')
     else if (source) badges.push(`<span class="badge">${esc(source)}</span>`)
-    if (meta.needs_review === true) badges.push('<span class="badge badge-warning">需复核</span>')
+    for (const reason of assetAttentionReasons(asset)) {
+      badges.push(`<span class="badge badge-warning">${esc(reason)}</span>`)
+    }
     if (meta.phase) badges.push(`<span class="badge">${esc(meta.phase)}</span>`)
     return badges.length ? `<div class="structure-asset-badges">${badges.join("")}</div>` : ""
   },
@@ -401,11 +609,12 @@ const outlineView = {
     const id = thread?.id || thread?.thread_id
     if (!id) return ""
     const review = this._structureReviewState(thread)
-    if (review.reviewed) {
-      return `<button class="btn btn-sm" data-action="mark-thread-unreviewed" data-id="${esc(id)}">取消复核</button>`
-    }
+    if (review.reviewed) return ""
+    const display = structureAssetDisplay(thread)
+    if (display.displayState === "active" && !review.needsReview) return ""
     const primary = review.needsReview ? "btn-primary" : ""
-    return `<button class="btn btn-sm ${primary}" data-action="mark-thread-reviewed" data-id="${esc(id)}">复核通过</button>`
+    const label = display.displayState === "active" ? "标记已检查" : "采用"
+    return `<button class="btn btn-sm ${primary}" data-action="mark-thread-reviewed" data-id="${esc(id)}">${label}</button>`
   },
 
   _reviewThreadPayload(thread, reviewedFrom) {
@@ -488,7 +697,7 @@ const outlineView = {
     reconcileBulkSelection(this, scope, ids)
 
     html += renderBulkToolbar(this, scope, [
-      { action: "review-threads", label: "批量复核通过", className: "btn-primary" },
+      { action: "review-threads", label: "批量采用 / 标记已检查", className: "btn-primary" },
       { action: "delete-threads", label: "批量删除", className: "btn-danger" },
     ], { noun: "剧情线" }) + `
       <table class="data-table table-card-list">
@@ -509,13 +718,13 @@ const outlineView = {
     const allowedStatuses = ENTITY_ALLOWED_STATUSES
 
     for (const t of this._threads) {
-      const statusMap = { canonical: "正史", draft: "草稿", candidate: "候选", deprecated: "废弃" }
       const safeStatus = allowedStatuses.has(t.status) ? t.status : "draft"
-      const statusClass = `badge-${safeStatus}`
+      const display = structureAssetDisplay({ ...t, status: safeStatus })
+      const statusClass = displayStateBadgeClass(display.displayState)
       html += `
         <tr class="outline-structure-row" data-id="${esc(t.id || t.thread_id)}">
           <td class="selection-cell">${renderSelectionCell(this, scope, t.id || t.thread_id, `选择 ${t.name || t.title || "剧情线"}`)}</td>
-          <td data-label="状态"><span class="badge ${statusClass}">${statusMap[safeStatus] || esc(safeStatus)}</span></td>
+          <td data-label="状态"><span class="badge ${statusClass}">${esc(display.label)}</span></td>
           <td data-label="名称">${esc(t.name || t.title)}</td>
           <td data-label="类型" class="outline-asset-meta">${esc(t.thread_type || "-")}</td>
           <td data-label="标记">${this._renderStructureAssetBadges(t) || "-"}</td>
@@ -577,16 +786,16 @@ const outlineView = {
     const allowedStatuses = ENTITY_ALLOWED_STATUSES
 
     for (const a of this._arcs) {
-      const statusMap = { canonical: "正史", draft: "草稿", candidate: "候选", deprecated: "废弃" }
       const safeStatus = allowedStatuses.has(a.status) ? a.status : "draft"
-      const statusClass = `badge-${safeStatus}`
+      const display = structureAssetDisplay({ ...a, status: safeStatus })
+      const statusClass = displayStateBadgeClass(display.displayState)
       const range = a.start_chapter != null && a.end_chapter != null
         ? `${a.start_chapter}-${a.end_chapter}`
         : "-"
       html += `
         <tr class="outline-structure-row" data-id="${esc(a.id || a.arc_id)}">
           <td class="selection-cell">${renderSelectionCell(this, scope, a.id || a.arc_id, `选择 ${a.name || a.title || "篇章纲"}`)}</td>
-          <td data-label="状态"><span class="badge ${statusClass}">${statusMap[safeStatus] || esc(safeStatus)}</span></td>
+          <td data-label="状态"><span class="badge ${statusClass}">${esc(display.label)}</span></td>
           <td data-label="名称">${esc(a.name || a.title)}</td>
           <td data-label="章节范围" class="outline-asset-mono">${esc(range)}</td>
           <td data-label="标记">${this._renderStructureAssetBadges(a) || "-"}</td>
@@ -1046,7 +1255,7 @@ const outlineView = {
       state.currentProjectId,
       this._reviewThreadPayload(thread, "outline_threads"),
     )
-    toast("剧情线已标记为已复核", "success")
+    toast(structureAssetDisplay(thread).displayState === "active" ? "剧情线已标记为已检查" : "剧情线已采用", "success")
     await this._refreshCurrentSubViewInPlace()
   },
 
@@ -1061,7 +1270,7 @@ const outlineView = {
       state.currentProjectId,
       this._unreviewThreadPayload(thread),
     )
-    toast("剧情线已标记为需复核", "success")
+    toast("剧情线已标记为需要人工检查", "success")
     await this._refreshCurrentSubViewInPlace()
   },
 
@@ -1162,7 +1371,7 @@ const outlineView = {
 
   _showCreateSceneForm() {
     const tagOptions = [
-      { value: "draft", label: "草稿（默认）" },
+      { value: "draft", label: "未标注（默认）" },
       { value: "hook", label: "钩子" },
       { value: "inciting_incident", label: "激励事件" },
       { value: "rising_action", label: "冲突升级" },
@@ -1241,7 +1450,7 @@ const outlineView = {
     if (!scene) return
 
     const tags = ["draft", "hook", "inciting_incident", "rising_action", "climax", "valley", "transition", "payoff"]
-    const tagLabels = { draft: "草稿", hook: "钩子", inciting_incident: "激励事件", rising_action: "冲突升级", climax: "阶段高潮", valley: "低谷", transition: "过渡", payoff: "爽点" }
+    const tagLabels = { draft: "未标注", hook: "钩子", inciting_incident: "激励事件", rising_action: "冲突升级", climax: "阶段高潮", valley: "低谷", transition: "过渡", payoff: "爽点" }
     const tagSelectHtml = tags.map(
       (t) => `<option value="${t}" ${(scene.narrative_tag || "draft") === t ? "selected" : ""}>${tagLabels[t]}</option>`
     ).join("")
@@ -1321,6 +1530,132 @@ const outlineView = {
     }
   },
 
+  _renderOutlineGeneratePreviewField(sectionKey, index, field) {
+    const [fieldKey, label, type] = field
+    const item = this._outlineGeneratePreview?.draftStructure?.[sectionKey]?.[index] || {}
+    const value = item[fieldKey] ?? ""
+    const attrs = `data-outline-preview-key="${esc(sectionKey)}" data-outline-preview-index="${esc(index)}" data-outline-preview-field="${esc(fieldKey)}" data-outline-preview-type="${esc(type)}"`
+    if (type === "textarea") {
+      return `<label>${esc(label)}<textarea class="form-textarea" rows="2" ${attrs}>${esc(value)}</textarea></label>`
+    }
+    return `<label>${esc(label)}<input class="form-input" type="${type === "number" ? "number" : "text"}" value="${esc(value)}" ${attrs} /></label>`
+  },
+
+  _renderOutlineGeneratePreviewSection(section, sectionIndex) {
+    const items = this._outlineGeneratePreview?.draftStructure?.[section.key] || []
+    if (!items.length) return ""
+    return `
+      <details class="outline-preview-section" ${sectionIndex < 3 ? "open" : ""}>
+        <summary>${esc(section.label)}（${esc(items.length)}）</summary>
+        <div class="outline-preview-items">
+          ${items.map((item, index) => {
+            const title = item.name || item.title || item.target_name || item.thread_name || item.risk_type || item.question || `${section.label} ${index + 1}`
+            return `<section class="outline-preview-item">
+              <h4>${esc(title)}</h4>
+              <div class="outline-preview-fields">
+                ${section.fields.map((field) => this._renderOutlineGeneratePreviewField(section.key, index, field)).join("")}
+              </div>
+            </section>`
+          }).join("")}
+        </div>
+      </details>
+    `
+  },
+
+  _outlinePreviewAttentionText(item) {
+    if (typeof item === "string") return item
+    if (!item || typeof item !== "object") return String(item ?? "")
+    return item.summary || item.description || item.question || item.title || item.name || "有一项需要作者判断"
+  },
+
+  _renderOutlineGeneratePreview() {
+    const preview = this._outlineGeneratePreview
+    if (!preview) return ""
+    const draft = preview.draftStructure || {}
+    const counts = OUTLINE_PREVIEW_SECTIONS
+      .map((section) => [section.label, Array.isArray(draft[section.key]) ? draft[section.key].length : 0])
+      .filter(([, count]) => count > 0)
+    const attentionItems = [
+      ...(preview.warnings || []),
+      ...(Array.isArray(draft.uncertain_items) ? draft.uncertain_items.map((item) => this._outlinePreviewAttentionText(item)) : []),
+    ].filter(Boolean)
+    return `
+      <div class="outline-generate-preview">
+        <div class="outline-preview-notice">
+          <strong>待处理建议</strong>
+          <p>这里的内容尚未写入工作结构。你可以先修改，再点击“采用到工作结构”。</p>
+          <p>${counts.length ? counts.map(([label, count]) => `${esc(label)} ${esc(count)}`).join(" · ") : "没有结构条目"}</p>
+        </div>
+        ${attentionItems.length ? `<section class="outline-preview-attention"><h4>需要注意</h4><ul>${attentionItems.map((item) => `<li>${esc(item)}</li>`).join("")}</ul></section>` : ""}
+        ${OUTLINE_PREVIEW_SECTIONS.map((section, index) => this._renderOutlineGeneratePreviewSection(section, index)).join("")}
+      </div>
+    `
+  },
+
+  _showOutlineGeneratePreview() {
+    if (!this._outlineGeneratePreview) {
+      toast("当前没有可采用的剧情结构建议", "warning")
+      return
+    }
+    showModalHtml("剧情结构建议预览", this._renderOutlineGeneratePreview(), [
+      {
+        text: "采用到工作结构",
+        class: "btn-primary",
+        handler: () => this._applyOutlineGeneratePreview(),
+      },
+      { text: "关闭", class: "btn-ghost", handler: closeModal },
+    ], { size: "full" })
+  },
+
+  _collectEditedOutlineGeneratePreview() {
+    const draft = JSON.parse(JSON.stringify(this._outlineGeneratePreview?.draftStructure || {}))
+    document.querySelectorAll("[data-outline-preview-key]").forEach((field) => {
+      const key = field.dataset.outlinePreviewKey
+      const index = Number(field.dataset.outlinePreviewIndex)
+      const fieldKey = field.dataset.outlinePreviewField
+      if (!Array.isArray(draft[key]) || !draft[key][index] || !fieldKey) return
+      if (field.dataset.outlinePreviewType === "number") {
+        const raw = field.value.trim()
+        const number = raw === "" ? null : Number(raw)
+        if (number !== null && (!Number.isInteger(number) || number < 1)) {
+          throw new Error("章节编号必须是正整数")
+        }
+        draft[key][index][fieldKey] = number
+      } else {
+        draft[key][index][fieldKey] = field.value.trim()
+      }
+    })
+    return draft
+  },
+
+  async _applyOutlineGeneratePreview() {
+    const preview = this._outlineGeneratePreview
+    if (!preview) return false
+    try {
+      const response = await api.outline.applyStructurePreview({
+        novel_id: state.currentProjectId,
+        context_confirmation_id: preview.contextConfirmationId,
+        source_task_id: preview.sourceTaskId,
+        draft_structure: this._collectEditedOutlineGeneratePreview(),
+        confirmed: true,
+      })
+      clearActiveWorkflow(preview.sourceTaskId)
+      this._resetOutlineGenerateState()
+      const counts = [
+        response?.total_threads != null ? `剧情线 ${response.total_threads}` : "",
+        response?.total_arcs != null ? `篇章纲 ${response.total_arcs}` : "",
+        response?.total_scenes != null ? `Scene ${response.total_scenes}` : "",
+      ].filter(Boolean).join(" · ")
+      toast(`剧情结构已采用${counts ? `：${counts}` : ""}`, "success")
+      await this.onEnter()
+      router.refresh()
+      return response
+    } catch (err) {
+      toast(err.message || "采用失败", "error")
+      return false
+    }
+  },
+
   async _generateStructure(startChapter, endChapter) {
     try {
       const confirmation = await confirmAiReference({
@@ -1329,7 +1664,7 @@ const outlineView = {
         task: "剧情结构生成",
         scope: "full",
         chapter_index: startChapter,
-        include_pending_objects: true,
+        include_pending_objects: false,
       })
       const result = await api.outline.generate({
         novel_id: state.currentProjectId,
@@ -1337,9 +1672,30 @@ const outlineView = {
         start_chapter: startChapter,
         end_chapter: endChapter,
       })
-      toast("剧情结构生成任务已提交", "success")
-      await this.onEnter?.()
-      router.refresh()
+      if (!result?.task_id) throw new Error("生成任务未返回任务编号")
+      this._outlineGenerateTaskId = result.task_id
+      this._outlineGenerateMeta = {
+        start_chapter: startChapter,
+        end_chapter: endChapter,
+        context_confirmation_id: confirmation.id,
+      }
+      this._outlineGeneratePreview = null
+      this._outlineGenerateProgress = normalizeTaskProgress({
+        ...result,
+        task_type: "outline_generate",
+        meta: this._outlineGenerateMeta,
+      }, "outline_generate")
+      persistActiveWorkflow({
+        taskId: result.task_id,
+        workflowType: "outline_generate",
+        label: "剧情结构建议",
+        projectId: state.currentProjectId,
+        view: "outline",
+        meta: this._outlineGenerateMeta,
+      })
+      toast("剧情结构建议生成任务已提交", "success")
+      this._startOutlineGeneratePolling(result.task_id)
+      router.renderCurrentView()
       return result
     } catch (err) {
       toast(err.message || "操作失败", "error")
@@ -1373,16 +1729,25 @@ const outlineView = {
         <label>结束章节</label>
         <input class="form-input" id="plot-auto-extract-end" type="number" min="1" value="10" />
       </div>
+      <p class="writing-form-hint" role="note">${esc(importAuthorizationNotice())}</p>
     `
     showModalHtml("剧情线自动提取", formHtml, [{
-      text: "开始提取",
+      text: "确认并开始提取",
       class: "btn-primary",
       handler: async () => {
         const start = parseInt(document.getElementById("plot-auto-extract-start")?.value || "1", 10)
         const end = parseInt(document.getElementById("plot-auto-extract-end")?.value || "10", 10)
         if (end < start) { toast("结束章节必须 ≥ 起始章节", "warning"); return }
         try {
-          const result = await api.imports.startStage("plot_structure", state.currentProjectId, start, end)
+          const result = await api.imports.startStage(
+            "plot_structure",
+            state.currentProjectId,
+            start,
+            end,
+            false,
+            false,
+            importAuthorizationPayload(),
+          )
           this._plotAutoExtractTaskId = result.task_id
           this._plotAutoExtractMeta = { start_chapter: start, end_chapter: end }
           this._plotAutoExtractProgress = normalizeTaskProgress({
@@ -1421,6 +1786,7 @@ const outlineView = {
         <input class="form-input" id="generate-structure-end" type="number" min="1" value="10" />
       </div>
       <div id="generate-structure-warning" class="form-group outline-generate-warning" style="display:none;"></div>
+      <p class="writing-form-hint" role="note">生成结果先作为待处理建议预览，不会直接写入剧情线、篇章纲或 Scene；检查并明确采用后才进入工作结构。</p>
       <div id="generate-structure-confirm-row" class="form-group outline-generate-confirm-row" style="display:none;">
         <label class="outline-generate-confirm-label">
           <input type="checkbox" id="generate-structure-confirm" />
@@ -1429,7 +1795,7 @@ const outlineView = {
       </div>
     `
     showModalHtml("AI 生成剧情结构", formHtml, [{
-      text: "生成", class: "btn-primary", handler: async () => {
+      text: "生成建议", class: "btn-primary", handler: async () => {
         const start = parseInt(document.getElementById("generate-structure-start")?.value || "1", 10)
         const end = parseInt(document.getElementById("generate-structure-end")?.value || "10", 10)
         if (end < start) { toast("结束章节不能小于起始章节", "warning"); return false }
@@ -1602,6 +1968,7 @@ const outlineView = {
       "delete-arc": (_e, _t, ctx) => ctx.id && this._deleteArc(ctx.id),
       "create-scene": () => this._showCreateSceneForm(),
       "generate-structure": () => this._showGenerateStructureForm(),
+      "view-outline-generate-preview": () => this._showOutlineGeneratePreview(),
       "plot-structure-auto-extract": () => this._showPlotStructureAutoExtractForm(),
       "move-scene-up": (_e, _t, ctx) => ctx.id && this._moveSceneUp(ctx.id),
       "move-scene-down": (_e, _t, ctx) => ctx.id && this._moveSceneDown(ctx.id),
@@ -1692,12 +2059,12 @@ const outlineView = {
     }
     const labels = {
       "delete-threads": "批量删除剧情线",
-      "review-threads": "批量复核剧情线",
+      "review-threads": "批量采用 / 标记已检查",
       "delete-arcs": "批量删除篇章纲",
       "delete-foreshadowing": "批量删除伏笔",
       "delete-reveals": "批量删除揭示",
     }
-    const confirmText = action === "review-threads" ? "确认复核" : "确认删除"
+    const confirmText = action === "review-threads" ? "确认处理" : "确认删除"
     confirmAction(`确定对选中的 ${items.length} 项执行「${labels[action] || "批量删除"}」吗？`, async () => {
       await this._executeBulkAction(scope, action, items)
     }, confirmText)
@@ -1706,7 +2073,7 @@ const outlineView = {
   async _executeBulkAction(scope, action, items) {
     const labels = {
       "delete-threads": "批量删除剧情线",
-      "review-threads": "批量复核剧情线",
+      "review-threads": "批量采用 / 标记已检查",
       "delete-arcs": "批量删除篇章纲",
       "delete-foreshadowing": "批量删除伏笔",
       "delete-reveals": "批量删除揭示",

@@ -8,6 +8,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.world.models import CoreEntity
 from modules.world.tests.helpers import (
     _create_project,
 )
@@ -168,3 +169,81 @@ class TestMapHTTPAPI:
             f"/api/world/maps/{map_id}/state", params={"novel_id": nid}
         )
         assert state_after.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_api_formal_map_layers_reject_pending_compatibility_shadows(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        novel_id = uuid.uuid4().hex
+        await _create_project(db_session, novel_id)
+        map_resp = await async_client.post(
+            "/api/world/maps",
+            params={"novel_id": novel_id},
+            json={
+                "name": "九州",
+                "map_type": "world",
+                "grid_width": 5,
+                "grid_height": 5,
+            },
+        )
+        assert map_resp.status_code == 201, map_resp.text
+        map_id = map_resp.json()["id"]
+
+        shadow_specs = [
+            (
+                "location",
+                f"/api/world/maps/{map_id}/location-bindings",
+                {
+                    "location_entity_id": None,
+                    "hexes": [{"hex_q": 1, "hex_r": 1, "is_center": True}],
+                },
+            ),
+            (
+                "character",
+                f"/api/world/maps/{map_id}/markers",
+                {
+                    "entity_id": None,
+                    "marker_type": "character",
+                    "hex_q": 1,
+                    "hex_r": 1,
+                },
+            ),
+            (
+                "organization",
+                f"/api/world/maps/{map_id}/territories",
+                {
+                    "faction_entity_id": None,
+                    "hexes": [{"hex_q": 1, "hex_r": 1}],
+                },
+            ),
+        ]
+
+        for entity_type, path, payload in shadow_specs:
+            shadow = CoreEntity(
+                id=uuid.uuid4(),
+                novel_id=uuid.UUID(hex=novel_id),
+                entity_type=entity_type,
+                name=f"AI 待处理 {entity_type}",
+                status="candidate",
+                content_json={
+                    "_meta": {
+                        "compatibility_shadow": True,
+                        "suggestion_id": str(uuid.uuid4()),
+                    }
+                },
+            )
+            db_session.add(shadow)
+            await db_session.flush()
+            id_field = next(key for key, value in payload.items() if value is None)
+            payload[id_field] = str(shadow.id)
+
+            response = await async_client.post(
+                path,
+                params={"novel_id": novel_id},
+                json=payload,
+            )
+
+            assert response.status_code == 400, response.text
+            assert response.json()["error"] == "unadopted_map_entity"

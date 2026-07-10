@@ -16,6 +16,7 @@ export function createMobileQuickNote({ state, api, toast, esc, editor, onSaved 
     return typeof window !== "undefined"
       && window.innerWidth < 600
       && projectState._currentChapter !== null
+      && !projectState._isReadonly
       && !projectState._forceDesktopMode
       && !document.body.classList.contains("force-desktop")
   }
@@ -30,7 +31,7 @@ export function createMobileQuickNote({ state, api, toast, esc, editor, onSaved 
         </div>
         <textarea id="mobile-note-editor" class="mobile-note-editor" placeholder="在此记录灵感...">${escapeHtml(currentText)}</textarea>
         <div class="mobile-note-actions">
-          <button class="btn btn-primary" data-action="save-mobile-note">保存为草稿</button>
+          <button class="btn btn-primary" data-action="save-mobile-note">保存为工作稿</button>
           <button class="btn btn-ghost" data-action="switch-desktop-mode">完整编辑器</button>
         </div>
       </div>
@@ -85,7 +86,7 @@ export function createMobileQuickNote({ state, api, toast, esc, editor, onSaved 
       }
       editor?.setState?.(savedInfo)
       onSaved?.()
-      toast("已保存到草稿", "success")
+      toast("已保存到工作稿", "success")
     } catch (err) {
       toast(err.message || "移动记录保存失败，已保留本地暂存", "error")
     }

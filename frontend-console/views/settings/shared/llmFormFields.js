@@ -3,7 +3,7 @@ import { renderSourceLabel } from "./fieldSourceLabel.js"
 const CREATIVE_PRESETS = {
   creative: { label: "灵感创作", temperature: 0.9, top_p: 0.95, max_tokens: 8192 },
   precise: { label: "精修校对", temperature: 0.25, top_p: 0.8, max_tokens: 4096 },
-  fast: { label: "快速草稿", temperature: 0.6, top_p: 0.9, max_tokens: 2048 },
+  fast: { label: "快速生成", temperature: 0.6, top_p: 0.9, max_tokens: 2048 },
   custom: { label: "自定义" },
 }
 

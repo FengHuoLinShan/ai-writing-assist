@@ -23,18 +23,18 @@ README、ORM 模型与 Alembic migration。
 `canonical` 关系边以 `(novel_id, source_id, target_id, relation_type)` 作为 PostgreSQL
 业务幂等键。所有对象与关系操作必须保持 `novel_id` 隔离。
 
-## 2. 世界书、可见性与待复核资产
+## 2. 世界书、可见性与待处理资产
 
 | 概念 | 当前承载 | 含义 |
 |---|---|---|
-| 世界书页 | `world_bible_pages` | 作者可编辑的世界观组织页；它引用和解释事实，但不拥有 CoreEntity/关系等正史。 |
+| 世界书页 | `world_bible_pages` | 作者可编辑的世界观组织页；它引用和解释事实，但不拥有 CoreEntity/关系等已采用事实。 |
 | 世界书修订与投影 | `world_bible_page_revisions` / `world_bible_page_projections` | 页面保存点与可编译的派生投影；投影是缓存，不是事实源。 |
 | 页面模板 | 代码注册表 + `template_key` / `template_version` | 内置模板目前不使用 `world_bible_page_templates` 数据表。 |
 | 生成模板 | `generation_prompt_templates` / revisions | 项目级 Prompt 模板及版本；运行时仍受固定 scaffold 与 Pydantic 输出契约约束。 |
 | 知识标签 | `knowledge_tags` 及其授予/排除表 | 用标签表达群体知识；`CharacterKnowledge` 只记录偏离默认知识的个体覆盖。 |
 | 读者揭示策略 | `reader_reveal_policies` | Reader 视角的揭示位置和状态，不等同于人物是否知道。 |
 | 知识可见性 | `knowledge_visibility_policies` | 事实的 public/tag/private 可见性策略。 |
-| 创设建议 | `creation_suggestion_queue` | 会改动结构化资产的建议先进入此队列，作者确认后才写入对应事实。 |
+| 创设建议 | `creation_suggestion_queue` | 会改动结构化资产的普通 AI 建议先进入此队列，作者采用后才调用 world 领域命令写入当前有效资产。 |
 | 冲突队列 | `conflict_check_queue` | 世界设定冲突与叙事风险的待处理项；它是当前表，不是未来预留。 |
 
 ## 3. 结构、正文与导入
@@ -46,11 +46,11 @@ README、ORM 模型与 Alembic migration。
 | Scene 章节映射 | `scene_chapter_links` | Scene 与章节的轻量关联。 |
 | Scene 物理片段 | `scene_spans` | 从 `scenes.scene_chunks` 派生的只读索引，保存章节和 offset/paragraph 边界。 |
 | 伏笔 / 揭示 | `foreshadowing_plans` / `reveal_plans` | 结构资产，带来源与状态。 |
-| 正文草稿 | `writing_drafts` | 章节正文的多版本承载；保存 conflict snapshot、生成 provenance 与状态。 |
-| 写作冲突检查 | `writing_conflict_checks` / `writing_conflict_items` | 规则检查、证据、AI 软判断和建议的记录；不自动修改正文或正史。 |
+| 正文版本 | `writing_drafts` | 章节正文的多版本承载；普通正文只有工作稿/已发布成熟度，未采用 AI 文本以兼容 `candidate` 保存为待处理建议，并保存 conflict snapshot 与生成 provenance。 |
+| 写作冲突检查 | `writing_conflict_checks` / `writing_conflict_items` | 规则检查、证据、AI 软判断和建议的记录；不自动修改正文或已采用资产。 |
 | 导入记录 | `import_records` | 文件导入元信息；不保存上传原文。 |
 | 导入章节 | `imported_chapters` | 仍由 world 事件/关系/版本来源 FK 引用的章节正文表；上传主路径以 WritingDraft 作为编辑承载。 |
-| 深度导入 | imports workflow | 受控多阶段工作流：确定性 Scene 规划/切分/补全，再抽取世界对象、别名/关系与结构资产。 |
+| 深度导入 | imports workflow | 受控多阶段工作流：启动时持久化一次批量授权，确定性 Scene 规划/切分/补全后抽取世界对象、别名/关系与结构资产；异常结果进入待处理。 |
 
 `chapter_cards` 不是当前 ORM 表。不要把旧章节卡 JSON 或历史计划当作 Scene 的事实来源。
 
@@ -64,21 +64,22 @@ README、ORM 模型与 Alembic migration。
 | AI 参考资料确认 | `context_confirmations` | 手动 AI 操作前用户确认过的资料选择和结果引用。 |
 | 自动上下文快照 | `context_snapshots` | 真实 LLM 调用的审计记录，保存摘要、hash、预算、资产选择与结果引用；完整 rendered context 仅显式保留。 |
 | 编译上下文 | CompiledContext | context 模块按 scope、视角、预算和候选模式选择、裁剪并解释资料的中间表示。 |
-| 地图观察 | `map_observations` | 带时间/空间锚点和证据的候选地图事实。 |
-| 地图事实 | `map_facts` | 经确认的时间化地图事实。 |
+| 地图观察 | `map_observations` | 带时间/空间锚点和证据的观察层；尚未转化为 Fact 的可操作 observation 在作者界面显示为待处理。 |
+| 地图事实 | `map_facts` | 经领域规则或作者采用后形成的时间化地图事实，作者界面显示为已采用。 |
 | 地图基础资产 | `map_configs`、tiles、地点布局/绑定、地形、标记、势力范围表 | world/map 子系统；完整表清单在 `docs/01_数据库设计.md`。 |
 
 RAG 通过 nullable `scene_span_id` 关联 Scene 物理片段，但不建跨模块硬 FK。context
 负责“选、裁、确认、追踪”，RAG 负责“找”；imports、writing 等模块只能通过 facade 或
 contract 消费它们。
 
-## 5. 状态、确认与隔离
+## 5. 状态、采用与隔离
 
-- **Candidate / Draft / Canonical**：候选和草稿不是正史。默认 LLM 输出进入候选或草稿；
-  用户明确启动的自动流水线可按其领域规则写入派生或 canonical 数据，但必须保留来源、
-  可编辑/可回滚标记与测试。
-- **Deprecated / Ignored / Conflicted**：常规业务优先用状态表达淘汰、忽略或冲突；除项目
-  永久删除和地图等明确操作外不默认硬删除。
+- **作者展示状态**：结构化资产统一投影为 `display_state = review / active / archived`，界面分别显示“待处理 / 已采用 / 历史”。`display_state` 是领域派生语义，不替代兼容期原始 `status` 字段。
+- **正文成熟度**：正文使用“工作稿 / 已发布”；Scene 等确有编辑生命周期的内容可显示工作稿。未采用的 AI 正文是待处理建议，不是普通工作稿。
+- **来源与注意原因**：`source`、`attention_reasons` 和 `suggested_action` 与生命周期分离。`conflicted`、低置信、POV 风险、`needs_review` 是注意原因，不是新的主状态。
+- **内部兼容状态**：`candidate` / `proposal` / `canonical`、地图 observation/fact 状态、任务 `pending/running/failed` 和审计 confirmation/snapshot 可继续用于实现、接口兼容和诊断，但不得作为并列的作者心智模型。
+- **授权自动流水线**：深度导入等流水线必须在启动时持久化授权策略与范围；规则明确且可回滚的结果可自动采用，冲突、低置信和无法消歧结果进入待处理，完成结果按已采用/待处理/未采用汇总。
+- **历史状态**：`deprecated` / `ignored` / `merged` / `rolled_back` 等进入历史并默认从主工作区隐藏；除项目永久删除和地图等明确操作外不默认硬删除。
 - **novel_id**：项目隔离键。任何跨模块 facade、查询、合并、任务和恢复流程都不得跨项目
   读取或写入资产。
 - **Schema guard**：API、LLM 结构化输出和入库都必须经过 Pydantic/调用方校验；不得

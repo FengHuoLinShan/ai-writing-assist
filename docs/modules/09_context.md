@@ -52,7 +52,7 @@ reader 视角不沿用作者 section 组装：编译器只纳入公开/已揭示
 |------|------|
 | `title` | 面向作者的标题 |
 | `preview` | 审查预览，不等同于最终 prompt |
-| `status` | `system / canonical / working / candidate / mixed / unknown` |
+| `status` | 内部审查标记：`system / canonical / working / candidate / mixed / unknown`；前端将 `candidate` 统一显示为待处理内容 |
 | `activation_reason` | 本段为什么被选入 |
 | `sources` | 来源摘要，包含 `type/id/label/status` |
 | `can_exclude` | 本次操作是否允许排除 |
@@ -110,11 +110,15 @@ public baseline 的 CharacterKnowledge 默认排除。
 关键参数：
 
 - `context_mode`：`canonical` / `working`
-- `include_pending_objects`：是否允许待确认对象进入本次上下文
+- `include_pending_objects`：是否允许待处理对象进入本次上下文，默认关闭
 - `excluded_asset_ids`：显式排除的资产
 - `user_note`：用户对本次 AI 操作的补充提醒
 
 确认弹窗展示的是结构化参考资料清单，不展示 raw Markdown textarea，也不允许用户直接编辑最终 prompt。用户确认的是“本次 AI 调用可参考哪些 section、哪些 section 被裁剪、哪些来源被激活”，不是直接确认一段 prompt 文本。
+
+`WorldEntitiesLoader` 会把该开关下推为 world facade 的 `include_review`。关闭时查询层只取
+已采用对象；开启时额外取 review 对象但始终排除历史，并在编译结果中加入“包含未采用的
+世界对象”警告。context confirmation 和 snapshot 是调用审计，不表示建议已被采用。
 
 `POST /api/context/confirm` 会落库一条 `context_confirmations`，并在响应中返回本次编译的 `sections` 和 `budget_events` 供前端展示。这些展示详情不持久化；持久化仍只保存 `selected_asset_ids`、`compile_options`、`warnings`、`result_refs`、`stale_reasons` 等摘要。
 

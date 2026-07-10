@@ -41,7 +41,12 @@ class MapTerritoryService:
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
 
-        territories = await self.repo.get_by_map(db, nid, mid)
+        territories = await self.repo.get_by_map_for_entity_statuses(
+            db,
+            nid,
+            mid,
+            statuses=["canonical"],
+        )
         return [MapTerritoryResponse.model_validate(t) for t in territories]
 
     async def create(
@@ -52,7 +57,7 @@ class MapTerritoryService:
         data: MapTerritoryCreate,
     ) -> list[MapTerritoryResponse]:
         config = await self._ctx.require_map(db, novel_id, map_id)
-        await self._ctx.require_entity(
+        await self._ctx.require_canonical_entity(
             db, novel_id, data.faction_entity_id, allowed_types={"organization"}
         )
         for h in data.hexes:
@@ -88,6 +93,12 @@ class MapTerritoryService:
                 f"MapTerritoryTile {territory_id} not found",
                 code="map_territory_not_found",
             )
+        await self._ctx.require_canonical_entity(
+            db,
+            novel_id,
+            str(territory.faction_entity_id),
+            allowed_types={"organization"},
+        )
 
         values: dict[str, Any] = {}
         if data.style_override is not None:

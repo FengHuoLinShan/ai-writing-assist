@@ -128,6 +128,9 @@ async def test_find_characters_by_location_filters_in_database(
     location_id = uuid.uuid4()
     other_location_id = uuid.uuid4()
     target_character_id = uuid.uuid4()
+    other_location_character_id = uuid.uuid4()
+    other_novel_character_id = uuid.uuid4()
+    deprecated_character_id = uuid.uuid4()
     db_session.add_all(
         [
             Project(
@@ -146,6 +149,34 @@ async def test_find_characters_by_location_filters_in_database(
                 target_length="novel",
                 current_stage="worldbuilding",
             ),
+            CoreEntity(
+                id=target_character_id,
+                novel_id=novel_id,
+                entity_type="character",
+                name="目标人物",
+                status="canonical",
+            ),
+            CoreEntity(
+                id=other_location_character_id,
+                novel_id=novel_id,
+                entity_type="character",
+                name="其他地点人物",
+                status="canonical",
+            ),
+            CoreEntity(
+                id=other_novel_character_id,
+                novel_id=other_novel_id,
+                entity_type="character",
+                name="其他小说人物",
+                status="canonical",
+            ),
+            CoreEntity(
+                id=deprecated_character_id,
+                novel_id=novel_id,
+                entity_type="character",
+                name="废弃人物",
+                status="canonical",
+            ),
             Character(
                 entity_id=target_character_id,
                 novel_id=novel_id,
@@ -155,7 +186,7 @@ async def test_find_characters_by_location_filters_in_database(
                 meta={"location_id": str(location_id)},
             ),
             Character(
-                entity_id=uuid.uuid4(),
+                entity_id=other_location_character_id,
                 novel_id=novel_id,
                 name="其他地点人物",
                 status="canonical",
@@ -163,7 +194,7 @@ async def test_find_characters_by_location_filters_in_database(
                 meta={"location_id": str(other_location_id)},
             ),
             Character(
-                entity_id=uuid.uuid4(),
+                entity_id=other_novel_character_id,
                 novel_id=other_novel_id,
                 name="其他小说人物",
                 status="canonical",
@@ -171,7 +202,7 @@ async def test_find_characters_by_location_filters_in_database(
                 meta={"location_id": str(location_id)},
             ),
             Character(
-                entity_id=uuid.uuid4(),
+                entity_id=deprecated_character_id,
                 novel_id=novel_id,
                 name="废弃人物",
                 status="deprecated",

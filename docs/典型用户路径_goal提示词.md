@@ -206,7 +206,7 @@ ok
 - 对象库列表显示状态、类型、名称、重要度、摘要、操作；默认分页每页 20 条。
 - 支持按实体类型、状态过滤，支持名称/别名搜索。
 - 自动入库对象折叠在“自动入库”分组并带“新”标记。
-- 手动创建实体时 name 必填、entity_type 必选，status=draft，created_by=manual。
+- 手动创建实体时 name 必填、entity_type 必选，status=canonical，created_by=manual，并保留人工审批元数据。
 - 编辑实体可更新名称、类型、摘要；结构化字段若未在当前 UI 暴露，不强行新增复杂表单。
 - 别名写入 core_entities.content_json.aliases，不创建新实体；同实体别名不可重复；支持删除。
 - 关系创建必须校验 source_id != target_id、双方属于同一 novel_id、同 source/target/type 不重复；支持删除。
@@ -345,4 +345,3 @@ ok
 - 前端 E2E 覆盖页面加载、未选择项目警告、编译并显示结果、character reveal_mode 缺视角人物拦截、提交契约。
 - 使用《诡秘之主 第一部》项目数据做一次真实编译验收，重点检查克莱恩视角下不应知道的 hidden_truth 不出现在角色模式输出中。本路径通常不直接调用 LLM；若后续接入真实生成调用，必须限定第 1-6 章。
 ```
-

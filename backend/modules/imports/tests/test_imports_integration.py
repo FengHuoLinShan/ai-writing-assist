@@ -7,6 +7,7 @@ Phase 3: 剧情结构分析
 
 from __future__ import annotations
 
+import uuid
 from unittest import mock
 
 import pytest
@@ -167,6 +168,8 @@ class TestDeepImportApiValidation:
             *,
             force: bool,
             high_quality: bool,
+            adoption_policy: str,
+            authorization_confirmed: bool,
         ) -> dict:
             return {
                 "novel_id": novel_id,
@@ -174,6 +177,8 @@ class TestDeepImportApiValidation:
                 "end_chapter": end_chapter,
                 "force": force,
                 "high_quality": high_quality,
+                "adoption_policy": adoption_policy,
+                "authorization_confirmed": authorization_confirmed,
             }
 
         with mock.patch.object(
@@ -188,12 +193,15 @@ class TestDeepImportApiValidation:
                     "start_chapter": 1,
                     "end_chapter": 2,
                     "force": "false",
+                    "authorization_confirmed": True,
                 },
             )
 
         assert resp.status_code == 201, resp.text
         assert resp.json()["force"] is False
         assert resp.json()["high_quality"] is False
+        assert resp.json()["adoption_policy"] == "user_authorized_pipeline"
+        assert resp.json()["authorization_confirmed"] is True
 
     async def test_deep_import_sync_route_is_not_public(
         self,
@@ -560,11 +568,21 @@ class TestDuplicateImportAndDeprecation:
                 "source": "deep_import",
                 "scene_chunks": [{"chapter_index": 1}],
                 "chapter_ids": ["1"],
+                "structure_meta": {
+                    "workflow_id": "wf-old",
+                    "auto_ingested": True,
+                },
                 "status": "draft",
             },
         )
 
-        result = await start_deep_import(db_session, novel_with_drafts, 1, 1)
+        result = await start_deep_import(
+            db_session,
+            novel_with_drafts,
+            1,
+            1,
+            authorization_confirmed=True,
+        )
         assert result["requires_confirmation"] is True
         assert "workflow_id" in result
 
@@ -587,6 +605,34 @@ class TestDuplicateImportAndDeprecation:
                 "source": "deep_import",
                 "scene_chunks": [{"chapter_index": 1}],
                 "chapter_ids": ["1"],
+                "structure_meta": {
+                    "workflow_id": "wf-old",
+                    "auto_ingested": True,
+                },
+                "status": "draft",
+            },
+        )
+        manual_scene = await create_scene(
+            db_session,
+            novel_with_drafts,
+            {
+                "scene_index": 1,
+                "title": "manual scene",
+                "source": "manual",
+                "scene_chunks": [{"chapter_index": 1}],
+                "chapter_ids": ["1"],
+                "status": "draft",
+            },
+        )
+        unowned_import_scene = await create_scene(
+            db_session,
+            novel_with_drafts,
+            {
+                "scene_index": 2,
+                "title": "unowned import scene",
+                "source": "deep_import",
+                "scene_chunks": [{"chapter_index": 1}],
+                "chapter_ids": ["1"],
                 "status": "draft",
             },
         )
@@ -606,7 +652,14 @@ class TestDuplicateImportAndDeprecation:
             },
         )
 
-        result = await start_deep_import(db_session, novel_with_drafts, 1, 1, force=True)
+        result = await start_deep_import(
+            db_session,
+            novel_with_drafts,
+            1,
+            1,
+            force=True,
+            authorization_confirmed=True,
+        )
         assert result["requires_confirmation"] is False
         assert "task_id" in result
 
@@ -620,6 +673,15 @@ class TestDuplicateImportAndDeprecation:
         result = await db_session.execute(stmt)
         scenes = result.scalars().all()
         assert any(s.title == "old scene" for s in scenes)
+        manual = await db_session.get(Scene, uuid.UUID(manual_scene["id"]))
+        assert manual is not None
+        assert manual.status == "draft"
+        unowned = await db_session.get(
+            Scene,
+            uuid.UUID(unowned_import_scene["id"]),
+        )
+        assert unowned is not None
+        assert unowned.status == "draft"
 
         from modules.world.models import CoreEntity
 
@@ -662,5 +724,11 @@ class TestDuplicateImportAndDeprecation:
             },
         )
 
-        result = await start_deep_import(db_session, other_novel_id, 1, 1)
+        result = await start_deep_import(
+            db_session,
+            other_novel_id,
+            1,
+            1,
+            authorization_confirmed=True,
+        )
         assert result["requires_confirmation"] is False

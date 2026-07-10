@@ -130,6 +130,71 @@ async def test_ingest_delta_events_owns_provenance_and_result_refs(
 
 
 @pytest.mark.asyncio
+async def test_rollback_deep_import_delta_logs_is_scoped_and_idempotent(
+    db_session: AsyncSession,
+    memory_service: MemoryService,
+) -> None:
+    from modules.memory.models import DeltaLog
+
+    novel_id = str(uuid.uuid4())
+    other_novel_id = str(uuid.uuid4())
+    rows = [
+        DeltaLog(
+            novel_id=uuid.UUID(novel_id),
+            scene_index=1,
+            category="location_changed",
+            source="deep_import",
+            meta={
+                "workflow_id": "wf-rollback",
+                "auto_ingested": True,
+            },
+        ),
+        DeltaLog(
+            novel_id=uuid.UUID(novel_id),
+            scene_index=2,
+            category="status_changed",
+            source="deep_import",
+            meta={"workflow_id": "wf-other", "auto_ingested": True},
+        ),
+        DeltaLog(
+            novel_id=uuid.UUID(other_novel_id),
+            scene_index=1,
+            category="location_changed",
+            source="deep_import",
+            meta={
+                "workflow_id": "wf-rollback",
+                "auto_ingested": True,
+            },
+        ),
+    ]
+    db_session.add_all(rows)
+    await db_session.flush()
+
+    assert (
+        await memory_service.count_deep_import_delta_logs_by_workflow(
+            db_session, novel_id, "wf-rollback"
+        )
+        == 1
+    )
+    assert (
+        await memory_service.rollback_deep_import_delta_logs_by_workflow(
+            db_session, novel_id, "wf-rollback"
+        )
+        == 1
+    )
+    assert rows[0].meta["rolled_back"] is True
+    assert rows[0].meta["rollback_reason"] == "workflow_abandoned"
+    assert rows[1].meta.get("rolled_back") is None
+    assert rows[2].meta.get("rolled_back") is None
+    assert (
+        await memory_service.rollback_deep_import_delta_logs_by_workflow(
+            db_session, novel_id, "wf-rollback"
+        )
+        == 0
+    )
+
+
+@pytest.mark.asyncio
 async def test_record_events_replaces_chapter_events_without_stale_tail(
     db_with_project: AsyncSession,
     memory_service: MemoryService,

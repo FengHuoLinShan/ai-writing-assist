@@ -46,7 +46,8 @@ GEO_RELATION_TYPES = {
     "controls",
 }
 
-PLACEABLE_LOCATION_STATUSES = ("canonical", "draft")
+PLACEABLE_LOCATION_STATUSES = ("canonical",)
+REVIEW_LOCATION_STATUSES = ("draft", "candidate")
 
 
 @dataclass(frozen=True)
@@ -89,8 +90,10 @@ class MapQuickCreateService:
         )
         candidate_locations = []
         if include_candidates:
-            candidate_locations = await self._entity_repo.list_by_novel(
-                db, nid, entity_type="location", status="candidate", limit=500
+            candidate_locations = await self._list_locations_for_statuses(
+                db,
+                nid,
+                REVIEW_LOCATION_STATUSES,
             )
         maps = await self._config_service.list(db, novel_id)
         warnings = []
@@ -168,6 +171,7 @@ class MapQuickCreateService:
         map_draft = preview.map
         map_name = data.name or map_draft["name"]
         layouts = self._confirm_layouts(data, preview)
+        await self._assert_adopted_layouts(db, novel_id, layouts)
         parent_map_id = (
             parse_uuid(data.parent_map_id, "parent_map_id")
             if data.parent_map_id
@@ -277,11 +281,40 @@ class MapQuickCreateService:
         )
         locations = [self._entity_summary(item) for item in base_locations]
         if include_candidates:
-            candidates = await self._entity_repo.list_by_novel(
-                db, nid, entity_type="location", status="candidate", limit=500
+            candidates = await self._list_locations_for_statuses(
+                db,
+                nid,
+                REVIEW_LOCATION_STATUSES,
             )
             locations.extend(self._entity_summary(item) for item in candidates)
         return locations
+
+    async def _assert_adopted_layouts(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        layouts: list[MapLocationLayoutItem],
+    ) -> None:
+        if not layouts:
+            return
+        nid = parse_uuid(novel_id, "novel_id")
+        location_ids = [
+            parse_uuid(layout.location_entity_id, "location_entity_id")
+            for layout in layouts
+        ]
+        entities = await self._entity_repo.get_by_ids(db, nid, location_ids)
+        by_id = {entity.id: entity for entity in entities}
+        unadopted = [
+            str(location_id)
+            for location_id in location_ids
+            if by_id.get(location_id) is None
+            or by_id[location_id].status != "canonical"
+        ]
+        if unadopted:
+            raise ValidationError(
+                "待处理地点只能预览，请先采用对象再创建地图",
+                code="unadopted_quick_create_location",
+            )
 
     async def _list_locations_for_statuses(
         self,
@@ -329,6 +362,11 @@ class MapQuickCreateService:
             entity = by_id.get(location_id)
             if entity is None:
                 continue
+            if entity.status != "canonical":
+                raise ValidationError(
+                    "快速创建事实只能引用已采用地点",
+                    code="unadopted_quick_create_location",
+                )
             facts.append(
                 {
                     "map_id": mid,

@@ -10,11 +10,13 @@ from modules.world.map_repositories import MapTerrainRegionRepository
 from modules.world.map_schemas import (
     MapConfigCreate,
     MapTerrainBindingCreate,
+    MapTerrainBindingUpdate,
     MapTerrainLayerCreate,
     MapTerrainPatchItem,
     MapTerrainPatchReplaceRequest,
     MapTerrainRegionCreate,
 )
+from modules.world.models import CoreEntity
 from modules.world.services.map.map_terrain import MapTerrainService
 from modules.world.services.map_service import MapConfigService
 from modules.world.tests.helpers import _create_location_entity, _create_project
@@ -263,3 +265,113 @@ async def test_terrain_binding_validates_type_and_location_novel(
             ),
         )
     assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_confirmed_terrain_binding_requires_adopted_location(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    shadow_location = CoreEntity(
+        id=uuid.uuid4(),
+        novel_id=uuid.UUID(novel_id),
+        entity_type="location",
+        name="待处理山谷",
+        status="candidate",
+        content_json={
+            "_meta": {
+                "compatibility_shadow": True,
+                "suggestion_id": uuid.uuid4().hex,
+            }
+        },
+    )
+    db_session.add(shadow_location)
+    created = await MapConfigService().create(
+        db_session,
+        novel_id,
+        MapConfigCreate(name="世界", map_type="world", grid_width=8, grid_height=8),
+    )
+    layer_id = uuid.uuid4().hex
+    region_id = uuid.uuid4().hex
+    service = MapTerrainService()
+    await service.replace_layer_patches(
+        db_session,
+        novel_id,
+        created.id,
+        layer_id,
+        MapTerrainPatchReplaceRequest(
+            layer=MapTerrainLayerCreate(name="山谷层", terrain_asset_key="mountain"),
+            regions=[
+                MapTerrainRegionCreate(id=region_id, layer_id=layer_id, name="山谷")
+            ],
+            patches=[MapTerrainPatchItem(region_id=region_id, hex_q=2, hex_r=2)],
+        ),
+    )
+
+    with pytest.raises(DomainError) as exc:
+        await service.create_binding(
+            db_session,
+            novel_id,
+            created.id,
+            MapTerrainBindingCreate(
+                region_id=region_id,
+                location_entity_id=str(shadow_location.id),
+                binding_type="footprint",
+            ),
+        )
+    assert exc.value.code == "unadopted_map_entity"
+
+    candidate = await service.create_binding(
+        db_session,
+        novel_id,
+        created.id,
+        MapTerrainBindingCreate(
+            region_id=region_id,
+            location_entity_id=str(shadow_location.id),
+            binding_type="footprint",
+            review_state="candidate",
+        ),
+    )
+    with pytest.raises(DomainError) as confirm_exc:
+        await service.update_binding(
+            db_session,
+            novel_id,
+            created.id,
+            candidate.id,
+            MapTerrainBindingUpdate(review_state="confirmed"),
+        )
+    assert confirm_exc.value.code == "unadopted_map_entity"
+
+    default_state = await service.get_state(db_session, novel_id, created.id)
+    preview_state = await service.get_state(
+        db_session,
+        novel_id,
+        created.id,
+        include_candidates=True,
+    )
+    assert default_state.bindings == []
+    assert [item.id for item in preview_state.candidate_bindings] == [candidate.id]
+
+    legacy = await service._binding_repo.get(  # noqa: SLF001
+        db_session,
+        uuid.UUID(candidate.id),
+    )
+    assert legacy is not None
+    legacy.review_state = "confirmed"
+    await db_session.flush()
+
+    hidden_state = await service.get_state(db_session, novel_id, created.id)
+    assert hidden_state.bindings == []
+    aggregate = await MapConfigService().get_state(db_session, novel_id, created.id)
+    assert aggregate.terrain_bindings == []
+    assert [item.id for item in aggregate.candidate_terrain_bindings] == [candidate.id]
+    with pytest.raises(DomainError) as legacy_update_exc:
+        await service.update_binding(
+            db_session,
+            novel_id,
+            created.id,
+            candidate.id,
+            MapTerrainBindingUpdate(meta={"edited": True}),
+        )
+    assert legacy_update_exc.value.code == "unadopted_map_entity"

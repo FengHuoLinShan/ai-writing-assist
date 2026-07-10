@@ -540,6 +540,15 @@ class TestWritingDraftRepository:
         count = await repo.count_versions(mock_db, uuid.uuid4(), 1)
         assert count == 2
 
+    async def test_count_working_versions(
+        self,
+        repo: WritingDraftRepository,
+        mock_db: AsyncMock,
+    ):
+        mock_db.execute.return_value.scalar.return_value = 1
+        count = await repo.count_working_versions(mock_db, uuid.uuid4(), 1)
+        assert count == 1
+
     async def test_list_chapter_indices(
         self,
         repo: WritingDraftRepository,

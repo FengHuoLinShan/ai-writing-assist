@@ -137,16 +137,23 @@ describe("createConflictCheck", () => {
     expect(editor.setSelectionRange).toHaveBeenCalledWith(5, 10)
   })
 
-  it("opens map source through callback", async () => {
+  it("opens the precise map source target through callback", async () => {
     state.currentProjectId = "p1"
     const onOpenMap = vi.fn()
     const checker = createTestChecker({ onOpenMap })
+    const openTarget = {
+      kind: "map_object",
+      map_id: "m1",
+      scene_id: "s1",
+      focus_entity_id: "e1",
+      observation_id: "o1",
+    }
 
     checker.openSource({
-      items: [{ id: "i1", location_json: { open_target: { kind: "map_scene" } } }],
+      items: [{ id: "i1", location_json: { open_target: openTarget } }],
     }, "i1")
 
-    expect(onOpenMap).toHaveBeenCalled()
+    expect(onOpenMap).toHaveBeenCalledWith(openTarget)
   })
 
   it("navigates outline source through callback", async () => {

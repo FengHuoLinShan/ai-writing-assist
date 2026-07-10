@@ -25,6 +25,23 @@ function renderWarnings(warnings = []) {
   return `<ul class="workflow-progress__warnings">${items}</ul>`
 }
 
+function renderAssetSummary(summary = {}) {
+  if (!summary || typeof summary !== "object") return ""
+  const hasSummary = ["adopted", "review", "not_adopted"]
+    .some((key) => summary[key] !== undefined && summary[key] !== null)
+  if (!hasSummary) return ""
+  const adopted = Number(summary.adopted || 0)
+  const review = Number(summary.review || 0)
+  const notAdopted = Number(summary.not_adopted || 0)
+  return `
+    <div class="workflow-progress__asset-summary" aria-label="资产处理结果">
+      <span>已采用 ${escapeHtml(adopted)}</span>
+      <span>待处理 ${escapeHtml(review)}</span>
+      <span>未采用 ${escapeHtml(notAdopted)}</span>
+    </div>
+  `
+}
+
 function renderPhaseArtifacts(artifacts = {}) {
   if (!artifacts || typeof artifacts !== "object") return ""
   const items = Object.entries(artifacts)
@@ -36,7 +53,7 @@ function renderPhaseArtifacts(artifacts = {}) {
       const counts = artifact.counts && typeof artifact.counts === "object" ? artifact.counts : {}
       const missing = Array.isArray(coverage.missing_chapters) ? coverage.missing_chapters : []
       const countBits = []
-      if (counts.candidate_count != null) countBits.push(`候选 ${counts.candidate_count}`)
+      if (counts.candidate_count != null) countBits.push(`待处理 ${counts.candidate_count}`)
       if (counts.total_scenes != null) countBits.push(`Scene ${counts.total_scenes}`)
       if (counts.total_created != null) countBits.push(`对象 ${counts.total_created}`)
       if (counts.total_threads != null) countBits.push(`剧情线 ${counts.total_threads}`)
@@ -208,6 +225,7 @@ export function renderInlineProgress(progress, options = {}) {
       ${renderProgressBar(progress)}
       ${renderMeta(progress, options)}
       ${summary}
+      ${renderAssetSummary(progress.assetSummary)}
       ${renderPhaseArtifacts(progress.phaseArtifacts)}
       ${renderDetailedProgress(progress, options)}
       ${error}

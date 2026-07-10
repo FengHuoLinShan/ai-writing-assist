@@ -8,6 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.outline.schemas import SceneCreate
 from modules.outline.services import SceneService
+from modules.world.map_repositories import (
+    MapLocationBindingRepository,
+    MapMarkerRepository,
+)
 from modules.world.services.map.map_state_assembler import MapStateAssembler
 from modules.world.tests.helpers import _create_entity, _create_project
 
@@ -74,15 +78,13 @@ async def test_dynamic_state_returns_only_scene_dynamic_layers(
     assert map_resp.status_code == 201, map_resp.text
     map_id = map_resp.json()["id"]
 
-    binding_resp = await async_client.post(
-        f"/api/world/maps/{map_id}/location-bindings",
-        params={"novel_id": novel_id},
-        json={
-            "location_entity_id": str(candidate_location.id),
-            "hexes": [{"hex_q": 1, "hex_r": 1, "is_center": True}],
-        },
+    await MapLocationBindingRepository().bulk_create(
+        db_session,
+        uuid.UUID(hex=novel_id),
+        uuid.UUID(map_id),
+        candidate_location.id,
+        [{"hex_q": 1, "hex_r": 1, "is_center": True}],
     )
-    assert binding_resp.status_code == 201, binding_resp.text
     canonical_binding_resp = await async_client.post(
         f"/api/world/maps/{map_id}/location-bindings",
         params={"novel_id": novel_id},
@@ -106,19 +108,19 @@ async def test_dynamic_state_returns_only_scene_dynamic_layers(
         },
     )
     assert marker_resp.status_code == 201, marker_resp.text
-    candidate_marker_resp = await async_client.post(
-        f"/api/world/maps/{map_id}/markers",
-        params={"novel_id": novel_id},
-        json={
-            "entity_id": str(candidate_character.id),
+    await MapMarkerRepository().create(
+        db_session,
+        uuid.UUID(hex=novel_id),
+        uuid.UUID(map_id),
+        {
+            "entity_id": candidate_character.id,
             "marker_type": "character",
             "hex_q": 3,
             "hex_r": 3,
-            "start_scene_id": scene.id,
+            "start_scene_id": uuid.UUID(str(scene.id)),
             "start_scene_index": 1,
         },
     )
-    assert candidate_marker_resp.status_code == 201, candidate_marker_resp.text
     other_marker_resp = await async_client.post(
         f"/api/world/maps/{map_id}/markers",
         params={"novel_id": novel_id},
@@ -227,9 +229,9 @@ async def test_dynamic_state_uses_status_scoped_queries() -> None:
     assert response.territories == []
     assert response.candidate_location_bindings == []
     assert calls == [
-        ("bindings", ("candidate",)),
+        ("bindings", ("draft", "candidate")),
         ("markers", ("canonical",)),
-        ("markers", ("candidate",)),
+        ("markers", ("draft", "candidate")),
         ("territories", ("canonical",)),
-        ("territories", ("candidate",)),
+        ("territories", ("draft", "candidate")),
     ]

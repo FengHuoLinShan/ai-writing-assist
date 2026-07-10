@@ -1,8 +1,9 @@
-# Module: writing / 正文草稿承载模块
+# Module: writing / 正文版本与工作稿模块
 
 ## 定位
 
-writing 模块不是核心 AI 正文生成模块，而是人工正文草稿和结构化创作成果的承载模块。
+writing 模块拥有正文版本事实源。作者界面只区分工作稿、已发布和待处理 AI 建议；
+`candidate` 等原始状态仅用于兼容持久化和审计。
 
 ## 数据表
 
@@ -20,7 +21,8 @@ API 提供了两种写入模式：
 2. **更新草稿**（`PUT /drafts/{id}`）→ working 可原地暂存；published 以 copy-on-write 返回新 draft ID
 
 `canonical` 选择每章最新非废弃 `published`，缺失时不回退 working；
-`working` 选择最新非废弃版本。删除单版本或整章只标记 `deprecated`，
+`working` 只选择最新的 `draft / published / canonical` 兼容版本，不选择未采用
+`candidate`。删除单版本或整章只标记 `deprecated`，
 版本号永不重排。
 
 ## Facade
@@ -30,6 +32,7 @@ async def create_draft_only(db, novel_id, chapter_index, title: str | None = Non
 async def create_published_draft_only(db, novel_id, chapter_index, title: str | None = None, content: str = "") -> WritingDraftContract
 async def create_draft(db, novel_id, chapter_index, title: str | None = None, content: str = "") -> tuple[WritingDraftContract, str]
 async def get_draft(db, draft_id) -> WritingDraftContract | None
+async def adopt_candidate_to_working(db, novel_id, draft_id, *, adopted_by="author") -> WritingDraftContract
 async def get_latest_draft_for_chapter(db, novel_id, chapter_index) -> WritingDraftContract | None
 async def list_latest_drafts_for_chapters(db, novel_id, chapter_indices, *, content_limit: int | None = None) -> list[WritingDraftContract]
 async def list_chapter_indices(db, novel_id) -> list[int]
@@ -53,6 +56,7 @@ outline 时不在服务模块顶层 import outline facade，而是通过可注�
 ```
 POST   /api/writing/drafts                              # 发布草稿（新版本 + publish_chapter 任务）
 GET    /api/writing/drafts/{id}                         # 获取草稿
+POST   /api/writing/drafts/{id}/adopt                   # 将 AI 正文建议复制为普通工作稿
 PUT    /api/writing/drafts/{id}                         # 暂存；published copy-on-write，支持 expected_version
 DELETE /api/writing/drafts/{id}                         # 软废弃单个版本
 DELETE /api/writing/chapters/{index}                    # 软废弃整章所有版本
@@ -68,7 +72,7 @@ POST   /api/writing/conflict-checks/{id}/ai-review-task # 提交异步 AI 软冲
 PATCH  /api/writing/conflict-check-items/{id}          # 更新问题处理状态
 POST   /api/writing/conflict-check-items/{id}/ai-suggestion # 生成单条 AI 修复建议
 POST   /api/writing/drafts/autosave                    # 创建纯草稿版本，不发布；合并标脏 working 索引
-POST   /api/writing/generate                            # 生成正文候选草稿，不自动发布
+POST   /api/writing/generate                            # 生成正文建议预览，不自动采用或发布
 ```
 
 `POST /api/writing/chapters/{chapter_index}/split?novel_id=...` 只允许未发布的
@@ -92,12 +96,12 @@ outline provider 重映射 Scene chunk，不修改正文事实源，也不自动
 
 ## 剧情设定冲突检查
 
-`POST /api/writing/conflict-checks` 是写作页的规则层检查入口。前端会在发起检查前弹出选项确认，默认不包含待确认对象；用户勾选“包含待确认对象”后，后端以 `include_candidates=true` 纳入候选地图观察等证据，依赖候选对象的问题会标记 `needs_review=true`。
+`POST /api/writing/conflict-checks` 是写作页的规则层检查入口。前端会在发起检查前弹出选项，默认不包含待处理对象；用户勾选“包含待处理对象”后，后端以兼容字段 `include_candidates=true` 纳入地图 observation 等未采用证据，依赖这些证据的问题会标记注意原因。
 
 规则层检查聚合三类跨模块证据：
 
 - 注入的 Scene contract loader：Scene 的目标、必须发生、禁止发生和核心冲突，命中项带 `outline_scene` 打开目标或正文 `text_range`；默认 loader lazy 调用 `outline.facade.get_scene_contract`。
-- `world.map_facade.summarize_scene_map_for_writing`：当前 Scene 的地图摘要、风险和待确认观察，地图项带 `map_scene` / `map_object` 打开目标。
+- `world.map_facade.summarize_scene_map_for_writing`：当前 Scene 的地图摘要、风险和待处理 observation，地图项带 `map_scene` / `map_object` 打开目标。
 - `memory.facade.get_continuity_evidence_for_writing`：上一章角色位置连续性证据，连续性问题带 `memory_chapter` 打开目标。
 
 问题项的 `location_json` 保存轻量证据结构：`source` 描述来源模块、类型、标签、字段和摘录；`open_target` 描述前端可以打开的目标；`needs_review_reason` 描述候选证据复核原因。发布章节时，最近一次检查会归档到 `writing_drafts.conflict_check_snapshot_json`，快照保留 `source` / `open_target`，但不保留正文 `text_range`。
@@ -106,11 +110,13 @@ AI 能力是显式追加流程，不替代规则层结果：
 
 - `ai-review` 必须使用 action 为 `writing.conflict_check.ai_review` 的 `context_confirmation_id`。
 - `ai-suggestion` 必须使用 action 为 `writing.conflict_check.ai_suggestion` 的 `context_confirmation_id`。
-- AI 软冲突和建议只写入检查项，不修改正文、Scene、地图、世界对象、记忆或正史资产。
+- AI 软冲突和建议只写入检查项，不修改正文、Scene、地图、世界对象、记忆或已采用资产。
 
-## AI 正文候选来源追踪
+## AI 正文建议与采用
 
-`POST /api/writing/generate` 只创建 `status="candidate"` 的候选草稿，不自动发布、不触发 RAG、不写正史。
+`POST /api/writing/generate` 只创建作者可见的正文建议。兼容期底层仍保存为
+`status="candidate"`，但它不会进入 latest working、项目正文统计、原文 grep 或 RAG
+working 来源，也不会自动发布。
 
 `writing_drafts.provenance_json` 保存 AI 生成来源追踪：
 
@@ -120,7 +126,10 @@ AI 能力是显式追加流程，不替代规则层结果：
 - `pov_view`：角色视角结构化结果（仅 `pov_character`）
 - `pov_validation`：角色视角 deterministic 泄漏诊断；`passed` 只表示“未发现明显越权”，不是绝对安全保证
 
-POV 角色视角候选即使诊断为 `failed` 仍保存为 candidate draft；前端必须标红提示，用户需显式确认后才可采用。
+POV 角色视角建议即使诊断为 `failed` 仍保留原始建议；前端标红风险。作者调用
+`POST /drafts/{id}/adopt` 后，服务以 copy-on-adopt 创建最高版本号的普通 draft，记录
+`adopted_from_candidate_id / adopted_at / adopted_by`，并把原建议转入历史。重复采用同一建议
+会被拒绝。
 
 ## 手动工作台
 
@@ -130,8 +139,8 @@ writingView（frontend-console/views/writingView.js）扩展为手动工作台�
 - **中间编辑器**：textarea + 保存/上一章/下一章/导出
 - **右侧 Scene 卡面板**：当前 Scene 卡详情（goal / core_conflict / emotional_beat / must_happen / must_not_happen / narrative_tag）
 - **版本历史**：模态框列出所有版本，支持预览和恢复
-- **剧情设定冲突检查**：检查前确认是否包含待确认对象；检查结果按规则命中和 AI 判断分组，支持证据抽屉、来源打开、正文定位、状态更新和复制 AI 修复建议
-- **深度导入按钮**：触发三阶段进度条（40%/40%/20%），每 3 秒轮询进度
+- **剧情设定冲突检查**：检查前选择是否包含待处理对象；检查结果按规则命中和 AI 判断分组，支持证据抽屉、来源打开、正文定位、状态更新和复制 AI 修复建议
+- **深度导入按钮**：启动前说明并确认自动采用范围，提交持久化授权快照；运行中显示三阶段进度，完成后展示已采用/待处理/未采用汇总
 - **章节 / Scene 提取**：批量调用 LLM 从正文提取 Scene 卡字段；UI 里历史“章节卡提取”入口不表示恢复独立 ChapterCard 主模型，当前权威结构对象仍是 `scenes`
 
 ## 真实 LLM 验收

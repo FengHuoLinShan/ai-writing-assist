@@ -73,7 +73,10 @@ class EntityAliasService:
         )
 
     def _alias_response(self, entity, alias_item: dict) -> dict:
-        return {
+        from modules.world.asset_state import project_alias_state
+
+        owner_meta = dict((entity.content_json or {}).get("_meta") or {})
+        response = {
             "entity_id": str(entity.id),
             "entity_name": entity.name,
             "alias": alias_item.get("alias", ""),
@@ -83,20 +86,51 @@ class EntityAliasService:
             "workflow_id": alias_item.get("workflow_id"),
             "scene_id": alias_item.get("scene_id"),
             "scene_index": alias_item.get("scene_index"),
+            "source_chapter_index": alias_item.get("source_chapter_index"),
             "confidence": alias_item.get("confidence"),
             "needs_review": alias_item.get("needs_review"),
             "reviewed_at": alias_item.get("reviewed_at"),
             "reviewed_by": alias_item.get("reviewed_by"),
             "reviewed_from": alias_item.get("reviewed_from"),
             "quote": alias_item.get("quote"),
+            "managed_by_suggestion": bool(
+                owner_meta.get("compatibility_shadow")
+                and owner_meta.get("suggestion_id")
+            ),
+            "suggestion_id": owner_meta.get("suggestion_id"),
+        }
+        return {
+            **response,
+            **project_alias_state(
+                status=response["status"],
+                source=response["source"],
+                needs_review=response["needs_review"],
+                confidence=response["confidence"],
+                owner_status=entity.status,
+            ),
         }
 
     def _assert_valid_target(self, entity) -> None:
+        self._assert_not_pending_suggestion_shadow(entity)
         if entity.status not in ALIAS_TARGET_STATUSES:
             raise DomainValidationError(
                 "Alias target must be draft, canonical, or candidate, "
                 f"got {entity.status}",
                 status_code=422,
+            )
+
+    @staticmethod
+    def _assert_not_pending_suggestion_shadow(entity) -> None:
+        meta = dict((getattr(entity, "content_json", None) or {}).get("_meta") or {})
+        if (
+            getattr(entity, "status", None) in {"draft", "candidate"}
+            and meta.get("compatibility_shadow") is True
+            and meta.get("suggestion_id")
+        ):
+            raise DomainValidationError(
+                "Suggestion compatibility entities must be edited through the "
+                "authoritative suggestion queue",
+                status_code=409,
             )
 
     def _find_alias_index(self, aliases: list, alias: str) -> int:
@@ -167,6 +201,7 @@ class EntityAliasService:
         novel_id: str,
         *,
         q: str | None = None,
+        display_state: str | None = None,
         status: str | None = None,
         needs_review: bool | None = None,
         source: str | None = None,
@@ -184,6 +219,7 @@ class EntityAliasService:
         result = self._filter_aliases(
             result,
             q=q,
+            display_state=display_state,
             status=status,
             needs_review=needs_review,
             source=source,
@@ -204,6 +240,7 @@ class EntityAliasService:
         aliases: list[dict],
         *,
         q: str | None = None,
+        display_state: str | None = None,
         status: str | None = None,
         needs_review: bool | None = None,
         source: str | None = None,
@@ -224,6 +261,8 @@ class EntityAliasService:
                 ).lower()
                 if query not in haystack:
                     return False
+            if display_state and item.get("display_state") != display_state:
+                return False
             if status and item.get("status") != status:
                 return False
             if needs_review is not None and item.get("needs_review") is not needs_review:
@@ -260,52 +299,68 @@ class EntityAliasService:
         result: list[dict] = []
         for entity in entities:
             aliases = (entity.content_json or {}).get("aliases", [])
+            owner_meta = dict((entity.content_json or {}).get("_meta") or {})
             for alias_item in aliases:
                 alias_text, alias_type = self._normalize_alias_item(alias_item)
+                response = {
+                    "entity_id": str(entity.id),
+                    "entity_name": entity.name,
+                    "alias": alias_text,
+                    "alias_type": alias_type,
+                    "status": alias_item.get("status")
+                    if isinstance(alias_item, dict)
+                    else None,
+                    "source": alias_item.get("source")
+                    if isinstance(alias_item, dict)
+                    else None,
+                    "workflow_id": alias_item.get("workflow_id")
+                    if isinstance(alias_item, dict)
+                    else None,
+                    "scene_id": alias_item.get("scene_id")
+                    if isinstance(alias_item, dict)
+                    else None,
+                    "scene_index": alias_item.get("scene_index")
+                    if isinstance(alias_item, dict)
+                    else None,
+                    "source_chapter_index": alias_item.get("source_chapter_index")
+                    if isinstance(alias_item, dict)
+                    else None,
+                    "confidence": alias_item.get("confidence")
+                    if isinstance(alias_item, dict)
+                    else None,
+                    "needs_review": alias_item.get("needs_review")
+                    if isinstance(alias_item, dict)
+                    else None,
+                    "reviewed_at": alias_item.get("reviewed_at")
+                    if isinstance(alias_item, dict)
+                    else None,
+                    "reviewed_by": alias_item.get("reviewed_by")
+                    if isinstance(alias_item, dict)
+                    else None,
+                    "reviewed_from": alias_item.get("reviewed_from")
+                    if isinstance(alias_item, dict)
+                    else None,
+                    "quote": alias_item.get("quote")
+                    if isinstance(alias_item, dict)
+                    else None,
+                    "managed_by_suggestion": bool(
+                        owner_meta.get("compatibility_shadow")
+                        and owner_meta.get("suggestion_id")
+                    ),
+                    "suggestion_id": owner_meta.get("suggestion_id"),
+                }
+                from modules.world.asset_state import project_alias_state
+
                 result.append(
                     {
-                        "entity_id": str(entity.id),
-                        "entity_name": entity.name,
-                        "alias": alias_text,
-                        "alias_type": alias_type,
-                        "status": alias_item.get("status")
-                        if isinstance(alias_item, dict)
-                        else None,
-                        "source": alias_item.get("source")
-                        if isinstance(alias_item, dict)
-                        else None,
-                        "workflow_id": alias_item.get("workflow_id")
-                        if isinstance(alias_item, dict)
-                        else None,
-                        "scene_id": alias_item.get("scene_id")
-                        if isinstance(alias_item, dict)
-                        else None,
-                        "scene_index": alias_item.get("scene_index")
-                        if isinstance(alias_item, dict)
-                        else None,
-                        "source_chapter_index": alias_item.get(
-                            "source_chapter_index"
-                        )
-                        if isinstance(alias_item, dict)
-                        else None,
-                        "confidence": alias_item.get("confidence")
-                        if isinstance(alias_item, dict)
-                        else None,
-                        "needs_review": alias_item.get("needs_review")
-                        if isinstance(alias_item, dict)
-                        else None,
-                        "reviewed_at": alias_item.get("reviewed_at")
-                        if isinstance(alias_item, dict)
-                        else None,
-                        "reviewed_by": alias_item.get("reviewed_by")
-                        if isinstance(alias_item, dict)
-                        else None,
-                        "reviewed_from": alias_item.get("reviewed_from")
-                        if isinstance(alias_item, dict)
-                        else None,
-                        "quote": alias_item.get("quote")
-                        if isinstance(alias_item, dict)
-                        else None,
+                        **response,
+                        **project_alias_state(
+                            status=response["status"],
+                            source=response["source"],
+                            needs_review=response["needs_review"],
+                            confidence=response["confidence"],
+                            owner_status=entity.status,
+                        ),
                     }
                 )
         return result
@@ -317,6 +372,13 @@ class EntityAliasService:
         entity_id: str,
         alias: str,
         alias_type: str = "name",
+        *,
+        status: str = "confirmed",
+        source: str = "manual",
+        source_chapter_index: int | None = None,
+        confidence: float | None = None,
+        evidence_refs: list[dict] | None = None,
+        reviewed_by: str = "manual",
     ) -> dict:
         """为实体添加别名；重复时抛 409。"""
         nid = parse_uuid(novel_id, "novel_id")
@@ -324,6 +386,7 @@ class EntityAliasService:
         entity = await self.repo.get(db, eid)
         if entity is None or entity.novel_id != nid:
             raise NotFoundError("Entity not found")
+        self._assert_not_pending_suggestion_shadow(entity)
 
         content = dict(entity.content_json or {})
         aliases = list(content.get("aliases", []))
@@ -333,11 +396,29 @@ class EntityAliasService:
             if existing == normalized_alias:
                 raise ConflictError(f"Alias already exists: {alias}")
 
-        aliases.append({"alias": alias, "type": alias_type})
+        alias_payload = {
+            "alias": alias,
+            "type": alias_type,
+            "status": status,
+            "source": source,
+            "source_chapter_index": source_chapter_index,
+            "confidence": confidence,
+            "evidence_refs": evidence_refs or [],
+            "needs_review": status in {"candidate", "conflicted"},
+        }
+        if status in {"canonical", "confirmed"}:
+            alias_payload.update(
+                {
+                    "reviewed_at": datetime.now(UTC).isoformat(),
+                    "reviewed_by": reviewed_by,
+                    "reviewed_from": "world_alias_create",
+                }
+            )
+        aliases.append(alias_payload)
         content["aliases"] = aliases
         entity.content_json = content
         await db.flush()
-        return {"entity_id": str(entity.id), "alias": alias, "alias_type": alias_type}
+        return self._alias_response(entity, alias_payload)
 
     async def update_alias(
         self,
@@ -353,6 +434,7 @@ class EntityAliasService:
         entity = await self.repo.get(db, eid)
         if entity is None or entity.novel_id != nid:
             raise NotFoundError("Entity not found")
+        self._assert_not_pending_suggestion_shadow(entity)
 
         content = dict(entity.content_json or {})
         aliases = list(content.get("aliases", []))
@@ -362,10 +444,14 @@ class EntityAliasService:
             if existing != normalized_alias:
                 continue
 
-            updated = dict(alias_item) if isinstance(alias_item, dict) else {
-                "alias": existing,
-                "type": alias_type,
-            }
+            updated = (
+                dict(alias_item)
+                if isinstance(alias_item, dict)
+                else {
+                    "alias": existing,
+                    "type": alias_type,
+                }
+            )
             updated["alias"] = existing
             updated["type"] = updated.get("type") or alias_type or "name"
             for key, value in changes.items():
@@ -414,6 +500,7 @@ class EntityAliasService:
         source = await self.repo.get(db, source_eid)
         if source is None or source.novel_id != nid:
             raise NotFoundError("Entity not found")
+        self._assert_not_pending_suggestion_shadow(source)
 
         target = source
         if target_entity_id:
@@ -438,12 +525,19 @@ class EntityAliasService:
             raise DomainValidationError("Alias text cannot be empty")
         next_type = alias_type or existing_type or "name"
 
-        updated = dict(old_item) if isinstance(old_item, dict) else {
-            "alias": existing_alias,
-            "type": existing_type,
-        }
+        updated = (
+            dict(old_item)
+            if isinstance(old_item, dict)
+            else {
+                "alias": existing_alias,
+                "type": existing_type,
+            }
+        )
         updated["alias"] = next_alias
         updated["type"] = next_type
+        updated["user_edited"] = True
+        updated["edited_at"] = datetime.now(UTC).isoformat()
+        updated["edited_by"] = "manual"
         if confirm_review:
             updated["status"] = "canonical"
             updated["needs_review"] = False
@@ -514,6 +608,15 @@ class EntityAliasService:
             raise DomainValidationError(
                 f"Alias candidate must be draft or candidate, got {candidate.status}",
                 status_code=422,
+            )
+        candidate_meta = dict((candidate.content_json or {}).get("_meta") or {})
+        if candidate_meta.get("compatibility_shadow") is True and candidate_meta.get(
+            "suggestion_id"
+        ):
+            raise DomainValidationError(
+                "Suggestion compatibility entities must be resolved through the "
+                "authoritative suggestion queue",
+                status_code=409,
             )
         self._assert_valid_target(target)
 
@@ -625,6 +728,7 @@ class EntityAliasService:
         entity = await self.repo.get(db, eid)
         if entity is None or entity.novel_id != nid:
             raise NotFoundError("Entity not found")
+        self._assert_not_pending_suggestion_shadow(entity)
 
         content = dict(entity.content_json or {})
         aliases = list(content.get("aliases", []))
@@ -635,6 +739,18 @@ class EntityAliasService:
         for index, alias_item in enumerate(aliases):
             existing, _ = self._normalize_alias_item(alias_item)
             if " ".join(existing.strip().split()).lower() == normalized_key:
+                # A legacy/plain or adopted alias is already active knowledge.
+                # An import duplicate may add a separate evidence link, but it
+                # must not demote or replace the alias lifecycle/provenance.
+                if not isinstance(alias_item, dict) or alias_item.get(
+                    "status"
+                ) != "candidate":
+                    return False
+                if alias_item.get("source") != "deep_import":
+                    return False
+                existing_workflow = alias_item.get("workflow_id")
+                if existing_workflow not in {None, workflow_id}:
+                    return False
                 if not self._alias_needs_candidate_metadata(alias_item):
                     return False
                 _, existing_type = self._normalize_alias_item(alias_item)
@@ -672,6 +788,53 @@ class EntityAliasService:
         await db.flush()
         return True
 
+    async def rollback_deep_import_candidates_by_workflow(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        workflow_id: str,
+    ) -> int:
+        """Archive untouched inline alias candidates owned by one workflow."""
+        nid = parse_uuid(novel_id, "novel_id")
+        entities = await self.repo.list_by_novel(
+            db,
+            nid,
+            limit=MAX_LIST_ALIAS_ENTITIES,
+        )
+        rolled_back_at = datetime.now(UTC).isoformat()
+        count = 0
+        for entity in entities:
+            content = dict(entity.content_json or {})
+            aliases = list(content.get("aliases", []))
+            changed = False
+            for index, alias_item in enumerate(aliases):
+                if not isinstance(alias_item, dict):
+                    continue
+                if (
+                    alias_item.get("status") != "candidate"
+                    or alias_item.get("source") != "deep_import"
+                    or alias_item.get("workflow_id") != workflow_id
+                    or alias_item.get("user_edited") is True
+                    or alias_item.get("reviewed_by") == "manual"
+                ):
+                    continue
+                aliases[index] = {
+                    **alias_item,
+                    "status": "ignored",
+                    "needs_review": False,
+                    "rolled_back": True,
+                    "rolled_back_at": rolled_back_at,
+                    "rollback_reason": "workflow_abandoned",
+                }
+                count += 1
+                changed = True
+            if changed:
+                content["aliases"] = aliases
+                entity.content_json = content
+                db.add(entity)
+        await db.flush()
+        return count
+
     async def delete_alias(
         self,
         db: AsyncSession,
@@ -688,6 +851,7 @@ class EntityAliasService:
         entity = await self.repo.get(db, eid)
         if entity is None or entity.novel_id != nid:
             raise NotFoundError("Entity not found")
+        self._assert_not_pending_suggestion_shadow(entity)
 
         content = dict(entity.content_json or {})
         aliases = list(content.get("aliases", []))

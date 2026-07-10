@@ -947,7 +947,7 @@ class TestWritingDraftService:
         )
         repo = MagicMock()
         repo.get = AsyncMock(return_value=v2)
-        repo.count_versions = AsyncMock(return_value=2)
+        repo.count_working_versions = AsyncMock(return_value=2)
         repo.delete = AsyncMock(return_value=v2)
         repo.renumber_versions_after_delete = AsyncMock()
         service = WritingDraftService(repo=repo)
@@ -969,13 +969,61 @@ class TestWritingDraftService:
         )
         repo = MagicMock()
         repo.get = AsyncMock(return_value=v1)
-        repo.count_versions = AsyncMock(return_value=1)
+        repo.count_working_versions = AsyncMock(return_value=1)
         service = WritingDraftService(repo=repo)
         db = MagicMock()
 
         with pytest.raises(ValidationError) as exc_info:
             await service.delete_draft(db, str(v1.id), sample_draft_data.novel_id)
         assert exc_info.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_delete_only_working_draft_is_not_unlocked_by_candidate(
+        self,
+        sample_draft_data: WritingDraftCreate,
+    ) -> None:
+        working = _make_draft(
+            novel_id=uuid.UUID(sample_draft_data.novel_id),
+            status="draft",
+        )
+        repo = MagicMock()
+        repo.get = AsyncMock(return_value=working)
+        repo.count_working_versions = AsyncMock(return_value=1)
+        repo.delete = AsyncMock()
+        service = WritingDraftService(repo=repo)
+
+        with pytest.raises(ValidationError, match="last working version"):
+            await service.delete_draft(
+                AsyncMock(),
+                str(working.id),
+                sample_draft_data.novel_id,
+            )
+
+        repo.delete.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_delete_candidate_does_not_require_a_working_version(
+        self,
+        sample_draft_data: WritingDraftCreate,
+    ) -> None:
+        candidate = _make_draft(
+            novel_id=uuid.UUID(sample_draft_data.novel_id),
+            status="candidate",
+        )
+        repo = MagicMock()
+        repo.get = AsyncMock(return_value=candidate)
+        repo.delete = AsyncMock(return_value=candidate)
+        service = WritingDraftService(repo=repo)
+        db = AsyncMock()
+
+        await service.delete_draft(
+            db,
+            str(candidate.id),
+            sample_draft_data.novel_id,
+        )
+
+        repo.count_working_versions.assert_not_called()
+        repo.delete.assert_awaited_once_with(db, candidate.id)
 
     @pytest.mark.asyncio
     async def test_get_latest_draft(
@@ -1891,14 +1939,17 @@ async def test_writing_generation_creates_candidate_without_publish_task(
         db_session,
         novel_id=novel_id,
         chapter_index=3,
-        title="第三章",
+        title=None,
         instruction="压低信息密度",
         context_confirmation_id=confirmation.id,
     )
 
     assert draft.status == "candidate"
+    assert draft.display_state == "review"
+    assert draft.source == "ai_generated"
     assert draft.chapter_index == 3
-    assert draft.title == "第三章"
+    assert draft.title == "第3章 正文建议"
+    assert "候选" not in draft.title
     assert draft.content == "这是 AI 生成的候选正文。"
     expected = {
         "source": "writing_generate",

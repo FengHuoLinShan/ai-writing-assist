@@ -48,6 +48,8 @@ class MapTerrainService:
         db: AsyncSession,
         novel_id: str,
         map_id: str,
+        *,
+        include_candidates: bool = False,
     ) -> MapTerrainStateResponse:
         await self._ctx.require_map(db, novel_id, map_id)
         nid = parse_uuid(novel_id, "novel_id")
@@ -55,7 +57,39 @@ class MapTerrainService:
         layers = await self._layer_repo.get_by_map(db, nid, mid)
         regions = await self._region_repo.get_by_map(db, nid, mid)
         patches = await self._patch_repo.get_by_map(db, nid, mid)
-        bindings = await self._binding_repo.get_by_map(db, nid, mid)
+        canonical_owner_bindings = (
+            await self._binding_repo.get_by_map_for_entity_statuses(
+                db,
+                nid,
+                mid,
+                statuses=["canonical"],
+            )
+        )
+        bindings = [
+            binding
+            for binding in canonical_owner_bindings
+            if binding.review_state == "confirmed"
+        ]
+        candidate_bindings = []
+        if include_candidates:
+            pending_owner_bindings = (
+                await self._binding_repo.get_by_map_for_entity_statuses(
+                    db,
+                    nid,
+                    mid,
+                    statuses=["draft", "candidate"],
+                )
+            )
+            pending_owner_ids = {binding.id for binding in pending_owner_bindings}
+            candidate_bindings = [
+                binding
+                for binding in [*canonical_owner_bindings, *pending_owner_bindings]
+                if binding.review_state in {"candidate", "needs_review"}
+                or (
+                    binding.id in pending_owner_ids
+                    and binding.review_state != "ignored"
+                )
+            ]
         return MapTerrainStateResponse(
             layers=[MapTerrainLayerResponse.model_validate(layer) for layer in layers],
             regions=[
@@ -65,6 +99,10 @@ class MapTerrainService:
             bindings=[
                 MapTerrainBindingResponse.model_validate(binding)
                 for binding in bindings
+            ],
+            candidate_bindings=[
+                MapTerrainBindingResponse.model_validate(binding)
+                for binding in candidate_bindings
             ],
         )
 
@@ -163,7 +201,12 @@ class MapTerrainService:
                 f"地形区域 {data.region_id} 不存在",
                 code="map_terrain_region_not_found",
             )
-        await self._ctx.require_entity(
+        require_location = (
+            self._ctx.require_canonical_entity
+            if data.review_state == "confirmed"
+            else self._ctx.require_entity
+        )
+        await require_location(
             db,
             novel_id,
             data.location_entity_id,
@@ -203,6 +246,14 @@ class MapTerrainService:
             raise NotFoundError(
                 f"地形绑定 {binding_id} 不存在",
                 code="map_terrain_binding_not_found",
+            )
+        next_review_state = data.review_state or existing.review_state
+        if next_review_state == "confirmed":
+            await self._ctx.require_canonical_entity(
+                db,
+                novel_id,
+                str(existing.location_entity_id),
+                allowed_types={"location"},
             )
         values = data.model_dump(exclude_unset=True)
         updated = await self._binding_repo.update(db, existing, values)

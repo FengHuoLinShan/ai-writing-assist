@@ -34,8 +34,8 @@ export function createWritingTools({
         <div class="writing-tools-menu__body">
           <div class="writing-tools-menu__group">
             <strong>生成</strong>
-            <button class="btn btn-sm" data-action="ai-generate-draft" ${disabled} title="${disabled ? escapeHtml(disabledTitle) : "基于上下文生成当前章节草稿"}">AI 生成草稿</button>
-            <button class="btn btn-sm" data-action="ai-generate-pov-draft" ${disabled} title="${disabled ? escapeHtml(disabledTitle) : "基于当前 Scene 的 POV 角色有限认知生成候选草稿"}">AI 角色视角草稿</button>
+            <button class="btn btn-sm" data-action="ai-generate-draft" ${disabled} title="${disabled ? escapeHtml(disabledTitle) : "基于上下文生成正文建议"}">AI 正文建议</button>
+            <button class="btn btn-sm" data-action="ai-generate-pov-draft" ${disabled} title="${disabled ? escapeHtml(disabledTitle) : "基于当前 Scene 的 POV 角色有限认知生成正文建议"}">AI 角色视角建议</button>
           </div>
           ${currentProjectId() ? `<div class="writing-tools-menu__group">
             <strong>提取</strong>
@@ -101,6 +101,10 @@ export function createWritingTools({
   }
 
   async function showSplitSceneForm() {
+    if (projectState._isReadonly) {
+      toast("当前内容只读；待处理建议需先采用到工作稿", "warning")
+      return
+    }
     const currentChapter = projectState._currentChapter
     if (!currentChapter) { toast("请先选择章节", "warning"); return }
     const currentScene = findCurrentScene()
@@ -163,14 +167,18 @@ export function createWritingTools({
       toast("请先选择章节", "warning")
       return
     }
+    if (projectState._isReadonly) {
+      toast("当前内容只读；待处理建议不会作为工作稿参考", "warning")
+      return
+    }
     try {
       const confirmation = await confirmAiReference({
         novel_id: projectId,
         action: "writing.generate",
-        task: "生成正文候选草稿",
+        task: "生成正文建议预览",
         scope: "chapter",
         chapter_index: currentChapter,
-        include_pending_objects: true,
+        include_pending_objects: false,
       })
       const result = await api.writing.generate({
         novel_id: projectId,
@@ -179,10 +187,10 @@ export function createWritingTools({
         instruction: confirmation.user_note || "",
         context_confirmation_id: confirmation.id,
       })
-      toast(`AI 生成草稿任务已提交：${result.task_id || result.id || ""}`, "success")
+      toast(`AI 正文建议任务已提交：${result.task_id || result.id || ""}`, "success")
     } catch (err) {
       if (err.message && err.message.includes("取消")) return
-      toast(err.message || "AI 生成草稿失败", "error")
+      toast(err.message || "AI 正文建议生成失败", "error")
     }
   }
 
@@ -191,6 +199,10 @@ export function createWritingTools({
     const currentChapter = projectState._currentChapter
     if (!projectId || !currentChapter) {
       toast("请先选择章节", "warning")
+      return
+    }
+    if (projectState._isReadonly) {
+      toast("当前内容只读；待处理建议不会作为工作稿参考", "warning")
       return
     }
 
@@ -207,7 +219,7 @@ export function createWritingTools({
     }
 
     const povInstruction = [
-      "请从当前 Scene 的 POV 角色有限认知出发生成正文候选草稿。",
+      "请从当前 Scene 的 POV 角色有限认知出发生成正文建议。",
       "用户指令是作者意图，不等于角色知识。",
       "角色判断、台词、内心和行动只能使用确认上下文中该角色可见的信息。",
     ].join("\n")
@@ -216,14 +228,14 @@ export function createWritingTools({
       const confirmation = await confirmAiReference({
         novel_id: projectId,
         action: "writing.generate",
-        task: "基于当前 Scene 的 POV 角色有限认知，生成正文候选草稿",
+        task: "基于当前 Scene 的 POV 角色有限认知，生成正文建议预览",
         scope: "chapter",
         chapter_index: currentChapter,
         scene_id: currentScene.id,
         reveal_mode: "character",
         viewpoint_character_id: viewpointCharacterId,
         character_ids: [viewpointCharacterId],
-        include_pending_objects: true,
+        include_pending_objects: false,
       })
       const userNote = confirmation.user_note ? `${confirmation.user_note}\n\n` : ""
       const result = await api.writing.generate({
@@ -233,10 +245,10 @@ export function createWritingTools({
         instruction: `${userNote}${povInstruction}`,
         context_confirmation_id: confirmation.id,
       })
-      toast(`AI 角色视角草稿任务已提交：${result.task_id || result.id || ""}`, "success")
+      toast(`AI 角色视角建议任务已提交：${result.task_id || result.id || ""}`, "success")
     } catch (err) {
       if (err.message && err.message.includes("取消")) return
-      toast(err.message || "AI 角色视角草稿失败", "error")
+      toast(err.message || "AI 角色视角建议生成失败", "error")
     }
   }
 

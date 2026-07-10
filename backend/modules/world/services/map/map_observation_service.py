@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.world.map_models import MapObservation
 from modules.world.map_schemas import (
     MapFactResponse,
     MapObservationBatchReviewRequest,
@@ -22,6 +25,67 @@ class MapObservationService:
 
     def __init__(self, owner: MapDynamicLifecycle) -> None:
         self.owner = owner
+
+    async def count_deep_import_observations_by_workflow(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        workflow_id: str,
+    ) -> int:
+        """Count workflow-owned pending observations for cleanup reporting."""
+        nid = parse_uuid(novel_id, "novel_id")
+        result = await db.execute(
+            select(MapObservation).where(
+                MapObservation.novel_id == nid,
+                MapObservation.review_state.in_(["candidate", "conflicted"]),
+            )
+        )
+        return sum(
+            1
+            for observation in result.scalars().all()
+            if (observation.source_ref or {}).get("workflow_id") == workflow_id
+            and (observation.source_ref or {}).get("auto_ingested") is True
+        )
+
+    async def rollback_deep_import_observations_by_workflow(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        workflow_id: str,
+    ) -> int:
+        """Archive only untouched pending observations owned by one workflow."""
+        nid = parse_uuid(novel_id, "novel_id")
+        result = await db.execute(
+            select(MapObservation)
+            .where(
+                MapObservation.novel_id == nid,
+                MapObservation.review_state.in_(["candidate", "conflicted"]),
+            )
+            .with_for_update()
+        )
+        rolled_back_at = datetime.now(UTC).isoformat()
+        count = 0
+        for observation in result.scalars().all():
+            source_ref = dict(observation.source_ref or {})
+            if (
+                source_ref.get("workflow_id") != workflow_id
+                or source_ref.get("auto_ingested") is not True
+                or source_ref.get("user_edited") is True
+            ):
+                continue
+            source_ref.update(
+                {
+                    "rolled_back": True,
+                    "rolled_back_at": rolled_back_at,
+                    "rollback_reason": "workflow_abandoned",
+                }
+            )
+            observation.source_ref = source_ref
+            observation.review_state = "ignored"
+            db.add(observation)
+            count += 1
+        await db.flush()
+        return count
 
     async def list_observations(
         self,

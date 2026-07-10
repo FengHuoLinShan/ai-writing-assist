@@ -38,6 +38,9 @@ GET/PATCH/POST /api/outline/scene-workbench...
 POST/GET/PATCH/DELETE /api/outline/foreshadowing...
 POST/GET/PATCH/DELETE /api/outline/reveals...
 POST /api/outline/generate
+POST /api/outline/generate/apply
+POST /api/outline/chapter-scenes/extract
+POST /api/outline/chapter-scenes/apply
 ```
 
 结构资产列表筛选：
@@ -112,7 +115,25 @@ AI Scene 草稿统一由 `SceneDraftReviewService` 生成。`fusion/preview` 要
 `fusion/save` 支持 `keep_originals`、`deprecate_originals`、`discard` 和
 `edit_then_save`。只有 `deprecate_originals` 会把来源 Scene 标记为
 `deprecated`，新 Scene 记录 `source="manual_fusion"` 与
-`structure_meta.fused_from_scene_ids`，来源 Scene 记录 `fused_into_scene_id`。
+`structure_meta.fused_from_scene_ids`，来源 Scene 记录 `fused_into_scene_id`。确认保存会将新 Scene 的 `structure_meta.needs_review` 明确清为 false，并记录 `adopted_at` 和 `source`；preview 中的旧 review 标记不会残留到已采用 Scene。
+
+`generate` 只把 AI 结构生成为 `draft_structure` review preview，任务结果标记
+`requires_apply=true` 且不写入剧情线、篇章纲、Scene、伏笔或揭示表。作者编辑后
+通过 `generate/apply` 提交 `confirmed=true`；服务在同一事务内锁定源 task，复核
+novel/action/fresh confirmation 和各类条目数，然后写入普通 `draft` 工作资产，并记录
+`source=ai_generated / adopted_at / adopted_from_preview_task_id`。重放同一 task 返回首次
+采用结果，不重复建资产。旧 `plot_structure_generate` task 也只产生 preview，且不能作为
+`generate/apply` 的源 task；深度导入则继续由其一次性授权流水线显式
+`persist=true` 写入工作资产。采用使用 savepoint 严格全成功语义：任一预期资产写入
+失败则整批回滚，源 task 仍保持可采用。
+
+深度导入 Phase 3 把每条结构的 `confidence / needs_review / review_reason /
+supporting_scene_ids` 写入 `provenance_meta`；无有效 Scene 证据、低置信或无法解析目标的
+揭示保留为 review 提案。无法解析的 reveal 不会用 zero UUID 伪造已落库资产。
+
+`chapter-scenes/extract` 保留原有异步任务路由，但任务结果只返回 `draft_scenes` preview、`scene_ids=[]` 和 `requires_apply=true`，不写 `scenes` 表，也不把 context confirmation 当作结果采用。作者编辑后通过 `chapter-scenes/apply` 传 `confirmed=true`；服务会复核同 novel/action 的 fresh confirmation，然后创建普通 `draft` Scene，写入 `adopted_at / source=ai_generated / adopted_from_preview_task_id`，并仅在此时绑定真实 `outline_scene` result refs。apply 只接受作者可编辑的 Scene 内容/章节字段，忽略请求中伪造的 `structure_meta`、source/status 和 POV 引用，系统 provenance 始终重建。
+
+新 Scene 写入的 `status` 只允许 `draft / canonical`；更新路径另允许 `deprecated` 用于软废弃。兼容期仍可读取存量 `candidate` Scene，但新 create/apply/split/fusion 不再写 candidate。
 
 跨章 Scene 识别通过 `cross-chapter/detect` 创建异步任务，只生成相邻 Scene
 递归扩展建议，不直接改库。前端打开建议后进入同一个 Scene 草稿审稿界面，

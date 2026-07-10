@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 async def handle_world_entity_extraction(db, task):
     """处理世界对象抽取任务
 
-    从指定章节范围抽取世界对象候选。
+    从指定章节范围抽取待处理世界对象建议。
 
     Task meta 参数：
     - novel_id: 项目 ID
@@ -66,11 +66,14 @@ async def handle_world_entity_extraction(db, task):
     task.update_progress(0.95)
 
     if context_confirmation_id:
-        result_refs = [
-            {"type": "world_entity", "id": entity_id}
-            for item in result.items
-            if (entity_id := str(item.get("id") or ""))
-        ]
+        result_refs = []
+        for item in result.items:
+            entity_id = str(item.get("id") or "")
+            suggestion_id = str(item.get("suggestion_id") or "")
+            if entity_id:
+                result_refs.append({"type": "world_entity", "id": entity_id})
+            if suggestion_id:
+                result_refs.append({"type": "creation_suggestion", "id": suggestion_id})
         if result_refs:
             await context_facade.attach_result_refs(
                 db,
