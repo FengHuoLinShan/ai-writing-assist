@@ -313,6 +313,88 @@ test.describe("写作台模块", () => {
     await expect(page.locator("#writing-panel-container")).toContainText("Scene B")
   })
 
+  test("写作副驾驶默认展示 Scene 执行信息且不被工作区裁切", async ({ page }) => {
+    await createDraft(testProjectId, 1, "第一章 东门交锋", "东门交锋正文")
+    await createScene(testProjectId, {
+      scene_index: 0,
+      title: "东门交锋",
+      narrative_tag: "draft",
+      chapter_ids: ["1"],
+      scene_chunks: [{ chapter_index: 1, start_pos: 0, end_pos: 8 }],
+      goal: "拿到令牌后安全离开",
+      must_happen: "主角与守卫正面对质",
+      must_not_happen: "主角身份提前暴露",
+      core_conflict: "通行时限与身份隐藏之间的冲突",
+      emotional_beat: "从紧张试探到果断突围",
+    })
+
+    await page.setViewportSize({ width: 1280, height: 768 })
+    await reloadWorkbench(page, "writing")
+    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
+    await page.locator('[data-action="select-scene"]').first().click()
+
+    await expect(page.locator('.cockpit-tab[data-tab="lore"]')).toHaveClass(/active/)
+    await expect(page.locator('.cockpit-panel[data-panel="lore"]')).toContainText("拿到令牌后安全离开")
+
+    const geometry = await page.evaluate(() => {
+      const cockpit = document.querySelector(".scene-cockpit")
+      const workspace = document.querySelector("#workspace-content")
+      if (!cockpit || !workspace) return null
+      const cockpitBox = cockpit.getBoundingClientRect()
+      const workspaceBox = workspace.getBoundingClientRect()
+      return {
+        cockpitBottom: cockpitBox.bottom,
+        workspaceBottom: workspaceBox.bottom,
+      }
+    })
+    expect(geometry).not.toBeNull()
+    expect(geometry.cockpitBottom).toBeLessThanOrEqual(geometry.workspaceBottom + 2)
+
+    await page.locator('.cockpit-tab[data-tab="map"]').click()
+    await page.evaluate(() => writingView._rerender())
+    await expect(page.locator('.cockpit-tab[data-tab="map"]')).toHaveClass(/active/)
+  })
+
+  test("专注模式隐藏两侧面板后保持桌面阅读宽度", async ({ page }) => {
+    await createDraft(testProjectId, 1, "第一章 专注写作", "用于验证专注模式宽度的正文。")
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await reloadWorkbench(page, "writing")
+    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
+    await page.locator('[data-action="select-chapter"][data-chapter="1"]').click()
+    await page.getByRole("button", { name: "专注模式" }).click()
+
+    await expect(page.locator("body")).toHaveClass(/focus-mode-active/)
+    await expect(page.locator("#writing-tree-container")).toBeHidden()
+    await expect(page.locator("#writing-panel-container")).toBeHidden()
+
+    const geometry = await page.evaluate(() => {
+      const workspace = document.querySelector("#workspace-content")
+      const layout = document.querySelector(".writing-workspace-layout")
+      const editorContainer = document.querySelector("#writing-editor-container")
+      const editor = document.querySelector("#writing-editor")
+      if (!workspace || !layout || !editorContainer || !editor) return null
+      const workspaceBox = workspace.getBoundingClientRect()
+      const layoutBox = layout.getBoundingClientRect()
+      const containerBox = editorContainer.getBoundingClientRect()
+      const editorBox = editor.getBoundingClientRect()
+      return {
+        workspaceWidth: workspaceBox.width,
+        layoutWidth: layoutBox.width,
+        containerWidth: containerBox.width,
+        editorWidth: editorBox.width,
+        editorCenterOffset: Math.abs(
+          (editorBox.left + editorBox.width / 2) -
+          (workspaceBox.left + workspaceBox.width / 2),
+        ),
+      }
+    })
+
+    expect(geometry).not.toBeNull()
+    expect(geometry.containerWidth).toBeGreaterThan(geometry.workspaceWidth * 0.8)
+    expect(geometry.editorWidth).toBeGreaterThanOrEqual(700)
+    expect(geometry.editorCenterOffset).toBeLessThanOrEqual(2)
+  })
+
   test("剧情设定冲突检查流程、状态更新和发布快照归档", async ({ page }) => {
     await createDraft(testProjectId, 1, "第一章", "旧稿")
     await createScene(testProjectId, {

@@ -4,7 +4,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
 import "../router.js"
-import sceneWorkbenchView from "../views/sceneWorkbenchView.js"
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -110,6 +109,40 @@ describe("renderCurrentView error handling", () => {
     expect(onEnter).toHaveBeenCalledTimes(enterCountAfterProjectOne + 1)
     expect(onActivate).toHaveBeenCalledTimes(activateCountAfterProjectOne)
   })
+
+  it("keeps a writing view's module state alive while its DOM is cached", async () => {
+    const content = addWorkspace()
+    const onDeactivate = vi.fn()
+    const onLeave = vi.fn()
+    const onActivate = vi.fn()
+    const onEnter = vi.fn()
+
+    window.router.registerView("writing", {
+      onEnter,
+      onDeactivate,
+      onLeave,
+      onActivate,
+      async render() {
+        return '<p id="writing-state">章节树仍在</p>'
+      },
+    })
+    window.router.registerView("world", { async render() { return "<p>世界</p>" } })
+
+    state.currentProjectId = "writing-lifecycle-p1"
+    state.currentProject = { id: "writing-lifecycle-p1", title: "项目一" }
+    state.currentView = "writing"
+    state.currentSubView = null
+    await window.router.renderCurrentView()
+
+    await window.router.navigate("world", null, false)
+    expect(onDeactivate).toHaveBeenCalledTimes(1)
+    expect(onLeave).not.toHaveBeenCalled()
+
+    await window.router.navigate("writing", null, false)
+    expect(onActivate).toHaveBeenCalledTimes(1)
+    expect(onEnter).toHaveBeenCalledTimes(1)
+    expect(content.querySelector("#writing-state")?.textContent).toBe("章节树仍在")
+  })
 })
 
 describe("subview memory", () => {
@@ -175,17 +208,18 @@ describe("route guard and normalization", () => {
     expect(window.location.hash).toBe("#workbench/p1/world/objects")
   })
 
-  it("keeps dynamic scene subviews on init", async () => {
+  it("redirects legacy scene routes into the outline scene workbench", async () => {
     addWorkspace()
-    registerBasicView("scene")
+    registerBasicView("outline")
     api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
     window.location.hash = "#workbench/p1/scene/s1"
 
     await window.router.initRouter()
 
-    expect(state.currentView).toBe("scene")
-    expect(state.currentSubView).toBe("s1")
-    expect(window.location.hash).toBe("#workbench/p1/scene/s1")
+    expect(state.currentView).toBe("outline")
+    expect(state.currentSubView).toBe("scenes")
+    expect(window.location.hash).toBe("#workbench/p1/outline/scenes?scene_id=s1")
+    expect(window.router.getCurrentQuery().get("scene_id")).toBe("s1")
   })
 
   it("redirects legacy context routes without a project to projects", async () => {
@@ -337,16 +371,12 @@ describe("refresh forces project sync", () => {
   })
 })
 
-describe("scene workbench navigation lifecycle", () => {
-  it("leaving scene workbench does not clear the target route subview", async () => {
+describe("scene workbench navigation compatibility", () => {
+  it("normalizes programmatic scene navigation into the outline scenes tab", async () => {
     const content = document.createElement("div")
     content.id = "workspace-content"
     document.body.append(content)
 
-    window.router.registerView("scene", {
-      onLeave: () => sceneWorkbenchView.onLeave(),
-      async render() { return "<p>Scene 工作台</p>" },
-    })
     window.router.registerView("outline", {
       async render() { return `<p>${state.currentSubView}</p>` },
     })
@@ -354,10 +384,10 @@ describe("scene workbench navigation lifecycle", () => {
     state.currentProjectId = "p1"
 
     await window.router.navigate("scene", "s1", false)
-    await window.router.navigate("outline", "scenes", false)
 
     expect(state.currentView).toBe("outline")
     expect(state.currentSubView).toBe("scenes")
+    expect(window.router.getCurrentQuery().get("scene_id")).toBe("s1")
     expect(content.textContent).toContain("scenes")
   })
 })

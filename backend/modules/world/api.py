@@ -769,7 +769,7 @@ async def list_entities(
         None,
         description="作者展示状态过滤（兼容保留 status）",
     ),
-    q: str | None = Query(None, description="名称/别名搜索"),
+    q: str | None = Query(None, description="名称、别名或描述的模糊搜索"),
     source: str | None = Query(None, description="来源过滤"),
     workflow_id: str | None = Query(None, description="深度导入 workflow ID"),
     needs_review: bool | None = Query(None, description="是否需要复核"),

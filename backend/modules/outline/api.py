@@ -34,6 +34,9 @@ from modules.outline.schemas import (
     RevealPlanResponse,
     RevealPlanUpdate,
     SceneCreate,
+    SceneCrossChapterSuggestionDismissRequest,
+    SceneCrossChapterSuggestionDismissResponse,
+    SceneCrossChapterSuggestionListResponse,
     SceneFusionPreviewRequest,
     SceneFusionPreviewResponse,
     SceneFusionSaveRequest,
@@ -45,6 +48,10 @@ from modules.outline.schemas import (
     SceneReorderRequest,
     SceneReorderResponse,
     SceneResponse,
+    SceneReviewRequest,
+    SceneReviewResponse,
+    SceneSourceMappingReviewRequest,
+    SceneSourceMappingReviewResponse,
     SceneSplitRequest,
     SceneUpdate,
     SceneWorkbenchItem,
@@ -306,6 +313,42 @@ async def api_get_scene_workbench(
         raise _workbench_error(exc) from exc
 
 
+@router.post(
+    "/scene-workbench/review",
+    response_model=SceneReviewResponse,
+)
+async def api_review_scene_workbench_items(
+    data: SceneReviewRequest,
+    db: DbSession,
+    *,
+    novel_id: NovelIdQuery,
+):
+    try:
+        return await _scene_workbench_service.review_scenes(db, novel_id, data)
+    except Exception as exc:
+        raise _workbench_error(exc) from exc
+
+
+@router.post(
+    "/scene-workbench/source-mapping/review",
+    response_model=SceneSourceMappingReviewResponse,
+)
+async def api_review_scene_source_mappings(
+    data: SceneSourceMappingReviewRequest,
+    db: DbSession,
+    *,
+    novel_id: NovelIdQuery,
+):
+    try:
+        return await _scene_workbench_service.review_source_mappings(
+            db,
+            novel_id,
+            data,
+        )
+    except Exception as exc:
+        raise _workbench_error(exc) from exc
+
+
 @router.patch(
     "/scene-workbench/scenes/{scene_id}/mapping",
     response_model=SceneResponse,
@@ -434,6 +477,48 @@ async def api_detect_cross_chapter_scenes(
     )
     await db.flush()
     return CrossChapterSceneDetectResponse(task_id=task_id)
+
+
+@router.get(
+    "/scene-workbench/cross-chapter/suggestions",
+    response_model=SceneCrossChapterSuggestionListResponse,
+)
+async def api_list_cross_chapter_suggestions(
+    db: DbSession,
+    *,
+    novel_id: NovelIdQuery,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+):
+    try:
+        return await _scene_workbench_service.list_cross_chapter_suggestions(
+            db,
+            novel_id,
+            skip=skip,
+            limit=limit,
+        )
+    except Exception as exc:
+        raise _workbench_error(exc) from exc
+
+
+@router.post(
+    "/scene-workbench/cross-chapter/suggestions/dismiss",
+    response_model=SceneCrossChapterSuggestionDismissResponse,
+)
+async def api_dismiss_cross_chapter_suggestions(
+    data: SceneCrossChapterSuggestionDismissRequest,
+    db: DbSession,
+    *,
+    novel_id: NovelIdQuery,
+):
+    try:
+        return await _scene_workbench_service.dismiss_cross_chapter_suggestions(
+            db,
+            novel_id,
+            data,
+        )
+    except Exception as exc:
+        raise _workbench_error(exc) from exc
 
 
 @router.post(

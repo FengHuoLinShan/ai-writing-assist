@@ -557,6 +557,25 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
             )
         return await super().update(db, id, data, novel_id=novel_id)
 
+    async def delete(
+        self,
+        db: AsyncSession,
+        id: str,
+        *,
+        novel_id: str,
+    ) -> None:
+        """Deprecate through SceneRepository so span lifecycle stays mirrored."""
+        rid = parse_uuid(id, self.id_param)
+        nid = parse_uuid(novel_id, "novel_id")
+        existing = await self.repo.get(db, rid)
+        self._assert_found_in_novel(existing, id, nid)
+        updated = await self.repo.update(
+            db,
+            rid,
+            SceneUpdate(status="deprecated"),
+        )
+        self._assert_found_in_novel(updated, id, nid)
+
     async def get_ordered(
         self,
         db: AsyncSession,
@@ -705,6 +724,7 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
 
         deprecated = 0
         repo = self.repo
+        deprecated_scenes: list[Scene] = []
         for scene in scenes:
             meta = scene.structure_meta or {}
             if not _is_cleanup_eligible_deep_import_meta(
@@ -722,12 +742,13 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
             scene.structure_meta = updated_meta
             db.add(scene)
             deprecated += 1
+            deprecated_scenes.append(scene)
 
         if deprecated:
             await db.flush()
-            for scene in scenes:
-                if scene.status == "deprecated":
-                    await repo.sync_scene_spans(db, scene)
+            for scene in deprecated_scenes:
+                await repo.stale_cross_chapter_suggestions_for_scene(db, scene)
+                await repo.mirror_scene_span_lifecycle(db, scene)
         return deprecated
 
     async def get_by_chapter(
@@ -860,9 +881,9 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
             db.add(new_scene)
 
         await db.flush()
-        await self.repo.sync_scene_indexes(db, source_scene)
+        await self.repo.sync_chapter_links(db, source_scene)
         if tid:
-            await self.repo.sync_scene_indexes(db, target)
+            await self.repo.sync_chapter_links(db, target)
         else:
             await self.repo.sync_scene_indexes(db, new_scene)
 

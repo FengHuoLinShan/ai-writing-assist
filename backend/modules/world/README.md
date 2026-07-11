@@ -402,7 +402,7 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 
 | 方法 | 路径 | 用途 |
 |------|------|------|
-| GET | `/api/world/entities` | 世界对象列表；可按原始 `status` 或 `display_state` 筛选 |
+| GET | `/api/world/entities` | 世界对象列表；可按原始 `status` 或 `display_state` 筛选，`q` 支持名称、别名和描述的模糊搜索（名称/别名优先） |
 | POST | `/api/world/entities` | 手动创建世界对象；未传 `status` 时默认已采用 |
 | GET | `/api/world/suggestions` | 创设建议队列，响应包含作者态投影 |
 | POST | `/api/world/suggestions/{suggestion_id}/confirm` | 确认建议；支持对象、关系、别名与世界书目标 |

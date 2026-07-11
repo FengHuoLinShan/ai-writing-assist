@@ -59,6 +59,38 @@ describe("sceneCockpitPanel", () => {
     expect(html).not.toContain("<img src=x>")
   })
 
+  it("renders explicit reference data when the Scene response has no reference fields", () => {
+    const html = renderSceneCockpitPanel({
+      projectId: "p1",
+      scene: { id: "s1", title: "东门" },
+      people: [{ id: "c1", name: "沈澜", summary: "巡夜人" }],
+      location: { id: "l1", name: "北港", summary: "旧码头区" },
+    })
+
+    expect(html).toContain("沈澜")
+    expect(html).toContain("巡夜人")
+    expect(html).toContain("北港")
+    expect(html).toContain("旧码头区")
+    expect(html).not.toContain("暂无关联人物")
+    expect(html).not.toContain("暂无地点信息")
+  })
+
+  it("shows Scene execution details by default", () => {
+    document.body.innerHTML = renderSceneCockpitPanel({
+      projectId: "p1",
+      scene: {
+        id: "s1",
+        title: "东门交锋",
+        goal: "拿到令牌",
+      },
+    })
+
+    expect(document.querySelector('[data-tab="lore"]')?.classList.contains("active")).toBe(true)
+    expect(document.querySelector('[data-panel="lore"]')?.classList.contains("hidden")).toBe(false)
+    expect(document.querySelector('[data-panel="lore"]')?.textContent).toContain("拿到令牌")
+    expect(document.querySelector('[data-panel="people"]')?.classList.contains("hidden")).toBe(true)
+  })
+
   it("collapses tail modules when compact mode is requested", () => {
     const html = renderSceneCockpitPanel({
       projectId: "p1",

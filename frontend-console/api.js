@@ -1153,6 +1153,12 @@ const api = {
     async updateSceneWorkbenchMapping(novelId, sceneId, data) {
       return patch(withQuery(`/outline/scene-workbench/scenes/${sceneId}/mapping`, { novel_id: novelId }), data)
     },
+    async reviewSceneWorkbench(novelId, data) {
+      return post(withQuery("/outline/scene-workbench/review", { novel_id: novelId }), data)
+    },
+    async reviewSceneSourceMappings(novelId, data) {
+      return post(withQuery("/outline/scene-workbench/source-mapping/review", { novel_id: novelId }), data)
+    },
     async previewSceneMerge(novelId, data) {
       return post(withQuery("/outline/scene-workbench/merge/preview", { novel_id: novelId }), data)
     },
@@ -1167,6 +1173,12 @@ const api = {
     },
     async detectCrossChapterScenes(data) {
       return post("/outline/scene-workbench/cross-chapter/detect", data)
+    },
+    async listCrossChapterSuggestions(novelId, params = {}) {
+      return request(withQuery("/outline/scene-workbench/cross-chapter/suggestions", { novel_id: novelId, ...params }))
+    },
+    async dismissCrossChapterSuggestions(novelId, data) {
+      return post(withQuery("/outline/scene-workbench/cross-chapter/suggestions/dismiss", { novel_id: novelId }), data)
     },
     async previewSceneSplit(novelId, data) {
       return post(withQuery("/outline/scene-workbench/split/preview", { novel_id: novelId }), data)

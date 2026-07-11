@@ -82,6 +82,27 @@ describe("onEnter", () => {
   })
 })
 
+describe("对象库搜索", () => {
+  it("回车会应用模糊搜索筛选", async () => {
+    state.currentProjectId = "p1"
+    document.body.innerHTML = `<main id="workspace-content">${await worldView.render()}</main>`
+    worldView._bindEvents()
+    const input = document.getElementById("filter-q")
+    input.value = "值夜着"
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+
+    await vi.waitFor(() => {
+      expect(router.navigate).toHaveBeenCalledWith(
+        "world",
+        "objects",
+        true,
+        expect.any(URLSearchParams),
+      )
+    })
+    expect(worldView._filters.q).toBe("值夜着")
+  })
+})
+
 // ============================================================
 // onLeave
 // ============================================================

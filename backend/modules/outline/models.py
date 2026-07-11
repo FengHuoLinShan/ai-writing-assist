@@ -2,7 +2,16 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import JSON, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, NovelMixin, StatusMixin, TimestampMixin, UUIDMixin, UUIDType
@@ -184,6 +193,42 @@ class SceneSpan(Base, UUIDMixin, TimestampMixin, NovelMixin):
     anchor_excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
+
+
+class SceneCrossChapterSuggestion(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """Author-visible, durable cross-chapter Scene fusion suggestion."""
+
+    __tablename__ = "scene_cross_chapter_suggestions"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "suggestion_key",
+            name="uq_scene_cross_chapter_suggestion_key",
+        ),
+        Index(
+            "ix_scene_cross_chapter_suggestions_queue",
+            "novel_id",
+            "status",
+            "created_at",
+        ),
+        {"comment": "跨章 Scene 识别产生的持久待处理建议"},
+    )
+
+    source_task_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False)
+    suggestion_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_scene_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    chapter_span: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    proposed_scene: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    scan_trace: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    result_scene_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType,
+        ForeignKey("scenes.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
 
 class SceneSummaryCheckpoint(Base, UUIDMixin, TimestampMixin, NovelMixin):

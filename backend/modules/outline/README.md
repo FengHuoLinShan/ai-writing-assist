@@ -60,8 +60,9 @@ GET /api/outline/reveals
 
 ## Scene 工作台
 
-Scene 工作台是 Scene 管理、章节映射和结构整理的主入口。旧大纲页
-“场景卡”子标签只保留跳转，不再维护第二套管理 UI。
+Scene 工作台是 Scene 管理、章节映射和结构整理的主入口，直接挂载在前端
+`outline/scenes` 子标签。旧 `scene/{scene_id}` 路由会兼容重定向到该入口并通过
+`scene_id` query 定位 Scene，不再维护第二套 Scene 管理 UI。
 
 Scene mutation 的稳定内部接口是 `SceneWorkbenchService`。旧
 `/api/outline/scenes/*` 路由仅作为兼容 adapter，创建、更新、删除、重排和
@@ -93,6 +94,10 @@ POST  /api/outline/scene-workbench/cross-chapter/detect
 
 健康项由 `SceneWorkbenchService` 派生，固定为 `未复核`、`未关联章节`、
 `缺设定`、`待整理`。跨多章 Scene 是正常形态，不作为默认风险。
+顶层健康键保持四类，`health_details.needs_organize` 进一步区分
+Scene 结构、正文定位和待处理跨章融合建议；`health.needs_organize.breakdown`
+提供各子类的 Scene 数量。`采用/标记已检查`只处理 Scene 审阅状态，
+正文定位必须通过独立确认命令处理。
 工作台筛选分三层：健康筛选、常用管理筛选和高级导入诊断筛选。`GET
 /api/outline/scene-workbench` 支持 `health`、`q`、`chapter_from`、
 `chapter_to`、`status`、`source`、`needs_review`、`workflow_id`、
@@ -100,7 +105,9 @@ POST  /api/outline/scene-workbench/cross-chapter/detect
 `skip` 和 `limit` query 参数；`confidence_band` 固定为 `low`、`medium`、
 `high` 三档，分别表示 `<0.5`、`0.5-0.8` 和 `>=0.8`。健康筛选在服务端
 应用，返回的 `total` 与分页都基于筛选后结果；健康统计仍按其他管理筛选后的
-全集计算，不被当前健康桶二次缩窄。
+全集计算，不被当前健康桶二次缩窄。显式 `selected_scene_id` 不在请求页时，服务端
+把窗口对齐到目标 Scene 所在页，并在响应 `skip` 返回实际窗口起点；目标不属于当前
+novel 或筛选结果时返回 404。
 
 合并 / 拆分都必须先走 preview；执行请求必须包含 `confirmed: true`。
 preview 只展示章节映射、字段、剧情线、伏笔 / 揭示和地图摘要影响，不修改数据，
@@ -136,8 +143,11 @@ supporting_scene_ids` 写入 `provenance_meta`；无有效 Scene 证据、低置
 新 Scene 写入的 `status` 只允许 `draft / canonical`；更新路径另允许 `deprecated` 用于软废弃。兼容期仍可读取存量 `candidate` Scene，但新 create/apply/split/fusion 不再写 candidate。
 
 跨章 Scene 识别通过 `cross-chapter/detect` 创建异步任务，只生成相邻 Scene
-递归扩展建议，不直接改库。前端打开建议后进入同一个 Scene 草稿审稿界面，
-由用户选择主 Scene 并确认编辑后再复用 `fusion/save` 保存。
+递归扩展建议，不直接修改 Scene。建议持久化在
+`scene_cross_chapter_suggestions`，使用 `pending/adopted/dismissed/stale`
+生命周期；刷新后仍可继续处理。前端打开建议后进入同一个
+Scene 草稿审稿界面，由用户选择主 Scene 并确认编辑后再复用
+`fusion/save` 保存；不提供批量自动采用。
 
 ### SceneSpan 派生读模型
 
@@ -160,7 +170,11 @@ supporting_scene_ids` 写入 `provenance_meta`；无有效 Scene 证据、低置
   anchor 字面匹配重定位：唯一命中为 `reanchored`，无精确范围为
   `chapter_only`，歧义/缺失为 `unresolved`。只有精确绑定当前源 hash 的
   span 可自动归因证据；`chapter_only` / `unresolved` 会进入 Scene
-  工作台“待整理”人工复核入口。
+  工作台“待整理”人工复核入口。人工可确认“仅按章节关联”，
+  但该确认只隐藏当前 fingerprint 的注意项，不改写 `mapping_status`，
+  也不放开 RAG/context 的精确证据归因。
+- `chapter_ids` 变化只同步章节关联；`scene_chunks` 变化才重建 span；
+  Scene `status/source` 变化只原地镜像到现有 span，不得丢失版本绑定和 anchor。
 - 跨模块调用只能通过 `modules.outline.facade.get_scene_spans_by_chapter()` /
   `get_scene_spans_for_scene()` 获取 `SceneSpanContract`。
 

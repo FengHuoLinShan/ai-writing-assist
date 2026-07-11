@@ -33,7 +33,7 @@ export async function openWorkbench(page, project, view = "writing", subview = n
     writing: "写作台",
     world: "世界对象",
     outline: "大纲",
-    scene: "场景",
+    scene: "大纲",
     rag: "RAG 检索",
     context: "上下文",
     generate: "生成中心",

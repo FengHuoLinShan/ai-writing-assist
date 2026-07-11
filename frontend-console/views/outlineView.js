@@ -28,6 +28,7 @@ import {
   recoverActiveWorkflows,
 } from "../shared/workflowProgress.js"
 import { renderWorkflowCard } from "../shared/progressRenderer.js"
+import sceneWorkbenchView from "./sceneWorkbenchView.js"
 import {
   assetAttentionReasons,
   displayStateBadgeClass,
@@ -155,6 +156,7 @@ const outlineView = {
   _outlineGenerateMeta: null,
   _outlineGeneratePreview: null,
   _bulkSelections: {},
+  _sceneWorkbenchActive: false,
 
   async onEnter() {
     this._loading = true
@@ -170,13 +172,24 @@ const outlineView = {
     }
     clearAllBulkSelections(this)
 
+    const subView = state.currentSubView || "threads"
+    if (subView === "scenes") {
+      this._sceneWorkbenchActive = true
+      this._loading = false
+      await sceneWorkbenchView.onEnter()
+      return
+    }
+    if (this._sceneWorkbenchActive) {
+      sceneWorkbenchView.onLeave()
+      this._sceneWorkbenchActive = false
+    }
+
     if (!state.currentProjectId) {
       this._loading = false
       return
     }
 
-    const subView = state.currentSubView || "threads"
-    const fetchThreads = subView === "threads" || subView === "scenes"
+    const fetchThreads = subView === "threads"
     const fetchArcs = subView === "arcs"
     const fetchForeshadowing = subView === "foreshadowing"
     const fetchReveals = subView === "reveals"
@@ -238,11 +251,20 @@ const outlineView = {
   onLeave() {
     this._stopPlotAutoExtractPolling()
     this._stopOutlineGeneratePolling()
+    if (this._sceneWorkbenchActive) {
+      sceneWorkbenchView.onLeave()
+      this._sceneWorkbenchActive = false
+    }
   },
 
   onActivate() {
     // KeepAlive 恢复后重新绑定事件（DOM 来自缓存，事件监听器可能丢失）
-    this._bindEvents()
+    if (state.currentSubView === "scenes") {
+      this._sceneWorkbenchActive = true
+      sceneWorkbenchView.onActivate()
+    } else {
+      this._bindEvents()
+    }
     const saved = state.viewStates && state.viewStates.outline
     if (saved && saved.scrollTop != null) {
       const container = document.querySelector("#workspace-content .subnav")
@@ -293,10 +315,10 @@ const outlineView = {
       </div>
     `
 
-    if (this._loading) {
+    if (subView === "scenes") {
+      html += await sceneWorkbenchView.render()
+    } else if (this._loading) {
       html += '<div class="loading">加载中...</div>'
-    } else if (subView === "scenes") {
-      html += this._renderScenes()
     } else if (subView === "threads") {
       html += this._renderThreads()
     } else if (subView === "arcs") {
@@ -307,7 +329,8 @@ const outlineView = {
       html += this._renderReveals()
     }
 
-    setTimeout(() => this._bindEvents(), 0)
+    if (subView !== "scenes") setTimeout(() => this._bindEvents(), 0)
+    if (subView === "scenes") return `<div class="outline-scene-layout">${html}</div>`
     return this._renderOutlineGenerateProgress() + this._renderPlotAutoExtractProgress() + html
   },
 
@@ -458,20 +481,6 @@ const outlineView = {
         router.renderCurrentView()
       },
     })
-  },
-
-  _renderScenes() {
-    if (!state.currentProjectId) {
-      return '<div class="empty-state"><p>请先从左侧选择一个项目，或创建一个新项目开始。</p></div>'
-    }
-    return `
-      <div class="empty-state">
-        <div class="empty-icon">&#128209;</div>
-        <p>场景工作台已作为一级工作区</p>
-        <p class="outline-empty-detail">这里保留旧路径兼容入口，点击后进入完整 Scene 管理。</p>
-        <button class="btn btn-primary" data-action="open-scene-workbench">打开场景工作台</button>
-      </div>
-    `
   },
 
   _narrativeTagLabel(tag) {
@@ -1938,13 +1947,16 @@ const outlineView = {
   },
 
   _bindEvents() {
+    if (state.currentSubView === "scenes") {
+      sceneWorkbenchView._bindEvents()
+      return
+    }
     bindWorkspaceClick(this, {
       "nav-scenes": () => router.navigate("outline", "scenes"),
       "nav-threads": () => router.navigate("outline", "threads"),
       "nav-arcs": () => router.navigate("outline", "arcs"),
       "nav-foreshadowing": () => router.navigate("outline", "foreshadowing"),
       "nav-reveals": () => router.navigate("outline", "reveals"),
-      "open-scene-workbench": () => router.navigate("scene", null),
       "bulk-toggle-one": (e, t) => {
         e.stopPropagation()
         this._toggleBulkOne(t)

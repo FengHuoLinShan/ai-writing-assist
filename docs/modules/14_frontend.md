@@ -40,8 +40,8 @@
 | `worldView` | 对象库、统一待处理（对象/关系/别名）、历史筛选；世界书支持编辑、图鉴和筛选三种内部展示；`map` 子标签现在只做兼容跳转 |
 | `mapWorkspaceView` | 地图一级工作台，总览、最近地图、地图树、图层开关、搜索、聚焦；世界动态总控台、活地图、叙事透镜切换、电影化播放 |
 | `mapView` | 具体地图渲染与编辑：地形、地点绑定、标记、势力范围；浏览态地点标签避让与聚合 |
-| `outlineView` | 剧情线、篇章纲、Scene、伏笔、揭示、结构生成 |
-| `sceneWorkbenchView` | `scene` 一级路由；Scene 管理、筛选、拆分/合并、复核与深度导入 Scene 整理 |
+| `outlineView` | 大纲子导航与结构生成；在 `scenes` 子标签组合 Scene 工作台，其余子标签管理剧情线、篇章纲、伏笔和揭示 |
+| `sceneWorkbenchView` | 由 `outline/scenes` 承载的 Scene 管理、筛选、拆分/合并、复核与深度导入 Scene 整理；旧 `scene` 路由仅作兼容重定向 |
 | `ragView` | 检索、章节索引、索引重建 |
 | `generateView` | 生成中心 Chatbox：自由共创、粘贴外部对话、可选附带正文，并承担上下文任务预览 / 编译入口和生成待处理世界对象建议 |
 | `globalSettingsView` | `settings` 路由；管理全局 LLM 默认、全局作者偏好、引用此默认的项目列表和本地偏好迁移；全局 LLM 默认不存 API Key |
@@ -50,8 +50,8 @@
 ## 路由与状态特性
 
 - `router.js` 维护 `_lastSubViewMap`，在主视图切换后恢复最后子标签
-- `writing` 与 `outline` 被标记为 KeepAlive 视图
-- `scene` 也是 KeepAlive 视图，承载 Scene 工作台的筛选、详情和复核状态
+- `writing` 与 `outline` 被标记为 KeepAlive 视图；`outline/scenes` 为避免复用过期工作台 DOM，不进入 KeepAlive 缓存
+- Scene 工作台的筛选、详情和复核状态由 `sceneWorkbenchView` 持有；当前 Scene 通过 `outline/scenes?scene_id=...` 写入浏览器历史
 - `map` 路由会解析 query 上下文，用于承接写作页和世界页跳转
 - `world/map` 仍保留入口，但现在会自动跳转到一级 `map`
 - `settings` 是无项目也可访问的全局设置页；`project-settings` 依赖当前项目，未进入项目时显示空态并提供返回全局设置
@@ -92,6 +92,9 @@
 
 - `sceneWorkbenchView` 是 Scene 管理主入口，支持按 status / source / workflow_id / needs_review / phase 等条件筛选深度导入结果。
 - Scene 工作台把机械合并和 AI 融合建议分成两个入口。AI 融合前必须在卡片中选择主 Scene，随后显示字段级预览表：AI 建议、主 Scene 原值、其他来源 Scene 原值并列；保存模式包括保留原 Scene、保存并废弃原 Scene、放弃结果、继续编辑后保存。手动融合输出使用 `source="manual_fusion"`。
+- Scene 每行只展示当前最高优先级主操作：复核、查看跨章建议、确认章节定位、整理映射、关联章节、补全设定、编辑。完成一项后刷新为下一项；健康标签可直接执行对应操作。桌面端显示“上下文主按钮 + 编辑 + 更多”，窄屏只显示“主按钮 + 更多”，“更多”固定包含打开写作、合并和拆分。
+- 同类 Scene 批量选择显示具体操作；混合选择显示“批量处理”并按问题类型分组，不提供含义不明的一键清除。复核调用后端统一 review 命令，正文定位确认单独提示只接受章节精度。
+- 跨章建议来自后端持久队列，刷新后恢复横幅和行内按钮。支持逐条融合与批量忽略，不提供“全部接受”。
 - `outlineView` 的剧情线、篇章纲、伏笔、揭示列表支持按 status / deep_import source / workflow_id / needs_review 筛选，用于整理 Phase 3 结构资产。
 - 筛选只改变视图，不自动 promote、deprecated 或删除资产；状态变更必须来自明确按钮、选择器或二次确认操作。
 

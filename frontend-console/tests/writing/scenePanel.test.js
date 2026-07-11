@@ -116,6 +116,57 @@ describe("createScenePanel", () => {
     expect(html).toContain('data-action="open-map"')
   })
 
+  it("routes map summary people and primary location into their cockpit tabs", async () => {
+    state.currentProjectId = "p1"
+    api.world.getMapSceneSummary.mockResolvedValue({
+      primary_location: { id: "l1", name: "北港", summary: "旧码头区" },
+      characters: [{ id: "c1", name: "沈澜", summary: "巡夜人" }],
+      warnings: [],
+    })
+    api.world.listEntities.mockResolvedValue({ items: [], total: 0 })
+
+    const panel = createTestPanel()
+    panel.setScenes([{ id: "s1", title: "Scene 1", chapter_ids: ["1"] }])
+    panel.update("s1", 1)
+    await flushPromises()
+
+    const html = panel.render()
+    expect(html).toContain("沈澜")
+    expect(html).toContain("巡夜人")
+    expect(html).toContain("北港")
+    expect(html).toContain("旧码头区")
+  })
+
+  it("falls back to active world references sourced from the current Scene", async () => {
+    state.currentProjectId = "p1"
+    api.world.getMapSceneSummary.mockResolvedValue({ warnings: [] })
+    api.world.listEntities.mockImplementation(async (params) => {
+      if (params.entity_type === "character") {
+        return { items: [{ id: "c1", name: "罗塞尔", summary: "日记中的人物" }], total: 1 }
+      }
+      return { items: [{ id: "l1", name: "占卜帐篷", summary: "马戏团帐篷" }], total: 1 }
+    })
+
+    const panel = createTestPanel()
+    panel.setScenes([{ id: "s1", title: "Scene 1", chapter_ids: ["1"] }])
+    panel.update("s1", 1)
+    await flushPromises()
+
+    const html = panel.render()
+    expect(html).toContain("罗塞尔")
+    expect(html).toContain("日记中的人物")
+    expect(html).toContain("占卜帐篷")
+    expect(html).toContain("马戏团帐篷")
+    expect(api.world.listEntities).toHaveBeenCalledWith({
+      novel_id: "p1",
+      scene_id: "s1",
+      entity_type: "character",
+      display_state: "active",
+      skip: 0,
+      limit: 12,
+    })
+  })
+
   it("shows error state when map summary fails", async () => {
     state.currentProjectId = "p1"
     api.world.getMapSceneSummary.mockRejectedValue(new Error("fail"))
@@ -174,6 +225,11 @@ describe("createScenePanel", () => {
 
     document.querySelector('[data-action="switch-cockpit-tab"][data-tab="place"]').click()
     expect(onSwitchTab).toHaveBeenCalledWith("place")
+
+    document.body.innerHTML = panel.render()
+    expect(document.querySelector('[data-tab="place"]')?.classList.contains("active")).toBe(true)
+    expect(document.querySelector('[data-panel="place"]')?.classList.contains("hidden")).toBe(false)
+    expect(document.querySelector('[data-panel="lore"]')?.classList.contains("hidden")).toBe(true)
   })
 
   it("disposes internal state", async () => {

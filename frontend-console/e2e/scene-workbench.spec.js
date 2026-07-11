@@ -42,8 +42,62 @@ test.describe("Scene 工作台", () => {
     await openWorkbench(page, project, "writing")
     await page.locator('[data-action="open-scene-workbench"]').click()
 
-    await expect(page.locator("#view-title")).toHaveText("场景")
+    await expect(page.locator("#view-title")).toHaveText("大纲")
     await expect(page.locator(`.scene-workbench-row[data-id="${scene.id}"]`)).toHaveClass(/is-selected/)
+  })
+
+  test("选择 Scene 写入 URL，浏览器后退恢复默认 Scene", async ({ page }) => {
+    const project = await createProject({ title: "Scene 历史恢复", genre: "fantasy", language: "zh" })
+    testProjectId = project.id
+    const first = await createScene(project.id, {
+      scene_index: 0,
+      title: "默认 Scene",
+      goal: "建立起点",
+      core_conflict: "起点受阻",
+      chapter_ids: ["1"],
+    })
+    const second = await createScene(project.id, {
+      scene_index: 1,
+      title: "后续 Scene",
+      goal: "推进情节",
+      core_conflict: "阻力升级",
+      chapter_ids: ["2"],
+    })
+
+    await openWorkbench(page, project, "outline", "scenes")
+    await page.locator(`.scene-workbench-row[data-id="${second.id}"] [data-action="select-workbench-scene"]`).click()
+
+    await expect(page).toHaveURL(new RegExp(`outline/scenes\\?scene_id=${second.id}$`))
+    await expect(page.locator(`.scene-workbench-row[data-id="${second.id}"]`)).toHaveClass(/is-selected/)
+
+    await page.goBack()
+
+    await expect(page).toHaveURL(/outline\/scenes$/)
+    await expect(page.locator(`.scene-workbench-row[data-id="${first.id}"]`)).toHaveClass(/is-selected/)
+  })
+
+  test("旧 Scene 深链接自动打开目标所在分页", async ({ page }) => {
+    const project = await createProject({ title: "Scene 深链接分页", genre: "fantasy", language: "zh" })
+    testProjectId = project.id
+    const scenes = await Promise.all(Array.from({ length: 21 }, (_, index) => createScene(project.id, {
+      scene_index: index,
+      title: `深链接 Scene ${index + 1}`,
+      goal: `目标 ${index + 1}`,
+      core_conflict: `冲突 ${index + 1}`,
+      chapter_ids: [String(index + 1)],
+    })))
+    const target = scenes.at(-1)
+
+    await openWorkbench(page, project, "scene", target.id)
+
+    await expect(page).toHaveURL(new RegExp(`outline/scenes\\?scene_id=${target.id}$`))
+    await expect(page.locator(`.scene-workbench-row[data-id="${target.id}"]`)).toHaveClass(/is-selected/)
+    await expect(page.locator(".scene-workbench-pagination")).toContainText("第 2 / 2 页")
+
+    await page.locator('[data-action="prev-scene-page"]').click()
+
+    await expect(page).toHaveURL(/outline\/scenes$/)
+    await expect(page.locator(".scene-workbench-pagination")).toContainText("第 1 / 2 页")
   })
 
   test("未归类章节可以分配到 Scene", async ({ page }) => {
@@ -63,8 +117,10 @@ test.describe("Scene 工作台", () => {
 
     await openWorkbench(page, project, "scene")
     await expect(page.locator(".scene-workbench-row--unassigned")).toContainText("第 3 章")
-    page.once("dialog", (dialog) => dialog.accept(scene.id))
     await page.locator('[data-action="assign-unassigned-chapter"]').click()
+    await expect(page.locator("#modal-title")).toHaveText("分配第 3 章")
+    await expect(page.locator(`input[name="assign-target-scene"][value="${scene.id}"]`)).toBeChecked()
+    await page.getByRole("button", { name: "确认分配" }).click()
 
     await expect(page.locator(".scene-workbench-row--unassigned")).toHaveCount(0, { timeout: 10000 })
     const scenes = await listScenesOrdered(project.id)
@@ -86,7 +142,7 @@ test.describe("Scene 工作台", () => {
 
     await openWorkbench(page, project, "scene", scene.id)
     page.once("dialog", (dialog) => dialog.accept("2"))
-    await page.locator('[data-action="start-split-scene"]').click()
+    await page.locator('.scene-workbench__detail [data-action="start-split-scene"]').click()
 
     await expect(page.locator("#modal-title")).toHaveText("Scene AI 建议预览")
     let scenes = await listScenesOrdered(project.id)
@@ -119,8 +175,12 @@ test.describe("Scene 工作台", () => {
     await page.locator("#scene-detail-goal").fill("新目标")
     await page.locator('[data-action="save-scene-detail"]').click()
     await expect(page.locator("#toast-container")).toContainText("Scene 已保存", { timeout: 10000 })
-    await page.locator(".scene-workbench-row.is-selected .action-menu-btn").click()
-    await page.locator(".scene-workbench-row.is-selected [data-action=\"open-writing-scene\"]").click()
+    const selectedRow = page.locator(".scene-workbench-row.is-selected")
+    await expect(selectedRow.locator(".scene-workbench-row__title")).toHaveText("新标题")
+    await selectedRow.locator(".action-menu-btn").click()
+    const openWriting = selectedRow.locator('[data-action="open-writing-scene"]')
+    await expect(openWriting).toBeVisible()
+    await openWriting.click()
 
     await expect(page.locator("#view-title")).toHaveText("写作台")
     await expect(page.locator("#writing-panel-container")).toContainText("新标题")
@@ -371,6 +431,9 @@ test.describe("Scene 工作台", () => {
     await openWorkbench(page, project, "scene")
 
     await expect(page.locator(".scene-workbench__organize")).toBeVisible()
+    await expect(page.locator(".scene-workbench-row .scene-context-action")).toBeVisible()
+    await expect(page.locator(".scene-workbench-row .scene-secondary-action")).toBeHidden()
+    await expect(page.locator(".scene-workbench-row .action-menu-btn")).toBeVisible()
     await expectNoPageOverflow(page)
     await expectWithinViewport(page.locator(".scene-workbench-drawer"))
     await expectWithinViewport(page.locator('[data-action="close-scene-detail"]'))

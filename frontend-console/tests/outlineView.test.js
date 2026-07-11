@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import outlineView from "../views/outlineView.js"
+import sceneWorkbenchView from "../views/sceneWorkbenchView.js"
 import { resetState, clearDocument, captureModalHandler, autoConfirm } from "./helpers.js"
 
 beforeEach(() => {
@@ -31,6 +32,11 @@ beforeEach(() => {
   outlineView._outlineGeneratePoller = null
   outlineView._outlineGenerateMeta = null
   outlineView._outlineGeneratePreview = null
+  outlineView._sceneWorkbenchActive = false
+  sceneWorkbenchView._loading = false
+  sceneWorkbenchView._workbench = { total: 0, health: {}, unassigned_chapters: [], items: [] }
+  sceneWorkbenchView._total = 0
+  sceneWorkbenchView._selectedSceneIdValue = null
   vi.clearAllMocks()
 })
 
@@ -102,15 +108,17 @@ describe("outlineView onEnter", () => {
     expect(outlineView._loading).toBe(false)
   })
 
-  it("scenes 子标签不再加载旧 Scene 管理数据", async () => {
+  it("scenes 子标签直接加载 Scene 工作台", async () => {
     state.currentProjectId = "p1"
+    state.currentView = "outline"
     state.currentSubView = "scenes"
-    api.outline.listThreads.mockResolvedValue({ items: [] })
+    api.outline.getSceneWorkbench.mockResolvedValue({ total: 0, health: {}, items: [] })
 
     await outlineView.onEnter()
 
     expect(api.outline.listScenes).not.toHaveBeenCalled()
-    expect(outlineView._scenes.length).toBe(0)
+    expect(api.outline.listThreads).not.toHaveBeenCalled()
+    expect(api.outline.getSceneWorkbench).toHaveBeenCalledWith("p1", null, expect.any(Object))
   })
 
   it("加载结构资产时传递当前页签筛选参数", async () => {
@@ -221,18 +229,21 @@ describe("outlineView 批量操作", () => {
 describe("outlineView render", () => {
   it("加载中显示加载提示", async () => {
     outlineView._loading = true
+    state.currentSubView = "threads"
     const html = await outlineView.render()
     expect(html).toContain("加载中")
   })
 
-  it("scenes 子标签渲染场景工作台跳转页", async () => {
+  it("scenes 子标签直接渲染场景工作台内容", async () => {
     outlineView._loading = false
+    state.currentView = "outline"
     state.currentSubView = "scenes"
     state.currentProjectId = "p1"
     const html = await outlineView.render()
     expect(html).toContain("场景工作台")
     expect(html).not.toContain(">场景卡<")
-    expect(html).toContain("data-action=\"open-scene-workbench\"")
+    expect(html).toContain("scene-workbench-shell")
+    expect(html).toContain('aria-label="Scene 管理筛选"')
   })
 
   it.each([
@@ -804,12 +815,14 @@ describe("render buttons", () => {
     expect(html).toContain('data-action="plot-structure-auto-extract"')
   })
 
-  it("renders scene workbench jump instead of legacy scene management buttons", async () => {
+  it("renders the scene workbench in place instead of a jump button", async () => {
     outlineView._loading = false
+    state.currentView = "outline"
     state.currentSubView = "scenes"
     state.currentProjectId = "p1"
     const html = await outlineView.render()
-    expect(html).toContain('data-action="open-scene-workbench"')
+    expect(html).toContain("scene-workbench-shell")
+    expect(html).not.toContain('data-action="open-scene-workbench"')
     expect(html).not.toContain('data-action="generate-structure"')
     expect(html).not.toContain('data-action="move-scene-up"')
     expect(html).not.toContain('data-action="move-scene-down"')

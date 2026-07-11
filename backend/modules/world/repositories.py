@@ -8,14 +8,14 @@ World 数据访问层 — v3 因果时空网
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import uuid
 from collections import OrderedDict
 from collections.abc import Sequence
+from difflib import SequenceMatcher
 from typing import Any
 
-from sqlalchemy import Text, and_, delete, exists, func, or_, select, text, update
+from sqlalchemy import Text, and_, case, delete, exists, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -79,6 +79,113 @@ from shared.utils import parse_uuid  # noqa: E402
 
 class CoreEntityRepository:
     """核心实体数据访问"""
+
+    @staticmethod
+    def _aliases_text_expression():
+        """只搜索别名，不能让导入证据等任意 JSON 元数据污染结果。"""
+        return CoreEntity.content_json["aliases"].cast(Text)
+
+    def _entity_search_rank(self, query: str | None):
+        """将名称和别名命中稳定排在描述命中之前。"""
+        if not query or not (normalized := query.strip()):
+            return None
+        like_expr = f"%{normalized}%"
+        aliases_text = self._aliases_text_expression()
+        description_match = or_(
+            CoreEntity.summary.ilike(like_expr),
+            CoreEntity.public_info.ilike(like_expr),
+            CoreEntity.hidden_truth.ilike(like_expr),
+        )
+        return case(
+            (CoreEntity.name == normalized, 4),
+            (CoreEntity.name.ilike(like_expr), 3),
+            (aliases_text.ilike(like_expr), 2),
+            (description_match, 1),
+            else_=0,
+        )
+
+    @staticmethod
+    def _alias_texts(entity: CoreEntity) -> list[str]:
+        aliases = (entity.content_json or {}).get("aliases") or []
+        texts: list[str] = []
+        for alias in aliases:
+            value = alias.get("alias") if isinstance(alias, dict) else alias
+            if value is not None and str(value).strip():
+                texts.append(str(value).strip())
+        return texts
+
+    async def _fuzzy_entities_by_novel(
+        self,
+        db: AsyncSession,
+        *,
+        conditions: list[Any],
+        query: str,
+        skip: int,
+        limit: int,
+    ) -> tuple[list[CoreEntity], int]:
+        """没有直接命中时，按名称/别名提供容错检索。"""
+        normalized = query.strip()
+        if len(normalized) < 2:
+            return [], 0
+
+        aliases_text = self._aliases_text_expression()
+        min_similarity = 0.6 if len(normalized) == 2 else 0.45
+        bind = db.get_bind()
+        if bind.dialect.name == "postgresql":
+            name_similarity = func.similarity(CoreEntity.name, normalized)
+            alias_similarity = func.similarity(
+                func.coalesce(aliases_text, ""), normalized
+            )
+            similarity = func.greatest(name_similarity, alias_similarity)
+            fuzzy_conditions = [*conditions, similarity >= min_similarity]
+            try:
+                count_result = await db.execute(
+                    select(func.count(CoreEntity.id)).where(*fuzzy_conditions)
+                )
+                total = count_result.scalar() or 0
+                stmt = (
+                    select(CoreEntity)
+                    .where(*fuzzy_conditions)
+                    .order_by(
+                        similarity.desc(),
+                        CoreEntity.importance.desc(),
+                        CoreEntity.name,
+                        CoreEntity.id,
+                    )
+                    .offset(skip)
+                    .limit(limit)
+                )
+                result = await db.execute(stmt)
+                return list(result.scalars().all()), total
+            except (OperationalError, ProgrammingError):
+                logger.warning(
+                    "pg_trgm fuzzy entity search unavailable, falling back to Python"
+                )
+
+        result = await db.execute(select(CoreEntity).where(*conditions))
+        candidates: Sequence[CoreEntity] = result.scalars().all()
+        scored: list[tuple[CoreEntity, float]] = []
+        normalized_casefold = normalized.casefold()
+        for entity in candidates:
+            score = max(
+                (
+                    SequenceMatcher(None, normalized_casefold, value.casefold()).ratio()
+                    for value in [entity.name, *self._alias_texts(entity)]
+                    if value
+                ),
+                default=0.0,
+            )
+            if score >= min_similarity:
+                scored.append((entity, score))
+        scored.sort(
+            key=lambda item: (
+                -item[1],
+                -(item[0].importance or 0),
+                item[0].name,
+                str(item[0].id),
+            )
+        )
+        return [entity for entity, _score in scored[skip : skip + limit]], len(scored)
 
     async def create(
         self,
@@ -173,14 +280,14 @@ class CoreEntityRepository:
             query = q.strip()
             if query:
                 like_expr = f"%{query}%"
-                # SQLite 中 SQLAlchemy JSON 序列化会转义非 ASCII 字符，
-                # 因此同时用原始值和其 JSON 转义形式匹配 content_json。
-                escaped_expr = f"%{json.dumps(query)[1:-1]}%"
+                aliases_text = self._aliases_text_expression()
                 conditions.append(
                     or_(
                         CoreEntity.name.ilike(like_expr),
-                        CoreEntity.content_json.cast(Text).ilike(like_expr),
-                        CoreEntity.content_json.cast(Text).ilike(escaped_expr),
+                        aliases_text.ilike(like_expr),
+                        CoreEntity.summary.ilike(like_expr),
+                        CoreEntity.public_info.ilike(like_expr),
+                        CoreEntity.hidden_truth.ilike(like_expr),
                     )
                 )
         if source:
@@ -271,13 +378,11 @@ class CoreEntityRepository:
             confidence_min=confidence_min,
             confidence_max=confidence_max,
         )
-        stmt = (
-            select(CoreEntity)
-            .where(*conditions)
-            .offset(skip)
-            .limit(limit)
-            .order_by(CoreEntity.importance.desc(), CoreEntity.name, CoreEntity.id)
-        )
+        stmt = select(CoreEntity).where(*conditions).offset(skip).limit(limit)
+        rank = self._entity_search_rank(q)
+        if rank is not None:
+            stmt = stmt.order_by(rank.desc())
+        stmt = stmt.order_by(CoreEntity.importance.desc(), CoreEntity.name, CoreEntity.id)
         result = await db.execute(stmt)
         items: Sequence[CoreEntity] = result.scalars().all()
         return list(items)
@@ -325,6 +430,30 @@ class CoreEntityRepository:
         count_stmt = select(func.count(CoreEntity.id)).where(*conditions)
         count_result = await db.execute(count_stmt)
         total = count_result.scalar() or 0
+        if total == 0 and q and q.strip():
+            fuzzy_conditions = self._entity_conditions(
+                novel_id,
+                entity_type=entity_type,
+                status=status,
+                display_state=display_state,
+                source=source,
+                workflow_id=workflow_id,
+                needs_review=needs_review,
+                auto_ingested=auto_ingested,
+                suggested_action=suggested_action,
+                scene_id=scene_id,
+                scene_index=scene_index,
+                source_chapter_index=source_chapter_index,
+                confidence_min=confidence_min,
+                confidence_max=confidence_max,
+            )
+            return await self._fuzzy_entities_by_novel(
+                db,
+                conditions=fuzzy_conditions,
+                query=q,
+                skip=skip,
+                limit=limit,
+            )
 
         items = await self.list_by_novel(
             db,

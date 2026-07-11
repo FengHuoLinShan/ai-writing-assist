@@ -22,6 +22,12 @@ const LABELS = {
   foreshadowing: "伏笔 / 揭示",
 }
 
+const COCKPIT_TABS = ["people", "place", "lore", "map"]
+
+function normalizeActiveTab(tab) {
+  return COCKPIT_TABS.includes(tab) ? tab : "lore"
+}
+
 export function sceneCockpitOrderKey(projectId) {
   return `writing_scene_cockpit_order:${projectId || "default"}`
 }
@@ -50,17 +56,25 @@ export function loadSceneCockpitOrder(projectId) {
 export function renderSceneCockpitPanel({
   projectId,
   scene,
+  people: explicitPeople,
+  location: explicitLocation,
   mapSummaryHtml = "",
   compact = false,
+  activeTab = "lore",
 } = {}) {
+  const selectedTab = normalizeActiveTab(activeTab)
   const order = loadSceneCockpitOrder(projectId)
   const modules = order
     .filter((key) => key !== "map_summary")
     .map((key) => renderModule(key, scene, "", compact))
     .filter(Boolean)
     .join("")
-  const people = Array.isArray(scene?.scene_characters) ? scene.scene_characters : []
-  const location = scene?.primary_location || scene?.location || scene?.location_id || null
+  const people = Array.isArray(explicitPeople)
+    ? explicitPeople
+    : (Array.isArray(scene?.scene_characters) ? scene.scene_characters : [])
+  const location = explicitLocation !== undefined
+    ? explicitLocation
+    : (scene?.primary_location || scene?.location || scene?.location_id || null)
 
   return `
     <div class="scene-cockpit" data-scene-cockpit-project="${esc(projectId || "")}">
@@ -75,22 +89,22 @@ export function renderSceneCockpitPanel({
       ` : ""}
       ${scene ? `
         <div class="cockpit-tabs" role="tablist" aria-label="Scene 参考">
-          <button class="cockpit-tab active" data-action="switch-cockpit-tab" data-tab="people" type="button">人物</button>
-          <button class="cockpit-tab" data-action="switch-cockpit-tab" data-tab="place" type="button">地点</button>
-          <button class="cockpit-tab" data-action="switch-cockpit-tab" data-tab="lore" type="button">设定</button>
-          <button class="cockpit-tab" data-action="switch-cockpit-tab" data-tab="map" type="button">地图</button>
+          <button class="cockpit-tab ${selectedTab === "people" ? "active" : ""}" data-action="switch-cockpit-tab" data-tab="people" type="button">人物</button>
+          <button class="cockpit-tab ${selectedTab === "place" ? "active" : ""}" data-action="switch-cockpit-tab" data-tab="place" type="button">地点</button>
+          <button class="cockpit-tab ${selectedTab === "lore" ? "active" : ""}" data-action="switch-cockpit-tab" data-tab="lore" type="button">设定</button>
+          <button class="cockpit-tab ${selectedTab === "map" ? "active" : ""}" data-action="switch-cockpit-tab" data-tab="map" type="button">地图</button>
         </div>
         <div class="cockpit-body">
-          <section class="cockpit-panel" data-panel="people">
+          <section class="cockpit-panel ${selectedTab === "people" ? "" : "hidden"}" data-panel="people">
             ${renderPeoplePanel(people)}
           </section>
-          <section class="cockpit-panel hidden" data-panel="place">
+          <section class="cockpit-panel ${selectedTab === "place" ? "" : "hidden"}" data-panel="place">
             ${renderPlacePanel(location)}
           </section>
-          <section class="cockpit-panel hidden" data-panel="lore">
+          <section class="cockpit-panel ${selectedTab === "lore" ? "" : "hidden"}" data-panel="lore">
             ${modules || '<div class="cockpit-empty">暂无关联设定</div>'}
           </section>
-          <section class="cockpit-panel hidden" data-panel="map">
+          <section class="cockpit-panel ${selectedTab === "map" ? "" : "hidden"}" data-panel="map">
             ${mapSummaryHtml || '<div class="cockpit-empty">暂无地图摘要</div>'}
           </section>
         </div>
@@ -100,7 +114,7 @@ export function renderSceneCockpitPanel({
 }
 
 function renderPeoplePanel(people) {
-  if (!people.length) return '<div class="cockpit-empty">暂无出场人物</div>'
+  if (!people.length) return '<div class="cockpit-empty">暂无关联人物</div>'
   return `
     <div class="cockpit-people-list">
       ${people.map((person) => {
@@ -110,7 +124,7 @@ function renderPeoplePanel(people) {
             <div class="person-avatar" style="background:${avatarColor(name)}">${esc(name.slice(0, 1) || "?")}</div>
             <div class="person-info">
               <div class="person-name">${esc(name)}</div>
-              <div class="person-status">${esc(person.status || person.role || "无状态")}</div>
+              <div class="person-status">${esc(person.role || person.summary || person.status || "暂无摘要")}</div>
             </div>
             <button class="btn btn-sm btn-insert" data-action="insert-person" data-name="${esc(name)}" type="button">插入</button>
           </article>

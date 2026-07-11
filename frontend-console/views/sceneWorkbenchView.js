@@ -11,7 +11,7 @@ import { structureAssetDisplay } from "../shared/assetDisplayState.js"
 import { importAuthorizationNotice, importAuthorizationPayload } from "../shared/importAuthorization.js"
 
 const HEALTH_ORDER = [
-  ["unreviewed", "需要人工检查"],
+  ["unreviewed", "未复核"],
   ["unassigned", "未关联章节"],
   ["missing_setup", "缺设定"],
   ["needs_organize", "待整理"],
@@ -88,15 +88,23 @@ const sceneWorkbenchView = {
   _crossChapterTaskId: null,
   _crossChapterProgress: null,
   _crossChapterPoller: null,
+  _crossChapterSuggestions: [],
   _activeDraftReview: null,
   _mobileDetailOpen: false,
+  _selectedSceneIdValue: null,
 
   async onEnter() {
     this._loading = true
     this._workbench = null
     this._total = 0
     this._selectedFusionSceneIds = new Set()
-    this._mobileDetailOpen = Boolean(state.currentSubView)
+    this._crossChapterSuggestions = []
+    this._selectedSceneIdValue = this._routeSceneId()
+    if (this._selectedSceneIdValue) {
+      this._filters = { ...SCENE_FILTER_DEFAULTS }
+      this._activeHealth = null
+    }
+    this._mobileDetailOpen = Boolean(this._selectedSceneIdValue)
     if (!state.currentProjectId) {
       this._loading = false
       return
@@ -104,6 +112,9 @@ const sceneWorkbenchView = {
     try {
       this._recoverCrossChapterWorkflow()
       await this._loadWorkbench()
+      if (typeof window !== "undefined" && window.innerWidth < 720 && this._selectedSceneId()) {
+        this._mobileDetailOpen = true
+      }
     } catch (err) {
       toast(err.message || "场景工作台加载失败", "error")
       this._workbench = null
@@ -143,6 +154,7 @@ const sceneWorkbenchView = {
         </div>
         ${this._renderAutoExtractProgress()}
         ${this._renderCrossChapterProgress()}
+        ${this._renderCrossChapterSuggestionQueue()}
         <div class="scene-workbench ${narrow ? "is-narrow" : ""}">
           <section class="scene-workbench__organize">
             ${this._renderManagementFilters()}
@@ -164,10 +176,26 @@ const sceneWorkbenchView = {
     if (!state.currentProjectId) return
     this._workbench = await api.outline.getSceneWorkbench(
       state.currentProjectId,
-      state.currentSubView || null,
+      this._routeSceneId(),
       this._sceneWorkbenchParams(),
     )
     this._total = Number(this._workbench?.total ?? this._workbench?.items?.length ?? 0) || 0
+    const effectiveSkip = Number(this._workbench?.skip)
+    if (Number.isInteger(effectiveSkip) && effectiveSkip >= 0) {
+      this._filters.skip = effectiveSkip
+    }
+    const pendingSuggestions = Number(
+      this._workbench?.cross_chapter_suggestions?.pending_count || 0,
+    )
+    if (pendingSuggestions > 0 && api.outline.listCrossChapterSuggestions) {
+      const result = await api.outline.listCrossChapterSuggestions(
+        state.currentProjectId,
+        { skip: 0, limit: 100 },
+      )
+      this._crossChapterSuggestions = Array.isArray(result?.items) ? result.items : []
+    } else {
+      this._crossChapterSuggestions = []
+    }
   },
 
   _sceneWorkbenchParams() {
@@ -257,12 +285,19 @@ const sceneWorkbenchView = {
       <div class="scene-health-bar">
         ${HEALTH_ORDER.map(([key, fallback]) => {
           const item = this._workbench.health?.[key] || { label: fallback, count: 0 }
+          const breakdown = key === "needs_organize" ? item.breakdown || {} : {}
+          const breakdownText = [
+            breakdown.scene_structure ? `结构 ${breakdown.scene_structure}` : "",
+            breakdown.source_mapping ? `定位 ${breakdown.source_mapping}` : "",
+            breakdown.cross_chapter_suggestion ? `融合 ${breakdown.cross_chapter_suggestion}` : "",
+          ].filter(Boolean).join(" · ")
           const activeHealth = this._filters.health || this._activeHealth
           const active = activeHealth === key ? "active" : ""
           return `
             <button class="scene-health-filter ${active}" data-action="filter-health" data-id="${esc(key)}">
               <span>${esc(this._healthLabel(key))}</span>
               <strong>${esc(item.count ?? 0)}</strong>
+              ${breakdownText ? `<small>${esc(breakdownText)}</small>` : ""}
             </button>
           `
         }).join("")}
@@ -296,15 +331,99 @@ const sceneWorkbenchView = {
     `
   },
 
+  _healthReasons(item) {
+    return item?.health_details?.needs_organize || []
+  },
+
+  _contextAction(item, healthKey = null) {
+    const scene = item?.scene || {}
+    const health = item?.health || []
+    const reasons = this._healthReasons(item)
+    const reviewState = this._sceneReviewState(item)
+    const display = structureAssetDisplay(scene)
+    const suggestion = reasons.find((reason) => reason.code === "pending_cross_chapter_suggestion")
+    const sourceMapping = reasons.find((reason) => [
+      "source_mapping_chapter_only",
+      "source_mapping_unresolved",
+    ].includes(reason.code))
+    const structure = reasons.find((reason) => [
+      "manual_organize",
+      "duplicate_chapter",
+      "overlapping_chapter",
+      "chunk_chapter_mismatch",
+    ].includes(reason.code))
+    const reviewAction = {
+      key: "review",
+      action: "context-review-scene",
+      label: display.displayState === "active" ? "标记已检查" : "采用",
+    }
+    if (healthKey === "unreviewed") return reviewAction
+    if (healthKey === "needs_organize") {
+      if (suggestion) return {
+        key: "suggestion",
+        action: "context-open-cross-suggestion",
+        label: "查看融合建议",
+        suggestionId: suggestion.suggestion_id,
+      }
+      if (sourceMapping) return {
+        key: "source_mapping",
+        action: "context-confirm-source-mapping",
+        label: "确认章节定位",
+        fingerprint: sourceMapping.fingerprint,
+      }
+      if (structure) return {
+        key: "organize",
+        action: "context-organize-mapping",
+        label: "整理映射",
+      }
+    }
+    if (healthKey === "unassigned") return {
+      key: "assign",
+      action: "context-assign-chapters",
+      label: "关联章节",
+    }
+    if (healthKey === "missing_setup") return {
+      key: "missing_setup",
+      action: "context-complete-setup",
+      label: "补全设定",
+    }
+    if (!healthKey && (
+      health.includes("unreviewed")
+      || reviewState.needsReview
+      || display.displayState !== "active"
+    )) return reviewAction
+    if (!healthKey && suggestion) return this._contextAction(item, "needs_organize")
+    if (!healthKey && sourceMapping) return this._contextAction(item, "needs_organize")
+    if (!healthKey && structure) return this._contextAction(item, "needs_organize")
+    if (!healthKey && health.includes("unassigned")) return this._contextAction(item, "unassigned")
+    if (!healthKey && health.includes("missing_setup")) return this._contextAction(item, "missing_setup")
+    return { key: "edit", action: "edit-workbench-scene", label: "编辑" }
+  },
+
+  _renderContextAction(item) {
+    const sceneId = item?.scene?.id
+    if (!sceneId) return ""
+    const action = this._contextAction(item)
+    const data = [
+      `data-action="${esc(action.action)}"`,
+      `data-id="${esc(sceneId)}"`,
+      action.suggestionId ? `data-suggestion-id="${esc(action.suggestionId)}"` : "",
+      action.fingerprint ? `data-fingerprint="${esc(action.fingerprint)}"` : "",
+    ].filter(Boolean).join(" ")
+    const primaryClass = action.key === "edit" ? "" : "btn-primary"
+    return `<button class="btn btn-sm ${primaryClass} scene-context-action" ${data}>${esc(action.label)}</button>`
+  },
+
   _renderSceneRow(item, selectedId) {
     const scene = item.scene || {}
     const selected = selectedId === scene.id ? "is-selected" : ""
     const fusionSelected = this._selectedFusionSceneIds.has(scene.id)
-    const reviewAction = this._renderReviewAction(item, "row")
     const health = (item.health || []).map((key) => {
       const label = this._healthLabel(key)
-      return `<span class="scene-health-chip">${esc(label)}</span>`
+      const action = this._contextAction(item, key)
+      return `<button class="scene-health-chip" data-action="handle-scene-health" data-id="${esc(scene.id)}" data-health="${esc(key)}" title="${esc(action.label)}">${esc(label)}</button>`
     }).join("")
+    const contextAction = this._contextAction(item)
     return `
       <article class="scene-workbench-row ${selected}" data-id="${esc(scene.id)}">
         <label class="scene-fusion-select selection-checkbox" title="选择用于批量操作">
@@ -316,23 +435,29 @@ const sceneWorkbenchView = {
             ${fusionSelected ? "checked" : ""}
           />
         </label>
-        <button class="scene-workbench-row__main" data-action="select-workbench-scene" data-id="${esc(scene.id)}">
-          <div class="scene-workbench-row__meta">
-            <span>#${esc(scene.scene_index ?? "-")}</span>
-            <span>${esc(this._statusLabel(scene.status))}</span>
-            <span>${esc(this._sourceLabel(scene.source))}</span>
-            <span>${esc(item.chapter_range || "未关联章节")}</span>
-          </div>
-          <div class="scene-workbench-row__title">${esc(scene.title || "未命名 Scene")}</div>
-          <div class="scene-workbench-row__summary">${esc(item.summary || scene.goal || "暂无目标")}</div>
+        <div class="scene-workbench-row__content">
+          <button class="scene-workbench-row__main" data-action="select-workbench-scene" data-id="${esc(scene.id)}">
+            <div class="scene-workbench-row__meta">
+              <span>#${esc(scene.scene_index ?? "-")}</span>
+              <span>${esc(this._statusLabel(scene.status))}</span>
+              <span>${esc(this._sourceLabel(scene.source))}</span>
+              <span>${esc(item.chapter_range || "未关联章节")}</span>
+            </div>
+            <div class="scene-workbench-row__title">${esc(scene.title || "未命名 Scene")}</div>
+            <div class="scene-workbench-row__summary">${esc(item.summary || scene.goal || "暂无目标")}</div>
+          </button>
           <div class="scene-workbench-row__health">${health}</div>
-        </button>
+        </div>
         <div class="scene-workbench-row__actions">
-          ${reviewAction}
-          <button class="btn btn-sm btn-primary" data-action="edit-workbench-scene" data-id="${esc(scene.id)}">编辑</button>
+          ${this._renderContextAction(item)}
+          ${contextAction.key === "edit" ? "" : `<button class="btn btn-sm scene-secondary-action" data-action="edit-workbench-scene" data-id="${esc(scene.id)}">编辑</button>`}
           ${renderActionMenu(`scene-actions-${esc(scene.id)}`, [
-            { action: "organize-workbench-scene", label: "拆分/整理", data: { id: scene.id } },
             { action: "open-writing-scene", label: "打开写作", data: { id: scene.id } },
+            { action: "start-merge-scene", label: "合并", data: { id: scene.id } },
+            { action: "start-split-scene", label: "拆分", data: { id: scene.id } },
+            ...(this._sceneReviewState(item).reviewed
+              ? [{ action: "mark-scene-unreviewed", label: "标记需检查", data: { id: scene.id } }]
+              : []),
           ])}
         </div>
       </article>
@@ -345,24 +470,20 @@ const sceneWorkbenchView = {
     const allVisibleSelected = visibleSceneIds.length > 0
       && visibleSceneIds.every((id) => this._selectedFusionSceneIds.has(id))
     const reviewItems = this._selectedSceneItems()
-    const allSelectedReviewed = reviewItems.length > 0
-      && reviewItems.every((item) => this._sceneReviewState(item).reviewed)
-    const hasUnadoptedSelection = reviewItems.some((item) => (
-      structureAssetDisplay(item.scene).displayState !== "active"
-    ))
+    const contextKinds = new Set(
+      reviewItems.map((item) => this._contextAction(item).key),
+    )
     const disabled = count < 2 ? "disabled" : ""
     const hint = count < 2 ? `再选 ${2 - count} 个即可融合` : "已可开始融合"
     const selectionLabel = allVisibleSelected ? "取消全选" : "全选当前列表"
     const selectionTitle = allVisibleSelected ? "取消选择当前列表中的 Scene" : "选择当前列表中的全部 Scene"
-    const reviewLabel = allSelectedReviewed
-      ? "标记选中项需检查"
-      : (hasUnadoptedSelection ? "采用选中项" : "标记选中项已检查")
-    const reviewClass = allSelectedReviewed ? "" : "btn-primary"
-    const reviewTitle = count === 0
-      ? "请先选择要处理的 Scene"
-      : allSelectedReviewed
-        ? "将选中的 Scene 标记为需要人工检查"
-        : (hasUnadoptedSelection ? "采用选中的 Scene" : "将选中的 Scene 标记为已检查")
+    const batchLabel = contextKinds.size !== 1
+      ? "批量处理"
+      : contextKinds.has("review")
+        ? "采用选中项"
+        : contextKinds.has("source_mapping")
+          ? "确认选中项定位"
+          : "批量处理"
     return `
       <div class="scene-fusion-toolbar" aria-label="Scene 批量操作">
         <div class="scene-fusion-toolbar__status">
@@ -371,8 +492,8 @@ const sceneWorkbenchView = {
           <span class="scene-fusion-toolbar__hint">${esc(hint)}</span>
         </div>
         <button class="btn btn-sm" data-action="toggle-visible-fusion-selection" ${visibleSceneIds.length === 0 ? "disabled" : ""} title="${esc(selectionTitle)}">${esc(selectionLabel)}</button>
-        <button class="btn btn-sm ${reviewClass}" data-action="review-selected-scenes" ${count === 0 ? "disabled" : ""} title="${esc(reviewTitle)}">
-          ${esc(reviewLabel)}
+        <button class="btn btn-sm btn-primary" data-action="handle-selected-context-actions" ${count === 0 ? "disabled" : ""} title="按当前待办类型处理选中 Scene">
+          ${esc(batchLabel)}
         </button>
         <button class="btn btn-sm" data-action="start-selected-merge" ${disabled} title="${count < 2 ? hint : "机械合并：目标 Scene 吸收其他 Scene"}">
           机械合并
@@ -414,6 +535,8 @@ const sceneWorkbenchView = {
     const reviewLabel = reviewState.reviewed
       ? `已检查 · ${this._formatReviewTime(reviewState.reviewedAt)}`
       : (reviewState.needsReview ? "需要人工检查" : "无注意项")
+    const attentionLabels = this._healthReasons(item).map((reason) => reason.label)
+    const contextAction = this._contextAction(item)
     return `
       <div class="scene-detail-panel">
         <div class="scene-detail-panel__head">
@@ -439,9 +562,10 @@ const sceneWorkbenchView = {
           <div><strong>章节映射</strong><span>${esc(item.chapter_range || "未关联章节")}</span></div>
           <div><strong>关联资产预览</strong><span>剧情线 / 伏笔 / 揭示 / 地图摘要将在整理预览中展示</span></div>
           <div><strong>来源与注意</strong><span>${esc(this._sourceLabel(scene.source))} · ${esc(this._statusLabel(scene.status))} · ${esc(reviewLabel)}</span></div>
+          ${attentionLabels.length ? `<div><strong>待处理</strong><span>${esc(attentionLabels.join(" · "))}</span></div>` : ""}
         </section>
         <div class="scene-detail-actions">
-          ${this._renderReviewAction(item, "detail")}
+          ${contextAction.key === "edit" ? "" : this._renderContextAction(item)}
           <button class="btn btn-primary" data-action="save-scene-detail" data-id="${esc(scene.id)}">保存</button>
           <button class="btn" data-action="start-merge-scene" data-id="${esc(scene.id)}">合并</button>
           <button class="btn" data-action="start-split-scene" data-id="${esc(scene.id)}">拆分</button>
@@ -488,7 +612,22 @@ const sceneWorkbenchView = {
   },
 
   _selectedSceneId() {
-    return state.currentSubView || this._workbench?.selected_scene_id || this._workbench?.items?.[0]?.scene?.id || null
+    const embedded = state.currentView === "outline" && state.currentSubView === "scenes"
+    const routeId = embedded ? this._routeSceneId() : state.currentSubView
+    if (embedded) this._selectedSceneIdValue = routeId
+    return routeId || this._workbench?.selected_scene_id || this._workbench?.items?.[0]?.scene?.id || null
+  },
+
+  _routeSceneId() {
+    if (state.currentView !== "outline" || state.currentSubView !== "scenes") {
+      return state.currentSubView || null
+    }
+    if (typeof window !== "undefined") {
+      const queryIndex = window.location.hash.indexOf("?")
+      const hashQuery = queryIndex >= 0 ? window.location.hash.slice(queryIndex + 1) : ""
+      return new URLSearchParams(hashQuery).get("scene_id")
+    }
+    return router.getCurrentQuery?.()?.get("scene_id") || null
   },
 
   _selectedSceneItem() {
@@ -503,17 +642,51 @@ const sceneWorkbenchView = {
     if (!item) return
 
     this._mobileDetailOpen = true
-    state.currentSubView = sceneId
+    if (state.currentView === "outline" && state.currentSubView === "scenes") {
+      this._selectedSceneIdValue = sceneId
+    } else {
+      state.currentSubView = sceneId
+    }
     this._pushSceneHistory(sceneId)
     this._syncSelectedSceneUi()
   },
 
   _pushSceneHistory(sceneId) {
     if (typeof window === "undefined" || !window.history || !state.currentProjectId) return
-    const hash = `#workbench/${encodeURIComponent(state.currentProjectId)}/scene/${encodeURIComponent(sceneId)}`
+    const embedded = state.currentView === "outline" && state.currentSubView === "scenes"
+    const hash = embedded
+      ? `#workbench/${encodeURIComponent(state.currentProjectId)}/outline/scenes?scene_id=${encodeURIComponent(sceneId)}`
+      : `#workbench/${encodeURIComponent(state.currentProjectId)}/scene/${encodeURIComponent(sceneId)}`
     if (window.location.hash === hash) return
     window.history.pushState(
-      { view: "scene", subView: sceneId, projectId: state.currentProjectId },
+      {
+        view: embedded ? "outline" : "scene",
+        subView: embedded ? "scenes" : sceneId,
+        projectId: state.currentProjectId,
+      },
+      "",
+      hash,
+    )
+  },
+
+  _clearEmbeddedSceneHistory() {
+    if (
+      state.currentView !== "outline"
+      || state.currentSubView !== "scenes"
+      || typeof window === "undefined"
+      || !window.history
+      || !state.currentProjectId
+    ) return
+    const queryIndex = window.location.hash.indexOf("?")
+    const query = new URLSearchParams(
+      queryIndex >= 0 ? window.location.hash.slice(queryIndex + 1) : "",
+    )
+    query.delete("scene_id")
+    const base = `#workbench/${encodeURIComponent(state.currentProjectId)}/outline/scenes`
+    const hash = query.toString() ? `${base}?${query.toString()}` : base
+    this._selectedSceneIdValue = null
+    window.history.replaceState(
+      { view: "outline", subView: "scenes", projectId: state.currentProjectId },
       "",
       hash,
     )
@@ -554,6 +727,19 @@ const sceneWorkbenchView = {
     const scrollTop = preserveScroll && currentOrganize ? currentOrganize.scrollTop : 0
 
     await this._loadWorkbench()
+
+    const currentQueue = typeof document !== "undefined"
+      ? document.querySelector(".scene-cross-chapter-queue")
+      : null
+    const queueHtml = this._renderCrossChapterSuggestionQueue()
+    if (currentQueue && queueHtml) currentQueue.outerHTML = queueHtml
+    else if (currentQueue) currentQueue.remove()
+    else if (queueHtml) {
+      document.querySelector(".scene-workbench")?.insertAdjacentHTML(
+        "beforebegin",
+        queueHtml,
+      )
+    }
 
     const root = typeof document !== "undefined"
       ? document.querySelector(".scene-workbench")
@@ -603,19 +789,6 @@ const sceneWorkbenchView = {
     }
   },
 
-  _renderReviewAction(item, placement) {
-    const sceneId = item?.scene?.id
-    if (!sceneId) return ""
-    const state = this._sceneReviewState(item)
-    const size = placement === "row" ? "btn-sm" : ""
-    if (state.reviewed) return ""
-    const display = structureAssetDisplay(item.scene)
-    if (display.displayState === "active" && !state.needsReview) return ""
-    const primary = state.needsReview ? "btn-primary" : ""
-    const label = display.displayState === "active" ? "标记已检查" : "采用"
-    return `<button class="btn ${size} ${primary} scene-review-action" data-action="mark-scene-reviewed" data-id="${esc(sceneId)}">${label}</button>`
-  },
-
   _formatReviewTime(value) {
     if (!value) return ""
     const date = new Date(value)
@@ -626,20 +799,6 @@ const sceneWorkbenchView = {
       hour: "2-digit",
       minute: "2-digit",
     })
-  },
-
-  _sceneReviewPayload(scene, reviewedFrom = "scene_workbench", reviewedAt = new Date().toISOString()) {
-    return {
-      status: "canonical",
-      structure_meta: {
-        ...(scene?.structure_meta || {}),
-        needs_review: false,
-        needs_organize: false,
-        reviewed_at: reviewedAt,
-        reviewed_by: "manual",
-        reviewed_from: reviewedFrom,
-      },
-    }
   },
 
   _visibleFusionSceneIds() {
@@ -725,9 +884,19 @@ const sceneWorkbenchView = {
       toast("未找到目标 Scene", "error")
       return
     }
-    await api.outline.updateScene(sceneId, state.currentProjectId, this._sceneReviewPayload(scene))
-    toast(structureAssetDisplay(scene).displayState === "active" ? "Scene 已标记为已检查" : "Scene 已采用", "success")
+    await api.outline.reviewSceneWorkbench(state.currentProjectId, {
+      scene_ids: [sceneId],
+      decision: "review",
+    })
     await this._refreshWorkbenchInPlace()
+    const remaining = this._findSceneItem(sceneId)?.health?.length || 0
+    const doneLabel = structureAssetDisplay(scene).displayState === "active"
+      ? "Scene 已标记为已检查"
+      : "Scene 已采用"
+    toast(
+      remaining ? `${doneLabel}，仍有 ${remaining} 项待处理` : doneLabel,
+      remaining ? "warning" : "success",
+    )
   },
 
   async _reviewSelectedScenes() {
@@ -737,28 +906,13 @@ const sceneWorkbenchView = {
       return
     }
 
-    const reviewedAt = new Date().toISOString()
-    const failedIds = []
-    const results = await Promise.allSettled(scenes.map((scene) => (
-      api.outline.updateScene(
-        scene.id,
-        state.currentProjectId,
-        this._sceneReviewPayload(scene, "scene_workbench_bulk", reviewedAt),
-      )
-    )))
-
-    results.forEach((result, index) => {
-      if (result.status === "rejected") failedIds.push(scenes[index].id)
+    await api.outline.reviewSceneWorkbench(state.currentProjectId, {
+      scene_ids: scenes.map((scene) => scene.id),
+      decision: "review",
     })
-
-    this._selectedFusionSceneIds = new Set(failedIds)
-    const successCount = results.length - failedIds.length
-    if (successCount) {
-      toast(`已处理 ${successCount} 个 Scene`, failedIds.length ? "warning" : "success")
-      await this._refreshWorkbenchInPlace()
-      return
-    }
-    toast("选中 Scene 处理失败", "error")
+    this._selectedFusionSceneIds = new Set()
+    toast(`已处理 ${scenes.length} 个 Scene`, "success")
+    await this._refreshWorkbenchInPlace()
   },
 
   async _toggleSelectedSceneReview() {
@@ -775,6 +929,94 @@ const sceneWorkbenchView = {
     await this._reviewSelectedScenes()
   },
 
+  async _handleSelectedContextActions() {
+    const items = this._selectedSceneItems()
+    if (!items.length) {
+      toast("请先选择要处理的 Scene", "warning")
+      return
+    }
+    const grouped = new Map()
+    for (const item of items) {
+      const key = this._contextAction(item).key
+      grouped.set(key, [...(grouped.get(key) || []), item])
+    }
+    if (grouped.size === 1 && grouped.has("review")) {
+      return this._reviewSelectedScenes()
+    }
+    if (grouped.size === 1 && grouped.has("source_mapping")) {
+      return this._confirmSelectedSourceMappings(grouped.get("source_mapping"))
+    }
+    const labels = {
+      review: "采用 / 检查",
+      suggestion: "跨章融合建议",
+      source_mapping: "正文定位",
+      organize: "映射整理",
+      assign: "章节关联",
+      missing_setup: "设定补全",
+      edit: "普通编辑",
+    }
+    const html = Array.from(grouped.entries()).map(([key, values]) => `
+      <div class="scene-batch-group">
+        <strong>${esc(labels[key] || key)}</strong>
+        <span>${esc(values.length)} 个 Scene</span>
+      </div>
+    `).join("")
+    const buttons = [{ text: "取消", class: "", handler: () => closeModal() }]
+    if (grouped.has("review")) buttons.push({
+      text: "先处理采用项",
+      class: "btn-primary",
+      handler: async () => {
+        this._selectedFusionSceneIds = new Set(
+          grouped.get("review").map((item) => item.scene.id),
+        )
+        closeModal()
+        await this._reviewSelectedScenes()
+      },
+    })
+    if (grouped.has("source_mapping")) buttons.push({
+      text: "先确认定位项",
+      class: "btn-primary",
+      handler: () => {
+        closeModal()
+        this._confirmSelectedSourceMappings(grouped.get("source_mapping"))
+      },
+    })
+    showModalHtml("批量处理", html, buttons)
+  },
+
+  _confirmSelectedSourceMappings(items) {
+    const requests = items.map((item) => {
+      const action = this._contextAction(item)
+      return {
+        scene_id: item.scene.id,
+        expected_fingerprint: action.fingerprint,
+      }
+    }).filter((item) => item.expected_fingerprint)
+    if (!requests.length) return
+    showModalHtml("批量确认章节级定位", `
+      <p>将确认 ${esc(requests.length)} 个 Scene 只保留章节级定位。</p>
+      <p class="writing-form-hint">这不会提升其证据精度。</p>
+    `, [
+      { text: "取消", class: "", handler: () => closeModal() },
+      {
+        text: "确认定位",
+        class: "btn-primary",
+        handler: async () => {
+          await api.outline.reviewSceneSourceMappings(state.currentProjectId, {
+            items: requests,
+            decision: "accept_chapter_only",
+            confirmed: true,
+          })
+          closeModal()
+          this._selectedFusionSceneIds = new Set()
+          toast(`已确认 ${requests.length} 个 Scene 的章节定位`, "success")
+          await this._refreshWorkbenchInPlace()
+          return true
+        },
+      },
+    ])
+  },
+
   async _unreviewSelectedScenes(selectedItems = this._selectedSceneItems()) {
     const scenes = selectedItems.map((item) => item.scene).filter(Boolean)
     if (!scenes.length) {
@@ -782,27 +1024,13 @@ const sceneWorkbenchView = {
       return
     }
 
-    const failedIds = []
-    const results = await Promise.allSettled(scenes.map((scene) => {
-      const meta = { ...(scene.structure_meta || {}), needs_review: true }
-      delete meta.reviewed_at
-      delete meta.reviewed_by
-      delete meta.reviewed_from
-      return api.outline.updateScene(scene.id, state.currentProjectId, { structure_meta: meta })
-    }))
-
-    results.forEach((result, index) => {
-      if (result.status === "rejected") failedIds.push(scenes[index].id)
+    await api.outline.reviewSceneWorkbench(state.currentProjectId, {
+      scene_ids: scenes.map((scene) => scene.id),
+      decision: "reopen",
     })
-
-    this._selectedFusionSceneIds = new Set(failedIds)
-    const successCount = results.length - failedIds.length
-    if (successCount) {
-      toast(`已将 ${successCount} 个 Scene 标记为需要人工检查`, failedIds.length ? "warning" : "success")
-      await this._refreshWorkbenchInPlace()
-      return
-    }
-    toast("选中 Scene 注意状态更新失败", "error")
+    this._selectedFusionSceneIds = new Set()
+    toast(`已将 ${scenes.length} 个 Scene 标记为需要人工检查`, "success")
+    await this._refreshWorkbenchInPlace()
   },
 
   async _markSceneUnreviewed(sceneId) {
@@ -812,31 +1040,185 @@ const sceneWorkbenchView = {
       toast("未找到目标 Scene", "error")
       return
     }
-    const meta = { ...(scene.structure_meta || {}), needs_review: true }
-    delete meta.reviewed_at
-    delete meta.reviewed_by
-    delete meta.reviewed_from
-    await api.outline.updateScene(sceneId, state.currentProjectId, { structure_meta: meta })
+    await api.outline.reviewSceneWorkbench(state.currentProjectId, {
+      scene_ids: [sceneId],
+      decision: "reopen",
+    })
     toast("Scene 已标记为需要人工检查", "success")
     await this._refreshWorkbenchInPlace()
   },
 
-  async _assignChapter(chapterIndex) {
-    const sceneId = prompt("输入目标 Scene ID：")
+  async _handleSceneHealth(sceneId, healthKey) {
+    const item = this._findSceneItem(sceneId)
+    if (!item) return
+    const action = this._contextAction(item, healthKey)
+    await this._runContextAction(item, action)
+  },
+
+  async _runContextAction(item, action = this._contextAction(item)) {
+    const sceneId = item?.scene?.id
     if (!sceneId) return
-    const scene = this._findScene(sceneId)
-    if (!scene) {
-      toast("未找到目标 Scene", "error")
+    if (action.key === "review") return this._markSceneReviewed(sceneId)
+    if (action.key === "suggestion") {
+      return this._openCrossChapterSuggestion(action.suggestionId)
+    }
+    if (action.key === "source_mapping") {
+      return this._confirmSourceMapping(sceneId, action.fingerprint)
+    }
+    if (action.key === "organize") return this._showOrganizeMapping(sceneId)
+    if (action.key === "assign") return this._showAssignChapters(sceneId)
+    if (action.key === "missing_setup") return this._focusMissingSetup(sceneId)
+    this._selectSceneInPlace(sceneId)
+  },
+
+  _confirmSourceMapping(sceneId, fingerprint) {
+    if (!fingerprint) {
+      toast("正文定位已变化，请刷新后重试", "warning")
       return
     }
-    const chapterIds = [...new Set([...(scene.chapter_ids || []), String(chapterIndex)])]
-      .sort((a, b) => Number(a) - Number(b))
-    await api.outline.updateSceneWorkbenchMapping(state.currentProjectId, sceneId, {
-      chapter_ids: chapterIds,
-      structure_meta: { needs_organize: false },
-    })
-    toast("章节已分配", "success")
-    await router.refresh()
+    const html = `
+      <div class="scene-source-mapping-review">
+        <p>确认后，该 Scene 仍只保留章节级定位。</p>
+        <p class="writing-form-hint">这不会伪造正文 offset，也不会让 RAG 或上下文系统把它当作精确证据。</p>
+      </div>
+    `
+    showModalHtml("确认章节级正文定位", html, [
+      { text: "取消", class: "", handler: () => closeModal() },
+      {
+        text: "确认仅按章节关联",
+        class: "btn-primary",
+        handler: async () => {
+          try {
+            await api.outline.reviewSceneSourceMappings(state.currentProjectId, {
+              items: [{ scene_id: sceneId, expected_fingerprint: fingerprint }],
+              decision: "accept_chapter_only",
+              confirmed: true,
+            })
+            closeModal()
+            toast("已确认章节级正文定位", "success")
+            await this._refreshWorkbenchInPlace()
+            return true
+          } catch (err) {
+            toast(err.message || "正文定位确认失败", "error")
+            return false
+          }
+        },
+      },
+    ])
+  },
+
+  _showOrganizeMapping(sceneId) {
+    showModalHtml("整理 Scene 映射", "<p>选择要处理的映射动作。</p>", [
+      { text: "移动章节", class: "", handler: () => {
+        closeModal()
+        this._showAssignChapters(sceneId)
+      } },
+      { text: "合并", class: "", handler: () => {
+        closeModal()
+        this._startMerge(sceneId)
+      } },
+      { text: "拆分", class: "btn-primary", handler: () => {
+        closeModal()
+        this._startSplit(sceneId)
+      } },
+    ])
+  },
+
+  _showAssignChapters(sceneId) {
+    const scene = this._findScene(sceneId)
+    if (!scene) return
+    const current = new Set((scene.chapter_ids || []).map(String))
+    const available = [...new Set([
+      ...current,
+      ...(this._workbench?.unassigned_chapters || []).map(String),
+    ])].sort((a, b) => Number(a) - Number(b))
+    if (!available.length) {
+      toast("当前没有可整理的章节", "info")
+      return
+    }
+    const html = `
+      <p class="writing-form-hint">取消勾选可将章节从当前 Scene 移出；勾选未关联章节可移入。</p>
+      ${available.map((chapter) => `
+      <label class="selection-checkbox">
+        <input type="checkbox" name="scene-assign-chapter" value="${esc(chapter)}" ${current.has(String(chapter)) ? "checked" : ""} />
+        <span>第 ${esc(chapter)} 章</span>
+      </label>
+      `).join("")}
+    `
+    showModalHtml("移动 / 关联章节", html, [
+      { text: "取消", class: "", handler: () => closeModal() },
+      {
+        text: "保存章节映射",
+        class: "btn-primary",
+        handler: async () => {
+          const selected = Array.from(
+            document.querySelectorAll('input[name="scene-assign-chapter"]:checked'),
+          ).map((input) => String(input.value))
+          const chapterIds = [...new Set(selected)].sort((a, b) => Number(a) - Number(b))
+          await api.outline.updateSceneWorkbenchMapping(
+            state.currentProjectId,
+            sceneId,
+            { chapter_ids: chapterIds },
+          )
+          closeModal()
+          toast("章节映射已更新", "success")
+          await this._refreshWorkbenchInPlace()
+          return true
+        },
+      },
+    ])
+  },
+
+  _focusMissingSetup(sceneId) {
+    const scene = this._findScene(sceneId)
+    if (!scene) return
+    this._selectSceneInPlace(sceneId)
+    const fields = [
+      ["goal", "scene-detail-goal"],
+      ["core_conflict", "scene-detail-conflict"],
+      ["must_happen", "scene-detail-must"],
+      ["must_not_happen", "scene-detail-must-not"],
+    ]
+    const target = fields.find(([field]) => !scene[field])
+    if (target) setTimeout(() => document.getElementById(target[1])?.focus(), 0)
+  },
+
+  async _assignChapter(chapterIndex) {
+    const scenes = this._filteredItems().map((item) => item.scene).filter(Boolean)
+    if (!scenes.length) {
+      toast("当前没有可关联的 Scene", "warning")
+      return
+    }
+    const html = scenes.map((scene, index) => `
+      <label class="scene-picker-card">
+        <input type="radio" name="assign-target-scene" value="${esc(scene.id)}" ${index === 0 ? "checked" : ""} />
+        <strong>${esc(scene.title || "未命名 Scene")}</strong>
+        <span>${esc(this._sceneChapterLabel(scene))}</span>
+      </label>
+    `).join("")
+    showModalHtml(`分配第 ${chapterIndex} 章`, html, [
+      { text: "取消", class: "", handler: () => closeModal() },
+      {
+        text: "确认分配",
+        class: "btn-primary",
+        handler: async () => {
+          const sceneId = document.querySelector('input[name="assign-target-scene"]:checked')?.value
+          const scene = this._findScene(sceneId)
+          if (!scene) return false
+          const chapterIds = [...new Set([...(scene.chapter_ids || []), String(chapterIndex)])]
+            .sort((a, b) => Number(a) - Number(b))
+          await api.outline.updateSceneWorkbenchMapping(
+            state.currentProjectId,
+            sceneId,
+            { chapter_ids: chapterIds },
+          )
+          closeModal()
+          toast("章节已分配", "success")
+          await this._refreshWorkbenchInPlace()
+          return true
+        },
+      },
+    ])
   },
 
   async _startMerge(targetSceneId) {
@@ -881,7 +1263,7 @@ const sceneWorkbenchView = {
       toast("请至少选择 2 个 Scene 再融合", "warning")
       return
     }
-    this._showPrimaryScenePicker(sourceSceneIds)
+    await this._showPrimaryScenePicker(sourceSceneIds)
   },
 
   async _startSelectedMerge() {
@@ -923,15 +1305,22 @@ const sceneWorkbenchView = {
           const sourceIds = sourceSceneIds.filter((id) => id !== targetSceneId)
           closeModal()
           await this._previewAndMerge(targetSceneId, sourceIds)
+          return false
         },
       },
     ])
   },
 
-  _showPrimaryScenePicker(sourceSceneIds) {
-    const scenes = sourceSceneIds
-      .map((id) => this._findScene(id))
-      .filter(Boolean)
+  async _showPrimaryScenePicker(sourceSceneIds, suggestionId = null) {
+    const scenes = (await Promise.all(sourceSceneIds.map(async (id) => {
+      const visible = this._findScene(id)
+      if (visible) return visible
+      try {
+        return await api.outline.getScene(id, state.currentProjectId)
+      } catch {
+        return null
+      }
+    }))).filter(Boolean)
     if (scenes.length < 2) {
       toast("请至少选择 2 个 Scene 再融合", "warning")
       return
@@ -966,19 +1355,27 @@ const sceneWorkbenchView = {
             return
           }
           closeModal()
-          await this._previewFusionWithPrimary(sourceSceneIds, primarySceneId)
+          await this._previewFusionWithPrimary(
+            sourceSceneIds,
+            primarySceneId,
+            suggestionId,
+          )
+          return false
         },
       },
     ])
   },
 
-  async _previewFusionWithPrimary(sourceSceneIds, primarySceneId) {
+  async _previewFusionWithPrimary(sourceSceneIds, primarySceneId, suggestionId = null) {
     try {
       const preview = await api.outline.previewSceneFusion(state.currentProjectId, {
         source_scene_ids: sourceSceneIds,
         primary_scene_id: primarySceneId,
       })
-      this._showFusionPreview(preview, sourceSceneIds)
+      this._showFusionPreview(
+        { ...preview, suggestion_id: suggestionId },
+        sourceSceneIds,
+      )
     } catch (err) {
       toast(err.message || "Scene 融合预览失败", "error")
     }
@@ -1107,6 +1504,9 @@ const sceneWorkbenchView = {
       primary_scene_id: this._activeDraftReview?.primary_scene_id || null,
       mode,
     }
+    if (this._activeDraftReview?.suggestion_id) {
+      payload.suggestion_id = this._activeDraftReview.suggestion_id
+    }
     if (mode !== "discard") {
       payload.fused_scene = this._readFusionDraftFields()
     }
@@ -1115,7 +1515,7 @@ const sceneWorkbenchView = {
       this._selectedFusionSceneIds = new Set()
       toast(result?.status === "discarded" ? "融合结果已放弃" : "融合 Scene 已保存", "success")
       closeModal()
-      await router.refresh()
+      await this._refreshWorkbenchInPlace()
     } catch (err) {
       toast(err.message || "Scene 融合保存失败", "error")
     }
@@ -1242,6 +1642,7 @@ const sceneWorkbenchView = {
       state.viewStates = state.viewStates || {}
       state.viewStates.writing = {
         ...(state.viewStates.writing || {}),
+        projectId: state.currentProjectId,
         currentChapter: parseInt(first, 10),
       }
     }
@@ -1250,7 +1651,7 @@ const sceneWorkbenchView = {
 
   _healthLabel(key) {
     const raw = this._workbench?.health?.[key]?.label || HEALTH_ORDER.find(([k]) => k === key)?.[1] || key
-    return ["未复核", "需复核"].includes(raw) ? "需要人工检查" : raw
+    return raw
   },
 
   _statusLabel(status) {
@@ -1281,6 +1682,7 @@ const sceneWorkbenchView = {
     }
     this._activeHealth = this._filters.health || null
     this._selectedFusionSceneIds = new Set()
+    this._clearEmbeddedSceneHistory()
     await this._loadWorkbench()
     await router.refresh()
   },
@@ -1290,6 +1692,7 @@ const sceneWorkbenchView = {
     this._activeHealth = null
     this._advancedFiltersOpen = false
     this._selectedFusionSceneIds = new Set()
+    this._clearEmbeddedSceneHistory()
     await this._loadWorkbench()
     await router.refresh()
   },
@@ -1303,6 +1706,7 @@ const sceneWorkbenchView = {
     }
     this._activeHealth = nextHealth || null
     this._selectedFusionSceneIds = new Set()
+    this._clearEmbeddedSceneHistory()
     await this._loadWorkbench()
     await router.refresh()
   },
@@ -1318,6 +1722,7 @@ const sceneWorkbenchView = {
     if (newSkip >= this._total) return
     this._filters.skip = newSkip
     this._selectedFusionSceneIds = new Set()
+    this._clearEmbeddedSceneHistory()
     await this._loadWorkbench()
     await router.refresh()
   },
@@ -1337,7 +1742,9 @@ const sceneWorkbenchView = {
     if (!this._crossChapterProgress) return ""
     const result = this._crossChapterProgress.raw?.result || {}
     const suggestions = Array.isArray(result.suggestions) ? result.suggestions : []
-    const suggestionHtml = this._crossChapterProgress.done && suggestions.length ? `
+    const suggestionHtml = this._crossChapterProgress.done
+      && suggestions.length
+      && !this._crossChapterSuggestions.length ? `
       <div class="scene-cross-chapter-suggestions">
         <span class="scene-cross-chapter-suggestions__count">${esc(suggestions.length)} 条建议可查看</span>
         <button class="btn btn-sm btn-primary" data-action="show-cross-chapter-suggestions">查看建议</button>
@@ -1347,6 +1754,25 @@ const sceneWorkbenchView = {
       title: "跨章 Scene 识别",
       destinationLabel: "完成后可选择建议并保存融合 Scene",
     })}${suggestionHtml}</div>`
+  },
+
+  _renderCrossChapterSuggestionQueue() {
+    const count = Number(
+      this._workbench?.cross_chapter_suggestions?.pending_count
+      || this._crossChapterSuggestions.length
+      || 0,
+    )
+    if (!count) return ""
+    return `
+      <div class="scene-cross-chapter-queue" role="status">
+        <div>
+          <strong>${esc(count)} 条跨章融合建议待处理</strong>
+          <span>建议已保存，刷新页面后仍可继续。</span>
+        </div>
+        <button class="btn btn-sm btn-primary" data-action="show-cross-chapter-suggestions">逐条处理</button>
+        <button class="btn btn-sm" data-action="dismiss-cross-chapter-suggestions">全部忽略</button>
+      </div>
+    `
   },
 
   _stopAutoExtractPolling() {
@@ -1507,11 +1933,12 @@ const sceneWorkbenchView = {
         this._crossChapterProgress = progress
         router.renderCurrentView()
       },
-      onDone: (progress) => {
+      onDone: async (progress) => {
         clearActiveWorkflow(progress.taskId || taskId)
         this._crossChapterTaskId = null
         this._crossChapterProgress = progress
         toast("跨章 Scene 识别完成", "success")
+        await this._loadWorkbench()
         router.renderCurrentView()
       },
       onFailed: (progress) => {
@@ -1540,7 +1967,9 @@ const sceneWorkbenchView = {
 
   _showCrossChapterSuggestions() {
     const result = this._crossChapterProgress?.raw?.result || {}
-    const suggestions = Array.isArray(result.suggestions) ? result.suggestions : []
+    const suggestions = this._crossChapterSuggestions.length
+      ? this._crossChapterSuggestions
+      : (Array.isArray(result.suggestions) ? result.suggestions : [])
     if (!suggestions.length) {
       toast("暂无跨章 Scene 建议", "info")
       return
@@ -1566,17 +1995,81 @@ const sceneWorkbenchView = {
         const suggestion = suggestions[Number(selected || 0)]
         if (!suggestion) return
         closeModal()
-        const sourceSceneIds = suggestion.source_scene_ids || []
-        this._showPrimaryScenePicker(sourceSceneIds)
+        await this._showPrimaryScenePicker(
+          suggestion.source_scene_ids || [],
+          suggestion.id || null,
+        )
       },
     }])
   },
 
+  async _openCrossChapterSuggestion(suggestionId) {
+    if (!suggestionId) return this._showCrossChapterSuggestions()
+    const suggestion = this._crossChapterSuggestions.find((item) => item.id === suggestionId)
+    if (!suggestion) {
+      toast("该建议已变化，请刷新后重试", "warning")
+      return
+    }
+    await this._showPrimaryScenePicker(
+      suggestion.source_scene_ids || [],
+      suggestion.id,
+    )
+  },
+
+  _dismissAllCrossChapterSuggestions() {
+    const ids = this._crossChapterSuggestions.map((item) => item.id).filter(Boolean)
+    if (!ids.length) return
+    showModalHtml("忽略跨章融合建议", `
+      <p>将忽略 ${esc(ids.length)} 条建议。这不会修改任何 Scene。</p>
+    `, [
+      { text: "取消", class: "", handler: () => closeModal() },
+      {
+        text: "确认忽略",
+        class: "btn-primary",
+        handler: async () => {
+          try {
+            await api.outline.dismissCrossChapterSuggestions(state.currentProjectId, {
+              suggestion_ids: ids,
+              confirmed: true,
+            })
+            closeModal()
+            toast(`已忽略 ${ids.length} 条建议`, "success")
+            await this._refreshWorkbenchInPlace()
+            return true
+          } catch (err) {
+            toast(err.message || "忽略建议失败", "error")
+            return false
+          }
+        },
+      },
+    ])
+  },
+
   _bindEvents() {
     bindWorkspaceClick(this, {
+      "nav-scenes": () => router.navigate("outline", "scenes"),
+      "nav-threads": () => router.navigate("outline", "threads"),
+      "nav-arcs": () => router.navigate("outline", "arcs"),
+      "nav-foreshadowing": () => router.navigate("outline", "foreshadowing"),
+      "nav-reveals": () => router.navigate("outline", "reveals"),
       "scene-auto-extract": () => this._showSceneAutoExtractForm(),
       "detect-cross-chapter-scenes": () => this._startCrossChapterDetection(),
       "show-cross-chapter-suggestions": () => this._showCrossChapterSuggestions(),
+      "dismiss-cross-chapter-suggestions": () => this._dismissAllCrossChapterSuggestions(),
+      "handle-scene-health": (e, t, ctx) => {
+        e.stopPropagation()
+        return this._handleSceneHealth(ctx.id, t.getAttribute("data-health"))
+      },
+      "context-review-scene": (_e, _t, ctx) => this._markSceneReviewed(ctx.id),
+      "context-open-cross-suggestion": (_e, t) => (
+        this._openCrossChapterSuggestion(t.getAttribute("data-suggestion-id"))
+      ),
+      "context-confirm-source-mapping": (_e, t, ctx) => (
+        this._confirmSourceMapping(ctx.id, t.getAttribute("data-fingerprint"))
+      ),
+      "context-organize-mapping": (_e, _t, ctx) => this._showOrganizeMapping(ctx.id),
+      "context-assign-chapters": (_e, _t, ctx) => this._showAssignChapters(ctx.id),
+      "context-complete-setup": (_e, _t, ctx) => this._focusMissingSetup(ctx.id),
       "filter-health": (_e, _t, ctx) => {
         this._toggleHealthFilter(ctx.id)
       },
@@ -1608,6 +2101,7 @@ const sceneWorkbenchView = {
       "toggle-visible-fusion-selection": () => this._toggleVisibleFusionSelection(),
       "clear-fusion-selection": () => this._clearFusionSelection(),
       "review-selected-scenes": () => this._toggleSelectedSceneReview(),
+      "handle-selected-context-actions": () => this._handleSelectedContextActions(),
       "start-selected-merge": () => this._startSelectedMerge(),
       "start-ai-fusion-draft": () => this._startManualFusion(),
       "start-manual-fusion": () => this._startManualFusion(),

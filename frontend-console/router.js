@@ -14,7 +14,7 @@ const routes = {
   project: { title: "项目", subViews: [], requiresProject: false },
   world: { title: "世界对象", requiresProject: true, defaultSubView: "objects", subViews: ["objects", "candidates", "review-objects", "review-aliases", "review-relations", "relations", "aliases", "bible", "map"], subViewTitles: { objects: "对象库", candidates: "待处理", "review-objects": "待处理 · 对象", "review-aliases": "待处理 · 别名", "review-relations": "待处理 · 关系", relations: "关系", aliases: "别名", bible: "世界书", map: "地图" } },
   rag: { title: "小说检索", requiresProject: true, defaultSubView: "search", subViews: ["search", "status"], subViewTitles: { search: "检索", status: "索引维护" } },
-  outline: { title: "大纲", requiresProject: true, defaultSubView: "scenes", subViews: ["scenes", "threads", "arcs", "foreshadowing", "reveals"], subViewTitles: { scenes: "场景卡", threads: "剧情线", arcs: "篇章纲", foreshadowing: "伏笔", reveals: "揭示" } },
+  outline: { title: "大纲", requiresProject: true, defaultSubView: "scenes", subViews: ["scenes", "threads", "arcs", "foreshadowing", "reveals"], subViewTitles: { scenes: "场景工作台", threads: "剧情线", arcs: "篇章纲", foreshadowing: "伏笔", reveals: "揭示" } },
   scene: { title: "场景", subViews: [], requiresProject: true, dynamicSubView: true },
   writing: { title: "写作台", subViews: [], requiresProject: true },
   map: { title: "地图", subViews: [], requiresProject: true },
@@ -103,13 +103,17 @@ const _nonRestorableSubViews = {
 const _viewDomCache = {}
 
 /** @type {Set<string>} 标记为 KeepAlive 的视图 */
-const _keepAliveViews = new Set(["writing", "outline", "scene"])
+const _keepAliveViews = new Set(["writing", "outline"])
 
 /** @type {URLSearchParams} 当前 hash 的 query 参数 */
 let _currentQuery = new URLSearchParams()
 
 function _viewCacheKey(viewName, subView = null, projectId = state.currentProjectId) {
   return `${projectId || "global"}:${viewName}:${subView || ""}`
+}
+
+function _shouldKeepAlive(viewName, subView = null) {
+  return _keepAliveViews.has(viewName) && !(viewName === "outline" && subView === "scenes")
 }
 
 /**
@@ -181,6 +185,14 @@ function _normalizeRoute({ projectId = null, viewName = "project", subView = nul
   let targetView = viewName || "project"
   let targetSubView = subView || null
   let targetQuery = query || new URLSearchParams()
+
+  // Scene 工作台已并入大纲页。保留旧 scene 路由兼容外部链接和现有调用方。
+  if (targetView === "scene") {
+    targetQuery = new URLSearchParams(targetQuery)
+    if (targetSubView) targetQuery.set("scene_id", targetSubView)
+    targetView = "outline"
+    targetSubView = "scenes"
+  }
 
   if (targetView === "context") {
     targetView = "generate"
@@ -305,14 +317,18 @@ async function renderCurrentView() {
   if (_prevView && _prevView !== viewName) {
     const prevRenderer = viewRenderers[_prevView]
     if (prevRenderer) {
-      if (_keepAliveViews.has(_prevView) && prevRenderer.onDeactivate) {
+      const keepAlive = _shouldKeepAlive(_prevView, _prevRenderedSubView)
+      if (keepAlive && prevRenderer.onDeactivate) {
         try { prevRenderer.onDeactivate() } catch (e) { console.error(e) }
       }
-      if (prevRenderer.onLeave) {
+      // Keep-alive views retain their renderer instances and DOM. `onLeave`
+      // tears down that instance, so calling it here leaves restored DOM bound
+      // to cleared module state on the next activation.
+      if (!keepAlive && prevRenderer.onLeave) {
         try { prevRenderer.onLeave() } catch (e) { console.error(e) }
       }
     }
-    if (_keepAliveViews.has(_prevView)) {
+    if (_shouldKeepAlive(_prevView, _prevRenderedSubView)) {
       const frag = document.createDocumentFragment()
       while (content.firstChild) {
         frag.appendChild(content.firstChild)
@@ -338,7 +354,7 @@ async function renderCurrentView() {
     if (renderer) {
       const cacheKey = _viewCacheKey(viewName, state.currentSubView, currentProjectId)
       const cached = _viewDomCache[cacheKey]
-      if (cached && _keepAliveViews.has(viewName) && !forceRefresh) {
+      if (cached && _shouldKeepAlive(viewName, state.currentSubView) && !forceRefresh) {
         content.innerHTML = ""
         content.appendChild(cached)
         delete _viewDomCache[cacheKey]

@@ -69,17 +69,21 @@ const workbenchPayload = {
 
 beforeEach(() => {
   vi.restoreAllMocks()
-  resetState({ currentProjectId: "p1", currentSubView: "s1" })
+  resetState({ currentProjectId: "p1", currentView: "scene", currentSubView: "s1" })
   clearDocument()
   vi.clearAllMocks()
   api.outline.getSceneWorkbench = vi.fn().mockResolvedValue(workbenchPayload)
   api.outline.updateSceneWorkbenchMapping = vi.fn()
+  api.outline.reviewSceneWorkbench = vi.fn().mockResolvedValue({ items: [] })
+  api.outline.reviewSceneSourceMappings = vi.fn().mockResolvedValue({ items: [] })
   api.outline.previewSceneFusion = vi.fn()
   api.outline.saveSceneFusion = vi.fn()
   api.outline.previewSceneMerge = vi.fn()
   api.outline.mergeScenes = vi.fn()
   api.outline.previewSceneSplit = vi.fn()
   api.outline.splitScene = vi.fn()
+  api.outline.listCrossChapterSuggestions = vi.fn().mockResolvedValue({ items: [], total: 0 })
+  api.outline.dismissCrossChapterSuggestions = vi.fn().mockResolvedValue({ dismissed: 0 })
   api.outline.updateScene.mockResolvedValue({ id: "s1" })
   sceneWorkbenchView._loading = false
   sceneWorkbenchView._workbench = null
@@ -107,7 +111,9 @@ beforeEach(() => {
   sceneWorkbenchView._autoExtractProgress = null
   sceneWorkbenchView._autoExtractPoller = null
   sceneWorkbenchView._autoExtractMeta = null
+  sceneWorkbenchView._crossChapterSuggestions = []
   sceneWorkbenchView._mobileDetailOpen = false
+  sceneWorkbenchView._selectedSceneIdValue = null
 })
 
 describe("sceneWorkbenchView", () => {
@@ -127,14 +133,15 @@ describe("sceneWorkbenchView", () => {
     expect(html).not.toContain('data-action="clear-fusion-selection"')
     expect(html).not.toContain(">清空</button>")
     expect(html).toContain('data-action="start-selected-merge"')
-    expect(html).toContain('data-action="review-selected-scenes"')
-    expect(html).toContain("标记选中项已检查")
-    expect(html.indexOf("标记选中项已检查")).toBeLessThan(html.indexOf("机械合并"))
+    expect(html).toContain('data-action="handle-selected-context-actions"')
+    expect(html).toContain("批量处理")
+    expect(html.indexOf("批量处理")).toBeLessThan(html.indexOf("机械合并"))
     expect(html).toContain("机械合并")
     expect(html).toContain('data-action="start-ai-fusion-draft"')
     expect(html).toContain("AI 融合建议")
-    expect(html).toContain("拆分/整理")
-    expect(html).not.toContain(">整理</button>")
+    expect(html).toContain("打开写作")
+    expect(html).toContain("合并")
+    expect(html).toContain("拆分")
   })
 
   it("selects visible scenes for manual fusion", () => {
@@ -204,6 +211,55 @@ describe("sceneWorkbenchView", () => {
     expect(router.navigate).not.toHaveBeenCalled()
     expect(router.renderCurrentView).not.toHaveBeenCalled()
     expect(router.refresh).not.toHaveBeenCalled()
+  })
+
+  it("keeps the outline scenes tab active when selecting an embedded scene", () => {
+    state.currentView = "outline"
+    state.currentSubView = "scenes"
+    sceneWorkbenchView._workbench = workbenchPayload
+    window.history.replaceState(
+      { view: "outline", subView: "scenes", projectId: "p1" },
+      "",
+      "#workbench/p1/outline/scenes",
+    )
+
+    sceneWorkbenchView._selectSceneInPlace("s2")
+
+    expect(state.currentView).toBe("outline")
+    expect(state.currentSubView).toBe("scenes")
+    expect(sceneWorkbenchView._selectedSceneId()).toBe("s2")
+    expect(window.location.hash).toBe("#workbench/p1/outline/scenes?scene_id=s2")
+  })
+
+  it("restores the embedded scene selection from browser history", () => {
+    state.currentView = "outline"
+    state.currentSubView = "scenes"
+    sceneWorkbenchView._workbench = workbenchPayload
+    sceneWorkbenchView._selectedSceneIdValue = "s2"
+
+    window.history.replaceState(
+      { view: "outline", subView: "scenes", projectId: "p1" },
+      "",
+      "#workbench/p1/outline/scenes?scene_id=s1",
+    )
+
+    expect(sceneWorkbenchView._selectedSceneId()).toBe("s1")
+
+    window.history.replaceState(
+      { view: "outline", subView: "scenes", projectId: "p1" },
+      "",
+      "#workbench/p1/outline/scenes?scene_id=s2",
+    )
+
+    expect(sceneWorkbenchView._selectedSceneId()).toBe("s2")
+
+    window.history.replaceState(
+      { view: "outline", subView: "scenes", projectId: "p1" },
+      "",
+      "#workbench/p1/outline/scenes",
+    )
+
+    expect(sceneWorkbenchView._selectedSceneId()).toBe("s1")
   })
 
   it("submits scene auto extraction stage task", async () => {
@@ -343,6 +399,34 @@ describe("sceneWorkbenchView", () => {
     expect(sceneWorkbenchView._total).toBe(2)
   })
 
+  it("uses the server window containing a selected scene outside the first page", async () => {
+    state.currentView = "outline"
+    state.currentSubView = "scenes"
+    window.history.replaceState(
+      { view: "outline", subView: "scenes", projectId: "p1" },
+      "",
+      "#workbench/p1/outline/scenes?scene_id=s25",
+    )
+    api.outline.getSceneWorkbench.mockResolvedValue({
+      ...workbenchPayload,
+      skip: 20,
+      selected_scene_id: "s25",
+      items: [{
+        ...workbenchPayload.items[0],
+        scene: { ...workbenchPayload.items[0].scene, id: "s25", title: "第 25 个 Scene" },
+      }],
+    })
+
+    await sceneWorkbenchView.onEnter()
+
+    expect(api.outline.getSceneWorkbench).toHaveBeenCalledWith("p1", "s25", {
+      skip: 0,
+      limit: 20,
+    })
+    expect(sceneWorkbenchView._filters.skip).toBe(20)
+    expect(sceneWorkbenchView._selectedSceneId()).toBe("s25")
+  })
+
   it("renders pagination when scene workbench has more than one page", async () => {
     sceneWorkbenchView._workbench = { ...workbenchPayload, total: 45 }
     sceneWorkbenchView._total = 45
@@ -369,6 +453,26 @@ describe("sceneWorkbenchView", () => {
       limit: 20,
     })
     expect(router.refresh).toHaveBeenCalled()
+  })
+
+  it("clears embedded scene selection before explicit pagination", async () => {
+    state.currentView = "outline"
+    state.currentSubView = "scenes"
+    window.history.replaceState(
+      { view: "outline", subView: "scenes", projectId: "p1" },
+      "",
+      "#workbench/p1/outline/scenes?scene_id=s1",
+    )
+    sceneWorkbenchView._workbench = { ...workbenchPayload, total: 45 }
+    sceneWorkbenchView._total = 45
+
+    await sceneWorkbenchView._changePage(1)
+
+    expect(window.location.hash).toBe("#workbench/p1/outline/scenes")
+    expect(api.outline.getSceneWorkbench).toHaveBeenCalledWith("p1", null, {
+      skip: 20,
+      limit: 20,
+    })
   })
 
   it("applies management filters through scene workbench API params", async () => {
@@ -472,7 +576,7 @@ describe("sceneWorkbenchView", () => {
     expect(html).toContain("scene-workbench")
     expect(html).toContain("scene-workbench__organize")
     expect(html).toContain("scene-workbench__detail")
-    expect(html).toContain("需要人工检查")
+    expect(html).toContain("未复核")
     expect(html).toContain("未关联章节")
     expect(html).toContain("缺设定")
     expect(html).toContain("待整理")
@@ -518,10 +622,195 @@ describe("sceneWorkbenchView", () => {
 
     const html = await sceneWorkbenchView.render()
 
-    expect(html).toContain('data-action="mark-scene-reviewed"')
+    expect(html).toContain('data-action="context-review-scene"')
     expect(html).toContain("采用")
     expect(html).toContain("来源与注意")
     expect(html).toContain("需要人工检查")
+  })
+
+  it("uses source mapping confirmation as the contextual primary action", async () => {
+    sceneWorkbenchView._workbench = {
+      ...workbenchPayload,
+      items: [{
+        ...workbenchPayload.items[1],
+        health: ["needs_organize"],
+        health_details: {
+          needs_organize: [{
+            code: "source_mapping_chapter_only",
+            label: "正文定位仅精确到章节",
+            fingerprint: "a".repeat(64),
+          }],
+        },
+        scene: {
+          ...workbenchPayload.items[1].scene,
+          status: "canonical",
+          structure_meta: { reviewed_at: "2026-07-10T00:00:00Z" },
+        },
+      }],
+    }
+
+    const html = await sceneWorkbenchView.render()
+
+    expect(html).toContain('data-action="context-confirm-source-mapping"')
+    expect(html).toContain("确认章节定位")
+    expect(html).toContain('data-action="handle-scene-health"')
+    expect(html).toContain("scene-secondary-action")
+  })
+
+  it("switches a multi-problem scene to its next action after review", () => {
+    const item = {
+      ...workbenchPayload.items[0],
+      health: ["unreviewed", "needs_organize"],
+      health_details: {
+        needs_organize: [{
+          code: "chunk_chapter_mismatch",
+          label: "章节与正文分段不一致",
+        }],
+      },
+    }
+
+    expect(sceneWorkbenchView._contextAction(item)).toMatchObject({
+      key: "review",
+      label: "采用",
+    })
+
+    expect(sceneWorkbenchView._contextAction({
+      ...item,
+      health: ["needs_organize"],
+      scene: {
+        ...item.scene,
+        status: "canonical",
+        structure_meta: { reviewed_at: "2026-07-10T00:00:00Z" },
+      },
+    })).toMatchObject({
+      key: "organize",
+      label: "整理映射",
+    })
+  })
+
+  it("confirms source mapping through the dedicated command", async () => {
+    const fingerprint = "b".repeat(64)
+
+    sceneWorkbenchView._confirmSourceMapping("s1", fingerprint)
+    const call = showModal.mock.calls[0]
+    await call[2][1].handler()
+
+    expect(api.outline.reviewSceneSourceMappings).toHaveBeenCalledWith("p1", {
+      items: [{ scene_id: "s1", expected_fingerprint: fingerprint }],
+      decision: "accept_chapter_only",
+      confirmed: true,
+    })
+  })
+
+  it("runs the matching contextual action when a health chip is clicked", async () => {
+    sceneWorkbenchView._workbench = {
+      ...workbenchPayload,
+      items: [{
+        ...workbenchPayload.items[1],
+        health: ["needs_organize"],
+        health_details: {
+          needs_organize: [{
+            code: "source_mapping_chapter_only",
+            label: "正文定位仅精确到章节",
+            fingerprint: "c".repeat(64),
+          }],
+        },
+        scene: {
+          ...workbenchPayload.items[1].scene,
+          status: "canonical",
+          structure_meta: { reviewed_at: "2026-07-10T00:00:00Z" },
+        },
+      }],
+    }
+    document.body.innerHTML = `<main id="workspace-content">${await sceneWorkbenchView.render()}</main>`
+    sceneWorkbenchView._bindEvents()
+    showModal.mockClear()
+
+    document.querySelector('.scene-health-chip[data-health="needs_organize"]').click()
+
+    expect(showModal).toHaveBeenCalled()
+    expect(showModal.mock.calls[0][0]).toBe("确认章节级正文定位")
+  })
+
+  it("offers move, merge, and split from mapping organization", () => {
+    sceneWorkbenchView._workbench = workbenchPayload
+
+    sceneWorkbenchView._showOrganizeMapping("s1")
+
+    const actions = showModal.mock.calls[0][2]
+    expect(actions.map((action) => action.text)).toEqual(["移动章节", "合并", "拆分"])
+    actions[0].handler()
+    expect(showModal.mock.calls[1][0]).toBe("移动 / 关联章节")
+    const html = modalHtmlFromCall(showModal.mock.calls[1])
+    expect(html).toContain('value="1" checked')
+    expect(html).toContain('value="2" checked')
+    expect(html).toContain('value="4"')
+  })
+
+  it("uses the concrete review command for a homogeneous batch", async () => {
+    sceneWorkbenchView._workbench = workbenchPayload
+    sceneWorkbenchView._selectedFusionSceneIds = new Set(["s1", "s2"])
+
+    await sceneWorkbenchView._handleSelectedContextActions()
+
+    expect(api.outline.reviewSceneWorkbench).toHaveBeenCalledWith("p1", {
+      scene_ids: ["s1", "s2"],
+      decision: "review",
+    })
+    expect(showModal).not.toHaveBeenCalled()
+  })
+
+  it("groups mixed batch actions instead of clearing all meanings at once", async () => {
+    sceneWorkbenchView._workbench = {
+      ...workbenchPayload,
+      items: [
+        workbenchPayload.items[0],
+        {
+          ...workbenchPayload.items[1],
+          scene: {
+            ...workbenchPayload.items[1].scene,
+            status: "canonical",
+            structure_meta: { reviewed_at: "2026-07-10T00:00:00Z" },
+          },
+        },
+      ],
+    }
+    sceneWorkbenchView._selectedFusionSceneIds = new Set(["s1", "s2"])
+
+    await sceneWorkbenchView._handleSelectedContextActions()
+
+    expect(showModal.mock.calls[0][0]).toBe("批量处理")
+    const html = modalHtmlFromCall(showModal.mock.calls[0])
+    expect(html).toContain("采用 / 检查")
+    expect(html).toContain("普通编辑")
+    expect(api.outline.reviewSceneWorkbench).not.toHaveBeenCalled()
+  })
+
+  it("loads persisted cross-chapter suggestions into a durable queue", async () => {
+    api.outline.getSceneWorkbench.mockResolvedValue({
+      ...workbenchPayload,
+      cross_chapter_suggestions: { pending_count: 1 },
+    })
+    api.outline.listCrossChapterSuggestions.mockResolvedValue({
+      total: 1,
+      items: [{
+        id: "suggestion-1",
+        source_scene_ids: ["s1", "s2"],
+        chapter_span: [1, 3],
+        proposed_scene: { title: "跨章追击" },
+        status: "pending",
+      }],
+    })
+
+    await sceneWorkbenchView._loadWorkbench()
+    const html = await sceneWorkbenchView.render()
+
+    expect(api.outline.listCrossChapterSuggestions).toHaveBeenCalledWith(
+      "p1",
+      { skip: 0, limit: 100 },
+    )
+    expect(html).toContain("1 条跨章融合建议待处理")
+    expect(html).toContain('data-action="dismiss-cross-chapter-suggestions"')
   })
 
   it("saves editable scene fields through outline updateScene", async () => {
@@ -580,18 +869,11 @@ describe("sceneWorkbenchView", () => {
 
     await sceneWorkbenchView._markSceneReviewed("s1")
 
-    expect(api.outline.updateScene).toHaveBeenCalledWith("s1", "p1", {
-      status: "canonical",
-      structure_meta: expect.objectContaining({
-        source_workflow_id: "wf-1",
-        needs_review: false,
-        needs_organize: false,
-        reviewed_at: expect.any(String),
-        reviewed_by: "manual",
-        reviewed_from: "scene_workbench",
-      }),
+    expect(api.outline.reviewSceneWorkbench).toHaveBeenCalledWith("p1", {
+      scene_ids: ["s1"],
+      decision: "review",
     })
-    expect(toast).toHaveBeenCalledWith("Scene 已采用", "success")
+    expect(toast).toHaveBeenCalledWith("Scene 已采用，仍有 2 项待处理", "warning")
     expect(router.refresh).not.toHaveBeenCalled()
     expect(document.querySelector(".scene-workbench__organize").scrollTop).toBe(84)
   })
@@ -618,28 +900,10 @@ describe("sceneWorkbenchView", () => {
 
     await sceneWorkbenchView._reviewSelectedScenes()
 
-    expect(api.outline.updateScene).toHaveBeenCalledTimes(2)
-    expect(api.outline.updateScene).toHaveBeenCalledWith("s1", "p1", {
-      status: "canonical",
-      structure_meta: expect.objectContaining({
-        source_workflow_id: "wf-s1",
-        needs_review: false,
-        needs_organize: false,
-        reviewed_at: expect.any(String),
-        reviewed_by: "manual",
-        reviewed_from: "scene_workbench_bulk",
-      }),
-    })
-    expect(api.outline.updateScene).toHaveBeenCalledWith("s2", "p1", {
-      status: "canonical",
-      structure_meta: expect.objectContaining({
-        source_workflow_id: "wf-s2",
-        needs_review: false,
-        needs_organize: false,
-        reviewed_at: expect.any(String),
-        reviewed_by: "manual",
-        reviewed_from: "scene_workbench_bulk",
-      }),
+    expect(api.outline.reviewSceneWorkbench).toHaveBeenCalledTimes(1)
+    expect(api.outline.reviewSceneWorkbench).toHaveBeenCalledWith("p1", {
+      scene_ids: ["s1", "s2"],
+      decision: "review",
     })
     expect(sceneWorkbenchView._selectedFusionSceneIds.size).toBe(0)
     expect(toast).toHaveBeenCalledWith("已处理 2 个 Scene", "success")
@@ -668,22 +932,12 @@ describe("sceneWorkbenchView", () => {
     sceneWorkbenchView._bindEvents()
     document.querySelector(".scene-workbench__organize").scrollTop = 55
 
-    expect(document.body.textContent).toContain("标记选中项需检查")
-
     await sceneWorkbenchView._toggleSelectedSceneReview()
 
-    expect(api.outline.updateScene).toHaveBeenCalledTimes(2)
-    expect(api.outline.updateScene).toHaveBeenCalledWith("s1", "p1", {
-      structure_meta: {
-        source_workflow_id: "wf-s1",
-        needs_review: true,
-      },
-    })
-    expect(api.outline.updateScene).toHaveBeenCalledWith("s2", "p1", {
-      structure_meta: {
-        source_workflow_id: "wf-s2",
-        needs_review: true,
-      },
+    expect(api.outline.reviewSceneWorkbench).toHaveBeenCalledTimes(1)
+    expect(api.outline.reviewSceneWorkbench).toHaveBeenCalledWith("p1", {
+      scene_ids: ["s1", "s2"],
+      decision: "reopen",
     })
     expect(sceneWorkbenchView._selectedFusionSceneIds.size).toBe(0)
     expect(toast).toHaveBeenCalledWith("已将 2 个 Scene 标记为需要人工检查", "success")
@@ -716,10 +970,9 @@ describe("sceneWorkbenchView", () => {
 
     await sceneWorkbenchView._markSceneUnreviewed("s1")
 
-    const payload = api.outline.updateScene.mock.calls[0][2]
-    expect(payload.structure_meta).toEqual({
-      source_workflow_id: "wf-1",
-      needs_review: true,
+    expect(api.outline.reviewSceneWorkbench).toHaveBeenCalledWith("p1", {
+      scene_ids: ["s1"],
+      decision: "reopen",
     })
     expect(toast).toHaveBeenCalledWith("Scene 已标记为需要人工检查", "success")
     expect(router.refresh).not.toHaveBeenCalled()
@@ -766,12 +1019,13 @@ describe("sceneWorkbenchView", () => {
     await sceneWorkbenchView._startManualFusion()
     expect(showModal.mock.calls[0][0]).toBe("选择主 Scene")
     document.body.innerHTML = showModal.mock.calls[0][1].html
-    await showModal.mock.calls[0][2][1].handler()
+    const keepPreviewOpen = await showModal.mock.calls[0][2][1].handler()
 
     expect(api.outline.previewSceneFusion).toHaveBeenCalledWith("p1", {
       source_scene_ids: ["s1", "s2"],
       primary_scene_id: "s1",
     })
+    expect(keepPreviewOpen).toBe(false)
     expect(showModal).toHaveBeenCalled()
     const call = showModal.mock.calls[1]
     const [title, , buttons] = call
@@ -837,6 +1091,24 @@ describe("sceneWorkbenchView", () => {
     expect(api.outline.saveSceneFusion).toHaveBeenCalledWith("p1", expectedPayload)
     expect(closeModal).toHaveBeenCalled()
     expect(router.refresh).toHaveBeenCalled()
+  })
+
+  it("carries the durable suggestion id into fusion save", async () => {
+    api.outline.saveSceneFusion.mockResolvedValue({ status: "discarded" })
+    sceneWorkbenchView._workbench = workbenchPayload
+    sceneWorkbenchView._activeDraftReview = {
+      primary_scene_id: "s1",
+      suggestion_id: "suggestion-1",
+    }
+
+    await sceneWorkbenchView._saveFusionResult("discard", ["s1", "s2"])
+
+    expect(api.outline.saveSceneFusion).toHaveBeenCalledWith("p1", {
+      source_scene_ids: ["s1", "s2"],
+      primary_scene_id: "s1",
+      mode: "discard",
+      suggestion_id: "suggestion-1",
+    })
   })
 
   it("saves edited manual fusion fields with edit_then_save and refreshes", async () => {
@@ -1073,6 +1345,7 @@ describe("sceneWorkbenchView", () => {
     })
 
     expect(state.viewStates.writing.currentChapter).toBe(3)
+    expect(state.viewStates.writing.projectId).toBe("p1")
     expect(router.navigate).toHaveBeenCalledWith("writing", null)
   })
 

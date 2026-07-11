@@ -7,6 +7,8 @@
 import { renderSceneCockpitPanel, saveSceneCockpitOrder } from "../../views/sceneCockpitPanel.js"
 import { findCurrentScene as locateCurrentScene } from "../../shared/sceneLocator.js"
 
+const COCKPIT_TABS = ["people", "place", "lore", "map"]
+
 export function createScenePanel({
   state,
   api,
@@ -22,12 +24,15 @@ export function createScenePanel({
   let currentSceneId = null
   let currentChapter = null
   let cursorOffset = 0
+  let activeTab = "lore"
 
   let sceneMapSummary = null
   let sceneMapSummaryError = null
   let sceneMapSummarySceneId = null
   let sceneMapSummaryPendingSceneId = null
   let sceneMapSummaryLoading = false
+  let sceneReferencePeople = []
+  let sceneReferenceLocation = null
 
   function currentProjectId() {
     return projectState.currentProjectId
@@ -59,6 +64,8 @@ export function createScenePanel({
       sceneMapSummarySceneId = null
       sceneMapSummaryPendingSceneId = null
       sceneMapSummaryLoading = false
+      sceneReferencePeople = []
+      sceneReferenceLocation = null
     }
     const currentScene = findCurrentScene()
     scheduleMapSummaryLoad(currentScene)
@@ -70,8 +77,11 @@ export function createScenePanel({
     return renderSceneCockpitPanel({
       projectId: currentProjectId(),
       scene: currentScene,
+      people: sceneReferencePeople,
+      location: sceneReferenceLocation,
       mapSummaryHtml: renderMapSummary(currentScene),
       compact: typeof window !== "undefined" && window.innerHeight < 760,
+      activeTab,
     })
   }
 
@@ -182,11 +192,40 @@ export function createScenePanel({
     const isActiveRequest = () => sceneMapSummaryPendingSceneId === scene.id ||
       sceneMapSummaryPendingSceneId === null
     try {
-      const summary = await api.world.getMapSceneSummary(projectId, scene.id)
+      const query = (entityType) => api.world.listEntities({
+        novel_id: projectId,
+        scene_id: scene.id,
+        entity_type: entityType,
+        display_state: "active",
+        skip: 0,
+        limit: 12,
+      })
+      const [summaryResult, peopleResult, locationsResult] = await Promise.allSettled([
+        api.world.getMapSceneSummary(projectId, scene.id),
+        query("character"),
+        query("location"),
+      ])
       if (!isStillCurrent() || !isActiveRequest()) return null
+
+      const summary = summaryResult.status === "fulfilled" ? summaryResult.value : null
+      const sourcedPeople = peopleResult.status === "fulfilled" ? listItems(peopleResult.value) : []
+      const sourcedLocations = locationsResult.status === "fulfilled" ? listItems(locationsResult.value) : []
       sceneMapSummary = summary
-      sceneMapSummaryError = null
+      sceneMapSummaryError = summaryResult.status === "rejected" ? "地图摘要暂不可用" : null
+      sceneReferencePeople = dedupeReferences([
+        ...(Array.isArray(scene.scene_characters) ? scene.scene_characters : []),
+        ...(Array.isArray(summary?.characters) ? summary.characters : []),
+        ...sourcedPeople,
+      ])
+      sceneReferenceLocation = scene.primary_location ||
+        scene.location ||
+        summary?.primary_location ||
+        sourcedLocations[0] ||
+        null
       sceneMapSummarySceneId = scene.id
+      if (summaryResult.status === "rejected") {
+        toast("地图摘要暂不可用", "warning")
+      }
       return summary
     } catch {
       if (!isStillCurrent() || !isActiveRequest()) return null
@@ -243,7 +282,8 @@ export function createScenePanel({
   }
 
   function switchTab(tab) {
-    if (!tab) return
+    if (!COCKPIT_TABS.includes(tab)) return
+    activeTab = tab
     document.querySelectorAll(".cockpit-tab").forEach((item) => {
       item.classList.toggle("active", item.getAttribute("data-tab") === tab)
     })
@@ -294,6 +334,9 @@ export function createScenePanel({
     sceneMapSummarySceneId = null
     sceneMapSummaryPendingSceneId = null
     sceneMapSummaryLoading = false
+    sceneReferencePeople = []
+    sceneReferenceLocation = null
+    activeTab = "lore"
   }
 
   return {
@@ -309,4 +352,20 @@ export function createScenePanel({
     getCurrentScene,
     getMapSummary,
   }
+}
+
+function listItems(value) {
+  if (Array.isArray(value)) return value
+  return Array.isArray(value?.items) ? value.items : []
+}
+
+function dedupeReferences(items) {
+  const seen = new Set()
+  return items.filter((item) => {
+    if (!item || typeof item !== "object") return false
+    const key = item.id || item.entity_id || item.name || item.title
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }

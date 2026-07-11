@@ -149,6 +149,16 @@ async def handle_scene_cross_chapter_detection(db, task):
         max_chain_calls=int(meta.get("max_chain_calls", 6)),
         progress_callback=_progress,
     )
+    from modules.outline.scene_workbench import SceneWorkbenchService
+
+    result["suggestion_ids"] = (
+        await SceneWorkbenchService().persist_cross_chapter_suggestions(
+            db,
+            novel_id=novel_id,
+            source_task_id=str(task.id),
+            suggestions=list(result.get("suggestions") or []),
+        )
+    )
     task.update_progress(1.0)
     return result
 

@@ -109,6 +109,78 @@ class TestEntitySearchAndFilter:
         assert result.items[0].name == "克莱恩"
 
     @pytest.mark.asyncio
+    async def test_list_entities_searches_descriptions_without_matching_import_evidence(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        await _create_project(db_session, novel_id)
+        service = WorldEntityService()
+
+        await service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(
+                entity_type="faction",
+                name="值夜者",
+                summary="处理超自然事件的队伍",
+            ),
+        )
+        await service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(
+                entity_type="character",
+                name="伦纳德",
+                summary="廷根市值夜者成员",
+            ),
+        )
+        await service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(
+                entity_type="item",
+                name="封印物",
+                content_json={"evidence": "曾由值夜者保管"},
+            ),
+        )
+
+        result = await service.list(db_session, novel_id, q="值夜者")
+
+        assert result.total == 2
+        assert [item.name for item in result.items] == ["值夜者", "伦纳德"]
+
+    @pytest.mark.asyncio
+    async def test_list_entities_fuzzy_searches_name_and_alias(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        await _create_project(db_session, novel_id)
+        service = WorldEntityService()
+
+        await service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(entity_type="faction", name="值夜者"),
+        )
+        await service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(
+                entity_type="character",
+                name="克莱恩",
+                content_json={"aliases": [{"alias": "周明瑞", "type": "name"}]},
+            ),
+        )
+
+        name_result = await service.list(db_session, novel_id, q="值夜着")
+        alias_result = await service.list(db_session, novel_id, q="周明睿")
+
+        assert [item.name for item in name_result.items] == ["值夜者"]
+        assert [item.name for item in alias_result.items] == ["克莱恩"]
+
+    @pytest.mark.asyncio
     async def test_list_entities_filters_deep_import_workflow_metadata(
         self,
         db_session: AsyncSession,

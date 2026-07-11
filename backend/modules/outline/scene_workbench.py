@@ -1,26 +1,42 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
+from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.outline.models import Scene
-from modules.outline.repositories import SceneRepository
+from modules.outline.models import Scene, SceneCrossChapterSuggestion, SceneSpan
+from modules.outline.repositories import (
+    SceneCrossChapterSuggestionRepository,
+    SceneRepository,
+)
 from modules.outline.scene_draft_review import SceneDraftReviewService
 from modules.outline.schemas import (
     SceneCreate,
+    SceneCrossChapterSuggestionDismissRequest,
+    SceneCrossChapterSuggestionDismissResponse,
+    SceneCrossChapterSuggestionListResponse,
+    SceneCrossChapterSuggestionResponse,
+    SceneCrossChapterSuggestionSummary,
     SceneFusionDraft,
     SceneFusionPreviewRequest,
     SceneFusionPreviewResponse,
     SceneFusionSaveRequest,
     SceneFusionSaveResponse,
+    SceneHealthReason,
     SceneHealthSummary,
     SceneImpactPreview,
     SceneMappingUpdate,
     SceneMergeRequest,
     SceneResponse,
+    SceneReviewRequest,
+    SceneReviewResponse,
+    SceneSourceMappingReviewRequest,
+    SceneSourceMappingReviewResponse,
     SceneSplitRequest,
     SceneUpdate,
     SceneWorkbenchItem,
@@ -37,12 +53,33 @@ HEALTH_DEFS = {
     "needs_organize": "待整理",
 }
 
+HEALTH_REASON_LABELS = {
+    "manual_organize": "Scene 结构待确认",
+    "duplicate_chapter": "Scene 内章节重复",
+    "overlapping_chapter": "多个 Scene 关联同一章节",
+    "chunk_chapter_mismatch": "章节与正文分段不一致",
+    "source_mapping_chapter_only": "正文定位仅精确到章节",
+    "source_mapping_unresolved": "正文定位需重新确认",
+    "pending_cross_chapter_suggestion": "有跨章融合建议待处理",
+}
+
+HEALTH_REASON_GROUPS = {
+    "manual_organize": "scene_structure",
+    "duplicate_chapter": "scene_structure",
+    "overlapping_chapter": "scene_structure",
+    "chunk_chapter_mismatch": "scene_structure",
+    "source_mapping_chapter_only": "source_mapping",
+    "source_mapping_unresolved": "source_mapping",
+    "pending_cross_chapter_suggestion": "cross_chapter_suggestion",
+}
+
 CONFIDENCE_BANDS = {"low", "medium", "high"}
 
 
 class SceneWorkbenchService:
     def __init__(self) -> None:
         self.repo = SceneRepository()
+        self._suggestion_repo = SceneCrossChapterSuggestionRepository()
         self._scene_service = SceneService()
         self._draft_review_service = SceneDraftReviewService()
 
@@ -142,23 +179,6 @@ class SceneWorkbenchService:
             confidence_band=confidence_band,
         )
         nid = parse_uuid(novel_id, "novel_id")
-        scenes = await self.repo.get_by_novel_ordered(
-            db,
-            nid,
-            status=status,
-            source=source,
-            workflow_id=workflow_id,
-            needs_review=needs_review,
-            boundary_status=boundary_status,
-            phase=phase,
-            phase1a_fallback=phase1a_fallback,
-            q=q,
-            chapter_from=chapter_from,
-            chapter_to=chapter_to,
-            confidence_band=confidence_band,
-            skip=0 if health else skip,
-            limit=None if health else limit,
-        )
         all_matching_scenes = await self.repo.get_by_novel_ordered(
             db,
             nid,
@@ -188,36 +208,74 @@ class SceneWorkbenchService:
             all_active_scenes,
         )
         duplicate_chapter_ids = self._duplicate_scene_chapter_ids(all_active_scenes)
-        mapping_review_scene_ids = await self.repo.get_scene_ids_needing_span_review(
-            db,
-            nid,
-        )
+        span_review_by_scene: dict[uuid.UUID, list[SceneSpan]] = defaultdict(list)
+        for span in await self.repo.get_scene_spans_needing_review(db, nid):
+            span_review_by_scene[span.scene_id].append(span)
+        pending_suggestions = await self._active_pending_suggestions(db, nid)
+        suggestions_by_scene: dict[
+            uuid.UUID, list[SceneCrossChapterSuggestion]
+        ] = defaultdict(list)
+        for suggestion in pending_suggestions:
+            for raw_scene_id in suggestion.source_scene_ids or []:
+                try:
+                    suggestions_by_scene[uuid.UUID(str(raw_scene_id))].append(suggestion)
+                except (TypeError, ValueError):
+                    continue
 
-        visible_scenes = scenes
+        details_by_scene = {
+            scene.id: self._scene_health_details(
+                scene,
+                duplicate_chapter_ids,
+                span_review_by_scene.get(scene.id, []),
+                suggestions_by_scene.get(scene.id, []),
+            )
+            for scene in all_matching_scenes
+        }
+        health_by_scene = {
+            scene_id: self._health_keys(scene, details_by_scene[scene_id])
+            for scene_id, scene in ((scene.id, scene) for scene in all_matching_scenes)
+        }
+
+        filtered_scenes = all_matching_scenes
         if health:
-            visible_scenes = [
+            filtered_scenes = [
                 scene
-                for scene in scenes
-                if health
-                in self._scene_health(
-                    scene,
-                    duplicate_chapter_ids,
-                    mapping_review_scene_ids,
-                )
+                for scene in all_matching_scenes
+                if health in health_by_scene[scene.id]
             ]
-            if limit is not None:
-                visible_scenes = visible_scenes[skip : skip + limit]
-            else:
-                visible_scenes = visible_scenes[skip:]
+
+        effective_skip = skip
+        normalized_selected_scene_id: str | None = None
+        if selected_scene_id:
+            selected_id = parse_uuid(selected_scene_id, "selected_scene_id")
+            selected_index = next(
+                (
+                    index
+                    for index, scene in enumerate(filtered_scenes)
+                    if scene.id == selected_id
+                ),
+                None,
+            )
+            if selected_index is None:
+                raise LookupError("Scene not found")
+            normalized_selected_scene_id = str(selected_id)
+            if limit is not None and not (
+                effective_skip <= selected_index < effective_skip + limit
+            ):
+                effective_skip = (selected_index // limit) * limit
+
+        if limit is not None:
+            visible_scenes = filtered_scenes[
+                effective_skip : effective_skip + limit
+            ]
+        else:
+            visible_scenes = filtered_scenes[effective_skip:]
 
         items = [
             SceneWorkbenchItem(
                 scene=SceneResponse.model_validate(scene),
-                health=self._scene_health(
-                    scene,
-                    duplicate_chapter_ids,
-                    mapping_review_scene_ids,
-                ),
+                health=health_by_scene[scene.id],
+                health_details=details_by_scene[scene.id],
                 chapter_range=self._chapter_range(scene.chapter_ids or []),
                 summary=scene.goal or scene.core_conflict or scene.emotional_beat,
             )
@@ -225,13 +283,20 @@ class SceneWorkbenchService:
         ]
 
         counts = {key: 0 for key in HEALTH_DEFS}
+        breakdown = {
+            "scene_structure": 0,
+            "source_mapping": 0,
+            "cross_chapter_suggestion": 0,
+        }
         for scene in all_matching_scenes:
-            for key in self._scene_health(
-                scene,
-                duplicate_chapter_ids,
-                mapping_review_scene_ids,
-            ):
+            for key in health_by_scene[scene.id]:
                 counts[key] += 1
+            reason_groups = {
+                HEALTH_REASON_GROUPS[reason.code]
+                for reason in details_by_scene[scene.id].get("needs_organize", [])
+            }
+            for group in reason_groups:
+                breakdown[group] += 1
         counts["unassigned"] += len(unassigned_chapters)
         total = len(all_matching_scenes)
         if health:
@@ -239,16 +304,229 @@ class SceneWorkbenchService:
 
         return SceneWorkbenchResponse(
             health={
-                key: SceneHealthSummary(key=key, label=label, count=counts[key])
+                key: SceneHealthSummary(
+                    key=key,
+                    label=label,
+                    count=counts[key],
+                    breakdown=breakdown if key == "needs_organize" else {},
+                )
                 for key, label in HEALTH_DEFS.items()
             },
             items=items,
             total=total,
+            skip=effective_skip,
             unassigned_chapters=(
                 unassigned_chapters if health in {None, "unassigned"} else []
             ),
-            selected_scene_id=selected_scene_id,
+            selected_scene_id=normalized_selected_scene_id,
+            cross_chapter_suggestions=SceneCrossChapterSuggestionSummary(
+                pending_count=len(pending_suggestions)
+            ),
         )
+
+    async def review_scenes(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        data: SceneReviewRequest,
+    ) -> SceneReviewResponse:
+        if len(set(data.scene_ids)) != len(data.scene_ids):
+            raise ValueError("scene_ids cannot contain duplicates")
+        scenes = await self._get_scenes_in_novel(db, novel_id, data.scene_ids)
+        if any(scene.status == "deprecated" for scene in scenes):
+            raise ValueError("Deprecated Scene cannot be reviewed")
+        duplicate_chapter_ids: set[str] = set()
+        structure_reasons: dict[uuid.UUID, list[str]] = {}
+        if data.decision == "review":
+            active_scenes = await self.repo.get_by_novel_ordered(
+                db,
+                parse_uuid(novel_id, "novel_id"),
+                skip=0,
+                limit=None,
+            )
+            duplicate_chapter_ids = self._duplicate_scene_chapter_ids(active_scenes)
+            for scene in scenes:
+                details = self._scene_health_details(
+                    scene,
+                    duplicate_chapter_ids,
+                    [],
+                    [],
+                )
+                structure_reasons[scene.id] = [
+                    reason.code
+                    for reason in details.get("needs_organize", [])
+                    if HEALTH_REASON_GROUPS[reason.code] == "scene_structure"
+                ]
+
+        reviewed_at = datetime.now(UTC).isoformat()
+        updated_items: list[SceneResponse] = []
+        for scene in scenes:
+            meta = dict(scene.structure_meta or {})
+            if data.decision == "review":
+                meta.update(
+                    {
+                        "needs_review": False,
+                        "needs_organize": False,
+                        "reviewed_at": reviewed_at,
+                        "reviewed_by": "manual",
+                        "reviewed_from": (
+                            "scene_workbench_bulk"
+                            if len(scenes) > 1
+                            else "scene_workbench"
+                        ),
+                        "reviewed_attention_reasons": structure_reasons.get(
+                            scene.id,
+                            [],
+                        ),
+                    }
+                )
+                update_data = SceneUpdate(status="canonical", structure_meta=meta)
+            else:
+                meta["needs_review"] = True
+                for key in (
+                    "reviewed_at",
+                    "reviewed_by",
+                    "reviewed_from",
+                    "reviewed_attention_reasons",
+                ):
+                    meta.pop(key, None)
+                update_data = SceneUpdate(structure_meta=meta)
+            updated = await self.repo.update(db, scene.id, update_data)
+            if updated is None:
+                raise LookupError("Scene not found")
+            updated_items.append(SceneResponse.model_validate(updated))
+        return SceneReviewResponse(items=updated_items)
+
+    async def review_source_mappings(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        data: SceneSourceMappingReviewRequest,
+    ) -> SceneSourceMappingReviewResponse:
+        if not data.confirmed:
+            raise PermissionError("source mapping review requires confirmed=true")
+        scene_ids = [item.scene_id for item in data.items]
+        if len(set(scene_ids)) != len(scene_ids):
+            raise ValueError("scene_ids cannot contain duplicates")
+        scenes = await self._get_scenes_in_novel(db, novel_id, scene_ids)
+        nid = parse_uuid(novel_id, "novel_id")
+        spans_by_scene: dict[uuid.UUID, list[SceneSpan]] = defaultdict(list)
+        for span in await self.repo.get_scene_spans_needing_review(db, nid):
+            spans_by_scene[span.scene_id].append(span)
+
+        validated_reviews: list[tuple[Scene, str]] = []
+        for request_item, scene in zip(data.items, scenes, strict=True):
+            spans = spans_by_scene.get(scene.id, [])
+            if not spans:
+                raise ValueError("Scene has no source mapping requiring review")
+            fingerprint = self._source_mapping_fingerprint(spans)
+            if fingerprint != request_item.expected_fingerprint:
+                raise ValueError("Source mapping changed; reload before confirming")
+            validated_reviews.append((scene, fingerprint))
+
+        reviewed_at = datetime.now(UTC).isoformat()
+        updated_items: list[SceneResponse] = []
+        for scene, fingerprint in validated_reviews:
+            meta = dict(scene.structure_meta or {})
+            meta["source_mapping_review"] = {
+                "decision": data.decision,
+                "fingerprint": fingerprint,
+                "reviewed_at": reviewed_at,
+                "reviewed_by": "manual",
+            }
+            updated = await self.repo.update(
+                db,
+                scene.id,
+                SceneUpdate(structure_meta=meta),
+            )
+            if updated is None:
+                raise LookupError("Scene not found")
+            updated_items.append(SceneResponse.model_validate(updated))
+        return SceneSourceMappingReviewResponse(items=updated_items)
+
+    async def persist_cross_chapter_suggestions(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        source_task_id: str,
+        suggestions: list[dict[str, Any]],
+    ) -> list[str]:
+        nid = parse_uuid(novel_id, "novel_id")
+        task_id = parse_uuid(source_task_id, "source_task_id")
+        stored_ids: list[str] = []
+        for suggestion in suggestions:
+            source_ids = [
+                str(value)
+                for value in suggestion.get("source_scene_ids") or []
+            ]
+            if len(source_ids) < 2 or len(set(source_ids)) != len(source_ids):
+                continue
+            scenes = await self._get_scenes_in_novel(db, novel_id, source_ids)
+            source_fingerprint = self._suggestion_source_fingerprint(scenes)
+            suggestion_key = hashlib.sha256(
+                f"{','.join(source_ids)}:{source_fingerprint}".encode()
+            ).hexdigest()
+            stored = await self._suggestion_repo.upsert_pending(
+                db,
+                novel_id=nid,
+                source_task_id=task_id,
+                suggestion_key=suggestion_key,
+                source_fingerprint=source_fingerprint,
+                payload=suggestion,
+            )
+            stored_ids.append(str(stored.id))
+        return stored_ids
+
+    async def list_cross_chapter_suggestions(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        skip: int = 0,
+        limit: int = 50,
+    ) -> SceneCrossChapterSuggestionListResponse:
+        pending = await self._active_pending_suggestions(
+            db,
+            parse_uuid(novel_id, "novel_id"),
+        )
+        visible = pending[skip : skip + limit]
+        return SceneCrossChapterSuggestionListResponse(
+            items=[
+                SceneCrossChapterSuggestionResponse.model_validate(item)
+                for item in visible
+            ],
+            total=len(pending),
+        )
+
+    async def dismiss_cross_chapter_suggestions(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        data: SceneCrossChapterSuggestionDismissRequest,
+    ) -> SceneCrossChapterSuggestionDismissResponse:
+        if not data.confirmed:
+            raise PermissionError("dismiss suggestions requires confirmed=true")
+        if len(set(data.suggestion_ids)) != len(data.suggestion_ids):
+            raise ValueError("suggestion_ids cannot contain duplicates")
+        nid = parse_uuid(novel_id, "novel_id")
+        items: list[SceneCrossChapterSuggestion] = []
+        for raw_id in data.suggestion_ids:
+            item = await self._suggestion_repo.get_for_novel(
+                db,
+                nid,
+                parse_uuid(raw_id, "suggestion_id"),
+            )
+            if item is None:
+                raise LookupError("Cross-chapter suggestion not found")
+            if item.status != "pending":
+                raise ValueError("Cross-chapter suggestion is already processed")
+            if not await self._suggestion_is_current(db, item):
+                raise ValueError("Cross-chapter suggestion is stale")
+            items.append(item)
+        for item in items:
+            await self._suggestion_repo.mark_status(db, item, status="dismissed")
+        return SceneCrossChapterSuggestionDismissResponse(dismissed=len(items))
 
     def _validate_filters(
         self,
@@ -622,7 +900,19 @@ class SceneWorkbenchService:
     ) -> SceneFusionSaveResponse:
         sources = await self._load_fusion_scenes(db, novel_id, data.source_scene_ids)
         source_ids = [str(scene.id) for scene in sources]
+        suggestion = await self._load_current_suggestion(
+            db,
+            novel_id,
+            data.suggestion_id,
+            source_ids,
+        )
         if data.mode == "discard":
+            if suggestion is not None:
+                await self._suggestion_repo.mark_status(
+                    db,
+                    suggestion,
+                    status="dismissed",
+                )
             return SceneFusionSaveResponse(
                 status="discarded",
                 source_scene_ids=source_ids,
@@ -657,6 +947,14 @@ class SceneWorkbenchService:
                 reference_scene_id=created.id,
             )
 
+        if suggestion is not None:
+            await self._suggestion_repo.mark_status(
+                db,
+                suggestion,
+                status="adopted",
+                result_scene_id=created.id,
+            )
+
         return SceneFusionSaveResponse(
             status="saved",
             source_scene_ids=source_ids,
@@ -689,6 +987,30 @@ class SceneWorkbenchService:
         if len(scene_by_id) != len(set(parsed_ids)):
             raise LookupError("Scene not found")
         return [scene_by_id[scene_id] for scene_id in parsed_ids]
+
+    async def _load_current_suggestion(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        suggestion_id: str | None,
+        source_scene_ids: list[str],
+    ) -> SceneCrossChapterSuggestion | None:
+        if suggestion_id is None:
+            return None
+        item = await self._suggestion_repo.get_for_novel(
+            db,
+            parse_uuid(novel_id, "novel_id"),
+            parse_uuid(suggestion_id, "suggestion_id"),
+        )
+        if item is None:
+            raise LookupError("Cross-chapter suggestion not found")
+        if item.status != "pending":
+            raise ValueError("Cross-chapter suggestion is already processed")
+        if list(item.source_scene_ids or []) != source_scene_ids:
+            raise ValueError("Cross-chapter suggestion sources do not match")
+        if not await self._suggestion_is_current(db, item):
+            raise ValueError("Cross-chapter suggestion is stale")
+        return item
 
     async def _load_merge_scenes(
         self,
@@ -909,14 +1231,29 @@ class SceneWorkbenchService:
         self,
         scene: Scene,
         duplicate_chapter_ids: set[str] | None = None,
-        mapping_review_scene_ids: set[uuid.UUID] | None = None,
+    ) -> list[str]:
+        details = self._scene_health_details(
+            scene,
+            duplicate_chapter_ids or set(),
+            [],
+            [],
+        )
+        return self._health_keys(scene, details)
+
+    def _health_keys(
+        self,
+        scene: Scene,
+        details: dict[str, list[SceneHealthReason]],
     ) -> list[str]:
         health: list[str] = []
         meta = scene.structure_meta or {}
         if (
-            scene.source in {"deep_import", "ai_generated"}
-            and scene.status in {"draft", "candidate"}
-            and not meta.get("reviewed_at")
+            meta.get("needs_review")
+            or (
+                scene.source in {"deep_import", "ai_generated"}
+                and scene.status in {"draft", "candidate"}
+                and not meta.get("reviewed_at")
+            )
         ):
             health.append("unreviewed")
         chapter_ids = scene.chapter_ids or []
@@ -927,30 +1264,189 @@ class SceneWorkbenchService:
             for field in ("goal", "core_conflict", "must_happen", "must_not_happen")
         ):
             health.append("missing_setup")
-        if scene.id in (mapping_review_scene_ids or set()) or self._needs_organize(
-            scene, duplicate_chapter_ids or set()
-        ):
+        if details.get("needs_organize"):
             health.append("needs_organize")
         return health
 
-    def _needs_organize(self, scene: Scene, duplicate_chapter_ids: set[str]) -> bool:
+    def _scene_health_details(
+        self,
+        scene: Scene,
+        duplicate_chapter_ids: set[str],
+        spans: list[SceneSpan],
+        suggestions: list[SceneCrossChapterSuggestion],
+    ) -> dict[str, list[SceneHealthReason]]:
+        reasons: list[SceneHealthReason] = []
         meta = scene.structure_meta or {}
-        if meta.get("reviewed_at") or scene.status == "canonical":
-            return False
-        if meta.get("needs_organize"):
-            return True
         chapter_ids = scene.chapter_ids or []
+        if meta.get("needs_organize"):
+            reasons.append(self._health_reason("manual_organize"))
         if len(chapter_ids) != len(set(chapter_ids)):
-            return True
-        if any(str(chapter_id) in duplicate_chapter_ids for chapter_id in chapter_ids):
-            return True
+            reasons.append(self._health_reason("duplicate_chapter"))
+        overlapping = sorted(
+            {
+                int(chapter_id)
+                for chapter_id in chapter_ids
+                if str(chapter_id) in duplicate_chapter_ids
+                and str(chapter_id).isdigit()
+            }
+        )
+        if overlapping:
+            reasons.append(
+                self._health_reason(
+                    "overlapping_chapter",
+                    chapter_indices=overlapping,
+                )
+            )
         chunk_chapters = {
             str(chunk.get("chapter_id") or chunk.get("chapter_index"))
             for chunk in scene.scene_chunks or []
             if chunk.get("chapter_id") is not None
             or chunk.get("chapter_index") is not None
         }
-        return bool(chunk_chapters and set(chapter_ids) != chunk_chapters)
+        if chunk_chapters and set(chapter_ids) != chunk_chapters:
+            reasons.append(self._health_reason("chunk_chapter_mismatch"))
+
+        if spans:
+            fingerprint = self._source_mapping_fingerprint(spans)
+            review = meta.get("source_mapping_review") or {}
+            if review.get("fingerprint") != fingerprint:
+                for status in ("chapter_only", "unresolved"):
+                    matching = [span for span in spans if span.mapping_status == status]
+                    if not matching:
+                        continue
+                    reasons.append(
+                        self._health_reason(
+                            f"source_mapping_{status}",
+                            count=len(matching),
+                            chapter_indices=sorted(
+                                {span.chapter_index for span in matching}
+                            ),
+                            fingerprint=fingerprint,
+                        )
+                    )
+
+        for suggestion in suggestions:
+            reasons.append(
+                self._health_reason(
+                    "pending_cross_chapter_suggestion",
+                    chapter_indices=[
+                        int(value)
+                        for value in suggestion.chapter_span or []
+                        if str(value).isdigit()
+                    ],
+                    suggestion_id=str(suggestion.id),
+                )
+            )
+        return {"needs_organize": reasons} if reasons else {}
+
+    def _health_reason(
+        self,
+        code: str,
+        *,
+        count: int = 1,
+        chapter_indices: list[int] | None = None,
+        fingerprint: str | None = None,
+        suggestion_id: str | None = None,
+    ) -> SceneHealthReason:
+        return SceneHealthReason(
+            code=code,
+            label=HEALTH_REASON_LABELS[code],
+            count=count,
+            chapter_indices=chapter_indices or [],
+            fingerprint=fingerprint,
+            suggestion_id=suggestion_id,
+        )
+
+    def _source_mapping_fingerprint(self, spans: list[SceneSpan]) -> str:
+        payload = [
+            {
+                "content_mode": span.content_mode,
+                "part_no": span.part_no,
+                "chapter_index": span.chapter_index,
+                "mapping_status": span.mapping_status,
+                "source_draft_id": (
+                    str(span.source_draft_id) if span.source_draft_id else None
+                ),
+                "source_content_hash": span.source_content_hash,
+                "start_offset": span.start_offset,
+                "end_offset": span.end_offset,
+                "anchor_hash": span.anchor_hash,
+            }
+            for span in sorted(
+                spans,
+                key=lambda item: (item.content_mode, item.part_no, item.chapter_index),
+            )
+        ]
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+    async def _active_pending_suggestions(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> list[SceneCrossChapterSuggestion]:
+        pending = await self._suggestion_repo.list_by_status(
+            db,
+            novel_id,
+            status="pending",
+            skip=0,
+            limit=None,
+        )
+        active: list[SceneCrossChapterSuggestion] = []
+        for item in pending:
+            if await self._suggestion_is_current(db, item):
+                active.append(item)
+        return active
+
+    async def _suggestion_is_current(
+        self,
+        db: AsyncSession,
+        item: SceneCrossChapterSuggestion,
+    ) -> bool:
+        parsed_ids: list[uuid.UUID] = []
+        try:
+            parsed_ids = [uuid.UUID(str(value)) for value in item.source_scene_ids or []]
+        except (TypeError, ValueError):
+            return False
+        if len(parsed_ids) < 2 or len(set(parsed_ids)) != len(parsed_ids):
+            return False
+        scenes = await self.repo.get_many_for_novel(db, item.novel_id, parsed_ids)
+        scene_by_id = {scene.id: scene for scene in scenes}
+        if len(scene_by_id) != len(parsed_ids):
+            return False
+        ordered = [scene_by_id[scene_id] for scene_id in parsed_ids]
+        if any(scene.status == "deprecated" for scene in ordered):
+            return False
+        return self._suggestion_source_fingerprint(ordered) == item.source_fingerprint
+
+    def _suggestion_source_fingerprint(self, scenes: list[Scene]) -> str:
+        payload = [
+            {
+                "id": str(scene.id),
+                "title": scene.title,
+                "goal": scene.goal,
+                "core_conflict": scene.core_conflict,
+                "emotional_beat": scene.emotional_beat,
+                "must_happen": scene.must_happen,
+                "must_not_happen": scene.must_not_happen,
+                "chapter_ids": scene.chapter_ids or [],
+                "scene_chunks": scene.scene_chunks or [],
+            }
+            for scene in scenes
+        ]
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
     def _unassigned_chapters(
         self,

@@ -119,7 +119,8 @@ frontend-console/
 
 ## 路由与设置
 
-- 一级路由包含 `project`、`writing`、`world`、`map`、`outline`、`scene`、`rag`、`generate`、`settings`、`project-settings`。
+- 一级路由包含 `project`、`writing`、`world`、`map`、`outline`、`rag`、`generate`、`settings`、`project-settings`；Scene 工作台位于 `outline/scenes`，旧 `scene` 路由会自动跳转到该入口。
+- Scene 工作台每行根据当前最高优先级待办切换主按钮；桌面端额外保留“编辑”，移动端收敛为主按钮与更多菜单。健康标签可点击，跨章建议刷新后从后端恢复。
 - `settings` 是无项目也可访问的全局设置页；`project-settings` 管理当前项目的 LLM 主配置、深度导入参数和作者偏好。
 - 旧 `llm` 入口会按当前项目状态跳转到 `project-settings` 或 `settings`。
 - 旧 `context` hash 不再是一级页面，路由层会重定向到 `generate?tab=task`。

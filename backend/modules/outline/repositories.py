@@ -12,6 +12,7 @@ from modules.outline.models import (
     PlotThread,
     Scene,
     SceneChapterLink,
+    SceneCrossChapterSuggestion,
     SceneSpan,
 )
 from modules.outline.schemas import (
@@ -657,6 +658,7 @@ class SceneRepository:
         db: AsyncSession,
         scene: Scene,
     ) -> None:
+        """Rebuild physical span rows after ``scene_chunks`` changes."""
         await db.execute(
             delete(SceneSpan).where(
                 SceneSpan.novel_id == scene.novel_id,
@@ -667,6 +669,61 @@ class SceneRepository:
         if spans:
             db.add_all(spans)
         await db.flush()
+
+    async def mirror_scene_span_lifecycle(
+        self,
+        db: AsyncSession,
+        scene: Scene,
+    ) -> None:
+        """Mirror Scene lifecycle fields without destroying version-bound spans."""
+        await db.execute(
+            update(SceneSpan)
+            .where(
+                SceneSpan.novel_id == scene.novel_id,
+                SceneSpan.scene_id == scene.id,
+            )
+            .values(
+                source=scene.source or "manual",
+                status=scene.status or "draft",
+            )
+        )
+        await db.flush()
+
+    async def delete_scene_spans(
+        self,
+        db: AsyncSession,
+        scene: Scene,
+    ) -> None:
+        await db.execute(
+            delete(SceneSpan).where(
+                SceneSpan.novel_id == scene.novel_id,
+                SceneSpan.scene_id == scene.id,
+            )
+        )
+        await db.flush()
+
+    async def stale_cross_chapter_suggestions_for_scene(
+        self,
+        db: AsyncSession,
+        scene: Scene,
+    ) -> int:
+        result = await db.execute(
+            select(SceneCrossChapterSuggestion).where(
+                SceneCrossChapterSuggestion.novel_id == scene.novel_id,
+                SceneCrossChapterSuggestion.status == "pending",
+            )
+        )
+        matched = [
+            item
+            for item in result.scalars().all()
+            if str(scene.id) in {str(value) for value in item.source_scene_ids or []}
+        ]
+        for item in matched:
+            item.status = "stale"
+            db.add(item)
+        if matched:
+            await db.flush()
+        return len(matched)
 
     async def backfill_chapter_links(
         self,
@@ -784,6 +841,23 @@ class SceneRepository:
         )
         result = await db.execute(stmt)
         return set(result.scalars().all())
+
+    async def get_scene_spans_needing_review(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> list[SceneSpan]:
+        stmt = (
+            select(SceneSpan)
+            .where(
+                SceneSpan.novel_id == novel_id,
+                SceneSpan.status.in_(("draft", "canonical")),
+                SceneSpan.mapping_status.in_(("chapter_only", "unresolved")),
+            )
+            .order_by(SceneSpan.scene_id, SceneSpan.content_mode, SceneSpan.part_no)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
 
     async def _get_by_chapter_json_fallback(
         self,
@@ -1157,8 +1231,26 @@ class SceneRepository:
             db.add(scene)
             await db.flush()
 
-        if {"scene_chunks", "chapter_ids", "source", "status"} & fields_set:
-            await self.sync_scene_indexes(db, scene)
+        if "chapter_ids" in fields_set:
+            await self.sync_chapter_links(db, scene)
+        if "scene_chunks" in fields_set:
+            await self.sync_scene_spans(db, scene)
+        elif {"source", "status"} & fields_set:
+            await self.mirror_scene_span_lifecycle(db, scene)
+        if (
+            "status" in fields_set
+            and scene.status == "deprecated"
+        ) or {
+            "title",
+            "goal",
+            "core_conflict",
+            "emotional_beat",
+            "must_happen",
+            "must_not_happen",
+            "chapter_ids",
+            "scene_chunks",
+        } & fields_set:
+            await self.stale_cross_chapter_suggestions_for_scene(db, scene)
         return scene
 
     async def deprecate_with_reference(
@@ -1193,7 +1285,11 @@ class SceneRepository:
                 )
             )
         for scene in scene_list:
-            await self.sync_scene_spans(db, scene)
+            await self.stale_cross_chapter_suggestions_for_scene(db, scene)
+            if clear_mapping:
+                await self.delete_scene_spans(db, scene)
+            else:
+                await self.mirror_scene_span_lifecycle(db, scene)
         return len(scene_list)
 
     async def delete(self, db: AsyncSession, scene_id: uuid.UUID) -> bool:
@@ -1241,3 +1337,117 @@ class SceneRepository:
         )
         await db.flush()
         return result.rowcount or 0
+
+
+class SceneCrossChapterSuggestionRepository:
+    async def upsert_pending(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: uuid.UUID,
+        source_task_id: uuid.UUID,
+        suggestion_key: str,
+        source_fingerprint: str,
+        payload: dict[str, Any],
+    ) -> SceneCrossChapterSuggestion:
+        result = await db.execute(
+            select(SceneCrossChapterSuggestion).where(
+                SceneCrossChapterSuggestion.novel_id == novel_id,
+                SceneCrossChapterSuggestion.suggestion_key == suggestion_key,
+            )
+        )
+        item = result.scalar_one_or_none()
+        if item is None:
+            item = SceneCrossChapterSuggestion(
+                novel_id=novel_id,
+                source_task_id=source_task_id,
+                suggestion_key=suggestion_key,
+                source_fingerprint=source_fingerprint,
+                source_scene_ids=list(payload.get("source_scene_ids") or []),
+                chapter_span=list(payload.get("chapter_span") or []),
+                proposed_scene=dict(payload.get("proposed_scene") or {}),
+                scan_trace=list(payload.get("scan_trace") or []),
+                confidence=payload.get("confidence"),
+                reason=payload.get("reason"),
+                status="pending",
+            )
+            db.add(item)
+        elif item.status == "pending":
+            item.source_task_id = source_task_id
+            item.source_scene_ids = list(payload.get("source_scene_ids") or [])
+            item.chapter_span = list(payload.get("chapter_span") or [])
+            item.proposed_scene = dict(payload.get("proposed_scene") or {})
+            item.scan_trace = list(payload.get("scan_trace") or [])
+            item.confidence = payload.get("confidence")
+            item.reason = payload.get("reason")
+            db.add(item)
+        await db.flush()
+        return item
+
+    async def list_by_status(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        status: str = "pending",
+        skip: int = 0,
+        limit: int | None = None,
+    ) -> list[SceneCrossChapterSuggestion]:
+        stmt = (
+            select(SceneCrossChapterSuggestion)
+            .where(
+                SceneCrossChapterSuggestion.novel_id == novel_id,
+                SceneCrossChapterSuggestion.status == status,
+            )
+            .order_by(
+                SceneCrossChapterSuggestion.created_at.desc(),
+                SceneCrossChapterSuggestion.id,
+            )
+            .offset(skip)
+        )
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def count_by_status(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        status: str = "pending",
+    ) -> int:
+        result = await db.execute(
+            select(func.count(SceneCrossChapterSuggestion.id)).where(
+                SceneCrossChapterSuggestion.novel_id == novel_id,
+                SceneCrossChapterSuggestion.status == status,
+            )
+        )
+        return int(result.scalar_one() or 0)
+
+    async def get_for_novel(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        suggestion_id: uuid.UUID,
+    ) -> SceneCrossChapterSuggestion | None:
+        result = await db.execute(
+            select(SceneCrossChapterSuggestion).where(
+                SceneCrossChapterSuggestion.novel_id == novel_id,
+                SceneCrossChapterSuggestion.id == suggestion_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def mark_status(
+        self,
+        db: AsyncSession,
+        item: SceneCrossChapterSuggestion,
+        *,
+        status: str,
+        result_scene_id: uuid.UUID | None = None,
+    ) -> None:
+        item.status = status
+        item.result_scene_id = result_scene_id
+        db.add(item)
+        await db.flush()

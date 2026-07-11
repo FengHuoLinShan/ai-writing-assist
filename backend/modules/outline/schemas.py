@@ -283,6 +283,16 @@ class SceneHealthSummary(BaseModel):
     key: str
     label: str
     count: int = 0
+    breakdown: dict[str, int] = {}
+
+
+class SceneHealthReason(BaseModel):
+    code: str
+    label: str
+    count: int = 1
+    chapter_indices: list[int] = []
+    fingerprint: str | None = None
+    suggestion_id: str | None = None
 
 
 class SceneWorkbenchItem(BaseModel):
@@ -290,16 +300,53 @@ class SceneWorkbenchItem(BaseModel):
     scene: SceneResponse
     new_scene: SceneResponse | None = None
     health: list[str] = []
+    health_details: dict[str, list[SceneHealthReason]] = {}
     chapter_range: str = "未关联章节"
     summary: str | None = None
+
+
+class SceneCrossChapterSuggestionSummary(BaseModel):
+    pending_count: int = 0
 
 
 class SceneWorkbenchResponse(BaseModel):
     health: dict[str, SceneHealthSummary]
     items: list[SceneWorkbenchItem]
     total: int = 0
+    skip: int = 0
     unassigned_chapters: list[int] = []
     selected_scene_id: str | None = None
+    cross_chapter_suggestions: SceneCrossChapterSuggestionSummary = (
+        SceneCrossChapterSuggestionSummary()
+    )
+
+
+class SceneReviewRequest(BaseModel):
+    scene_ids: list[str] = Field(..., min_length=1, max_length=100)
+    decision: Literal["review", "reopen"]
+
+
+class SceneReviewResponse(BaseModel):
+    items: list[SceneResponse]
+
+
+class SceneSourceMappingReviewItem(BaseModel):
+    scene_id: str
+    expected_fingerprint: str = Field(..., min_length=64, max_length=64)
+
+
+class SceneSourceMappingReviewRequest(BaseModel):
+    items: list[SceneSourceMappingReviewItem] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+    )
+    decision: Literal["accept_chapter_only"] = "accept_chapter_only"
+    confirmed: bool = False
+
+
+class SceneSourceMappingReviewResponse(BaseModel):
+    items: list[SceneResponse]
 
 
 class SceneMappingUpdate(BaseModel):
@@ -419,6 +466,7 @@ class SceneFusionSaveRequest(SceneFusionPreviewRequest):
         "edit_then_save",
     ]
     fused_scene: SceneFusionDraft | None = None
+    suggestion_id: str | None = None
 
 
 class SceneFusionSaveResponse(BaseModel):
@@ -450,6 +498,51 @@ class CrossChapterSceneDetectRequest(BaseModel):
 class CrossChapterSceneDetectResponse(BaseModel):
     task_id: str
     status: str = "pending"
+
+
+class SceneCrossChapterSuggestionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, json_encoders={uuid.UUID: str})
+
+    id: str
+    novel_id: str
+    source_task_id: str
+    source_scene_ids: list[str] = []
+    chapter_span: list[int] = []
+    proposed_scene: dict[str, Any] = {}
+    scan_trace: list[dict[str, Any]] = []
+    confidence: float | None = None
+    reason: str | None = None
+    status: Literal["pending", "adopted", "dismissed", "stale"]
+    result_scene_id: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    @field_validator(
+        "id",
+        "novel_id",
+        "source_task_id",
+        "result_scene_id",
+        mode="before",
+    )
+    @classmethod
+    def coerce_suggestion_uuid(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        return _uuid_validator(v)
+
+
+class SceneCrossChapterSuggestionListResponse(BaseModel):
+    items: list[SceneCrossChapterSuggestionResponse]
+    total: int = 0
+
+
+class SceneCrossChapterSuggestionDismissRequest(BaseModel):
+    suggestion_ids: list[str] = Field(..., min_length=1, max_length=100)
+    confirmed: bool = False
+
+
+class SceneCrossChapterSuggestionDismissResponse(BaseModel):
+    dismissed: int = 0
 
 
 class PlotStructureGenerateResponse(BaseModel):

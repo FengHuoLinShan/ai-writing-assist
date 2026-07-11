@@ -940,7 +940,7 @@ const worldView = {
       <div class="world-object-filters">
         <select class="form-select" id="filter-entity-type" aria-label="对象类型筛选">${typeOptions}</select>
         <select class="form-select" id="filter-display-state" aria-label="对象状态筛选">${statusOptions}</select>
-        <input class="form-input world-object-filters__search" id="filter-q" type="search" placeholder="名称/别名搜索" value="${esc(this._filters.q)}" aria-label="名称或别名搜索" />
+        <input class="form-input world-object-filters__search" id="filter-q" type="search" placeholder="模糊搜索名称、别名或描述" value="${esc(this._filters.q)}" aria-label="模糊搜索名称、别名或描述" />
         <button class="btn btn-sm" data-action="toggle-advanced-filters">${this._advancedFiltersOpen ? "▾" : "▸"} 高级</button>
         <button class="btn btn-sm btn-primary" data-action="apply-filters">应用</button>
         <button class="btn btn-sm" data-action="reset-filters">重置</button>
@@ -2568,6 +2568,11 @@ const worldView = {
     bindActionMenus()
     if (state.currentSubView === "bible") worldBibleView.bindEvents()
     document.getElementById("btn-new-entity")?.addEventListener("click", () => this._showCreateForm())
+    document.getElementById("filter-q")?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.isComposing) return
+      event.preventDefault()
+      this._applyFilters()
+    })
     this._eventsBound = true
   },
 

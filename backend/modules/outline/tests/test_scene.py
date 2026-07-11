@@ -239,6 +239,80 @@ class TestSceneRepository:
         assert {span.status for span in spans} == {"draft"}
 
     @pytest.mark.asyncio
+    async def test_scene_span_rebuilds_only_when_scene_chunks_change(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        from modules.outline.repositories import SceneRepository
+
+        repo = SceneRepository()
+        nid = uuid.UUID(hex=sample_novel_id)
+        scene = await repo.create(
+            db_session,
+            nid,
+            SceneCreate(
+                scene_index=0,
+                source="deep_import",
+                chapter_ids=["1"],
+                scene_chunks=[
+                    {"chapter_index": 1, "start_offset": 0, "end_offset": 10}
+                ],
+            ),
+        )
+        span = (
+            await db_session.execute(
+                select(SceneSpan).where(SceneSpan.scene_id == scene.id)
+            )
+        ).scalar_one()
+        original_span_id = span.id
+        span.mapping_status = "exact"
+        span.source_content_hash = "a" * 64
+        span.anchor_hash = "b" * 64
+        await db_session.flush()
+
+        await repo.update(
+            db_session,
+            scene.id,
+            SceneUpdate(
+                chapter_ids=["1", "2"],
+                source="manual",
+                status="canonical",
+            ),
+        )
+        preserved = (
+            await db_session.execute(
+                select(SceneSpan).where(SceneSpan.scene_id == scene.id)
+            )
+        ).scalar_one()
+        assert preserved.id == original_span_id
+        assert preserved.mapping_status == "exact"
+        assert preserved.source_content_hash == "a" * 64
+        assert preserved.anchor_hash == "b" * 64
+        assert preserved.source == "manual"
+        assert preserved.status == "canonical"
+
+        await repo.update(
+            db_session,
+            scene.id,
+            SceneUpdate(
+                scene_chunks=[
+                    {"chapter_index": 1, "start_offset": 5, "end_offset": 15}
+                ]
+            ),
+        )
+        rebuilt = (
+            await db_session.execute(
+                select(SceneSpan).where(SceneSpan.scene_id == scene.id)
+            )
+        ).scalar_one()
+        assert rebuilt.id != original_span_id
+        assert rebuilt.start_offset == 5
+        assert rebuilt.end_offset == 15
+        assert rebuilt.source_content_hash is None
+        assert rebuilt.anchor_hash is None
+
+    @pytest.mark.asyncio
     async def test_scene_spans_follow_status_and_clear_mapping(
         self,
         db_session: AsyncSession,
@@ -546,6 +620,7 @@ class TestSceneRepository:
             title="旧标题",
         )
         get_calls = 0
+        stale_calls = 0
 
         async def fake_get(_db: object, scene_id: uuid.UUID) -> Scene | None:
             nonlocal get_calls
@@ -553,7 +628,18 @@ class TestSceneRepository:
             assert scene_id == scene.id
             return scene
 
+        async def fake_stale(_db: object, updated_scene: Scene) -> int:
+            nonlocal stale_calls
+            stale_calls += 1
+            assert updated_scene is scene
+            return 0
+
         monkeypatch.setattr(repo, "get", fake_get)
+        monkeypatch.setattr(
+            repo,
+            "stale_cross_chapter_suggestions_for_scene",
+            fake_stale,
+        )
         db = FakeSession()
 
         updated = await repo.update(
@@ -564,6 +650,7 @@ class TestSceneRepository:
 
         assert updated is scene
         assert get_calls == 1
+        assert stale_calls == 1
         assert db.added == [scene]
         assert db.flush_calls == 1
         assert scene.title == "更新标题"
@@ -997,7 +1084,13 @@ class TestSceneService:
         created = await svc.create(
             db_session,
             sample_novel_id,
-            SceneCreate(scene_index=0),
+            SceneCreate(
+                scene_index=0,
+                chapter_ids=["1"],
+                scene_chunks=[
+                    {"chapter_index": 1, "start_offset": 0, "end_offset": 10}
+                ],
+            ),
         )
         await svc.delete(db_session, created.id, novel_id=sample_novel_id)
 
@@ -1007,6 +1100,14 @@ class TestSceneService:
         nid = uuid.UUID(hex=sample_novel_id)
         scenes = await repo.get_by_novel_ordered(db_session, nid)
         assert len(scenes) == 0
+        spans = await repo.get_scene_spans_for_scene(
+            db_session,
+            nid,
+            uuid.UUID(created.id),
+            statuses=("deprecated",),
+        )
+        assert len(spans) == 1
+        assert spans[0].status == "deprecated"
         await db_session.rollback()
 
     @pytest.mark.asyncio
