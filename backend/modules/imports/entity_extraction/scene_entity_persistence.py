@@ -282,10 +282,7 @@ class SceneEntityPersistenceGateway:
                     )
                     relation = relation_result.get("relation")
                     relation_id = getattr(relation, "id", None)
-                    if (
-                        relation_id
-                        and relation_result.get("action") != "deduplicated"
-                    ):
+                    if relation_id and relation_result.get("action") != "deduplicated":
                         await self._record_quote_evidence(
                             db,
                             novel_id=novel_id,
@@ -553,10 +550,7 @@ class SceneEntityPersistenceGateway:
                     )
                     relation = relation_result.get("relation")
                     relation_id = getattr(relation, "id", None)
-                    if (
-                        relation_id
-                        and relation_result.get("action") != "deduplicated"
-                    ):
+                    if relation_id and relation_result.get("action") != "deduplicated":
                         await self._record_quote_evidence(
                             db,
                             novel_id=str(nid),

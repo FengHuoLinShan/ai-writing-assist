@@ -23,6 +23,16 @@ _service = ProjectService()
 _repo = ProjectRepository()
 
 
+# Imported after service/repository setup so callers get one stable project seam
+# without exposing llm_runtime implementation details.
+from modules.project.llm_runtime import (  # noqa: E402,F401
+    build_project_llm_execution_snapshot,
+    create_project_snapshot_llm_client,
+    open_project_llm_client,
+    restore_project_llm_execution_settings,
+)
+
+
 async def get_project_context(
     db: AsyncSession,
     novel_id: str,
@@ -84,8 +94,5 @@ async def list_active_project_summaries(
         .limit(limit)
     )
     result = await db.execute(stmt)
-    items = [
-        ProjectSummary(project_id=row.id, title=row.title)
-        for row in result.all()
-    ]
+    items = [ProjectSummary(project_id=row.id, title=row.title) for row in result.all()]
     return items, total

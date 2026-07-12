@@ -46,6 +46,9 @@ backend/data/dedup_training/*.jsonl
 
 # Session/debug artifacts
 .test-logs/
+backend/evals/.cache/
+backend/evals/artifacts/
+backend/evals/datasets/local/
 chaos-*.png
 chaos_test_*.py
 click-*.json

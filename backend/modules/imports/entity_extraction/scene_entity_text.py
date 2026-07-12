@@ -25,6 +25,7 @@ async def get_scenes(db: AsyncSession, nid) -> list[dict[str, Any]]:
         exclude_narrative_tags=["valley", "transition"],
     )
 
+
 async def load_small_sample_chapters_text(
     service,
     db: AsyncSession,
@@ -50,6 +51,7 @@ async def load_small_sample_chapters_text(
             )
     return "\n\n".join(parts)[:PHASE2_SMALL_SAMPLE_SUPPLEMENT_TOTAL_CHAR_LIMIT]
 
+
 def trim_supplement_chapter_text(content: str) -> str:
     text = str(content or "").strip()
     if len(text) <= PHASE2_SMALL_SAMPLE_SUPPLEMENT_CHAPTER_CHAR_LIMIT:
@@ -58,6 +60,7 @@ def trim_supplement_chapter_text(content: str) -> str:
     head = text[:half].rstrip()
     tail = text[-half:].lstrip()
     return f"{head}\n\n[...章节中段已压缩...]\n\n{tail}"
+
 
 def small_sample_chapter_indices(scenes: list[dict[str, Any]]) -> list[int]:
     chapters: set[int] = set()
@@ -69,6 +72,7 @@ def small_sample_chapter_indices(scenes: list[dict[str, Any]]) -> list[int]:
                 continue
     return sorted(chapter for chapter in chapters if chapter > 0)
 
+
 def scene_source_chapter_index(scene: dict[str, Any]) -> int:
     """取 Scene 关联的最大章节号作为来源章节；没有则回退到 scene_index。"""
     chapter_ids = scene.get("chapter_ids") or []
@@ -79,6 +83,7 @@ def scene_source_chapter_index(scene: dict[str, Any]) -> int:
         except (ValueError, TypeError):
             continue
     return max(indices) if indices else scene.get("scene_index", 0)
+
 
 async def load_scene_chapters(service, db: AsyncSession, scene: dict[str, Any]) -> str:
     from modules.writing.facade import list_latest_drafts_for_chapters
@@ -134,6 +139,7 @@ def scene_text_from_drafts(
     scene_context = service._scene_context_header(scene)
     return scene_context + "\n\n" + "\n\n".join(parts)
 
+
 def phase2_scene_llm_timeout_seconds() -> int:
     from core.config import get_settings
 
@@ -141,6 +147,7 @@ def phase2_scene_llm_timeout_seconds() -> int:
         30,
         int(get_settings().llm_timeout) + PHASE2_SCENE_TIMEOUT_GRACE_SECONDS,
     )
+
 
 def scene_context_header(scene: dict[str, Any]) -> str:
     fields = [
@@ -157,6 +164,7 @@ def scene_context_header(scene: dict[str, Any]) -> str:
     ]
     return "## Scene 上下文\n" + ("\n".join(lines) if lines else "- 无")
 
+
 def scene_chunks_by_chapter(
     scene: dict[str, Any],
 ) -> dict[int, list[dict[str, Any]]]:
@@ -172,6 +180,7 @@ def scene_chunks_by_chapter(
             continue
         result.setdefault(chapter_index, []).append(raw_chunk)
     return result
+
 
 def scene_chapter_ids(
     scene: dict[str, Any],
@@ -190,6 +199,7 @@ def scene_chapter_ids(
             seen.add(value)
             ordered.append(value)
     return ordered
+
 
 def select_scene_text(
     chapter_text: str,
@@ -219,6 +229,7 @@ def select_scene_text(
     compact = "\n\n".join(dict.fromkeys(selected))
     return compact or chapter_text
 
+
 def build_memory_context(memory: list[dict]) -> str:
     if not memory:
         return "无前序 Scene 上下文"
@@ -228,6 +239,7 @@ def build_memory_context(memory: list[dict]) -> str:
         lines.append(f"- Scene {m['scene_index']}: 包含 {m['entities']} 个实体")
     return "\n".join(lines)
 
+
 def parallel_scene_memory_context(scene: dict[str, Any], scene_idx: int) -> str:
     scene_index = scene.get("scene_index", scene_idx)
     return (
@@ -236,6 +248,7 @@ def parallel_scene_memory_context(scene: dict[str, Any], scene_idx: int) -> str:
         f"\n- 当前 Scene: {scene_index}"
         f"\n- 标题: {scene.get('title') or '未命名'}"
     )
+
 
 def append_extracted_entities_to_context(
     existing_context: str,

@@ -24,7 +24,6 @@ from modules.world.facade import (
     get_world_context,
     list_entities,
     merge_candidate_into_entity,
-    run_entity_extraction,
 )
 from modules.world.models import (
     Character,
@@ -89,7 +88,6 @@ __all__ = [
     "find_similar_entities",
     "merge_candidate_into_entity",
     "list_entities",
-    "run_entity_extraction",
     "get_events_context",
     "create_character",
     "create_or_merge_relation",

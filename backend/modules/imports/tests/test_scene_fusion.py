@@ -41,7 +41,8 @@ def make_candidate(
         source_batch_index=source_batch_index,
         source_chapter_indices=chapter_indices,
         quality=quality,
-        payload=payload or {
+        payload=payload
+        or {
             "scenes": [
                 {
                     "title": scene_title,
@@ -64,9 +65,7 @@ def make_candidate(
 
 def success_output(payloads: list[dict]) -> dict:
     source_ids = [item["candidate_id"] for item in payloads[-1]["candidates"]]
-    source_rounds = sorted(
-        {item["source_round"] for item in payloads[-1]["candidates"]}
-    )
+    source_rounds = sorted({item["source_round"] for item in payloads[-1]["candidates"]})
     source_chapters = sorted(
         {
             chapter
@@ -100,9 +99,7 @@ def success_output(payloads: list[dict]) -> dict:
                 "review_reason": "",
             }
         ],
-        "discarded_candidates": {
-            source_id: "merged" for source_id in source_ids[1:]
-        },
+        "discarded_candidates": {source_id: "merged" for source_id in source_ids[1:]},
     }
 
 
@@ -175,9 +172,7 @@ async def test_phase1b_success_outputs_final_candidates_with_required_fields() -
     assert candidate.boundary_status == "complete"
     assert candidate.needs_review is False
     assert candidate.must_happen == "choose official output"
-    assert candidate.must_not_happen == (
-        "不得绕过既有冲突：same event observed twice"
-    )
+    assert candidate.must_not_happen == ("不得绕过既有冲突：same event observed twice")
 
     assert payloads[0]["phase"] == "phase1b_fusion"
     assert payloads[0]["recommended_scene_count"] == 3
@@ -543,16 +538,12 @@ async def test_phase1b_fallback_normalizes_malformed_scene_chunks() -> None:
         {
             "title": "chapter field chunk",
             "goal": "preserve malformed chunk",
-            "scene_chunks": [
-                {"chapter": 18, "start_paragraph": 0, "end_paragraph": -1}
-            ],
+            "scene_chunks": [{"chapter": 18, "start_paragraph": 0, "end_paragraph": -1}],
         },
         {
             "title": "second chapter field chunk",
             "goal": "preserve malformed chunk",
-            "scene_chunks": [
-                {"chapter": 19, "start_paragraph": -2, "end_paragraph": -1}
-            ],
+            "scene_chunks": [{"chapter": 19, "start_paragraph": -2, "end_paragraph": -1}],
         },
     ]
 
@@ -569,8 +560,28 @@ async def test_phase1b_fallback_normalizes_malformed_scene_chunks() -> None:
         for item in result.candidates
         for chunk in item.scene_chunks
     ] == [
-        {"chapter_index": 18, "start_paragraph": 0, "end_paragraph": None},
-        {"chapter_index": 19, "start_paragraph": 0, "end_paragraph": None},
+        {
+            "chapter_index": 18,
+            "start_paragraph": 0,
+            "end_paragraph": None,
+            "start_offset": None,
+            "end_offset": None,
+            "source_draft_id": None,
+            "source_content_hash": None,
+            "anchor_hash": None,
+            "anchor_excerpt": None,
+        },
+        {
+            "chapter_index": 19,
+            "start_paragraph": 0,
+            "end_paragraph": None,
+            "start_offset": None,
+            "end_offset": None,
+            "source_draft_id": None,
+            "source_content_hash": None,
+            "anchor_hash": None,
+            "anchor_excerpt": None,
+        },
     ]
 
 

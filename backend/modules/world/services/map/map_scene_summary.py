@@ -274,9 +274,7 @@ class MapSceneSummaryService:
         include_candidates: bool = False,
     ) -> MapSceneSummaryItem | None:
         allowed_statuses = (
-            ["canonical", "draft", "candidate"]
-            if include_candidates
-            else ["canonical"]
+            ["canonical", "draft", "candidate"] if include_candidates else ["canonical"]
         )
         marker_hexes = list(
             dict.fromkeys((marker.hex_q, marker.hex_r) for marker in markers)

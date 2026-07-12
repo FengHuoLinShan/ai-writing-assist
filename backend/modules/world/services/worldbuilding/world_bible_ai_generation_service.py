@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import NotFoundError, ValidationError
+from core.errors import ValidationError
 from infrastructure.llm.agent_step_harness import (
     run_managed_generate,
     run_managed_structured,
 )
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
-from modules.project.facade import get_project_context
 from modules.world.llm_schemas import (
     GeneratedObjectDraftOutput,
     GeneratedWorldBibleNewPageOutput,
@@ -84,54 +85,51 @@ class WorldBibleAiGenerationService:
     ) -> WorldBibleAiGenerateResponse:
         parse_uuid(novel_id, "novel_id")
         page = await self._bible_service.get_page(db, novel_id, page_id)
-        project = await get_project_context(db, novel_id)
-        if project is None:
-            raise NotFoundError(f"Project {novel_id} not found")
         chapters = await self._draft_service._load_selected_chapters(  # noqa: SLF001
             db,
             novel_id,
             data.selected_chapter_indices,
         )
         template = await self._resolve_template(db, novel_id, data)
-        client = self._client(project.settings)
         context = self._reference_block(
             page_title=page.title,
             page_text=page.free_text or "",
             include_current_page=data.include_current_page,
             chapters=chapters,
         )
-        if data.output_target == "chat":
-            response = await run_managed_generate(
+        async with self._open_client(db, novel_id) as client:
+            if data.output_target == "chat":
+                response = await run_managed_generate(
+                    client,
+                    LLMCallRequest(
+                        model=self._model_for(data.quality_mode),
+                        messages=self._chat_messages(data, template, context),
+                        temperature=0.75,
+                        max_tokens=2048,
+                    ),
+                    step_name="world.world_bible.chat.generate",
+                )
+                return WorldBibleAiGenerateResponse(
+                    reply=response.content.strip(),
+                    model=response.model,
+                    provider=response.provider,
+                )
+
+            suggestion = await self._generate_suggestion(
+                db,
+                novel_id,
+                page,
+                data,
+                template,
                 client,
-                LLMCallRequest(
-                    model=self._model_for(data.quality_mode),
-                    messages=self._chat_messages(data, template, context),
-                    temperature=0.75,
-                    max_tokens=2048,
-                ),
-                step_name="world.world_bible.chat.generate",
+                context,
+                chapters,
             )
             return WorldBibleAiGenerateResponse(
-                reply=response.content.strip(),
-                model=response.model,
-                provider=response.provider,
+                suggestions=[suggestion],
+                model=self._model_for(data.quality_mode),
+                provider=client.provider,
             )
-
-        suggestion = await self._generate_suggestion(
-            db,
-            novel_id,
-            page,
-            data,
-            template,
-            client,
-            context,
-            chapters,
-        )
-        return WorldBibleAiGenerateResponse(
-            suggestions=[suggestion],
-            model=self._model_for(data.quality_mode),
-            provider=client.provider,
-        )
 
     async def _generate_suggestion(
         self,
@@ -320,10 +318,19 @@ class WorldBibleAiGenerationService:
             legacy_data=request,
         )
 
-    def _client(self, project_settings: dict[str, Any] | None) -> LLMClient:
+    @asynccontextmanager
+    async def _open_client(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> AsyncIterator[LLMClient]:
         if self._llm_client is not None:
-            return self._llm_client
-        return LLMClient.from_project_settings(project_settings or {})
+            yield self._llm_client
+            return
+        from modules.project.facade import open_project_llm_client
+
+        async with open_project_llm_client(db, novel_id) as client:
+            yield client
 
     @staticmethod
     def _model_for(quality_mode: ObjectDraftQualityMode) -> str:
@@ -389,8 +396,7 @@ class WorldBibleAiGenerationService:
             LLMMessage(role="user", content=f"AI 参考资料：\n{context}"),
         ]
         messages.extend(
-            LLMMessage(role=item.role, content=item.content)
-            for item in data.messages
+            LLMMessage(role=item.role, content=item.content) for item in data.messages
         )
         if not data.messages:
             messages.append(

@@ -201,7 +201,7 @@ def _dummy_scene_enrichment_result(phase1a_candidates):
             "failed": 0,
             "fallback_count": 0,
             "concurrency": 20,
-            "max_tokens": 4096,
+            "max_tokens": 32_768,
             "max_retries": 1,
         },
     )
@@ -245,13 +245,15 @@ class DeepImportWorkflow:
         context_mode: str = "working",
         include_pending_objects: bool = True,
         high_quality: bool = False,
+        project_settings: dict[str, Any] | None = None,
         on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None = None,
         stop_after: DeepImportStep | None = None,
     ) -> DeepImportProgress:
         if progress.phase == "pending":
-            self._agent_project_settings = await _project_settings_for_novel(
-                db,
-                novel_id,
+            self._agent_project_settings = (
+                project_settings
+                if project_settings is not None
+                else await _project_settings_for_novel(db, novel_id)
             )
             self._deep_import_high_quality = bool(high_quality)
             if self._is_llm_health_required():
@@ -347,10 +349,11 @@ class DeepImportWorkflow:
     def _is_llm_health_required() -> bool:
         return get_settings().llm_health_required
 
-    @staticmethod
     async def _check_llm_health(
+        self,
         db: AsyncSession | None = None,
         novel_id: str | None = None,
+        project_settings: dict[str, Any] | None = None,
     ):
         from infrastructure.llm.health import (
             check_llm_health,
@@ -359,8 +362,14 @@ class DeepImportWorkflow:
 
         if db is None or not novel_id:
             return await check_llm_health()
-        project_settings = await _project_settings_for_novel(db, novel_id)
-        return await check_llm_health_for_project(project_settings)
+        effective_settings = project_settings or getattr(
+            self,
+            "_agent_project_settings",
+            None,
+        )
+        if effective_settings is None:
+            effective_settings = await _project_settings_for_novel(db, novel_id)
+        return await check_llm_health_for_project(effective_settings)
 
     def _phase3_timeout_seconds(self) -> int | float:
         project_settings = getattr(self, "_agent_project_settings", None)
@@ -423,6 +432,7 @@ class DeepImportWorkflow:
         result = await Phase1aSceneSlicer(
             llm=_Phase1aSceneSlicingLLM(
                 project_settings=project_settings,
+                novel_id=novel_id,
                 high_quality=high_quality,
             ),
         ).run(phase0_plan, on_batch_progress=on_batch_progress)
@@ -454,7 +464,15 @@ class DeepImportWorkflow:
         result = await Phase1bSceneEnricher(
             llm=_Phase1bSceneEnrichmentLLM(
                 project_settings=project_settings,
+                novel_id=novel_id,
                 high_quality=high_quality,
+            ),
+            max_tokens=deep_import_int_setting(
+                project_settings,
+                "phase1b",
+                "enrich_max_tokens",
+                env_name="PHASE1B_ENRICH_MAX_TOKENS",
+                default=32_768,
             ),
         ).run(
             scenes=phase1a_candidates,
@@ -652,8 +670,16 @@ class DeepImportWorkflow:
         progress: DeepImportProgress,
         *,
         workflow_id: str | None = None,
+        high_quality: bool = False,
+        project_settings: dict[str, Any] | None = None,
         on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None = None,
     ) -> DeepImportProgress:
+        self._agent_project_settings = (
+            project_settings
+            if project_settings is not None
+            else await _project_settings_for_novel(db, novel_id)
+        )
+        self._deep_import_high_quality = bool(high_quality)
         return await self._phase_runners().entity_stage.run_stage(
             EntityStageRequest(
                 db=db,
@@ -677,8 +703,16 @@ class DeepImportWorkflow:
         workflow_id: str | None = None,
         context_mode: str = "working",
         include_pending_objects: bool = True,
+        high_quality: bool = False,
+        project_settings: dict[str, Any] | None = None,
         on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None = None,
     ) -> DeepImportProgress:
+        self._agent_project_settings = (
+            project_settings
+            if project_settings is not None
+            else await _project_settings_for_novel(db, novel_id)
+        )
+        self._deep_import_high_quality = bool(high_quality)
         return await self._phase_runners().structure_stage.run_stage(
             StructureStageRequest(
                 db=db,
@@ -808,7 +842,15 @@ class DeepImportWorkflow:
         if project_settings is None:
             project_settings = await _project_settings_for_novel(db, novel_id)
         high_quality = bool(getattr(self, "_deep_import_high_quality", False))
-        with phase2_project_settings_context(project_settings):
+        from infrastructure.llm.profiles import resolve_llm_profile
+
+        profile_model = resolve_llm_profile(project_settings).model
+        request_model = "deepseek-v4-pro" if high_quality else profile_model
+        with phase2_project_settings_context(
+            project_settings,
+            novel_id=novel_id,
+            request_model=request_model,
+        ):
             result = await handler(
                 db,
                 novel_id=novel_id,
@@ -849,10 +891,14 @@ class DeepImportWorkflow:
             "include_existing_scenes": True,
             "generate_scenes": False,
             "fast_structured": True,
+            "project_settings_snapshot": getattr(
+                self,
+                "_agent_project_settings",
+                None,
+            ),
             "persist": True,
         }
-        if high_quality and _accepts_keyword(_generate, "high_quality"):
-            structure_kwargs["high_quality"] = high_quality
+        structure_kwargs["high_quality"] = high_quality
         try:
             result = await _generate(
                 db,

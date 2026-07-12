@@ -50,9 +50,7 @@ def _run_sync() -> None:
 
 def _existing_reload_dirs() -> list[str]:
     return [
-        str(BACKEND_ROOT / name)
-        for name in RELOAD_DIRS
-        if (BACKEND_ROOT / name).exists()
+        str(BACKEND_ROOT / name) for name in RELOAD_DIRS if (BACKEND_ROOT / name).exists()
     ]
 
 

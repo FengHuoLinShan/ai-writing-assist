@@ -505,6 +505,7 @@ async def list_auto_ingested_entities(
     start_chapter: int | None = None,
     end_chapter: int | None = None,
     limit: int = 10000,
+    status_filter: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """列出 novel 中由深度导入自动生成的实体。"""
     return await _stats_service.list_auto_ingested_entities(
@@ -513,6 +514,7 @@ async def list_auto_ingested_entities(
         start_chapter=start_chapter,
         end_chapter=end_chapter,
         limit=limit,
+        status_filter=status_filter,
     )
 
 

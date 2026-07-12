@@ -24,8 +24,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.context.facade import compile_structure_context, render_context_markdown
 from modules.rag.facade import get_ordered_chapter_chunks, index_chapter, retrieve
-from modules.world.facade import find_similar_entities, run_entity_extraction
+from modules.world.facade import find_similar_entities
 from modules.world.repositories import CoreEntityRepository
+from modules.world.services.core.extraction_service import EntityExtractionService
 from modules.writing.facade import create_draft
 from shared.utils import parse_uuid
 
@@ -40,6 +41,29 @@ pytestmark = [
     pytest.mark.real_llm,
     real_llm_required,
 ]
+
+
+async def _run_manual_extraction(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    start_chapter: int,
+    end_chapter: int,
+) -> dict:
+    """Exercise the manual supplement service without the removed facade."""
+    result = await EntityExtractionService().extract_entities_from_chapters(
+        db,
+        novel_id,
+        start_chapter,
+        end_chapter,
+    )
+    return {
+        "total_chapters": result.total_chapters,
+        "total_created": result.total_created,
+        "total_skipped": result.total_skipped,
+        "failed_chapters": result.failed_chapters,
+        "items": result.items,
+    }
 
 
 # ============================================================
@@ -277,7 +301,7 @@ class TestEntityExtraction:
         assert len(indexed_chunks) > 0, "需要先有 RAG chunks"
 
         # Act
-        result = await run_entity_extraction(
+        result = await _run_manual_extraction(
             db_session,
             novel_id,
             start_chapter=1,
@@ -300,7 +324,7 @@ class TestEntityExtraction:
         assert len(indexed_chunks) > 0
 
         # Act
-        result = await run_entity_extraction(
+        result = await _run_manual_extraction(
             db_session,
             novel_id,
             start_chapter=1,
@@ -322,7 +346,7 @@ class TestEntityExtraction:
         assert len(indexed_chunks) > 0
 
         # Act
-        result = await run_entity_extraction(
+        result = await _run_manual_extraction(
             db_session,
             novel_id,
             start_chapter=1,
@@ -387,7 +411,7 @@ class TestAliasAndDedup:
         )
 
         # Act
-        result = await run_entity_extraction(
+        result = await _run_manual_extraction(
             db_session,
             novel_id,
             start_chapter=1,
@@ -417,7 +441,7 @@ class TestAmbiguousReferences:
         assert len(indexed_chunks) > 0
 
         # Act
-        result = await run_entity_extraction(
+        result = await _run_manual_extraction(
             db_session,
             novel_id,
             start_chapter=1,
@@ -439,7 +463,7 @@ class TestAmbiguousReferences:
         assert len(indexed_chunks) > 0
 
         # Act
-        result = await run_entity_extraction(
+        result = await _run_manual_extraction(
             db_session,
             novel_id,
             start_chapter=1,
@@ -469,7 +493,7 @@ class TestAmbiguousReferences:
         assert len(indexed_chunks) > 0
 
         # Act
-        result = await run_entity_extraction(
+        result = await _run_manual_extraction(
             db_session,
             novel_id,
             start_chapter=1,

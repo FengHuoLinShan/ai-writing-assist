@@ -78,9 +78,7 @@ def test_schema_validator_extracts_nested_list_field_paths() -> None:
 def test_generation_center_schema_contract_forbids_llm_controlled_fields() -> None:
     contract = _load_contract("generation_center_world_object_draft")
 
-    assert {"status", "approved_by", "novel_id", "id"} <= set(
-        contract.forbidden_fields
-    )
+    assert {"status", "approved_by", "novel_id", "id"} <= set(contract.forbidden_fields)
     assert {
         ("name", "core_entities.name"),
         ("summary", "core_entities.summary"),
@@ -154,11 +152,7 @@ def test_target_table_validator_accepts_allowlisted_table_columns() -> None:
 def test_golden_fixtures_validate_against_all_schema_models() -> None:
     contracts = load_contracts()
 
-    issues = [
-        issue
-        for contract in contracts
-        for issue in validate_fixture(contract)
-    ]
+    issues = [issue for contract in contracts for issue in validate_fixture(contract)]
 
     assert issues == []
 

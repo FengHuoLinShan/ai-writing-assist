@@ -581,10 +581,7 @@ def phase3_quality_stats(
             provenance = item.get("provenance_meta")
             if not (
                 item.get("needs_review")
-                or (
-                    isinstance(provenance, dict)
-                    and provenance.get("needs_review")
-                )
+                or (isinstance(provenance, dict) and provenance.get("needs_review"))
             ):
                 continue
             asset_id = str(item.get("id") or "").strip()

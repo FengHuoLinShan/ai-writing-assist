@@ -31,6 +31,8 @@ async def load_chapter_range(
                     "chapter_index": chapter_index,
                     "title": getattr(draft, "title", None) or f"第{chapter_index}章",
                     "content": getattr(draft, "content", "") or "",
+                    "source_draft_id": getattr(draft, "id", None),
+                    "source_content_hash": getattr(draft, "content_hash", "") or "",
                 }
             )
             continue
@@ -41,6 +43,8 @@ async def load_chapter_range(
                     "chapter_index": chapter_index,
                     "title": draft.title or f"第{chapter_index}章",
                     "content": draft.content,
+                    "source_draft_id": draft.id,
+                    "source_content_hash": draft.content_hash,
                 }
             )
 
@@ -52,7 +56,5 @@ def build_chapters_text(chapters: list[dict[str, Any]]) -> str:
     for chapter in chapters:
         chapter_index = chapter["chapter_index"]
         title = chapter.get("title") or f"第{chapter_index}章"
-        parts.append(
-            f"## 第{chapter_index}章 {title}\n\n{chapter.get('content', '')}"
-        )
+        parts.append(f"## 第{chapter_index}章 {title}\n\n{chapter.get('content', '')}")
     return "\n\n".join(parts)

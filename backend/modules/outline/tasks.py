@@ -151,13 +151,13 @@ async def handle_scene_cross_chapter_detection(db, task):
     )
     from modules.outline.scene_workbench import SceneWorkbenchService
 
-    result["suggestion_ids"] = (
-        await SceneWorkbenchService().persist_cross_chapter_suggestions(
-            db,
-            novel_id=novel_id,
-            source_task_id=str(task.id),
-            suggestions=list(result.get("suggestions") or []),
-        )
+    result[
+        "suggestion_ids"
+    ] = await SceneWorkbenchService().persist_cross_chapter_suggestions(
+        db,
+        novel_id=novel_id,
+        source_task_id=str(task.id),
+        suggestions=list(result.get("suggestions") or []),
     )
     task.update_progress(1.0)
     return result

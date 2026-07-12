@@ -80,8 +80,7 @@ def generation_center_frontend_template_options_match(
                 contract_id=contract_id,
                 code="frontend.template_options_missing",
                 message=(
-                    "Generation Center frontend template type options were not "
-                    "found."
+                    "Generation Center frontend template type options were not found."
                 ),
                 path="frontend-console/views/generateView.js",
             )
@@ -143,9 +142,7 @@ PROBES: dict[str, Callable[[str], list[ContractIssue]]] = {
     "generation_center_builtin_templates_validate": (
         generation_center_builtin_templates_validate
     ),
-    "generation_center_docs_commands_present": (
-        generation_center_docs_commands_present
-    ),
+    "generation_center_docs_commands_present": (generation_center_docs_commands_present),
     "generation_center_frontend_template_options_match": (
         generation_center_frontend_template_options_match
     ),

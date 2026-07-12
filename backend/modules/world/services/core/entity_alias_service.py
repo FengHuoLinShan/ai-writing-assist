@@ -94,8 +94,7 @@ class EntityAliasService:
             "reviewed_from": alias_item.get("reviewed_from"),
             "quote": alias_item.get("quote"),
             "managed_by_suggestion": bool(
-                owner_meta.get("compatibility_shadow")
-                and owner_meta.get("suggestion_id")
+                owner_meta.get("compatibility_shadow") and owner_meta.get("suggestion_id")
             ),
             "suggestion_id": owner_meta.get("suggestion_id"),
         }
@@ -742,9 +741,10 @@ class EntityAliasService:
                 # A legacy/plain or adopted alias is already active knowledge.
                 # An import duplicate may add a separate evidence link, but it
                 # must not demote or replace the alias lifecycle/provenance.
-                if not isinstance(alias_item, dict) or alias_item.get(
-                    "status"
-                ) != "candidate":
+                if (
+                    not isinstance(alias_item, dict)
+                    or alias_item.get("status") != "candidate"
+                ):
                     return False
                 if alias_item.get("source") != "deep_import":
                     return False

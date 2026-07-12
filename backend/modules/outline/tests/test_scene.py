@@ -255,9 +255,7 @@ class TestSceneRepository:
                 scene_index=0,
                 source="deep_import",
                 chapter_ids=["1"],
-                scene_chunks=[
-                    {"chapter_index": 1, "start_offset": 0, "end_offset": 10}
-                ],
+                scene_chunks=[{"chapter_index": 1, "start_offset": 0, "end_offset": 10}],
             ),
         )
         span = (
@@ -296,9 +294,7 @@ class TestSceneRepository:
             db_session,
             scene.id,
             SceneUpdate(
-                scene_chunks=[
-                    {"chapter_index": 1, "start_offset": 5, "end_offset": 15}
-                ]
+                scene_chunks=[{"chapter_index": 1, "start_offset": 5, "end_offset": 15}]
             ),
         )
         rebuilt = (
@@ -1087,9 +1083,7 @@ class TestSceneService:
             SceneCreate(
                 scene_index=0,
                 chapter_ids=["1"],
-                scene_chunks=[
-                    {"chapter_index": 1, "start_offset": 0, "end_offset": 10}
-                ],
+                scene_chunks=[{"chapter_index": 1, "start_offset": 0, "end_offset": 10}],
             ),
         )
         await svc.delete(db_session, created.id, novel_id=sample_novel_id)

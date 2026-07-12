@@ -60,10 +60,7 @@ def build_authorization_snapshot(
 
 
 def empty_asset_summary() -> dict[str, Any]:
-    by_kind = {
-        kind: {outcome: 0 for outcome in OUTCOME_KEYS}
-        for kind in ASSET_KINDS
-    }
+    by_kind = {kind: {outcome: 0 for outcome in OUTCOME_KEYS} for kind in ASSET_KINDS}
     return {
         **{outcome: 0 for outcome in OUTCOME_KEYS},
         "by_kind": by_kind,
@@ -97,17 +94,14 @@ def build_asset_summary(quality_stats: dict[str, Any] | None) -> dict[str, Any]:
     )
     by_kind = {
         "scene": {
-            "adopted": _count(
-                scene.get("adopted_count", scene.get("created_count"))
-            ),
+            "adopted": _count(scene.get("adopted_count", scene.get("created_count"))),
             "review": _count(scene.get("review_count")),
             "not_adopted": _count(scene.get("conflict_count")),
         },
         "entity": {
             "adopted": _count(phase2_dedup.get("auto_merged")),
             "review": max(0, created_entities - temporary_entities),
-            "not_adopted": _count(phase2.get("phase2_ignored"))
-            + temporary_entities,
+            "not_adopted": _count(phase2.get("phase2_ignored")) + temporary_entities,
         },
         "relation": {
             "adopted": 0,

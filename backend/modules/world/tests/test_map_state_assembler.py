@@ -233,12 +233,8 @@ async def test_assemble_splits_canonical_and_candidate_map_facts_by_entity_statu
         str(draft_location.id),
     }
     assert [m.entity_id for m in state.markers] == [str(canonical_character.id)]
-    assert [m.entity_id for m in state.candidate_markers] == [
-        str(candidate_character.id)
-    ]
-    assert [t.faction_entity_id for t in state.territories] == [
-        str(canonical_faction.id)
-    ]
+    assert [m.entity_id for m in state.candidate_markers] == [str(candidate_character.id)]
+    assert [t.faction_entity_id for t in state.territories] == [str(canonical_faction.id)]
     assert [t.faction_entity_id for t in state.candidate_territories] == [
         str(candidate_faction.id)
     ]

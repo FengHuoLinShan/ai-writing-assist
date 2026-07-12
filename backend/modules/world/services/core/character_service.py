@@ -535,11 +535,7 @@ class CharacterService(
         label: str,
     ):
         entity = await self._entity_repo.get(db, entity_id)
-        if (
-            entity is None
-            or entity.novel_id != novel_id
-            or entity.status != "canonical"
-        ):
+        if entity is None or entity.novel_id != novel_id or entity.status != "canonical":
             raise NotFoundError(f"{label} {raw_id} not found in this novel")
         if entity.entity_type != entity_type:
             raise ValidationError(

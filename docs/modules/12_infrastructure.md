@@ -11,8 +11,9 @@
 ```python
 llm = LLMClient(provider_name="openai")
 
-# 使用项目级 LLM Profile（project.settings.llm）
-llm = LLMClient.from_project_settings(project_context.settings)
+# novel-scoped 业务调用必须通过 project facade 管理 lifecycle
+async with open_project_llm_client(db, novel_id) as llm:
+    result = await run_managed_structured(...)
 
 # 普通调用
 resp = await llm.generate(request)
@@ -38,6 +39,9 @@ text = await llm.generate_simple(system_prompt, user_prompt)
 # Embedding 生成（单文本 → list[float]，文本列表 → list[list[float]]）
 embedding = await llm.generate_embedding(text)
 
+# 绑定 novel 的 chat client 会将 remote embedding 委托给独立 client
+# 使 provider/model/base URL/API Key 继续由 EMBEDDING_* 边界决定
+
 # 切换 Provider（关闭旧连接，创建新连接）
 await llm.switch_provider("openai", base_url="...")
 
@@ -60,6 +64,15 @@ helper 不改变 `LLMClient` 的 provider/retry/structured repair 行为：结�
 由调用方保留现有 fallback 或状态更新逻辑。`context_budget` 默认不自动截断
 request messages；需要裁剪时显式使用 `ContextBudgetGuard`。
 
+project runtime 创建的 client 带有 secret-free `runtime_scope`。managed helper
+会自动把 `novel_id`、profile source 和脱敏 `profile_summary` 合并进 journal 的
+`quality_stats.llm_runtime`；测试 fake 没有该属性时仍可按既有构造注入。
+脱敏 summary 以 request 的实际 model/max_tokens/temperature/top_p 为准，
+同时可保留 profile 默认 model 作 `default_model`。task worker 用
+task-local context collector 聚合这些记录，并在成功、失败和取消路径
+都合并到 result 的 `managed_llm_steps`；记录不包含 API Key、完整
+Base URL/query、prompt 或正文。
+
 step envelope 可表达 read / suggest / draft / act-with-confirmation 权限，但当前 harness
 明确拒绝 `autonomous`。它记录确定性执行与输出守门，不实现 agent loop、工具自主选择或
 跨模块业务编排。
@@ -68,18 +81,34 @@ Embedding、streaming 和 `generate_simple()` 不是本 harness 的默认迁移�
 
 ### 配置与健康检查
 
-业务调用的项目级 LLM 配置由 `infrastructure.llm.profiles.resolve_llm_profile()`
-解析，优先级固定为：
+业务调用的项目级 LLM 配置由 `modules.project.facade.open_project_llm_client()`
+加载，先按字段物化 effective settings，再使用
+`infrastructure.llm.profiles.resolve_llm_profile()` 构造 profile。生产字段来源
+优先级固定为：
 
 ```text
-project settings.llm > test override > code default
+project settings.llm > global settings.llm > system default
 ```
+
+`test override` 只用于显式测试注入，不是生产项目之间的回退来源。
 
 resolver 返回 effective api_key / base_url / model / timeout / max_tokens /
 temperature / top_p / extra，并保留字段来源。日志、JSONL、health check 和前端响应
 只能使用脱敏 summary：`provider_id`、`label`、`model`、`base_url_host`、
 `timeout`、`max_tokens`、`api_key_configured`、`sources`、`extra_keys`。API Key
 不得进入日志、错误信息、任务结果或前端响应。
+provider transport 的请求/失败日志只记录 endpoint host，即使 Base URL
+包含 query 也不输出完整 URL。
+task worker 对异常先执行 `redact_diagnostic`再写入 task status API 与
+错误日志；数据库错误统一转成公开可展示的稳定消息，不输出可能
+包含请求 URL/query 的 exception cause traceback。
+
+可恢复任务不把 effective API Key 或完整 endpoint 写入 task meta。
+project facade 在提交时生成 secret-free execution snapshot，冻结
+model/非 secret 参数/字段来源和领域设置；deep-import 的
+项目值、环境覆盖与代码默认也在此时物化为显式值。恢复时读取当前 Key，
+允许 Key 轮换，但 endpoint 或 provider-specific extra 的 hash 变化会
+fail closed。
 
 业务供应商 profile 不再从 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL` 等环境变量
 继承。项目上下文会物化项目 > 全局默认 > 系统默认的 LLM 设置；系统默认是官方

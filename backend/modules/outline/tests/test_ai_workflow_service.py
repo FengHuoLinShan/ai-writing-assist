@@ -46,10 +46,10 @@ async def test_generate_returns_preview_without_persisting(
     )
     monkeypatch.setattr(
         "modules.outline.ai_workflow_service.PlotStructureGenerator",
-        lambda: generator,
+        lambda **_kwargs: generator,
     )
 
-    result = await OutlineAIWorkflowService().generate(
+    result = await OutlineAIWorkflowService(llm_client=mock.MagicMock()).generate(
         db,
         novel_id="11111111-1111-1111-1111-111111111111",
         confirmation_id="confirmation-1",
@@ -111,6 +111,8 @@ async def test_extract_chapter_scenes_returns_preview_without_persisting(
     novel_id = str(uuid.uuid4())
 
     class _FakeLLMClient:
+        model_name = "test-model"
+
         async def generate_structured(self, _request, schema, **_kwargs):
             return schema(
                 scenes=[
@@ -147,15 +149,9 @@ async def test_extract_chapter_scenes_returns_preview_without_persisting(
         "modules.outline.ai_workflow_service.context_facade.attach_result_ref",
         attach_preview,
     )
-    monkeypatch.setattr(
-        "modules.outline.ai_workflow_service.get_settings",
-        lambda: SimpleNamespace(llm_model="test-model"),
-    )
-    monkeypatch.setattr(
-        "modules.outline.ai_workflow_service.LLMClient",
-        lambda: _FakeLLMClient(),
-    )
-    result = await OutlineAIWorkflowService().extract_chapter_scenes(
+    result = await OutlineAIWorkflowService(
+        llm_client=_FakeLLMClient(),
+    ).extract_chapter_scenes(
         db,
         novel_id=novel_id,
         confirmation_id="confirmation-1",
@@ -211,8 +207,7 @@ async def test_apply_chapter_scene_preview_requires_confirmation_and_clears_revi
         lambda: scene_service,
     )
     monkeypatch.setattr(
-        "modules.outline.scene_workbench.SceneWorkbenchService."
-        "validate_mapping_chapters",
+        "modules.outline.scene_workbench.SceneWorkbenchService.validate_mapping_chapters",
         validate_mapping,
     )
 
@@ -295,9 +290,7 @@ async def test_apply_chapter_scene_preview_requires_confirmation_and_clears_revi
     assert "workflow_id" not in payload["structure_meta"]
     assert "auto_ingested" not in payload["structure_meta"]
     assert payload["pov_character_id"] is None
-    assert payload["scene_chunks"] == [
-        {"chapter_index": 7, "start_pos": 1, "end_pos": 3}
-    ]
+    assert payload["scene_chunks"] == [{"chapter_index": 7, "start_pos": 1, "end_pos": 3}]
     validate_mapping.assert_awaited_once_with(
         db,
         novel_id,
@@ -384,9 +377,7 @@ async def test_apply_chapter_scene_preview_api_persists_explicit_adoption(
             "novel_id": test_project_id,
             "context_confirmation_id": confirmation.id,
             "source_task_id": str(task.id),
-            "draft_scenes": [
-                {"title": "越界映射", "chapter_ids": ["999"]}
-            ],
+            "draft_scenes": [{"title": "越界映射", "chapter_ids": ["999"]}],
             "confirmed": True,
         },
     )
@@ -530,12 +521,16 @@ async def test_apply_structure_preview_api_persists_explicit_adoption_once(
     assert replay.status_code == 201, replay.text
     assert replay.json()["threads"][0]["id"] == thread_id
     all_threads = (
-        await db_session.execute(
-            select(PlotThread).where(
-                PlotThread.novel_id == uuid.UUID(test_project_id)
+        (
+            await db_session.execute(
+                select(PlotThread).where(
+                    PlotThread.novel_id == uuid.UUID(test_project_id)
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(all_threads) == 1
     await db_session.refresh(task)
     assert task.result["apply_status"] == "applied"

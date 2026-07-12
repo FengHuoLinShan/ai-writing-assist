@@ -46,8 +46,8 @@ from shared.utils import parse_uuid
 
 PHASE2_WORLD_INPUT_MODE = "scenes_plus_text"
 PHASE2_WORLD_PROMPT_LEVEL = "strict"
-PHASE2_WORLD_MAX_TOKENS_PER_SOURCE_CHAR = 0.36
-PHASE2_WORLD_MIN_MAX_TOKENS = 24_576
+PHASE2_WORLD_MAX_TOKENS_PER_SOURCE_CHAR = 1.0
+PHASE2_WORLD_MIN_MAX_TOKENS = 32_768
 PHASE2_WORLD_MAX_MAX_TOKENS = PHASE0_MAX_MAX_TOKENS
 PHASE2_WORLD_WINDOW_CONCURRENCY = 20
 INVALID_SCENE_REF_SAMPLE_LIMIT = 5
@@ -208,10 +208,7 @@ class Phase2WorldExtractor:
             result_refs=persist_result["result_refs"],
         )
         degraded = bool(
-            failed_windows
-            or invalid_refs
-            or overlap_only
-            or flush_status.get("degraded")
+            failed_windows or invalid_refs or overlap_only or flush_status.get("degraded")
         )
         error_kind = None
         if failed_windows:
@@ -246,9 +243,7 @@ class Phase2WorldExtractor:
             "structured_format_diagnostics": [
                 result.diagnostics for result in window_results
             ],
-            "phase2_window_diagnostics": _window_diagnostics_for_artifact(
-                window_results
-            ),
+            "phase2_window_diagnostics": _window_diagnostics_for_artifact(window_results),
             "phase2_invalid_scene_ref_diagnostics": invalid_ref_diagnostics,
             "alias_relation_skipped": True,
             "alias_relation_skip_reason": "phase2_world_window_v1_inline_output",
@@ -314,9 +309,7 @@ class Phase2WorldExtractor:
                         else 0
                     )
                     representative_scene_id = (
-                        result.owned_scene_ids[0]
-                        if result.owned_scene_ids
-                        else None
+                        result.owned_scene_ids[0] if result.owned_scene_ids else None
                     )
                     representative_chapter = (
                         int(window.owned_start)
@@ -711,9 +704,7 @@ def _window_diagnostics_for_artifact(
         reverse=True,
     )[:WINDOW_DIAGNOSTIC_SAMPLE_LIMIT]
     failed = [
-        item
-        for item in diagnostics
-        if str(item.get("final_status") or "") != "success"
+        item for item in diagnostics if str(item.get("final_status") or "") != "success"
     ][:WINDOW_DIAGNOSTIC_SAMPLE_LIMIT]
     sampled = diagnostics[:WINDOW_DIAGNOSTIC_SAMPLE_LIMIT]
     return {
@@ -1229,11 +1220,7 @@ def _phase2_error_message(
 
 
 def _token_attempts(initial_max_tokens: int) -> list[int]:
-    tokens = [max(1, int(initial_max_tokens))]
-    cap = _max_max_tokens()
-    if cap > tokens[-1]:
-        tokens.append(cap)
-    return tokens
+    return [max(1, int(initial_max_tokens))]
 
 
 def _phase2_window_max_tokens(input_chars: int) -> int:

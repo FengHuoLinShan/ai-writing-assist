@@ -181,4 +181,5 @@ class ActivationPreviewService:
             "status": entity.status,
         }
 
-__all__ = ['ActivationPreviewService']
+
+__all__ = ["ActivationPreviewService"]

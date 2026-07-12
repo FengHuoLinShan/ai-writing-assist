@@ -103,37 +103,6 @@ async def rollback_to_revision(
 
 
 # ============================================================
-# Extraction
-# ============================================================
-
-
-async def run_entity_extraction(
-    db: AsyncSession,
-    novel_id: str,
-    start_chapter: int,
-    end_chapter: int,
-    batch_size: int = 5,
-) -> dict[str, Any]:
-    from modules.world.services.core.extraction_service import EntityExtractionService
-
-    service = EntityExtractionService()
-    result = await service.extract_entities_from_chapters(
-        db,
-        novel_id=novel_id,
-        start_chapter=start_chapter,
-        end_chapter=end_chapter,
-        batch_size=batch_size,
-    )
-    return {
-        "total_chapters": result.total_chapters,
-        "total_created": result.total_created,
-        "total_skipped": result.total_skipped,
-        "failed_chapters": result.failed_chapters,
-        "items": result.items,
-    }
-
-
-# ============================================================
 # 完整状态导出（供 memory 模块快照用）
 # ============================================================
 

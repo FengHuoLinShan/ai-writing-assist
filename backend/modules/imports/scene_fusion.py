@@ -260,9 +260,7 @@ class FinalSceneCandidate(BaseModel):
         if not self.source_rounds:
             self.source_rounds = ["A"]
         if not self.scene_chunks:
-            self.scene_chunks = [
-                SceneChunk(chapter_index=self.source_chapter_indices[0])
-            ]
+            self.scene_chunks = [SceneChunk(chapter_index=self.source_chapter_indices[0])]
         if not self.boundary_reason:
             self.boundary_reason = "Phase 1b reducer normalized this Scene."
         if self.needs_review and not self.review_reason:
@@ -465,13 +463,10 @@ class Phase1bSceneFusion:
             quality_stats = _build_quality_stats([], total_windows=len(windows))
             quality_stats["skipped_windows"] = len(windows)
             should_fallback_by_chapter = (
-                end_chapter - start_chapter + 1
-                <= PHASE1B_CHAPTER_FALLBACK_MAX_RANGE
+                end_chapter - start_chapter + 1 <= PHASE1B_CHAPTER_FALLBACK_MAX_RANGE
             )
             quality_stats["coverage_gap_fallback_count"] = (
-                end_chapter - start_chapter + 1
-            if should_fallback_by_chapter
-                else 0
+                end_chapter - start_chapter + 1 if should_fallback_by_chapter else 0
             )
             fallback_candidates = (
                 _with_minimum_scene_count_fallbacks(
@@ -483,8 +478,7 @@ class Phase1bSceneFusion:
                     start_chapter=start_chapter,
                     end_chapter=end_chapter,
                     reason=(
-                        "Phase 1b fallback needed additional small-sample "
-                        "Scene coverage."
+                        "Phase 1b fallback needed additional small-sample Scene coverage."
                     ),
                 )
                 if should_fallback_by_chapter
@@ -548,8 +542,7 @@ class Phase1bSceneFusion:
                 start_chapter=start_chapter,
                 end_chapter=end_chapter,
                 reason=(
-                    "Phase 1b 422 fallback needed additional small-sample "
-                    "Scene coverage."
+                    "Phase 1b 422 fallback needed additional small-sample Scene coverage."
                 ),
             )
             quality_stats["coverage_gap_fallback_count"] = _coverage_gap_count(
@@ -572,9 +565,7 @@ class Phase1bSceneFusion:
             )
 
         candidates = [
-            candidate
-            for result in window_results
-            for candidate in result.candidates
+            candidate for result in window_results for candidate in result.candidates
         ]
         deduped_candidates = _dedupe_final_candidates(candidates)
         final_candidates = _with_chapter_coverage_fallbacks(
@@ -912,8 +903,7 @@ def _fallback_candidates_for(
         scenes = candidate.payload.get("scenes")
         if isinstance(scenes, list) and scenes:
             scene_payloads = [
-                scene if isinstance(scene, dict) else {}
-                for scene in scenes
+                scene if isinstance(scene, dict) else {} for scene in scenes
             ]
             if (
                 len(scene_payloads) == 1
@@ -926,8 +916,7 @@ def _fallback_candidates_for(
                 ]
         else:
             scene_payloads = [
-                _chapter_scene_payload_from({}, chapter)
-                for chapter in source_chapters
+                _chapter_scene_payload_from({}, chapter) for chapter in source_chapters
             ] or [{}]
 
         for scene_index, scene in enumerate(scene_payloads, start=1):
@@ -1365,9 +1354,7 @@ def _infer_chapter_range(
     candidates: Sequence[SceneCandidate],
 ) -> tuple[int, int] | None:
     chapters = [
-        chapter
-        for candidate in candidates
-        for chapter in _source_chapters_for(candidate)
+        chapter for candidate in candidates for chapter in _source_chapters_for(candidate)
     ]
     if not chapters:
         return None

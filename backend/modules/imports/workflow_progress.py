@@ -149,9 +149,7 @@ class DeepImportProgressTracker:
         phase2 = progress.quality_stats.get("phase2") or {}
         phase3 = progress.quality_stats.get("phase3") or {}
         scene_dedup = (
-            (scene_commit.get("dedup") or {})
-            if isinstance(scene_commit, dict)
-            else {}
+            (scene_commit.get("dedup") or {}) if isinstance(scene_commit, dict) else {}
         )
         phase2_dedup = phase2.get("phase2_dedup_counts") or {}
         structure_dedup = phase3.get("structure_dedup") or {}
@@ -171,9 +169,7 @@ class DeepImportProgressTracker:
             "entity_count": int(phase2.get("total_created", 0) or 0),
             "relation_count": int(phase2.get("total_relations", 0) or 0),
             "alias_count": int(phase2.get("total_aliases", 0) or 0),
-            "alias_relation_scenes": int(
-                phase2.get("alias_relation_scenes", 0) or 0
-            ),
+            "alias_relation_scenes": int(phase2.get("alias_relation_scenes", 0) or 0),
             "alias_relation_failed_scene_count": len(
                 phase2.get("alias_relation_failed_scenes") or []
             ),
@@ -196,15 +192,11 @@ class DeepImportProgressTracker:
                 "scene_same_workflow_collapsed": int(
                     scene_dedup.get("same_workflow_collapsed", 0) or 0
                 ),
-                "entity_auto_merged": int(
-                    phase2_dedup.get("auto_merged", 0) or 0
-                ),
+                "entity_auto_merged": int(phase2_dedup.get("auto_merged", 0) or 0),
                 "entity_review_suggested": int(
                     phase2_dedup.get("review_suggested", 0) or 0
                 ),
-                "relation_merged": int(
-                    phase2_dedup.get("relation_merged", 0) or 0
-                ),
+                "relation_merged": int(phase2_dedup.get("relation_merged", 0) or 0),
                 "structure_suggestions_recorded": int(
                     structure_dedup.get("suggestions_recorded", 0) or 0
                 ),
@@ -230,9 +222,7 @@ class DeepImportProgressTracker:
             alias_scenes if isinstance(alias_scenes, list) else []
         )
         return {
-            "phase2_scene_checkpoints": len(scenes)
-            if isinstance(scenes, list)
-            else 0,
+            "phase2_scene_checkpoints": len(scenes) if isinstance(scenes, list) else 0,
             "phase2_status_counts": phase2_status_counts,
             "phase2b_scene_checkpoints": len(alias_scenes)
             if isinstance(alias_scenes, list)

@@ -16,19 +16,27 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - 提交并编排分阶段自动提取任务：Scene、世界对象与别名/关系、剧情结构
 - 在重复导入时返回覆盖确认要求，确认后才入队
 - 深度导入 Scene 阶段默认执行 `Phase0 deterministic plan → Phase1a scene slicing → Phase1b scene enrichment → Scene commit`，并记录质量统计
-- Phase 0 不调用 LLM；它按章节字符数计算窗口计划、owned range、固定右侧 2 章 overlap 和每窗 `max_tokens` 预算。默认目标输入约 `72000` 字符，窗口最多 20 章，`max_tokens=clamp(round(input_chars * 0.36), 13000, 32768)`
-- Phase 1a 只切分并锁定 Scene 边界字段：`title` / `goal` / `core_conflict` / `start_chapter` / `end_chapter` / `boundary_status`；缺失章节会生成 `needs_review` 的章节级 fallback
-- Phase 1b 每个 Scene 一个并发 enrichment 请求，只解析补充字段；`scene_chunks` 由系统按 `start_chapter` / `end_chapter` 章级确定生成，不由 LLM 定位
+- Phase 0 不调用 LLM；它按章节字符数计算窗口计划、owned range、固定右侧 2 章 overlap 和每窗 `max_tokens` 上限。默认目标输入约 `72000` 字符，窗口最多 20 章。DeepSeek v4 Flash 实测 `0.36`、`0.4`、`0.6` 都出现过截断；`0.75` 一次四窗首轮通过，但同一 1–60 章末窗的复跑仍在 `19898/19898` 处 `finish_reason=length`，因此不将偶然通过视为稳定。`max_tokens` 只是上限而不会强制模型用完，默认系数提升为 `1.0`，即 `max_tokens=clamp(round(input_chars * 1.0), 13000, 32768)`。Phase 1b/2/3 从首次请求就使用各自冻结的 32768 上限，不实验更小预算。
+- Phase 1a 切分并锁定 Scene 语义字段，同时要求从正文逐字复制起止 anchor；本地 materializer 负责唯一命中、offset、draft/hash 绑定和邻接/整章覆盖推断。未解析锚点使用关闭 thinking 的小上下文修复；缺章先用单章恢复，仍失败才保留 `needs_review` 的章节级语义 fallback。
+- Phase 1b 每个 Scene 一个并发 enrichment 请求，只解析补充字段；不得改写 Phase 1a 已确定的 `scene_chunks`。章节级 fallback 的语义状态仍为 fallback，但其整章 offset 和 source hash 是可确定的精确来源，两者分开记录。Phase 1b enrichment 的默认 `max_tokens` 已与其他结构化阶段统一为 32768，不再由旧的 4096 上限导致补充字段截断；实际 payload 从 effective `deep_import.phase1b.enrich_max_tokens` 生成，不再用 env/default 覆盖项目值，且该值在任务提交时进入冻结 deep-import settings。
 - 旧 `scene_prefetch` / `scene_reinforcement` legacy pipeline 已删除；`scene_fusion` 仍作为内部兼容/修复组件保留，不进入默认 Scene 自动提取主路径
 - 深度导入保持自动流水线，不对每个 LLM step 重复弹出“AI 参考资料”确认；但首次提交必须显式传 `authorization_confirmed=true`，一次授权 `user_authorized_pipeline` 采用策略。Phase 3 结构分析显式使用 `context_mode="working"` 并包含待确认对象
 - 分阶段世界对象自动提取执行 Phase 2a / 2b：先基于已提交 Scene 抽取世界对象与 Delta，再补抽别名 / 关系
 - Phase 2a 对已持久化 Scene 以 Scene 为并发单元；每个请求只消费当前 Scene 的版本绑定精确 span 和前序 brief，写入仍按 `scene_index` 串行归并
-- Phase 2a 已收敛为 `ImportContextActivation -> concurrent LLM -> scene_index ordered persistence`：当前 Scene 在可见截止章/offset 以前的精确 span 正文和最多两个前序 brief 是唯一 Scene-local 证据，跨章 Scene 的未来 span 与后续 Scene 都不进入 prompt。默认 LLM 并发 64，按 `64 -> 32 -> 16 -> 8` 对连续限流、超时或格式失败降载；Phase 2b 仍在 Phase 2a 后做全局别名/关系对账。
+- Phase 2a 已收敛为 `ImportContextActivation -> concurrent LLM -> scene_index ordered persistence`：当前 Scene 在可见截止章/offset 以前的精确 span 正文和最多两个前序 brief 是唯一 Scene-local 证据，跨章 Scene 的未来 span 与后续 Scene 都不进入 prompt。真实 52 Scene 运行证明硬编码并发 64 会造成后半批量超时；当前默认并发 20、provider/LLM 超时 240/270 秒、结构化上限 32768，失败时继续逐波降载。Phase 2b 仍在 Phase 2a 后做全局别名/关系对账，但对 DeepSeek 显式关闭 thinking。Phase 2 每次结构化请求直接使用冻结的 32768 上限，不再做改变 `max_tokens` 的阶梯扩容；受控失败可保留一次同预算修复/重试。
 - Phase 2a 不接收后续 Scene 或右侧边界补充证据；需要全局信息的别名、关系和连续性对账仅在 Phase 2b 执行
 - Phase 2 入库前通过 world facade 使用名称 / 别名 / embedding 去重能力；高置信重复实体只记录建议目标并进入待处理，不自动融合到已有对象。重复关系走 create-or-merge，并在 progress/result 中记录 action、dedup、boundary supplement 和 degraded 统计
 - Phase 3 完成后会通过 outline facade 生成结构去重建议；只自动应用同一 deep import workflow 内的高置信重复，跨已有资产的建议仅写入任务结果
+- Phase 3 结构化请求同样使用冻结的 `deep_import.phase3.structure_max_tokens`（默认 32768），不再按 prompt 长度进行 token 阶梯扩容；该字段会出现在项目设置与任务冻结快照中。格式/transport 故障可保留一次同预算修复/重试，业务质量 replacement rerun 继续是独立门禁，两者都不扩大 `max_tokens`。
 - 深度导入 Phase 2 拆为 Phase 2a 世界对象/Delta 抽取与 Phase 2b 别名/关系提取；Phase 2b 失败只降级，不丢弃已抽取对象
 - 深度导入 Phase 2/Phase 3 的真实 LLM 调用通过 `modules.context.facade` 写入 `context_snapshots` 审计记录
+- Phase 2a/2b 的活跃 LLM adapter 只消费 workflow 持久化的 effective project
+  profile snapshot；缺少 snapshot 时 fail closed，不回退环境 Key，并在每次调用后关闭 client
+- Phase 1/2/3 的 snapshot client 统一由 project runtime seam 构造；主 workflow
+  与 Phase 2 并发 adapter 都传递当前 `novel_id` 供 managed-step journal 聚合；
+  structured call 在成功和异常路径均通过 `finally` 关闭 client
+- Phase 2a/2b context snapshot 使用与活跃 adapter 相同的 profile resolver，
+  记录脱敏 model/provider/base-url host/字段来源，不保存 API Key 或 URL query
 - 深度导入 Phase 1/2/3 prompt、Pydantic schema、关键字段映射和目标表列通过 `make prompt-contracts` 做开发期漂移检查；该检查不调用真实 LLM、不访问数据库
 
 ## 不负责
@@ -63,6 +71,14 @@ Phase 2 的存量对象去重通过 `world.facade.get_world_context(..., include
 - `authorization_confirmed=true`（必填且必须为 true）。
 
 facade/orchestrator 默认不授权；缺少显式 `authorization_confirmed=True` 会在入队前拒绝。新任务把带 `authorized_at`、novel/章节/stage scope、`provenance_required`、以及 `rollback.mode=workflow_owned_soft_deprecate` 的 `authorization_snapshot` 同时写入 `async_tasks.meta` 与初始 `result`；worker 进度和最终结果继续保留该快照。worker 恢复同样 fail closed：快照缺失、未确认、策略不受支持或 scope 与 task meta 不一致时，直接拒绝执行，不对历史任务补默认授权。
+
+新提交的 `deep_import` 和三个 stage task 还会在入队前生成
+secret-free `llm_execution_snapshot`，同时写入 task meta 和初始 result。
+worker 恢复时冻结使用提交时的 model、生成参数、字段来源和
+deep-import 设置（含提交时已物化的 env/default）；当前 API Key
+可轮换，但 endpoint/extra hash 漂移会
+fail closed。旧的本地任务若没有此字段，兼容路径在首次新 worker
+执行时补抓快照；新生产提交不使用该兼容分支。
 
 完成结果增加 `asset_summary={adopted, review, not_adopted, by_kind}`。`by_kind` 固定包含 `scene/entity/relation/alias/structure`，缺失 phase 统计显式记 0。Scene 的 `needs_review` fallback、world candidate/关系/别名、不确定结构和跨旧资产去重建议进入 review。结构去重保留旧的 suggestion-pair 统计作为兼容字段，同时通过 `structure_dedup.current_workflow_asset_outcomes` 按当前 workflow 的唯一资产计算 review / not_adopted；旧资产之间的建议不进入本次资产汇总，同一资产出现在多个 pair 中也只计一次。Phase 3 自身的 `review_asset_count`、`uncertain_count` 与去重资产结果合并后会按结构总数 clamp，保持 adopted / review / not_adopted 互斥且总和等于本次结构资产数。高置信实体去重建议进入 review；只有授权策略明确允许且无 review 标记的工作资产计入 adopted。ignored、temporary-only、provenance conflict 和同 workflow 去重时被软废弃的重复结构计入 not_adopted。低置信结果不会自动提升为 canonical。
 
@@ -117,6 +133,9 @@ single-chapter / fusion wrapper，以及非 runtime seam 的薄包装/死代码�
 - `scene_slicing.py` — Phase 1a Scene 边界切分、owned range 过滤和章节级 fallback
 - `scene_enrichment.py` — Phase 1b 逐 Scene 补字段、锁定字段保护、确定性 `scene_chunks`
 - `scene_fusion.py` — 内部兼容/修复路径使用的候选融合组件；旧 `scene_prefetch.py` / `scene_reinforcement.py` 已删除
+- `scene_segmentation.py` — legacy 兼容/测试工具，无生产入口调用方；
+  其 LLM batch/single-chapter 方法已使用 project runtime context manager，
+  不再是 direct-client 静态例外
 - `deep_import_retry.py` — 深度导入 LLM 错误分类与阶段可控 retry 策略
 - `agent_step_harness.py` — 旧 imports 路径兼容导出；权威实现已迁至 `infrastructure/llm/agent_step_harness.py`
 
@@ -186,7 +205,15 @@ async def start_deep_import(db, novel_id, start_chapter, end_chapter, force=Fals
 
 async def start_deep_import_stage(db, novel_id, start_chapter, end_chapter, *, stage, force=False, adoption_policy="user_authorized_pipeline", authorization_confirmed=False) -> dict:
     """提交分阶段自动提取任务：scenes / world_objects / plot_structure"""
+
+async def run_submitted_deep_import_stage(db, task_id, *, stage) -> dict:
+    """在隔离评测/手动 harness 内执行已提交且已授权的 stage task"""
 ```
+
+`run_submitted_deep_import_stage()` 只是评测/手动 harness seam，不新增
+HTTP 业务入口。它在 inline 执行期间用独立 session 更新 task
+heartbeat，避免被 worker stale scanner 误判为中断；同时保留
+managed provenance、失败状态和脱敏 error，结束时取消 heartbeat。
 
 ## API
 

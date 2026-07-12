@@ -23,8 +23,7 @@ from modules.imports.workflow_runtime import DeepImportWorkflowRuntime
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
 
 PHASE0_422_RECOMMENDATION = (
-    "推荐使用官方api以保障稳定性与质量；"
-    "强推 DeepSeek-v4-flash，质量高价格低并发超快。"
+    "推荐使用官方api以保障稳定性与质量；强推 DeepSeek-v4-flash，质量高价格低并发超快。"
 )
 PHASE1A_SINGLE_CHAPTER_FALLBACK_MAX_MISSING = 12
 
@@ -135,9 +134,7 @@ class ScenePhaseRunner:
             end_chapter,
         )
         progress.quality_stats["phase0"] = phase0_result.quality_stats
-        if phase0_diagnostics := workflow._diagnostic_samples(
-            phase0_result.diagnostics
-        ):
+        if phase0_diagnostics := workflow._diagnostic_samples(phase0_result.diagnostics):
             progress.quality_stats["phase0_diagnostics"] = phase0_diagnostics
         phase0_coverage = coverage_summary(
             {
@@ -182,8 +179,7 @@ class ScenePhaseRunner:
             progress.phase_errors.append(
                 {
                     "phase": "phase0_plan",
-                    "error_kind": phase0_result.block_reason
-                    or "phase0_plan_failed",
+                    "error_kind": phase0_result.block_reason or "phase0_plan_failed",
                     "message": progress.message[:300],
                 }
             )
@@ -265,9 +261,7 @@ class ScenePhaseRunner:
             progress.degraded_reason = (
                 phase1a_result.block_reason or "missing_chapter_coverage"
             )
-            progress.message = (
-                "Phase 1a Scene 切分缺少章节覆盖，已停止深度导入。"
-            )
+            progress.message = "Phase 1a Scene 切分缺少章节覆盖，已停止深度导入。"
             progress.phase_errors.append(
                 {
                     "phase": "phase1a_scene_slicing",
@@ -547,9 +541,9 @@ class ScenePhaseRunner:
                 end_chapter,
             )
             if rag_task_id is not None:
-                progress.quality_stats["scene_commit"][
-                    "rag_reindex_task_id"
-                ] = rag_task_id
+                progress.quality_stats["scene_commit"]["rag_reindex_task_id"] = (
+                    rag_task_id
+                )
             workflow._mark_step_completed(progress, DeepImportStep.scene_segmentation)
             workflow._finish_phase(
                 progress,
@@ -563,9 +557,7 @@ class ScenePhaseRunner:
             progress.quality_status = "failed"
             progress.current_step = None
             progress.degraded_reason = (
-                "empty_scene_commit"
-                if total_scenes <= 0
-                else "missing_chapter_coverage"
+                "empty_scene_commit" if total_scenes <= 0 else "missing_chapter_coverage"
             )
             error_message = (
                 "Scene 提交阶段未创建或复用任何 Scene"
@@ -635,8 +627,7 @@ def _merge_phase0_repair_result(source: Any, repair: Any) -> Any:
 
     quality_stats = {
         **repair.quality_stats,
-        "repair_attempts": int(repair.quality_stats.get("repair_attempts", 0) or 0)
-        + 1,
+        "repair_attempts": int(repair.quality_stats.get("repair_attempts", 0) or 0) + 1,
         "source_total_batches": int(source.quality_stats.get("total_batches", 0) or 0),
         "source_failed": int(source.quality_stats.get("failed", 0) or 0),
         "source_timeout": int(source.quality_stats.get("timeout", 0) or 0),

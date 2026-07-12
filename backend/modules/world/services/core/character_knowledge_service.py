@@ -123,11 +123,7 @@ class CharacterKnowledgeService(
         character_id,
     ) -> None:
         entity = await self._entity_repo.get(db, character_id)
-        if (
-            entity is None
-            or entity.novel_id != novel_id
-            or entity.status != "canonical"
-        ):
+        if entity is None or entity.novel_id != novel_id or entity.status != "canonical":
             raise NotFoundError("Character not found in this novel")
         if entity.entity_type != "character":
             raise ValidationError(
@@ -158,11 +154,7 @@ class CharacterKnowledgeService(
             return
         tid = parse_uuid(target_id, "target_id")
         target = await self._entity_repo.get(db, tid)
-        if (
-            target is None
-            or target.novel_id != novel_id
-            or target.status != "canonical"
-        ):
+        if target is None or target.novel_id != novel_id or target.status != "canonical":
             raise NotFoundError("Knowledge target not found in this novel")
         if target_type in typed_target_types and target.entity_type != target_type:
             raise ValidationError(

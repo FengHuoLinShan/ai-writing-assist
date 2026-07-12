@@ -6,10 +6,7 @@ from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 MIGRATION_PATH = (
-    BACKEND_ROOT
-    / "alembic"
-    / "versions"
-    / "20260710_asset_state_simplification.py"
+    BACKEND_ROOT / "alembic" / "versions" / "20260710_asset_state_simplification.py"
 )
 
 if str(BACKEND_ROOT) not in sys.path:

@@ -96,11 +96,7 @@ class WritingDraftRepository:
         PostgreSQL serializes concurrent adopters on this row. SQLite ignores
         ``FOR UPDATE`` in tests while preserving the same repository interface.
         """
-        stmt = (
-            select(WritingDraft)
-            .where(WritingDraft.id == draft_id)
-            .with_for_update()
-        )
+        stmt = select(WritingDraft).where(WritingDraft.id == draft_id).with_for_update()
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 

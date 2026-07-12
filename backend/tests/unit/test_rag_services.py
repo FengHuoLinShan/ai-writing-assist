@@ -245,15 +245,13 @@ class TestReranker:
             {"text": "片段一"},
             {"text": "片段二"},
         ]
-        with patch("modules.rag.reranker.LLMClient") as mock_client:
-            instance = mock_client.return_value
-            instance._settings.llm_model = "m"
-            instance.generate = AsyncMock(
-                return_value=MagicMock(content=json.dumps({"scores": [0.8]}))
-            )
+        instance = MagicMock(model_name="m")
+        instance.generate = AsyncMock(
+            return_value=MagicMock(content=json.dumps({"scores": [0.8]}))
+        )
 
-            # Act
-            result = await rerank("q", candidates)
+        # Act
+        result = await rerank("q", candidates, llm_client=instance)
 
         # Assert
         assert len(result) == 2
@@ -268,24 +266,20 @@ class TestReranker:
             [True],
         ],
     )
-    async def test_rerank_rejects_non_json_number_scores(self, scores):
+    async def test_rerank_propagates_non_json_number_scores(self, scores):
         # Arrange
         candidates = [
             {"text": "片段一"},
             {"text": "片段二"},
         ]
-        with patch("modules.rag.reranker.LLMClient") as mock_client:
-            instance = mock_client.return_value
-            instance._settings.llm_model = "m"
-            instance.generate = AsyncMock(
-                return_value=MagicMock(content=json.dumps({"scores": scores}))
-            )
+        instance = MagicMock(model_name="m")
+        instance.generate = AsyncMock(
+            return_value=MagicMock(content=json.dumps({"scores": scores}))
+        )
 
-            # Act
-            result = await rerank("q", candidates)
-
-        # Assert
-        assert result == [0.5, 0.5]
+        # Act / Assert
+        with pytest.raises(ValueError, match="scores entries"):
+            await rerank("q", candidates, llm_client=instance)
 
     @pytest.mark.asyncio
     async def test_rerank_truncates_extra_scores_to_trimmed_length(self):
@@ -294,15 +288,13 @@ class TestReranker:
             {"text": "片段一"},
             {"text": "片段二"},
         ]
-        with patch("modules.rag.reranker.LLMClient") as mock_client:
-            instance = mock_client.return_value
-            instance._settings.llm_model = "m"
-            instance.generate = AsyncMock(
-                return_value=MagicMock(content=json.dumps({"scores": [0.2, 0.4, 0.6]}))
-            )
+        instance = MagicMock(model_name="m")
+        instance.generate = AsyncMock(
+            return_value=MagicMock(content=json.dumps({"scores": [0.2, 0.4, 0.6]}))
+        )
 
-            # Act
-            result = await rerank("q", candidates)
+        # Act
+        result = await rerank("q", candidates, llm_client=instance)
 
         # Assert
         assert result == [0.2, 0.4]
@@ -311,15 +303,18 @@ class TestReranker:
     async def test_rerank_truncated_candidates_get_default_score(self):
         # Arrange
         candidates = [{"text": f"片段{i}"} for i in range(30)]
-        with patch("modules.rag.reranker.LLMClient") as mock_client:
-            instance = mock_client.return_value
-            instance._settings.llm_model = "m"
-            instance.generate = AsyncMock(
-                return_value=MagicMock(content=json.dumps({"scores": [1.0] * 24}))
-            )
+        instance = MagicMock(model_name="m")
+        instance.generate = AsyncMock(
+            return_value=MagicMock(content=json.dumps({"scores": [1.0] * 24}))
+        )
 
-            # Act
-            result = await rerank("q", candidates, max_candidates=24)
+        # Act
+        result = await rerank(
+            "q",
+            candidates,
+            llm_client=instance,
+            max_candidates=24,
+        )
 
         # Assert
         assert len(result) == 30
@@ -327,33 +322,29 @@ class TestReranker:
         assert all(s == 0.3 for s in result[24:])
 
     @pytest.mark.asyncio
-    async def test_rerank_llm_exception_returns_uniform_scores(self):
+    async def test_rerank_propagates_llm_exception(self):
         # Arrange
         candidates = [{"text": "片段"}]
-        with patch("modules.rag.reranker.LLMClient") as mock_client:
-            instance = mock_client.return_value
-            instance._settings.llm_model = "m"
-            instance.generate = AsyncMock(side_effect=RuntimeError("boom"))
+        instance = MagicMock(model_name="m")
+        error = RuntimeError("boom")
+        instance.generate = AsyncMock(side_effect=error)
 
-            # Act
-            result = await rerank("q", candidates)
-
-        # Assert
-        assert result == [0.5]
+        # Act / Assert
+        with pytest.raises(RuntimeError) as raised:
+            await rerank("q", candidates, llm_client=instance)
+        assert raised.value is error
 
     @pytest.mark.asyncio
     async def test_rerank_scores_clamped_to_0_1(self):
         # Arrange
         candidates = [{"text": "片段"}]
-        with patch("modules.rag.reranker.LLMClient") as mock_client:
-            instance = mock_client.return_value
-            instance._settings.llm_model = "m"
-            instance.generate = AsyncMock(
-                return_value=MagicMock(content=json.dumps({"scores": [-0.5, 1.5]}))
-            )
+        instance = MagicMock(model_name="m")
+        instance.generate = AsyncMock(
+            return_value=MagicMock(content=json.dumps({"scores": [-0.5, 1.5]}))
+        )
 
-            # Act
-            result = await rerank("q", candidates)
+        # Act
+        result = await rerank("q", candidates, llm_client=instance)
 
         # Assert: only first candidate exists
         assert result[0] == 0.0  # clamped
@@ -378,15 +369,18 @@ class TestReranker:
         c3 = SimpleNamespace(text="t3")
         scored = [(c1, 0.9), (c2, 0.8), (c3, 0.7)]
 
-        with patch("modules.rag.reranker.LLMClient") as mock_client:
-            instance = mock_client.return_value
-            instance._settings.llm_model = "m"
-            instance.generate = AsyncMock(
-                return_value=MagicMock(content=json.dumps({"scores": [0.9, 0.5, 0.8]}))
-            )
+        instance = MagicMock(model_name="m")
+        instance.generate = AsyncMock(
+            return_value=MagicMock(content=json.dumps({"scores": [0.9, 0.5, 0.8]}))
+        )
 
-            # Act
-            result = await rerank_results("q", scored, top_k=2)
+        # Act
+        result = await rerank_results(
+            "q",
+            scored,
+            top_k=2,
+            llm_client=instance,
+        )
 
         # Assert
         assert len(result) == 2

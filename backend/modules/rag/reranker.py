@@ -14,7 +14,6 @@ RAG 重排序器（可选模块）
 from __future__ import annotations
 
 import json
-import logging
 import math
 
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -22,8 +21,6 @@ from pydantic import BaseModel, ConfigDict, field_validator
 from infrastructure.llm.agent_step_harness import run_managed_generate
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest
-
-logger = logging.getLogger(__name__)
 
 _RERANK_PROMPT = """你是一个小说创作助手的检索质量评估器。
 
@@ -65,6 +62,7 @@ async def rerank(
     query: str,
     candidates: list[dict],
     *,
+    llm_client: LLMClient | None = None,
     model: str | None = None,
     max_candidates: int = 24,
 ) -> list[float]:
@@ -91,42 +89,38 @@ async def rerank(
 
     from infrastructure.llm.schemas import LLMMessage
 
-    client = LLMClient()
+    if llm_client is None:
+        raise ValueError("rerank requires a project-scoped llm_client")
 
-    try:
-        request = LLMCallRequest(
-            model=model or client._settings.llm_model,
-            messages=[
-                LLMMessage(role="system", content=_RERANK_PROMPT),
-                LLMMessage(role="user", content=user_prompt),
-            ],
-            temperature=0.1,
-            max_tokens=512,
-            response_format={"type": "json_object"},
-        )
+    request = LLMCallRequest(
+        model=model or llm_client.model_name,
+        messages=[
+            LLMMessage(role="system", content=_RERANK_PROMPT),
+            LLMMessage(role="user", content=user_prompt),
+        ],
+        temperature=0.1,
+        max_tokens=512,
+        response_format={"type": "json_object"},
+    )
 
-        response = await run_managed_generate(
-            client,
-            request,
-            step_name="rag.reranker.generate",
-        )
-        data = json.loads(response.content)
-        parsed = _RerankerResponse.model_validate(data)
+    response = await run_managed_generate(
+        llm_client,
+        request,
+        step_name="rag.reranker.generate",
+    )
+    data = json.loads(response.content)
+    parsed = _RerankerResponse.model_validate(data)
 
-        # 补齐到原始长度
-        padded = parsed.scores[: len(trimmed)]
-        padded.extend([0.0] * (len(trimmed) - len(padded)))
-        padded = [max(0.0, min(1.0, s)) for s in padded]
+    # 补齐到原始长度
+    padded = parsed.scores[: len(trimmed)]
+    padded.extend([0.0] * (len(trimmed) - len(padded)))
+    padded = [max(0.0, min(1.0, s)) for s in padded]
 
-        # 对于被截断的候选，给默认评分 0.3
-        if len(trimmed) < len(candidates):
-            padded.extend([0.3] * (len(candidates) - len(trimmed)))
+    # 对于被截断的候选，给默认评分 0.3
+    if len(trimmed) < len(candidates):
+        padded.extend([0.3] * (len(candidates) - len(trimmed)))
 
-        return padded
-
-    except Exception:
-        logger.exception("Reranking failed, returning uniform scores")
-        return [0.5] * len(candidates)
+    return padded
 
 
 async def rerank_results(
@@ -134,6 +128,7 @@ async def rerank_results(
     scored_chunks: list[tuple],
     *,
     top_k: int = 12,
+    llm_client: LLMClient | None = None,
     model: str | None = None,
 ) -> list[tuple]:
     """对混合检索结果进行 LLM 精排，返回重排后的 top_k。
@@ -154,7 +149,12 @@ async def rerank_results(
         {"text": chunk.text, "original_score": score} for chunk, score in scored_chunks
     ]
 
-    rerank_scores = await rerank(query, candidates, model=model)
+    rerank_scores = await rerank(
+        query,
+        candidates,
+        llm_client=llm_client,
+        model=model,
+    )
 
     # 融合原始评分与 LLM 精排评分
     reranked: list[tuple] = []

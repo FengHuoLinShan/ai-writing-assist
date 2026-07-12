@@ -45,6 +45,7 @@ async def handle_scene_auto_extraction(db, task) -> dict[str, Any]:
     )
     return result
 
+
 @task_handler("world_object_auto_extraction")
 async def handle_world_object_auto_extraction(db, task) -> dict[str, Any]:
     """处理世界对象与别名/关系自动提取任务 — Phase2a/2b。"""

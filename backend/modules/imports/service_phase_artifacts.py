@@ -199,9 +199,7 @@ def phase2_checkpoint_summary(checkpoints: dict[str, Any] | None) -> dict[str, A
     alias_scenes = phase2b.get("scenes") if isinstance(phase2b, dict) else []
     return {
         "phase2": _status_counts(scenes if isinstance(scenes, list) else []),
-        "phase2b": _status_counts(
-            alias_scenes if isinstance(alias_scenes, list) else []
-        ),
+        "phase2b": _status_counts(alias_scenes if isinstance(alias_scenes, list) else []),
     }
 
 
@@ -293,6 +291,7 @@ def _compact_quality_stats(stats: dict[str, Any]) -> dict[str, Any]:
         compact[key] = value
     return compact
 
+
 def _sanitize(value: Any, *, depth: int = 0) -> Any:
     if depth > 8:
         return "<truncated>"
@@ -335,9 +334,7 @@ def _record_artifact_progress(
     errors = artifact.get("errors") or []
     status = str(artifact.get("status") or "unknown")
     event_level = (
-        "warning"
-        if status == "degraded"
-        else ("error" if status == "failed" else "info")
+        "warning" if status == "degraded" else ("error" if status == "failed" else "info")
     )
 
     record_progress_event(
@@ -370,9 +367,7 @@ def _record_artifact_progress(
             ok=bool(coverage.get("coverage_complete")),
             severity="error",
             message=(
-                "章节覆盖完整"
-                if coverage.get("coverage_complete")
-                else "章节覆盖缺失"
+                "章节覆盖完整" if coverage.get("coverage_complete") else "章节覆盖缺失"
             ),
             details={
                 "missing_chapters": coverage.get("missing_chapters") or [],

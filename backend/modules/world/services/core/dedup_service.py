@@ -456,9 +456,11 @@ class EntityDedupService:
 
         # 校验 candidate 必须是 draft/candidate
         # target 非 canonical 时由后置逻辑自动提升，不再前置拦截
-        allowed_source_statuses = ("draft", "candidate", "canonical") if (
-            allow_canonical_source
-        ) else ("draft", "candidate")
+        allowed_source_statuses = (
+            ("draft", "candidate", "canonical")
+            if (allow_canonical_source)
+            else ("draft", "candidate")
+        )
         if candidate.status not in allowed_source_statuses:
             raise DomainValidationError(
                 (

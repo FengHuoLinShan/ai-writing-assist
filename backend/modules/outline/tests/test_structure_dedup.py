@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from unittest import mock
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,7 +49,9 @@ async def test_structure_dedup_suggests_exact_duplicate_thread(
         start_chapter=2,
     )
 
-    result = await OutlineStructureDedupService().suggest(
+    result = await OutlineStructureDedupService(
+        llm_client=mock.MagicMock(model_name="test-model")
+    ).suggest(
         db_session,
         novel_id=test_project_id,
         asset_types=["plot_thread"],

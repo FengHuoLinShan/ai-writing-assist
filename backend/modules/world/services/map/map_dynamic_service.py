@@ -97,7 +97,6 @@ class MapDynamicFactService(MapDynamicHelperMixin):
             entity_type,
         )
 
-
     async def list_observations(
         self,
         db: AsyncSession,
@@ -109,13 +108,13 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         limit: int = 100,
     ) -> MapObservationListResponse:
         return await self._observations.list_observations(
-                db,
-                novel_id,
-                map_id=map_id,
-                review_state=review_state,
-                skip=skip,
-                limit=limit,
-            )
+            db,
+            novel_id,
+            map_id=map_id,
+            review_state=review_state,
+            skip=skip,
+            limit=limit,
+        )
 
     async def count_deep_import_observations_by_workflow(
         self,
@@ -150,11 +149,11 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         data: MapObservationCreate,
     ) -> MapObservationResponse:
         return await self._observations.create_observation(
-                db,
-                novel_id,
-                map_id=map_id,
-                data=data,
-            )
+            db,
+            novel_id,
+            map_id=map_id,
+            data=data,
+        )
 
     async def update_observation_review(
         self,
@@ -166,12 +165,12 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         data: MapObservationReviewUpdate,
     ) -> MapObservationResponse:
         return await self._observations.update_observation_review(
-                db,
-                novel_id,
-                map_id=map_id,
-                observation_id=observation_id,
-                data=data,
-            )
+            db,
+            novel_id,
+            map_id=map_id,
+            observation_id=observation_id,
+            data=data,
+        )
 
     async def ignore_observation(
         self,
@@ -182,11 +181,11 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         observation_id: str,
     ) -> MapObservationResponse:
         return await self._observations.ignore_observation(
-                db,
-                novel_id,
-                map_id=map_id,
-                observation_id=observation_id,
-            )
+            db,
+            novel_id,
+            map_id=map_id,
+            observation_id=observation_id,
+        )
 
     async def confirm_observation(
         self,
@@ -197,11 +196,11 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         observation_id: str,
     ) -> MapFactResponse:
         return await self._observations.confirm_observation(
-                db,
-                novel_id,
-                map_id=map_id,
-                observation_id=observation_id,
-            )
+            db,
+            novel_id,
+            map_id=map_id,
+            observation_id=observation_id,
+        )
 
     async def batch_review_observations(
         self,
@@ -212,11 +211,11 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         data: MapObservationBatchReviewRequest,
     ) -> MapObservationBatchReviewResponse:
         return await self._observations.batch_review_observations(
-                db,
-                novel_id,
-                map_id=map_id,
-                data=data,
-            )
+            db,
+            novel_id,
+            map_id=map_id,
+            data=data,
+        )
 
     async def create_observation_from_delta_event(
         self,
@@ -229,13 +228,13 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         delta_log_id: str | None = None,
     ) -> MapObservationResponse:
         return await self._observations.create_observation_from_delta_event(
-                db,
-                novel_id,
-                event=event,
-                scene_index=scene_index,
-                context_snapshot_id=context_snapshot_id,
-                delta_log_id=delta_log_id,
-            )
+            db,
+            novel_id,
+            event=event,
+            scene_index=scene_index,
+            context_snapshot_id=context_snapshot_id,
+            delta_log_id=delta_log_id,
+        )
 
     async def list_facts(
         self,
@@ -248,13 +247,13 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         limit: int = 100,
     ) -> MapFactListResponse:
         return await self._facts.list_facts(
-                db,
-                novel_id,
-                map_id=map_id,
-                fact_status=fact_status,
-                skip=skip,
-                limit=limit,
-            )
+            db,
+            novel_id,
+            map_id=map_id,
+            fact_status=fact_status,
+            skip=skip,
+            limit=limit,
+        )
 
     async def update_fact_status(
         self,
@@ -266,12 +265,12 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         data: MapFactStatusUpdate,
     ) -> MapFactResponse:
         return await self._facts.update_fact_status(
-                db,
-                novel_id,
-                map_id=map_id,
-                fact_id=fact_id,
-                data=data,
-            )
+            db,
+            novel_id,
+            map_id=map_id,
+            fact_id=fact_id,
+            data=data,
+        )
 
     async def get_open_target(
         self,
@@ -282,11 +281,11 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         focus_entity_id: str | None = None,
     ) -> MapOpenTarget:
         return await self._open_targets.get_open_target(
-                db,
-                novel_id,
-                scene_id=scene_id,
-                focus_entity_id=focus_entity_id,
-            )
+            db,
+            novel_id,
+            scene_id=scene_id,
+            focus_entity_id=focus_entity_id,
+        )
 
     async def run_batch_action(
         self,
@@ -379,13 +378,13 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         focus_item_id: str | None = None,
     ) -> MapDashboardResponse:
         return await self._dashboard.get_dashboard(
-                db,
-                novel_id,
-                map_id=map_id,
-                scene_id=scene_id,
-                focus_entity_id=focus_entity_id,
-                focus_item_id=focus_item_id,
-            )
+            db,
+            novel_id,
+            map_id=map_id,
+            scene_id=scene_id,
+            focus_entity_id=focus_entity_id,
+            focus_item_id=focus_item_id,
+        )
 
     async def get_playback(
         self,
@@ -398,10 +397,10 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         include_candidates: bool = True,
     ) -> MapPlaybackResponse:
         return await self._playback.get_playback(
-                db,
-                novel_id,
-                map_id=map_id,
-                scene_id=scene_id,
-                focus_entity_id=focus_entity_id,
-                include_candidates=include_candidates,
-            )
+            db,
+            novel_id,
+            map_id=map_id,
+            scene_id=scene_id,
+            focus_entity_id=focus_entity_id,
+            include_candidates=include_candidates,
+        )

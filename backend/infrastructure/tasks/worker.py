@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from time import monotonic
 from typing import Any
@@ -28,6 +29,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bootstrap import register_container_services
 from core.config import get_settings
 from core.database import DatabaseManager, get_manager
+from infrastructure.llm.agent_step_harness import (
+    managed_llm_provenance_scope,
+    merge_managed_llm_provenance,
+)
+from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
 from shared.constants import (
@@ -68,12 +74,17 @@ def _public_task_error_message(exc: Exception) -> str:
         )
     ):
         return _TASK_DB_ERROR_MESSAGE
-    return raw[:1000]
+    return redact_diagnostic(raw, limit=1000)
 
 
 def _register_container_services() -> None:
     """Register worker process-singleton DI services without replacing objects."""
     register_container_services(ignore_existing=True)
+
+
+def _task_result_snapshot(task: AsyncTask) -> dict[str, Any]:
+    result = task.result
+    return dict(result) if isinstance(result, Mapping) else {}
 
 
 class TaskWorker:
@@ -233,7 +244,10 @@ class TaskWorker:
             except asyncio.CancelledError:
                 logger.info("Task runner cancelled")
             except Exception as exc:
-                logger.error("Task runner failed unexpectedly: %s", exc, exc_info=True)
+                logger.error(
+                    "Task runner failed unexpectedly: %s",
+                    _public_task_error_message(exc),
+                )
 
     async def _claim_task(self, session: AsyncSession) -> AsyncTask | None:
         """使用 FOR UPDATE SKIP LOCKED 领取一个 pending 任务"""
@@ -262,61 +276,87 @@ class TaskWorker:
         heartbeat_task = asyncio.create_task(self._heartbeat_loop(task.id))
         self._heartbeat_tasks[task.id] = heartbeat_task
 
-        try:
-            handler = self._registry.get_handler(task.task_type)
-            if handler is None:
-                raise ValueError(
-                    f"No handler registered for task type: {task.task_type}. "
-                    f"Registered types: {self._registry.registered_types}"
+        with managed_llm_provenance_scope() as managed_llm_steps:
+            try:
+                handler = self._registry.get_handler(task.task_type)
+                if handler is None:
+                    raise ValueError(
+                        f"No handler registered for task type: {task.task_type}. "
+                        f"Registered types: {self._registry.registered_types}"
+                    )
+
+                logger.info(
+                    "Executing task %s (type=%s) with handler %s",
+                    task.id,
+                    task.task_type,
+                    handler.__name__,
                 )
 
-            logger.info(
-                "Executing task %s (type=%s) with handler %s",
-                task.id,
-                task.task_type,
-                handler.__name__,
-            )
+                # 执行任务处理器
+                result = await handler(task=task, db=session)
 
-            # 执行任务处理器
-            result = await handler(task=task, db=session)
+                # 更新任务为完成
+                result_data = (
+                    result if isinstance(result, dict) else {"result": str(result)}
+                )
+                if managed_llm_steps:
+                    result_data = merge_managed_llm_provenance(
+                        result_data,
+                        managed_llm_steps,
+                    )
+                task.mark_done(result_data)
+                await session.commit()
+                self._stats["succeeded"] += 1
+                logger.info("Task completed: %s (type=%s)", task.id, task.task_type)
 
-            # 更新任务为完成
-            result_data = result if isinstance(result, dict) else {"result": str(result)}
-            task.mark_done(result_data)
-            await session.commit()
-            self._stats["succeeded"] += 1
-            logger.info("Task completed: %s (type=%s)", task.id, task.task_type)
+            except asyncio.CancelledError:
+                failure_result = (
+                    merge_managed_llm_provenance(
+                        _task_result_snapshot(task),
+                        managed_llm_steps,
+                    )
+                    if managed_llm_steps
+                    else None
+                )
+                await session.rollback()
+                if failure_result is not None:
+                    task.result = failure_result
+                task.mark_cancelled()
+                await session.commit()
+                self._stats["cancelled"] += 1
+                logger.info("Task cancelled: %s (type=%s)", task.id, task.task_type)
 
-        except asyncio.CancelledError:
-            await session.rollback()
-            task.mark_cancelled()
-            await session.commit()
-            self._stats["cancelled"] += 1
-            logger.info("Task cancelled: %s (type=%s)", task.id, task.task_type)
+            except Exception as e:
+                failure_result = (
+                    merge_managed_llm_provenance(
+                        _task_result_snapshot(task),
+                        managed_llm_steps,
+                    )
+                    if managed_llm_steps
+                    else None
+                )
+                await session.rollback()
+                if failure_result is not None:
+                    task.result = failure_result
+                task.mark_failed(_public_task_error_message(e))
+                await session.commit()
+                self._stats["failed"] += 1
+                logger.error(
+                    "Task failed: %s (type=%s) — %s",
+                    task.id,
+                    task.task_type,
+                    _public_task_error_message(e),
+                )
 
-        except Exception as e:
-            await session.rollback()
-            task.mark_failed(_public_task_error_message(e))
-            await session.commit()
-            self._stats["failed"] += 1
-            logger.error(
-                "Task failed: %s (type=%s) — %s: %s",
-                task.id,
-                task.task_type,
-                type(e).__name__,
-                e,
-                exc_info=True,
-            )
-
-        finally:
-            self._running_task_ids.discard(task.id)
-            heartbeat_task = self._heartbeat_tasks.pop(task.id, None)
-            if heartbeat_task is not None:
-                heartbeat_task.cancel()
-                try:
-                    await heartbeat_task
-                except asyncio.CancelledError:
-                    pass
+            finally:
+                self._running_task_ids.discard(task.id)
+                heartbeat_task = self._heartbeat_tasks.pop(task.id, None)
+                if heartbeat_task is not None:
+                    heartbeat_task.cancel()
+                    try:
+                        await heartbeat_task
+                    except asyncio.CancelledError:
+                        pass
 
     async def _heartbeat_loop(self, task_id: Any) -> None:
         """定期更新心跳（使用独立 session，避免与主执行共享）"""
@@ -463,8 +503,7 @@ class TaskWorker:
             recovery_summary = {
                 "reason": "heartbeat_timeout",
                 "message": (
-                    "Deep import worker heartbeat timed out; "
-                    "user recovery required."
+                    "Deep import worker heartbeat timed out; user recovery required."
                 ),
                 "current_phase": progress_snapshot.get("current_phase")
                 if isinstance(progress_snapshot, dict)
@@ -490,9 +529,7 @@ class TaskWorker:
 
             task.result = {**result_data, **recovery_flags}
             task.meta = {**meta_data, **recovery_flags}
-            task.error_message = (
-                "Task interrupted: heartbeat timeout; recovery required"
-            )
+            task.error_message = "Task interrupted: heartbeat timeout; recovery required"
             marked += 1
 
         return marked

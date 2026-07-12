@@ -381,9 +381,7 @@ class PlotStructurePersister:
                 "id": str(thread_resp.id),
                 "name": thread_resp.name,
                 "thread_type": thread_resp.thread_type,
-                "needs_review": bool(
-                    thread_data.provenance_meta.get("needs_review")
-                ),
+                "needs_review": bool(thread_data.provenance_meta.get("needs_review")),
                 "provenance_meta": dict(thread_data.provenance_meta),
             }
             for thread_resp, thread_data in zip(
@@ -498,9 +496,7 @@ class PlotStructurePersister:
                 "id": str(arc_resp.id),
                 "title": arc_resp.title,
                 "arc_index": arc_resp.arc_index,
-                "needs_review": bool(
-                    arc_data.provenance_meta.get("needs_review")
-                ),
+                "needs_review": bool(arc_data.provenance_meta.get("needs_review")),
                 "provenance_meta": dict(arc_data.provenance_meta),
             }
             for arc_resp, arc_data in zip(
@@ -556,9 +552,7 @@ class PlotStructurePersister:
                     {
                         "id": str(plan.id),
                         "name": plan.name,
-                        "needs_review": bool(
-                            payload.provenance_meta.get("needs_review")
-                        ),
+                        "needs_review": bool(payload.provenance_meta.get("needs_review")),
                         "provenance_meta": dict(payload.provenance_meta),
                     }
                     for plan, payload in zip(plans, foreshadowing_payloads)
@@ -567,9 +561,7 @@ class PlotStructurePersister:
                 logger.warning("Failed to create foreshadowing batch: %s", exc)
                 if strict:
                     raise
-            if strict and len(created_foreshadowing) != len(
-                foreshadowing_payloads
-            ):
+            if strict and len(created_foreshadowing) != len(foreshadowing_payloads):
                 raise RuntimeError("foreshadowing batch persistence was incomplete")
 
         created_reveals: list[dict] = []
@@ -649,9 +641,7 @@ class PlotStructurePersister:
                     {
                         "id": str(plan.id),
                         "target_name": target_name,
-                        "needs_review": bool(
-                            payload.provenance_meta.get("needs_review")
-                        ),
+                        "needs_review": bool(payload.provenance_meta.get("needs_review")),
                         "provenance_meta": dict(payload.provenance_meta),
                     }
                     for plan, target_name, payload in zip(

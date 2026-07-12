@@ -15,7 +15,7 @@ from shared.deep_import_settings import (
 PHASE0_TARGET_INPUT_CHARS = 72_000
 PHASE0_MAX_CHAPTERS_PER_WINDOW = 20
 PHASE0_RIGHT_OVERLAP_CHAPTERS = 2
-PHASE0_MAX_TOKENS_PER_INPUT_CHAR = 0.36
+PHASE0_MAX_TOKENS_PER_INPUT_CHAR = 1.0
 PHASE0_MIN_MAX_TOKENS = 13_000
 PHASE0_MAX_MAX_TOKENS = 32_768
 
@@ -186,9 +186,7 @@ def _build_windows(
         covered_end = chapter_indices[-1]
         is_last_window = covered_end >= end_chapter
         owned_end = (
-            end_chapter
-            if is_last_window
-            else max(covered_start, covered_end - overlap)
+            end_chapter if is_last_window else max(covered_start, covered_end - overlap)
         )
         owned_chapter_indices = [
             index
@@ -225,9 +223,7 @@ def _window_max_tokens(
     input_chars: int,
     project_settings: dict[str, Any] | None = None,
 ) -> int:
-    estimated = _round_half_up(
-        input_chars * _max_tokens_per_input_char(project_settings)
-    )
+    estimated = _round_half_up(input_chars * _max_tokens_per_input_char(project_settings))
     return _clamp(
         estimated,
         _min_max_tokens(project_settings),

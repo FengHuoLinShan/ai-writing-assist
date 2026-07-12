@@ -220,13 +220,17 @@ async def test_record_events_replaces_chapter_events_without_stale_tail(
     from modules.memory.models import MemoryEvent
 
     rows = (
-        await db_with_project.execute(
-            select(MemoryEvent).where(
-                MemoryEvent.novel_id == sample_novel_id,
-                MemoryEvent.chapter_index == 3,
+        (
+            await db_with_project.execute(
+                select(MemoryEvent).where(
+                    MemoryEvent.novel_id == sample_novel_id,
+                    MemoryEvent.chapter_index == 3,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     assert len(rows) == 1
     assert rows[0].sequence == 1
@@ -234,8 +238,7 @@ async def test_record_events_replaces_chapter_events_without_stale_tail(
 
 
 @pytest.mark.asyncio
-async def test_record_events_concurrent_calls_keep_unique_sequences(
-) -> None:
+async def test_record_events_concurrent_calls_keep_unique_sequences() -> None:
     from core.base import Base
     from modules.memory.models import MemoryEvent
     from modules.project.models import Project
@@ -271,13 +274,17 @@ async def test_record_events_concurrent_calls_keep_unique_sequences(
         await asyncio.gather(write_events("a"), write_events("b"))
         async with factory() as session:
             rows = (
-                await session.execute(
-                    select(MemoryEvent).where(
-                        MemoryEvent.novel_id == novel_id,
-                        MemoryEvent.chapter_index == 5,
+                (
+                    await session.execute(
+                        select(MemoryEvent).where(
+                            MemoryEvent.novel_id == novel_id,
+                            MemoryEvent.chapter_index == 5,
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
 
         assert sorted(row.sequence for row in rows) == [1, 2]
     finally:
@@ -605,8 +612,7 @@ class TestRecordEvents:
                         "event_type": "entity_created",
                         "snapshot_after": {
                             "name": "A",
-                            "content": sentinel
-                            + ("x" * MAX_MEMORY_EVENT_PAYLOAD_CHARS),
+                            "content": sentinel + ("x" * MAX_MEMORY_EVENT_PAYLOAD_CHARS),
                         },
                     }
                 ],
@@ -1169,9 +1175,7 @@ async def test_continuity_evidence_for_writing_ignores_world_fallback_without_hi
 
     character_id_text = str(uuid.uuid4())
 
-    async def fake_get_full_state(
-        db: AsyncSession, novel_id: str
-    ) -> dict[str, object]:
+    async def fake_get_full_state(db: AsyncSession, novel_id: str) -> dict[str, object]:
         return {
             "entities": [],
             "relations": [],

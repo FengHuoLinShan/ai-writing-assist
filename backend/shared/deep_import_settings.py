@@ -7,6 +7,7 @@ from copy import deepcopy
 from typing import Any
 
 DEEP_IMPORT_SETTINGS_KEY = "deep_import"
+DEEP_IMPORT_FROZEN_SETTINGS_KEY = "_deep_import_settings_frozen"
 
 DEEP_IMPORT_DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
     "global": {
@@ -17,7 +18,7 @@ DEEP_IMPORT_DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
         "target_input_chars": 72_000,
         "max_chapters_per_window": 20,
         "right_overlap_chapters": 2,
-        "max_tokens_per_input_char": 0.36,
+        "max_tokens_per_input_char": 1.0,
         "min_max_tokens": 13_000,
         "max_max_tokens": 32_768,
         # Legacy prefetch-only fields. Hidden from the normal settings UI.
@@ -36,16 +37,20 @@ DEEP_IMPORT_DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
         "reducer_max_tokens": 128,
         "reducer_timeout_seconds": 45,
         "compact_text_limit": 180,
-        "enrich_max_tokens": 4096,
+        "enrich_max_tokens": 32_768,
         "enrich_timeout_seconds": 300,
         "use_llm": None,
     },
     "phase2": {
         "world_timeout_seconds": 900,
-        "world_min_max_tokens": 24_576,
+        "world_min_max_tokens": 32_768,
         "world_max_max_tokens": 32_768,
-        "world_max_tokens_per_source_char": 0.36,
+        "world_max_tokens_per_source_char": 1.0,
         "world_window_concurrency": 20,
+        "parallel_scene_concurrency": 20,
+        "parallel_scene_max_tokens": 32_768,
+        "parallel_provider_timeout_seconds": 240,
+        "parallel_llm_timeout_seconds": 270,
         "batch_size_scenes": 12,
         "batch_concurrency": 6,
         "boundary_scenes": 2,
@@ -62,6 +67,7 @@ DEEP_IMPORT_DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
     },
     "phase3": {
         "structure_timeout_seconds": 300,
+        "structure_max_tokens": 32_768,
     },
 }
 
@@ -92,6 +98,10 @@ DEEP_IMPORT_SETTING_LIMITS: dict[tuple[str, str], tuple[float, float]] = {
     ("phase2", "world_max_max_tokens"): (1, 200_000),
     ("phase2", "world_max_tokens_per_source_char"): (0.05, 2),
     ("phase2", "world_window_concurrency"): (1, 100),
+    ("phase2", "parallel_scene_concurrency"): (1, 64),
+    ("phase2", "parallel_scene_max_tokens"): (1, 200_000),
+    ("phase2", "parallel_provider_timeout_seconds"): (1, 1800),
+    ("phase2", "parallel_llm_timeout_seconds"): (1, 1800),
     ("phase2", "batch_size_scenes"): (1, 200),
     ("phase2", "batch_concurrency"): (1, 100),
     ("phase2", "boundary_scenes"): (1, 20),
@@ -104,6 +114,7 @@ DEEP_IMPORT_SETTING_LIMITS: dict[tuple[str, str], tuple[float, float]] = {
     ("phase2", "alias_relation_entity_index_fallback_limit"): (1, 1000),
     ("phase2", "postprocess_timeout_seconds"): (0.1, 3600),
     ("phase3", "structure_timeout_seconds"): (1, 7200),
+    ("phase3", "structure_max_tokens"): (1, 200_000),
 }
 
 _BOOL_SETTINGS = {
@@ -152,6 +163,45 @@ def deep_import_settings_for_response(
     return clean_deep_import_settings(project_settings.get(DEEP_IMPORT_SETTINGS_KEY))
 
 
+def materialize_effective_deep_import_settings(
+    project_settings: dict[str, Any] | None,
+) -> dict[str, dict[str, Any]]:
+    """Freeze project/default/env precedence into explicit task settings."""
+
+    settings = deep_import_settings_for_response(project_settings)
+    project_view = {DEEP_IMPORT_SETTINGS_KEY: settings}
+    effective = deep_import_defaults()
+    for phase, phase_defaults in DEEP_IMPORT_DEFAULT_SETTINGS.items():
+        for key, default in phase_defaults.items():
+            env_name = _deep_import_env_name(phase, key)
+            if (phase, key) in _BOOL_SETTINGS:
+                value = deep_import_bool_setting(
+                    project_view,
+                    phase,
+                    key,
+                    env_name=env_name,
+                    default=default,
+                )
+            elif (phase, key) in _FLOAT_SETTINGS:
+                value = deep_import_float_setting(
+                    project_view,
+                    phase,
+                    key,
+                    env_name=env_name,
+                    default=float(default),
+                )
+            else:
+                value = deep_import_int_setting(
+                    project_view,
+                    phase,
+                    key,
+                    env_name=env_name,
+                    default=int(default),
+                )
+            effective[phase][key] = value
+    return effective
+
+
 def deep_import_int_setting(
     project_settings: dict[str, Any] | None,
     phase: str,
@@ -160,7 +210,9 @@ def deep_import_int_setting(
     env_name: str,
     default: int,
 ) -> int:
-    env_value = _int_from_env(env_name)
+    env_value = (
+        None if _settings_are_frozen(project_settings) else _int_from_env(env_name)
+    )
     if env_value is not None and _within_limits(phase, key, env_value):
         return env_value
     value = _project_setting(project_settings, phase, key, default)
@@ -179,7 +231,9 @@ def deep_import_float_setting(
     env_name: str,
     default: float,
 ) -> float:
-    env_value = _float_from_env(env_name)
+    env_value = (
+        None if _settings_are_frozen(project_settings) else _float_from_env(env_name)
+    )
     if env_value is not None and _within_limits(phase, key, env_value):
         return env_value
     value = _project_setting(project_settings, phase, key, default)
@@ -198,7 +252,9 @@ def deep_import_bool_setting(
     env_name: str,
     default: bool | None,
 ) -> bool | None:
-    env_value = _bool_from_env(env_name)
+    env_value = (
+        None if _settings_are_frozen(project_settings) else _bool_from_env(env_name)
+    )
     if env_value is not None:
         return env_value
     value = _project_setting(project_settings, phase, key, default)
@@ -215,6 +271,18 @@ def _project_setting(
 ) -> Any:
     settings = deep_import_settings_for_response(project_settings)
     return settings.get(phase, {}).get(key, default)
+
+
+def _settings_are_frozen(project_settings: dict[str, Any] | None) -> bool:
+    return bool(
+        isinstance(project_settings, dict)
+        and project_settings.get(DEEP_IMPORT_FROZEN_SETTINGS_KEY) is True
+    )
+
+
+def _deep_import_env_name(phase: str, key: str) -> str:
+    prefix = "DEEP_IMPORT" if phase == "global" else phase.upper()
+    return f"{prefix}_{key.upper()}"
 
 
 class _Invalid:

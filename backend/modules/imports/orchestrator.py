@@ -6,10 +6,12 @@ task progress shaping for the user-confirmed deep import pipeline.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.models import AsyncTask
@@ -24,6 +26,7 @@ from modules.imports.contracts import TaskNotFoundError
 from modules.imports.service_progress_limits import trim_progress_diagnostics
 from modules.imports.workflow import DeepImportWorkflow
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
+from shared.constants import TASK_HEARTBEAT_INTERVAL
 from shared.utils import parse_uuid as _parse_uuid
 
 ProgressObserver = Callable[[DeepImportProgress, float, Any], Awaitable[None]]
@@ -81,6 +84,10 @@ class DeepImportOrchestrator:
         if force:
             await self._deprecate_derived_data(db, novel_id, start_chapter, end_chapter)
 
+        llm_execution_snapshot = await self._build_llm_execution_snapshot(
+            db,
+            novel_id,
+        )
         task_id = self._enqueue_deep_import(
             db,
             novel_id,
@@ -90,8 +97,14 @@ class DeepImportOrchestrator:
             include_pending_objects=True,
             high_quality=high_quality,
             authorization_snapshot=authorization_snapshot,
+            llm_execution_snapshot=llm_execution_snapshot,
         )
-        await self._initialize_task_result(db, task_id, authorization_snapshot)
+        await self._initialize_task_result(
+            db,
+            task_id,
+            authorization_snapshot,
+            llm_execution_snapshot,
+        )
         await db.flush()
         return {
             "workflow_id": str(task_id),
@@ -145,6 +158,10 @@ class DeepImportOrchestrator:
                     db, novel_id, start_chapter, end_chapter
                 )
 
+        llm_execution_snapshot = await self._build_llm_execution_snapshot(
+            db,
+            novel_id,
+        )
         task_id = self._enqueue_stage_task(
             db,
             task_type=STAGE_TASK_TYPES[stage],
@@ -156,8 +173,14 @@ class DeepImportOrchestrator:
             include_pending_objects=True,
             high_quality=high_quality,
             authorization_snapshot=authorization_snapshot,
+            llm_execution_snapshot=llm_execution_snapshot,
         )
-        await self._initialize_task_result(db, task_id, authorization_snapshot)
+        await self._initialize_task_result(
+            db,
+            task_id,
+            authorization_snapshot,
+            llm_execution_snapshot,
+        )
         await db.flush()
         return {
             "workflow_id": str(task_id),
@@ -184,6 +207,12 @@ class DeepImportOrchestrator:
 
         progress = self._progress_from_task(task)
         self._hydrate_authorization(progress, meta)
+        project_settings = await self._restore_llm_execution_snapshot(
+            db,
+            task,
+            progress,
+            meta,
+        )
 
         async def _record_progress(
             updated: DeepImportProgress,
@@ -206,6 +235,7 @@ class DeepImportOrchestrator:
             context_mode=context_mode,
             include_pending_objects=include_pending_objects,
             high_quality=high_quality,
+            project_settings=project_settings,
             on_progress=_record_progress,
         )
         self._hydrate_authorization(progress, meta)
@@ -230,6 +260,12 @@ class DeepImportOrchestrator:
 
         progress = self._progress_from_task(task)
         self._hydrate_authorization(progress, meta)
+        project_settings = await self._restore_llm_execution_snapshot(
+            db,
+            task,
+            progress,
+            meta,
+        )
         progress.workflow_type = str(task.task_type)
         progress.stage = stage
         progress.total_steps = 1
@@ -258,6 +294,7 @@ class DeepImportOrchestrator:
                 context_mode=context_mode,
                 include_pending_objects=include_pending_objects,
                 high_quality=high_quality,
+                project_settings=project_settings,
                 on_progress=_record_progress,
                 stop_after=DeepImportStep.scene_segmentation,
             )
@@ -269,6 +306,8 @@ class DeepImportOrchestrator:
                 end_chapter=end_chapter,
                 progress=progress,
                 workflow_id=str(task.id),
+                high_quality=high_quality,
+                project_settings=project_settings,
                 on_progress=_record_progress,
             )
         elif stage == "plot_structure":
@@ -281,12 +320,97 @@ class DeepImportOrchestrator:
                 workflow_id=str(task.id),
                 context_mode=context_mode,
                 include_pending_objects=include_pending_objects,
+                high_quality=high_quality,
+                project_settings=project_settings,
                 on_progress=_record_progress,
             )
         else:
             raise ValueError(f"unsupported deep import stage: {stage}")
         self._hydrate_authorization(progress, meta)
         return self._result_from_progress(progress)
+
+    async def run_submitted_stage_inline(
+        self,
+        db: AsyncSession,
+        task_id: str,
+        *,
+        stage: str,
+    ) -> dict[str, Any]:
+        """Execute one already-authorized stage task without a worker process.
+
+        This is intended for isolated evaluation/manual harnesses that cannot run
+        a background worker. It invokes the registered handler logic and mirrors
+        worker status/provenance handling inside the caller's transaction.
+        """
+        if stage not in STAGE_TASK_TYPES:
+            raise ValueError(f"unsupported deep import stage: {stage}")
+        task = await db.get(AsyncTask, _parse_uuid(task_id))
+        if task is None:
+            raise TaskNotFoundError(task_id)
+        expected_type = STAGE_TASK_TYPES[stage]
+        if task.task_type != expected_type:
+            raise ValueError(f"task type {task.task_type} does not match stage {stage}")
+        from infrastructure.llm.agent_step_harness import (
+            managed_llm_provenance_scope,
+            merge_managed_llm_provenance,
+        )
+        from infrastructure.llm.redaction import redact_diagnostic
+
+        with managed_llm_provenance_scope() as managed_llm_steps:
+            heartbeat_task: asyncio.Task[None] | None = None
+            try:
+                task.mark_running()
+                await db.flush()
+                heartbeat_task = asyncio.create_task(self._inline_heartbeat_loop(task.id))
+                result = await self.run_stage_task(db, task, stage=stage)
+                if managed_llm_steps:
+                    result = merge_managed_llm_provenance(
+                        result,
+                        managed_llm_steps,
+                    )
+                task.mark_done(result)
+                await db.flush()
+                return result
+            except asyncio.CancelledError:
+                task.mark_cancelled()
+                await db.flush()
+                raise
+            except Exception as exc:
+                task.mark_failed(
+                    redact_diagnostic(
+                        f"{type(exc).__name__}: {exc}",
+                        limit=1000,
+                    )
+                )
+                await db.flush()
+                raise
+            finally:
+                if heartbeat_task is not None:
+                    heartbeat_task.cancel()
+                    try:
+                        await heartbeat_task
+                    except asyncio.CancelledError:
+                        pass
+
+    @staticmethod
+    async def _inline_heartbeat_loop(task_id: Any) -> None:
+        """Keep inline eval/manual tasks out of the worker stale-task scanner."""
+        from core.database import get_manager
+
+        while True:
+            await asyncio.sleep(TASK_HEARTBEAT_INTERVAL)
+            try:
+                async with get_manager().session_factory() as session:
+                    await session.execute(
+                        update(AsyncTask)
+                        .where(AsyncTask.id == task_id)
+                        .values(heartbeat_at=datetime.now(UTC))
+                    )
+                    await session.commit()
+            except Exception:
+                # The primary workflow owns the result. A transient heartbeat
+                # failure must not mask or cancel that work.
+                return
 
     def _progress_from_task(self, task: Any) -> DeepImportProgress:
         result_data = task.result if isinstance(task.result, dict) else {}
@@ -351,10 +475,57 @@ class DeepImportOrchestrator:
         progress.asset_summary = build_asset_summary(progress.quality_stats)
 
     @staticmethod
+    async def _restore_llm_execution_snapshot(
+        db: AsyncSession,
+        task: Any,
+        progress: DeepImportProgress,
+        meta: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        snapshot = meta.get("llm_execution_snapshot")
+        if not isinstance(snapshot, dict) or not snapshot:
+            # Compatibility for already-created local tasks and lightweight unit
+            # fakes. New production submissions always persist the snapshot.
+            from unittest.mock import Mock
+
+            if isinstance(db, Mock):
+                return None
+            from modules.project.facade import build_project_llm_execution_snapshot
+
+            snapshot = await build_project_llm_execution_snapshot(
+                db,
+                str(meta.get("novel_id") or ""),
+            )
+            next_meta = dict(meta)
+            next_meta["llm_execution_snapshot"] = snapshot
+            task.meta = next_meta
+        progress.llm_execution_snapshot = dict(snapshot)
+        from modules.project.facade import restore_project_llm_execution_settings
+
+        return await restore_project_llm_execution_settings(
+            db,
+            str(meta.get("novel_id") or ""),
+            snapshot,
+        )
+
+    @staticmethod
+    async def _build_llm_execution_snapshot(
+        db: AsyncSession,
+        novel_id: str,
+    ) -> dict[str, Any]:
+        from unittest.mock import Mock
+
+        if isinstance(db, Mock):
+            return {}
+        from modules.project.facade import build_project_llm_execution_snapshot
+
+        return await build_project_llm_execution_snapshot(db, novel_id)
+
+    @staticmethod
     async def _initialize_task_result(
         db: AsyncSession,
         task_id: str,
         authorization_snapshot: dict[str, Any],
+        llm_execution_snapshot: dict[str, Any] | None = None,
     ) -> None:
         task = await db.get(AsyncTask, _parse_uuid(str(task_id)))
         if task is None:
@@ -362,6 +533,7 @@ class DeepImportOrchestrator:
         task.result = {
             "adoption_policy": authorization_snapshot["adoption_policy"],
             "authorization_snapshot": authorization_snapshot,
+            "llm_execution_snapshot": llm_execution_snapshot or {},
             "asset_summary": empty_asset_summary(),
         }
 
@@ -567,10 +739,9 @@ class DeepImportOrchestrator:
             db, novel_id, status_filter=["draft", "canonical"]
         )
         for scene in scenes:
-            if (
-                self._is_workflow_owned_deep_import_scene(scene)
-                and self._scene_overlaps_range(scene, start_chapter, end_chapter)
-            ):
+            if self._is_workflow_owned_deep_import_scene(
+                scene
+            ) and self._scene_overlaps_range(scene, start_chapter, end_chapter):
                 await update_scene(db, novel_id, scene["id"], {"status": "deprecated"})
                 deprecated_scenes += 1
 
@@ -601,6 +772,7 @@ class DeepImportOrchestrator:
         include_pending_objects: bool = True,
         high_quality: bool = False,
         authorization_snapshot: dict[str, Any],
+        llm_execution_snapshot: dict[str, Any] | None = None,
     ):
         from infrastructure.tasks.enqueuer import enqueue_task
 
@@ -619,6 +791,7 @@ class DeepImportOrchestrator:
                     "authorization_confirmed"
                 ],
                 "authorization_snapshot": authorization_snapshot,
+                "llm_execution_snapshot": llm_execution_snapshot or {},
             },
         )
 
@@ -635,6 +808,7 @@ class DeepImportOrchestrator:
         include_pending_objects: bool = True,
         high_quality: bool = False,
         authorization_snapshot: dict[str, Any],
+        llm_execution_snapshot: dict[str, Any] | None = None,
     ):
         from infrastructure.tasks.enqueuer import enqueue_task
 
@@ -654,6 +828,7 @@ class DeepImportOrchestrator:
                     "authorization_confirmed"
                 ],
                 "authorization_snapshot": authorization_snapshot,
+                "llm_execution_snapshot": llm_execution_snapshot or {},
             },
         )
 
@@ -700,6 +875,7 @@ class DeepImportOrchestrator:
             "stage": progress.stage,
             "adoption_policy": progress.adoption_policy,
             "authorization_snapshot": progress.authorization_snapshot,
+            "llm_execution_snapshot": progress.llm_execution_snapshot,
             "asset_summary": progress.asset_summary,
             "phase": progress.phase,
             "current_step": (

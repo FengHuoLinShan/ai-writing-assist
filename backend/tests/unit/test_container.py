@@ -59,7 +59,6 @@ def test_bootstrap_registers_app_and_worker_services():
     expected_services = [
         "world.list_characters",
         "world.list_entity_terms",
-        "world.run_entity_extraction",
         "world.list_entities",
         "world.run_scene_entity_extraction",
         "world.run_alias_relation_extraction",

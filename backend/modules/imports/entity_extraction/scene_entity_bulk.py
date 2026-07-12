@@ -411,7 +411,7 @@ class BulkSceneEntityExtractor:
                 chapters_text,
                 existing_context,
                 memory_context,
-                max_tokens=4096,
+                max_tokens=PHASE2_BULK_MAX_TOKENS,
                 client_timeout=PHASE2_BULK_PROVIDER_TIMEOUT_SECONDS,
                 max_fix_attempts=0,
                 transport_retries=False,

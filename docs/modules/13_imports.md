@@ -41,13 +41,23 @@ DeepImportWorkflow 将 Scene 提取、实体抽取和结构分析串成受控自
 - Phase 0 不写正式 `scenes` 表，也不执行 LLM health 或 422 门禁。
 
 ### Phase 1a: scene slicing
-- 只切分并锁定 Scene 边界字段：`title` / `goal` / `core_conflict` / `start_chapter` / `end_chapter` / `boundary_status`。
-- LLM 输出只用于 Scene 边界候选；`scene_chunks` 不由 LLM 定位。
-- length / invalid JSON 等截断类失败会按受控 token 预算重试；仍失败的缺失章节生成 `needs_review` 的章节级 fallback。
+- 切分并锁定 Scene 语义字段，同时要求 LLM 从正文逐字复制
+  起止 anchor；本地 materializer 负责唯一命中、chapter-local offset、
+  draft/content hash 绑定和邻接/整章覆盖推断。
+- `scene_chunks` 不由 LLM 自由填 offset；锚点未解析时使用关闭
+  thinking 的小上下文 repair，缺章先做单章恢复，仍失败才保留
+  `needs_review` 的章节级语义 fallback。
 
 ### Phase 1b: scene enrichment
 - 每个 Scene 一个 enrichment 请求，只补充描述性字段，不允许改写 Phase 1a 锁定的边界字段。
-- `scene_chunks` 由系统按 `start_chapter` / `end_chapter` 的章级范围确定生成。
+- 不允许改写 Phase 1a/materializer 已确定的 `scene_chunks`。语义
+  fallback 与来源精度分开记录：章节级 fallback 可保持 fallback 状态，
+  同时拥有可确定的整章 offset/hash。
+- enrichment 默认 `max_tokens=32768`，不再使用旧 4096 上限；
+  该值与其他结构化阶段使用同一预算策略，并在任务提交时
+  物化进 `llm_execution_snapshot.deep_import`。项目保存的
+  `phase1b.enrich_max_tokens` 会先传入 enricher payload，adapter 不再用
+  env/default 值遮蔽项目配置。
 - 单 Scene enrichment 失败只影响当前 Scene：重试后仍失败则 fallback 并进入人工复核清单。
 
 ### Scene commit
@@ -63,7 +73,9 @@ DeepImportWorkflow 将 Scene 提取、实体抽取和结构分析串成受控自
 - 大量 Scene 在 Phase 2a 以 Scene 为并发单元调用 LLM，再按 `scene_index`
   串行持久化；每个请求只含当前 Scene 和前序 brief，不带后续 Scene。
 - 只对相邻 batch 边界执行补充抽取，不做全局对象融合扫描。
-- 入库前通过 world facade 使用名称 / 别名 / embedding 去重能力；高置信重复实体会自动融合到已有对象，重复关系走 create-or-merge。
+- 入库前通过 world facade 使用名称 / 别名 / embedding 去重能力；
+  高置信重复实体只记录建议目标并进入待处理，不自动融合到
+  已有对象；重复关系走 create-or-merge。
 - Phase 2 的真实 LLM 调用通过 context facade 写入 `context_snapshots`，并在任务结果中记录 snapshot health、dedup、boundary supplement 和 degraded 统计。
 
 ### Phase 3: 结构分析（单次，20%）
@@ -91,6 +103,8 @@ DeepImportWorkflow 将 Scene 提取、实体抽取和结构分析串成受控自
 - quality_stats.phase1a：Scene slicing 覆盖、fallback、缺章与重试统计
 - quality_stats.phase1b：enrichment 成功、fallback 与复核统计
 - adoption_policy / authorization_snapshot：启动时持久化的授权策略、范围和时间
+- llm_execution_snapshot：提交时冻结的 secret-free effective project
+  profile/deep-import 设置；不包含 Key、完整 URL/query 或 extra values
 - asset_summary：互斥的 `adopted / review / not_adopted` 总数及 Scene、实体、关系、别名、结构分项
 
 当任务能跑完但 Phase 2/3 未生成关键 AI 资产时，`phase` 仍可为 `done`，但
@@ -131,6 +145,10 @@ POST /api/imports/deep/abandon             # 放弃恢复并清理同 workflow �
 `/deep` 与三个 `/stages/*` 请求都必须显式发送
 `authorization_confirmed=true`；缺失或 false 返回 422 且不排队。任务 meta 和 result 都保存
 同一授权快照，完成页从 result 的 `asset_summary` 展示已采用/待处理/未采用。
+新任务还会在排队前把 `llm_execution_snapshot` 写入 meta 和初始
+result；worker 继续使用提交时的 model/非 secret 参数与字段来源，
+以及已物化的 deep-import 项目/env/default 设置；允许 Key 轮换，
+但 endpoint/extra 漂移会 fail closed。
 
 分阶段真实服务会把 compact artifact 写入现有 `async_tasks.result.phase_artifacts`：
 记录章节覆盖、阶段计数、checkpoint 摘要、repair 状态、质量状态和脱敏 provider 摘要。
@@ -180,12 +198,26 @@ Phase2b 稳定性可通过 `PHASE2_ALIAS_RELATION_TOTAL_TIMEOUT_SECONDS`、
 ## Phase 2/3 Activation And Quality
 
 Phase 2a 使用 `ImportContextActivation -> concurrent LLM -> scene_index ordered
-persistence` 单一路径。默认 LLM 并发 64，并在连续限流、超时或格式失败时按
-`64 -> 32 -> 16 -> 8` 降载；工作流的 `end_chapter` 作为可见硬截止，
+persistence` 单一路径。默认 LLM 并发 20，provider/LLM 超时为 240/270 秒，
+结构化输出上限 32768；在连续限流、超时或格式失败时逐波减半降载。工作流的 `end_chapter` 作为可见硬截止，
 跨章 Scene 只装载截止章/offset 以前的精确 span。checkpoint 记录 activation
 version 和来源数量。Phase 2b
-在其后执行全局别名/关系 reconciliation，不回写早期 Scene 的可见性语义。
+在其后执行全局别名/关系 reconciliation，不回写早期 Scene 的可见性语义。DeepSeek 下 Phase 2a 保留高 reasoning，Phase 2b 关闭 thinking；两者的每次结构化请求都直接使用 32768 上限，不再为低价 token 试验最小上限，也不做改变 `max_tokens` 的阶梯扩容重试。
+
+Phase 1/2/3 的活跃 adapter 都使用上述冻结 project settings。
+`high_quality=true` 时 Scene、Phase 2a/2b 和 Phase 3 的实际 request model
+统一为 `deepseek-v4-pro`；context snapshot/managed provenance 记录实际
+request model，不只记录 profile 默认模型。
+
+legacy `SceneSegmentationService` 只作兼容/测试工具保留，无生产
+入口调用方。它的 batch/single-chapter LLM 路径已迁移
+`open_project_llm_client(db, novel_id)`，不再占用 direct-client 例外；
+生产主路仍是 Phase 0/1a/1b。
 
 Phase 3 复用 outline 的全书 Scene 摘要且不默认加载全书正文，追加 derived world
 background。空结构、无结构引用和无有效篇章范围会触发一次同 workflow 的 draft/candidate
 结构资产 replacement rerun；所有门禁与降级摘要保持在 task result 的加性诊断字段中。
+Phase 3 的单次结构化请求使用项目可配置的
+`phase3.structure_max_tokens`（默认 32768），该值会进入任务冻结
+快照，不再根据 prompt 长度做 token 阶梯扩容；replacement rerun 是业务
+输出门禁，不是用更大 `max_tokens` 重放同一请求。

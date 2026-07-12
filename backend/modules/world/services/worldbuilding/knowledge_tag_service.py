@@ -180,9 +180,8 @@ class KnowledgeTagService:
                         source="derived_species",
                     )
                 )
-        location_id = (
-            worldbuilding.get("location_entity_id")
-            or worldbuilding.get("current_location_entity_id")
+        location_id = worldbuilding.get("location_entity_id") or worldbuilding.get(
+            "current_location_entity_id"
         )
         if location_id:
             location_uuid = parse_uuid(location_id, "location_entity_id")
@@ -290,4 +289,5 @@ class KnowledgeTagService:
         )
         return set(result.scalars().all())
 
-__all__ = ['KnowledgeTagService']
+
+__all__ = ["KnowledgeTagService"]

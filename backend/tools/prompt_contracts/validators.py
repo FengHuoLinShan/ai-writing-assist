@@ -166,8 +166,7 @@ def _validate_forbidden_fields(
                     contract_id=contract.id,
                     code="field.forbidden",
                     message=(
-                        "Forbidden field is declared or present in schema: "
-                        f"{forbidden}"
+                        f"Forbidden field is declared or present in schema: {forbidden}"
                     ),
                     path=path,
                 )

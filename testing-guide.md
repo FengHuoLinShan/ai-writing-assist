@@ -34,7 +34,7 @@
 Three layers:
 - **Repository**: basic CRUD, not found, empty update, pagination
 - **Service**: business logic happy path, exception paths (not found → 404, invalid UUID → 422)
-- **API** (via `tests/conftest.py` `async_client`): HTTP happy path + error path
+- **API** (via root `backend/conftest.py` `async_client`): HTTP happy path + error path
 
 ## Test execution layers
 
@@ -63,6 +63,12 @@ files should contain only module-specific factories and mocks:
 async def world_map(db_session: AsyncSession, project_novel_id: str):
     return await _create_default_map(db_session, project_novel_id)
 ```
+
+Fixture 使用者只通过测试函数参数名请求 fixture。不得使用
+`from conftest import ...`、`from tests.conftest import ...` 或其他普通 Python
+import 复用 fixture；这会让 `conftest` 的解析取决于 pytest 收集顺序。所有
+`backend/modules/*/tests/` 目录必须包含 `__init__.py`，统一收集可用
+`make test-collect` 快速验证。
 
 ### Test import convention
 
@@ -132,4 +138,4 @@ This does not relax module boundaries: cross-module behavior tests still go thro
 - 模块 API 是否验证 novel_id 隔离
 - facade 是否导出所有新增函数到 `__init__.py`
 - 新模块是否在 `app/main.py` 注册路由
-- 新模块的模型是否在 `tests/conftest.py` 导入
+- 新模块的模型是否在 root `backend/conftest.py` 导入

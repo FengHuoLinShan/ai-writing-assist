@@ -128,14 +128,12 @@ async def test_structure_cleanup_uses_unit_of_work_instead_of_per_asset_update()
             self.flushes += 1
 
     session = Session()
+    cleanup_service = OutlineStructureCleanupService()
 
-    deprecated = await (
-        OutlineStructureCleanupService()
-        .deprecate_deep_import_structure_assets_by_workflow(
-            session,  # type: ignore[arg-type]
-            str(uuid.uuid4()),
-            workflow_id,
-        )
+    deprecated = await cleanup_service.deprecate_deep_import_structure_assets_by_workflow(
+        session,  # type: ignore[arg-type]
+        str(uuid.uuid4()),
+        workflow_id,
     )
 
     assert deprecated == 4

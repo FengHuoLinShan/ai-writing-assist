@@ -327,4 +327,5 @@ class WorldBibleService:
         slug = normalize_profession_slug(title) or "page"
         return f"{page_type}:{slug}:{uuid.uuid4().hex[:8]}"
 
-__all__ = ['ProjectionRefreshConflictError', 'WorldBibleService']
+
+__all__ = ["ProjectionRefreshConflictError", "WorldBibleService"]

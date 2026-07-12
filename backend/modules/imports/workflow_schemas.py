@@ -48,6 +48,10 @@ class DeepImportProgress(BaseModel):
         default_factory=dict,
         description="流水线启动时的授权范围与时间快照",
     )
+    llm_execution_snapshot: dict[str, Any] = Field(
+        default_factory=dict,
+        description=("任务启动时冻结的脱敏 LLM profile、字段来源与配置哈希"),
+    )
     asset_summary: dict[str, Any] = Field(
         default_factory=dict,
         description="按已采用/待处理/未采用聚合的资产结果",

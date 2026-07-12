@@ -117,6 +117,28 @@ async def handle_world_alias_relation_extraction(db, task):
     if not novel_id:
         raise ValueError("novel_id is required for world_alias_relation_extraction")
 
+    from modules.project.facade import (
+        build_project_llm_execution_snapshot,
+        restore_project_llm_execution_settings,
+    )
+
+    llm_execution_snapshot = meta.get("llm_execution_snapshot")
+    if not isinstance(llm_execution_snapshot, dict) or not llm_execution_snapshot:
+        llm_execution_snapshot = await build_project_llm_execution_snapshot(
+            db,
+            novel_id,
+        )
+        task.meta = {
+            **meta,
+            "llm_execution_snapshot": llm_execution_snapshot,
+        }
+        await db.commit()
+    project_settings = await restore_project_llm_execution_settings(
+        db,
+        novel_id,
+        llm_execution_snapshot,
+    )
+
     task.update_progress(0.1)
     handler = _container_get("world.run_alias_relation_extraction")
     result = await handler(
@@ -126,6 +148,7 @@ async def handle_world_alias_relation_extraction(db, task):
         scene_ids=scene_ids,
         start_chapter=start_chapter,
         end_chapter=end_chapter,
+        project_settings=project_settings,
     )
     task.update_progress(0.95)
     flush = getattr(db, "flush", None)
@@ -134,7 +157,10 @@ async def handle_world_alias_relation_extraction(db, task):
         if inspect.isawaitable(result_flush):
             await result_flush
     task.update_progress(1.0)
-    return result
+    return {
+        **result,
+        "llm_execution_snapshot": llm_execution_snapshot,
+    }
 
 
 @task_handler("world_entity_fusion_suggestions")

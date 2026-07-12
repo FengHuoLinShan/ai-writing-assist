@@ -15,6 +15,7 @@ def _generate_blank_tiles(width: int, height: int) -> list[dict[str, Any]]:
         for r in range(height)
     ]
 
+
 def _generate_continent_tiles(width: int, height: int) -> list[dict[str, Any]]:
     """大陆模板：中心陆地 + 边缘水。
 
@@ -40,6 +41,7 @@ def _generate_continent_tiles(width: int, height: int) -> list[dict[str, Any]]:
                 {"hex_q": q, "hex_r": r, "terrain_type": terrain, "elevation": 0}
             )
     return tiles
+
 
 def _generate_islands_tiles(width: int, height: int) -> list[dict[str, Any]]:
     """群岛模板：散布小岛 + 大量水。"""
@@ -74,6 +76,7 @@ def generate_template_tiles(
     if template and template in _TEMPLATES:
         return _TEMPLATES[template](width, height)
     return _generate_blank_tiles(width, height)
+
 
 def generate_detail_tiles(width: int, height: int) -> list[dict[str, Any]]:
     """详图快速生成：中心 3 圈 city + 外 1 圈 road + 其余随机 grassland/forest。

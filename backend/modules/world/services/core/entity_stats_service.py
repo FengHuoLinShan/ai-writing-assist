@@ -42,14 +42,16 @@ class EntityStatsService:
         start_chapter: int | None = None,
         end_chapter: int | None = None,
         limit: int = 10000,
+        status_filter: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """列出自动入库生成的实体，可选按来源章节范围过滤。"""
         nid = parse_uuid(novel_id, "novel_id")
         entities = await self._repo.list_by_novel(db, nid, limit=limit)
 
         items: list[dict[str, Any]] = []
+        allowed_statuses = set(status_filter or ("canonical", "draft"))
         for entity in entities:
-            if entity.status not in ("canonical", "draft"):
+            if entity.status not in allowed_statuses:
                 continue
             content_json = entity.content_json or {}
             meta = content_json.get("_meta") or {}
@@ -69,6 +71,8 @@ class EntityStatsService:
                 {
                     "id": str(entity.id),
                     "name": entity.name,
+                    "entity_type": entity.entity_type,
+                    "summary": entity.summary,
                     "status": entity.status,
                     "content_json": content_json,
                 }

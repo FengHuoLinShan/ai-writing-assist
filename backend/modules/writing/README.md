@@ -179,3 +179,9 @@ ENABLE_REAL_LLM=1 npx playwright test e2e/writing-conflict-real-llm.spec.js --re
 ```
 
 真实 LLM 验收只校验结构、状态机、持久化和不可变副作用，不固化模型生成文本。
+
+正文 candidate、冲突 AI review 和修复建议均通过 project runtime seam 消费
+effective 项目 profile；确认校验仍在 LLM 调用前，candidate/adopt/publish 状态语义不变。
+candidate provenance 额外保留 secret-free `managed_llm_steps`，记录
+`novel_id`、step name、实际 request model 和 profile summary/hash，不保存
+API Key、完整 Base URL/query、prompt 或正文。

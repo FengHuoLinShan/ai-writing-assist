@@ -177,10 +177,10 @@ class TestImportRecordRepository:
         self,
         repo: ImportRecordRepository,
         db_session: AsyncSession,
-        test_project_id: str,
+        imports_test_project_id: str,
     ):
         """测试创建导入记录"""
-        nid = uuid.UUID(hex=test_project_id)
+        nid = uuid.UUID(hex=imports_test_project_id)
         record = await repo.create(db_session, nid, "test.txt", "txt", 1024)
         assert record.id is not None
         assert record.file_name == "test.txt"
@@ -203,10 +203,10 @@ class TestImportRecordRepository:
         self,
         repo: ImportRecordRepository,
         db_session: AsyncSession,
-        test_project_id: str,
+        imports_test_project_id: str,
     ):
         """测试更新状态"""
-        nid = uuid.UUID(hex=test_project_id)
+        nid = uuid.UUID(hex=imports_test_project_id)
         record = await repo.create(db_session, nid, "test.txt", "txt", 512)
 
         updated = await repo.update_status(
@@ -226,10 +226,10 @@ class TestImportRecordRepository:
         self,
         repo: ImportRecordRepository,
         db_session: AsyncSession,
-        test_project_id: str,
+        imports_test_project_id: str,
     ):
         """测试按项目查询"""
-        nid = uuid.UUID(hex=test_project_id)
+        nid = uuid.UUID(hex=imports_test_project_id)
         for i in range(3):
             await repo.create(db_session, nid, f"test{i}.txt", "txt", 100)
 
@@ -258,13 +258,13 @@ class TestImportService:
         self,
         service,
         db_session: AsyncSession,
-        test_project_id: str,
+        imports_test_project_id: str,
         sample_txt_content: bytes,
     ):
         """测试完整导入流程"""
         resp = await service.upload_and_import(
             db_session,
-            test_project_id,
+            imports_test_project_id,
             "novel.txt",
             sample_txt_content,
         )
@@ -292,13 +292,13 @@ class TestImportService:
         self,
         service,
         db_session: AsyncSession,
-        test_project_id: str,
+        imports_test_project_id: str,
         sample_txt_content: bytes,
     ):
         """导入章节后只排发布任务，由发布任务统一负责 RAG 索引。"""
         resp = await service.upload_and_import(
             db_session,
-            test_project_id,
+            imports_test_project_id,
             "novel.txt",
             sample_txt_content,
         )
@@ -310,7 +310,7 @@ class TestImportService:
 
         assert len(tasks) == resp.imported_chapters
         assert {task.meta["chapter_index"] for task in tasks} == {1, 2, 3, 4}
-        assert all(task.meta["novel_id"] == test_project_id for task in tasks)
+        assert all(task.meta["novel_id"] == imports_test_project_id for task in tasks)
 
         rag_result = await db_session.execute(
             select(AsyncTask).where(AsyncTask.task_type == "rag_index_chapter")
@@ -322,13 +322,13 @@ class TestImportService:
         self,
         service,
         db_session: AsyncSession,
-        test_project_id: str,
+        imports_test_project_id: str,
     ):
         """测试不支持的文件类型"""
         with pytest.raises(DomainValidationError) as exc:
             await service.upload_and_import(
                 db_session,
-                test_project_id,
+                imports_test_project_id,
                 "test.pdf",
                 b"content",
             )
@@ -339,18 +339,18 @@ class TestImportService:
         self,
         service,
         db_session: AsyncSession,
-        test_project_id: str,
+        imports_test_project_id: str,
         sample_txt_content: bytes,
     ):
         """测试导入记录列表"""
         await service.upload_and_import(
-            db_session, test_project_id, "a.txt", sample_txt_content
+            db_session, imports_test_project_id, "a.txt", sample_txt_content
         )
         await service.upload_and_import(
-            db_session, test_project_id, "b.txt", sample_txt_content
+            db_session, imports_test_project_id, "b.txt", sample_txt_content
         )
 
-        result = await service.list_import_records(db_session, test_project_id)
+        result = await service.list_import_records(db_session, imports_test_project_id)
         assert result.total >= 2
 
     @pytest.mark.asyncio
@@ -358,17 +358,19 @@ class TestImportService:
         self,
         service,
         db_session: AsyncSession,
-        test_project_id: str,
+        imports_test_project_id: str,
         sample_txt_content: bytes,
     ):
         """测试获取单条记录"""
         resp = await service.upload_and_import(
             db_session,
-            test_project_id,
+            imports_test_project_id,
             "novel.txt",
             sample_txt_content,
         )
-        fetched = await service.get_import_record(db_session, test_project_id, resp.id)
+        fetched = await service.get_import_record(
+            db_session, imports_test_project_id, resp.id
+        )
         assert fetched.id == resp.id
         assert fetched.file_name == "novel.txt"
 
@@ -377,14 +379,14 @@ class TestImportService:
         self,
         service,
         db_session: AsyncSession,
-        test_project_id: str,
+        imports_test_project_id: str,
     ):
         """超过 50MB 的文件应返回 413"""
         large_data = b"x" * (MAX_FILE_SIZE + 1)
         with pytest.raises(DomainValidationError) as exc:
             await service.upload_and_import(
                 db_session,
-                test_project_id,
+                imports_test_project_id,
                 "large.txt",
                 large_data,
             )
@@ -395,7 +397,7 @@ class TestImportService:
         self,
         service,
         db_session: AsyncSession,
-        test_project_id: str,
+        imports_test_project_id: str,
         monkeypatch,
     ):
         """空文件应记录 failed，不创建正文草稿"""
@@ -405,7 +407,7 @@ class TestImportService:
         with pytest.raises(DomainValidationError) as exc:
             await service.upload_and_import(
                 db_session,
-                test_project_id,
+                imports_test_project_id,
                 "empty.txt",
                 b"",
             )
@@ -413,7 +415,7 @@ class TestImportService:
         assert exc.value.status_code == 400
         assert "文件中未检测到有效章节" in str(exc.value.detail)
 
-        records = await service.list_import_records(db_session, test_project_id)
+        records = await service.list_import_records(db_session, imports_test_project_id)
         assert records.total == 1
         assert records.items[0].status == "failed"
         assert records.items[0].error_message == "文件中未检测到有效章节"
@@ -422,7 +424,7 @@ class TestImportService:
 
         result = await db_session.execute(
             select(WritingDraft).where(
-                WritingDraft.novel_id == uuid.UUID(test_project_id)
+                WritingDraft.novel_id == uuid.UUID(imports_test_project_id)
             )
         )
         assert list(result.scalars().all()) == []
@@ -433,13 +435,13 @@ class TestImportService:
         self,
         service,
         db_session: AsyncSession,
-        test_project_id: str,
+        imports_test_project_id: str,
         sample_txt_content: bytes,
     ):
         """跨 novel_id 访问导入记录应返回 404"""
         resp = await service.upload_and_import(
             db_session,
-            test_project_id,
+            imports_test_project_id,
             "novel.txt",
             sample_txt_content,
         )
@@ -457,7 +459,7 @@ class TestImportService:
         self,
         service,
         db_session: AsyncSession,
-        test_project_id: str,
+        imports_test_project_id: str,
         sample_txt_content: bytes,
         repo: ImportRecordRepository,
     ):
@@ -469,13 +471,13 @@ class TestImportService:
             with pytest.raises(DomainValidationError) as exc:
                 await service.upload_and_import(
                     db_session,
-                    test_project_id,
+                    imports_test_project_id,
                     "fail.txt",
                     sample_txt_content,
                 )
             assert exc.value.status_code == 422
 
-        nid = uuid.UUID(hex=test_project_id)
+        nid = uuid.UUID(hex=imports_test_project_id)
         items, total = await repo.get_by_novel(db_session, nid)
         assert total == 1
         record = items[0]
@@ -487,32 +489,32 @@ class TestImportService:
         self,
         service,
         db_session: AsyncSession,
-        test_project_id: str,
+        imports_test_project_id: str,
         sample_txt_content: bytes,
     ):
         """测试导入记录列表 skip/limit 分页"""
         await service.upload_and_import(
             db_session,
-            test_project_id,
+            imports_test_project_id,
             "a.txt",
             sample_txt_content,
         )
         await service.upload_and_import(
             db_session,
-            test_project_id,
+            imports_test_project_id,
             "b.txt",
             sample_txt_content,
         )
         await service.upload_and_import(
             db_session,
-            test_project_id,
+            imports_test_project_id,
             "c.txt",
             sample_txt_content,
         )
 
         page1 = await service.list_import_records(
             db_session,
-            test_project_id,
+            imports_test_project_id,
             skip=0,
             limit=2,
         )
@@ -521,7 +523,7 @@ class TestImportService:
 
         page2 = await service.list_import_records(
             db_session,
-            test_project_id,
+            imports_test_project_id,
             skip=2,
             limit=2,
         )
@@ -533,7 +535,7 @@ class TestImportService:
         self,
         service: ImportService,
         db_session: AsyncSession,
-        test_project_id: str,
+        imports_test_project_id: str,
         sample_txt_content: bytes,
         monkeypatch,
     ):
@@ -551,7 +553,7 @@ class TestImportService:
             with pytest.raises(DomainError) as exc:
                 await service.upload_and_import(
                     db_session,
-                    test_project_id,
+                    imports_test_project_id,
                     "fail.txt",
                     sample_txt_content,
                 )
@@ -563,7 +565,7 @@ class TestImportService:
         self,
         service: ImportService,
         db_session: AsyncSession,
-        test_project_id: str,
+        imports_test_project_id: str,
         sample_txt_content: bytes,
         monkeypatch,
     ):
@@ -586,7 +588,7 @@ class TestImportService:
         with pytest.raises(DomainValidationError) as exc:
             await service.upload_and_import(
                 db_session,
-                test_project_id,
+                imports_test_project_id,
                 "race.txt",
                 sample_txt_content,
             )

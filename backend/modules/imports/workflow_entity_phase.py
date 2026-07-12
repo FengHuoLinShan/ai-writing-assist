@@ -144,9 +144,7 @@ class EntityExtractionPhaseRunner:
                     details.append(f"失败 Scene: {failed_scenes}")
                 if skipped_scenes:
                     details.append(f"跳过 {skipped_scenes} 个 Scene")
-                error_message = (
-                    phase2_result.get("error_message") or "实体提取部分降级"
-                )
+                error_message = phase2_result.get("error_message") or "实体提取部分降级"
                 if details:
                     error_message = f"{error_message}（{'；'.join(details)}）"
                 progress.phase_errors.append(
@@ -222,13 +220,10 @@ class EntityExtractionPhaseRunner:
                 error_kind=phase2_result.get("error_kind", "empty_output"),
                 error_message="实体提取阶段未生成任何实体",
             )
-        phase2_degraded = (
-            bool(phase2_result.get("degraded"))
-            or (
-                not phase2_failed
-                and total_scenes > 0
-                and int(phase2_result.get("total_created", 0) or 0) <= 0
-            )
+        phase2_degraded = bool(phase2_result.get("degraded")) or (
+            not phase2_failed
+            and total_scenes > 0
+            and int(phase2_result.get("total_created", 0) or 0) <= 0
         )
         add_phase_artifact(
             progress,
@@ -558,9 +553,13 @@ class EntityExtractionPhaseRunner:
 def phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
     failed_scenes = phase2_result.get("failed_scene_indices") or []
     failed_scene_ids = phase2_result.get("failed_scene_ids") or []
-    checkpoints = (phase2_result.get("checkpoints") or {}).get("phase2", {}).get(
-        "scenes",
-        [],
+    checkpoints = (
+        (phase2_result.get("checkpoints") or {})
+        .get("phase2", {})
+        .get(
+            "scenes",
+            [],
+        )
     )
     status_counts: dict[str, int] = {}
     if isinstance(checkpoints, list):
@@ -590,9 +589,7 @@ def phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
         "total_deltas": int(phase2_result.get("total_deltas", 0) or 0),
         "total_scenes": int(phase2_result.get("total_scenes", 0) or 0),
         "completed_scenes": int(phase2_result.get("completed_scenes", 0) or 0),
-        "alias_relation_scenes": int(
-            phase2_result.get("alias_relation_scenes", 0) or 0
-        ),
+        "alias_relation_scenes": int(phase2_result.get("alias_relation_scenes", 0) or 0),
         "alias_relation_failed_scenes": phase2_result.get(
             "alias_relation_failed_scenes",
             [],
@@ -603,9 +600,7 @@ def phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
         ),
         "alias_relation_concurrency": phase2_result.get("alias_relation_concurrency"),
         "alias_relation_skipped": bool(phase2_result.get("alias_relation_skipped")),
-        "alias_relation_skip_reason": phase2_result.get(
-            "alias_relation_skip_reason"
-        ),
+        "alias_relation_skip_reason": phase2_result.get("alias_relation_skip_reason"),
         "skipped_scenes": int(phase2_result.get("skipped_scenes", 0) or 0),
         "rerun_scenes": int(phase2_result.get("rerun_scenes", 0) or 0),
         "failed_scene_count": len(failed_scenes)
@@ -618,9 +613,7 @@ def phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
         "supplemental_error_kind": phase2_result.get("supplemental_error_kind"),
         "parallel_llm_fallback": bool(phase2_result.get("parallel_llm_fallback")),
         "bulk_error_kind": phase2_result.get("bulk_error_kind"),
-        "phase2_batches_total": int(
-            phase2_result.get("phase2_batches_total", 0) or 0
-        ),
+        "phase2_batches_total": int(phase2_result.get("phase2_batches_total", 0) or 0),
         "phase2_batches_completed": int(
             phase2_result.get("phase2_batches_completed", 0) or 0
         ),
@@ -651,9 +644,7 @@ def phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
         "invalid_scene_ref_sample_count": int(
             invalid_ref_diagnostics.get("sampled_count", 0) or 0
         ),
-        "invalid_scene_ref_truncated": bool(
-            invalid_ref_diagnostics.get("truncated")
-        ),
+        "invalid_scene_ref_truncated": bool(invalid_ref_diagnostics.get("truncated")),
         "available_id_source_counts": (
             invalid_ref_diagnostics.get("available_id_source_counts") or {}
         ),
@@ -670,12 +661,8 @@ def phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
             phase2_result.get("phase2_linked_to_existing", 0) or 0
         ),
         "phase2_ignored": int(phase2_result.get("phase2_ignored", 0) or 0),
-        "phase2_temporary_only": int(
-            phase2_result.get("phase2_temporary_only", 0) or 0
-        ),
-        "phase2_low_confidence": int(
-            phase2_result.get("phase2_low_confidence", 0) or 0
-        ),
+        "phase2_temporary_only": int(phase2_result.get("phase2_temporary_only", 0) or 0),
+        "phase2_low_confidence": int(phase2_result.get("phase2_low_confidence", 0) or 0),
         "parameter_version": phase2_result.get("parameter_version"),
         "window_count": int(phase2_result.get("window_count", 0) or 0),
         "input_mode": phase2_result.get("input_mode"),

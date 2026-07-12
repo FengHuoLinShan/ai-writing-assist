@@ -608,9 +608,7 @@ async def test_append_candidate_alias_does_not_demote_existing_active_alias(
     )
 
     assert appended is False
-    assert entity.content_json["aliases"] == [
-        {"alias": "Art", "type": "nickname"}
-    ]
+    assert entity.content_json["aliases"] == [{"alias": "Art", "type": "nickname"}]
     db.flush.assert_not_awaited()
 
 

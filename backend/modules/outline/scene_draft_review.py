@@ -81,14 +81,11 @@ class SceneDraftReviewService:
             draft_scenes=[],
             field_references=field_references,
             field_sources=field_sources,
-            source_scene_summaries=[
-                self._source_summary(scene) for scene in sources
-            ],
+            source_scene_summaries=[self._source_summary(scene) for scene in sources],
             conflicts=conflicts,
             warnings=review_warnings,
             confidence=confidence,
-            reason=reason
-            or "以主 Scene 为骨架，合并其他 Scene 的非空字段作为审稿草稿。",
+            reason=reason or "以主 Scene 为骨架，合并其他 Scene 的非空字段作为审稿草稿。",
         )
 
     def build_split_review(
@@ -115,9 +112,7 @@ class SceneDraftReviewService:
             draft_scenes=draft_scenes,
             field_references=field_references,
             field_sources={
-                field: [source_id]
-                for field in REVIEW_FIELDS
-                if field in field_references
+                field: [source_id] for field in REVIEW_FIELDS if field in field_references
             },
             source_scene_summaries=[self._source_summary(source)],
             conflicts=[],
@@ -140,8 +135,10 @@ class SceneDraftReviewService:
         source_ids = [str(scene.id) for scene in sources]
         result = dict(draft)
         result["title"] = result.get("title") or self._fusion_title(sources)
-        result["goal"] = result.get("goal") or primary.goal or self._join_unique(
-            getattr(scene, "goal", None) for scene in sources
+        result["goal"] = (
+            result.get("goal")
+            or primary.goal
+            or self._join_unique(getattr(scene, "goal", None) for scene in sources)
         )
         result["core_conflict"] = (
             result.get("core_conflict")
@@ -224,9 +221,7 @@ class SceneDraftReviewService:
                         title=scene.title,
                         value=value,
                         role=(
-                            "primary"
-                            if str(scene.id) == primary_scene_id
-                            else "source"
+                            "primary" if str(scene.id) == primary_scene_id else "source"
                         ),
                     )
                 )
@@ -279,8 +274,7 @@ class SceneDraftReviewService:
                     SceneDraftConflict(
                         field=field,
                         message=(
-                            f"{field} 在来源 Scene 中不一致，"
-                            "草稿默认以主 Scene 为准。"
+                            f"{field} 在来源 Scene 中不一致，草稿默认以主 Scene 为准。"
                         ),
                         source_scene_ids=[str(scene.id) for scene in scenes],
                     )

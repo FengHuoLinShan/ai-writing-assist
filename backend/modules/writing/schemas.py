@@ -53,6 +53,7 @@ def project_writing_draft_state(
         "attention_reasons": list(dict.fromkeys(attention_reasons)),
     }
 
+
 # ============================================================
 # 请求 Schema
 # ============================================================

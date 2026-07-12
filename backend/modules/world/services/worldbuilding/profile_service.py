@@ -38,9 +38,7 @@ class WorldProfileService:
         if status:
             entities_stmt = entities_stmt.where(CoreEntity.status == status)
         total = (
-            await db.execute(
-                select(func.count()).select_from(entities_stmt.subquery())
-            )
+            await db.execute(select(func.count()).select_from(entities_stmt.subquery()))
         ).scalar_one()
         result = await db.execute(
             entities_stmt.order_by(CoreEntity.name).offset(skip).limit(limit)
@@ -254,4 +252,5 @@ class WorldProfileService:
             updated_at=getattr(profile, "updated_at", None),
         )
 
-__all__ = ['WorldProfileService']
+
+__all__ = ["WorldProfileService"]

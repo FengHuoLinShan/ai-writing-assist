@@ -1,2 +1,1 @@
 """Core world service implementations."""
-

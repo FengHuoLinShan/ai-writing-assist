@@ -2,12 +2,32 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from infrastructure.llm.providers import OpenAIProvider
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+
+
+def test_provider_initialization_log_omits_base_url_query_secret(caplog) -> None:
+    query_secret = "fixture-query-secret"
+    with (
+        patch("infrastructure.llm.providers.httpx.AsyncClient"),
+        patch("infrastructure.llm.providers.AsyncOpenAI"),
+        caplog.at_level(logging.INFO, logger="infrastructure.llm.providers"),
+    ):
+        OpenAIProvider(
+            api_key="test-key",
+            base_url=f"https://gateway.example.test/v1?token={query_secret}",
+            default_model="test-model",
+        )
+
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "base_url_host=gateway.example.test" in messages
+    assert query_secret not in messages
+    assert "token=" not in messages
 
 
 def test_provider_disables_system_proxy_by_default(monkeypatch) -> None:

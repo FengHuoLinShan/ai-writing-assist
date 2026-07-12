@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -28,6 +29,52 @@ async def test_extraction_service_has_no_direct_http_exception_dependency() -> N
 
     assert "from fastapi import HTTPException" not in source
     assert "raise HTTPException" not in source
+
+
+async def test_world_extraction_public_entry_exits_project_runtime_on_error(
+    monkeypatch,
+) -> None:
+    service = EntityExtractionService(draft_provider=mock.AsyncMock())
+    client = SimpleNamespace(model_name="project-model")
+    db = object()
+    lifecycle: list[str] = []
+
+    @asynccontextmanager
+    async def _open_project_llm_client(actual_db, novel_id):
+        assert actual_db is db
+        assert novel_id == TEST_NOVEL_ID
+        lifecycle.append("entered")
+        try:
+            yield client
+        finally:
+            lifecycle.append("exited")
+
+    monkeypatch.setattr(
+        "modules.project.facade.open_project_llm_client",
+        _open_project_llm_client,
+    )
+    service._extract_entities_from_chapters_with_client = mock.AsyncMock(
+        side_effect=RuntimeError("extraction failed"),
+    )
+
+    with pytest.raises(RuntimeError, match="extraction failed"):
+        await service.extract_entities_from_chapters(
+            db,
+            TEST_NOVEL_ID,
+            1,
+            2,
+            batch_size=3,
+        )
+
+    service._extract_entities_from_chapters_with_client.assert_awaited_once_with(
+        db,
+        TEST_NOVEL_ID,
+        1,
+        2,
+        batch_size=3,
+        llm=client,
+    )
+    assert lifecycle == ["entered", "exited"]
 
 
 # ---------------------------------------------------------------
@@ -118,9 +165,7 @@ async def service(chapters):
     async def _get_entity(_db, entity_id):
         return entities_by_id.get(str(entity_id))
 
-    svc._suggestion_queue.create_core_entity_suggestion.side_effect = (
-        _create_suggestion
-    )
+    svc._suggestion_queue.create_core_entity_suggestion.side_effect = _create_suggestion
     svc._entity_repo.get.side_effect = _get_entity
     svc._test_created_entities = created_entities
     return svc
@@ -690,8 +735,7 @@ class TestEntityExtractionService:
             for call in service._dedup_service.find_similar_entities.call_args_list
         ] == [None, None]
         assert all(
-            not hasattr(entity, "embedding")
-            for entity in service._test_created_entities
+            not hasattr(entity, "embedding") for entity in service._test_created_entities
         )
 
     @mock.patch("modules.world.facade.find_entity_id_by_name")

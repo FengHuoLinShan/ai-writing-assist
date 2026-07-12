@@ -86,9 +86,7 @@ class SceneCommitter:
         for candidate, provenance_key in keyed_candidates:
             existing_scenes = existing_by_key.get(provenance_key, [])
             active_existing = [
-                scene
-                for scene in existing_scenes
-                if scene.get("status") != "deprecated"
+                scene for scene in existing_scenes if scene.get("status") != "deprecated"
             ]
             if active_existing:
                 result.skipped_count += 1

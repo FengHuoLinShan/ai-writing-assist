@@ -69,9 +69,7 @@ async def test_list_auto_ingested_filters_by_meta_and_status(
         content_json={"_meta": {"auto_ingested": True}},
     )
 
-    stats_service._repo.list_by_novel = AsyncMock(
-        return_value=[auto, manual, deprecated]
-    )
+    stats_service._repo.list_by_novel = AsyncMock(return_value=[auto, manual, deprecated])
     stats_service._repo.get_by_novel = AsyncMock()
 
     result = await stats_service.list_auto_ingested_entities(db, novel_id)
@@ -207,6 +205,30 @@ async def test_list_auto_ingested_includes_draft_status(
     assert len(result) == 1
     assert result[0]["name"] == "Draft"
     assert result[0]["status"] == "draft"
+
+
+@pytest.mark.asyncio
+async def test_list_auto_ingested_includes_candidate_when_explicitly_requested(
+    stats_service: EntityStatsService,
+) -> None:
+    db = MagicMock()
+    novel_id = str(uuid.uuid4())
+    candidate = _mock_entity(
+        name="Candidate",
+        status="candidate",
+        content_json={"_meta": {"auto_ingested": True, "source_chapter_index": 1}},
+    )
+
+    stats_service._repo.list_by_novel = AsyncMock(return_value=[candidate])
+
+    assert await stats_service.list_auto_ingested_entities(db, novel_id) == []
+    result = await stats_service.list_auto_ingested_entities(
+        db,
+        novel_id,
+        status_filter=["candidate", "draft", "canonical"],
+    )
+
+    assert [item["name"] for item in result] == ["Candidate"]
 
 
 @pytest.mark.asyncio

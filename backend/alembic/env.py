@@ -60,17 +60,13 @@ def _ensure_version_table_capacity(connection) -> None:
         return
 
     columns = {
-        column["name"]: column
-        for column in inspector.get_columns("alembic_version")
+        column["name"]: column for column in inspector.get_columns("alembic_version")
     }
     version_column = columns.get("version_num")
     column_type = version_column["type"] if version_column else None
     if getattr(column_type, "length", None) and column_type.length < 255:
         connection.execute(
-            text(
-                "ALTER TABLE alembic_version "
-                "ALTER COLUMN version_num TYPE VARCHAR(255)"
-            )
+            text("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(255)")
         )
 
     if connection.in_transaction():

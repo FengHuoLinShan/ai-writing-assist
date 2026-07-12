@@ -34,9 +34,25 @@ class _FakeLLMClient:
             character_card={"desire": "完成誓言"},
         )
 
+    async def close(self) -> None:
+        return None
+
 
 async def _create_project(async_client: AsyncClient, title: str = "模板项目") -> str:
-    response = await async_client.post("/api/projects", json={"title": title})
+    response = await async_client.post(
+        "/api/projects",
+        json={
+            "title": title,
+            "settings": {
+                "llm": {
+                    "provider_id": "openai-compatible",
+                    "api_key": "sk-test-only",
+                    "base_url": "https://llm.test/v1",
+                    "model": "test-model",
+                }
+            },
+        },
+    )
     assert response.status_code == 201, response.text
     return response.json()["id"]
 
@@ -127,9 +143,8 @@ async def test_archived_template_is_hidden_and_not_usable_for_generation(
 ) -> None:
     fake = _FakeLLMClient()
     monkeypatch.setattr(
-        "modules.world.services.worldbuilding.object_draft_generation_service."
-        "LLMClient.from_project_settings",
-        lambda _settings: fake,
+        "modules.project.llm_runtime.LLMClient.from_resolved_profile",
+        lambda _profile: fake,
     )
     novel_id = await _create_project(async_client)
     template = await _create_template(async_client, novel_id)
@@ -232,8 +247,7 @@ async def test_validate_and_preview_are_deterministic_without_llm(
         raise AssertionError("validate/preview must not create LLM client")
 
     monkeypatch.setattr(
-        "modules.world.services.worldbuilding.object_draft_generation_service."
-        "LLMClient.from_project_settings",
+        "modules.project.llm_runtime.LLMClient.from_resolved_profile",
         fail_llm,
     )
     novel_id = await _create_project(async_client)
@@ -330,10 +344,7 @@ async def test_validator_rejects_destructive_tool_and_callable_instructions(
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["validation_state"] == "invalid"
-    assert any(
-        issue["code"] == "prompt.unsafe_instruction"
-        for issue in body["issues"]
-    )
+    assert any(issue["code"] == "prompt.unsafe_instruction" for issue in body["issues"])
 
 
 @pytest.mark.asyncio
@@ -343,9 +354,8 @@ async def test_p2_template_warning_does_not_block_generation(
 ) -> None:
     fake = _FakeLLMClient()
     monkeypatch.setattr(
-        "modules.world.services.worldbuilding.object_draft_generation_service."
-        "LLMClient.from_project_settings",
-        lambda _settings: fake,
+        "modules.project.llm_runtime.LLMClient.from_resolved_profile",
+        lambda _profile: fake,
     )
     novel_id = await _create_project(async_client)
 
@@ -363,8 +373,7 @@ async def test_p2_template_warning_does_not_block_generation(
     template = response.json()
     assert template["validation_state"] == "warning"
     assert any(
-        issue["severity"] == "P2"
-        and issue["code"] == "prompt.full_body_requested"
+        issue["severity"] == "P2" and issue["code"] == "prompt.full_body_requested"
         for issue in template["validation_issues"]
     )
 
@@ -389,9 +398,8 @@ async def test_generate_rejects_stale_template_version_before_llm(
 ) -> None:
     fake = _FakeLLMClient()
     monkeypatch.setattr(
-        "modules.world.services.worldbuilding.object_draft_generation_service."
-        "LLMClient.from_project_settings",
-        lambda _settings: fake,
+        "modules.project.llm_runtime.LLMClient.from_resolved_profile",
+        lambda _profile: fake,
     )
     novel_id = await _create_project(async_client)
     template = await _create_template(async_client, novel_id)
@@ -424,9 +432,8 @@ async def test_generate_with_template_id_writes_template_meta(
 ) -> None:
     fake = _FakeLLMClient()
     monkeypatch.setattr(
-        "modules.world.services.worldbuilding.object_draft_generation_service."
-        "LLMClient.from_project_settings",
-        lambda _settings: fake,
+        "modules.project.llm_runtime.LLMClient.from_resolved_profile",
+        lambda _profile: fake,
     )
     novel_id = await _create_project(async_client)
     template = await _create_template(async_client, novel_id)

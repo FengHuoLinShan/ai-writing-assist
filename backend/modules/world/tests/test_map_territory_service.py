@@ -179,9 +179,7 @@ class TestMapTerritoryService:
             world_map.novel_id,
             str(world_map.id),
         )
-        assert {item.id for item in listed}.isdisjoint(
-            {str(item.id) for item in legacy}
-        )
+        assert {item.id for item in listed}.isdisjoint({str(item.id) for item in legacy})
 
     @pytest.mark.asyncio
     async def test_create_territory_out_of_bounds(self, db_session: AsyncSession):

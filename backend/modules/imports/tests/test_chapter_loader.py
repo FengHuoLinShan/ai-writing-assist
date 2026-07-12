@@ -87,9 +87,27 @@ async def test_load_chapter_range_include_missing_keeps_full_range(
     )
 
     assert chapters == [
-        {"chapter_index": 1, "title": "第1章", "content": ""},
-        {"chapter_index": 2, "title": "第2章", "content": ""},
-        {"chapter_index": 3, "title": "第三章", "content": "第三章正文"},
+        {
+            "chapter_index": 1,
+            "title": "第1章",
+            "content": "",
+            "source_draft_id": None,
+            "source_content_hash": "",
+        },
+        {
+            "chapter_index": 2,
+            "title": "第2章",
+            "content": "",
+            "source_draft_id": None,
+            "source_content_hash": "",
+        },
+        {
+            "chapter_index": 3,
+            "title": "第三章",
+            "content": "第三章正文",
+            "source_draft_id": None,
+            "source_content_hash": "",
+        },
     ]
 
 
@@ -134,7 +152,13 @@ async def test_scene_segmentation_load_chapters_wrapper_skips_missing(
     chapters = await SceneSegmentationService()._load_chapters(Mock(), "novel-1", 1, 3)
 
     assert chapters == [
-        {"chapter_index": 1, "title": "第一章", "content": "第一章正文"}
+        {
+            "chapter_index": 1,
+            "title": "第一章",
+            "content": "第一章正文",
+            "source_draft_id": None,
+            "source_content_hash": "",
+        }
     ]
 
 
@@ -166,6 +190,18 @@ async def test_phase2_load_chapters_wrapper_keeps_missing_chapters(
     )
 
     assert chapters == [
-        {"chapter_index": 1, "title": "第1章", "content": ""},
-        {"chapter_index": 2, "title": "第二章", "content": "第二章正文"},
+        {
+            "chapter_index": 1,
+            "title": "第1章",
+            "content": "",
+            "source_draft_id": None,
+            "source_content_hash": "",
+        },
+        {
+            "chapter_index": 2,
+            "title": "第二章",
+            "content": "第二章正文",
+            "source_draft_id": None,
+            "source_content_hash": "",
+        },
     ]

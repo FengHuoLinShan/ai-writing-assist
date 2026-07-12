@@ -285,9 +285,7 @@ class MapLocationLayout(Base, UUIDMixin, TimestampMixin, NovelMixin):
         String(32), nullable=False, default="quick_create"
     )
     layout_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    sync_geo_setting: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False
-    )
+    sync_geo_setting: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     meta: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
 
 
@@ -300,9 +298,7 @@ class MapTerrainLayer(Base, UUIDMixin, TimestampMixin, NovelMixin):
     """手绘地形图层。一个图层对应一种素材/语义类型。"""
 
     __tablename__ = "map_terrain_layers"
-    __table_args__ = (
-        {"comment": "地图手绘地形图层"},
-    )
+    __table_args__ = ({"comment": "地图手绘地形图层"},)
 
     map_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -323,9 +319,7 @@ class MapTerrainRegion(Base, UUIDMixin, TimestampMixin, NovelMixin):
     """一次连续手绘或一个可命名地形区域。"""
 
     __tablename__ = "map_terrain_regions"
-    __table_args__ = (
-        {"comment": "地图手绘地形区域"},
-    )
+    __table_args__ = ({"comment": "地图手绘地形区域"},)
 
     map_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),

@@ -108,10 +108,7 @@ class MemoryService:
             chapter_index=chapter_index,
             rows=rows,
         )
-        results = [
-            MemoryEventResponse.model_validate(record)
-            for record in records
-        ]
+        results = [MemoryEventResponse.model_validate(record) for record in records]
 
         await db.flush()
         return results
@@ -700,9 +697,7 @@ class MemoryService:
             state["relations"].append(after)
         elif etype == EventType.relation_ended:
             rel_id = after.get("relation_id") or after.get("id")
-            state["relations"] = [
-                r for r in state["relations"] if r.get("id") != rel_id
-            ]
+            state["relations"] = [r for r in state["relations"] if r.get("id") != rel_id]
         elif etype == EventType.knowledge_changed:
             state["character_knowledge"].append(after)
 

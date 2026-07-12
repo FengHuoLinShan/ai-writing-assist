@@ -83,10 +83,13 @@ class BgeEmbeddingClient(EmbeddingProvider):
         self._cache = EmbeddingCache()
         self._started = False
         self._direct_encode_lock = asyncio.Lock()
-        self._batch_delay_seconds = max(
-            0,
-            _settings_int(settings, "embedding_batch_queue_delay_ms", 5),
-        ) / 1000
+        self._batch_delay_seconds = (
+            max(
+                0,
+                _settings_int(settings, "embedding_batch_queue_delay_ms", 5),
+            )
+            / 1000
+        )
         self._batch_max_items = max(
             1,
             _settings_int(
@@ -283,8 +286,7 @@ class BgeEmbeddingClient(EmbeddingProvider):
 
         if len(embeddings) != len(texts):
             error = RuntimeError(
-                "BGE worker returned "
-                f"{len(embeddings)} embeddings for {len(texts)} texts"
+                f"BGE worker returned {len(embeddings)} embeddings for {len(texts)} texts"
             )
             self._fail_requests(batch, error)
             return
@@ -414,9 +416,7 @@ async def prewarm_embedding_worker() -> dict:
         client = await BgeEmbeddingClient.get_instance()
         embedding = await client.generate_embedding("rag prewarm", is_query=True)
         if not (
-            isinstance(embedding, list)
-            and embedding
-            and isinstance(embedding[0], float)
+            isinstance(embedding, list) and embedding and isinstance(embedding[0], float)
         ):
             raise ValueError("embedding 返回格式异常")
         latency_ms = round((time.monotonic() - started_at) * 1000, 1)

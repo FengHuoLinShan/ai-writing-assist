@@ -112,8 +112,8 @@ async def backfill_entity_embeddings(db, novel_id, *, batch_size=64) -> int
 async def get_world_context(db, novel_id, entity_ids=None, ..., include_review=False) -> WorldContextBundle
 async def expand_related_entities(db, novel_id, seed_entity_ids, depth=1, limit=20) -> list[CoreEntityContext]
 
-# ---- Entity Extraction ----
-async def run_entity_extraction(db, novel_id, start_chapter, end_chapter, batch_size=5) -> dict
+# Entity extraction is owned by imports `world_objects` deep-import stage.
+# World no longer exposes a parallel extraction facade.
 
 # ---- Dedup ----
 async def find_similar_entities(db, novel_id, name, aliases=None, ...) -> list[DuplicateSuggestionResult]

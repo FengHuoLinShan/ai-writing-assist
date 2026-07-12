@@ -769,10 +769,41 @@ describe("generateView POV prose tab", () => {
     expect(api.world.listCharacters).toHaveBeenCalledWith({
       novel_id: "p1",
       skip: 0,
-      limit: 200,
+      limit: 50,
     })
     expect(api.generate.generateObjectDraft).not.toHaveBeenCalled()
     expect(api.context.confirm).not.toHaveBeenCalled()
+  })
+
+  it("角色超过单页上限时分页加载全部角色", async () => {
+    const firstPage = Array.from({ length: 50 }, (_, index) => ({
+      entity_id: `char-${index + 1}`,
+      name: `角色 ${index + 1}`,
+    }))
+    api.world.listCharacters
+      .mockResolvedValueOnce({ items: firstPage, total: 51 })
+      .mockResolvedValueOnce({
+        items: [{ entity_id: "char-51", name: "角色 51" }],
+        total: 51,
+      })
+
+    await generateView._switchGenerateSubTab("pov_prose")
+
+    expect(api.world.listCharacters).toHaveBeenNthCalledWith(1, {
+      novel_id: "p1",
+      skip: 0,
+      limit: 50,
+    })
+    expect(api.world.listCharacters).toHaveBeenNthCalledWith(2, {
+      novel_id: "p1",
+      skip: 50,
+      limit: 50,
+    })
+    expect(generateView._povCharacters).toHaveLength(51)
+    expect(generateView._povCharacters.at(-1)).toEqual({
+      entity_id: "char-51",
+      name: "角色 51",
+    })
   })
 
   it("选择章节后加载 Scene，并清空旧 Scene 和角色选择", async () => {

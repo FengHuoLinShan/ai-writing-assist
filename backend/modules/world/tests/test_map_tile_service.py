@@ -27,9 +27,7 @@ class TestMapTileService:
     """TestMapTileService 测试集合。"""
 
     @pytest.mark.asyncio
-    async def test_bulk_upsert_empty_changes_returns_zero(
-        self, db_session: AsyncSession
-    ):
+    async def test_bulk_upsert_empty_changes_returns_zero(self, db_session: AsyncSession):
         nid = uuid.uuid4().hex
         await _create_project(db_session, nid)
         config = await _create_map_config(db_session, nid)

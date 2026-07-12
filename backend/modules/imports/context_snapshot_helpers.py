@@ -30,6 +30,7 @@ def build_phase2_snapshot_payload(
     max_tokens: int,
     temperature: float,
     activation: dict[str, Any] | None = None,
+    profile_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build compact snapshot payload for Phase 2 handcrafted context."""
     scene_id = str(scene.get("id")) if scene.get("id") else None
@@ -66,6 +67,7 @@ def build_phase2_snapshot_payload(
             "scene_index": scene.get("scene_index"),
             "chapter_ids": chapter_ids,
             "activation_version": activation.get("activation_version"),
+            "llm_runtime": profile_summary or {},
         },
         "included_asset_ids": {
             "scenes": [scene_id] if scene_id else [],

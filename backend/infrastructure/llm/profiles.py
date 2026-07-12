@@ -108,10 +108,7 @@ PROVIDER_TEMPLATES: list[dict[str, Any]] = [
     _template(
         "qwen-dashscope",
         "通义千问 / 阿里云百炼",
-        (
-            "https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/"
-            "compatible-mode/v1"
-        ),
+        ("https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"),
         "阿里云百炼 OpenAI 兼容模式；请将 {WorkspaceId} 替换为业务空间 ID",
         default_model="qwen-plus",
         models=[

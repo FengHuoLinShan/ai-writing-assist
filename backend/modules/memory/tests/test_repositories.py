@@ -225,8 +225,7 @@ class TestEventRepository:
         )
 
         ordered = [
-            (event.chapter_index, event.sequence)
-            for event in [*first, *second, *third]
+            (event.chapter_index, event.sequence) for event in [*first, *second, *third]
         ]
         assert ordered == [(1, 1), (1, 2), (2, 1), (3, 1), (3, 2)]
         assert len(first) == 2

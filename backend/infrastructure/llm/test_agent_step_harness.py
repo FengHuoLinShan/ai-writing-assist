@@ -2,17 +2,25 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+
 import pytest
 from pydantic import BaseModel, Field
 
 from infrastructure.llm.agent_step_harness import (
+    MANAGED_LLM_PROVENANCE_KEY,
     AgentPermissionLevel,
+    AgentRunJournal,
     ContextBudget,
     ContextBudgetGuard,
     ManagedLLMStep,
     OutputGuard,
     StepExecutionStatus,
     StepToolEnvelope,
+    build_managed_llm_provenance,
+    managed_llm_provenance_scope,
+    merge_managed_llm_provenance,
     run_managed_generate,
     run_managed_structured,
 )
@@ -30,6 +38,14 @@ class _FakeLLMClient:
         self.result = result
         self.exc = exc
         self.calls: list[dict] = []
+        self.profile_summary = {
+            "model": "test-model",
+            "api_key_configured": True,
+        }
+        self.runtime_scope = {
+            "novel_id": "novel-1",
+            "profile_source": "project",
+        }
 
     async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
         self.calls.append({"method": "generate", "request": request})
@@ -87,6 +103,127 @@ async def test_run_managed_generate_returns_response_without_wrapping() -> None:
 
 
 @pytest.mark.asyncio
+async def test_managed_generate_records_secret_free_runtime_scope() -> None:
+    request = LLMCallRequest(model="phase-model-override", messages=[])
+    client = _FakeLLMClient(result=LLMCallResponse(content="ok", model="test-model"))
+    journal = AgentRunJournal()
+    await run_managed_generate(
+        client,
+        request,
+        step_name="test.runtime",
+        journal=journal,
+    )
+
+    runtime = journal.model_dump()[-1]["details"]["quality_stats"]["llm_runtime"]
+    assert runtime["novel_id"] == "novel-1"
+    assert runtime["profile_source"] == "project"
+    assert runtime["profile_summary"]["model"] == "phase-model-override"
+    assert runtime["profile_summary"]["default_model"] == "test-model"
+    assert "api_key" not in runtime["profile_summary"]
+
+
+@pytest.mark.asyncio
+async def test_managed_provenance_is_secret_safe_stable_and_deduplicated() -> None:
+    response = LLMCallResponse(content="ok", model="phase-model-override")
+    client = _FakeLLMClient(result=response)
+    client.profile_summary.update(
+        {
+            "provider_id": "compatible",
+            "base_url_host": (
+                "https://writer:password@api.example.test/v1?api_key=query-secret"
+            ),
+            "api_key": "sk-profile-secret",
+            "base_url": "https://api.example.test/v1?token=base-secret",
+            "prompt": "private prompt",
+            "content": "private novel body",
+        }
+    )
+    request = LLMCallRequest(model="phase-model-override", messages=[])
+
+    with managed_llm_provenance_scope() as records:
+        await run_managed_generate(client, request, step_name="test.phase")
+        await run_managed_generate(client, request, step_name="test.phase")
+        await run_managed_generate(client, request, step_name="test.other_phase")
+
+    assert len(records) == 2
+    first = records[0]
+    assert set(first) == {
+        "step_name",
+        "novel_id",
+        "profile_source",
+        "profile_summary",
+        "profile_hash",
+    }
+    assert first["profile_summary"]["model"] == "phase-model-override"
+    assert first["profile_summary"]["default_model"] == "test-model"
+    assert first["profile_summary"]["base_url_host"] == "api.example.test"
+    assert (
+        first["profile_hash"]
+        == build_managed_llm_provenance(
+            client,
+            step_name="test.phase",
+            request=request,
+        )["profile_hash"]
+    )
+    assert len(first["profile_hash"]) == 64
+
+    serialized = json.dumps(records, ensure_ascii=False, sort_keys=True)
+    for secret in (
+        "password",
+        "query-secret",
+        "sk-profile-secret",
+        "base-secret",
+        "private prompt",
+        "private novel body",
+    ):
+        assert secret not in serialized
+
+    merged = merge_managed_llm_provenance(
+        {MANAGED_LLM_PROVENANCE_KEY: [records[0]]},
+        records,
+    )
+    assert len(merged[MANAGED_LLM_PROVENANCE_KEY]) == 2
+
+
+@pytest.mark.asyncio
+async def test_managed_provenance_scopes_are_isolated_between_async_tasks() -> None:
+    async def collect(novel_id: str) -> list[dict]:
+        client = _FakeLLMClient(result=LLMCallResponse(content="ok", model="phase-model"))
+        client.runtime_scope["novel_id"] = novel_id
+        with managed_llm_provenance_scope() as records:
+            await asyncio.sleep(0)
+            await run_managed_generate(
+                client,
+                LLMCallRequest(model="phase-model", messages=[]),
+                step_name="test.isolated",
+            )
+            await asyncio.sleep(0)
+            return list(records)
+
+    first, second = await asyncio.gather(collect("novel-a"), collect("novel-b"))
+
+    assert [item["novel_id"] for item in first] == ["novel-a"]
+    assert [item["novel_id"] for item in second] == ["novel-b"]
+
+
+@pytest.mark.asyncio
+async def test_managed_provenance_records_failed_calls() -> None:
+    client = _FakeLLMClient(exc=LLMInvalidResponseError("bad response"))
+
+    with managed_llm_provenance_scope() as records:
+        with pytest.raises(LLMInvalidResponseError):
+            await run_managed_generate(
+                client,
+                LLMCallRequest(model="failed-model", messages=[]),
+                step_name="test.failed",
+            )
+
+    assert len(records) == 1
+    assert records[0]["step_name"] == "test.failed"
+    assert records[0]["profile_summary"]["model"] == "failed-model"
+
+
+@pytest.mark.asyncio
 async def test_run_managed_generate_rethrows_original_exception() -> None:
     request = LLMCallRequest(model="test-model", messages=[])
     exc = LLMInvalidResponseError("bad")
@@ -128,6 +265,23 @@ async def test_run_managed_structured_forwards_structured_options() -> None:
     assert call["diagnostics"] is diagnostics
     assert call["format_repair_attempts"] == 1
     assert diagnostics == [{"kind": "fake"}]
+
+
+@pytest.mark.asyncio
+async def test_run_managed_structured_keeps_duck_typed_request_compatibility() -> None:
+    request = object()
+    output = _ItemsPayload(items=["a"])
+    client = _FakeLLMClient(result=output)
+
+    result = await run_managed_structured(  # type: ignore[arg-type]
+        client,
+        request,
+        _ItemsPayload,
+        step_name="test.duck_typed_request",
+    )
+
+    assert result is output
+    assert client.calls[0]["request"] is request
 
 
 @pytest.mark.asyncio
@@ -233,9 +387,7 @@ async def test_managed_step_applies_low_level_output_schema_guard() -> None:
     assert result.status == StepExecutionStatus.degraded
     assert result.degraded is True
     assert result.error_kind == "schema_validation"
-    assert result.journal_events[-1]["details"]["output_guard"][
-        "validation_error_count"
-    ]
+    assert result.journal_events[-1]["details"]["output_guard"]["validation_error_count"]
 
 
 @pytest.mark.asyncio
@@ -331,9 +483,7 @@ def test_context_budget_guard_microcompacts_working_context() -> None:
 
 
 def test_context_budget_guard_autocompact_fallback_marks_overflow() -> None:
-    guard = ContextBudgetGuard(
-        ContextBudget(context_limit_tokens=10, trigger_ratio=0.5)
-    )
+    guard = ContextBudgetGuard(ContextBudget(context_limit_tokens=10, trigger_ratio=0.5))
 
     result = guard.autocompact_fallback("x" * 80)
 

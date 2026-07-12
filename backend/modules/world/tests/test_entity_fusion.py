@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from sqlalchemy import event
@@ -297,7 +298,9 @@ async def test_entity_fusion_suggestion_prefers_canonical_target(
         status="candidate",
     )
 
-    result = await WorldEntityFusionService().suggest(
+    result = await WorldEntityFusionService(
+        llm_client=mock.MagicMock(model_name="test-model")
+    ).suggest(
         db_session,
         novel_id=project_novel_id,
         max_suggestions=5,
@@ -347,7 +350,9 @@ async def test_entity_fusion_suggests_same_type_summary_overlap(
         ),
     )
 
-    result = await WorldEntityFusionService().suggest(
+    result = await WorldEntityFusionService(
+        llm_client=mock.MagicMock(model_name="test-model")
+    ).suggest(
         db_session,
         novel_id=project_novel_id,
         max_suggestions=5,

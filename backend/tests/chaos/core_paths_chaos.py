@@ -362,9 +362,7 @@ def test_s7_empty_retrieve_safe(f: Fixture) -> None:
     )
     data = resp.json() if resp.ok else {}
     passed = (
-        resp.status_code == 200
-        and data.get("total") == 0
-        and data.get("chunks") == []
+        resp.status_code == 200 and data.get("total") == 0 and data.get("chunks") == []
     )
     if not passed:
         record(

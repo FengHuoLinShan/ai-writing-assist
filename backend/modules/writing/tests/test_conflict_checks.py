@@ -99,6 +99,17 @@ async def _create_context_confirmation(
     scene_id: str | None = None,
     include_pending_objects: bool = False,
 ) -> str:
+    if action.startswith("writing.conflict_check.ai_"):
+        settings_response = await async_client.put(
+            f"/api/projects/{novel_id}/llm-settings",
+            json={
+                "provider_id": "openai-compatible",
+                "base_url": "https://llm.test/v1",
+                "model": "test-model",
+                "api_key": "sk-test-only",
+            },
+        )
+        assert settings_response.status_code == 200, settings_response.text
     payload = {
         "novel_id": novel_id,
         "action": action,
@@ -285,9 +296,7 @@ async def test_conflict_check_injected_scene_loader_degrades_on_missing_scene(
 
     assert response.status == "degraded"
     assert response.summary_json["degraded_sources"] == ["outline"]
-    assert [
-        item for item in response.items if item.source_module == "outline"
-    ] == []
+    assert [item for item in response.items if item.source_module == "outline"] == []
 
 
 @pytest.mark.asyncio
@@ -368,14 +377,16 @@ async def test_conflict_check_history_batches_item_loading(
             include_candidates=False,
             status="completed",
             summary_json={"total": 1},
-            items=[{
-                "kind": "required_missing",
-                "severity": "medium",
-                "source_module": "outline",
-                "source_type": "scene.must_happen",
-                "source_id": f"scene-{idx}",
-                "evidence_summary": f"missing-{idx}",
-            }],
+            items=[
+                {
+                    "kind": "required_missing",
+                    "severity": "medium",
+                    "source_module": "outline",
+                    "source_type": "scene.must_happen",
+                    "source_id": f"scene-{idx}",
+                    "evidence_summary": f"missing-{idx}",
+                }
+            ],
         )
 
     pairs, total = await repo.list_checks(

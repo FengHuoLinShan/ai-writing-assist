@@ -119,9 +119,7 @@ async def test_replace_terrain_layer_patches_reuses_existing_region_id(
     service = MapTerrainService()
     payload = MapTerrainPatchReplaceRequest(
         layer=MapTerrainLayerCreate(name="结界层", terrain_asset_key="barrier"),
-        regions=[
-            MapTerrainRegionCreate(id=region_id, layer_id=layer_id, name="结界 1")
-        ],
+        regions=[MapTerrainRegionCreate(id=region_id, layer_id=layer_id, name="结界 1")],
         patches=[MapTerrainPatchItem(region_id=region_id, hex_q=1, hex_r=1)],
     )
     await service.replace_layer_patches(

@@ -116,9 +116,7 @@ class Settings:
     llm_model: str = "deepseek-v4-flash"
     llm_max_tokens: int = 4096
     llm_timeout: int = 180
-    llm_trust_env: bool = field(
-        default_factory=lambda: _env_bool("LLM_TRUST_ENV", False)
-    )
+    llm_trust_env: bool = field(default_factory=lambda: _env_bool("LLM_TRUST_ENV", False))
     llm_proxy_url: str = field(default_factory=lambda: _env("LLM_PROXY_URL", ""))
     llm_health_required: bool = field(
         default_factory=lambda: _env_bool("LLM_HEALTH_REQUIRED", True)

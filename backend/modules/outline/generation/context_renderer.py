@@ -109,7 +109,7 @@ def render_bundle_to_markdown(
     guard = guard or _PromptTextGuard(warnings=[])
     context_md = ""
     if bundle.project:
-        context_md += "## 项目\n" f"{guard.block('project', bundle.project)}\n\n"
+        context_md += f"## 项目\n{guard.block('project', bundle.project)}\n\n"
     if bundle.world_entities:
         context_md += "## 世界对象\n"
         for entity in bundle.world_entities:
@@ -118,7 +118,7 @@ def render_bundle_to_markdown(
                 "entity_type": entity.get("entity_type", "?"),
                 "summary": entity.get("summary", ""),
             }
-            context_md += "- 世界对象：\n" f"{guard.block('world_entity', entity_text)}\n"
+            context_md += f"- 世界对象：\n{guard.block('world_entity', entity_text)}\n"
     if bundle.characters:
         context_md += "\n## 人物\n"
         for character in bundle.characters:
@@ -127,7 +127,7 @@ def render_bundle_to_markdown(
                 "role": character.get("role", "?"),
                 "desire": character.get("desire", ""),
             }
-            context_md += "- 人物：\n" f"{guard.block('character', character_text)}\n"
+            context_md += f"- 人物：\n{guard.block('character', character_text)}\n"
     if bundle.rag_chunks:
         context_md += "\n## RAG 检索证据\n"
         for chunk in bundle.rag_chunks:
@@ -144,7 +144,7 @@ def render_bundle_to_markdown(
                 chunk_text,
                 max_chars=_RAG_CHUNK_TEXT_LIMIT,
             )
-            context_md += "- RAG 片段：\n" f"{wrapped_chunk}\n"
+            context_md += f"- RAG 片段：\n{wrapped_chunk}\n"
     if bundle.warnings:
         context_md += render_warnings_to_markdown(
             "上下文警告",
@@ -166,7 +166,7 @@ def render_warnings_to_markdown(
             warning,
             max_chars=_SHORT_DYNAMIC_TEXT_LIMIT,
         )
-        context_md += "- 警告：\n" f"{wrapped_warning}\n"
+        context_md += f"- 警告：\n{wrapped_warning}\n"
     return context_md
 
 
@@ -226,7 +226,7 @@ def render_scene_summary_line(
         summary_text,
         max_chars=_SCENE_SUMMARY_TEXT_LIMIT,
     )
-    return "- Scene 摘要：\n" f"{wrapped_summary}"
+    return f"- Scene 摘要：\n{wrapped_summary}"
 
 
 def render_scene_summary_card(scene: object, chapter_indices: list[int]) -> dict:

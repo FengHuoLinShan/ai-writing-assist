@@ -50,6 +50,8 @@ from core.container import reset as reset_container
 from core.dependencies import get_db
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+
+
 class XhrAsyncClient(AsyncClient):
     """Test client that mirrors the frontend write-request CSRF marker."""
 

@@ -56,8 +56,7 @@ class MapLocationBindingService:
         mid = parse_uuid(map_id, "map_id")
         nid = parse_uuid(novel_id, "novel_id")
         location_ids = [
-            parse_uuid(item.location_entity_id, "location_entity_id")
-            for item in items
+            parse_uuid(item.location_entity_id, "location_entity_id") for item in items
         ]
         unique_location_ids = list(dict.fromkeys(location_ids))
         await self._ctx.require_canonical_entities(

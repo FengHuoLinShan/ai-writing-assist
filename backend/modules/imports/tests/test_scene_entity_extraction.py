@@ -663,6 +663,73 @@ async def test_phase2b_snapshot_helper_creates_alias_relation_snapshot(
 
 
 @pytest.mark.asyncio
+async def test_phase2_snapshot_profile_matches_active_project_client_summary(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+) -> None:
+    from infrastructure.llm.profiles import resolve_llm_profile
+    from modules.imports.entity_extraction.scene_entity_config import (
+        phase2_project_settings_context,
+    )
+    from modules.imports.entity_extraction.scene_entity_snapshots import (
+        create_phase2_snapshot,
+    )
+
+    project_settings = {
+        "llm": {
+            "provider_id": "openai-compatible",
+            "label": "Project fixture",
+            "api_key": "snapshot-secret-must-not-appear",
+            "base_url": "https://project-profile.example.test/v1?token=secret",
+            "model": "project-model",
+            "timeout": 77,
+            "max_tokens": 9000,
+        }
+    }
+    expected = resolve_llm_profile(project_settings).sanitized_summary()
+    expected.update(
+        {
+            "profile_model": "project-model",
+            "request_model": "project-model",
+        }
+    )
+    scene = {
+        "id": "scene-profile-summary",
+        "novel_id": novel_with_drafts,
+        "scene_index": 3,
+        "chapter_ids": ["1"],
+    }
+
+    with phase2_project_settings_context(project_settings):
+        snapshot = await create_phase2_snapshot(
+            object(),
+            db_session,
+            novel_with_drafts,
+            scene,
+            1,
+            "第 1 章正文",
+            "已有对象",
+            "前序记忆",
+            [],
+            workflow_id="wf-profile-summary",
+        )
+
+    from modules.context.models import ContextSnapshot
+
+    raw_result = await db_session.execute(
+        select(ContextSnapshot).where(ContextSnapshot.id == snapshot.id)
+    )
+    stored = raw_result.scalar_one()
+    assert stored.model == "project-model"
+    assert stored.token_metadata["max_tokens"] == 32_768
+    assert stored.compile_options["llm_runtime"] == expected
+    assert "snapshot-secret-must-not-appear" not in str(stored.compile_options)
+    assert stored.compile_options["llm_runtime"]["base_url_host"] == (
+        "project-profile.example.test"
+    )
+
+
+@pytest.mark.asyncio
 async def test_process_scene_marks_snapshot_failed_on_persist_error(
     db_session: AsyncSession,
     novel_with_drafts: str,
@@ -2765,6 +2832,49 @@ async def test_parallel_llm_fallback_extracts_before_serial_persistence() -> Non
         ["entity-1"],
         ["entity-2"],
     ]
+
+
+@pytest.mark.asyncio
+async def test_parallel_phase2_skips_unresolved_scene_without_failing_stage() -> None:
+    svc = SceneEntityExtractionService()
+    scene = {
+        "id": "transient-scene-without-exact-span",
+        "novel_id": "novel-1",
+        "scene_index": 58,
+        "chapter_ids": ["13"],
+        "title": "待修复 Scene",
+    }
+    db = Mock()
+    db.flush = AsyncMock()
+
+    with (
+        patch.object(
+            svc,
+            "_load_scene_chapters",
+            new_callable=AsyncMock,
+            return_value="",
+        ),
+        _patched_phase2_summaries(svc),
+    ):
+        result = await svc._process_scenes_parallel_llm(
+            db,
+            "00000000-0000-0000-0000-000000000001",
+            [scene],
+            "无已有对象",
+            workflow_id="wf-phase2-unresolved",
+            on_scene_progress=None,
+            bulk_error_kind="unified_activation:fresh",
+            include_alias_relations=False,
+        )
+
+    assert result["failed_scene_indices"] == []
+    assert result["failed_scene_ids"] == []
+    assert result["skipped_scenes"] == 1
+    assert result["unresolved_scene_indices"] == [58]
+    assert result["degraded"] is True
+    checkpoint = result["checkpoints"]["phase2"]["scenes"][0]
+    assert checkpoint["status"] == "skipped"
+    assert checkpoint["error_kind"] == "current_scene_span_coverage_missing"
 
 
 @pytest.mark.asyncio

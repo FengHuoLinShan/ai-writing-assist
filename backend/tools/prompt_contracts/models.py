@@ -59,8 +59,7 @@ class PromptContract:
             ),
             strict_schema_coverage=bool(data.get("strict_schema_coverage", False)),
             required_mappings=[
-                FieldMapping.from_dict(item)
-                for item in data.get("required_mappings", [])
+                FieldMapping.from_dict(item) for item in data.get("required_mappings", [])
             ],
             observed_fields=[str(item) for item in data.get("observed_fields", [])],
             ignored_fields=[

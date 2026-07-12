@@ -41,7 +41,7 @@ class ConflictCheckAiReviewService:
         llm_client: LLMClient | None = None,
     ) -> None:
         self._repo = repo
-        self._llm = llm_client or LLMClient()
+        self._llm = llm_client
 
     async def run(
         self,
@@ -77,6 +77,20 @@ class ConflictCheckAiReviewService:
             _validate_confirmation_scope(confirmed_context.confirmation, check)
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
+
+        if self._llm is None:
+            from modules.project.facade import open_project_llm_client
+
+            async with open_project_llm_client(db, novel_id) as client:
+                return await ConflictCheckAiReviewService(
+                    self._repo,
+                    llm_client=client,
+                ).run(
+                    db,
+                    novel_id=novel_id,
+                    check_id=check_id,
+                    context_confirmation_id=context_confirmation_id,
+                )
 
         await self._repo.update_ai_review(
             db,
@@ -196,7 +210,7 @@ class ConflictSuggestionService:
         llm_client: LLMClient | None = None,
     ) -> None:
         self._repo = repo
-        self._llm = llm_client or LLMClient()
+        self._llm = llm_client
 
     async def generate(
         self,
@@ -235,6 +249,20 @@ class ConflictSuggestionService:
             _validate_confirmation_scope(confirmed_context.confirmation, check)
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
+
+        if self._llm is None:
+            from modules.project.facade import open_project_llm_client
+
+            async with open_project_llm_client(db, novel_id) as client:
+                return await ConflictSuggestionService(
+                    self._repo,
+                    llm_client=client,
+                ).generate(
+                    db,
+                    novel_id=novel_id,
+                    item_id=item_id,
+                    context_confirmation_id=context_confirmation_id,
+                )
 
         await self._repo.update_loaded_item_suggestion(
             db,
@@ -449,17 +477,17 @@ def _build_ai_review_prompt(
         f"{context_markdown}\n\n"
         "只输出 JSON，不要输出 Markdown 或解释。格式必须是：\n"
         "{\n"
-        "  \"issues\": [\n"
+        '  "issues": [\n'
         "    {\n"
-        "      \"kind\": \"motivation_gap\",\n"
-        "      \"severity\": \"medium\",\n"
-        "      \"summary\": \"一句话概括问题\",\n"
-        "      \"evidence\": \"正文或上下文中的具体证据\",\n"
-        "      \"rationale\": \"为什么这构成软冲突\",\n"
-        "      \"location_hint\": {\"chapter_index\": 1, "
-        "\"text_quote\": \"可定位短句\"},\n"
-        "      \"confidence\": 0.72,\n"
-        "      \"depends_on_pending_objects\": false\n"
+        '      "kind": "motivation_gap",\n'
+        '      "severity": "medium",\n'
+        '      "summary": "一句话概括问题",\n'
+        '      "evidence": "正文或上下文中的具体证据",\n'
+        '      "rationale": "为什么这构成软冲突",\n'
+        '      "location_hint": {"chapter_index": 1, '
+        '"text_quote": "可定位短句"},\n'
+        '      "confidence": 0.72,\n'
+        '      "depends_on_pending_objects": false\n'
         "    }\n"
         "  ]\n"
         "}\n\n"
@@ -472,8 +500,8 @@ def _build_ai_review_prompt(
         "- depends_on_pending_objects: true 或 false\n"
         "最多输出 2 条 issues。\n"
         "summary/evidence/rationale 各限制 1-2 句。\n"
-        "不要展开长段解释；无法确定时输出 {\"issues\": []}。\n"
-        "如果没有可报告的软冲突，输出 {\"issues\": []}。"
+        '不要展开长段解释；无法确定时输出 {"issues": []}。\n'
+        '如果没有可报告的软冲突，输出 {"issues": []}。'
     )
 
 
@@ -497,9 +525,9 @@ def _build_ai_suggestion_prompt(
         f"{related or '- 无'}\n\n"
         "AI 参考资料：\n"
         f"{context_markdown}\n\n"
-        "只输出 JSON，格式为 {\"suggestion\": {\"strategy\": ..., "
-        "\"suggested_text\": ..., \"rationale\": ..., "
-        "\"constraints\": [], \"risk_notes\": []}}。\n"
+        '只输出 JSON，格式为 {"suggestion": {"strategy": ..., '
+        '"suggested_text": ..., "rationale": ..., '
+        '"constraints": [], "risk_notes": []}}。\n'
         "strategy/rationale 各 1-2 句。\n"
         "suggested_text 控制在 300-600 字以内。\n"
         "constraints/risk_notes 每项不超过 3 条。"

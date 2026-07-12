@@ -2,19 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import NotFoundError, ValidationError
+from core.errors import ValidationError
 from infrastructure.llm.agent_step_harness import (
     run_managed_generate,
     run_managed_structured,
 )
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
-from modules.project.facade import get_project_context
 from modules.world.llm_schemas import GeneratedObjectDraftOutput
 from modules.world.schemas import (
     CoreEntityDraftSuggestionPayload,
@@ -66,26 +67,23 @@ class ObjectDraftGenerationService:
         data: ObjectDraftChatRequest,
     ) -> ObjectDraftChatResponse:
         parse_uuid(data.novel_id, "novel_id")
-        project = await get_project_context(db, data.novel_id)
-        if project is None:
-            raise NotFoundError(f"Project {data.novel_id} not found")
         chapters = await self._load_selected_chapters(
             db,
             data.novel_id,
             data.selected_chapter_indices,
         )
         template = await self._resolve_template(db, data)
-        client = self._client(project.settings)
-        response = await run_managed_generate(
-            client,
-            LLMCallRequest(
-                model=self._model_for(data.quality_mode),
-                messages=self._chat_messages(data, chapters, template),
-                temperature=0.8,
-                max_tokens=2048,
-            ),
-            step_name="world.object_draft.chat.generate",
-        )
+        async with self._open_client(db, data.novel_id) as client:
+            response = await run_managed_generate(
+                client,
+                LLMCallRequest(
+                    model=self._model_for(data.quality_mode),
+                    messages=self._chat_messages(data, chapters, template),
+                    temperature=0.8,
+                    max_tokens=2048,
+                ),
+                step_name="world.object_draft.chat.generate",
+            )
         return ObjectDraftChatResponse(
             reply=response.content.strip(),
             model=response.model,
@@ -98,28 +96,26 @@ class ObjectDraftGenerationService:
         data: ObjectDraftGenerateRequest,
     ) -> ObjectDraftGenerateResponse:
         parse_uuid(data.novel_id, "novel_id")
-        project = await get_project_context(db, data.novel_id)
-        if project is None:
-            raise NotFoundError(f"Project {data.novel_id} not found")
         chapters = await self._load_selected_chapters(
             db,
             data.novel_id,
             data.selected_chapter_indices,
         )
         template = await self._resolve_template(db, data)
-        client = self._client(project.settings)
-        response = await run_managed_structured(
-            client,
-            LLMCallRequest(
-                model=self._model_for(data.quality_mode),
-                messages=self._structured_messages(data, chapters, template),
-                temperature=0.35,
-                max_tokens=4096,
-            ),
-            GeneratedObjectDraftOutput,
-            step_name="world.object_draft.generate.structured",
-            max_fix_attempts=2,
-        )
+        async with self._open_client(db, data.novel_id) as client:
+            response = await run_managed_structured(
+                client,
+                LLMCallRequest(
+                    model=self._model_for(data.quality_mode),
+                    messages=self._structured_messages(data, chapters, template),
+                    temperature=0.35,
+                    max_tokens=4096,
+                ),
+                GeneratedObjectDraftOutput,
+                step_name="world.object_draft.generate.structured",
+                max_fix_attempts=2,
+            )
+            provider = client.provider
 
         content_json = self._content_json(data, response, template)
         suggestion, entity = await self._suggestion_service.create_core_entity_suggestion(
@@ -158,13 +154,22 @@ class ObjectDraftGenerationService:
             suggestion=suggestion,
             quality_mode=data.quality_mode,
             model=self._model_for(data.quality_mode),
-            provider=client.provider,
+            provider=provider,
         )
 
-    def _client(self, project_settings: dict[str, Any] | None) -> LLMClient:
+    @asynccontextmanager
+    async def _open_client(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> AsyncIterator[LLMClient]:
         if self._llm_client is not None:
-            return self._llm_client
-        return LLMClient.from_project_settings(project_settings or {})
+            yield self._llm_client
+            return
+        from modules.project.facade import open_project_llm_client
+
+        async with open_project_llm_client(db, novel_id) as client:
+            yield client
 
     @staticmethod
     def _model_for(quality_mode: str) -> str:

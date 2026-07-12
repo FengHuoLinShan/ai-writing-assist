@@ -40,7 +40,6 @@ from modules.writing.schemas import (
     WritingDraftUpdate,
 )
 from modules.writing.services import WritingDraftService
-from tests.conftest import test_project_id  # noqa: F401
 
 # ============================================================
 # Fixtures
@@ -129,6 +128,9 @@ def update_data() -> WritingDraftUpdate:
 class FakeLLMClient:
     async def generate(self, request):
         return LLMCallResponse(content="这是 AI 生成的候选正文。")
+
+    async def close(self) -> None:
+        return None
 
 
 class FakePovLLMClient:
@@ -1968,6 +1970,83 @@ async def test_writing_generation_creates_candidate_without_publish_task(
 
 
 @pytest.mark.asyncio
+async def test_writing_generation_saves_secret_safe_managed_llm_provenance(
+    db_session: AsyncSession,
+) -> None:
+    import json
+
+    from infrastructure.llm.agent_step_harness import MANAGED_LLM_PROVENANCE_KEY
+    from modules.context.facade import confirm_context
+    from modules.writing.services import WritingGenerationService
+
+    class ProvenanceLLMClient:
+        model_name = "writing-phase-model"
+        profile_summary = {
+            "provider_id": "compatible",
+            "model": "project-default-model",
+            "base_url_host": (
+                "https://writer:password@api.example.test/v1?token=query-secret"
+            ),
+            "api_key": "sk-writing-secret",
+            "base_url": "https://api.example.test/v1?api_key=base-secret",
+            "prompt": "private prompt",
+            "content": "private novel body",
+        }
+        runtime_scope = {
+            "novel_id": "stale-novel-id",
+            "profile_source": "project",
+        }
+
+        async def generate(self, request):
+            return LLMCallResponse(
+                content="这是带来源记录的候选正文。",
+                model=request.model,
+            )
+
+    novel_id = "00000000-0000-0000-0000-00000000a211"
+    confirmation = await confirm_context(
+        db_session,
+        novel_id=novel_id,
+        action="writing.generate",
+        task="验证正文候选的 LLM 来源记录",
+        scope="chapter",
+        chapter_index=11,
+    )
+    service = WritingGenerationService(llm_client=ProvenanceLLMClient())
+
+    draft = await service.generate_candidate(
+        db_session,
+        novel_id=novel_id,
+        chapter_index=11,
+        title=None,
+        instruction=None,
+        context_confirmation_id=confirmation.id,
+    )
+
+    records = draft.provenance_json[MANAGED_LLM_PROVENANCE_KEY]
+    assert len(records) == 1
+    record = records[0]
+    assert record["step_name"] == "writing.generation.candidate.generate"
+    assert record["novel_id"] == novel_id
+    assert record["profile_source"] == "project"
+    assert record["profile_summary"]["model"] == "writing-phase-model"
+    assert record["profile_summary"]["default_model"] == "project-default-model"
+    assert record["profile_summary"]["base_url_host"] == "api.example.test"
+    assert len(record["profile_hash"]) == 64
+
+    serialized = json.dumps(draft.provenance_json, ensure_ascii=False)
+    for secret in (
+        "password",
+        "query-secret",
+        "sk-writing-secret",
+        "base-secret",
+        "private prompt",
+        "private novel body",
+    ):
+        assert secret not in serialized
+
+
+@pytest.mark.asyncio
 async def test_writing_generation_sanitizes_candidate_html(
     db_session: AsyncSession,
 ) -> None:
@@ -2015,12 +2094,31 @@ async def test_writing_generate_task_records_task_provenance(
 ) -> None:
     """AI 正文生成任务创建的候选稿可追踪到确认记录与任务。"""
     from modules.context.facade import confirm_context
-    from modules.writing import services as writing_services
+    from modules.project import llm_runtime
+    from modules.project.models import Project
     from modules.writing.tasks import handle_writing_generate
 
-    monkeypatch.setattr(writing_services, "LLMClient", lambda: FakeLLMClient())
+    monkeypatch.setattr(
+        llm_runtime.LLMClient,
+        "from_resolved_profile",
+        lambda _profile: FakeLLMClient(),
+    )
 
     novel_id = "00000000-0000-0000-0000-00000000a202"
+    db_session.add(
+        Project(
+            id=uuid.UUID(novel_id),
+            title="任务来源测试",
+            settings={
+                "llm": {
+                    "api_key": "sk-test-only",
+                    "base_url": "https://llm.test/v1",
+                    "model": "test-model",
+                }
+            },
+        )
+    )
+    await db_session.flush()
     confirmation = await confirm_context(
         db_session,
         novel_id=novel_id,

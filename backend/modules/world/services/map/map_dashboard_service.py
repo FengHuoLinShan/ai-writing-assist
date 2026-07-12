@@ -31,9 +31,7 @@ class MapDashboardService:
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
         focus_id = (
-            parse_uuid(focus_entity_id, "focus_entity_id")
-            if focus_entity_id
-            else None
+            parse_uuid(focus_entity_id, "focus_entity_id") if focus_entity_id else None
         )
 
         observations = await owner._observation_repo.list_for_dashboard(

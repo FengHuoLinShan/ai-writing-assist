@@ -65,6 +65,8 @@ ENTITY_TYPE_MAP: dict[str, str] = {
     "技能": "skill",
     "能力": "ability",
     "技能/能力": "skill",
+    "rule/power_system": "rule",
+    "secret/legend": "secret",
     "神器": "artifact",
     "遗物": "artifact",
     "其他": "other",

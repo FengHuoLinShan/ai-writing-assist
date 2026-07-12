@@ -42,16 +42,12 @@ async def test_owner_isolation_through_unique_constraint(db_session):
     repo = GlobalLLMDefaultsRepository()
     owner_a = uuid.uuid4()
     for _ in range(3):
-        await repo.upsert(
-            db_session, {"owner_id": owner_a, "provider_id": "a"}
-        )
+        await repo.upsert(db_session, {"owner_id": owner_a, "provider_id": "a"})
     a = await repo.get(db_session, owner_a)
     assert a is not None
     count = (
         await db_session.execute(
-            select(func.count()).where(
-                GlobalLLMDefaults.owner_id == owner_a
-            )
+            select(func.count()).where(GlobalLLMDefaults.owner_id == owner_a)
         )
     ).scalar()
     assert count == 1

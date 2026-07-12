@@ -273,9 +273,7 @@ class MapObservationService:
                 db,
                 [observation.id for observation in observations],
             )
-            fact_by_observation = {
-                fact.observation_id: fact for fact in existing_facts
-            }
+            fact_by_observation = {fact.observation_id: fact for fact in existing_facts}
             missing_observations = []
             seen_missing: set[Any] = set()
             for observation in observations:

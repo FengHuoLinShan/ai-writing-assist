@@ -89,6 +89,7 @@ async def _create_recoverable_deep_import_task(
     await db_session.flush()
     return task
 
+
 # ====================================================================
 # parsers.py — 补充测试
 # ====================================================================
@@ -1260,3 +1261,66 @@ class TestImportTaskHandlers:
             task,
             stage=stage,
         )
+
+
+# P0 eval runner seam: execute the exact authorized Scene stage path without a worker.
+@pytest.mark.asyncio
+async def test_run_submitted_scene_stage_inline_uses_worker_workflow_path() -> None:
+    import uuid
+    from unittest.mock import AsyncMock
+
+    from infrastructure.tasks.models import AsyncTask
+    from modules.imports.adoption_policy import build_authorization_snapshot
+    from modules.imports.orchestrator import DeepImportOrchestrator
+
+    novel_id = "11111111-1111-1111-1111-111111111111"
+    authorization = build_authorization_snapshot(
+        novel_id=novel_id,
+        start_chapter=1,
+        end_chapter=2,
+        adoption_policy="user_authorized_pipeline",
+        authorization_confirmed=True,
+        stage="scenes",
+    )
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="scene_auto_extraction",
+        status="pending",
+        meta={
+            "novel_id": novel_id,
+            "start_chapter": 1,
+            "end_chapter": 2,
+            "stage": "scenes",
+            "authorization_snapshot": authorization,
+        },
+        result={
+            "authorization_snapshot": authorization,
+            "adoption_policy": "user_authorized_pipeline",
+        },
+    )
+
+    class FakeWorkflow:
+        calls = 0
+
+        async def run_step(self, _db, **kwargs):
+            self.calls += 1
+            progress = kwargs["progress"]
+            progress.phase = "completed"
+            progress.message = "fixture complete"
+            return progress
+
+    workflow = FakeWorkflow()
+    db = AsyncMock()
+    db.get.return_value = task
+
+    result = await DeepImportOrchestrator(workflow=workflow).run_submitted_stage_inline(
+        db,
+        str(task.id),
+        stage="scenes",
+    )
+
+    assert workflow.calls == 1
+    assert result["phase"] == "completed"
+    assert task.status == "done"
+    assert task.progress == 1.0
+    db.flush.assert_awaited()

@@ -504,9 +504,7 @@ class GenerationPromptTemplateService:
         ]
         if not include_archived:
             conditions.append(GenerationPromptTemplate.status != "archived")
-        result = await db.execute(
-            select(GenerationPromptTemplate).where(*conditions)
-        )
+        result = await db.execute(select(GenerationPromptTemplate).where(*conditions))
         row = result.scalar_one_or_none()
         if row is None:
             raise NotFoundError(f"Template {template_id} not found")
@@ -712,9 +710,7 @@ def validate_template(
     }
     for field, message in forbidden_fields.items():
         if re.search(rf"\b{re.escape(field)}\b", lower):
-            issues.append(
-                _issue("P1", "prompt.forbidden_field", message, "prompt_text")
-            )
+            issues.append(_issue("P1", "prompt.forbidden_field", message, "prompt_text"))
 
     unsafe_checks = [
         ("api key", "不要要求输出或泄露 API key。"),
@@ -831,7 +827,9 @@ def missing_required_variables(
     return [
         str(item["name"])
         for item in variables_json
-        if item.get("name") and item.get("required") and not _variable_value(
+        if item.get("name")
+        and item.get("required")
+        and not _variable_value(
             str(item["name"]),
             item,
             values,

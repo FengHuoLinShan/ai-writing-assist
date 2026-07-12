@@ -405,7 +405,7 @@ class AliasRelationExtractor:
             return "无可用对象"
         lines = ["## 可用对象索引"]
         for entity in entities:
-            lines.append("- " f"{entity.get('name')} ({entity.get('entity_type')})")
+            lines.append(f"- {entity.get('name')} ({entity.get('entity_type')})")
         return "\n".join(lines)
 
 
@@ -520,9 +520,8 @@ def _effective_alias_relation_total_timeout_seconds(
     ):
         return configured_timeout_seconds
     waves = max(1, math.ceil(max(scene_count, 1) / max(concurrency, 1)))
-    dynamic_timeout = (
-        waves * phase2_alias_relation_llm_timeout_seconds()
-        + int(phase2_postprocess_timeout_seconds() * 2)
+    dynamic_timeout = waves * phase2_alias_relation_llm_timeout_seconds() + int(
+        phase2_postprocess_timeout_seconds() * 2
     )
     return max(configured_timeout_seconds, dynamic_timeout)
 

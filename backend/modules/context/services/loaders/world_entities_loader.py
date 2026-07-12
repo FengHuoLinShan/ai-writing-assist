@@ -30,11 +30,7 @@ def _entity_dict(entity: Any) -> dict[str, Any]:
         return dict(entity)
     if hasattr(entity, "model_dump"):
         return dict(entity.model_dump())
-    return {
-        key: value
-        for key, value in vars(entity).items()
-        if not key.startswith("_")
-    }
+    return {key: value for key, value in vars(entity).items() if not key.startswith("_")}
 
 
 def _project_display_state(entity: dict[str, Any]) -> str:
@@ -145,8 +141,7 @@ class WorldEntitiesLoader(Loader):
             bundle.budget_used["normal_entities"] = len(normal_entities)
 
         if any(
-            entity.get("display_state") == "review"
-            for entity in bundle.world_entities
+            entity.get("display_state") == "review" for entity in bundle.world_entities
         ):
             bundle.warnings.append("上下文包含未采用的世界对象")
 

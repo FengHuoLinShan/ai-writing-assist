@@ -84,6 +84,8 @@ const REVEAL_OPTIONS = [
   { value: "character", label: "角色视角模式（按人物知识边界）" },
 ]
 
+const POV_CHARACTER_PAGE_SIZE = 50
+
 const generateView = {
   _selectedTemplateId: "builtin:none",
   _templates: [],
@@ -1108,10 +1110,10 @@ const generateView = {
     try {
       const [chapterData, characterData] = await Promise.all([
         api.writing.listChapters(state.currentProjectId),
-        api.world.listCharacters({ novel_id: state.currentProjectId, skip: 0, limit: 200 }),
+        this._loadAllPovCharacters(state.currentProjectId),
       ])
       this._povChapters = Array.isArray(chapterData?.chapters) ? chapterData.chapters : []
-      this._povCharacters = Array.isArray(characterData?.items) ? characterData.items : []
+      this._povCharacters = characterData
       this._povLoadWarning = null
       if (this._povForm.chapterIndex) {
         await this._loadPovScenesForChapter(this._povForm.chapterIndex)
@@ -1121,6 +1123,27 @@ const generateView = {
       this._povChapters = []
       this._povScenes = []
       this._povCharacters = []
+    }
+  },
+
+  async _loadAllPovCharacters(novelId) {
+    const characters = []
+    let skip = 0
+
+    while (true) {
+      const data = await api.world.listCharacters({
+        novel_id: novelId,
+        skip,
+        limit: POV_CHARACTER_PAGE_SIZE,
+      })
+      const page = Array.isArray(data?.items) ? data.items : []
+      characters.push(...page)
+
+      const total = Number(data?.total)
+      if (page.length < POV_CHARACTER_PAGE_SIZE || (Number.isFinite(total) && characters.length >= total)) {
+        return characters
+      }
+      skip += page.length
     }
   },
 

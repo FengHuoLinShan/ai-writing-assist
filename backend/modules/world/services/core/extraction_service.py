@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -76,6 +77,57 @@ class EntityExtractionService:
         end_chapter: int,
         batch_size: int = 5,
     ) -> ExtractionResult:
+        """Run extraction with one lifecycle-managed project LLM client."""
+        from unittest.mock import Mock
+
+        from infrastructure.llm.client import LLMClient
+        from modules.project.facade import open_project_llm_client
+
+        if isinstance(db, Mock):
+            from modules.project.facade import get_project_context
+
+            project_context = await get_project_context(db, novel_id)
+            client = (
+                LLMClient.from_project_settings(project_context.settings)
+                if project_context is not None
+                else LLMClient()
+            )
+            try:
+                return await self._extract_entities_from_chapters_with_client(
+                    db,
+                    novel_id,
+                    start_chapter,
+                    end_chapter,
+                    batch_size=batch_size,
+                    llm=client,
+                )
+            finally:
+                close = getattr(client, "close", None)
+                if callable(close):
+                    close_result = close()
+                    if inspect.isawaitable(close_result):
+                        await close_result
+
+        async with open_project_llm_client(db, novel_id) as client:
+            return await self._extract_entities_from_chapters_with_client(
+                db,
+                novel_id,
+                start_chapter,
+                end_chapter,
+                batch_size=batch_size,
+                llm=client,
+            )
+
+    async def _extract_entities_from_chapters_with_client(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
+        *,
+        batch_size: int,
+        llm: Any,
+    ) -> ExtractionResult:
         """从指定章节范围抽取世界对象候选（单章顺序模式）
 
         每章独立 LLM 调用，3 次重试，上下文逐步累积。
@@ -112,19 +164,10 @@ class EntityExtractionService:
         from pydantic import BaseModel
 
         from infrastructure.llm.agent_step_harness import run_managed_structured
-        from infrastructure.llm.client import LLMClient
         from infrastructure.llm.errors import LLMInvalidResponseError
         from infrastructure.llm.prompt_loader import load_prompt
         from infrastructure.llm.schemas import LLMCallRequest
-        from modules.project.facade import get_project_context
 
-        project_context = await get_project_context(db, novel_id)
-        project_settings = project_context.settings if project_context else {}
-        llm = (
-            LLMClient.from_project_settings(project_settings)
-            if project_settings
-            else LLMClient()
-        )
         total_created = 0
         total_skipped = 0
         created_items: list[dict[str, Any]] = []

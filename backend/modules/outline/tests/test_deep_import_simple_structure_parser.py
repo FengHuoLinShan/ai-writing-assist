@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from modules.outline.generation.context_builder import PlotStructureContext
@@ -94,9 +96,7 @@ async def test_deep_import_simple_structure_parser_converts_probe_shape() -> Non
     assert parsed.threads[0].start_chapter == 1
     assert parsed.threads[0].supporting_scene_ids == ["scene-1"]
     assert parsed.threads[0].needs_review is True
-    assert "invalid_supporting_scene_refs_removed" in (
-        parsed.threads[0].review_reason
-    )
+    assert "invalid_supporting_scene_refs_removed" in (parsed.threads[0].review_reason)
     assert [arc.title for arc in parsed.arcs] == ["身份适应弧"]
     assert parsed.arcs[0].confidence == 0.4
     assert parsed.arcs[0].needs_review is True
@@ -113,7 +113,7 @@ async def test_deep_import_simple_structure_parser_converts_probe_shape() -> Non
     assert request.model == "deepseek-v4-pro"
     assert request.extra["thinking"] == {"type": "enabled"}
     assert request.extra["reasoning_effort"] == "max"
-    assert request.max_tokens == 12_288
+    assert request.max_tokens == 32_768
     assert request.messages[1].content.startswith("【Scene卡片 JSON】")
     assert "## 世界对象" in request.messages[1].content
     assert '"current_stage": "active|resolved|paused"' in request.messages[1].content
@@ -162,3 +162,63 @@ async def test_deep_import_structure_generator_high_quality_uses_pro_model() -> 
     )
 
     assert llm.requests[0].model == "deepseek-v4-pro"
+
+
+@pytest.mark.asyncio
+async def test_deep_import_structure_generator_uses_and_closes_snapshot_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeContextBuilder:
+        async def build(self, *_args, **_kwargs):
+            return PlotStructureContext(markdown="## 世界对象\n", scenes=[])
+
+    class FakePersister:
+        async def persist(self, *_args, **_kwargs):
+            return PersistResult(total_threads=1, total_arcs=0)
+
+    llm = FakeLLM()
+    llm.model_name = "snapshot-default"
+    llm.profile_summary = {"model": "snapshot-default"}
+    llm.runtime_scope = {"novel_id": "snapshot-novel"}
+    llm.close = AsyncMock()
+    captured: list[tuple[dict, dict]] = []
+
+    def create_client(settings, **kwargs):
+        captured.append((settings, kwargs))
+        return llm
+
+    monkeypatch.setattr(
+        "modules.project.facade.create_project_snapshot_llm_client",
+        create_client,
+    )
+    settings = {
+        "llm": {"model": "snapshot-default"},
+        "deep_import": {"phase3": {"structure_max_tokens": 30_000}},
+    }
+
+    await PlotStructureGenerator(
+        context_builder=FakeContextBuilder(),
+        persister=FakePersister(),
+    ).generate(
+        None,
+        "00000000-0000-0000-0000-000000000001",
+        1,
+        1,
+        include_chapter_texts=False,
+        include_existing_scenes=True,
+        generate_scenes=False,
+        fast_structured=True,
+        high_quality=True,
+        project_settings_snapshot=settings,
+        persist=True,
+    )
+
+    assert captured == [
+        (
+            settings,
+            {"novel_id": "00000000-0000-0000-0000-000000000001"},
+        )
+    ]
+    assert llm.requests[0].model == "deepseek-v4-pro"
+    assert llm.requests[0].max_tokens == 30_000
+    llm.close.assert_awaited_once_with()

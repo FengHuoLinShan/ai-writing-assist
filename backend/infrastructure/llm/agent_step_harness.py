@@ -12,15 +12,21 @@ import hashlib
 import inspect
 import json
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, TypeVar, get_origin
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, ValidationError
 
+from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMCallResponse
 from infrastructure.llm.token_estimation import estimate_token_count
+
+MANAGED_LLM_PROVENANCE_KEY = "managed_llm_steps"
 
 __all__ = [
     "AgentErrorKind",
@@ -32,15 +38,233 @@ __all__ = [
     "ContextBudgetGuard",
     "ContextBudgetResult",
     "ManagedLLMStep",
+    "MANAGED_LLM_PROVENANCE_KEY",
     "OutputGuard",
     "OutputGuardResult",
     "RetryPolicy",
     "StepExecutionResult",
     "StepExecutionStatus",
     "StepToolEnvelope",
+    "build_managed_llm_provenance",
+    "managed_llm_provenance_scope",
+    "merge_managed_llm_provenance",
     "run_managed_generate",
     "run_managed_structured",
 ]
+
+
+_MANAGED_LLM_PROVENANCE: ContextVar[list[dict[str, Any]] | None] = ContextVar(
+    "managed_llm_provenance",
+    default=None,
+)
+_PROFILE_TEXT_FIELDS = ("provider_id", "label")
+_PROFILE_NUMBER_FIELDS = ("timeout", "max_tokens", "temperature", "top_p")
+_KNOWN_PROFILE_SOURCES = {
+    "default",
+    "global",
+    "project",
+    "project_snapshot",
+    "system",
+    "test",
+    "test_override",
+    "timeout_override",
+    "unset",
+    "unknown",
+}
+
+
+def _safe_text(value: Any, *, limit: int = 256) -> str:
+    if value is None:
+        return ""
+    return redact_diagnostic(value, limit=limit).replace("\x00", "")
+
+
+def _safe_base_url_host(value: Any) -> str:
+    text = _safe_text(value, limit=2048).strip()
+    if not text:
+        return ""
+    candidate = text if "://" in text else f"//{text}"
+    try:
+        return _safe_text(urlparse(candidate).hostname or "", limit=253)
+    except ValueError:
+        return ""
+
+
+def _mapping_attr(instance: Any, name: str) -> Mapping[str, Any]:
+    try:
+        value = getattr(instance, name, None)
+    except Exception:
+        return {}
+    return value if isinstance(value, Mapping) else {}
+
+
+def _safe_profile_source(value: Any) -> str:
+    source = _safe_text(value, limit=64).strip().lower()
+    return source if source in _KNOWN_PROFILE_SOURCES else "unknown"
+
+
+def _sanitize_profile_summary(
+    value: Mapping[str, Any] | None,
+    *,
+    request: LLMCallRequest | None = None,
+) -> dict[str, Any]:
+    raw = value or {}
+    summary: dict[str, Any] = {}
+    for field_name in _PROFILE_TEXT_FIELDS:
+        if field_name in raw:
+            summary[field_name] = _safe_text(raw[field_name])
+
+    default_model = _safe_text(raw.get("model"))
+    if default_model:
+        summary["model"] = default_model
+    if "default_model" in raw:
+        summary["default_model"] = _safe_text(raw.get("default_model"))
+    if "base_url_host" in raw:
+        summary["base_url_host"] = _safe_base_url_host(raw["base_url_host"])
+
+    for field_name in _PROFILE_NUMBER_FIELDS:
+        value = raw.get(field_name)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            summary[field_name] = value
+        elif value is None and field_name in raw:
+            summary[field_name] = None
+
+    if "api_key_configured" in raw:
+        summary["api_key_configured"] = bool(raw["api_key_configured"])
+
+    sources = raw.get("sources")
+    if isinstance(sources, Mapping):
+        summary["sources"] = {
+            _safe_text(key, limit=64): _safe_profile_source(source)
+            for key, source in sources.items()
+            if _safe_text(key, limit=64)
+        }
+
+    extra_keys = raw.get("extra_keys")
+    if isinstance(extra_keys, (list, tuple, set, frozenset)):
+        summary["extra_keys"] = sorted(
+            {safe_key for key in extra_keys if (safe_key := _safe_text(key, limit=64))}
+        )
+
+    if request is not None:
+        actual_model = _safe_text(getattr(request, "model", ""))
+        if default_model:
+            summary["default_model"] = default_model
+        if actual_model:
+            summary["model"] = actual_model
+        for field_name in ("max_tokens", "temperature", "top_p"):
+            request_value = getattr(request, field_name, None)
+            if isinstance(request_value, (int, float)) and not isinstance(
+                request_value, bool
+            ):
+                summary[field_name] = request_value
+            elif request_value is None:
+                summary[field_name] = None
+
+    return summary
+
+
+def _profile_hash(profile_summary: Mapping[str, Any]) -> str:
+    canonical = json.dumps(
+        dict(profile_summary),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def build_managed_llm_provenance(
+    client: Any,
+    *,
+    step_name: str,
+    request: LLMCallRequest | None = None,
+    novel_id: str | None = None,
+) -> dict[str, Any]:
+    """Build a stable, allowlisted provenance record for one managed LLM call."""
+    profile_summary = _sanitize_profile_summary(
+        _mapping_attr(client, "profile_summary"),
+        request=request,
+    )
+    runtime_scope = _mapping_attr(client, "runtime_scope")
+    profile_source = runtime_scope.get("profile_source")
+    if profile_source is None:
+        sources = profile_summary.get("sources")
+        if isinstance(sources, Mapping):
+            profile_source = sources.get("model")
+    return {
+        "step_name": _safe_text(step_name, limit=160),
+        "novel_id": _safe_text(novel_id or runtime_scope.get("novel_id"), limit=128),
+        "profile_source": _safe_profile_source(profile_source),
+        "profile_summary": profile_summary,
+        "profile_hash": _profile_hash(profile_summary),
+    }
+
+
+def _provenance_identity(record: Mapping[str, Any]) -> tuple[str, str, str, str]:
+    return (
+        str(record.get("step_name") or ""),
+        str(record.get("novel_id") or ""),
+        str(record.get("profile_source") or ""),
+        str(record.get("profile_hash") or ""),
+    )
+
+
+def _normalize_provenance_record(record: Mapping[str, Any]) -> dict[str, Any]:
+    profile_summary = _sanitize_profile_summary(
+        record.get("profile_summary")
+        if isinstance(record.get("profile_summary"), Mapping)
+        else None
+    )
+    return {
+        "step_name": _safe_text(record.get("step_name"), limit=160),
+        "novel_id": _safe_text(record.get("novel_id"), limit=128),
+        "profile_source": _safe_profile_source(record.get("profile_source")),
+        "profile_summary": profile_summary,
+        "profile_hash": _profile_hash(profile_summary),
+    }
+
+
+def _collect_managed_llm_provenance(record: Mapping[str, Any]) -> None:
+    collector = _MANAGED_LLM_PROVENANCE.get()
+    if collector is None:
+        return
+    normalized = _normalize_provenance_record(record)
+    identity = _provenance_identity(normalized)
+    if all(_provenance_identity(item) != identity for item in collector):
+        collector.append(normalized)
+
+
+@contextmanager
+def managed_llm_provenance_scope() -> Iterator[list[dict[str, Any]]]:
+    """Collect managed-call provenance in the current async task only."""
+    collector: list[dict[str, Any]] = []
+    token = _MANAGED_LLM_PROVENANCE.set(collector)
+    try:
+        yield collector
+    finally:
+        _MANAGED_LLM_PROVENANCE.reset(token)
+
+
+def merge_managed_llm_provenance(
+    result: Mapping[str, Any] | None,
+    records: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Merge secret-safe records into a task/artifact result without duplicates."""
+    merged_result = dict(result or {})
+    merged_records: list[dict[str, Any]] = []
+    existing = merged_result.get(MANAGED_LLM_PROVENANCE_KEY)
+    candidates = [*existing, *records] if isinstance(existing, list) else records
+    for candidate in candidates:
+        if not isinstance(candidate, Mapping):
+            continue
+        normalized = _normalize_provenance_record(candidate)
+        identity = _provenance_identity(normalized)
+        if all(_provenance_identity(item) != identity for item in merged_records):
+            merged_records.append(normalized)
+    if merged_records:
+        merged_result[MANAGED_LLM_PROVENANCE_KEY] = merged_records
+    return merged_result
 
 
 class AgentPermissionLevel(StrEnum):
@@ -634,6 +858,12 @@ async def run_managed_generate(
 ) -> LLMCallResponse:
     """Run ``LLMClient.generate`` through a managed step without changing behavior."""
 
+    provenance = build_managed_llm_provenance(
+        client,
+        step_name=step_name,
+        request=request,
+    )
+    _collect_managed_llm_provenance(provenance)
     step = ManagedLLMStep(
         StepToolEnvelope(
             name=step_name,
@@ -645,10 +875,11 @@ async def run_managed_generate(
         ),
         journal=journal,
     )
+    managed_quality_stats = _quality_stats_with_runtime(quality_stats, provenance)
     result = await step.run(
         lambda: client.generate(request),
         token_usage=token_usage,
-        quality_stats=quality_stats,
+        quality_stats=managed_quality_stats,
     )
     return _unwrap_step_result(result)
 
@@ -680,6 +911,12 @@ async def run_managed_structured[StructuredT: BaseModel](
     does not enable the lower-level ``OutputGuard`` by default.
     """
 
+    provenance = build_managed_llm_provenance(
+        client,
+        step_name=step_name,
+        request=request,
+    )
+    _collect_managed_llm_provenance(provenance)
     step = ManagedLLMStep(
         StepToolEnvelope(
             name=step_name,
@@ -691,6 +928,7 @@ async def run_managed_structured[StructuredT: BaseModel](
         ),
         journal=journal,
     )
+    managed_quality_stats = _quality_stats_with_runtime(quality_stats, provenance)
     result = await step.run(
         lambda: client.generate_structured(
             request,
@@ -703,7 +941,7 @@ async def run_managed_structured[StructuredT: BaseModel](
             format_repair_attempts=format_repair_attempts,
         ),
         token_usage=token_usage,
-        quality_stats=quality_stats,
+        quality_stats=managed_quality_stats,
     )
     return _unwrap_step_result(result)
 
@@ -798,6 +1036,17 @@ def _unwrap_step_result(result: StepExecutionResult) -> Any:
             raise result.exception
         raise RuntimeError("Managed LLM step failed without an exception")
     return result.output
+
+
+def _quality_stats_with_runtime(
+    quality_stats: dict[str, Any] | None,
+    provenance: Mapping[str, Any],
+) -> dict[str, Any]:
+    merged = dict(quality_stats or {})
+    runtime = dict(merged.get("llm_runtime") or {})
+    runtime.update(provenance)
+    merged["llm_runtime"] = runtime
+    return merged
 
 
 def _snipped_marker(item: dict[str, Any]) -> dict[str, Any]:

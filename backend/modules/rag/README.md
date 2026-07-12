@@ -152,6 +152,21 @@ RAG 文本只是候选召回材料。context 或证据 API 在输出前必须通
 ## 依赖注入约定
 
 - `RetrievalOrchestrator` 构造函数可注入 `repo / scorer / query_expander / reranker_fn / embedder_fn / metrics / circuit_breaker`，默认使用仓库/评分器/容器单例。
+- LLM reranker 启用时先召回 `2 * top_k` 候选，再通过 project runtime client
+  重排并截断；reranker 失败保留原排序和 warning。Embedding 继续只读取
+  `EMBEDDING_*` 配置，不继承项目 chat profile。
+- Pilot v1.1 的旧 P@5/MRR/R@10 把 no-answer case 错误纳入
+  ranking 聚合，且 visibility cutoff 未落入机器可执行字段，
+  因此旧数值已作废。新 runner 只对 answerable case 聚合 ranking
+  metric，no-answer 独立记 false-positive/abstention；QC 会阻断缺 cutoff
+  或 positive source 越界的 visibility case。修复后的 127-case fresh
+  v1.1 artifact 为 P@5/MRR/R@10=0.1656/0.6098/0.8996，no-answer
+  false-positive rate=1.0，visibility leakage=0；只有 R@10 和 leakage
+  达到当前门槛。`RERANKER_ENABLED` 因此保持默认关闭。
+  后续优化必须在同一冻结
+  dataset/metric/threshold 上比较，不按被测模型换题或换门槛。
+- 即使调用方持有绑定 novel 的 project chat client，remote embedding 也会
+  委托给无 project profile 的独立 client。
 - `IndexingService` 构造函数可注入 `repo` 与 `chunking`。
 - `QueryExpander` 构造函数可注入 `term_loader`。
 - 不引入抽象端口/protocol（ADR-0002），使用普通类与函数/构造函数注入。

@@ -260,11 +260,14 @@ async def test_event_shadow_and_unadopted_location_are_rejected_and_hidden(
     assert items == []
     assert total == 0
     assert await service.get_events_in_order(db_session, novel_id) == []
-    assert await service.get_events_for_chapter(
-        db_session,
-        novel_id,
-        str(chapter.id),
-    ) == []
+    assert (
+        await service.get_events_for_chapter(
+            db_session,
+            novel_id,
+            str(chapter.id),
+        )
+        == []
+    )
     with pytest.raises(NotFoundError):
         await service.update(
             db_session,

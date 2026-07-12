@@ -385,7 +385,7 @@ class TestSceneSegmentationDegradation:
                 novel_with_drafts,
                 start_chapter=1,
                 end_chapter=3,
-        )
+            )
 
         assert result["total_scenes"] == 3
         assert result["degraded"] is True
@@ -499,7 +499,8 @@ class TestSceneSegmentationBatchMapping:
 
         service = SceneSegmentationService()
 
-        async def _mock_batch(_db, batch, batch_idx):
+        async def _mock_batch(_db, batch, batch_idx, *, novel_id):
+            assert novel_id
             if batch_idx == 0:
                 return [
                     {
@@ -538,9 +539,7 @@ class TestSceneSegmentationBatchMapping:
 
         from modules.outline.facade import get_scenes_by_novel
 
-        scenes = await get_scenes_by_novel(
-            db_session, novel_id, status_filter=["draft"]
-        )
+        scenes = await get_scenes_by_novel(db_session, novel_id, status_filter=["draft"])
         by_title = {s["title"]: s for s in scenes}
         assert by_title["错误回指 Scene"]["chapter_ids"] == ["6"]
         assert "Overlap Only Scene" not in by_title

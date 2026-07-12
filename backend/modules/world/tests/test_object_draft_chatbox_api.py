@@ -42,6 +42,28 @@ class _FakeLLMClient:
             character_card={"desire": "重建秩序", "fear": "牺牲失去意义"},
         )
 
+    async def close(self) -> None:
+        return None
+
+
+async def _create_llm_project(async_client: AsyncClient, title: str) -> dict:
+    response = await async_client.post(
+        "/api/projects",
+        json={
+            "title": title,
+            "settings": {
+                "llm": {
+                    "provider_id": "openai-compatible",
+                    "api_key": "sk-test-only",
+                    "base_url": "https://llm.test/v1",
+                    "model": "test-model",
+                }
+            },
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
 
 async def _entity_count(db_session: AsyncSession) -> int:
     result = await db_session.execute(select(func.count(CoreEntity.id)))
@@ -56,13 +78,10 @@ async def test_object_draft_chat_does_not_create_entity(
 ) -> None:
     fake = _FakeLLMClient()
     monkeypatch.setattr(
-        "modules.world.services.worldbuilding.object_draft_generation_service."
-        "LLMClient.from_project_settings",
-        lambda _settings: fake,
+        "modules.project.llm_runtime.LLMClient.from_resolved_profile",
+        lambda _profile: fake,
     )
-    project_resp = await async_client.post("/api/projects", json={"title": "Chatbox"})
-    assert project_resp.status_code == 201
-    novel_id = project_resp.json()["id"]
+    novel_id = (await _create_llm_project(async_client, "Chatbox"))["id"]
     before = await _entity_count(db_session)
 
     resp = await async_client.post(
@@ -89,13 +108,10 @@ async def test_generate_object_draft_creates_draft_entity_with_pro_model(
 ) -> None:
     fake = _FakeLLMClient()
     monkeypatch.setattr(
-        "modules.world.services.worldbuilding.object_draft_generation_service."
-        "LLMClient.from_project_settings",
-        lambda _settings: fake,
+        "modules.project.llm_runtime.LLMClient.from_resolved_profile",
+        lambda _profile: fake,
     )
-    project_resp = await async_client.post("/api/projects", json={"title": "生成草稿"})
-    assert project_resp.status_code == 201
-    novel_id = project_resp.json()["id"]
+    novel_id = (await _create_llm_project(async_client, "生成草稿"))["id"]
 
     resp = await async_client.post(
         "/api/world/object-drafts/generate",
@@ -164,15 +180,10 @@ async def test_object_suggestion_edit_confirm_route_updates_same_shadow(
 ) -> None:
     fake = _FakeLLMClient()
     monkeypatch.setattr(
-        "modules.world.services.worldbuilding.object_draft_generation_service."
-        "LLMClient.from_project_settings",
-        lambda _settings: fake,
+        "modules.project.llm_runtime.LLMClient.from_resolved_profile",
+        lambda _profile: fake,
     )
-    project_resp = await async_client.post(
-        "/api/projects",
-        json={"title": "编辑后采用建议"},
-    )
-    novel_id = project_resp.json()["id"]
+    novel_id = (await _create_llm_project(async_client, "编辑后采用建议"))["id"]
     generated = await async_client.post(
         "/api/world/object-drafts/generate",
         json={
@@ -206,13 +217,10 @@ async def test_generate_object_draft_accepts_custom_template_prompt(
 ) -> None:
     fake = _FakeLLMClient()
     monkeypatch.setattr(
-        "modules.world.services.worldbuilding.object_draft_generation_service."
-        "LLMClient.from_project_settings",
-        lambda _settings: fake,
+        "modules.project.llm_runtime.LLMClient.from_resolved_profile",
+        lambda _profile: fake,
     )
-    project_resp = await async_client.post("/api/projects", json={"title": "自定义模板"})
-    assert project_resp.status_code == 201
-    novel_id = project_resp.json()["id"]
+    novel_id = (await _create_llm_project(async_client, "自定义模板"))["id"]
 
     resp = await async_client.post(
         "/api/world/object-drafts/generate",
@@ -244,9 +252,8 @@ async def test_generate_object_draft_rejects_other_project_chapter(
 ) -> None:
     fake = _FakeLLMClient()
     monkeypatch.setattr(
-        "modules.world.services.worldbuilding.object_draft_generation_service."
-        "LLMClient.from_project_settings",
-        lambda _settings: fake,
+        "modules.project.llm_runtime.LLMClient.from_resolved_profile",
+        lambda _profile: fake,
     )
     project_a = await async_client.post("/api/projects", json={"title": "项目 A"})
     project_b = await async_client.post("/api/projects", json={"title": "项目 B"})
@@ -279,13 +286,10 @@ async def test_generate_object_draft_with_builtin_template_id(
 ) -> None:
     fake = _FakeLLMClient()
     monkeypatch.setattr(
-        "modules.world.services.worldbuilding.object_draft_generation_service."
-        "LLMClient.from_project_settings",
-        lambda _settings: fake,
+        "modules.project.llm_runtime.LLMClient.from_resolved_profile",
+        lambda _profile: fake,
     )
-    project_resp = await async_client.post("/api/projects", json={"title": "模板ID生成"})
-    assert project_resp.status_code == 201
-    novel_id = project_resp.json()["id"]
+    novel_id = (await _create_llm_project(async_client, "模板ID生成"))["id"]
 
     resp = await async_client.post(
         "/api/world/object-drafts/generate",
@@ -318,9 +322,8 @@ async def test_generate_object_draft_rejects_archived_template_id(
 ) -> None:
     fake = _FakeLLMClient()
     monkeypatch.setattr(
-        "modules.world.services.worldbuilding.object_draft_generation_service."
-        "LLMClient.from_project_settings",
-        lambda _settings: fake,
+        "modules.project.llm_runtime.LLMClient.from_resolved_profile",
+        lambda _profile: fake,
     )
     project_resp = await async_client.post(
         "/api/projects",

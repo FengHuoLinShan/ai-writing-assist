@@ -92,6 +92,8 @@ class TestMapEntityType:
             ("技能", "skill"),
             ("能力", "ability"),
             ("神器", "artifact"),
+            ("rule/power_system", "rule"),
+            ("secret/legend", "secret"),
             ("其他", "other"),
         ],
     )
@@ -571,9 +573,7 @@ class TestEntityContextServiceListEntityTerms:
         merged = _mock_entity(name="Gone", status="merged")
         svc = EntityContextService()
         with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
-            mock_repo.list_by_novel = AsyncMock(
-                return_value=[canonical, draft, merged]
-            )
+            mock_repo.list_by_novel = AsyncMock(return_value=[canonical, draft, merged])
             result = await svc.list_entity_terms(db, str(uuid.uuid4()))
             assert len(result) == 1
             assert result[0]["name"] == "Hero"

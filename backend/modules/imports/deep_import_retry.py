@@ -42,6 +42,7 @@ NON_RETRYABLE_DEEP_IMPORT_ERROR_TYPES = {
     "quality_gate",
 }
 
+
 class DeepImportAttemptDiagnostic(BaseModel):
     """One LLM attempt and the retry decision made from its outcome."""
 
@@ -219,10 +220,7 @@ def exceeds_final_422_rate_after_retry(
 ) -> bool:
     """Return whether retry-final 422 failures exceed the blocking threshold."""
 
-    return (
-        final_422_rate_after_retry(results, total_batches=total_batches)
-        > threshold
-    )
+    return final_422_rate_after_retry(results, total_batches=total_batches) > threshold
 
 
 def _status_code_from_error(exc: Exception) -> int | None:

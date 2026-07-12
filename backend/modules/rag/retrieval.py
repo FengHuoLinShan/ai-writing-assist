@@ -454,6 +454,8 @@ class RetrievalOrchestrator:
                 degraded = True
                 warnings.append("BGE 服务熔断中，本次检索已降级为关键词匹配")
 
+        rerank_enabled = _is_rerank_enabled(mode)
+        candidate_top_k = top_k * 2 if rerank_enabled else top_k
         _search_t0 = _time.monotonic()
         scored_chunks = await self.hybrid_search(
             db,
@@ -470,25 +472,36 @@ class RetrievalOrchestrator:
             visible_until_chapter=visible_until_chapter,
             content_mode=content_mode,
             mode=mode,
-            top_k=top_k,
+            top_k=candidate_top_k,
             reference_chapter_index=reference_chapter_index,
         )
         _search_ms = (_time.monotonic() - _search_t0) * 1000
 
         deduped_chunks = self._deduplicate_by_embedding(scored_chunks, threshold=0.9)
 
-        rerank_enabled = _is_rerank_enabled(mode)
         if rerank_enabled and len(deduped_chunks) > top_k:
             try:
                 _rerank_t0 = _time.monotonic()
-                deduped_chunks = await self._reranker_fn(
-                    query,
-                    deduped_chunks,
-                    top_k=top_k,
-                )
+                if self._reranker_fn is rerank_results:
+                    from modules.project.facade import open_project_llm_client
+
+                    async with open_project_llm_client(db, str(novel_id)) as client:
+                        deduped_chunks = await self._reranker_fn(
+                            query,
+                            deduped_chunks,
+                            top_k=top_k,
+                            llm_client=client,
+                        )
+                else:
+                    deduped_chunks = await self._reranker_fn(
+                        query,
+                        deduped_chunks,
+                        top_k=top_k,
+                    )
                 _rerank_ms = (_time.monotonic() - _rerank_t0) * 1000
             except Exception as exc:
                 _rerank_ms = (_time.monotonic() - _rerank_t0) * 1000
+                degraded = True
                 warnings.append(f"重排序失败，使用原始排序: {exc}")
         else:
             _rerank_ms = 0.0

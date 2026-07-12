@@ -183,9 +183,7 @@ class WorldEntityService(
         if self._is_suggestion_compatibility_shadow(existing) and not (
             _from_suggestion_queue
         ):
-            raise ValidationError(
-                "该实体由待处理建议管理，请通过对应建议执行编辑或裁决"
-            )
+            raise ValidationError("该实体由待处理建议管理，请通过对应建议执行编辑或裁决")
 
         changed = data.model_dump(exclude_unset=True)
         if changed.get("status") == "canonical" and existing.status != "canonical":
@@ -287,9 +285,7 @@ class WorldEntityService(
         self._assert_found_in_novel(existing, id, nid)
         assert existing is not None
         if self._is_suggestion_compatibility_shadow(existing):
-            raise ValidationError(
-                "该实体由待处理建议管理，请通过对应建议执行忽略"
-            )
+            raise ValidationError("该实体由待处理建议管理，请通过对应建议执行忽略")
         await super().delete(db, id, novel_id=novel_id)
 
     # ============================================================
@@ -326,9 +322,7 @@ class WorldEntityService(
         content_json = dict(entity.content_json or {})
         meta = dict(content_json.get("_meta") or {})
         if meta.get("compatibility_shadow") is True and not _from_suggestion_queue:
-            raise ValidationError(
-                "该实体由待处理建议管理，请通过对应建议执行采用"
-            )
+            raise ValidationError("该实体由待处理建议管理，请通过对应建议执行采用")
 
         approved_by = data.approved_by or "manual"
         if _from_suggestion_queue:

@@ -109,6 +109,7 @@ def normalize_profession_slug(label: str) -> str:
     slug = _PROFESSION_SLUG_RE.sub("_", label.strip().lower()).strip("_")
     return slug[:128]
 
+
 __all__ = [
     "CONFIRMED_STATUSES",
     "GENERIC_PROFILE_TYPES",

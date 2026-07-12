@@ -575,6 +575,72 @@ class TestTaskWorkerExecuteTask:
         assert task_mock.id not in worker._running_task_ids
 
     @pytest.mark.asyncio
+    async def test_execute_success_persists_deduplicated_llm_provenance(
+        self,
+    ) -> None:
+        import json
+
+        from infrastructure.llm.agent_step_harness import (
+            MANAGED_LLM_PROVENANCE_KEY,
+            run_managed_generate,
+        )
+        from infrastructure.llm.schemas import LLMCallRequest, LLMCallResponse
+        from infrastructure.tasks.worker import TaskWorker
+
+        class FakeClient:
+            profile_summary = {
+                "model": "default-model",
+                "base_url_host": ("https://api.example.test/v1?api_key=query-secret"),
+                "api_key": "sk-task-secret",
+                "prompt": "private prompt",
+            }
+            runtime_scope = {
+                "novel_id": "novel-task",
+                "profile_source": "project",
+            }
+
+            async def generate(self, request):
+                return LLMCallResponse(content="ok", model=request.model)
+
+        client = FakeClient()
+
+        async def handler(**kwargs):
+            request = LLMCallRequest(model="phase-model", messages=[])
+            await run_managed_generate(client, request, step_name="test.phase")
+            await run_managed_generate(client, request, step_name="test.phase")
+            await run_managed_generate(client, request, step_name="test.other")
+            return {"output": "success"}
+
+        task_mock = MagicMock()
+        task_mock.id = uuid.uuid4()
+        task_mock.task_type = "test_type"
+        task_mock.result = {}
+        task_mock.mark_done = MagicMock()
+        db_session = AsyncMock()
+
+        with (
+            patch("infrastructure.tasks.worker.get_manager"),
+            patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
+        ):
+            worker = TaskWorker()
+            worker._registry.get_handler = MagicMock(return_value=handler)
+            await worker._execute_task(task_mock, db_session)
+
+        result_data = task_mock.mark_done.call_args.args[0]
+        assert result_data["output"] == "success"
+        records = result_data[MANAGED_LLM_PROVENANCE_KEY]
+        assert [record["step_name"] for record in records] == [
+            "test.phase",
+            "test.other",
+        ]
+        assert records[0]["profile_summary"]["model"] == "phase-model"
+        assert records[0]["profile_summary"]["default_model"] == "default-model"
+        serialized = json.dumps(records, ensure_ascii=False)
+        assert "query-secret" not in serialized
+        assert "sk-task-secret" not in serialized
+        assert "private prompt" not in serialized
+
+    @pytest.mark.asyncio
     async def test_execute_handler_returns_non_dict(self) -> None:
         """GREEN: handler 返回非 dict 时包装为 {'result': ...}"""
         from infrastructure.tasks.worker import TaskWorker
@@ -669,6 +735,53 @@ class TestTaskWorkerExecuteTask:
         assert "ValueError: processing error" in task_mock.mark_failed.call_args[0][0]
         assert worker._stats["failed"] == 1
 
+    @pytest.mark.asyncio
+    async def test_execute_failure_persists_managed_llm_provenance(self) -> None:
+        from infrastructure.llm.agent_step_harness import (
+            MANAGED_LLM_PROVENANCE_KEY,
+            run_managed_generate,
+        )
+        from infrastructure.llm.schemas import LLMCallRequest
+        from infrastructure.tasks.worker import TaskWorker
+
+        class FailingClient:
+            profile_summary = {"model": "default-model"}
+            runtime_scope = {
+                "novel_id": "novel-failed",
+                "profile_source": "project",
+            }
+
+            async def generate(self, request):
+                raise RuntimeError("provider failed")
+
+        async def failing_handler(**kwargs):
+            await run_managed_generate(
+                FailingClient(),
+                LLMCallRequest(model="failed-phase-model", messages=[]),
+                step_name="test.failed",
+            )
+
+        task_mock = MagicMock()
+        task_mock.id = uuid.uuid4()
+        task_mock.task_type = "test_type"
+        task_mock.result = {"checkpoint": 2}
+        task_mock.mark_failed = MagicMock()
+        db_session = AsyncMock()
+
+        with (
+            patch("infrastructure.tasks.worker.get_manager"),
+            patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
+        ):
+            worker = TaskWorker()
+            worker._registry.get_handler = MagicMock(return_value=failing_handler)
+            await worker._execute_task(task_mock, db_session)
+
+        assert task_mock.result["checkpoint"] == 2
+        record = task_mock.result[MANAGED_LLM_PROVENANCE_KEY][0]
+        assert record["step_name"] == "test.failed"
+        assert record["profile_summary"]["model"] == "failed-phase-model"
+        task_mock.mark_failed.assert_called_once()
+
     def test_public_task_error_message_sanitizes_dbapi_details(self) -> None:
         """DB/SQL internals must not be exposed through task status."""
         from infrastructure.tasks.worker import _public_task_error_message
@@ -683,6 +796,64 @@ class TestTaskWorkerExecuteTask:
         assert message == "后台任务遇到数据库临时错误，请稍后重试。"
         assert "DBAPIError" not in message
         assert "UPDATE async_tasks" not in message
+
+    def test_public_task_error_message_redacts_credentials_and_url_query(self) -> None:
+        """Provider diagnostics exposed by the task API must be secret-free."""
+        from infrastructure.tasks.worker import _public_task_error_message
+
+        message = _public_task_error_message(
+            RuntimeError(
+                "request https://user:pass@gateway.example.test/v1/chat?opaque=hidden "
+                "failed with Authorization: Bearer sk-task-secret"
+            )
+        )
+
+        assert "hidden" not in message
+        assert "user:pass" not in message
+        assert "sk-task-secret" not in message
+        assert "gateway.example.test/v1/chat" in message
+        assert "REDACTED" in message
+
+    @pytest.mark.asyncio
+    async def test_execute_task_never_logs_chained_secret_cause(
+        self,
+        caplog,
+    ) -> None:
+        """A provider cause chain must not escape through worker traceback logging."""
+        from infrastructure.tasks.worker import TaskWorker
+
+        async def failing_handler(**_kwargs):
+            try:
+                raise RuntimeError(
+                    "transport https://gateway.example.test/v1?opaque=hidden-cause "
+                    "Bearer sk-hidden-cause"
+                )
+            except RuntimeError as cause:
+                raise RuntimeError("provider request failed") from cause
+
+        task_mock = MagicMock()
+        task_mock.id = uuid.uuid4()
+        task_mock.task_type = "test_type"
+        task_mock.result = {}
+        task_mock.mark_failed = MagicMock()
+        db_session = AsyncMock()
+
+        with (
+            patch("infrastructure.tasks.worker.get_manager"),
+            patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
+            caplog.at_level("ERROR", logger="infrastructure.tasks.worker"),
+        ):
+            worker = TaskWorker()
+            worker._registry.get_handler = MagicMock(return_value=failing_handler)
+            await worker._execute_task(task_mock, db_session)
+
+        logged = "\n".join(caplog.messages)
+        assert "provider request failed" in logged
+        assert "hidden-cause" not in logged
+        assert "sk-hidden-cause" not in logged
+        task_mock.mark_failed.assert_called_once_with(
+            "RuntimeError: provider request failed"
+        )
 
     @pytest.mark.asyncio
     async def test_execute_cancelled_error(self) -> None:
@@ -713,6 +884,52 @@ class TestTaskWorkerExecuteTask:
         db_session.rollback.assert_awaited_once()
         task_mock.mark_cancelled.assert_called_once()
         assert worker._stats["cancelled"] == 1
+
+    @pytest.mark.asyncio
+    async def test_execute_cancelled_persists_managed_llm_provenance(self) -> None:
+        from infrastructure.llm.agent_step_harness import (
+            MANAGED_LLM_PROVENANCE_KEY,
+            run_managed_generate,
+        )
+        from infrastructure.llm.schemas import LLMCallRequest
+        from infrastructure.tasks.worker import TaskWorker
+
+        class CancellingClient:
+            profile_summary = {"model": "default-model"}
+            runtime_scope = {
+                "novel_id": "novel-cancelled",
+                "profile_source": "project",
+            }
+
+            async def generate(self, request):
+                raise asyncio.CancelledError()
+
+        async def cancelling_handler(**kwargs):
+            await run_managed_generate(
+                CancellingClient(),
+                LLMCallRequest(model="cancelled-phase-model", messages=[]),
+                step_name="test.cancelled",
+            )
+
+        task_mock = MagicMock()
+        task_mock.id = uuid.uuid4()
+        task_mock.task_type = "test_type"
+        task_mock.result = {}
+        task_mock.mark_cancelled = MagicMock()
+        db_session = AsyncMock()
+
+        with (
+            patch("infrastructure.tasks.worker.get_manager"),
+            patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
+        ):
+            worker = TaskWorker()
+            worker._registry.get_handler = MagicMock(return_value=cancelling_handler)
+            await worker._execute_task(task_mock, db_session)
+
+        record = task_mock.result[MANAGED_LLM_PROVENANCE_KEY][0]
+        assert record["step_name"] == "test.cancelled"
+        assert record["profile_summary"]["model"] == "cancelled-phase-model"
+        task_mock.mark_cancelled.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_heartbeat_task_cancelled_in_finally(self) -> None:
@@ -890,8 +1107,7 @@ class TestTaskWorkerRecoverStale:
         assert task_mock.result["interrupted_at"]
         assert task_mock.result["recovery_summary"]["reason"] == "heartbeat_timeout"
         assert (
-            task_mock.result["recovery_summary"]["current_phase"]
-            == "entity_extraction"
+            task_mock.result["recovery_summary"]["current_phase"] == "entity_extraction"
         )
         assert task_mock.result["recovery_summary"]["current_chapter"] == 7
         assert task_mock.result["recovery_summary"]["current_chapter_range"] == "1-12"

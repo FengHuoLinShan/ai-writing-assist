@@ -172,11 +172,15 @@ async def test_projects_using_defaults_excludes_fully_overridden(db_session, fac
     """完全覆盖三个字段的项目不应在继承列表中。"""
     svc = SettingsService()
     pid = await factory.create_project(title="fully-own")
-    await svc.upsert_project_author_prefs(db_session, pid, {
-        "daily_goal": 1000,
-        "editor_font": "serif",
-        "default_focus_mode": True,
-    })
+    await svc.upsert_project_author_prefs(
+        db_session,
+        pid,
+        {
+            "daily_goal": 1000,
+            "editor_font": "serif",
+            "default_focus_mode": True,
+        },
+    )
     resp = await list_projects_using_defaults(db_session)
     titles = [item.title for item in resp.items]
     assert "fully-own" not in titles

@@ -45,16 +45,13 @@ def test_classifies_timeout_errors() -> None:
 def test_classifies_provider_503_text_as_network() -> None:
     assert classify_deep_import_error(Exception("Error code: 503")) == "network"
     assert (
-        classify_deep_import_error(Exception("provider failover_exhausted"))
-        == "network"
+        classify_deep_import_error(Exception("provider failover_exhausted")) == "network"
     )
 
 
 def test_classifies_schema_and_empty_result_errors() -> None:
     assert (
-        classify_deep_import_error(
-            LLMInvalidResponseError("Schema validation failed")
-        )
+        classify_deep_import_error(LLMInvalidResponseError("Schema validation failed"))
         == "schema_error"
     )
     assert (

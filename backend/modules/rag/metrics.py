@@ -124,16 +124,12 @@ class RagMetrics:
                 "empty_result_count": self.empty_result_count,
                 "empty_rate": round(self.empty_result_count / n, 4),
                 "avg_latency_ms": round(self.total_latency_ms / n, 1),
-                "embedding_avg_ms": round(
-                    self.embedding_latency_ms / embedding_n, 1
-                ),
+                "embedding_avg_ms": round(self.embedding_latency_ms / embedding_n, 1),
                 "search_avg_ms": round(self.search_latency_ms / search_n, 1),
                 "rerank_avg_ms": round(self.rerank_latency_ms / rerank_n, 1),
                 "meaningful_match_fail_count": self.meaningful_match_fail_count,
                 "indexed_chunks_count": self.indexed_chunks_count,
-                "indexing_failed_embedding_count": (
-                    self.indexing_failed_embedding_count
-                ),
+                "indexing_failed_embedding_count": (self.indexing_failed_embedding_count),
                 "indexing_avg_ms": round(self.indexing_latency_ms / indexing_n, 1),
                 "embedding_retry_count": self.embedding_retry_count,
                 "embedding_retry_failed_count": self.embedding_retry_failed_count,

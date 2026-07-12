@@ -36,8 +36,8 @@ from modules.world.facade import (
     list_characters as _world_list_characters,
     list_entities as _world_list_entities,
     list_entity_terms as _world_list_entity_terms,
-    run_entity_extraction as _world_extract,
 )
+
 
 def _register_orm_models() -> None:
     """Import ORM models with Base.metadata for FK dependency resolution."""
@@ -56,7 +56,6 @@ def _container_services() -> Iterable[tuple[str, Any]]:
     return (
         ("world.list_characters", _world_list_characters),
         ("world.list_entity_terms", _world_list_entity_terms),
-        ("world.run_entity_extraction", _world_extract),
         ("world.list_entities", _world_list_entities),
         ("world.run_scene_entity_extraction", scene_extraction.extract_by_scenes),
         (

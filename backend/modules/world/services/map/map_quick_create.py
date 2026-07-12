@@ -249,11 +249,7 @@ class MapQuickCreateService:
         data: MapQuickCreateConfirmRequest,
         preview: MapQuickCreatePreviewResponse,
     ) -> list[MapLocationLayoutItem]:
-        layouts = (
-            data.layouts
-            if data.layouts is not None
-            else preview.location_layouts
-        )
+        layouts = data.layouts if data.layouts is not None else preview.location_layouts
         allowed_location_ids = {
             layout.location_entity_id for layout in preview.location_layouts
         }
@@ -307,8 +303,7 @@ class MapQuickCreateService:
         unadopted = [
             str(location_id)
             for location_id in location_ids
-            if by_id.get(location_id) is None
-            or by_id[location_id].status != "canonical"
+            if by_id.get(location_id) is None or by_id[location_id].status != "canonical"
         ]
         if unadopted:
             raise ValidationError(

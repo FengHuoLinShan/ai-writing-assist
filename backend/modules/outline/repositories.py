@@ -1237,10 +1237,7 @@ class SceneRepository:
             await self.sync_scene_spans(db, scene)
         elif {"source", "status"} & fields_set:
             await self.mirror_scene_span_lifecycle(db, scene)
-        if (
-            "status" in fields_set
-            and scene.status == "deprecated"
-        ) or {
+        if ("status" in fields_set and scene.status == "deprecated") or {
             "title",
             "goal",
             "core_conflict",

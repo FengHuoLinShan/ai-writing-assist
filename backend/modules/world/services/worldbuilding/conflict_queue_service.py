@@ -25,7 +25,7 @@ class ConflictQueueService:
         *,
         status: str | None = None,
         conflict_type: str | None = None,
-        ) -> tuple[list[ConflictQueueResponse], int]:
+    ) -> tuple[list[ConflictQueueResponse], int]:
         nid = parse_uuid(novel_id, "novel_id")
         stmt = select(ConflictCheckQueueItem).where(
             ConflictCheckQueueItem.novel_id == nid
@@ -34,12 +34,9 @@ class ConflictQueueService:
             stmt = stmt.where(ConflictCheckQueueItem.status == status)
         if conflict_type:
             stmt = stmt.where(ConflictCheckQueueItem.conflict_type == conflict_type)
-        result = await db.execute(
-            stmt.order_by(ConflictCheckQueueItem.created_at.desc())
-        )
+        result = await db.execute(stmt.order_by(ConflictCheckQueueItem.created_at.desc()))
         items = [
-            ConflictQueueResponse.model_validate(item)
-            for item in result.scalars().all()
+            ConflictQueueResponse.model_validate(item) for item in result.scalars().all()
         ]
         return items, len(items)
 
@@ -68,4 +65,5 @@ class ConflictQueueService:
         await db.flush()
         return ConflictQueueResponse.model_validate(item)
 
-__all__ = ['ConflictQueueService']
+
+__all__ = ["ConflictQueueService"]

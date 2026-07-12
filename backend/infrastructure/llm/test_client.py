@@ -287,6 +287,62 @@ async def test_generate_embedding_bge_error_does_not_call_remote_provider(
 
 
 @pytest.mark.asyncio
+async def test_project_chat_profile_cannot_override_remote_embedding_client(
+    monkeypatch,
+) -> None:
+    project_client = LLMClient.__new__(LLMClient)
+    project_client._runtime_scope = {
+        "novel_id": "project-a",
+        "profile_source": "project",
+    }
+    project_client._settings = _retry_settings(base_delay=0.0, max_delay=0.0)
+    project_provider_calls = 0
+
+    class ProjectChatProvider:
+        async def generate_embedding(self, *_args, **_kwargs):
+            nonlocal project_provider_calls
+            project_provider_calls += 1
+            return [9.9]
+
+    project_client._provider = ProjectChatProvider()
+
+    class IndependentEmbeddingClient:
+        def __init__(self) -> None:
+            self._runtime_scope = {"profile_source": "system"}
+            self.closed = False
+
+        async def generate_embedding(self, text, model=None, *, is_query=False):
+            assert text == "独立 embedding"
+            assert model == "embedding-model"
+            assert is_query is True
+            return [0.1, 0.2]
+
+        async def close(self) -> None:
+            self.closed = True
+
+    independent = IndependentEmbeddingClient()
+    monkeypatch.setattr(
+        "infrastructure.llm.client.get_settings",
+        lambda: SimpleNamespace(embedding_provider="openai"),
+    )
+    monkeypatch.setattr(
+        "infrastructure.llm.client.LLMClient",
+        lambda: independent,
+    )
+
+    result = await LLMClient.generate_embedding(
+        project_client,
+        "独立 embedding",
+        model="embedding-model",
+        is_query=True,
+    )
+
+    assert result == [0.1, 0.2]
+    assert project_provider_calls == 0
+    assert independent.closed is True
+
+
+@pytest.mark.asyncio
 async def test_generate_uses_process_concurrency_limiter(monkeypatch) -> None:
     monkeypatch.setattr(
         "infrastructure.llm.limits.get_settings",
@@ -424,6 +480,7 @@ async def test_generate_stream_holds_limiter_until_stream_consumed(monkeypatch) 
 async def test_generate_structured_retries_truncated_json_with_larger_budget() -> None:
     client = LLMClient()
     requests: list[LLMCallRequest] = []
+    diagnostics: list[dict] = []
 
     async def fake_generate(self: LLMClient, request: LLMCallRequest) -> LLMCallResponse:
         requests.append(request.model_copy(deep=True))
@@ -452,6 +509,7 @@ async def test_generate_structured_retries_truncated_json_with_larger_budget() -
             max_tokens=20000,
         ),
         _StructuredPayload,
+        diagnostics=diagnostics,
     )
 
     assert result.value == "complete"
@@ -460,6 +518,26 @@ async def test_generate_structured_retries_truncated_json_with_larger_budget() -
     assert requests[1].messages[-1].role == "user"
     assert "上一轮输出被截断" in requests[1].messages[-1].content
     assert "从头重新输出完整 JSON" in requests[1].messages[-1].content
+    usage = [item for item in diagnostics if item["kind"] == "structured_usage"]
+    assert usage == [
+        {
+            "kind": "structured_usage",
+            "status": "failed",
+            "error_kind": "truncated_json",
+            "attempt": 1,
+            "finish_reason": "length",
+            "completion_tokens": 20000,
+            "max_tokens": 20000,
+        },
+        {
+            "kind": "structured_usage",
+            "status": "succeeded",
+            "attempt": 2,
+            "finish_reason": "stop",
+            "completion_tokens": 8,
+            "max_tokens": 40000,
+        },
+    ]
 
 
 @pytest.mark.asyncio
@@ -678,7 +756,15 @@ async def test_generate_structured_accepts_markdown_json() -> None:
             "kind": "structured_parse",
             "strategy": "markdown_code_block",
             "attempt": 1,
-        }
+        },
+        {
+            "kind": "structured_usage",
+            "status": "succeeded",
+            "attempt": 1,
+            "finish_reason": "stop",
+            "completion_tokens": 9,
+            "max_tokens": 4096,
+        },
     ]
 
 

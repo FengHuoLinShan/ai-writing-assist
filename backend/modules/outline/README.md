@@ -198,6 +198,14 @@ RAG 片段或资产摘要作为证据交给 LLM 判断 `merge`、`deprecate_dupl
 硬删除，只标记为 `deprecated`，并在 `provenance_meta` 写入
 `merged_into_asset_id`、`dedup_source="smart_dedup"` 和 `needs_review=true`。
 
+Analyze/generate/Scene extract、PlotStructureGenerator、跨章判断和结构去重均通过
+project runtime seam 获取 client；batch/pair 外层复用同一 client，结果仍只进入
+preview/needs_review，不扩大自动 apply 权限。
+深度导入 Phase 3 传入任务提交时冻结的 project settings snapshot，
+`PlotStructureGenerator` 用 project snapshot seam 构造并在 `finally` 关闭 client；
+`high_quality=true` 时实际 request model 为 `deepseek-v4-pro`，不因
+worker 启动后项目默认模型变更而漂移。
+
 ## Facade
 
 跨模块调用优先走 `modules.outline.facade`。`facade.py` 是兼容 re-export hub，

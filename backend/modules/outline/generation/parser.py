@@ -65,10 +65,12 @@ class PlotStructureParser:
         *,
         include_scenes: bool = True,
         fast_structured: bool = False,
+        max_tokens: int = 32_768,
     ) -> None:
         self._context = context
         self._include_scenes = include_scenes
         self._fast_structured = fast_structured
+        self._max_tokens = max(1, int(max_tokens))
 
     async def parse(
         self,
@@ -220,7 +222,10 @@ class PlotStructureParser:
             "retry_count": 0,
             "invalid_scene_ref_count": 0,
         }
-        token_attempts = _phase3_token_attempts(prompt_chars)
+        token_attempts = _phase3_token_attempts(
+            prompt_chars,
+            max_tokens=self._max_tokens,
+        )
         last_error: Exception | None = None
         for attempt_index, max_tokens in enumerate(token_attempts):
             request.max_tokens = max_tokens
@@ -309,64 +314,64 @@ class PlotStructureParser:
             f"可用 Scene IDs：{', '.join(scene_ids)}\n\n"
             "严格输出 JSON object：\n"
             "{\n"
-            "  \"plot_threads\": [\n"
+            '  "plot_threads": [\n'
             "    {\n"
-            "      \"title\": \"主线标题\",\n"
-            "      \"summary\": \"主线说明\",\n"
-            "      \"thread_type\": \"main|subplot|mystery|relationship|world\",\n"
-            "      \"current_stage\": \"active|resolved|paused\",\n"
-            "      \"confidence\": 0.0,\n"
-            "      \"needs_review\": false,\n"
-            "      \"review_reason\": \"\",\n"
-            "      \"supporting_scene_ids\": []\n"
+            '      "title": "主线标题",\n'
+            '      "summary": "主线说明",\n'
+            '      "thread_type": "main|subplot|mystery|relationship|world",\n'
+            '      "current_stage": "active|resolved|paused",\n'
+            '      "confidence": 0.0,\n'
+            '      "needs_review": false,\n'
+            '      "review_reason": "",\n'
+            '      "supporting_scene_ids": []\n'
             "    }\n"
             "  ],\n"
-            "  \"arcs\": [\n"
+            '  "arcs": [\n'
             "    {\n"
-            "      \"character_name\": \"人物名\",\n"
-            "      \"title\": \"弧线标题\",\n"
-            "      \"summary\": \"人物阶段性变化\",\n"
-            "      \"confidence\": 0.0,\n"
-            "      \"needs_review\": false,\n"
-            "      \"review_reason\": \"\",\n"
-            "      \"supporting_scene_ids\": []\n"
+            '      "character_name": "人物名",\n'
+            '      "title": "弧线标题",\n'
+            '      "summary": "人物阶段性变化",\n'
+            '      "confidence": 0.0,\n'
+            '      "needs_review": false,\n'
+            '      "review_reason": "",\n'
+            '      "supporting_scene_ids": []\n'
             "    }\n"
             "  ],\n"
-            "  \"foreshadowing\": [\n"
+            '  "foreshadowing": [\n'
             "    {\n"
-            "      \"title\": \"伏笔标题\",\n"
-            "      \"summary\": \"设置与潜在指向\",\n"
-            "      \"confidence\": 0.0,\n"
-            "      \"needs_review\": false,\n"
-            "      \"review_reason\": \"\",\n"
-            "      \"supporting_scene_ids\": []\n"
+            '      "title": "伏笔标题",\n'
+            '      "summary": "设置与潜在指向",\n'
+            '      "confidence": 0.0,\n'
+            '      "needs_review": false,\n'
+            '      "review_reason": "",\n'
+            '      "supporting_scene_ids": []\n'
             "    }\n"
             "  ],\n"
-            "  \"reveals\": [\n"
+            '  "reveals": [\n'
             "    {\n"
-            "      \"title\": \"揭示标题\",\n"
-            "      \"summary\": \"揭示内容\",\n"
-            "      \"confidence\": 0.0,\n"
-            "      \"needs_review\": false,\n"
-            "      \"review_reason\": \"\",\n"
-            "      \"supporting_scene_ids\": []\n"
+            '      "title": "揭示标题",\n'
+            '      "summary": "揭示内容",\n'
+            '      "confidence": 0.0,\n'
+            '      "needs_review": false,\n'
+            '      "review_reason": "",\n'
+            '      "supporting_scene_ids": []\n'
             "    }\n"
             "  ],\n"
-            "  \"turning_points\": [\n"
+            '  "turning_points": [\n'
             "    {\n"
-            "      \"title\": \"转折标题\",\n"
-            "      \"summary\": \"为什么是转折\",\n"
-            "      \"confidence\": 0.0,\n"
-            "      \"needs_review\": false,\n"
-            "      \"review_reason\": \"\",\n"
-            "      \"supporting_scene_ids\": []\n"
+            '      "title": "转折标题",\n'
+            '      "summary": "为什么是转折",\n'
+            '      "confidence": 0.0,\n'
+            '      "needs_review": false,\n'
+            '      "review_reason": "",\n'
+            '      "supporting_scene_ids": []\n'
             "    }\n"
             "  ],\n"
-            "  \"uncertain_items\": [\n"
+            '  "uncertain_items": [\n'
             "    {\n"
-            "      \"description\": \"不确定项\",\n"
-            "      \"reason\": \"为什么不确定\",\n"
-            "      \"supporting_scene_ids\": []\n"
+            '      "description": "不确定项",\n'
+            '      "reason": "为什么不确定",\n'
+            '      "supporting_scene_ids": []\n'
             "    }\n"
             "  ]\n"
             "}"
@@ -384,7 +389,10 @@ class PlotStructureParser:
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.2,
-                max_tokens=_phase3_token_attempts(prompt_chars)[0],
+                max_tokens=_phase3_token_attempts(
+                    prompt_chars,
+                    max_tokens=self._max_tokens,
+                )[0],
                 response_format={"type": "json_object"},
                 extra=_deepseek_extra(model),
             ),
@@ -409,9 +417,7 @@ class PlotStructureParser:
                 },
             ],
             temperature=0.5,
-            max_tokens=3072 if self._fast_structured else (
-                6144 if not self._include_scenes else 4096
-            ),
+            max_tokens=self._max_tokens,
             response_format={"type": "json_object"},
         )
 
@@ -516,21 +522,13 @@ def _deepseek_extra(model: str) -> dict[str, object]:
     return {}
 
 
-def _phase3_token_attempts(prompt_chars: int) -> list[int]:
-    initial = _clamp(_round_half_up(prompt_chars * 0.20), 12_288, 24_576)
-    attempts = [initial]
-    for value in (16_384, 24_576):
-        if value > attempts[-1]:
-            attempts.append(value)
-    return attempts
-
-
-def _round_half_up(value: float) -> int:
-    return int(value + 0.5)
-
-
-def _clamp(value: int, minimum: int, maximum: int) -> int:
-    return max(minimum, min(value, maximum))
+def _phase3_token_attempts(
+    prompt_chars: int,
+    *,
+    max_tokens: int = 32_768,
+) -> list[int]:
+    del prompt_chars
+    return [max(1, int(max_tokens))]
 
 
 def _normalize_simple_structure_refs(

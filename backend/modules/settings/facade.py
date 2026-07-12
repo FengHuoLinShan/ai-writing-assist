@@ -61,6 +61,17 @@ async def materialize_effective_project_settings(
     return await _service.materialize_effective_project_settings(db, project_settings)
 
 
+async def resolve_effective_llm_settings_for_project_settings(
+    db: AsyncSession,
+    project_settings: dict | None,
+) -> EffectiveLLMSettingsResponse:
+    """Resolve field values and provenance for project-owned raw settings."""
+    return await _service.get_effective_llm_settings_for_project_settings(
+        db,
+        project_settings,
+    )
+
+
 async def list_projects_using_defaults(
     db: AsyncSession,
     limit: int = 50,

@@ -59,7 +59,6 @@ from modules.world.event_facade import (  # noqa: F401
     get_events_context,
     get_full_state,
     rollback_to_revision,
-    run_entity_extraction,
 )
 from modules.world.map_facade import (  # noqa: F401
     count_deep_import_map_observations_by_workflow,

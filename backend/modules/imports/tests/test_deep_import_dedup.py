@@ -114,9 +114,7 @@ async def test_structure_review_applies_only_same_workflow_high_confidence(
 
     async def fake_apply_structure_dedup(*args, **kwargs):
         assert kwargs["confirmed"] is True
-        assert [item["source_asset_id"] for item in kwargs["suggestions"]] == [
-            "source-1"
-        ]
+        assert [item["source_asset_id"] for item in kwargs["suggestions"]] == ["source-1"]
         return {"applied": 1, "skipped": 0, "warnings": []}
 
     monkeypatch.setattr(

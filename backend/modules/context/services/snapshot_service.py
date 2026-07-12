@@ -376,9 +376,13 @@ class ContextSnapshotService:
         db: AsyncSession,
         snapshot_id: str | uuid.UUID,
     ):
-        sid = snapshot_id if isinstance(snapshot_id, uuid.UUID) else parse_uuid(
-            str(snapshot_id),
-            "context_snapshot_id",
+        sid = (
+            snapshot_id
+            if isinstance(snapshot_id, uuid.UUID)
+            else parse_uuid(
+                str(snapshot_id),
+                "context_snapshot_id",
+            )
         )
         snapshot = await self._repo.get(db, sid)
         if snapshot is None:

@@ -10,7 +10,6 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.config import get_settings
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.token_estimation import estimate_token_count
 from modules.outline.generation.context_builder import PlotStructureContextBuilder
@@ -48,7 +47,7 @@ class PlotStructureGenerator:
         persister: PlotStructurePersister | None = None,
     ) -> None:
         self._context_builder = context_builder or PlotStructureContextBuilder()
-        self._llm_client = llm_client or LLMClient()
+        self._llm_client = llm_client
         self._persister = persister or PlotStructurePersister(
             thread_service=PlotThreadService(),
             arc_service=OutlineArcService(),
@@ -73,6 +72,7 @@ class PlotStructureGenerator:
         generate_scenes: bool = True,
         fast_structured: bool = False,
         high_quality: bool = False,
+        project_settings_snapshot: dict[str, Any] | None = None,
         persist: bool = False,
     ) -> dict[str, Any]:
         """为指定章节范围生成剧情结构。
@@ -80,6 +80,62 @@ class PlotStructureGenerator:
         默认只返回可编辑 preview；只有已授权自动流水线才应显式
         传入 ``persist=True``。
         """
+        if self._llm_client is None:
+            if project_settings_snapshot is not None:
+                from modules.project.facade import create_project_snapshot_llm_client
+
+                client = create_project_snapshot_llm_client(
+                    project_settings_snapshot,
+                    novel_id=novel_id,
+                )
+                try:
+                    return await PlotStructureGenerator(
+                        context_builder=self._context_builder,
+                        llm_client=client,
+                        persister=self._persister,
+                    ).generate(
+                        db,
+                        novel_id,
+                        start_chapter,
+                        end_chapter,
+                        context_mode=context_mode,
+                        include_pending_objects=include_pending_objects,
+                        workflow_id=workflow_id,
+                        audit_context_snapshot=audit_context_snapshot,
+                        include_chapter_texts=include_chapter_texts,
+                        include_existing_scenes=include_existing_scenes,
+                        generate_scenes=generate_scenes,
+                        fast_structured=fast_structured,
+                        high_quality=high_quality,
+                        project_settings_snapshot=project_settings_snapshot,
+                        persist=persist,
+                    )
+                finally:
+                    await client.close()
+
+            from modules.project.facade import open_project_llm_client
+
+            async with open_project_llm_client(db, novel_id) as client:
+                return await PlotStructureGenerator(
+                    context_builder=self._context_builder,
+                    llm_client=client,
+                    persister=self._persister,
+                ).generate(
+                    db,
+                    novel_id,
+                    start_chapter,
+                    end_chapter,
+                    context_mode=context_mode,
+                    include_pending_objects=include_pending_objects,
+                    workflow_id=workflow_id,
+                    audit_context_snapshot=audit_context_snapshot,
+                    include_chapter_texts=include_chapter_texts,
+                    include_existing_scenes=include_existing_scenes,
+                    generate_scenes=generate_scenes,
+                    fast_structured=fast_structured,
+                    high_quality=high_quality,
+                    persist=persist,
+                )
         nid = parse_uuid(novel_id, "novel_id")
 
         context = await self._context_builder.build(
@@ -97,9 +153,9 @@ class PlotStructureGenerator:
             context,
             include_scenes=generate_scenes,
             fast_structured=fast_structured,
+            max_tokens=self._structure_max_tokens(project_settings_snapshot),
         )
-        settings = get_settings()
-        model = "deepseek-v4-pro" if high_quality else settings.llm_model
+        model = "deepseek-v4-pro" if high_quality else self._llm_client.model_name
         snapshot_id: str | None = None
         if audit_context_snapshot:
             snapshot_id = await self._create_structure_snapshot(
@@ -113,6 +169,7 @@ class PlotStructureGenerator:
                 workflow_id=workflow_id,
                 context_mode=context_mode,
                 include_pending_objects=include_pending_objects,
+                max_tokens=self._structure_max_tokens(project_settings_snapshot),
             )
         try:
             parsed = await parser.parse(
@@ -190,12 +247,10 @@ class PlotStructureGenerator:
                     succeeded=1,
                     failed=0,
                 )
-                data["snapshot_health_summary"] = (
-                    await self._snapshot_health_summary(
-                        db,
-                        novel_id,
-                        workflow_id=workflow_id,
-                    )
+                data["snapshot_health_summary"] = await self._snapshot_health_summary(
+                    db,
+                    novel_id,
+                    workflow_id=workflow_id,
                 )
             return data
 
@@ -305,9 +360,7 @@ class PlotStructureGenerator:
             "foreshadowing_plans": PlotStructureGenerator._preview_items(
                 parsed.foreshadowing_plans
             ),
-            "reveal_plans": PlotStructureGenerator._preview_items(
-                parsed.reveal_plans
-            ),
+            "reveal_plans": PlotStructureGenerator._preview_items(parsed.reveal_plans),
             "offscreen_progress": PlotStructureGenerator._preview_items(
                 parsed.offscreen_progress
             ),
@@ -414,9 +467,7 @@ class PlotStructureGenerator:
         threads = parse_items("threads", GeneratedThread)
         arcs = parse_items("arcs", GeneratedArc)
         scenes = parse_items("scenes", GeneratedScene)
-        foreshadowing_plans = parse_items(
-            "foreshadowing_plans", ForeshadowingPlan
-        )
+        foreshadowing_plans = parse_items("foreshadowing_plans", ForeshadowingPlan)
         reveal_plans = parse_items("reveal_plans", RevealPlan)
         required_text_fields = (
             ("threads", threads, "name"),
@@ -427,9 +478,7 @@ class PlotStructureGenerator:
         )
         for key, items, field in required_text_fields:
             if any(not str(getattr(item, field, "") or "").strip() for item in items):
-                raise ValueError(
-                    f"draft_structure.{key} items require non-empty {field}"
-                )
+                raise ValueError(f"draft_structure.{key} items require non-empty {field}")
 
         return ParsedPlotStructure(
             threads=threads,
@@ -437,9 +486,7 @@ class PlotStructureGenerator:
             scenes=scenes,
             foreshadowing_plans=foreshadowing_plans,
             reveal_plans=reveal_plans,
-            offscreen_progress=parse_items(
-                "offscreen_progress", OffscreenProgress
-            ),
+            offscreen_progress=parse_items("offscreen_progress", OffscreenProgress),
             risks=parse_items("risks", Risk),
             questions_for_user=parse_items("questions_for_user", Question),
             turning_points=turning_points,
@@ -460,6 +507,7 @@ class PlotStructureGenerator:
         workflow_id: str | None,
         context_mode: str,
         include_pending_objects: bool,
+        max_tokens: int,
     ) -> str:
         from modules.context.contracts import ContextSnapshotRequest
         from modules.context.facade import open_context_snapshot
@@ -488,9 +536,7 @@ class PlotStructureGenerator:
                 },
                 included_asset_ids={
                     "context_sections": ["structure_context"],
-                    "chapters": [
-                        str(i) for i in range(start_chapter, end_chapter + 1)
-                    ],
+                    "chapters": [str(i) for i in range(start_chapter, end_chapter + 1)],
                 },
                 context_summary={
                     "chapter_range": {"start": start_chapter, "end": end_chapter},
@@ -513,9 +559,7 @@ class PlotStructureGenerator:
                             "tier": 0,
                             "token_count": token_estimate,
                             "truncated": False,
-                            "hash": hashlib.sha256(
-                                markdown.encode("utf-8")
-                            ).hexdigest(),
+                            "hash": hashlib.sha256(markdown.encode("utf-8")).hexdigest(),
                         }
                     ],
                     "evicted": [],
@@ -523,13 +567,27 @@ class PlotStructureGenerator:
                 },
                 token_metadata={
                     "total_tokens": token_estimate,
-                    "budget_tokens": None,
+                    "budget_tokens": max_tokens,
                     "sections": {"structure_context": token_estimate},
                 },
                 rendered_context=markdown,
             ),
         )
         return snapshot.id
+
+    @staticmethod
+    def _structure_max_tokens(
+        project_settings_snapshot: dict[str, Any] | None,
+    ) -> int:
+        from shared.deep_import_settings import deep_import_int_setting
+
+        return deep_import_int_setting(
+            project_settings_snapshot,
+            "phase3",
+            "structure_max_tokens",
+            env_name="PHASE3_STRUCTURE_MAX_TOKENS",
+            default=32_768,
+        )
 
     @staticmethod
     async def _mark_structure_snapshot_failed(

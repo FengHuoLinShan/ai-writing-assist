@@ -1,9 +1,8 @@
-"""
-集成测试 / API 测试共享 conftest
+"""Integration and API test-local fixtures.
 
-复用 backend/conftest.py 的 SQLite 数据库和 API client，并提供额外测试数据。
+The root ``backend/conftest.py`` owns shared database, project, entity, and
+client fixtures. Pytest makes those fixtures available by name; importing a
+``conftest`` module as regular Python code makes collection order-dependent.
 """
 
 from __future__ import annotations
-
-from conftest import test_character_id, test_entity_id, test_project_id  # noqa: F401

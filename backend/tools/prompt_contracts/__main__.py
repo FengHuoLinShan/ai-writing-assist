@@ -56,9 +56,7 @@ def _check(
             )
         ]
     output = (
-        format_json(contracts, issues)
-        if json_output
-        else format_text(contracts, issues)
+        format_json(contracts, issues) if json_output else format_text(contracts, issues)
     )
     print(output)
     return 1 if has_blocking_issues(issues, strict_docs=strict_docs) else 0

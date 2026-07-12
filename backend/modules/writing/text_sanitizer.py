@@ -64,9 +64,7 @@ class _WritingHTMLStripper(HTMLParser):
         elif normalized in _BLOCK_TAGS:
             self._append_newline()
 
-    def handle_startendtag(
-        self, tag: str, attrs: list[tuple[str, str | None]]
-    ) -> None:
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.html_removed = True
         if tag.lower() in _BLOCK_TAGS:
             self._append_newline()

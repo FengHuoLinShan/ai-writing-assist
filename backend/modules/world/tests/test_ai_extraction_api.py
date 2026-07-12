@@ -377,6 +377,20 @@ async def test_world_alias_relation_extraction_task_invokes_di_handler(
             fake_handler if name == "world.run_alias_relation_extraction" else None
         ),
     )
+    snapshot = {
+        "version": "1",
+        "novel_id": "00000000-0000-0000-0000-000000000001",
+        "profile_hash": "snapshot-hash",
+    }
+    project_settings = {"llm": {"model": "project-model"}}
+    monkeypatch.setattr(
+        "modules.project.facade.build_project_llm_execution_snapshot",
+        AsyncMock(return_value=snapshot),
+    )
+    monkeypatch.setattr(
+        "modules.project.facade.restore_project_llm_execution_settings",
+        AsyncMock(return_value=project_settings),
+    )
 
     class FakeTask:
         id = uuid.uuid4()
@@ -406,8 +420,11 @@ async def test_world_alias_relation_extraction_task_invokes_di_handler(
             "scene_ids": ["scene-a"],
             "start_chapter": 1,
             "end_chapter": 3,
+            "project_settings": project_settings,
         }
     ]
+    assert task.meta["llm_execution_snapshot"] == snapshot
+    assert result["llm_execution_snapshot"] == snapshot
 
 
 @pytest.mark.asyncio

@@ -212,9 +212,9 @@ class SceneWorkbenchService:
         for span in await self.repo.get_scene_spans_needing_review(db, nid):
             span_review_by_scene[span.scene_id].append(span)
         pending_suggestions = await self._active_pending_suggestions(db, nid)
-        suggestions_by_scene: dict[
-            uuid.UUID, list[SceneCrossChapterSuggestion]
-        ] = defaultdict(list)
+        suggestions_by_scene: dict[uuid.UUID, list[SceneCrossChapterSuggestion]] = (
+            defaultdict(list)
+        )
         for suggestion in pending_suggestions:
             for raw_scene_id in suggestion.source_scene_ids or []:
                 try:
@@ -265,9 +265,7 @@ class SceneWorkbenchService:
                 effective_skip = (selected_index // limit) * limit
 
         if limit is not None:
-            visible_scenes = filtered_scenes[
-                effective_skip : effective_skip + limit
-            ]
+            visible_scenes = filtered_scenes[effective_skip : effective_skip + limit]
         else:
             visible_scenes = filtered_scenes[effective_skip:]
 
@@ -457,8 +455,7 @@ class SceneWorkbenchService:
         stored_ids: list[str] = []
         for suggestion in suggestions:
             source_ids = [
-                str(value)
-                for value in suggestion.get("source_scene_ids") or []
+                str(value) for value in suggestion.get("source_scene_ids") or []
             ]
             if len(source_ids) < 2 or len(set(source_ids)) != len(source_ids):
                 continue
@@ -1247,13 +1244,10 @@ class SceneWorkbenchService:
     ) -> list[str]:
         health: list[str] = []
         meta = scene.structure_meta or {}
-        if (
-            meta.get("needs_review")
-            or (
-                scene.source in {"deep_import", "ai_generated"}
-                and scene.status in {"draft", "candidate"}
-                and not meta.get("reviewed_at")
-            )
+        if meta.get("needs_review") or (
+            scene.source in {"deep_import", "ai_generated"}
+            and scene.status in {"draft", "candidate"}
+            and not meta.get("reviewed_at")
         ):
             health.append("unreviewed")
         chapter_ids = scene.chapter_ids or []
@@ -1286,8 +1280,7 @@ class SceneWorkbenchService:
             {
                 int(chapter_id)
                 for chapter_id in chapter_ids
-                if str(chapter_id) in duplicate_chapter_ids
-                and str(chapter_id).isdigit()
+                if str(chapter_id) in duplicate_chapter_ids and str(chapter_id).isdigit()
             }
         )
         if overlapping:

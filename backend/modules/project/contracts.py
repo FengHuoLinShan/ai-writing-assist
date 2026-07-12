@@ -10,6 +10,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
+from core.errors import ValidationError
 from modules.project.schemas import ProjectContext  # noqa: F401
 
 
@@ -19,3 +20,9 @@ class ProjectSummary:
 
     project_id: uuid.UUID
     title: str
+
+
+class ProjectLLMConfigurationError(ValidationError):
+    """The requested project has no usable business LLM profile."""
+
+    code = "project_llm_configuration_error"

@@ -89,10 +89,7 @@ def test_health_error_message_redacts_secrets() -> None:
     )
     response = httpx.Response(
         401,
-        text=(
-            "Authorization: Bearer sk-live-secret-value "
-            "api_key=sk-another-secret"
-        ),
+        text=("Authorization: Bearer sk-live-secret-value api_key=sk-another-secret"),
     )
 
     result = checker._http_error_result(response)

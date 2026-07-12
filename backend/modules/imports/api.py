@@ -38,9 +38,7 @@ class DeepImportRequest(BaseModel):
     end_chapter: int = Field(default=0, ge=0)
     force: bool = False
     high_quality: bool = False
-    adoption_policy: Literal["user_authorized_pipeline"] = (
-        "user_authorized_pipeline"
-    )
+    adoption_policy: Literal["user_authorized_pipeline"] = "user_authorized_pipeline"
     authorization_confirmed: bool = Field(
         ...,
         description="已理解并授权流水线按 adoption_policy 写入资产",

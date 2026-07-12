@@ -213,9 +213,7 @@ class ProjectService:
         if not isinstance(llm, dict) or not llm.get(LLM_API_KEY_FIELD):
             return data
         next_llm = dict(llm)
-        next_llm[LLM_API_KEY_FIELD] = ensure_encrypted_secret(
-            next_llm[LLM_API_KEY_FIELD]
-        )
+        next_llm[LLM_API_KEY_FIELD] = ensure_encrypted_secret(next_llm[LLM_API_KEY_FIELD])
         settings[LLM_SETTINGS_KEY] = next_llm
         return data.model_copy(update={"settings": settings})
 
@@ -375,6 +373,5 @@ async def _empty_project_writing_stats_batch(
     novel_ids: list[str],
 ) -> dict[str, WritingProjectStatsContract]:
     return {
-        novel_id: WritingProjectStatsContract(novel_id=novel_id)
-        for novel_id in novel_ids
+        novel_id: WritingProjectStatsContract(novel_id=novel_id) for novel_id in novel_ids
     }

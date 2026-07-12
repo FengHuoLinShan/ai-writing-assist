@@ -487,6 +487,13 @@ async def test_deep_import_stage_endpoints_enqueue_expected_task(
         "mode": "workflow_owned_soft_deprecate",
     }
     assert task.result["authorization_snapshot"] == task.meta["authorization_snapshot"]
+    llm_snapshot = task.meta["llm_execution_snapshot"]
+    assert task.result["llm_execution_snapshot"] == llm_snapshot
+    assert llm_snapshot["novel_id"] == novel_id
+    assert llm_snapshot["profile"]["base_url_host"]
+    assert llm_snapshot["sources"]["model"] in {"project", "global", "system"}
+    assert "api_key" not in llm_snapshot["profile"]
+    assert "base_url" not in llm_snapshot["profile"]
     assert task.result["asset_summary"]["adopted"] == 0
 
 

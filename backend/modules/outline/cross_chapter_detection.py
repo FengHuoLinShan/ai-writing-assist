@@ -8,7 +8,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.config import get_settings
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
@@ -51,6 +50,23 @@ class CrossChapterDetectionService:
         max_chain_calls: int = 6,
         progress_callback: Any | None = None,
     ) -> dict[str, Any]:
+        if self._llm_client is None:
+            from modules.project.facade import open_project_llm_client
+
+            async with open_project_llm_client(db, novel_id) as client:
+                return await CrossChapterDetectionService(
+                    scene_repo=self._scene_repo,
+                    llm_client=client,
+                ).detect(
+                    db,
+                    novel_id=novel_id,
+                    start_chapter=start_chapter,
+                    end_chapter=end_chapter,
+                    max_chapter_span=max_chapter_span,
+                    max_suggestions=max_suggestions,
+                    max_chain_calls=max_chain_calls,
+                    progress_callback=progress_callback,
+                )
         scenes = await self._load_scenes(
             db,
             novel_id=novel_id,
@@ -264,8 +280,9 @@ class CrossChapterDetectionService:
         next_scene: Scene,
         evidence: list[dict[str, Any]],
     ) -> CrossChapterDecision:
-        client = self._llm_client or LLMClient()
-        settings = get_settings()
+        client = self._llm_client
+        if client is None:  # pragma: no cover - detect() always manages the client.
+            raise RuntimeError("project LLM client is required")
         payload = {
             "novel_id": novel_id,
             "current_scene": _scene_summary(chain),
@@ -276,7 +293,7 @@ class CrossChapterDetectionService:
             return await run_managed_structured(
                 client,
                 LLMCallRequest(
-                    model=settings.llm_model,
+                    model=client.model_name,
                     messages=[
                         LLMMessage(
                             role="system",

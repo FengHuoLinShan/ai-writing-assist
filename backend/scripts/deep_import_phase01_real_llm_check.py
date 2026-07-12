@@ -66,7 +66,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chapter-end", type=int, default=60)
     parser.add_argument("--phase1a-concurrency", type=int, default=50)
     parser.add_argument("--phase1b-concurrency", type=int, default=200)
-    parser.add_argument("--phase1b-max-tokens", type=int, default=4096)
+    parser.add_argument("--phase1b-max-tokens", type=int, default=32_768)
     parser.add_argument("--high-quality-window-start", type=int, default=1)
     parser.add_argument("--high-quality-window-end", type=int, default=20)
     parser.add_argument(
@@ -326,9 +326,7 @@ def compact_console_result(result: dict[str, Any] | None) -> dict[str, Any] | No
         "phase1b_fallback_count": result["phase1b"]["quality_stats"].get(
             "fallback_count",
         ),
-        "phase1b_coverage_complete": result["phase1b"]["coverage"][
-            "coverage_complete"
-        ],
+        "phase1b_coverage_complete": result["phase1b"]["coverage"]["coverage_complete"],
     }
 
 
@@ -392,9 +390,7 @@ def select_chapters(
     end: int,
 ) -> list[dict[str, Any]]:
     return [
-        chapter
-        for chapter in chapters
-        if start <= int(chapter["chapter_index"]) <= end
+        chapter for chapter in chapters if start <= int(chapter["chapter_index"]) <= end
     ]
 
 
@@ -402,8 +398,19 @@ def parse_chinese_chapter_number(raw: str) -> int:
     raw = raw.strip()
     if raw.isdigit():
         return int(raw)
-    digits = {"零": 0, "〇": 0, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
-              "六": 6, "七": 7, "八": 8, "九": 9}
+    digits = {
+        "零": 0,
+        "〇": 0,
+        "一": 1,
+        "二": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+    }
     units = {"十": 10, "百": 100, "千": 1000, "万": 10000}
     total = 0
     section = 0

@@ -83,9 +83,7 @@ class MapStateAssembler:
         self._terrain_layer_repo = terrain_layer_repo or MapTerrainLayerRepository()
         self._terrain_region_repo = terrain_region_repo or MapTerrainRegionRepository()
         self._terrain_patch_repo = terrain_patch_repo or MapTerrainPatchRepository()
-        self._terrain_binding_repo = (
-            terrain_binding_repo or MapTerrainBindingRepository()
-        )
+        self._terrain_binding_repo = terrain_binding_repo or MapTerrainBindingRepository()
         self._entity_repo = entity_repo or CoreEntityRepository()
         self._ctx = ctx or MapContext()
         self._scene_lookup = scene_lookup or _default_scene_lookup
@@ -192,16 +190,14 @@ class MapStateAssembler:
                 MapTerritoryResponse.model_validate(t) for t in canonical_territories
             ],
             terrain_layers=[
-                MapTerrainLayerResponse.model_validate(layer)
-                for layer in terrain_layers
+                MapTerrainLayerResponse.model_validate(layer) for layer in terrain_layers
             ],
             terrain_regions=[
                 MapTerrainRegionResponse.model_validate(region)
                 for region in terrain_regions
             ],
             terrain_patches=[
-                MapTerrainPatchResponse.model_validate(patch)
-                for patch in terrain_patches
+                MapTerrainPatchResponse.model_validate(patch) for patch in terrain_patches
             ],
             terrain_bindings=[
                 MapTerrainBindingResponse.model_validate(binding)
@@ -280,21 +276,17 @@ class MapStateAssembler:
                 statuses=["draft", "candidate"],
             )
         )
-        canonical_territories = (
-            await self._territory_repo.get_by_map_for_entity_statuses(
-                db,
-                nid,
-                mid,
-                statuses=["canonical"],
-            )
+        canonical_territories = await self._territory_repo.get_by_map_for_entity_statuses(
+            db,
+            nid,
+            mid,
+            statuses=["canonical"],
         )
-        candidate_territories = (
-            await self._territory_repo.get_by_map_for_entity_statuses(
-                db,
-                nid,
-                mid,
-                statuses=["draft", "candidate"],
-            )
+        candidate_territories = await self._territory_repo.get_by_map_for_entity_statuses(
+            db,
+            nid,
+            mid,
+            statuses=["draft", "candidate"],
         )
 
         return MapDynamicStateResponse(
@@ -320,9 +312,7 @@ class MapStateAssembler:
         novel_id: Any,
         entity_ids: list[Any],
     ) -> dict[Any, str]:
-        unique_ids = [
-            entity_id for entity_id in set(entity_ids) if entity_id is not None
-        ]
+        unique_ids = [entity_id for entity_id in set(entity_ids) if entity_id is not None]
         entities = await self._entity_repo.get_by_ids(db, novel_id, unique_ids)
         return {entity.id: entity.status for entity in entities}
 

@@ -82,6 +82,20 @@ async def start_deep_import_stage(
     )
 
 
+async def run_submitted_deep_import_stage(
+    db: AsyncSession,
+    task_id: str,
+    *,
+    stage: str,
+) -> dict[str, Any]:
+    """Run an already-submitted stage inline for an isolated/manual harness."""
+    return await _orchestrator.run_submitted_stage_inline(
+        db,
+        task_id,
+        stage=stage,
+    )
+
+
 async def resume_deep_import(
     db: AsyncSession,
     prev_task_id: str,

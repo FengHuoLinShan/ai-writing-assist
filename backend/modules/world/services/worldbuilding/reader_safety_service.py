@@ -79,4 +79,5 @@ class ReaderSafetyService:
             )
         return ReaderSafetyResponse(items=items)
 
-__all__ = ['ReaderSafetyService']
+
+__all__ = ["ReaderSafetyService"]

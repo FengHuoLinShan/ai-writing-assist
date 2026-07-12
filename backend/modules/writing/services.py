@@ -16,7 +16,11 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
-from infrastructure.llm.agent_step_harness import run_managed_generate
+from infrastructure.llm.agent_step_harness import (
+    MANAGED_LLM_PROVENANCE_KEY,
+    build_managed_llm_provenance,
+    run_managed_generate,
+)
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.writing.conflict_ai import (
@@ -680,14 +684,21 @@ class WritingConflictCheckService:
         repo: WritingConflictCheckRepository | None = None,
         draft_repo: WritingDraftRepository | None = None,
         scene_contract_loader: SceneContractLoader | None = None,
+        llm_client: LLMClient | None = None,
     ) -> None:
         self._repo = repo or WritingConflictCheckRepository()
         self._draft_repo = draft_repo or WritingDraftRepository()
         self._scene_contract_loader = (
             scene_contract_loader or _default_scene_contract_loader
         )
-        self._ai_review_service = ConflictCheckAiReviewService(self._repo)
-        self._suggestion_service = ConflictSuggestionService(self._repo)
+        self._ai_review_service = ConflictCheckAiReviewService(
+            self._repo,
+            llm_client=llm_client,
+        )
+        self._suggestion_service = ConflictSuggestionService(
+            self._repo,
+            llm_client=llm_client,
+        )
 
     async def create_check(
         self,
@@ -1150,7 +1161,7 @@ class WritingGenerationService:
         llm_client: LLMClient | None = None,
     ) -> None:
         self._repo = repo or WritingDraftRepository()
-        self._llm = llm_client or LLMClient()
+        self._llm = llm_client
         self._profile_resolver = GenerationProfileResolver()
         self._pov_parser = PovGenerationParser()
         self._pov_guard = CharacterRevealGuard()
@@ -1202,22 +1213,46 @@ class WritingGenerationService:
             )
             response_format = None
 
+        if self._llm is None:
+            from modules.project.facade import open_project_llm_client
+
+            async with open_project_llm_client(db, novel_id) as client:
+                return await WritingGenerationService(
+                    repo=self._repo,
+                    llm_client=client,
+                ).generate_candidate(
+                    db,
+                    novel_id=novel_id,
+                    chapter_index=chapter_index,
+                    title=title,
+                    instruction=instruction,
+                    context_confirmation_id=context_confirmation_id,
+                    source_task_id=source_task_id,
+                )
+
+        llm_request = LLMCallRequest(
+            model=getattr(self._llm, "model_name", "gpt-4o"),
+            messages=[
+                LLMMessage(
+                    role="system",
+                    content=system_prompt,
+                ),
+                LLMMessage(role="user", content=prompt),
+            ],
+            temperature=0.7,
+            max_tokens=4096,
+            response_format=response_format,
+        )
         response = await run_managed_generate(
             self._llm,
-            LLMCallRequest(
-                model=getattr(self._llm, "model_name", "gpt-4o"),
-                messages=[
-                    LLMMessage(
-                        role="system",
-                        content=system_prompt,
-                    ),
-                    LLMMessage(role="user", content=prompt),
-                ],
-                temperature=0.7,
-                max_tokens=4096,
-                response_format=response_format,
-            ),
+            llm_request,
             step_name="writing.generation.candidate.generate",
+        )
+        managed_llm_provenance = build_managed_llm_provenance(
+            self._llm,
+            step_name="writing.generation.candidate.generate",
+            request=llm_request,
+            novel_id=novel_id,
         )
         model_name = response.model or getattr(
             self._llm,
@@ -1271,6 +1306,7 @@ class WritingGenerationService:
             "prompt_name": prompt_name,
             "prompt_hash": prompt_hash(prompt),
             "model": model_name,
+            MANAGED_LLM_PROVENANCE_KEY: [managed_llm_provenance],
             "pov_view": pov_view,
             "pov_validation": pov_validation,
             "content_sanitization": {

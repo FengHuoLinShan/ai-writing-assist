@@ -6,6 +6,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.project.models import Project
@@ -16,6 +17,35 @@ from modules.world.repositories import CharacterRepository, CoreEntityRepository
 @pytest.fixture
 def repo() -> CoreEntityRepository:
     return CoreEntityRepository()
+
+
+@pytest.mark.asyncio
+async def test_embedding_similarity_uses_labelable_pgvector_expression(
+    repo: CoreEntityRepository,
+) -> None:
+    class EmptyResult:
+        def all(self) -> list[object]:
+            return []
+
+    class CapturingSession:
+        statement = None
+
+        async def execute(self, statement):
+            self.statement = statement
+            return EmptyResult()
+
+    db = CapturingSession()
+    result = await repo.find_similar_by_embedding(
+        db,  # type: ignore[arg-type]
+        uuid.uuid4(),
+        [0.0] * 768,
+    )
+
+    assert result == []
+    assert db.statement is not None
+    compiled = str(db.statement.compile(dialect=postgresql.dialect()))
+    assert "<=>" in compiled
+    assert "similarity" in compiled
 
 
 @pytest.mark.asyncio

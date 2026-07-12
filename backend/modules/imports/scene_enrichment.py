@@ -10,12 +10,12 @@ from pydantic import BaseModel, Field
 
 from modules.imports.deep_import_retry import run_deep_import_llm_with_retry
 from modules.imports.env_helpers import positive_int_env
-from modules.imports.llm_schemas import SceneChunk, SceneEnrichmentOutput
+from modules.imports.llm_schemas import SceneEnrichmentOutput
 from modules.imports.scene_fusion import FinalSceneCandidate
 from modules.imports.scene_slicing import SceneSliceCandidate
 
 PHASE1B_ENRICH_CONCURRENCY = 200
-PHASE1B_ENRICH_MAX_TOKENS = 4096
+PHASE1B_ENRICH_MAX_TOKENS = 32_768
 PHASE1B_ENRICH_MAX_RETRIES = 1
 
 SceneEnrichmentLLMCallable = Callable[[dict[str, Any]], Awaitable[Any]]
@@ -41,7 +41,7 @@ class Phase1bSceneEnricher:
         *,
         concurrency: int | None = None,
         max_retries: int = PHASE1B_ENRICH_MAX_RETRIES,
-        max_tokens: int = PHASE1B_ENRICH_MAX_TOKENS,
+        max_tokens: int | None = None,
     ) -> None:
         self.llm = llm
         self.concurrency = max(
@@ -54,7 +54,14 @@ class Phase1bSceneEnricher:
             ),
         )
         self.max_retries = max(0, min(max_retries, 1))
-        self.max_tokens = positive_int_env("PHASE1B_ENRICH_MAX_TOKENS", max_tokens)
+        self.max_tokens = (
+            positive_int_env(
+                "PHASE1B_ENRICH_MAX_TOKENS",
+                PHASE1B_ENRICH_MAX_TOKENS,
+            )
+            if max_tokens is None
+            else max(1, int(max_tokens))
+        )
 
     async def run(
         self,
@@ -78,9 +85,7 @@ class Phase1bSceneEnricher:
             async with progress_lock:
                 completed += 1
                 if on_batch_progress is not None:
-                    await on_batch_progress(
-                        completed, total_scenes, scene.candidate_id
-                    )
+                    await on_batch_progress(completed, total_scenes, scene.candidate_id)
             return result
 
         results = await asyncio.gather(
@@ -302,10 +307,7 @@ def _final_candidate(
         must_happen=enrichment.must_happen,
         must_not_happen=enrichment.must_not_happen,
         narrative_tag=enrichment.narrative_tag or "imported",
-        scene_chunks=[
-            SceneChunk(chapter_index=chapter_index)
-            for chapter_index in chapter_indices
-        ],
+        scene_chunks=list(scene.scene_chunks),
         source_candidate_ids=[scene.candidate_id],
         source_rounds=["A"],
         source_chapter_indices=chapter_indices,

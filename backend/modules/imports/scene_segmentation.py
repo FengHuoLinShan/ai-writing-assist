@@ -71,7 +71,12 @@ class SceneSegmentationService:
             output_chapters = self._output_chapters_for_batch(batch, batch_idx)
             overlap_chapter_indices = self._overlap_chapter_indices(batch, batch_idx)
             try:
-                batch_scenes = await self._process_batch(db, batch, batch_idx)
+                batch_scenes = await self._process_batch(
+                    db,
+                    batch,
+                    batch_idx,
+                    novel_id=novel_id,
+                )
                 for s in batch_scenes:
                     scene_data = self._build_scene_data(
                         s,
@@ -111,6 +116,7 @@ class SceneSegmentationService:
                             db,
                             batch,
                             batch_idx,
+                            novel_id=novel_id,
                         )
                         for s in fallback_scenes:
                             scene_data = self._build_scene_data(
@@ -343,35 +349,36 @@ class SceneSegmentationService:
         db: AsyncSession,
         batch: list[dict],
         batch_idx: int,
+        *,
+        novel_id: str,
     ) -> list[dict]:
         chapters_text = self._build_chapters_text(batch)
         system_prompt = self._load_prompt()
 
-        from core.config import get_settings
-        from infrastructure.llm.client import LLMClient
         from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+        from modules.project.facade import open_project_llm_client
 
-        settings = get_settings()
-        request = LLMCallRequest(
-            model=settings.llm_model,
-            messages=[
-                LLMMessage(role="system", content=system_prompt),
-                LLMMessage(
-                    role="user",
-                    content=f"请将以下章节正文切分为叙事 Scene。\n\n{chapters_text}",
-                ),
-            ],
-            temperature=0.3,
-            max_tokens=4096,
-            response_format={"type": "json_object"},
-        )
-
-        llm_client = LLMClient(timeout=settings.llm_timeout)
-        raw = await self._generate_with_timeout(
-            llm_client,
-            request,
-            timeout_seconds=LLM_CALL_TIMEOUT_SECONDS,
-        )
+        async with open_project_llm_client(db, novel_id) as llm_client:
+            request = LLMCallRequest(
+                model=llm_client.model_name,
+                messages=[
+                    LLMMessage(role="system", content=system_prompt),
+                    LLMMessage(
+                        role="user",
+                        content=(
+                            f"请将以下章节正文切分为叙事 Scene。\n\n{chapters_text}"
+                        ),
+                    ),
+                ],
+                temperature=0.3,
+                max_tokens=4096,
+                response_format={"type": "json_object"},
+            )
+            raw = await self._generate_with_timeout(
+                llm_client,
+                request,
+                timeout_seconds=LLM_CALL_TIMEOUT_SECONDS,
+            )
         parsed = parse_llm_json(raw.content, f"Batch {batch_idx} LLM response")
         output = SceneSegmentationOutput.model_validate(parsed)
         scenes_data = [s.model_dump() for s in output.scenes]
@@ -384,59 +391,61 @@ class SceneSegmentationService:
         db: AsyncSession,
         batch: list[dict],
         batch_idx: int,
+        *,
+        novel_id: str,
     ) -> list[dict]:
         all_scenes: list[dict] = []
-        for ch in batch:
-            chapters_text = self._build_chapters_text([ch])
-            system_prompt = self._load_prompt()
+        from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+        from modules.project.facade import open_project_llm_client
 
-            from core.config import get_settings
-            from infrastructure.llm.client import LLMClient
-            from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+        async with open_project_llm_client(db, novel_id) as llm_client:
+            for ch in batch:
+                chapters_text = self._build_chapters_text([ch])
+                system_prompt = self._load_prompt()
+                request = LLMCallRequest(
+                    model=llm_client.model_name,
+                    messages=[
+                        LLMMessage(role="system", content=system_prompt),
+                        LLMMessage(
+                            role="user",
+                            content=(
+                                f"请将以下章节正文切分为叙事 Scene。\n\n{chapters_text}"
+                            ),
+                        ),
+                    ],
+                    temperature=0.3,
+                    max_tokens=4096,
+                )
 
-            settings = get_settings()
-            request = LLMCallRequest(
-                model=settings.llm_model,
-                messages=[
-                    LLMMessage(role="system", content=system_prompt),
-                    LLMMessage(
-                        role="user",
-                        content=f"请将以下章节正文切分为叙事 Scene。\n\n{chapters_text}",
-                    ),
-                ],
-                temperature=0.3,
-                max_tokens=4096,
-            )
-
-            llm_client = LLMClient(timeout=settings.llm_timeout)
-            try:
-                raw = await self._generate_with_timeout(
-                    llm_client,
-                    request,
-                    timeout_seconds=LLM_CALL_TIMEOUT_SECONDS,
-                )
-                parsed = parse_llm_json(
-                    raw.content,
-                    f"Single-ch {ch['chapter_index']}",
-                )
-                output = SceneSegmentationOutput.model_validate(parsed)
-                scenes = [s.model_dump() for s in output.scenes]
-                if scenes:
-                    all_scenes.extend(scenes)
-                    continue
-            except Exception as exc:
-                logger.warning(
-                    "Single-chapter fallback batch %d ch %d failed: %s",
-                    batch_idx,
-                    ch["chapter_index"],
-                    exc,
-                )
+                try:
+                    raw = await self._generate_with_timeout(
+                        llm_client,
+                        request,
+                        timeout_seconds=LLM_CALL_TIMEOUT_SECONDS,
+                    )
+                    parsed = parse_llm_json(
+                        raw.content,
+                        f"Single-ch {ch['chapter_index']}",
+                    )
+                    output = SceneSegmentationOutput.model_validate(parsed)
+                    scenes = [s.model_dump() for s in output.scenes]
+                    if scenes:
+                        all_scenes.extend(scenes)
+                        continue
+                except Exception as exc:
+                    logger.warning(
+                        "Single-chapter fallback batch %d ch %d failed: %s",
+                        batch_idx,
+                        ch["chapter_index"],
+                        exc,
+                    )
+                    raise RuntimeError(
+                        f"Single-chapter fallback failed for ch {ch['chapter_index']}"
+                    ) from exc
                 raise RuntimeError(
-                    f"Single-chapter fallback failed for ch {ch['chapter_index']}"
+                    "Single-chapter fallback returned no scenes for ch "
+                    f"{ch['chapter_index']}"
                 )
-            raise RuntimeError(
-                f"Single-chapter fallback returned no scenes for ch {ch['chapter_index']}"
-            )
         return all_scenes
 
     @staticmethod

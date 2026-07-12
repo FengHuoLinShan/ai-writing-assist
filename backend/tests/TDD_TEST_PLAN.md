@@ -501,13 +501,11 @@ suggested_action in (
 
 **Rationale**: The prompt's `suggested_action` enum no longer includes `needs_user_decision`. The valid values are: `create_new`, `link_to_existing`, `ignore`, `temporary_only`.
 
-### Fix 4.2: Optional — Add `"failed_chapters"` to extraction result assertion
+### Fix 4.2: Superseded — legacy World facade removed
 
-In `TestEntityExtraction` test methods that call `run_entity_extraction`, add:
-```python
-assert "failed_chapters" in result
-assert isinstance(result["failed_chapters"], list)
-```
+The public extraction path is now the imports `world_objects` stage. Direct
+service tests may still assert `ExtractionResult.failed_chapters`; no facade
+dictionary contract remains.
 
 ### Fix 4.3: Optional — Add note about brittleness
 
@@ -528,12 +526,10 @@ class TestExtractionSmoke:
     async def test_extraction_returns_failed_chapters(
         self, db_session: AsyncSession, novel_id: str
     ):
-        result = await run_entity_extraction(
-            db_session, novel_id,
-            start_chapter=1, end_chapter=1,
+        result = await EntityExtractionService().extract_entities_from_chapters(
+            db_session, novel_id, start_chapter=1, end_chapter=1
         )
-        assert "failed_chapters" in result
-        assert isinstance(result["failed_chapters"], list)
+        assert isinstance(result.failed_chapters, list)
 ```
 
 ### TC-5.2: Multi-chapter extraction with real LLM
@@ -648,7 +644,7 @@ pytest tests/e2e/test_extraction_real_file.py -v -k "TestExtractionSmoke"
 | Context accumulation | Capture `load_prompt` call args; verify 2nd+ calls contain entities from previous chapters |
 | Dedup layers | Assert total_skipped increments without repo.create calls |
 | Temporary entity filtering | Assert entity count in `WorldContextBundle.entities` when `current_chapter` varies |
-| `run_entity_extraction()` facade | Assert `"failed_chapters" in result` (new field), plus existing assertions |
+| imports `world_objects` stage | Assert workflow phase, quality status, and failed-scene diagnostics |
 
 ## Edge Cases Explicitly Covered
 

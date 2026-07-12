@@ -9,7 +9,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.config import get_settings
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
@@ -77,6 +76,20 @@ class OutlineStructureDedupService:
         max_suggestions: int = 80,
         progress_callback: Any | None = None,
     ) -> dict[str, Any]:
+        if self._llm_client is None:
+            from modules.project.facade import open_project_llm_client
+
+            async with open_project_llm_client(db, novel_id) as client:
+                return await OutlineStructureDedupService(
+                    llm_client=client,
+                ).suggest(
+                    db,
+                    novel_id=novel_id,
+                    asset_types=asset_types,
+                    limit=limit,
+                    max_suggestions=max_suggestions,
+                    progress_callback=progress_callback,
+                )
         selected_types = set(asset_types or _SUPPORTED_ASSET_TYPES)
         assets = await self._load_assets(db, novel_id=novel_id, limit=limit)
         suggestions: list[dict[str, Any]] = []
@@ -311,8 +324,9 @@ class OutlineStructureDedupService:
         if deterministic.action == "merge" and deterministic.confidence >= 0.96:
             return deterministic
 
-        client = self._llm_client or LLMClient()
-        settings = get_settings()
+        client = self._llm_client
+        if client is None:  # pragma: no cover - suggest() always manages the client.
+            raise RuntimeError("project LLM client is required")
         payload = {
             "source": _asset_payload(source),
             "target": _asset_payload(target),
@@ -323,7 +337,7 @@ class OutlineStructureDedupService:
             return await run_managed_structured(
                 client,
                 LLMCallRequest(
-                    model=settings.llm_model,
+                    model=client.model_name,
                     messages=[
                         LLMMessage(
                             role="system",

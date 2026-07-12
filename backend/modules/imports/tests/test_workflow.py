@@ -126,9 +126,7 @@ def test_phase3_quality_stats_counts_unique_review_assets_from_provenance() -> N
                 }
             ],
             "extra_sections": {
-                "foreshadowing_plans": [
-                    {"id": "f1", "needs_review": False}
-                ],
+                "foreshadowing_plans": [{"id": "f1", "needs_review": False}],
                 "reveal_plans": [
                     {
                         "id": None,
@@ -1001,7 +999,15 @@ async def test_phase1b_llm_prompt_requires_compact_scene_contract(monkeypatch):
         fake_structured_call,
     )
 
-    await _Phase1bSceneFusionLLM()(
+    await _Phase1bSceneFusionLLM(
+        {
+            "llm": {
+                "api_key": "sk-test-only",
+                "base_url": "https://llm.test/v1",
+                "model": "test-model",
+            }
+        }
+    )(
         {
             "phase": "phase1b_fusion",
             "window": {"window_index": 1, "core_range": [1, 7]},
@@ -1066,7 +1072,15 @@ async def test_phase1b_llm_uses_compact_budget_for_regular_window(monkeypatch):
         fake_structured_call,
     )
 
-    await _Phase1bSceneFusionLLM()(
+    await _Phase1bSceneFusionLLM(
+        {
+            "llm": {
+                "api_key": "sk-test-only",
+                "base_url": "https://llm.test/v1",
+                "model": "test-model",
+            }
+        }
+    )(
         {
             "phase": "phase1b_fusion",
             "window": {"window_index": 1, "core_range": [11, 20]},
@@ -1772,6 +1786,11 @@ class TestDeepImportWorkflowAutoRun:
 
         assert PHASE2_WORLD_WINDOW_CONCURRENCY == 20
         assert DEEP_IMPORT_DEFAULT_SETTINGS["phase2"]["world_window_concurrency"] == 20
+        assert DEEP_IMPORT_DEFAULT_SETTINGS["phase0"]["max_tokens_per_input_char"] == 1.0
+        assert (
+            DEEP_IMPORT_DEFAULT_SETTINGS["phase2"]["world_max_tokens_per_source_char"]
+            == 1.0
+        )
         assert Phase2WorldExtractor(lambda payload: payload).concurrency == 20
 
         with phase2_project_settings_context(
@@ -4060,6 +4079,7 @@ class TestDeepImportOrchestrator:
         authorization_snapshot = result.pop("authorization_snapshot")
         assert authorization_snapshot["authorization_confirmed"] is True
         assert "legacy_internal_default" not in authorization_snapshot
+        assert result.pop("llm_execution_snapshot") == {}
         asset_summary = result.pop("asset_summary")
         assert asset_summary["adopted"] == 0
         assert asset_summary["review"] == 0
@@ -4120,6 +4140,109 @@ class TestDeepImportOrchestrator:
             "snapshot_health_summary": {},
             "audit_summary": {},
         }
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("stage", "task_type", "method_name"),
+        [
+            (
+                "world_objects",
+                "world_object_auto_extraction",
+                "run_entity_extraction_only",
+            ),
+            (
+                "plot_structure",
+                "plot_structure_auto_extraction",
+                "run_structure_analysis_only",
+            ),
+        ],
+    )
+    async def test_stage_tasks_forward_high_quality_to_actual_workflow(
+        self,
+        stage,
+        task_type,
+        method_name,
+    ):
+        orchestrator = DeepImportOrchestrator()
+        progress = DeepImportProgress(phase="done")
+        method = AsyncMock(return_value=progress)
+        setattr(orchestrator.workflow, method_name, method)
+        meta = _authorized_task_meta(
+            "00000000-0000-0000-0000-000000000001",
+            stage=stage,
+        )
+        meta["high_quality"] = True
+        task = Mock(
+            id=uuid.uuid4(),
+            task_type=task_type,
+            meta=meta,
+            result={},
+        )
+        task.update_progress = Mock()
+
+        await orchestrator.run_stage_task(AsyncMock(), task, stage=stage)
+
+        assert method.await_args.kwargs["high_quality"] is True
+        assert method.await_args.kwargs["project_settings"] is None
+
+    @pytest.mark.asyncio
+    async def test_stage_task_reuses_frozen_profile_after_project_model_change(
+        self,
+        db_session,
+        test_project_id,
+    ):
+        from modules.project.models import Project
+
+        novel_id = test_project_id
+        project = (
+            await db_session.execute(
+                select(Project).where(Project.id == uuid.UUID(novel_id))
+            )
+        ).scalar_one()
+        project.settings = {
+            "llm": {
+                "api_key": "sk-frozen-task",
+                "base_url": "https://frozen.example.test/v1",
+                "model": "frozen-model",
+            }
+        }
+        await db_session.flush()
+
+        orchestrator = DeepImportOrchestrator()
+        submitted = await orchestrator.start_stage(
+            db_session,
+            novel_id,
+            1,
+            3,
+            stage="world_objects",
+            authorization_confirmed=True,
+        )
+        task = await db_session.get(AsyncTask, uuid.UUID(submitted["task_id"]))
+        assert task is not None
+        original_snapshot = dict(task.meta["llm_execution_snapshot"])
+
+        project.settings = {
+            "llm": {
+                "api_key": "sk-rotated-task",
+                "base_url": "https://frozen.example.test/v1",
+                "model": "new-model",
+            }
+        }
+        await db_session.flush()
+        completed = DeepImportProgress(phase="done")
+        orchestrator.workflow.run_entity_extraction_only = AsyncMock(
+            return_value=completed
+        )
+
+        await orchestrator.run_stage_task(
+            db_session,
+            task,
+            stage="world_objects",
+        )
+
+        kwargs = orchestrator.workflow.run_entity_extraction_only.await_args.kwargs
+        assert kwargs["project_settings"]["llm"]["model"] == "frozen-model"
+        assert task.meta["llm_execution_snapshot"] == original_snapshot
 
     @pytest.mark.asyncio
     async def test_run_task_defaults_missing_chapter_range(self):
@@ -4273,6 +4396,8 @@ class TestDeepImportOrchestrator:
             include_existing_scenes=True,
             generate_scenes=False,
             fast_structured=True,
+            project_settings_snapshot=None,
+            high_quality=False,
             persist=True,
         )
 
@@ -5090,9 +5215,7 @@ class TestSceneEntityExtractionProgress:
         high_confidence_payload = mock_create.await_args_list[0].args[2]
         assert high_confidence_payload["status"] == "candidate"
         assert (
-            high_confidence_payload["content_json"]["_meta"][
-                "suggested_target_entity_id"
-            ]
+            high_confidence_payload["content_json"]["_meta"]["suggested_target_entity_id"]
             == target_id
         )
         assert stats["action_counts"] == {

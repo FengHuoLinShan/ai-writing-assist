@@ -25,6 +25,14 @@ from modules.outline.repositories import (
 from modules.outline.services import PlotStructureGenerator
 from tests.utils import _make_bundle
 
+
+def _mock_client(generate_structured: mock.AsyncMock) -> mock.MagicMock:
+    return mock.MagicMock(
+        model_name="test-model",
+        generate_structured=generate_structured,
+    )
+
+
 # Shared Pydantic response models used by LLM mocks in TestPlotStructureGenerator.
 # These were previously defined inside each test method, causing duplication.
 
@@ -155,7 +163,7 @@ class TestPlotStructureParserDeepImportMode:
         assert len(result.threads) == 1
         assert llm.kwargs["transport_retries"] is True
         assert llm.kwargs["max_fix_attempts"] == 1
-        assert llm.request.max_tokens == 3072
+        assert llm.request.max_tokens == 32_768
         system_content = llm.request.messages[0].content
         user_content = llm.request.messages[1].content
         assert "深度导入结构模式" in system_content
@@ -231,7 +239,7 @@ class TestPlotStructureGenerator:
                     )
                 ],
             )
-            await PlotStructureGenerator().generate(
+            await PlotStructureGenerator(llm_client=_mock_client(mock_llm)).generate(
                 db_session,
                 sample_novel_id,
                 start_chapter=1,
@@ -303,7 +311,7 @@ class TestPlotStructureGenerator:
                 ],
             )
 
-            generator = PlotStructureGenerator()
+            generator = PlotStructureGenerator(llm_client=_mock_client(mock_llm))
             result = await generator.generate(
                 db_session,
                 sample_novel_id,
@@ -356,7 +364,7 @@ class TestPlotStructureGenerator:
         ):
             mock_llm.return_value = _GO(plot_threads=[], outline_arcs=[])
 
-            generator = PlotStructureGenerator()
+            generator = PlotStructureGenerator(llm_client=_mock_client(mock_llm))
             result = await generator.generate(
                 db_session,
                 sample_novel_id,
@@ -411,7 +419,7 @@ class TestPlotStructureGenerator:
                 ],
             )
 
-            generator = PlotStructureGenerator()
+            generator = PlotStructureGenerator(llm_client=_mock_client(mock_llm))
             result = await generator.generate(
                 db_session,
                 sample_novel_id,
@@ -451,9 +459,9 @@ class TestPlotStructureGenerator:
             mock.patch(
                 "infrastructure.llm.client.LLMClient.generate_structured",
                 side_effect=Exception("LLM down"),
-            ),
+            ) as mock_llm,
         ):
-            generator = PlotStructureGenerator()
+            generator = PlotStructureGenerator(llm_client=_mock_client(mock_llm))
             result = await generator.generate(
                 db_session,
                 sample_novel_id,

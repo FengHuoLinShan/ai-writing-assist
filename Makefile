@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-fast test-v test-integration test-e2e test-real-llm test-manual test-frontend test-all lint lint-fix format format-fix prompt-contracts prompt-contracts-json generate-e2e help db migrate doctor doctor-json doctor-llm
+.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-collect test-fast test-v test-integration test-e2e test-real-llm test-manual test-frontend test-all eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast lint lint-fix format format-fix prompt-contracts prompt-contracts-json generate-e2e help db migrate doctor doctor-json doctor-llm
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BACKEND_DIR := $(ROOT_DIR)backend
@@ -35,6 +35,9 @@ migrate:  ## Run database migrations
 
 test: test-fast  ## Run the fast backend test layer
 
+test-collect:  ## Verify all backend module tests collect in one pytest session
+	cd $(BACKEND_DIR) && pytest modules -q --collect-only
+
 test-fast:  ## Run SQLite-backed tests without external services or source data
 	cd $(BACKEND_DIR) && pytest $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" $(ARGS)
 
@@ -59,6 +62,54 @@ test-frontend:  ## Run frontend tests
 test-all:  ## Run backend tests, then frontend tests
 	cd $(BACKEND_DIR) && pytest $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" $(BACKEND_ARGS)
 	cd $(FRONTEND_DIR) && npm test -- $(FRONTEND_ARGS)
+
+eval-corpus:  ## Build a local corpus manifest without copying source text
+	cd $(BACKEND_DIR) && python -m evals.cli corpus-manifest --variant $(or $(VARIANT),pilot) $(if $(OUTPUT),--output $(OUTPUT),)
+
+eval-fixture-manifest:  ## Hash stable writing/outline/world fixtures without payloads
+	cd $(BACKEND_DIR) && python -m evals.cli fixture-manifest $(if $(OUTPUT),--output $(OUTPUT),)
+
+eval-generate:  ## Generate candidate semantic-eval cases with local Codex 5.3
+	cd $(BACKEND_DIR) && python -m evals.cli generate --suite $(SUITE) --variant $(or $(VARIANT),pilot) --size $(or $(SIZE),20) --output $(OUTPUT) $(if $(CACHE_ONLY),--cache-only,)
+
+eval-judge:  ## Judge a candidate dataset with local Codex 5.3 and cache results
+	cd $(BACKEND_DIR) && python -m evals.cli judge $(DATASET) --variant $(or $(VARIANT),pilot) --output $(OUTPUT) $(if $(CACHE_ONLY),--cache-only,)
+
+eval-qc:  ## Run deterministic QC for a local eval dataset
+	cd $(BACKEND_DIR) && python -m evals.cli qc $(DATASET) --variant $(or $(VARIANT),pilot) $(if $(OUTPUT),--output $(OUTPUT),)
+
+eval-review-export:  ## Export stratified offline human-review HTML and JSONL
+	cd $(BACKEND_DIR) && python -m evals.cli review-export $(DATASET) --variant $(or $(VARIANT),pilot) --html $(HTML) --jsonl $(JSONL) $(if $(CSV),--csv $(CSV),) $(if $(DOUBLE_HTML),--double-html $(DOUBLE_HTML),) $(if $(DOUBLE_JSONL),--double-jsonl $(DOUBLE_JSONL),) $(if $(DOUBLE_CSV),--double-csv $(DOUBLE_CSV),)
+
+eval-review-import:  ## Import human review decisions and calculate agreement
+	cd $(BACKEND_DIR) && python -m evals.cli review-import $(DATASET) $(REVIEWS) --reviewer-version $(REVIEWER_VERSION) --output $(OUTPUT) --report $(REPORT) $(if $(ADJUDICATION),--adjudication,)
+
+eval-report:  ## Produce versioned JSON and Markdown dataset reports
+	cd $(BACKEND_DIR) && python -m evals.cli report $(DATASET) --variant $(or $(VARIANT),pilot) --dataset-id $(DATASET_ID) --dataset-version $(DATASET_VERSION) $(foreach result,$(RESULTS),--result $(result)) $(foreach reuse,$(RESULT_VERSION_REUSE),--result-version-reuse $(reuse)) $(if $(RAW_REVIEWED_DATASET),--raw-reviewed-dataset $(RAW_REVIEWED_DATASET),) --json $(JSON) --markdown $(MARKDOWN)
+
+eval-baseline-check:  ## Validate existing QC/review decisions without rerunning QC or LLMs
+	cd $(BACKEND_DIR) && python -m evals.cli baseline-check $(DATASET) --suite $(or $(SUITE),all) --tier $(or $(TIER),pilot) $(if $(OUTPUT),--output $(OUTPUT),)
+
+eval-freeze:  ## Freeze an accepted-only baseline dataset after deterministic revalidation
+	cd $(BACKEND_DIR) && python -m evals.cli freeze $(DATASET) --variant $(or $(VARIANT),pilot) --tier $(or $(TIER),pilot) --dataset-id $(DATASET_ID) --dataset-version $(DATASET_VERSION) --output $(OUTPUT) --manifest $(MANIFEST) --readiness $(READINESS)
+
+eval-rag-prepare:  ## Build a fresh derived RAG index for a baseline chapter range
+	cd $(BACKEND_DIR) && python -m evals.cli prepare-rag --novel-id $(NOVEL_ID) --chapter-from $(or $(CHAPTER_FROM),1) --chapter-to $(or $(CHAPTER_TO),60) --content-mode $(or $(CONTENT_MODE),canonical) $(if $(FORCE),--force,) $(if $(OUTPUT),--output $(OUTPUT),)
+
+eval-run:  ## Run one/all official suite runners against an explicitly selected project
+	cd $(BACKEND_DIR) && python -m evals.cli run $(DATASET) --suite $(or $(SUITE),all) --novel-id $(NOVEL_ID) --dataset-id $(DATASET_ID) --dataset-version $(DATASET_VERSION) --output-dir $(or $(OUTPUT_DIR),evals/artifacts/results) --baseline-tier $(or $(TIER),pilot) $(if $(ISOLATED_DB),--isolated-db,) $(if $(ALLOW_UNFROZEN),--allow-unfrozen,)
+
+eval-rag:  ## Run the RAG baseline runner against an explicitly selected project
+	$(MAKE) eval-run SUITE=rag DATASET=$(DATASET) NOVEL_ID=$(NOVEL_ID) DATASET_ID=$(DATASET_ID) DATASET_VERSION=$(DATASET_VERSION) OUTPUT_DIR=$(OUTPUT_DIR)
+
+eval-full:  ## Run all four baseline runners; requires a disposable isolated database
+	$(MAKE) eval-run SUITE=all DATASET=$(DATASET) NOVEL_ID=$(NOVEL_ID) DATASET_ID=$(DATASET_ID) DATASET_VERSION=$(DATASET_VERSION) OUTPUT_DIR=$(OUTPUT_DIR) ISOLATED_DB=1
+
+eval-pilot:  ## Generate/judge the 400-raw-case Pilot with resumable local cache
+	cd $(BACKEND_DIR) && python -m evals.cli pilot --variant $(or $(VARIANT),pilot) --stage $(or $(STAGE),all) --output-dir $(or $(OUTPUT_DIR),evals/datasets/local/pilot-v0) $(if $(CACHE_ONLY),--cache-only,)
+
+eval-fast:  ## Run deterministic eval toolkit tests without remote LLM calls
+	cd $(BACKEND_DIR) && pytest evals/tests -q
 
 lint:  ## Run ruff linter
 	cd $(BACKEND_DIR) && ruff check .

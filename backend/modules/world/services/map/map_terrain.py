@@ -85,10 +85,7 @@ class MapTerrainService:
                 binding
                 for binding in [*canonical_owner_bindings, *pending_owner_bindings]
                 if binding.review_state in {"candidate", "needs_review"}
-                or (
-                    binding.id in pending_owner_ids
-                    and binding.review_state != "ignored"
-                )
+                or (binding.id in pending_owner_ids and binding.review_state != "ignored")
             ]
         return MapTerrainStateResponse(
             layers=[MapTerrainLayerResponse.model_validate(layer) for layer in layers],
@@ -97,8 +94,7 @@ class MapTerrainService:
             ],
             patches=[MapTerrainPatchResponse.model_validate(patch) for patch in patches],
             bindings=[
-                MapTerrainBindingResponse.model_validate(binding)
-                for binding in bindings
+                MapTerrainBindingResponse.model_validate(binding) for binding in bindings
             ],
             candidate_bindings=[
                 MapTerrainBindingResponse.model_validate(binding)

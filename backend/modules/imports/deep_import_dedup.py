@@ -89,8 +89,7 @@ class SceneDedupAgent:
                     method="scene_candidate_signature",
                     auto_applied=True,
                     reason=(
-                        "same workflow scene candidates shared provenance/chunk "
-                        "anchors"
+                        "same workflow scene candidates shared provenance/chunk anchors"
                     ),
                 )
             )
@@ -187,9 +186,7 @@ class SceneDedupAgent:
         if other.candidate_id:
             discard_reasons[other.candidate_id] = "duplicate_candidate"
         review_reason = "；".join(
-            text
-            for text in [primary.review_reason, duplicate.review_reason]
-            if text
+            text for text in [primary.review_reason, duplicate.review_reason] if text
         )[:500]
         return winner.model_copy(
             update={

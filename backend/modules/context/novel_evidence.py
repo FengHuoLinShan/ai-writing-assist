@@ -763,9 +763,7 @@ class NovelEvidenceService:
             db,
             novel_id,
             statuses=(
-                ["canonical", "draft", "candidate"]
-                if allow_pending
-                else ["canonical"]
+                ["canonical", "draft", "candidate"] if allow_pending else ["canonical"]
             ),
             limit=max(limit * 4, 50),
         )

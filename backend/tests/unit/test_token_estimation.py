@@ -65,9 +65,7 @@ def test_import_snapshot_helper_uses_model_aware_token_estimate() -> None:
         for key, value in sections.items()
     }
     assert payload["token_metadata"]["sections"] == expected_sections
-    assert payload["token_metadata"]["total_tokens"] == sum(
-        expected_sections.values()
-    )
+    assert payload["token_metadata"]["total_tokens"] == sum(expected_sections.values())
     assert estimate_tokens(sections["scene_text"]) == estimate_token_count(
         sections["scene_text"]
     )
@@ -75,9 +73,7 @@ def test_import_snapshot_helper_uses_model_aware_token_estimate() -> None:
 
 def test_agent_step_autocompact_uses_tiktoken_estimate() -> None:
     text = "今天天气很好。" * 20
-    guard = ContextBudgetGuard(
-        ContextBudget(context_limit_tokens=10, trigger_ratio=0.5)
-    )
+    guard = ContextBudgetGuard(ContextBudget(context_limit_tokens=10, trigger_ratio=0.5))
 
     result = guard.autocompact_fallback(text)
 

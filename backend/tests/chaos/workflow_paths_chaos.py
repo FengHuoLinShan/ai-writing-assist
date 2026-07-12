@@ -24,7 +24,7 @@ TIMEOUT = 45
 CASE_CATALOG: list[dict[str, str]] = [
     {"chaos_case_id": "S3-IDM-001", "path_id": "S3", "layer": "workflow_chaos"},
     {"chaos_case_id": "S3-VAL-001", "path_id": "S3", "layer": "workflow_chaos"},
-    {"chaos_case_id": "S4-CON-001", "path_id": "S4", "layer": "workflow_chaos"}
+    {"chaos_case_id": "S4-CON-001", "path_id": "S4", "layer": "workflow_chaos"},
 ]
 
 results: list[dict[str, Any]] = []

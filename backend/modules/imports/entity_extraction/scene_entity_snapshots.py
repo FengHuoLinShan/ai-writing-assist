@@ -9,6 +9,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.imports.context_snapshot_helpers import build_phase2_snapshot_payload
 
 
+def _phase2_profile_summary() -> dict[str, Any]:
+    """Resolve the same secret-free profile used by active Phase 2 adapters."""
+    from infrastructure.llm.profiles import resolve_llm_profile
+    from modules.imports.entity_extraction.scene_entity_config import (
+        current_phase2_project_settings,
+        current_phase2_request_model,
+    )
+
+    summary = resolve_llm_profile(current_phase2_project_settings()).sanitized_summary()
+    request_model = current_phase2_request_model() or str(summary.get("model") or "")
+    summary["profile_model"] = summary.get("model")
+    summary["request_model"] = request_model
+    summary["model"] = request_model
+    return summary
+
+
 async def create_phase2_snapshot(
     service,
     db: AsyncSession,
@@ -22,12 +38,14 @@ async def create_phase2_snapshot(
     workflow_id: str | None = None,
     activation: dict[str, Any] | None = None,
 ):
-    from core.config import get_settings
     from modules.context.contracts import ContextSnapshotRequest
     from modules.context.facade import open_context_snapshot
+    from modules.imports.entity_extraction.scene_entity_config import (
+        phase2_parallel_scene_max_tokens,
+    )
 
-    settings = get_settings()
-    max_tokens = 16384
+    profile_summary = _phase2_profile_summary()
+    max_tokens = phase2_parallel_scene_max_tokens()
     temperature = 0.3
     payload = build_phase2_snapshot_payload(
         scene=scene,
@@ -36,10 +54,11 @@ async def create_phase2_snapshot(
         memory_context=memory_context,
         chapters_text=chapters_text,
         accumulated_memory=accumulated_memory,
-        model=settings.llm_model,
+        model=str(profile_summary["model"]),
         max_tokens=max_tokens,
         temperature=temperature,
         activation=activation,
+        profile_summary=profile_summary,
     )
     return await open_context_snapshot(
         db,
@@ -53,7 +72,7 @@ async def create_phase2_snapshot(
             scene_index=payload["scene_index"],
             chapter_index=payload["chapter_index"],
             prompt_name="scene_entity_extraction",
-            model=settings.llm_model,
+            model=str(profile_summary["model"]),
             compile_options=payload["compile_options"],
             included_asset_ids=payload["included_asset_ids"],
             context_summary=payload["context_summary"],
@@ -132,12 +151,11 @@ async def create_phase2b_snapshot(
     *,
     workflow_id: str | None = None,
 ):
-    from core.config import get_settings
     from core.errors import ValidationError
     from modules.context.contracts import ContextSnapshotRequest
     from modules.context.facade import get_import_scene_source_refs, open_context_snapshot
 
-    settings = get_settings()
+    profile_summary = _phase2_profile_summary()
     rendered_context = f"{entity_index}\n\n{service._scene_context_header(scene)}"
     source_refs: list[dict] = []
     source_warning = None
@@ -162,10 +180,11 @@ async def create_phase2b_snapshot(
             scene_index=scene.get("scene_index"),
             chapter_index=service._scene_source_chapter_index(scene),
             prompt_name="alias_relation_extraction",
-            model=settings.llm_model,
+            model=str(profile_summary["model"]),
             compile_options={
                 "source": "deep_import_phase2b_alias_relation",
                 "content_mode": "working",
+                "llm_runtime": profile_summary,
             },
             included_asset_ids=[],
             context_summary={

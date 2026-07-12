@@ -8,7 +8,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.config import get_settings
 from core.errors import DomainError, ValidationError
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.client import LLMClient
@@ -68,6 +67,24 @@ class WorldEntityFusionService:
         max_suggestions: int = 50,
         progress_callback: Any | None = None,
     ) -> dict[str, Any]:
+        if self._llm_client is None:
+            from modules.project.facade import open_project_llm_client
+
+            async with open_project_llm_client(db, novel_id) as client:
+                return await WorldEntityFusionService(
+                    entity_repo=self._entity_repo,
+                    dedup_service=self._dedup,
+                    alias_service=self._alias_service,
+                    llm_client=client,
+                ).suggest(
+                    db,
+                    novel_id=novel_id,
+                    entity_type=entity_type,
+                    status=status,
+                    limit=limit,
+                    max_suggestions=max_suggestions,
+                    progress_callback=progress_callback,
+                )
         nid = parse_uuid(novel_id, "novel_id")
         statuses = [status] if status else ["candidate", "draft", "canonical"]
         entities = await self._entity_repo.get_by_type_and_status(
@@ -211,9 +228,7 @@ class WorldEntityFusionService:
             if source.status == "canonical" and target.status == "canonical":
                 if not item.allow_canonical_merge:
                     skipped += 1
-                    warnings.append(
-                        f"需要二次确认才能合并已采用对象：{source.name}"
-                    )
+                    warnings.append(f"需要二次确认才能合并已采用对象：{source.name}")
                     continue
                 allow_canonical = True
             else:
@@ -407,8 +422,9 @@ class WorldEntityFusionService:
         if deterministic.action in {"keep_separate", "needs_review", "alias_only"}:
             return deterministic
 
-        client = self._llm_client or LLMClient()
-        settings = get_settings()
+        client = self._llm_client
+        if client is None:  # pragma: no cover - suggest() always manages the client.
+            raise RuntimeError("project LLM client is required")
         payload = {
             "source": _entity_payload(source),
             "target": _entity_payload(target),
@@ -419,7 +435,7 @@ class WorldEntityFusionService:
             return await run_managed_structured(
                 client,
                 LLMCallRequest(
-                    model=settings.llm_model,
+                    model=client.model_name,
                     messages=[
                         LLMMessage(
                             role="system",

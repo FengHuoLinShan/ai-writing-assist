@@ -19,6 +19,28 @@ describe("deepImportFields schema", () => {
     const p2 = DEEP_IMPORT_GROUPS.find((g) => g.id === "phase2")
     expect(p2.fields.find((f) => f.key === "world_window_concurrency").value).toBe(20)
   })
+  it("phase2 complex scene extraction uses bounded concurrency", () => {
+    const p2 = DEEP_IMPORT_GROUPS.find((g) => g.id === "phase2")
+    expect(p2.fields.find((f) => f.key === "parallel_scene_concurrency").value).toBe(20)
+    expect(p2.fields.find((f) => f.key === "parallel_scene_max_tokens").value).toBe(32768)
+    expect(p2.fields.find((f) => f.key === "parallel_provider_timeout_seconds").value).toBe(240)
+    expect(p2.fields.find((f) => f.key === "parallel_llm_timeout_seconds").value).toBe(270)
+  })
+  it("DeepSeek token ratios use the calibrated 1.0 upper-bound default", () => {
+    const p0 = DEEP_IMPORT_GROUPS.find((g) => g.id === "phase0")
+    const p2 = DEEP_IMPORT_GROUPS.find((g) => g.id === "phase2")
+    expect(p0.fields.find((f) => f.key === "max_tokens_per_input_char").value).toBe(1.0)
+    expect(p2.fields.find((f) => f.key === "world_max_tokens_per_source_char").value).toBe(1.0)
+  })
+  it("generation-heavy Phase 1B, Phase 2, and Phase 3 defaults use the full upper bound", () => {
+    const p1b = DEEP_IMPORT_GROUPS.find((g) => g.id === "phase1b")
+    const p2 = DEEP_IMPORT_GROUPS.find((g) => g.id === "phase2")
+    const p3 = DEEP_IMPORT_GROUPS.find((g) => g.id === "phase3")
+    expect(p1b.fields.find((f) => f.key === "enrich_max_tokens").value).toBe(32768)
+    expect(p2.fields.find((f) => f.key === "world_min_max_tokens").value).toBe(32768)
+    expect(p2.fields.find((f) => f.key === "world_max_max_tokens").value).toBe(32768)
+    expect(p3.fields.find((f) => f.key === "structure_max_tokens").value).toBe(32768)
+  })
   it("id encoding swaps underscores to dashes", () => {
     expect(deepImportFieldId("phase2", "boundary_scenes")).toBe("deep-import-phase2-boundary-scenes")
   })

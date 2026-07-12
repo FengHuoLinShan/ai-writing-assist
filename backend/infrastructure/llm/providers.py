@@ -7,11 +7,13 @@ LLM Provider 管理
 
 from __future__ import annotations
 
+import inspect
 import logging
 import ssl
 import time
 from collections.abc import AsyncIterator
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from openai import (
@@ -89,10 +91,9 @@ class OpenAIProvider:
 
         self._http_client = self._build_http_client()
 
-        self._client = AsyncOpenAI(
+        self._client = self._build_sdk_client(
             api_key=self._api_key,
             base_url=self._base_url,
-            timeout=self._timeout,
             http_client=self._http_client,
         )
 
@@ -101,10 +102,9 @@ class OpenAIProvider:
         _emb_api_key = settings.embedding_api_key or self._api_key
         if _emb_base_url:
             self._embedding_http_client = self._build_http_client()
-            self._embedding_client = AsyncOpenAI(
+            self._embedding_client = self._build_sdk_client(
                 api_key=_emb_api_key,
                 base_url=_emb_base_url,
-                timeout=self._timeout,
                 http_client=self._embedding_http_client,
             )
         else:
@@ -112,10 +112,30 @@ class OpenAIProvider:
             self._embedding_client = self._client
 
         logger.info(
-            "OpenAIProvider initialized — base_url=%s, default_model=%s",
-            self._base_url,
+            "OpenAIProvider initialized — base_url_host=%s, default_model=%s",
+            urlparse(self._base_url).hostname or "",
             self._default_model,
         )
+
+    def _build_sdk_client(
+        self,
+        *,
+        api_key: str,
+        base_url: str,
+        http_client: httpx.AsyncClient,
+    ) -> AsyncOpenAI:
+        kwargs: dict[str, Any] = {
+            "api_key": api_key,
+            "base_url": base_url,
+            "timeout": self._timeout,
+            "http_client": http_client,
+        }
+        if (
+            not api_key
+            and "_enforce_credentials" in inspect.signature(AsyncOpenAI).parameters
+        ):
+            kwargs["_enforce_credentials"] = False
+        return AsyncOpenAI(**kwargs)
 
     @property
     def name(self) -> str:

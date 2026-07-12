@@ -139,8 +139,40 @@ class SceneEntityExtractionService:
         end_chapter: int | None = None,
         on_scene_progress: Callable[[int, int], Awaitable[None]] | None = None,
         existing_checkpoints: dict[str, Any] | None = None,
+        project_settings: dict[str, Any] | None = None,
+        request_model: str | None = None,
     ) -> dict[str, Any]:
         nid = parse_uuid(novel_id, "novel_id")
+        current_settings = _phase2_config.current_phase2_project_settings()
+        current_novel_id = _phase2_config.current_phase2_novel_id()
+        if current_settings is None:
+            if project_settings is None:
+                raise RuntimeError(
+                    "Phase 2 project LLM settings context is required for "
+                    "manual alias/relation extraction"
+                )
+            from infrastructure.llm.profiles import resolve_llm_profile
+
+            effective_request_model = (
+                request_model or resolve_llm_profile(project_settings).model
+            )
+            with _phase2_config.phase2_project_settings_context(
+                project_settings,
+                novel_id=str(nid),
+                request_model=effective_request_model,
+            ):
+                return await self.extract_alias_relations(
+                    db,
+                    novel_id,
+                    workflow_id=workflow_id,
+                    scene_ids=scene_ids,
+                    start_chapter=start_chapter,
+                    end_chapter=end_chapter,
+                    on_scene_progress=on_scene_progress,
+                    existing_checkpoints=existing_checkpoints,
+                )
+        if current_novel_id not in {None, novel_id, str(nid)}:
+            raise RuntimeError("Phase 2 project LLM context novel_id mismatch")
         scenes = await self._get_scenes(db, nid)
         selected: list[dict[str, Any]] = []
         scene_id_filter = set(scene_ids or [])
@@ -1596,7 +1628,7 @@ class SceneEntityExtractionService:
         existing_context: str,
         memory_context: str,
         *,
-        max_tokens: int = 8192,
+        max_tokens: int = 32_768,
         client_timeout: int = 180,
         max_fix_attempts: int = 1,
         transport_retries: bool = True,
@@ -1618,7 +1650,7 @@ class SceneEntityExtractionService:
         chapters_text: str,
         entity_index: str,
         *,
-        max_tokens: int = 3072,
+        max_tokens: int = 32_768,
         client_timeout: int = 120,
         diagnostics: list[dict[str, Any]] | None = None,
     ) -> AliasRelationExtractionOutput:

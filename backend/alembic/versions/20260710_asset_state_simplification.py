@@ -46,9 +46,7 @@ def upgrade() -> None:
     if "core_entities" not in tables:
         return
 
-    entity_columns = {
-        column["name"] for column in inspector.get_columns("core_entities")
-    }
+    entity_columns = {column["name"] for column in inspector.get_columns("core_entities")}
     if not {
         "id",
         "status",

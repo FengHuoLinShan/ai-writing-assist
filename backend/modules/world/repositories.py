@@ -772,17 +772,19 @@ class CoreEntityRepository:
             if entity_type:
                 conditions.append(CoreEntity.entity_type == entity_type)
 
-            # pgvector <=> 是余弦距离（0=相同，2=相反），转换为相似度
+            # Use pgvector's SQLAlchemy comparator so the bind is typed and the
+            # selected expression can be labelled on current SQLAlchemy.
+            distance = CoreEntity.embedding.cosine_distance(query_embedding)
             stmt = (
                 select(
                     CoreEntity,
-                    text("1.0 - (embedding <=> :emb)").label("similarity"),
+                    (1.0 - distance).label("similarity"),
                 )
                 .where(*conditions)
-                .order_by(text("embedding <=> :emb"), CoreEntity.id)
+                .order_by(distance, CoreEntity.id)
                 .limit(top_k)
             )
-            result = await db.execute(stmt, {"emb": query_embedding})
+            result = await db.execute(stmt)
             rows = result.all()
             return [(row[0], max(0.0, float(row[1]))) for row in rows]
         except (OperationalError, ProgrammingError):

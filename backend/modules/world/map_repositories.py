@@ -278,11 +278,7 @@ class MapConfigRepository:
                 MapConfig.id.label("id"),
                 MapConfig.parent_map_id.label("parent_map_id"),
                 literal(0).label("depth"),
-                (
-                    literal(",")
-                    + cast(MapConfig.id, String)
-                    + literal(",")
-                ).label("path"),
+                (literal(",") + cast(MapConfig.id, String) + literal(",")).label("path"),
             )
             .where(MapConfig.id == map_id)
             .cte(name="map_breadcrumbs", recursive=True)
@@ -295,11 +291,7 @@ class MapConfigRepository:
                 parent.id,
                 parent.parent_map_id,
                 (anchor.c.depth + 1).label("depth"),
-                (
-                    anchor.c.path
-                    + cast(parent.id, String)
-                    + literal(",")
-                ).label("path"),
+                (anchor.c.path + cast(parent.id, String) + literal(",")).label("path"),
             ).where(
                 parent.id == anchor.c.parent_map_id,
                 anchor.c.depth < _MAP_BREADCRUMB_MAX_DEPTH,
@@ -772,9 +764,7 @@ class MapTerrainRegionRepository(MapEntityRepository[MapTerrainRegion]):
                 MapTerrainRegion.id.in_(region_ids),
             )
             result = await db.execute(stmt)
-            existing_by_id = {
-                region.id: region for region in result.scalars().all()
-            }
+            existing_by_id = {region.id: region for region in result.scalars().all()}
 
         regions: list[MapTerrainRegion] = []
         for values in items:

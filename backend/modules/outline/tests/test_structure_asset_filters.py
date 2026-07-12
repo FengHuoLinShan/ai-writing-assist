@@ -275,4 +275,3 @@ async def test_structure_asset_lists_filter_by_status_and_provenance(
     data = resp.json()
     assert data["total"] == 1
     assert [item["id"] for item in data["items"]] == [matching_id]
-

@@ -10,9 +10,10 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.imports.entity_extraction.scene_entity_config import (
-    PHASE2_PARALLEL_LLM_TIMEOUT_SECONDS,
-    PHASE2_PARALLEL_PROVIDER_TIMEOUT_SECONDS,
-    PHASE2_PARALLEL_SCENE_CONCURRENCY,
+    phase2_parallel_llm_timeout_seconds,
+    phase2_parallel_provider_timeout_seconds,
+    phase2_parallel_scene_concurrency,
+    phase2_parallel_scene_max_tokens,
 )
 from modules.imports.entity_extraction.scene_entity_runtime import (
     SceneEntityExtractionRuntime,
@@ -42,6 +43,10 @@ class ParallelSceneEntityExtractor:
         visible_until_chapter: int | None = None,
     ) -> dict[str, Any]:
         service = self.service
+        configured_concurrency = phase2_parallel_scene_concurrency()
+        scene_max_tokens = phase2_parallel_scene_max_tokens()
+        provider_timeout_seconds = phase2_parallel_provider_timeout_seconds()
+        llm_timeout_seconds = phase2_parallel_llm_timeout_seconds()
         prepared: list[dict[str, Any]] = []
         skipped_checkpoints: list[dict[str, Any]] = []
         for scene_idx, scene in enumerate(scenes):
@@ -164,11 +169,12 @@ class ParallelSceneEntityExtractor:
                         item["chapters_text"],
                         item["world_context"],
                         item["memory_context"],
-                        client_timeout=PHASE2_PARALLEL_PROVIDER_TIMEOUT_SECONDS,
+                        max_tokens=scene_max_tokens,
+                        client_timeout=provider_timeout_seconds,
                         transport_retries=False,
                         diagnostics=format_diagnostics,
                     ),
-                    timeout=PHASE2_PARALLEL_LLM_TIMEOUT_SECONDS,
+                    timeout=llm_timeout_seconds,
                 )
             except Exception as exc:
                 return {
@@ -185,7 +191,7 @@ class ParallelSceneEntityExtractor:
             }
 
         extracted: list[dict[str, Any]] = []
-        concurrency = max(8, PHASE2_PARALLEL_SCENE_CONCURRENCY)
+        concurrency = configured_concurrency
         throttle_reasons: list[str] = []
         healthy_completions = 0
         for start in range(0, len(prepared), concurrency):
@@ -195,19 +201,16 @@ class ParallelSceneEntityExtractor:
             transport_failures = sum(1 for item in results if item.get("error"))
             format_failures = sum(1 for item in results if item.get("format_diagnostics"))
             if transport_failures >= 2 or format_failures >= 3:
-                next_concurrency = max(8, concurrency // 2)
+                next_concurrency = max(1, concurrency // 2)
                 if next_concurrency < concurrency:
                     throttle_reasons.append("transport_or_format_failure_window")
                     concurrency = next_concurrency
                 healthy_completions = 0
             else:
                 healthy_completions += len(results)
-                if (
-                    healthy_completions >= 16
-                    and concurrency < PHASE2_PARALLEL_SCENE_CONCURRENCY
-                ):
+                if healthy_completions >= 16 and concurrency < configured_concurrency:
                     concurrency = min(
-                        PHASE2_PARALLEL_SCENE_CONCURRENCY,
+                        configured_concurrency,
                         concurrency * 2,
                     )
                     healthy_completions = 0
@@ -217,6 +220,8 @@ class ParallelSceneEntityExtractor:
         total_deltas = 0
         completed_scenes = 0
         failed_scene_indices: list[int] = []
+        unresolved_scene_indices: list[int] = []
+        unresolved_scene_ids: list[str] = []
         scene_checkpoints: list[dict[str, Any]] = list(skipped_checkpoints)
         seen_entity_keys: set[tuple[str, str]] = set()
         accumulated_memory: list[dict] = []
@@ -268,13 +273,16 @@ class ParallelSceneEntityExtractor:
 
             if extraction is None:
                 missing_current_evidence = not item["chapters_text"]
+                if missing_current_evidence:
+                    unresolved_scene_indices.append(scene_index)
+                    unresolved_scene_ids.append(scene_id)
                 scene_checkpoints.append(
                     service._build_scene_checkpoint(
                         scene,
-                        status="quality_failed" if missing_current_evidence else "done",
+                        status="skipped" if missing_current_evidence else "done",
                         workflow_id=workflow_id,
                         scene_provenance_key=scene_provenance_key,
-                        retry_count=1 if missing_current_evidence else 0,
+                        retry_count=0,
                         error=(
                             "current_scene_span_coverage_missing"
                             if missing_current_evidence
@@ -289,9 +297,7 @@ class ParallelSceneEntityExtractor:
                         activation_source_count=len(item["activation"]["sources"]),
                     )
                 )
-                if missing_current_evidence:
-                    failed_scene_indices.append(scene_index)
-                else:
+                if not missing_current_evidence:
                     completed_scenes += 1
                 if on_scene_progress is not None:
                     await on_scene_progress(scene_idx + 1, len(scenes))
@@ -437,23 +443,35 @@ class ParallelSceneEntityExtractor:
             "total_aliases": 0,
             "total_deltas": total_deltas,
             "total_scenes": len(scenes),
-            "degraded": bool(failed_scene_indices or flush_status["degraded"]),
-            "error_kind": error_kind or flush_status["error_kind"],
-            "error_message": error_message or flush_status["error_message"],
+            "degraded": bool(
+                failed_scene_indices
+                or unresolved_scene_indices
+                or flush_status["degraded"]
+            ),
+            "error_kind": error_kind
+            or (
+                "current_scene_span_coverage_missing"
+                if unresolved_scene_indices
+                else flush_status["error_kind"]
+            ),
+            "error_message": error_message
+            or (
+                "Skipped Scenes without exact or reanchored source spans."
+                if unresolved_scene_indices
+                else flush_status["error_message"]
+            ),
             "failed_scene_indices": failed_scene_indices,
             "failed_scene_ids": [
                 service._scene_id(item["scene"])
                 for item in extracted
-                if not item["chapters_text"] or item.get("error") is not None
+                if item.get("error") is not None
             ],
             "completed_scenes": completed_scenes,
-            "skipped_scenes": 0,
+            "skipped_scenes": len(unresolved_scene_indices),
             "rerun_scenes": 0,
-            "quality_failed_scene_ids": [
-                service._scene_id(item["scene"])
-                for item in extracted
-                if not item["chapters_text"]
-            ],
+            "quality_failed_scene_ids": [],
+            "unresolved_scene_indices": unresolved_scene_indices,
+            "unresolved_scene_ids": unresolved_scene_ids,
             "stopped_early": False,
             "audit_summary": audit_summary,
             "snapshot_health_summary": snapshot_health_summary,
@@ -463,7 +481,10 @@ class ParallelSceneEntityExtractor:
             ),
             "bulk_error_kind": bulk_error_kind,
             "activation_version": "import-context-v1",
-            "phase2_effective_concurrency": PHASE2_PARALLEL_SCENE_CONCURRENCY,
+            "phase2_effective_concurrency": configured_concurrency,
+            "phase2_scene_max_tokens": scene_max_tokens,
+            "phase2_provider_timeout_seconds": provider_timeout_seconds,
+            "phase2_llm_timeout_seconds": llm_timeout_seconds,
             "phase2_throttle_reasons": throttle_reasons,
             "supplemental_llm_created": 0,
             "fallback_created": 0,

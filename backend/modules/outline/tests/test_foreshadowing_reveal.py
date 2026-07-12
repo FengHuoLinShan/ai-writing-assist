@@ -18,6 +18,13 @@ from tests.utils import _make_bundle
 pytestmark = [pytest.mark.asyncio, pytest.mark.api]
 
 
+def _mock_client(generate_structured: mock.AsyncMock) -> mock.MagicMock:
+    return mock.MagicMock(
+        model_name="test-model",
+        generate_structured=generate_structured,
+    )
+
+
 class _FakeSession:
     def __init__(self) -> None:
         self.added = []
@@ -730,7 +737,9 @@ class TestPlotStructureGenerateDuplicateRange:
             ) as mock_llm,
         ):
             mock_llm.return_value = _mock_llm_return_value()
-            data = await PlotStructureGenerator().generate(
+            data = await PlotStructureGenerator(
+                llm_client=_mock_client(mock_llm)
+            ).generate(
                 db_session,
                 novel_id=test_project_id,
                 start_chapter=1,
@@ -766,7 +775,9 @@ class TestPlotStructureGenerateDuplicateRange:
             ) as mock_llm,
         ):
             mock_llm.return_value = _mock_llm_return_value()
-            data = await PlotStructureGenerator().generate(
+            data = await PlotStructureGenerator(
+                llm_client=_mock_client(mock_llm)
+            ).generate(
                 db_session,
                 novel_id=test_project_id,
                 start_chapter=1,
@@ -822,7 +833,7 @@ class TestPlotStructureGenerateDuplicateRange:
         ):
             mock_llm.return_value = _mock_llm_return_value()
             with pytest.raises(RuntimeError, match="persist failed"):
-                await PlotStructureGenerator().generate(
+                await PlotStructureGenerator(llm_client=_mock_client(mock_llm)).generate(
                     db_session,
                     novel_id=test_project_id,
                     start_chapter=1,
@@ -863,7 +874,7 @@ class TestPlotStructureGenerateDuplicateRange:
             ) as mock_llm,
         ):
             mock_llm.return_value = _mock_llm_return_value()
-            generator = PlotStructureGenerator()
+            generator = PlotStructureGenerator(llm_client=_mock_client(mock_llm))
             first_data = await generator.generate(
                 db_session,
                 novel_id=test_project_id,
@@ -1023,40 +1034,42 @@ async def test_plot_structure_persister_batches_foreshadowing_and_reveals() -> N
         reveal_service=reveal_service,
     )
 
-    created_foreshadowing, created_reveals, unresolved_reveals = (
-        await persister._persist_foreshadowing_and_reveals(
-            mock.AsyncMock(spec=AsyncSession),
-            novel_id,
-            [
-                GeneratedForeshadowingPlan(
-                    name="古剑封印",
-                    summary="秘密线索",
-                    confidence=0.55,
-                    needs_review=True,
-                    review_reason="low_confidence",
-                    supporting_scene_ids=["scene-1"],
-                ),
-                GeneratedForeshadowingPlan(name="暗线伏笔", summary="第二线索"),
-            ],
-            [
-                GeneratedRevealPlan(
-                    target_name="霜华剑",
-                    target_type="world_entity",
-                    secret_summary="封印着魔神",
-                )
-            ],
-            entity_name_to_id={"霜华剑": str(target_id)},
-            character_name_to_id={},
-            provenance_meta={"workflow_id": "wf-1"},
-        )
+    (
+        created_foreshadowing,
+        created_reveals,
+        unresolved_reveals,
+    ) = await persister._persist_foreshadowing_and_reveals(
+        mock.AsyncMock(spec=AsyncSession),
+        novel_id,
+        [
+            GeneratedForeshadowingPlan(
+                name="古剑封印",
+                summary="秘密线索",
+                confidence=0.55,
+                needs_review=True,
+                review_reason="low_confidence",
+                supporting_scene_ids=["scene-1"],
+            ),
+            GeneratedForeshadowingPlan(name="暗线伏笔", summary="第二线索"),
+        ],
+        [
+            GeneratedRevealPlan(
+                target_name="霜华剑",
+                target_type="world_entity",
+                secret_summary="封印着魔神",
+            )
+        ],
+        entity_name_to_id={"霜华剑": str(target_id)},
+        character_name_to_id={},
+        provenance_meta={"workflow_id": "wf-1"},
     )
 
     assert [item["name"] for item in created_foreshadowing] == ["古剑封印", "暗线伏笔"]
     assert created_foreshadowing[0]["needs_review"] is True
     assert created_foreshadowing[0]["provenance_meta"]["confidence"] == 0.55
-    assert created_foreshadowing[0]["provenance_meta"][
-        "supporting_scene_ids"
-    ] == ["scene-1"]
+    assert created_foreshadowing[0]["provenance_meta"]["supporting_scene_ids"] == [
+        "scene-1"
+    ]
     assert created_reveals[0]["id"] == str(reveal_plans[0].id)
     assert created_reveals[0]["target_name"] == "霜华剑"
     assert unresolved_reveals == []
@@ -1082,22 +1095,24 @@ async def test_plot_structure_persister_keeps_unresolved_reveal_as_review() -> N
         reveal_service=reveal_service,
     )
 
-    created_foreshadowing, created_reveals, unresolved_reveals = (
-        await persister._persist_foreshadowing_and_reveals(
-            mock.AsyncMock(spec=AsyncSession),
-            uuid.uuid4(),
-            [],
-            [
-                GeneratedRevealPlan(
-                    target_name="无法消歧的揭示",
-                    secret_summary="仍需作者判定目标",
-                    supporting_scene_ids=["scene-1"],
-                )
-            ],
-            entity_name_to_id={},
-            character_name_to_id={},
-            provenance_meta={"source": "deep_import", "workflow_id": "wf-1"},
-        )
+    (
+        created_foreshadowing,
+        created_reveals,
+        unresolved_reveals,
+    ) = await persister._persist_foreshadowing_and_reveals(
+        mock.AsyncMock(spec=AsyncSession),
+        uuid.uuid4(),
+        [],
+        [
+            GeneratedRevealPlan(
+                target_name="无法消歧的揭示",
+                secret_summary="仍需作者判定目标",
+                supporting_scene_ids=["scene-1"],
+            )
+        ],
+        entity_name_to_id={},
+        character_name_to_id={},
+        provenance_meta={"source": "deep_import", "workflow_id": "wf-1"},
     )
 
     assert created_foreshadowing == []

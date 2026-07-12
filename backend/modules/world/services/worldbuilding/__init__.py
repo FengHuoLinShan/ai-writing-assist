@@ -1,2 +1,1 @@
 """Worldbuilding service implementations."""
-

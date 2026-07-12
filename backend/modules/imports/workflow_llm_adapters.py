@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 from importlib import import_module
 from typing import Any, get_origin
@@ -32,10 +33,11 @@ PHASE0_SCENE_TIMEOUT_SECONDS = 120
 PHASE1A_SCENE_MAX_TOKENS = 8192
 PHASE1A_STRUCTURED_MAX_FIX_ATTEMPTS = 1
 PHASE1A_SCENE_SLICING_TIMEOUT_SECONDS = 900
-PHASE1B_ENRICH_MAX_TOKENS = 4096
+PHASE1A_CHAPTER_RECOVERY_MAX_TOKENS = 8192
+PHASE1B_ENRICH_MAX_TOKENS = 32_768
 PHASE1B_ENRICH_TIMEOUT_SECONDS = 300
 PHASE2_WORLD_TIMEOUT_SECONDS = 900
-PHASE2_WORLD_MIN_MAX_TOKENS = 24_576
+PHASE2_WORLD_MIN_MAX_TOKENS = 32_768
 
 
 def _workflow_constant(name: str, default: Any) -> Any:
@@ -293,10 +295,22 @@ async def _project_settings_for_novel(
     return settings if isinstance(settings, dict) else None
 
 
-def _llm_client_for_profile(project_settings: dict[str, Any] | None, **overrides: Any):
-    from infrastructure.llm.client import LLMClient
+def _llm_client_for_profile(
+    project_settings: dict[str, Any] | None,
+    *,
+    novel_id: str | None = None,
+    **overrides: Any,
+):
+    from modules.project.facade import create_project_snapshot_llm_client
 
-    return LLMClient.from_project_settings(project_settings, **overrides)
+    timeout_override = overrides.pop("timeout", None)
+    if overrides:
+        raise ValueError("only timeout override is allowed for project snapshot client")
+    return create_project_snapshot_llm_client(
+        project_settings or {},
+        timeout_override=timeout_override,
+        novel_id=novel_id,
+    )
 
 
 def _profile_request_defaults(profile: ResolvedLLMProfile) -> dict[str, Any]:
@@ -343,10 +357,16 @@ class _Phase1aSceneSlicingLLM:
         self,
         project_settings: dict[str, Any] | None = None,
         *,
+        novel_id: str | None = None,
         high_quality: bool = False,
     ) -> None:
         self.project_settings = project_settings
+        self.novel_id = novel_id
         self.high_quality = high_quality
+        self._diagnostics_by_window: dict[str, list[dict[str, Any]]] = {}
+
+    def pop_diagnostics(self, window_id: str) -> list[dict[str, Any]]:
+        return self._diagnostics_by_window.pop(window_id, [])
 
     async def __call__(self, payload: dict[str, Any]) -> Any:
         from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
@@ -371,6 +391,8 @@ class _Phase1aSceneSlicingLLM:
             if covered_end and owned_end and owned_end < covered_end
             else "无"
         )
+        window_id = str(window.get("window_id") or "unknown")
+        diagnostics: list[dict[str, Any]] = []
         request = LLMCallRequest(
             model=model,
             messages=[
@@ -396,6 +418,13 @@ class _Phase1aSceneSlicingLLM:
                         "- 一个 Scene 可以跨章。\n"
                         "- Scene 应有明确的叙事目标、阻碍或张力。\n"
                         "- 不要按章节机械切分，不要输出章节大纲。\n\n"
+                        "【正文定位规则】\n"
+                        "- start_anchor 必须从 start_chapter 正文逐字复制 "
+                        "8-40 个连续字符，定位 Scene 开始。\n"
+                        "- end_anchor 必须从 end_chapter 正文逐字复制 "
+                        "8-40 个连续字符，定位 Scene 结束，包含结束字符。\n"
+                        "- 不得改写、概括、省略或使用省略号；必须选择在对应"
+                        "章节中只出现一次的原句片段。\n\n"
                         "【归属规则】\n"
                         "- 只输出 start_chapter 落在 owned_range 内的 Scene。\n"
                         "- 如果 Scene 从 owned_range 延续到 right_overlap_range，"
@@ -403,14 +432,16 @@ class _Phase1aSceneSlicingLLM:
                         "- 不要输出完全发生在 right_overlap_range 内的新 Scene。\n\n"
                         "【输出格式】\n"
                         "{\n"
-                        "  \"scenes\": [\n"
+                        '  "scenes": [\n'
                         "    {\n"
-                        "      \"title\": \"简短标题\",\n"
-                        "      \"goal\": \"角色或叙事目标\",\n"
-                        "      \"core_conflict\": \"阻碍、风险或张力\",\n"
-                        "      \"start_chapter\": 1,\n"
-                        "      \"end_chapter\": 1,\n"
-                        "      \"boundary_status\": \"complete|continues|uncertain\"\n"
+                        '      "title": "简短标题",\n'
+                        '      "goal": "角色或叙事目标",\n'
+                        '      "core_conflict": "阻碍、风险或张力",\n'
+                        '      "start_chapter": 1,\n'
+                        '      "end_chapter": 1,\n'
+                        '      "start_anchor": "从起始章正文逐字复制的原句",\n'
+                        '      "end_anchor": "从结束章正文逐字复制的原句",\n'
+                        '      "boundary_status": "complete|continues|uncertain"\n'
                         "    }\n"
                         "  ]\n"
                         "}"
@@ -422,25 +453,153 @@ class _Phase1aSceneSlicingLLM:
             response_format={"type": "json_object"},
             extra=_deepseek_request_extra(profile, model=model),
         )
+        try:
+            return await _call_structured(
+                _llm_client_for_profile(self.project_settings, novel_id=self.novel_id),
+                request,
+                SceneSlicingOutput,
+                step_name="phase1a_scene_slicing",
+                transport_retries=False,
+                timeout_seconds=_phase1a_scene_slicing_timeout_seconds(
+                    self.project_settings
+                ),
+                max_fix_attempts=_phase1a_structured_max_fix_attempts(
+                    self.project_settings
+                ),
+                project_settings=self.project_settings,
+                diagnostics=diagnostics,
+                fix_prompt=(
+                    "上一轮输出无法通过 SceneSlicingOutput 校验。只输出 JSON object："
+                    '{"scenes":[{"title":"...","goal":"...",'
+                    '"core_conflict":"...","start_chapter":1,'
+                    '"end_chapter":1,"start_anchor":"起始章原文片段",'
+                    '"end_anchor":"结束章原文片段",'
+                    '"boundary_status":"complete"}]}。'
+                    "不要 Markdown，不要解释，不要输出其他字段。"
+                ),
+            )
+        finally:
+            self._diagnostics_by_window[window_id] = diagnostics
+
+    async def repair_anchors(self, payload: dict[str, Any]) -> Any:
+        """Retry one unresolved Scene against only its locked source chapters."""
+        from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+        from modules.imports.llm_schemas import SceneAnchorRepairOutput
+
+        profile = resolve_llm_profile(self.project_settings)
+        model = _phase_model(profile, high_quality=self.high_quality)
+        request_extra = _deepseek_request_extra(profile, model=model)
+        request_extra["thinking"] = {"type": "disabled"}
+        request_extra.pop("reasoning_effort", None)
+        candidate = dict(payload.get("candidate") or {})
+        chapters = [
+            chapter
+            for chapter in payload.get("chapters", [])
+            if isinstance(chapter, dict)
+        ]
+        request = LLMCallRequest(
+            model=model,
+            messages=[
+                LLMMessage(
+                    role="system",
+                    content=(
+                        "你是小说 Scene 正文定位器。Scene 的标题、目标、冲突和章节"
+                        "范围已经锁定；只补正文起止锚点。只输出 JSON object。"
+                    ),
+                ),
+                LLMMessage(
+                    role="user",
+                    content=(
+                        f"{_chapters_text(chapters)}\n\n"
+                        "请为下面锁定 Scene 重新选择正文锚点。不得改变 Scene 语义或"
+                        "章节范围。start_anchor 必须从起始章逐字复制 4-80 个连续字符；"
+                        "end_anchor 必须从结束章逐字复制 4-80 个连续字符并包含 Scene"
+                        "最后字符。不得概括、改字、省略或添加引号；两个 anchor 都必须"
+                        "在对应章节正文中唯一出现。\n\n"
+                        f"locked_scene={json.dumps(candidate, ensure_ascii=False)}\n\n"
+                        '输出：{"start_anchor":"...","end_anchor":"..."}'
+                    ),
+                ),
+            ],
+            temperature=0,
+            max_tokens=32_768,
+            response_format={"type": "json_object"},
+            extra=request_extra,
+        )
         return await _call_structured(
-            _llm_client_for_profile(self.project_settings),
+            _llm_client_for_profile(self.project_settings, novel_id=self.novel_id),
             request,
-            SceneSlicingOutput,
-            step_name="phase1a_scene_slicing",
+            SceneAnchorRepairOutput,
+            step_name="phase1a_scene_anchor_repair",
             transport_retries=False,
-            timeout_seconds=_phase1a_scene_slicing_timeout_seconds(
-                self.project_settings
-            ),
-            max_fix_attempts=_phase1a_structured_max_fix_attempts(
-                self.project_settings
-            ),
+            timeout_seconds=_phase1a_scene_slicing_timeout_seconds(self.project_settings),
+            max_fix_attempts=_phase1a_structured_max_fix_attempts(self.project_settings),
             project_settings=self.project_settings,
             fix_prompt=(
-                "上一轮输出无法通过 SceneSlicingOutput 校验。只输出 JSON object："
-                "{\"scenes\":[{\"title\":\"...\",\"goal\":\"...\","
-                "\"core_conflict\":\"...\",\"start_chapter\":1,"
-                "\"end_chapter\":1,\"boundary_status\":\"complete\"}]}。"
-                "不要 Markdown，不要解释，不要输出其他字段。"
+                "只输出 JSON object，必须包含逐字复制且唯一的 start_anchor 和 "
+                "end_anchor；不得输出其他字段。"
+            ),
+        )
+
+    async def recover_chapter(self, payload: dict[str, Any]) -> Any:
+        """Re-segment one uncovered chapter with a bounded reasoning budget."""
+        from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+        from modules.imports.llm_schemas import SceneSlicingOutput
+
+        profile = resolve_llm_profile(self.project_settings)
+        model = _phase_model(profile, high_quality=self.high_quality)
+        request_extra = _deepseek_request_extra(profile, model=model)
+        if "thinking" in request_extra:
+            request_extra["thinking"] = {"type": "enabled"}
+            request_extra["reasoning_effort"] = "medium"
+        chapter = payload.get("chapter")
+        chapters = [chapter] if isinstance(chapter, dict) else []
+        chapter_index = int((chapter or {}).get("chapter_index") or 0)
+        request = LLMCallRequest(
+            model=model,
+            messages=[
+                LLMMessage(
+                    role="system",
+                    content=(
+                        "你是小说 Scene 切分助手。当前只恢复一个未覆盖章节，"
+                        "只输出 JSON object，不要 Markdown。"
+                    ),
+                ),
+                LLMMessage(
+                    role="user",
+                    content=(
+                        f"{_chapters_text(chapters)}\n\n"
+                        f"仅切分第{chapter_index}章，输出 1-3 个有独立叙事意义的 "
+                        "Scene；不得引入其他章节。每个 Scene 都必须有标题、"
+                        "目标和核心冲突，start_chapter 与 end_chapter 都必须"
+                        f"是 {chapter_index}。start_anchor 和 end_anchor 必须从正文"
+                        "逐字复制 4-80 个连续字符，在正文中各自唯一；"
+                        "不得改写、省略或添加引号。\n\n"
+                        "只输出："
+                        '{"scenes":[{"title":"...","goal":"...",'
+                        '"core_conflict":"...","start_chapter":1,'
+                        '"end_chapter":1,"start_anchor":"...",'
+                        '"end_anchor":"...","boundary_status":"complete"}]}'
+                    ),
+                ),
+            ],
+            temperature=0.1,
+            max_tokens=PHASE1A_CHAPTER_RECOVERY_MAX_TOKENS,
+            response_format={"type": "json_object"},
+            extra=request_extra,
+        )
+        return await _call_structured(
+            _llm_client_for_profile(self.project_settings, novel_id=self.novel_id),
+            request,
+            SceneSlicingOutput,
+            step_name="phase1a_missing_chapter_recovery",
+            transport_retries=False,
+            timeout_seconds=_phase1a_scene_slicing_timeout_seconds(self.project_settings),
+            max_fix_attempts=_phase1a_structured_max_fix_attempts(self.project_settings),
+            project_settings=self.project_settings,
+            fix_prompt=(
+                "只输出 JSON object，scenes 必须包含 1-3 个 Scene；"
+                "章号必须等于当前章，两个 anchor 必须逐字复制自正文。"
             ),
         )
 
@@ -448,8 +607,14 @@ class _Phase1aSceneSlicingLLM:
 class _SingleChapterSceneCandidateLLM:
     """Small-scope fallback when batch Phase 1a produces no usable candidates."""
 
-    def __init__(self, project_settings: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        project_settings: dict[str, Any] | None = None,
+        *,
+        novel_id: str | None = None,
+    ) -> None:
         self.project_settings = project_settings
+        self.novel_id = novel_id
 
     async def __call__(self, chapter: dict[str, Any]) -> Any:
         from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
@@ -486,7 +651,7 @@ class _SingleChapterSceneCandidateLLM:
             response_format={"type": "json_object"},
         )
         return await _call_structured(
-            _llm_client_for_profile(self.project_settings),
+            _llm_client_for_profile(self.project_settings, novel_id=self.novel_id),
             request,
             SceneSegmentationOutput,
             step_name="phase1a_single_chapter",
@@ -504,8 +669,14 @@ class _SingleChapterSceneCandidateLLM:
 class _Phase1bSceneFusionLLM:
     """LLM adapter for Phase 1b reducer windows."""
 
-    def __init__(self, project_settings: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        project_settings: dict[str, Any] | None = None,
+        *,
+        novel_id: str | None = None,
+    ) -> None:
         self.project_settings = project_settings
+        self.novel_id = novel_id
 
     async def __call__(self, payload: dict[str, Any]) -> Any:
         from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
@@ -577,16 +748,16 @@ class _Phase1bSceneFusionLLM:
                         "3. title/goal 应直接沿用或极短改写候选内容，不允许留空。\n"
                         "4. scene_chunks 必须写出对应 chapter_index。\n"
                         "5. 只把真正重复或被融合的候选写入 discarded_candidates。\n"
-                        "输出示例形状：{\"scenes\":[{\"title\":\"...\","
-                        "\"goal\":\"...\","
-                        "\"must_happen\":\"...\",\"must_not_happen\":\"...\","
-                        "\"scene_chunks\":[{\"chapter_index\":1}],"
-                        "\"source_candidate_ids\":[\"...\"],"
-                        "\"source_rounds\":[\"A\"],"
-                        "\"source_chapter_indices\":[1],\"operation\":\"kept\","
-                        "\"confidence\":0.8,\"fallback_required\":false,"
-                        "\"boundary_status\":\"complete\",\"boundary_reason\":\"...\","
-                        "\"needs_review\":true,\"review_reason\":\"...\"}]}\n\n"
+                        '输出示例形状：{"scenes":[{"title":"...",'
+                        '"goal":"...",'
+                        '"must_happen":"...","must_not_happen":"...",'
+                        '"scene_chunks":[{"chapter_index":1}],'
+                        '"source_candidate_ids":["..."],'
+                        '"source_rounds":["A"],'
+                        '"source_chapter_indices":[1],"operation":"kept",'
+                        '"confidence":0.8,"fallback_required":false,'
+                        '"boundary_status":"complete","boundary_reason":"...",'
+                        '"needs_review":true,"review_reason":"..."}]}\n\n'
                         f"{json.dumps(compact_payload, ensure_ascii=False)}"
                     ),
                 ),
@@ -596,7 +767,7 @@ class _Phase1bSceneFusionLLM:
             response_format={"type": "json_object"},
         )
         return await _call_structured(
-            _llm_client_for_profile(self.project_settings),
+            _llm_client_for_profile(self.project_settings, novel_id=self.novel_id),
             request,
             Phase1bReducerOutput,
             step_name="phase1b_fusion",
@@ -641,8 +812,8 @@ class _Phase1bSceneFusionLLM:
                     role="system",
                     content=(
                         "你是 Phase 1b 的最小决策器，只判断是否沿用 A 轮候选。"
-                        "只输出 JSON object：{\"use_primary_round\":true} 或 "
-                        "{\"use_primary_round\":false}。不要输出候选列表、scenes、"
+                        '只输出 JSON object：{"use_primary_round":true} 或 '
+                        '{"use_primary_round":false}。不要输出候选列表、scenes、'
                         "摘要、正文、理由或解释。"
                     ),
                 ),
@@ -650,8 +821,8 @@ class _Phase1bSceneFusionLLM:
                     role="user",
                     content=(
                         "如果 source_round=A 的候选已经覆盖 core_range 内所有章节，"
-                        "回答 {\"use_primary_round\":true}；否则回答 "
-                        "{\"use_primary_round\":false}。\n"
+                        '回答 {"use_primary_round":true}；否则回答 '
+                        '{"use_primary_round":false}。\n'
                         f"core_range={core_range}\n"
                         f"candidates={json.dumps(candidate_summary, ensure_ascii=False)}"
                     ),
@@ -663,19 +834,20 @@ class _Phase1bSceneFusionLLM:
         )
         try:
             raw_decision = await _call_structured(
-                _llm_client_for_profile(self.project_settings),
+                _llm_client_for_profile(
+                    self.project_settings,
+                    novel_id=self.novel_id,
+                ),
                 request,
                 _Phase1bDecisionOutput,
                 step_name="phase1b_fusion",
                 transport_retries=False,
-                timeout_seconds=_phase1b_reducer_timeout_seconds(
-                    self.project_settings
-                ),
+                timeout_seconds=_phase1b_reducer_timeout_seconds(self.project_settings),
                 max_fix_attempts=1,
                 project_settings=self.project_settings,
                 fix_prompt=(
                     "上一轮输出无法通过 Phase1b decision schema。只输出 JSON object："
-                    "{\"use_primary_round\":true} 或 {\"use_primary_round\":false}。"
+                    '{"use_primary_round":true} 或 {"use_primary_round":false}。'
                     "不要输出候选列表、scenes、Markdown 或解释。"
                 ),
             )
@@ -693,9 +865,11 @@ class _Phase1bSceneEnrichmentLLM:
         self,
         project_settings: dict[str, Any] | None = None,
         *,
+        novel_id: str | None = None,
         high_quality: bool = False,
     ) -> None:
         self.project_settings = project_settings
+        self.novel_id = novel_id
         self.high_quality = high_quality
 
     async def __call__(self, payload: dict[str, Any]) -> Any:
@@ -759,7 +933,7 @@ class _Phase1bSceneEnrichmentLLM:
             extra=_deepseek_request_extra(profile, model=model),
         )
         return await _call_structured(
-            _llm_client_for_profile(self.project_settings),
+            _llm_client_for_profile(self.project_settings, novel_id=self.novel_id),
             request,
             SceneEnrichmentOutput,
             step_name="phase1b_enrichment",
@@ -783,9 +957,11 @@ class _Phase2WorldExtractionLLM:
         self,
         project_settings: dict[str, Any] | None = None,
         *,
+        novel_id: str | None = None,
         high_quality: bool = False,
     ) -> None:
         self.project_settings = project_settings
+        self.novel_id = novel_id
         self.high_quality = high_quality
 
     async def __call__(self, payload: dict[str, Any]) -> Any:
@@ -799,9 +975,7 @@ class _Phase2WorldExtractionLLM:
             for chapter in payload.get("chapters", [])
             if isinstance(chapter, dict)
         ]
-        scenes = [
-            scene for scene in payload.get("scenes", []) if isinstance(scene, dict)
-        ]
+        scenes = [scene for scene in payload.get("scenes", []) if isinstance(scene, dict)]
         window = payload.get("window") or {}
         max_tokens = int(
             payload.get("max_tokens")
@@ -863,54 +1037,54 @@ class _Phase2WorldExtractionLLM:
                         f"全部可用 Scene IDs：{', '.join(all_scene_ids)}\n\n"
                         "只输出 JSON object：\n"
                         "{\n"
-                        "  \"objects\": [\n"
+                        '  "objects": [\n'
                         "    {\n"
-                        "      \"name\": \"名称\",\n"
-                        "      \"entity_type\": \"character|organization|location|"
-                        "item|concept|ability|secret|other\",\n"
-                        "      \"summary\": \"当前输入中可证实的稳定意义\",\n"
-                        "      \"aliases\": [],\n"
-                        "      \"suggested_action\": \"create|merge|update|ignore\",\n"
-                        "      \"suggested_existing_name\": \"\",\n"
-                        "      \"importance\": \"high|medium|low\",\n"
-                        "      \"confidence\": 0.0,\n"
-                        "      \"needs_review\": false,\n"
-                        "      \"review_reason\": \"\",\n"
-                        "      \"supporting_scene_ids\": []\n"
+                        '      "name": "名称",\n'
+                        '      "entity_type": "character|organization|location|'
+                        'item|concept|ability|secret|other",\n'
+                        '      "summary": "当前输入中可证实的稳定意义",\n'
+                        '      "aliases": [],\n'
+                        '      "suggested_action": "create|merge|update|ignore",\n'
+                        '      "suggested_existing_name": "",\n'
+                        '      "importance": "high|medium|low",\n'
+                        '      "confidence": 0.0,\n'
+                        '      "needs_review": false,\n'
+                        '      "review_reason": "",\n'
+                        '      "supporting_scene_ids": []\n'
                         "    }\n"
                         "  ],\n"
-                        "  \"relations\": [\n"
+                        '  "relations": [\n'
                         "    {\n"
-                        "      \"source_name\": \"源对象\",\n"
-                        "      \"target_name\": \"目标对象\",\n"
-                        "      \"relation_type\": \"关系类型\",\n"
-                        "      \"description\": \"关系说明\",\n"
-                        "      \"confidence\": 0.0,\n"
-                        "      \"needs_review\": false,\n"
-                        "      \"review_reason\": \"\",\n"
-                        "      \"supporting_scene_ids\": []\n"
+                        '      "source_name": "源对象",\n'
+                        '      "target_name": "目标对象",\n'
+                        '      "relation_type": "关系类型",\n'
+                        '      "description": "关系说明",\n'
+                        '      "confidence": 0.0,\n'
+                        '      "needs_review": false,\n'
+                        '      "review_reason": "",\n'
+                        '      "supporting_scene_ids": []\n'
                         "    }\n"
                         "  ],\n"
-                        "  \"deltas\": [\n"
+                        '  "deltas": [\n'
                         "    {\n"
-                        "      \"subject_name\": \"对象\",\n"
-                        "      \"category\": \"knowledge|status|location|ownership|"
-                        "relationship|power|secret|other\",\n"
-                        "      \"field\": \"变化字段\",\n"
-                        "      \"old\": \"\",\n"
-                        "      \"new\": \"\",\n"
-                        "      \"description\": \"变化说明\",\n"
-                        "      \"confidence\": 0.0,\n"
-                        "      \"needs_review\": false,\n"
-                        "      \"review_reason\": \"\",\n"
-                        "      \"supporting_scene_ids\": []\n"
+                        '      "subject_name": "对象",\n'
+                        '      "category": "knowledge|status|location|ownership|'
+                        'relationship|power|secret|other",\n'
+                        '      "field": "变化字段",\n'
+                        '      "old": "",\n'
+                        '      "new": "",\n'
+                        '      "description": "变化说明",\n'
+                        '      "confidence": 0.0,\n'
+                        '      "needs_review": false,\n'
+                        '      "review_reason": "",\n'
+                        '      "supporting_scene_ids": []\n'
                         "    }\n"
                         "  ],\n"
-                        "  \"uncertain_items\": [\n"
+                        '  "uncertain_items": [\n'
                         "    {\n"
-                        "      \"description\": \"不确定项\",\n"
-                        "      \"reason\": \"为什么不确定\",\n"
-                        "      \"supporting_scene_ids\": []\n"
+                        '      "description": "不确定项",\n'
+                        '      "reason": "为什么不确定",\n'
+                        '      "supporting_scene_ids": []\n'
                         "    }\n"
                         "  ]\n"
                         "}"
@@ -923,7 +1097,7 @@ class _Phase2WorldExtractionLLM:
             extra=_deepseek_request_extra(profile, model=model),
         )
         return await _call_structured(
-            _llm_client_for_profile(self.project_settings),
+            _llm_client_for_profile(self.project_settings, novel_id=self.novel_id),
             request,
             Phase2WorldExtractionOutput,
             step_name="phase2_world_extraction",
@@ -1078,9 +1252,7 @@ def _phase1b_scenes_for_candidate(
             continue
         scenes.append(
             {
-                "candidate_id": (
-                    f"phase1b-kept-{candidate.get('candidate_id')}-{index}"
-                ),
+                "candidate_id": (f"phase1b-kept-{candidate.get('candidate_id')}-{index}"),
                 "title": scene.get("title") or f"Scene {owned_chapters[0]}",
                 "goal": scene.get("goal") or "沿用 Phase1a 候选。",
                 "core_conflict": scene.get("core_conflict") or "",
@@ -1455,25 +1627,32 @@ async def _run_deep_import_structured_call(
         else int(settings.llm_timeout)
         + _deep_import_structured_timeout_grace_seconds(project_settings)
     )
-    return await run_managed_structured(
-        client,
-        request,
-        schema,
-        step_name=step_name,
-        max_fix_attempts=(
-            max_fix_attempts
-            if max_fix_attempts is not None
-            else _deep_import_structured_max_fix_attempts(project_settings)
-        ),
-        transport_retries=transport_retries,
-        fix_prompt=fix_prompt,
-        partial_list_fields=_structured_list_fields(schema),
-        diagnostics=diagnostics,
-        format_repair_attempts=1,
-        permission_level=AgentPermissionLevel.draft,
-        read_only=False,
-        timeout=timeout,
-    )
+    try:
+        return await run_managed_structured(
+            client,
+            request,
+            schema,
+            step_name=step_name,
+            max_fix_attempts=(
+                max_fix_attempts
+                if max_fix_attempts is not None
+                else _deep_import_structured_max_fix_attempts(project_settings)
+            ),
+            transport_retries=transport_retries,
+            fix_prompt=fix_prompt,
+            partial_list_fields=_structured_list_fields(schema),
+            diagnostics=diagnostics,
+            format_repair_attempts=1,
+            permission_level=AgentPermissionLevel.draft,
+            read_only=False,
+            timeout=timeout,
+        )
+    finally:
+        close = getattr(client, "close", None)
+        if callable(close):
+            close_result = close()
+            if inspect.isawaitable(close_result):
+                await close_result
 
 
 _DEFAULT_DEEP_IMPORT_STRUCTURED_CALL = _run_deep_import_structured_call

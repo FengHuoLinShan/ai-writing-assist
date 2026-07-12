@@ -17,6 +17,7 @@ import logging
 import re
 import typing
 from collections.abc import AsyncIterator
+from copy import deepcopy
 from typing import Any, TypeVar
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -24,7 +25,11 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 from core.config import get_settings
 from infrastructure.llm.errors import LLMInvalidResponseError
 from infrastructure.llm.limits import get_llm_limiter
-from infrastructure.llm.profiles import default_llm_profile, resolve_llm_profile
+from infrastructure.llm.profiles import (
+    ResolvedLLMProfile,
+    default_llm_profile,
+    resolve_llm_profile,
+)
 from infrastructure.llm.providers import get_provider
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.retry import retry_with_backoff
@@ -75,7 +80,7 @@ def _structured_retry_delay(
 ) -> float:
     if base_delay <= 0 or max_delay <= 0:
         return 0.0
-    return min(base_delay * (2 ** attempt), max_delay)
+    return min(base_delay * (2**attempt), max_delay)
 
 
 def _schema_list_field(schema: type[BaseModel], field_name: str) -> str | None:
@@ -312,12 +317,23 @@ class LLMClient:
             provider_kwargs.pop("default_model", None) or defaults["model"]
         )
         self._default_max_tokens = int(
-            provider_kwargs.pop("default_max_tokens", None)
-            or defaults["max_tokens"]
+            provider_kwargs.pop("default_max_tokens", None) or defaults["max_tokens"]
         )
         provider_kwargs["default_model"] = self._default_model
         self._provider = get_provider(provider_name, **provider_kwargs)
         self._settings = get_settings()
+        runtime_profile = resolve_llm_profile(
+            test_overrides={
+                "provider_id": provider_name,
+                "api_key": getattr(self._provider, "_api_key", ""),
+                "base_url": getattr(self._provider, "_base_url", ""),
+                "model": self._default_model,
+                "timeout": getattr(self._provider, "_timeout", None),
+                "max_tokens": self._default_max_tokens,
+            }
+        )
+        self._profile_summary = runtime_profile.sanitized_summary()
+        self._runtime_scope: dict[str, Any] = {"profile_source": "system"}
 
     @classmethod
     def from_project_settings(
@@ -332,12 +348,35 @@ class LLMClient:
         vars; API keys are project-level.
         """
         profile = resolve_llm_profile(project_settings)
+        return cls.from_resolved_profile(profile, **provider_kwargs)
+
+    @classmethod
+    def from_resolved_profile(
+        cls,
+        profile: ResolvedLLMProfile,
+        **provider_kwargs: Any,
+    ) -> LLMClient:
+        """Build a client from an already resolved profile with provenance."""
         merged_kwargs = {
             **profile.provider_kwargs(),
             "default_max_tokens": profile.max_tokens,
             **provider_kwargs,
         }
-        return cls(provider_name="openai", **merged_kwargs)
+        client = cls(provider_name="openai", **merged_kwargs)
+        client._profile_summary = profile.sanitized_summary()
+        return client
+
+    def bind_runtime_scope(
+        self,
+        *,
+        novel_id: str,
+        profile_source: str,
+    ) -> None:
+        """Attach secret-free workflow scope used by managed-step observability."""
+        self._runtime_scope = {
+            "novel_id": str(novel_id),
+            "profile_source": str(profile_source),
+        }
 
     async def close(self) -> None:
         """关闭 LLMClient 并释放 provider HTTP 连接
@@ -359,8 +398,7 @@ class LLMClient:
             provider_kwargs.pop("default_model", None) or defaults["model"]
         )
         self._default_max_tokens = int(
-            provider_kwargs.pop("default_max_tokens", None)
-            or defaults["max_tokens"]
+            provider_kwargs.pop("default_max_tokens", None) or defaults["max_tokens"]
         )
         provider_kwargs["default_model"] = self._default_model
         self._provider = get_provider(provider_name, **provider_kwargs)
@@ -374,6 +412,16 @@ class LLMClient:
     def model_name(self) -> str:
         """当前默认的 LLM 模型名称"""
         return self._default_model
+
+    @property
+    def profile_summary(self) -> dict[str, Any]:
+        """Return a defensive, secret-free summary of the active profile."""
+        return deepcopy(self._profile_summary)
+
+    @property
+    def runtime_scope(self) -> dict[str, Any]:
+        """Return a defensive copy of secret-free managed-step scope."""
+        return deepcopy(self._runtime_scope)
 
     async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
         """执行 LLM 调用（带自动重试）
@@ -508,7 +556,19 @@ class LLMClient:
                     diagnostics=diagnostics,
                     attempt=attempt + 1,
                 )
-                return schema.model_validate(data)
+                validated = schema.model_validate(data)
+                _append_structured_diagnostic(
+                    diagnostics,
+                    {
+                        "kind": "structured_usage",
+                        "status": "succeeded",
+                        "attempt": attempt + 1,
+                        "finish_reason": finish_reason,
+                        "completion_tokens": completion_tokens,
+                        "max_tokens": max_tokens,
+                    },
+                )
+                return validated
             except _StructuredParseError as e:
                 raw_content = response.content if response is not None else ""
                 redacted_raw_content = redact_diagnostic(raw_content)
@@ -551,6 +611,18 @@ class LLMClient:
                     max_tokens,
                     error_kind,
                 )
+                _append_structured_diagnostic(
+                    diagnostics,
+                    {
+                        "kind": "structured_usage",
+                        "status": "failed",
+                        "error_kind": error_kind,
+                        "attempt": attempt + 1,
+                        "finish_reason": finish_reason,
+                        "completion_tokens": completion_tokens,
+                        "max_tokens": max_tokens,
+                    },
+                )
             except ValidationError as e:
                 error_kind = "schema_validation"
                 last_error_kind = error_kind
@@ -564,6 +636,22 @@ class LLMClient:
                     max_fix_attempts + 1,
                     e,
                     error_kind,
+                )
+                _append_structured_diagnostic(
+                    diagnostics,
+                    {
+                        "kind": "structured_usage",
+                        "status": "failed",
+                        "error_kind": error_kind,
+                        "attempt": attempt + 1,
+                        "finish_reason": getattr(response, "finish_reason", ""),
+                        "completion_tokens": (
+                            getattr(response.usage, "completion_tokens", 0)
+                            if response is not None
+                            else 0
+                        ),
+                        "max_tokens": req.max_tokens,
+                    },
                 )
 
             if attempt < max_fix_attempts:
@@ -796,6 +884,20 @@ class LLMClient:
             except Exception:
                 logger.warning("BGE embedding failed")
                 raise
+
+        # A novel-scoped client owns chat/structured-generation credentials only.
+        # Remote embeddings must still resolve exclusively through EMBEDDING_*;
+        # never let a project chat profile become an implicit embedding profile.
+        if self._runtime_scope.get("novel_id"):
+            embedding_client = LLMClient()
+            try:
+                return await embedding_client.generate_embedding(
+                    text,
+                    model=model,
+                    is_query=is_query,
+                )
+            finally:
+                await embedding_client.close()
 
         # OpenAI / 其他远程 provider
         return await get_llm_limiter().run(

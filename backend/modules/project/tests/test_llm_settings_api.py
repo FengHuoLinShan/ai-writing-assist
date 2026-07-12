@@ -377,12 +377,9 @@ async def test_effective_deep_import_atomic_unit(async_client, factory):
     assert body["deep_import"]["source"] == "project"
     assert body["deep_import"]["value"] is not None
     assert (
-        body["deep_import"]["value"]["global"]["structured_timeout_grace_seconds"]
-        == 30
+        body["deep_import"]["value"]["global"]["structured_timeout_grace_seconds"] == 30
     )
-    assert (
-        body["deep_import"]["value"]["phase0"]["target_input_chars"] == 80000
-    )
+    assert body["deep_import"]["value"]["phase0"]["target_input_chars"] == 80000
 
 
 @pytest.mark.asyncio

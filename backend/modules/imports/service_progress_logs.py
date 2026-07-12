@@ -79,17 +79,13 @@ def _trim_progress_events(progress: DeepImportProgress) -> None:
     if len(progress.progress_events) <= MAX_PROGRESS_EVENTS:
         return
     dropped = len(progress.progress_events) - MAX_PROGRESS_EVENTS
-    previous_dropped = int(
-        progress.progress_events[0].get("dropped_event_count", 0) or 0
-    )
+    previous_dropped = int(progress.progress_events[0].get("dropped_event_count", 0) or 0)
     progress.progress_events = progress.progress_events[-MAX_PROGRESS_EVENTS:]
     if progress.progress_events:
         first = progress.progress_events[0]
         first["truncated"] = True
         first["dropped_event_count"] = (
-            previous_dropped
-            + int(first.get("dropped_event_count", 0) or 0)
-            + dropped
+            previous_dropped + int(first.get("dropped_event_count", 0) or 0) + dropped
         )
 
 

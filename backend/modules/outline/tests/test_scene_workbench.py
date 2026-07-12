@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
+from unittest import mock
 
 import pytest
 from httpx import AsyncClient
@@ -374,7 +375,9 @@ class TestSceneWorkbenchApi:
             fake_decide,
         )
 
-        result = await CrossChapterDetectionService().detect(
+        result = await CrossChapterDetectionService(
+            llm_client=mock.MagicMock(model_name="test-model")
+        ).detect(
             db_session,
             novel_id=test_project_id,
         )
@@ -526,9 +529,7 @@ class TestSceneWorkbenchApi:
 
         assert resp.status_code == 200, resp.text
         data = resp.json()
-        assert [item["scene"]["id"] for item in data["items"]] == [
-            str(legacy_scene.id)
-        ]
+        assert [item["scene"]["id"] for item in data["items"]] == [str(legacy_scene.id)]
         assert data["items"][0]["health"][:1] == ["unreviewed"]
 
     async def test_workbench_filters_deep_import_scene_metadata(
@@ -1324,8 +1325,7 @@ class TestSceneWorkbenchApi:
         suggestion = (
             await db_session.execute(
                 select(SceneCrossChapterSuggestion).where(
-                    SceneCrossChapterSuggestion.id
-                    == uuid.UUID(suggestion_ids[0])
+                    SceneCrossChapterSuggestion.id == uuid.UUID(suggestion_ids[0])
                 )
             )
         ).scalar_one()
@@ -1380,8 +1380,7 @@ class TestSceneWorkbenchApi:
         suggestion = (
             await db_session.execute(
                 select(SceneCrossChapterSuggestion).where(
-                    SceneCrossChapterSuggestion.id
-                    == uuid.UUID(suggestion_ids[0])
+                    SceneCrossChapterSuggestion.id == uuid.UUID(suggestion_ids[0])
                 )
             )
         ).scalar_one()

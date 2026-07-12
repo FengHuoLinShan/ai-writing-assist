@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 
 def _coerce_score(value: Any, *, default: float = 0.5) -> float:
@@ -108,6 +108,27 @@ class SceneChunk(BaseModel):
     chapter_index: int = Field(..., ge=1)
     start_paragraph: int = Field(default=0, ge=0)
     end_paragraph: int | None = Field(default=None, ge=0)
+    start_offset: int | None = Field(default=None, ge=0)
+    end_offset: int | None = Field(default=None, ge=0)
+    source_draft_id: str | None = None
+    source_content_hash: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    anchor_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    anchor_excerpt: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_offsets(self) -> SceneChunk:
+        if (self.start_offset is None) != (self.end_offset is None):
+            raise ValueError("start_offset and end_offset must be supplied together")
+        if (
+            self.start_offset is not None
+            and self.end_offset is not None
+            and self.end_offset <= self.start_offset
+        ):
+            raise ValueError("end_offset must be greater than start_offset")
+        return self
 
 
 class SceneItem(BaseModel):
@@ -190,9 +211,19 @@ class SceneSliceItem(BaseModel):
     core_conflict: str = Field(default="")
     start_chapter: int = Field(default=1, ge=1)
     end_chapter: int = Field(default=1, ge=1)
+    start_anchor: str = Field(default="")
+    end_anchor: str = Field(default="")
     boundary_status: str = Field(default="uncertain")
 
-    @field_validator("title", "goal", "core_conflict", "boundary_status", mode="before")
+    @field_validator(
+        "title",
+        "goal",
+        "core_conflict",
+        "start_anchor",
+        "end_anchor",
+        "boundary_status",
+        mode="before",
+    )
     @classmethod
     def _normalize_text(cls, value: Any) -> str:
         return _coerce_short_text(value).strip()
@@ -211,6 +242,23 @@ class SceneSlicingOutput(BaseModel):
     """Phase 1a LLM output: text window -> locked Scene fields."""
 
     scenes: list[SceneSliceItem] = Field(default_factory=list)
+
+
+class SceneAnchorRepairOutput(BaseModel):
+    """Small-context retry for one unresolved Phase 1a Scene boundary."""
+
+    start_anchor: str = Field(min_length=4, max_length=80)
+    end_anchor: str = Field(min_length=4, max_length=80)
+
+    @field_validator("start_anchor", "end_anchor", mode="before")
+    @classmethod
+    def _normalize_anchor(cls, value: Any, info: ValidationInfo) -> str:
+        anchor = _coerce_short_text(value).strip()
+        if len(anchor) <= 80:
+            return anchor
+        if info.field_name == "end_anchor":
+            return anchor[-80:]
+        return anchor[:80]
 
 
 class SceneEnrichmentOutput(BaseModel):

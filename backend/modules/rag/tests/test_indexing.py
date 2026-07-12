@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.rag.repositories import RagChunkRepository
 from modules.rag.schemas import RagChunkCreate
-from tests.conftest import test_character_id, test_project_id  # noqa: F401
 
 
 @pytest.fixture

@@ -26,9 +26,7 @@ async def test_create_entity_leaves_search_text_to_database(
             "name": "克莱恩·莫雷蒂",
             "entity_type": "character",
             "summary": "测试实体",
-            "content_json": {
-                "aliases": [{"alias": "周明瑞", "type": "前世身份"}]
-            },
+            "content_json": {"aliases": [{"alias": "周明瑞", "type": "前世身份"}]},
             "status": "candidate",
             "created_by": "ai_import",
         },

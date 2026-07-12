@@ -112,11 +112,7 @@ class EventService(
     ) -> None:
         eid = parse_uuid(entity_id, "entity_id")
         entity = await self._entity_repo.get(db, eid)
-        if (
-            entity is None
-            or entity.novel_id != novel_id
-            or entity.status != "canonical"
-        ):
+        if entity is None or entity.novel_id != novel_id or entity.status != "canonical":
             raise NotFoundError(f"{label} not found in this novel")
         if entity.entity_type != entity_type:
             raise ValidationError(

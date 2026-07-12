@@ -239,6 +239,58 @@ async def test_scene_commit_writes_complete_structure_meta(
 
 
 @pytest.mark.asyncio
+async def test_scene_commit_preserves_materialized_exact_source_span(
+    db_session: AsyncSession,
+    sample_novel_id: str,
+) -> None:
+    from modules.imports.scene_commit import SceneCommitter
+    from modules.outline.facade import get_scene_spans_for_scene
+    from modules.writing.facade import create_published_draft_only
+
+    draft = await create_published_draft_only(
+        db_session,
+        sample_novel_id,
+        1,
+        title="第一章",
+        content="正" * 100,
+    )
+
+    candidate = make_final_scene_candidate(source_chapter_indices=[1])
+    candidate.scene_chunks = [
+        SceneChunk(
+            chapter_index=1,
+            start_offset=12,
+            end_offset=48,
+            source_draft_id=draft.id,
+            source_content_hash=draft.content_hash,
+            anchor_hash="c" * 64,
+            anchor_excerpt="唯一的正文起始锚点",
+        )
+    ]
+
+    result = await SceneCommitter().commit(
+        db_session,
+        sample_novel_id,
+        [candidate],
+        workflow_id="wf-exact-span",
+    )
+    spans = await get_scene_spans_for_scene(
+        db_session,
+        sample_novel_id,
+        result.created_scene_ids[0],
+        content_mode="canonical",
+    )
+
+    assert len(spans) == 1
+    assert spans[0].mapping_status == "exact"
+    assert spans[0].start_offset == 12
+    assert spans[0].end_offset == 48
+    assert spans[0].source_draft_id == draft.id
+    assert spans[0].source_content_hash == draft.content_hash
+    assert spans[0].anchor_hash == "c" * 64
+
+
+@pytest.mark.asyncio
 async def test_scene_commit_truncates_long_narrative_tag(
     db_session: AsyncSession,
     sample_novel_id: str,
