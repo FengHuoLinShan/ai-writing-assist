@@ -42,6 +42,17 @@ const DEEP_IMPORT_GROUPS = [
     ],
   },
   {
+    id: "phase1c",
+    label: "Phase 1C Scene Fusion",
+    fields: [
+      { key: "auto_merge_confidence", label: "自动融合置信度", type: "float", min: 0, max: 1, step: "0.01", value: 0.92 },
+      { key: "boundary_context_chars", label: "边界上下文字数", type: "int", min: 100, max: 100000, value: 2000 },
+      { key: "concurrency", label: "边界审核并发", type: "int", min: 1, max: 100, value: 20 },
+      { key: "decision_max_tokens", label: "决策 max tokens", type: "int", min: 1, max: 200000, value: 1024 },
+      { key: "timeout_seconds", label: "Phase 1C 超时（秒）", type: "int", min: 1, max: 7200, value: 180 },
+    ],
+  },
+  {
     id: "phase2",
     label: "Phase 2",
     fields: [
@@ -61,7 +72,7 @@ const DEEP_IMPORT_GROUPS = [
       { key: "boundary_total_timeout_seconds", label: "边界总超时（秒）", type: "float", min: 0.1, max: 7200, step: "0.1", value: 120 },
       { key: "alias_relation_total_timeout_seconds", label: "别名关系总超时（秒）", type: "int", min: 1, max: 7200, value: 240 },
       { key: "alias_relation_concurrency", label: "别名关系并发", type: "int", min: 1, max: 100, value: 4 },
-      { key: "alias_relation_llm_timeout_seconds", label: "别名关系 LLM 超时", type: "int", min: 1, max: 3600, value: 75 },
+      { key: "alias_relation_llm_timeout_seconds", label: "别名关系 LLM 超时", type: "int", min: 1, max: 3600, value: 120 },
       { key: "alias_relation_scene_char_limit", label: "Scene 文本上限", type: "int", min: 100, max: 100000, value: 3200 },
       { key: "alias_relation_entity_index_char_limit", label: "实体索引字数", type: "int", min: 100, max: 100000, value: 3600 },
       { key: "alias_relation_entity_index_fallback_limit", label: "实体索引兜底数", type: "int", min: 1, max: 1000, value: 30 },

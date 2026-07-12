@@ -475,17 +475,109 @@ class ScenePhaseRunner:
             error_message=progress.message if phase1b_result.degraded else None,
         )
 
+        final_candidates = phase1b_result.candidates
+        fusion_suggestions = []
+        high_quality = bool(getattr(workflow, "_deep_import_high_quality", False))
+        if high_quality:
+            progress.current_phase = "phase1c_scene_fusion"
+            progress.current_operation = "scene_fusion"
+            progress.message = "正在审核相邻 Scene 边界并静默融合..."
+            workflow._start_phase(
+                progress,
+                "phase1c_scene_fusion",
+                item={"kind": "scene_pairs", "count": max(len(final_candidates) - 1, 0)},
+            )
+            await workflow._emit_progress(progress, 0.30, on_progress)
+
+            async def _on_phase1c_pair(
+                completed: int,
+                total: int,
+                pair_id: str,
+            ) -> None:
+                progress.current_item = {
+                    "kind": "scene_pair",
+                    "completed": completed,
+                    "total": total,
+                    "pair_id": pair_id,
+                }
+                fraction = completed / total if total else 1.0
+                await workflow._emit_progress(
+                    progress,
+                    0.30 + 0.05 * fraction,
+                    on_progress,
+                )
+
+            phase1c_result = await workflow._run_phase1c_scene_fusion(
+                db,
+                novel_id,
+                final_candidates,
+                chapters=phase0_result.chapters,
+                on_pair_progress=_on_phase1c_pair,
+            )
+            final_candidates = phase1c_result.candidates
+            fusion_suggestions = phase1c_result.suggestions
+            progress.quality_stats["phase1c"] = phase1c_result.quality_stats
+            add_phase_artifact(
+                progress,
+                "phase1c_scene_fusion",
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+                status="degraded" if phase1c_result.degraded else "completed",
+                quality_status="partial" if phase1c_result.degraded else "complete",
+                quality_stats=phase1c_result.quality_stats,
+                counts={
+                    "candidate_count": len(final_candidates),
+                    "suggestion_count": len(fusion_suggestions),
+                },
+                coverage=candidate_chapter_coverage(
+                    final_candidates,
+                    start_chapter,
+                    end_chapter,
+                ),
+            )
+            workflow._finish_phase(
+                progress,
+                "phase1c_scene_fusion",
+                status="degraded" if phase1c_result.degraded else "completed",
+                details=phase1c_result.quality_stats,
+                error_kind=phase1c_result.block_reason,
+            )
+            if phase1c_result.degraded:
+                progress.degraded = True
+        else:
+            progress.quality_stats["phase1c"] = {
+                "status": "skipped",
+                "reason": "high_quality_required",
+            }
+            add_phase_artifact(
+                progress,
+                "phase1c_scene_fusion",
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+                status="skipped",
+                quality_status="complete",
+                quality_stats=progress.quality_stats["phase1c"],
+                counts={"candidate_count": len(final_candidates), "suggestion_count": 0},
+                coverage=phase1b_coverage,
+            )
+
+        final_coverage = candidate_chapter_coverage(
+            final_candidates,
+            start_chapter,
+            end_chapter,
+        )
+
         # Scene commit: only this step writes formal Scene rows.
         progress.current_phase = "scene_commit"
         progress.current_operation = "scene_commit"
         progress.current_chapter_range = f"{start_chapter}-{end_chapter}"
-        progress.message = "正在提交 enriched 正式 Scene..."
+        progress.message = "正在提交正式 Scene 与融合建议..."
         workflow._start_phase(
             progress,
             "scene_commit",
             item={
                 "kind": "scene_candidates",
-                "count": len(phase1b_result.candidates),
+                "count": len(final_candidates),
             },
         )
         workflow._update_phase1_batch_counts(
@@ -495,13 +587,18 @@ class ScenePhaseRunner:
             phase1b_result,
             commit_started=True,
         )
-        await workflow._emit_progress(progress, 0.3, on_progress)
+        await workflow._emit_progress(progress, 0.35, on_progress)
 
+        commit_kwargs: dict[str, Any] = {
+            "workflow_id": workflow_id or progress.workflow_id or "manual"
+        }
+        if fusion_suggestions:
+            commit_kwargs["fusion_suggestions"] = fusion_suggestions
         commit_result = await workflow._commit_fused_scenes(
             db,
             novel_id,
-            phase1b_result.candidates,
-            workflow_id=workflow_id or progress.workflow_id or "manual",
+            final_candidates,
+            **commit_kwargs,
         )
         workflow._update_phase1_batch_counts(
             progress,
@@ -512,7 +609,7 @@ class ScenePhaseRunner:
         )
         progress.quality_stats["scene_commit"] = commit_result.model_dump(mode="json")
         total_scenes = commit_result.created_count + commit_result.skipped_count
-        scene_commit_coverage = phase1b_coverage
+        scene_commit_coverage = final_coverage
         add_phase_artifact(
             progress,
             "scene_commit",

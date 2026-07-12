@@ -188,6 +188,7 @@ class ProjectLLMSettingsUpdate(BaseModel):
     deep_import: dict[str, Any] = Field(default_factory=dict)
     api_key: str | None = Field(default=None, max_length=4096)
     clear_api_key: bool = False
+    clear_all_api_keys: bool = False
 
     @field_validator("provider_id", "label", "base_url", "model", "api_key")
     @classmethod
@@ -218,6 +219,7 @@ class ProjectLLMSettingsResponse(BaseModel):
     extra: dict[str, Any] = Field(default_factory=dict)
     deep_import: dict[str, Any] = Field(default_factory=dict)
     api_key_configured: bool = False
+    api_key_configured_providers: list[str] = Field(default_factory=list)
 
 
 class SmartDedupScanRequest(BaseModel):

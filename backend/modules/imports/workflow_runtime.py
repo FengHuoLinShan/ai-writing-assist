@@ -98,6 +98,16 @@ class DeepImportWorkflowRuntime(Protocol):
         on_batch_progress: Callable[[int, int, str], Awaitable[None]] | None,
     ) -> Awaitable[Any]: ...
 
+    def _run_phase1c_scene_fusion(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        candidates: Any,
+        *,
+        chapters: Any,
+        on_pair_progress: Callable[[int, int, str], Awaitable[None]] | None,
+    ) -> Awaitable[Any]: ...
+
     def _commit_fused_scenes(
         self,
         db: AsyncSession,
@@ -105,6 +115,7 @@ class DeepImportWorkflowRuntime(Protocol):
         candidates: Any,
         *,
         workflow_id: str,
+        fusion_suggestions: Any = None,
     ) -> Awaitable[Any]: ...
 
     def _extract_entities_by_scene(

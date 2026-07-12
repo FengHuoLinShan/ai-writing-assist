@@ -66,11 +66,13 @@ class PlotStructureParser:
         include_scenes: bool = True,
         fast_structured: bool = False,
         max_tokens: int = 32_768,
+        high_quality: bool = False,
     ) -> None:
         self._context = context
         self._include_scenes = include_scenes
         self._fast_structured = fast_structured
         self._max_tokens = max(1, int(max_tokens))
+        self._high_quality = bool(high_quality)
 
     async def parse(
         self,
@@ -394,7 +396,7 @@ class PlotStructureParser:
                     max_tokens=self._max_tokens,
                 )[0],
                 response_format={"type": "json_object"},
-                extra=_deepseek_extra(model),
+                extra=_deepseek_extra(model, high_quality=self._high_quality),
             ),
             prompt_chars,
         )
@@ -513,11 +515,11 @@ class PlotStructureParser:
         )
 
 
-def _deepseek_extra(model: str) -> dict[str, object]:
-    if str(model).startswith("deepseek-v4"):
+def _deepseek_extra(model: str, *, high_quality: bool = False) -> dict[str, object]:
+    if str(model).startswith("deepseek"):
         return {
             "thinking": {"type": "enabled"},
-            "reasoning_effort": "max",
+            "reasoning_effort": "max" if high_quality else "high",
         }
     return {}
 

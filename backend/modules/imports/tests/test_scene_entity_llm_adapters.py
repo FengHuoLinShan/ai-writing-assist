@@ -137,7 +137,7 @@ async def test_manual_alias_relation_entry_fails_closed_without_project_context(
 
 
 @pytest.mark.asyncio
-async def test_phase2_deepseek_reasoning_is_split_by_task_complexity(
+async def test_phase2_deepseek_normal_mode_uses_high_reasoning_for_all_calls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake = _FakeClient()
@@ -157,13 +157,16 @@ async def test_phase2_deepseek_reasoning_is_split_by_task_complexity(
 
     main_request, alias_request = fake.requests
     assert main_request.extra["thinking"] == {"type": "enabled"}
-    assert main_request.extra["reasoning_effort"] == "max"
+    assert main_request.extra["reasoning_effort"] == "high"
     assert alias_request.max_tokens == 32_768
-    assert alias_request.extra == {"thinking": {"type": "disabled"}}
+    assert alias_request.extra == {
+        "thinking": {"type": "enabled"},
+        "reasoning_effort": "high",
+    }
 
 
 @pytest.mark.asyncio
-async def test_phase2_high_quality_context_uses_actual_pro_request_model(
+async def test_phase2_high_quality_keeps_selected_model_and_uses_max_reasoning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake = _FakeClient()
@@ -177,15 +180,19 @@ async def test_phase2_high_quality_context_uses_actual_pro_request_model(
     with phase2_project_settings_context(
         {"llm": {"model": "deepseek-v4-flash"}},
         novel_id="phase2-novel-id",
-        request_model="deepseek-v4-pro",
+        request_model="deepseek-v4-flash",
+        high_quality=True,
     ):
         await call_llm_extraction("text", "entities", "memory")
         await call_alias_relation_extraction("text", "entities")
 
     assert [request.model for request in fake.requests] == [
-        "deepseek-v4-pro",
-        "deepseek-v4-pro",
+        "deepseek-v4-flash",
+        "deepseek-v4-flash",
     ]
+    assert all(
+        request.extra["reasoning_effort"] == "max" for request in fake.requests
+    )
 
 
 @pytest.mark.asyncio

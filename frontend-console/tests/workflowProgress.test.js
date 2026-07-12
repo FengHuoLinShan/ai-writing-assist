@@ -209,16 +209,66 @@ describe("normalizeTaskProgress", () => {
       task_id: "scene-task",
       task_type: "scene_auto_extraction",
       status: "running",
+      progress: 0.295,
       result: {
         current_phase: "phase1a_scene_slicing",
         current_operation: "scene_slicing",
+        current_item: { kind: "window", completed: 2, total: 4 },
+        phase_timeline: [
+          { phase: "phase0_plan", status: "completed" },
+          { phase: "phase1a_scene_slicing", status: "running" },
+        ],
         message: "正在按完整窗口切分 Scene 边界...",
       },
     })
 
-    expect(progress.message).toBe("正在切分 Scene 边界")
+    expect(progress.message).toBe("Phase 1a · Scene 边界切分｜窗口 2/4")
+    expect(progress.resultSummary).toBe("已完成 Phase 0")
+    expect(progress.percent).toBe(30)
     expect(progress.currentPhase).toBe("phase1a_scene_slicing")
     expect(progress.currentOperation).toBe("scene_slicing")
+  })
+
+  it("shows phase 0 as preparation without a numeric percent", () => {
+    const progress = normalizeTaskProgress({
+      task_id: "scene-task",
+      task_type: "scene_auto_extraction",
+      status: "running",
+      progress: 0,
+      result: {
+        current_phase: "phase0_plan",
+        current_item: { kind: "chapter_range", start_chapter: 1, end_chapter: 60 },
+      },
+    })
+
+    expect(progress.message).toBe("Phase 0 · Scene 窗口规划｜正在准备章节窗口")
+    expect(progress.percent).toBeNull()
+    expect(progress.hasPercent).toBe(false)
+    expect(progress.indeterminate).toBe(true)
+  })
+
+  it("shows phase 1b scene progress and completed fine phases", () => {
+    const progress = normalizeTaskProgress({
+      task_id: "scene-task",
+      task_type: "scene_auto_extraction",
+      status: "running",
+      progress: 0.79,
+      result: {
+        current_phase: "phase1b_enrichment",
+        current_item: { kind: "scene_candidate", completed: 41, total: 82 },
+        completed_steps: [],
+        phase_timeline: [
+          { phase: "phase0_plan", status: "completed" },
+          { phase: "phase1a_scene_slicing", status: "completed" },
+          { phase: "phase1b_enrichment", status: "running" },
+        ],
+      },
+    })
+
+    expect(progress.message).toBe("Phase 1b · Scene 字段补全｜Scene 41/82")
+    expect(progress.resultSummary).toBe("已完成 Phase 0、Phase 1a")
+    expect(progress.resultSummary).not.toContain("已完成 0 个阶段")
+    expect(progress.percent).toBe(79)
   })
 
   it("does not show stale running message for failed tasks", () => {

@@ -605,7 +605,6 @@ def phase3_quality_stats(
         ),
         "retry_count": int(diagnostics.get("retry_count", 0) or 0),
         "high_quality": bool(phase3_result.get("high_quality")),
-        "model_override": phase3_result.get("model_override"),
         "structure_dedup": phase3_result.get("structure_dedup") or {},
         "structure_quality_gate": phase3_result.get("structure_quality_gate") or {},
         "quality_rerun": phase3_result.get("quality_rerun") or {},

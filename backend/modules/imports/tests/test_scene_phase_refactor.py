@@ -772,7 +772,7 @@ def test_phase1a_and_phase1b_default_concurrency(
 
 
 @pytest.mark.asyncio
-async def test_high_quality_adapters_override_model_but_keep_deepseek_extra(
+async def test_high_quality_adapters_keep_model_and_use_max_deepseek_reasoning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured = []
@@ -884,9 +884,9 @@ async def test_high_quality_adapters_override_model_but_keep_deepseek_extra(
     )
 
     assert [request.model for request in captured] == [
-        "deepseek-v4-pro",
-        "deepseek-v4-pro",
-        "deepseek-v4-pro",
+        "deepseek-v4-flash",
+        "deepseek-v4-flash",
+        "deepseek-v4-flash",
     ]
     assert all(request.extra["thinking"] == {"type": "enabled"} for request in captured)
     assert all(request.extra["reasoning_effort"] == "max" for request in captured)
@@ -960,15 +960,15 @@ async def test_phase1a_anchor_repair_adapter_uses_locked_small_context(
     request = captured[0]
     assert request.model == "deepseek-v4-flash"
     assert request.max_tokens == 32_768
-    assert request.extra["thinking"] == {"type": "disabled"}
-    assert "reasoning_effort" not in request.extra
+    assert request.extra["thinking"] == {"type": "enabled"}
+    assert request.extra["reasoning_effort"] == "high"
     assert "锁定标题" in request.messages[1].content
     assert "唯一正文" in request.messages[1].content
     assert "不得改变 Scene 语义或章节范围" in request.messages[1].content
 
 
 @pytest.mark.asyncio
-async def test_phase1a_missing_chapter_adapter_uses_medium_reasoning(
+async def test_phase1a_missing_chapter_adapter_uses_high_reasoning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured = []
@@ -1025,9 +1025,10 @@ async def test_phase1a_missing_chapter_adapter_uses_medium_reasoning(
     assert request.model == "deepseek-v4-flash"
     assert request.max_tokens == 8192
     assert request.extra["thinking"] == {"type": "enabled"}
-    assert request.extra["reasoning_effort"] == "medium"
+    assert request.extra["reasoning_effort"] == "high"
     assert "仅切分第2章" in request.messages[1].content
-    assert "1-3" in request.messages[1].content
+    assert "普通动作和过渡应吸收" in request.messages[1].content
+    assert "1-3" not in request.messages[1].content
     assert kwargs["step_name"] == "phase1a_missing_chapter_recovery"
 
 

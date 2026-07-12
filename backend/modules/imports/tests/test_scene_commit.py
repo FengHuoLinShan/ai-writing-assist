@@ -446,3 +446,48 @@ async def test_scene_commit_allows_same_source_split_scenes_by_candidate_id(
     assert result.created_count == 2
     assert result.skipped_count == 0
     assert await count_scenes_by_novel(db_session, sample_novel_id) == 2
+
+
+@pytest.mark.asyncio
+async def test_scene_commit_persists_phase1c_suggestions_with_formal_scene_ids(
+    db_session: AsyncSession,
+    sample_novel_id: str,
+) -> None:
+    from modules.imports.scene_commit import SceneCommitter
+    from modules.outline.scene_workbench import SceneWorkbenchService
+
+    first = make_final_scene_candidate(
+        candidate_id="left",
+        source_candidate_ids=["source-left"],
+        source_chapter_indices=[1],
+    )
+    second = make_final_scene_candidate(
+        candidate_id="right",
+        source_candidate_ids=["source-right"],
+        source_chapter_indices=[2],
+    )
+
+    result = await SceneCommitter().commit(
+        db_session,
+        sample_novel_id,
+        [first, second],
+        workflow_id="wf-phase1c",
+        fusion_suggestions=[
+            {
+                "suggestion_kind": "cross_chapter",
+                "source_candidate_ids": ["left", "right"],
+                "proposed_action": "merge",
+                "confidence": 0.81,
+                "reason": "needs author review",
+                "chapter_span": [1, 2],
+            }
+        ],
+    )
+
+    assert len(result.suggestion_ids) == 1
+    listed = await SceneWorkbenchService().list_fusion_suggestions(
+        db_session,
+        sample_novel_id,
+    )
+    assert listed.total == 1
+    assert listed.items[0].source_scene_ids == result.created_scene_ids

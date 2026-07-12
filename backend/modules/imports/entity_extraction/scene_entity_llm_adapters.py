@@ -32,6 +32,7 @@ async def call_llm_extraction(
     system_prompt += f"\n\n## 前序上下文\n\n{memory_context}"
 
     from modules.imports.entity_extraction.scene_entity_config import (
+        current_phase2_high_quality,
         current_phase2_novel_id,
         current_phase2_project_settings,
         current_phase2_request_model,
@@ -50,7 +51,7 @@ async def call_llm_extraction(
     request_model = current_phase2_request_model() or llm_client.model_name
     request_extra = _reasoning_extra(
         llm_client,
-        complex_task=True,
+        high_quality=current_phase2_high_quality(),
         request_model=request_model,
     )
     request = LLMCallRequest(
@@ -114,6 +115,7 @@ async def call_alias_relation_extraction(
         entity_index=entity_index,
     )
     from modules.imports.entity_extraction.scene_entity_config import (
+        current_phase2_high_quality,
         current_phase2_novel_id,
         current_phase2_project_settings,
         current_phase2_request_model,
@@ -132,7 +134,7 @@ async def call_alias_relation_extraction(
     request_model = current_phase2_request_model() or llm_client.model_name
     request_extra = _reasoning_extra(
         llm_client,
-        complex_task=False,
+        high_quality=current_phase2_high_quality(),
         request_model=request_model,
     )
     request = LLMCallRequest(
@@ -179,7 +181,7 @@ async def call_alias_relation_extraction(
 def _reasoning_extra(
     llm_client: Any,
     *,
-    complex_task: bool,
+    high_quality: bool,
     request_model: str | None = None,
 ) -> dict[str, Any]:
     summary = getattr(llm_client, "profile_summary", {})
@@ -189,11 +191,9 @@ def _reasoning_extra(
         summary = {}
     provider_id = str(summary.get("provider_id") or "")
     model = str(request_model or getattr(llm_client, "model_name", "") or "")
-    if provider_id != "deepseek" and not model.startswith("deepseek-v4"):
+    if provider_id != "deepseek" and not model.startswith("deepseek"):
         return {}
-    if not complex_task:
-        return {"thinking": {"type": "disabled"}}
     return {
         "thinking": {"type": "enabled"},
-        "reasoning_effort": "max",
+        "reasoning_effort": "max" if high_quality else "high",
     }

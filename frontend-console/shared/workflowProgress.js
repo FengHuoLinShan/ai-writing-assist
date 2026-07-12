@@ -9,7 +9,6 @@ const RUNNING_STATUSES = new Set(["pending", "running"])
 const WORKFLOW_LABELS = {
   deep_import: "深度导入",
   scene_auto_extraction: "场景（scene）自动提取",
-  scene_cross_chapter_detection: "跨章 Scene 识别",
   smart_dedup_scan: "智能去重扫描",
   world_object_auto_extraction: "世界对象与别名/关系自动提取",
   world_entity_fusion_suggestions: "世界对象 AI 合并建议",
@@ -37,12 +36,56 @@ const STATUS_LABELS = {
 }
 
 const PHASE_MESSAGE_LABELS = {
-  phase0_plan: "正在规划 Scene 切分窗口",
-  phase1a_scene_slicing: "正在切分 Scene 边界",
-  phase1b_enrichment: "正在补全 Scene 结构字段",
-  scene_commit: "正在写入正式 Scene",
   entity_extraction: "正在按 Scene 提取世界对象与别名/关系",
   structure_analysis: "正在提取剧情结构",
+}
+
+const SCENE_PHASE_LABELS = {
+  phase0_plan: { technical: "Phase 0", label: "Scene 窗口规划" },
+  phase1a_scene_slicing: { technical: "Phase 1a", label: "Scene 边界切分" },
+  phase1b_enrichment: { technical: "Phase 1b", label: "Scene 字段补全" },
+  phase1c_scene_fusion: { technical: "Phase 1c", label: "Scene 边界融合" },
+  scene_commit: { technical: "Scene commit", label: "正式写入" },
+}
+
+function scenePhaseMessage(result) {
+  const phase = SCENE_PHASE_LABELS[result.current_phase]
+  if (!phase) return null
+  const prefix = `${phase.technical} · ${phase.label}`
+  const item = safeObject(result.current_item)
+  if (result.current_phase === "phase0_plan") {
+    return `${prefix}｜正在准备章节窗口`
+  }
+  if (result.current_phase === "phase1a_scene_slicing") {
+    const unit = item.completed != null && item.total
+      ? `窗口 ${item.completed}/${item.total}`
+      : "正在切分 Scene 边界"
+    return `${prefix}｜${unit}`
+  }
+  if (result.current_phase === "phase1b_enrichment") {
+    const unit = item.completed != null && item.total
+      ? `Scene ${item.completed}/${item.total}`
+      : "正在补全叙事字段"
+    return `${prefix}｜${unit}`
+  }
+  if (result.current_phase === "phase1c_scene_fusion") {
+    const unit = item.completed != null && item.total
+      ? `边界 ${item.completed}/${item.total}`
+      : "正在审核相邻 Scene"
+    return `${prefix}｜${unit}`
+  }
+  const count = item.count
+    ?? safeObject(safeObject(result.phase_artifacts).phase1b_enrichment).counts?.candidate_count
+  return `${prefix}｜${count != null ? `正在保存 ${count} 个 Scene` : "正在保存 Scene"}`
+}
+
+function scenePhaseSummary(result) {
+  const timeline = safeArray(result.phase_timeline)
+  const completed = [...new Set(timeline
+    .filter((item) => item && ["completed", "degraded"].includes(item.status))
+    .map((item) => SCENE_PHASE_LABELS[item.phase]?.technical)
+    .filter(Boolean))]
+  return completed.length ? `已完成 ${completed.join("、")}` : null
 }
 
 function nowIso() {
@@ -90,6 +133,10 @@ function inferMessage({ status, workflowType, result, meta, percent }) {
   if (status === "cancelled") return "任务已取消"
   if (status === "done") return result.message || "任务完成"
   if (RUNNING_STATUSES.has(status)) {
+    if (workflowType === "scene_auto_extraction") {
+      const sceneMessage = scenePhaseMessage(result)
+      if (sceneMessage) return sceneMessage
+    }
     const phaseLabel = PHASE_MESSAGE_LABELS[result.current_phase]
     if (phaseLabel) return phaseLabel
   }
@@ -100,7 +147,6 @@ function inferMessage({ status, workflowType, result, meta, percent }) {
     return "深度导入已提交，等待处理"
   }
   if (workflowType === "scene_auto_extraction") return "正在自动提取场景"
-  if (workflowType === "scene_cross_chapter_detection") return "正在识别跨章 Scene"
   if (workflowType === "smart_dedup_scan") return "正在扫描重复资产"
   if (workflowType === "world_object_auto_extraction") return "正在自动提取世界对象与别名/关系"
   if (workflowType === "world_entity_fusion_suggestions") return "正在生成世界对象合并建议"
@@ -181,10 +227,6 @@ function buildResultSummary(result, workflowType) {
     if (result.total_scenes != null) return `Scene ${result.total_scenes}`
     return result.summary || null
   }
-  if (workflowType === "scene_cross_chapter_detection") {
-    if (result.suggestion_count != null) return `建议 ${result.suggestion_count} 条`
-    return result.summary || null
-  }
   if (workflowType === "smart_dedup_scan") {
     const parts = []
     if (result.total_assets_scanned != null) parts.push(`扫描 ${result.total_assets_scanned}`)
@@ -201,9 +243,12 @@ function buildResultSummary(result, workflowType) {
     const steps = Array.isArray(result.completed_steps) ? result.completed_steps.length : null
     return steps != null ? `已完成 ${steps} 个阶段` : null
   }
+  if (workflowType === "scene_auto_extraction") {
+    if (result.summary) return result.summary
+    return scenePhaseSummary(result)
+  }
   if (
-    workflowType === "scene_auto_extraction"
-    || workflowType === "world_object_auto_extraction"
+    workflowType === "world_object_auto_extraction"
     || workflowType === "plot_structure_auto_extraction"
   ) {
     if (result.summary) return result.summary
@@ -244,6 +289,12 @@ export function normalizeTaskProgress(task, workflowType = undefined) {
   let percent = clampPercent(raw.progress)
 
   if (status === "done") percent = 100
+
+  if (
+    type === "scene_auto_extraction"
+    && RUNNING_STATUSES.has(status)
+    && (!result.current_phase || result.current_phase === "phase0_plan")
+  ) percent = null
 
   const hasPercent = percent != null
   const label = WORKFLOW_LABELS[type] || meta.label || "后台任务"

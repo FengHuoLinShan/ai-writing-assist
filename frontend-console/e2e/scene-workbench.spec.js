@@ -347,6 +347,84 @@ test.describe("Scene 工作台", () => {
     await expect(page.locator(".scene-fusion-toolbar")).toContainText("1")
   })
 
+  test("Scene 进度轮询只更新进度卡并保持列表滚动位置", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 620 })
+    const project = await createProject({ title: "Scene 进度局部刷新", genre: "fantasy", language: "zh" })
+    testProjectId = project.id
+    await Promise.all(Array.from({ length: 18 }, (_, index) => createScene(project.id, {
+      scene_index: index,
+      title: `进度浏览 Scene ${index}`,
+      goal: `目标 ${index}`,
+      core_conflict: `冲突 ${index}`,
+      chapter_ids: [String(index + 1)],
+    })))
+
+    const taskId = "11111111-1111-4111-8111-111111111111"
+    let phase = "phase1a"
+    await page.route(`**/api/tasks/${taskId}?*`, async (route) => {
+      const phase1a = phase === "phase1a"
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          task_id: taskId,
+          task_type: "scene_auto_extraction",
+          status: "running",
+          progress: phase1a ? 0.295 : 0.79,
+          result: {
+            current_phase: phase1a ? "phase1a_scene_slicing" : "phase1b_enrichment",
+            current_item: phase1a
+              ? { kind: "window", completed: 2, total: 4 }
+              : { kind: "scene_candidate", completed: 41, total: 82 },
+            phase_timeline: phase1a
+              ? [
+                  { phase: "phase0_plan", status: "completed" },
+                  { phase: "phase1a_scene_slicing", status: "running" },
+                ]
+              : [
+                  { phase: "phase0_plan", status: "completed" },
+                  { phase: "phase1a_scene_slicing", status: "completed" },
+                  { phase: "phase1b_enrichment", status: "running" },
+                ],
+          },
+        }),
+      })
+    })
+
+    await openWorkbench(page, project, "scene")
+    await page.evaluate(({ taskId: id, projectId }) => {
+      localStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+        id: `${projectId}:scene_auto_extraction:${id}`,
+        taskId: id,
+        workflowType: "scene_auto_extraction",
+        projectId,
+        view: "scene",
+        meta: { start_chapter: 1, end_chapter: 60 },
+      }]))
+    }, { taskId, projectId: project.id })
+    await page.reload()
+    await expect(page.locator('[data-role="scene-auto-extract-progress"]')).toContainText(
+      "Phase 1a · Scene 边界切分｜窗口 2/4",
+    )
+
+    const organize = page.locator(".scene-workbench__organize")
+    await organize.evaluate((el) => { el.scrollTop = el.scrollHeight })
+    const before = await organize.evaluate((el) => el.scrollTop)
+    expect(before).toBeGreaterThan(50)
+    await page.locator("#scene-filter-q").evaluate((input) => {
+      input.value = "正在浏览"
+    })
+
+    phase = "phase1b"
+    await expect(page.locator('[data-role="scene-auto-extract-progress"]')).toContainText(
+      "Phase 1b · Scene 字段补全｜Scene 41/82",
+      { timeout: 5000 },
+    )
+
+    expect(await organize.evaluate((el) => el.scrollTop)).toBe(before)
+    await expect(page.locator("#scene-filter-q")).toHaveValue("正在浏览")
+  })
+
   test("Scene 翻页按钮在列表内容底部且不覆盖场景卡片", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 620 })
     const project = await createProject({ title: "Scene 分页底部悬浮", genre: "fantasy", language: "zh" })

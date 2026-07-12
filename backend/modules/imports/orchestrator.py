@@ -37,6 +37,13 @@ STAGE_TASK_TYPES = {
     "plot_structure": "plot_structure_auto_extraction",
 }
 
+# Scene stage progress is an elapsed-time estimate based on the two most recent
+# 1-60 chapter runs of the current pipeline. Phase 0 is intentionally excluded:
+# it completed in under 0.1 seconds in both runs.
+SCENE_STAGE_PHASE1A_WEIGHT = 0.59
+SCENE_STAGE_PHASE1B_WEIGHT = 0.40
+SCENE_STAGE_COMMIT_START = 0.99
+
 
 class DeepImportWorkflowFailedError(RuntimeError):
     """A persisted workflow failure that must become a failed async task."""
@@ -287,7 +294,12 @@ class DeepImportOrchestrator:
             updated.stage = stage
             updated.asset_summary = build_asset_summary(updated.quality_stats)
             task.result = updated.model_dump(mode="json")
-            persisted_value = self._update_task_progress(task, progress_value)
+            stage_progress = (
+                self._scene_stage_progress_value(updated)
+                if stage == "scenes"
+                else progress_value
+            )
+            persisted_value = self._update_task_progress(task, stage_progress)
             await db.commit()
             if self.progress_observer is not None:
                 await self.progress_observer(updated, persisted_value, task)
@@ -545,6 +557,31 @@ class DeepImportOrchestrator:
             return float(getattr(task, "progress", 0.0) or 0.0)
         except (TypeError, ValueError):
             return 0.0
+
+    @staticmethod
+    def _scene_stage_progress_value(progress: DeepImportProgress) -> float:
+        """Map Scene sub-phases to an elapsed-time-based stage estimate."""
+        if progress.phase == "done":
+            return 1.0
+
+        current_phase = progress.current_phase
+        current_item = progress.current_item or {}
+        completed = current_item.get("completed")
+        total = current_item.get("total")
+        try:
+            fraction = min(1.0, max(0.0, float(completed) / float(total)))
+        except (TypeError, ValueError, ZeroDivisionError):
+            fraction = 0.0
+
+        if current_phase == "phase1a_scene_slicing":
+            return SCENE_STAGE_PHASE1A_WEIGHT * fraction
+        if current_phase == "phase1b_enrichment":
+            return SCENE_STAGE_PHASE1A_WEIGHT + SCENE_STAGE_PHASE1B_WEIGHT * fraction
+        if current_phase == "phase1c_scene_fusion":
+            return SCENE_STAGE_COMMIT_START
+        if current_phase == "scene_commit":
+            return SCENE_STAGE_COMMIT_START
+        return 0.0
 
     @classmethod
     def _update_task_progress(cls, task: Any, progress_value: float) -> float:

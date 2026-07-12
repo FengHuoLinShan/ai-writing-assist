@@ -15,7 +15,6 @@ from modules.context.services.retrieval_query_planner import RetrievalQueryPlann
         "writing_generation",
         "conflict_review",
         "outline_generation",
-        "cross_chapter_detection",
         "world_fusion",
         "import_scene_activation",
         "reader_context",

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 def _uuid_validator(v: object) -> str:
@@ -305,7 +305,7 @@ class SceneWorkbenchItem(BaseModel):
     summary: str | None = None
 
 
-class SceneCrossChapterSuggestionSummary(BaseModel):
+class SceneFusionSuggestionSummary(BaseModel):
     pending_count: int = 0
 
 
@@ -316,8 +316,8 @@ class SceneWorkbenchResponse(BaseModel):
     skip: int = 0
     unassigned_chapters: list[int] = []
     selected_scene_id: str | None = None
-    cross_chapter_suggestions: SceneCrossChapterSuggestionSummary = (
-        SceneCrossChapterSuggestionSummary()
+    fusion_suggestions: SceneFusionSuggestionSummary = (
+        SceneFusionSuggestionSummary()
     )
 
 
@@ -434,7 +434,7 @@ class SceneDraftConflict(BaseModel):
 
 
 class SceneDraftReviewResponse(BaseModel):
-    mode: Literal["fusion", "split", "cross_chapter_fusion"]
+    mode: Literal["fusion", "split", "fusion_suggestion"]
     source_scene_ids: list[str]
     primary_scene_id: str | None = None
     draft_scene: SceneFusionDraft | None = None
@@ -476,36 +476,20 @@ class SceneFusionSaveResponse(BaseModel):
     warnings: list[str] = []
 
 
-class CrossChapterSceneDetectRequest(BaseModel):
-    novel_id: str
-    start_chapter: int | None = Field(None, ge=1)
-    end_chapter: int | None = Field(None, ge=1)
-    max_chapter_span: int = Field(default=6, ge=2, le=20)
-    max_suggestions: int = Field(default=30, ge=1, le=100)
-    max_chain_calls: int = Field(default=6, ge=1, le=20)
-
-    @model_validator(mode="after")
-    def _validate_range(self) -> CrossChapterSceneDetectRequest:
-        if (
-            self.start_chapter is not None
-            and self.end_chapter is not None
-            and self.end_chapter < self.start_chapter
-        ):
-            raise ValueError("end_chapter must be >= start_chapter")
-        return self
-
-
-class CrossChapterSceneDetectResponse(BaseModel):
-    task_id: str
-    status: str = "pending"
-
-
-class SceneCrossChapterSuggestionResponse(BaseModel):
+class SceneFusionSuggestionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True, json_encoders={uuid.UUID: str})
 
     id: str
     novel_id: str
-    source_task_id: str
+    source_workflow_id: str
+    suggestion_kind: Literal["intra_chapter", "cross_chapter", "duplicate_window"]
+    proposed_action: Literal[
+        "merge",
+        "absorb_left",
+        "absorb_right",
+        "keep_separate",
+        "needs_review",
+    ]
     source_scene_ids: list[str] = []
     chapter_span: list[int] = []
     proposed_scene: dict[str, Any] = {}
@@ -520,7 +504,6 @@ class SceneCrossChapterSuggestionResponse(BaseModel):
     @field_validator(
         "id",
         "novel_id",
-        "source_task_id",
         "result_scene_id",
         mode="before",
     )
@@ -531,17 +514,17 @@ class SceneCrossChapterSuggestionResponse(BaseModel):
         return _uuid_validator(v)
 
 
-class SceneCrossChapterSuggestionListResponse(BaseModel):
-    items: list[SceneCrossChapterSuggestionResponse]
+class SceneFusionSuggestionListResponse(BaseModel):
+    items: list[SceneFusionSuggestionResponse]
     total: int = 0
 
 
-class SceneCrossChapterSuggestionDismissRequest(BaseModel):
+class SceneFusionSuggestionDismissRequest(BaseModel):
     suggestion_ids: list[str] = Field(..., min_length=1, max_length=100)
     confirmed: bool = False
 
 
-class SceneCrossChapterSuggestionDismissResponse(BaseModel):
+class SceneFusionSuggestionDismissResponse(BaseModel):
     dismissed: int = 0
 
 

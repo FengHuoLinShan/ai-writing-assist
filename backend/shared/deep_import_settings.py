@@ -41,6 +41,13 @@ DEEP_IMPORT_DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
         "enrich_timeout_seconds": 300,
         "use_llm": None,
     },
+    "phase1c": {
+        "auto_merge_confidence": 0.92,
+        "boundary_context_chars": 2000,
+        "concurrency": 20,
+        "decision_max_tokens": 1024,
+        "timeout_seconds": 180,
+    },
     "phase2": {
         "world_timeout_seconds": 900,
         "world_min_max_tokens": 32_768,
@@ -58,7 +65,7 @@ DEEP_IMPORT_DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
         "boundary_total_timeout_seconds": 120.0,
         "alias_relation_total_timeout_seconds": 240,
         "alias_relation_concurrency": 4,
-        "alias_relation_llm_timeout_seconds": 75,
+        "alias_relation_llm_timeout_seconds": 120,
         "alias_relation_scene_char_limit": 3200,
         "alias_relation_entity_index_char_limit": 3600,
         "alias_relation_entity_index_fallback_limit": 30,
@@ -93,6 +100,11 @@ DEEP_IMPORT_SETTING_LIMITS: dict[tuple[str, str], tuple[float, float]] = {
     ("phase1b", "compact_text_limit"): (10, 5000),
     ("phase1b", "enrich_max_tokens"): (1, 200_000),
     ("phase1b", "enrich_timeout_seconds"): (1, 7200),
+    ("phase1c", "auto_merge_confidence"): (0.0, 1.0),
+    ("phase1c", "boundary_context_chars"): (100, 100_000),
+    ("phase1c", "concurrency"): (1, 100),
+    ("phase1c", "decision_max_tokens"): (1, 200_000),
+    ("phase1c", "timeout_seconds"): (1, 7200),
     ("phase2", "world_timeout_seconds"): (1, 7200),
     ("phase2", "world_min_max_tokens"): (1, 200_000),
     ("phase2", "world_max_max_tokens"): (1, 200_000),
@@ -125,6 +137,7 @@ _BOOL_SETTINGS = {
 
 _FLOAT_SETTINGS = {
     ("phase0", "max_tokens_per_input_char"),
+    ("phase1c", "auto_merge_confidence"),
     ("phase2", "boundary_total_timeout_seconds"),
     ("phase2", "postprocess_timeout_seconds"),
     ("phase2", "world_max_tokens_per_source_char"),

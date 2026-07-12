@@ -154,8 +154,9 @@ class PlotStructureGenerator:
             include_scenes=generate_scenes,
             fast_structured=fast_structured,
             max_tokens=self._structure_max_tokens(project_settings_snapshot),
+            high_quality=high_quality,
         )
-        model = "deepseek-v4-pro" if high_quality else self._llm_client.model_name
+        model = self._llm_client.model_name
         snapshot_id: str | None = None
         if audit_context_snapshot:
             snapshot_id = await self._create_structure_snapshot(

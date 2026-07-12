@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
-from unittest import mock
 
 import pytest
 from httpx import AsyncClient
@@ -318,190 +317,6 @@ class TestSceneWorkbenchApi:
         assert selected_scene["id"] in {
             item["scene"]["id"] for item in selected_data["items"]
         }
-
-    async def test_cross_chapter_detector_extends_until_unrelated_chapter(
-        self,
-        db_session: AsyncSession,
-        test_project_id: str,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        from modules.outline.cross_chapter_detection import (
-            CrossChapterDecision,
-            CrossChapterDetectionService,
-        )
-        from modules.outline.repositories import SceneRepository
-        from modules.outline.schemas import SceneCreate
-
-        repo = SceneRepository()
-        for chapter in range(1, 5):
-            await repo.create(
-                db_session,
-                uuid.UUID(hex=test_project_id),
-                SceneCreate(
-                    scene_index=chapter - 1,
-                    title=f"第{chapter}章边界",
-                    goal="同一场追击" if chapter <= 3 else "新的转场",
-                    chapter_ids=[str(chapter)],
-                    scene_chunks=[{"chapter_index": chapter, "start_paragraph": 0}],
-                    status="draft",
-                ),
-            )
-
-        async def fake_evidence(self, db, novel_id, chain, next_scene):
-            return [{"source_type": "test", "snippet": "证据"}], None
-
-        async def fake_decide(self, *, novel_id, chain, next_scene, evidence):
-            chapter = int(next_scene.chapter_ids[0])
-            if chapter <= 3:
-                return CrossChapterDecision(
-                    action="extend_scene",
-                    confidence=0.9,
-                    reason="仍是同一场追击",
-                )
-            return CrossChapterDecision(
-                action="keep_separate",
-                confidence=0.8,
-                reason="进入新事件",
-            )
-
-        monkeypatch.setattr(
-            CrossChapterDetectionService,
-            "_evidence_for_boundary",
-            fake_evidence,
-        )
-        monkeypatch.setattr(
-            CrossChapterDetectionService,
-            "_decide_boundary",
-            fake_decide,
-        )
-
-        result = await CrossChapterDetectionService(
-            llm_client=mock.MagicMock(model_name="test-model")
-        ).detect(
-            db_session,
-            novel_id=test_project_id,
-        )
-
-        assert result["suggestion_count"] == 1
-        suggestion = result["suggestions"][0]
-        assert suggestion["chapter_span"] == [1, 3]
-        assert len(suggestion["source_scene_ids"]) == 3
-        assert suggestion["stop_reason"] == "keep_separate"
-
-    async def test_cross_chapter_detector_batches_draft_fallback_evidence(
-        self,
-        db_session: AsyncSession,
-        test_project_id: str,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        from modules.outline.cross_chapter_detection import CrossChapterDetectionService
-        from modules.outline.repositories import SceneRepository
-        from modules.outline.schemas import SceneCreate
-        from modules.writing.contracts import (
-            SourceRangeRefContract,
-            WritingDraftContract,
-        )
-
-        repo = SceneRepository()
-        current = await repo.create(
-            db_session,
-            uuid.UUID(hex=test_project_id),
-            SceneCreate(
-                scene_index=1,
-                title="追击上半",
-                goal="继续追击",
-                chapter_ids=["1"],
-                status="draft",
-            ),
-        )
-        next_scene = await repo.create(
-            db_session,
-            uuid.UUID(hex=test_project_id),
-            SceneCreate(
-                scene_index=2,
-                title="追击下半",
-                goal="追击收束",
-                chapter_ids=["2"],
-                status="draft",
-            ),
-        )
-        batch_calls: list[list[int]] = []
-
-        async def fail_evidence_search(*args, **kwargs):
-            raise RuntimeError("rag unavailable")
-
-        async def fake_batch_fetch(
-            db,
-            novel_id,
-            chapter_indices,
-            *,
-            content_mode,
-        ):
-            assert content_mode == "working"
-            batch_calls.append(list(chapter_indices))
-            return [
-                WritingDraftContract(
-                    id="00000000-0000-0000-0000-000000000001",
-                    novel_id=novel_id,
-                    chapter_index=1,
-                    content="第一章追击证据",
-                    content_hash="1" * 64,
-                ),
-                WritingDraftContract(
-                    id="00000000-0000-0000-0000-000000000002",
-                    novel_id=novel_id,
-                    chapter_index=2,
-                    content="第二章追击证据",
-                    content_hash="2" * 64,
-                ),
-            ]
-
-        async def fake_build_ref(
-            db,
-            novel_id,
-            *,
-            draft_id,
-            start_offset,
-            end_offset,
-            content_mode,
-        ):
-            chapter_index = int(draft_id[-1])
-            return SourceRangeRefContract(
-                draft_id=draft_id,
-                chapter_index=chapter_index,
-                version_number=1,
-                content_mode=content_mode,
-                start_offset=start_offset,
-                end_offset=end_offset,
-                source_hash=str(chapter_index) * 64,
-                range_hash="f" * 64,
-            )
-
-        monkeypatch.setattr(
-            "modules.context.facade.search_novel_evidence",
-            fail_evidence_search,
-        )
-        monkeypatch.setattr(
-            "modules.writing.facade.list_manuscript_sources",
-            fake_batch_fetch,
-        )
-        monkeypatch.setattr(
-            "modules.writing.facade.build_manuscript_range_ref",
-            fake_build_ref,
-        )
-
-        service = CrossChapterDetectionService()
-        evidence, degraded_reason = await service._evidence_for_boundary(
-            db_session,
-            test_project_id,
-            [current],
-            next_scene,
-        )
-
-        assert batch_calls == [[1, 2]]
-        assert degraded_reason == "draft_fallback"
-        assert [item["chapter_index"] for item in evidence] == [1, 2]
-        assert evidence[0]["snippet"] == "第一章追击证据"
 
     async def test_workbench_includes_candidate_scenes(
         self,
@@ -863,7 +678,7 @@ class TestSceneWorkbenchApi:
         assert data["unassigned_chapters"] == []
         assert data["health"]["unassigned"]["count"] == 0
 
-    async def test_workbench_marks_cross_scene_duplicate_chapters_needs_organize(
+    async def test_workbench_allows_multiple_scenes_in_same_chapter(
         self,
         async_client: AsyncClient,
         test_project_id: str,
@@ -903,9 +718,9 @@ class TestSceneWorkbenchApi:
         assert resp.status_code == 200, resp.text
         data = resp.json()
         health_by_scene = {item["scene"]["id"]: item["health"] for item in data["items"]}
-        assert "needs_organize" in health_by_scene[first["id"]]
-        assert "needs_organize" in health_by_scene[second["id"]]
-        assert data["health"]["needs_organize"]["count"] == 2
+        assert "needs_organize" not in health_by_scene[first["id"]]
+        assert "needs_organize" not in health_by_scene[second["id"]]
+        assert data["health"]["needs_organize"]["count"] == 0
 
     async def test_workbench_marks_imprecise_scene_span_needs_organize(
         self,
@@ -1092,7 +907,7 @@ class TestSceneWorkbenchApi:
         assert before.json()["health"]["needs_organize"]["breakdown"] == {
             "scene_structure": 0,
             "source_mapping": 1,
-            "cross_chapter_suggestion": 0,
+            "scene_fusion_suggestion": 0,
         }
 
         reviewed = await async_client.post(
@@ -1128,7 +943,7 @@ class TestSceneWorkbenchApi:
         ).scalar_one()
         assert span.mapping_status == "chapter_only"
 
-    async def test_cross_chapter_suggestions_persist_and_dismiss(
+    async def test_fusion_suggestions_persist_and_dismiss(
         self,
         async_client: AsyncClient,
         db_session: AsyncSession,
@@ -1164,10 +979,10 @@ class TestSceneWorkbenchApi:
                 "structure_meta": {"reviewed_at": "2026-07-10T00:00:00Z"},
             },
         )
-        stored_ids = await SceneWorkbenchService().persist_cross_chapter_suggestions(
+        stored_ids = await SceneWorkbenchService().persist_fusion_suggestions(
             db_session,
             novel_id=test_project_id,
-            source_task_id=str(uuid.uuid4()),
+            source_workflow_id=str(uuid.uuid4()),
             suggestions=[
                 {
                     "source_scene_ids": [first["id"], second["id"]],
@@ -1180,13 +995,14 @@ class TestSceneWorkbenchApi:
             ],
         )
         assert len(stored_ids) == 1
-        reused_ids = await SceneWorkbenchService().persist_cross_chapter_suggestions(
+        reused_ids = await SceneWorkbenchService().persist_fusion_suggestions(
             db_session,
             novel_id=test_project_id,
-            source_task_id=str(uuid.uuid4()),
+            source_workflow_id=str(uuid.uuid4()),
             suggestions=[
                 {
                     "source_scene_ids": [first["id"], second["id"]],
+                    "proposed_action": "merge",
                     "chapter_span": [3, 4],
                     "proposed_scene": {"title": "跨章追击"},
                     "confidence": 0.9,
@@ -1198,26 +1014,27 @@ class TestSceneWorkbenchApi:
         assert reused_ids == stored_ids
 
         listed = await async_client.get(
-            "/api/outline/scene-workbench/cross-chapter/suggestions",
+            "/api/outline/scene-workbench/fusion-suggestions",
             params={"novel_id": test_project_id},
         )
         assert listed.status_code == 200, listed.text
         assert listed.json()["total"] == 1
         assert listed.json()["items"][0]["id"] == stored_ids[0]
+        assert listed.json()["items"][0]["proposed_action"] == "merge"
 
         workbench = await async_client.get(
             "/api/outline/scene-workbench",
             params={"novel_id": test_project_id},
         )
-        assert workbench.json()["cross_chapter_suggestions"]["pending_count"] == 1
+        assert workbench.json()["fusion_suggestions"]["pending_count"] == 1
         first_item = next(
             item
             for item in workbench.json()["items"]
             if item["scene"]["id"] == first["id"]
         )
         assert first_item["health_details"]["needs_organize"][0] == {
-            "code": "pending_cross_chapter_suggestion",
-            "label": "有跨章融合建议待处理",
+            "code": "pending_scene_fusion_suggestion",
+            "label": "有 Scene 融合建议待处理",
             "count": 1,
             "chapter_indices": [3, 4],
             "fingerprint": None,
@@ -1239,20 +1056,20 @@ class TestSceneWorkbenchApi:
         )
         await db_session.flush()
         isolated = await async_client.get(
-            "/api/outline/scene-workbench/cross-chapter/suggestions",
+            "/api/outline/scene-workbench/fusion-suggestions",
             params={"novel_id": str(other_project_id)},
         )
         assert isolated.status_code == 200, isolated.text
         assert isolated.json()["total"] == 0
         wrong_novel_dismiss = await async_client.post(
-            "/api/outline/scene-workbench/cross-chapter/suggestions/dismiss",
+            "/api/outline/scene-workbench/fusion-suggestions/dismiss",
             params={"novel_id": str(other_project_id)},
             json={"suggestion_ids": stored_ids, "confirmed": True},
         )
         assert wrong_novel_dismiss.status_code == 404
 
         partial_failure = await async_client.post(
-            "/api/outline/scene-workbench/cross-chapter/suggestions/dismiss",
+            "/api/outline/scene-workbench/fusion-suggestions/dismiss",
             params={"novel_id": test_project_id},
             json={
                 "suggestion_ids": [stored_ids[0], str(uuid.uuid4())],
@@ -1261,20 +1078,20 @@ class TestSceneWorkbenchApi:
         )
         assert partial_failure.status_code == 404
         still_pending = await async_client.get(
-            "/api/outline/scene-workbench/cross-chapter/suggestions",
+            "/api/outline/scene-workbench/fusion-suggestions",
             params={"novel_id": test_project_id},
         )
         assert still_pending.json()["total"] == 1
 
         dismissed = await async_client.post(
-            "/api/outline/scene-workbench/cross-chapter/suggestions/dismiss",
+            "/api/outline/scene-workbench/fusion-suggestions/dismiss",
             params={"novel_id": test_project_id},
             json={"suggestion_ids": stored_ids, "confirmed": True},
         )
         assert dismissed.status_code == 200, dismissed.text
         assert dismissed.json() == {"dismissed": 1}
 
-    async def test_cross_chapter_suggestion_becomes_stale_after_source_change(
+    async def test_fusion_suggestion_becomes_stale_after_source_change(
         self,
         async_client: AsyncClient,
         db_session: AsyncSession,
@@ -1282,7 +1099,7 @@ class TestSceneWorkbenchApi:
     ) -> None:
         from sqlalchemy import select
 
-        from modules.outline.models import SceneCrossChapterSuggestion
+        from modules.outline.models import SceneFusionSuggestion
 
         first = await _create_scene(
             async_client,
@@ -1294,10 +1111,10 @@ class TestSceneWorkbenchApi:
             test_project_id,
             {"scene_index": 1, "title": "乙", "chapter_ids": ["2"]},
         )
-        suggestion_ids = await SceneWorkbenchService().persist_cross_chapter_suggestions(
+        suggestion_ids = await SceneWorkbenchService().persist_fusion_suggestions(
             db_session,
             novel_id=test_project_id,
-            source_task_id=str(uuid.uuid4()),
+            source_workflow_id=str(uuid.uuid4()),
             suggestions=[
                 {
                     "source_scene_ids": [first["id"], second["id"]],
@@ -1318,20 +1135,20 @@ class TestSceneWorkbenchApi:
         assert changed.status_code == 200, changed.text
 
         listed = await async_client.get(
-            "/api/outline/scene-workbench/cross-chapter/suggestions",
+            "/api/outline/scene-workbench/fusion-suggestions",
             params={"novel_id": test_project_id},
         )
         assert listed.json()["total"] == 0
         suggestion = (
             await db_session.execute(
-                select(SceneCrossChapterSuggestion).where(
-                    SceneCrossChapterSuggestion.id == uuid.UUID(suggestion_ids[0])
+                select(SceneFusionSuggestion).where(
+                    SceneFusionSuggestion.id == uuid.UUID(suggestion_ids[0])
                 )
             )
         ).scalar_one()
         assert suggestion.status == "stale"
 
-    async def test_fusion_adopts_durable_cross_chapter_suggestion(
+    async def test_fusion_adopts_durable_fusion_suggestion(
         self,
         async_client: AsyncClient,
         db_session: AsyncSession,
@@ -1339,7 +1156,7 @@ class TestSceneWorkbenchApi:
     ) -> None:
         from sqlalchemy import select
 
-        from modules.outline.models import SceneCrossChapterSuggestion
+        from modules.outline.models import SceneFusionSuggestion
 
         first = await _create_scene(
             async_client,
@@ -1351,10 +1168,10 @@ class TestSceneWorkbenchApi:
             test_project_id,
             {"scene_index": 1, "title": "乙", "chapter_ids": ["2"]},
         )
-        suggestion_ids = await SceneWorkbenchService().persist_cross_chapter_suggestions(
+        suggestion_ids = await SceneWorkbenchService().persist_fusion_suggestions(
             db_session,
             novel_id=test_project_id,
-            source_task_id=str(uuid.uuid4()),
+            source_workflow_id=str(uuid.uuid4()),
             suggestions=[
                 {
                     "source_scene_ids": [first["id"], second["id"]],
@@ -1379,15 +1196,15 @@ class TestSceneWorkbenchApi:
         assert saved.status_code == 200, saved.text
         suggestion = (
             await db_session.execute(
-                select(SceneCrossChapterSuggestion).where(
-                    SceneCrossChapterSuggestion.id == uuid.UUID(suggestion_ids[0])
+                select(SceneFusionSuggestion).where(
+                    SceneFusionSuggestion.id == uuid.UUID(suggestion_ids[0])
                 )
             )
         ).scalar_one()
         assert suggestion.status == "adopted"
         assert str(suggestion.result_scene_id) == saved.json()["fused_scene"]["id"]
 
-    async def test_review_does_not_hide_overlapping_chapter_mapping(
+    async def test_multiple_independent_scenes_may_share_one_chapter(
         self,
         async_client: AsyncClient,
         test_project_id: str,
@@ -1432,22 +1249,13 @@ class TestSceneWorkbenchApi:
         data = resp.json()
         items_by_scene = {item["scene"]["id"]: item for item in data["items"]}
         for scene_id in (first["id"], second["id"]):
-            assert "needs_organize" in items_by_scene[scene_id]["health"]
-            assert items_by_scene[scene_id]["health_details"]["needs_organize"] == [
-                {
-                    "code": "overlapping_chapter",
-                    "label": "多个 Scene 关联同一章节",
-                    "count": 1,
-                    "chapter_indices": [1],
-                    "fingerprint": None,
-                    "suggestion_id": None,
-                }
-            ]
-        assert data["health"]["needs_organize"]["count"] == 2
+            assert "needs_organize" not in items_by_scene[scene_id]["health"]
+            assert items_by_scene[scene_id]["health_details"] == {}
+        assert data["health"]["needs_organize"]["count"] == 0
         assert data["health"]["needs_organize"]["breakdown"] == {
-            "scene_structure": 2,
+            "scene_structure": 0,
             "source_mapping": 0,
-            "cross_chapter_suggestion": 0,
+            "scene_fusion_suggestion": 0,
         }
 
     async def test_mapping_update_changes_scene_mapping_without_touching_text(
@@ -2299,3 +2107,44 @@ class TestSceneWorkbenchApi:
         )
 
         assert resp.status_code == 404
+
+    async def test_span_overlap_detection_ignores_shared_chapter_without_offset_overlap(
+        self,
+    ) -> None:
+        from modules.outline.models import SceneSpan
+
+        novel_id = uuid.uuid4()
+        first_scene_id = uuid.uuid4()
+        second_scene_id = uuid.uuid4()
+        spans = [
+            SceneSpan(
+                novel_id=novel_id,
+                scene_id=first_scene_id,
+                chapter_index=1,
+                start_offset=0,
+                end_offset=20,
+                part_no=0,
+                mapping_status="exact",
+                source_content_hash="a" * 64,
+            ),
+            SceneSpan(
+                novel_id=novel_id,
+                scene_id=second_scene_id,
+                chapter_index=1,
+                start_offset=20,
+                end_offset=40,
+                part_no=0,
+                mapping_status="exact",
+                source_content_hash="a" * 64,
+            ),
+        ]
+
+        service = SceneWorkbenchService()
+        assert service._overlapping_span_chapters(spans) == {}
+        spans[1].start_offset = 10
+        assert service._overlapping_span_chapters(spans) == {
+            first_scene_id: {1},
+            second_scene_id: {1},
+        }
+        spans[1].source_content_hash = "b" * 64
+        assert service._overlapping_span_chapters(spans) == {}

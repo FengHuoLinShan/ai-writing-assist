@@ -6,10 +6,16 @@ import {
 } from "../../../views/settings/shared/deepImportFields.js"
 
 describe("deepImportFields schema", () => {
-  it("has all 6 groups", () => {
+  it("has all 7 groups", () => {
     expect(DEEP_IMPORT_GROUPS.map((g) => g.id)).toEqual([
-      "global", "phase0", "phase1a", "phase1b", "phase2", "phase3",
+      "global", "phase0", "phase1a", "phase1b", "phase1c", "phase2", "phase3",
     ])
+  })
+  it("phase1c exposes the safe auto-merge defaults", () => {
+    const p1c = DEEP_IMPORT_GROUPS.find((g) => g.id === "phase1c")
+    expect(p1c.fields.find((f) => f.key === "auto_merge_confidence").value).toBe(0.92)
+    expect(p1c.fields.find((f) => f.key === "boundary_context_chars").value).toBe(2000)
+    expect(p1c.fields.find((f) => f.key === "concurrency").value).toBe(20)
   })
   it("phase2 contains boundary_supplement_enabled bool", () => {
     const p2 = DEEP_IMPORT_GROUPS.find((g) => g.id === "phase2")

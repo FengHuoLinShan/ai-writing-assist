@@ -9,6 +9,29 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;")
 }
 
+const PHASE_DISPLAY_LABELS = {
+  phase0_plan: "Phase 0 · Scene 窗口规划",
+  phase1a_scene_slicing: "Phase 1a · Scene 边界切分",
+  phase1b_enrichment: "Phase 1b · Scene 字段补全",
+  scene_commit: "Scene commit · 正式写入",
+}
+
+const PHASE_STATUS_LABELS = {
+  completed: "已完成",
+  running: "运行中",
+  degraded: "降级完成",
+  failed: "失败",
+  blocked: "已阻止",
+}
+
+function phaseDisplayLabel(phase) {
+  return PHASE_DISPLAY_LABELS[phase] || phase || "phase"
+}
+
+function phaseStatusLabel(status) {
+  return PHASE_STATUS_LABELS[status] || status || "未知"
+}
+
 function classesFor(progress, extra = "") {
   const classes = ["workflow-progress"]
   if (progress.failed) classes.push("workflow-progress--failed")
@@ -60,7 +83,7 @@ function renderPhaseArtifacts(artifacts = {}) {
       if (repair.attempts) countBits.push(`修复 ${repair.attempts}`)
       if (missing.length) countBits.push(`缺章 ${missing.slice(0, 6).join(",")}`)
       const detail = countBits.length ? ` · ${countBits.join(" · ")}` : ""
-      return `<li>${escapeHtml(phase)}：${escapeHtml(artifact.status || "unknown")}${escapeHtml(detail)}</li>`
+      return `<li>${escapeHtml(phaseDisplayLabel(phase))}：${escapeHtml(phaseStatusLabel(artifact.status))}${escapeHtml(detail)}</li>`
     })
   if (!items.length) return ""
   return `<ul class="workflow-progress__artifacts">${items.join("")}</ul>`
@@ -93,10 +116,10 @@ function renderTimeline(timeline = []) {
   if (!Array.isArray(timeline) || timeline.length === 0) return ""
   const items = timeline.slice(-8).map((item) => {
     const bits = []
-    if (item.status) bits.push(item.status)
+    if (item.status) bits.push(phaseStatusLabel(item.status))
     if (item.duration_s != null) bits.push(`${item.duration_s}s`)
     if (item.error_kind) bits.push(item.error_kind)
-    return `<li>${escapeHtml(item.phase || "phase")}：${escapeHtml(bits.join(" · "))}</li>`
+    return `<li>${escapeHtml(phaseDisplayLabel(item.phase))}：${escapeHtml(bits.join(" · "))}</li>`
   })
   return `<section class="workflow-progress__detail-section"><h4>阶段时间线</h4><ul>${items.join("")}</ul></section>`
 }

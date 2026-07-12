@@ -20,13 +20,17 @@ demo 阶段使用 `LOCAL_OWNER_ID`（nil UUID）代表本地 owner。后续加�
 
 - `global_llm_defaults` 不允许 `api_key` 字段；schema 与 service 双重拒绝，避免把密钥
   提升为全局数据。
-- 项目 LLM Profile 的密钥是 `projects.settings.llm.api_key` 的写入式、加密字段。响应只
-  暴露 `api_key_configured`；空 API Key 表示保留，只有 `clear_api_key=true` 能清除。
+- 项目 LLM Profile 的密钥是写入式、加密字段，并按当前项目的供应商模板隔离保存。
+  当前模板仍通过 `projects.settings.llm.api_key` 提供给运行时；响应只暴露
+  `api_key_configured` 和不含密钥的 `api_key_configured_providers`。空 API Key 表示复用
+  当前模板已保存的 Key，只有 `clear_api_key=true` 能清除当前模板 Key。
 - effective 设置逐字段合并：项目值优先，其次全局值，最后才是代码内置默认；没有内置值
   的字段保持 unset。API 响应为每个字段携带 `value` 与 `source`，`source` 为
   `project`、`global`、`system` 或 `unset`。
 - 项目覆盖的单字段删除只接受白名单字段，用于恢复继承；不得拼接列名或 JSON path。
 - `global_llm_defaults.deep_import` 是预留列，当前全局设置流程不写入它。
+- 项目 `deep_import.phase1c` 提供自动融合阈值（默认 `0.92`）、边界上下文、并发、token 和超时设置。
+- `high_quality` 表示 DeepSeek `max` reasoning 和 Phase 1c，不会自动切换项目手动选择的 model。
 
 ## 对外接口
 

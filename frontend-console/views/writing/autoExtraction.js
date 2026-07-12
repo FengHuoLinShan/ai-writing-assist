@@ -71,7 +71,7 @@ export function createAutoExtraction({
         <label class="writing-checkbox-label writing-form-option">
           <input id="auto-extract-high-quality" type="checkbox" />
           <span>更高质量</span>
-          <span class="writing-checkbox-hint">需要标准提取约8倍时间</span>
+          <span class="writing-checkbox-hint">最大推理 + Phase 1c 融合，约需 2 倍时间</span>
         </label>
       ` : ""}
       <p class="writing-form-hint">

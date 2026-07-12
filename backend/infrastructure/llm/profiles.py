@@ -20,6 +20,7 @@ from shared.constants import DEFAULT_LLM_MAX_TOKENS
 
 LLM_SETTINGS_KEY = "llm"
 LLM_API_KEY_FIELD = "api_key"
+LLM_API_KEYS_BY_PROVIDER_FIELD = "api_keys_by_provider"
 
 LLM_SOURCE_PROJECT = "project"
 LLM_SOURCE_TEST_OVERRIDE = "test_override"
@@ -333,9 +334,15 @@ def sanitize_project_settings(settings: dict[str, Any] | None) -> dict[str, Any]
     llm = cleaned.get(LLM_SETTINGS_KEY)
     if isinstance(llm, dict):
         api_key = llm.pop(LLM_API_KEY_FIELD, None)
+        api_keys = llm.pop(LLM_API_KEYS_BY_PROVIDER_FIELD, None)
         llm["api_key_configured"] = secret_configured(api_key) or bool(
             llm.get("api_key_configured")
         )
+        configured = _configured_provider_ids(api_keys)
+        provider_id = llm.get("provider_id")
+        if secret_configured(api_key) and isinstance(provider_id, str):
+            configured = sorted(set(configured) | {provider_id})
+        llm["api_key_configured_providers"] = configured
     return cleaned
 
 
@@ -350,16 +357,33 @@ def get_runtime_llm_profile(settings: dict[str, Any] | None) -> dict[str, Any]:
     api_key = profile.get(LLM_API_KEY_FIELD)
     if secret_configured(api_key):
         profile[LLM_API_KEY_FIELD] = decrypt_secret(api_key)
+    profile.pop(LLM_API_KEYS_BY_PROVIDER_FIELD, None)
     return profile
 
 
 def sanitize_llm_profile(profile: dict[str, Any] | None) -> dict[str, Any]:
     cleaned = deepcopy(profile or {})
     api_key = cleaned.pop(LLM_API_KEY_FIELD, None)
+    api_keys = cleaned.pop(LLM_API_KEYS_BY_PROVIDER_FIELD, None)
     cleaned["api_key_configured"] = secret_configured(api_key) or bool(
         cleaned.get("api_key_configured")
     )
+    configured = _configured_provider_ids(api_keys)
+    provider_id = cleaned.get("provider_id")
+    if secret_configured(api_key) and isinstance(provider_id, str):
+        configured = sorted(set(configured) | {provider_id})
+    cleaned["api_key_configured_providers"] = configured
     return cleaned
+
+
+def _configured_provider_ids(value: Any) -> list[str]:
+    if not isinstance(value, dict):
+        return []
+    return sorted(
+        provider_id
+        for provider_id, secret in value.items()
+        if isinstance(provider_id, str) and secret_configured(secret)
+    )
 
 
 def resolve_llm_profile(

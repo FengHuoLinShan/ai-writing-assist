@@ -85,6 +85,7 @@ OUTLINE_FACADE_API = {
     "get_scenes_by_novel",
     "get_scenes_by_provenance_key",
     "get_scenes_by_provenance_keys",
+    "persist_deep_import_fusion_suggestions",
     "rebuild_scene_summary_checkpoint",
     "select_deep_import_fallback_reveal_target",
     "split_scene_chunk_to_new_chapter",

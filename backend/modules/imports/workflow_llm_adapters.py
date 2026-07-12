@@ -36,6 +36,8 @@ PHASE1A_SCENE_SLICING_TIMEOUT_SECONDS = 900
 PHASE1A_CHAPTER_RECOVERY_MAX_TOKENS = 8192
 PHASE1B_ENRICH_MAX_TOKENS = 32_768
 PHASE1B_ENRICH_TIMEOUT_SECONDS = 300
+PHASE1C_DECISION_MAX_TOKENS = 1024
+PHASE1C_TIMEOUT_SECONDS = 180
 PHASE2_WORLD_TIMEOUT_SECONDS = 900
 PHASE2_WORLD_MIN_MAX_TOKENS = 32_768
 
@@ -323,18 +325,21 @@ def _profile_request_defaults(profile: ResolvedLLMProfile) -> dict[str, Any]:
 
 
 def _phase_model(profile: ResolvedLLMProfile, *, high_quality: bool = False) -> str:
-    return "deepseek-v4-pro" if high_quality else profile.model
+    del high_quality
+    return profile.model
 
 
 def _deepseek_request_extra(
     profile: ResolvedLLMProfile,
     *,
     model: str,
+    high_quality: bool = False,
 ) -> dict[str, Any]:
     extra = dict(profile.extra or {})
-    if profile.provider_id == "deepseek" or model.startswith("deepseek-v4"):
+    if profile.provider_id == "deepseek" or model.startswith("deepseek"):
         extra.setdefault("thinking", {"type": "enabled"})
-        extra.setdefault("reasoning_effort", "max")
+        extra["thinking"] = {"type": "enabled"}
+        extra["reasoning_effort"] = "max" if high_quality else "high"
     return extra
 
 
@@ -414,9 +419,15 @@ class _Phase1aSceneSlicingLLM:
                         f"- owned_range: 第{owned_start}章-第{owned_end}章\n"
                         f"- right_overlap_range: {right_overlap}\n\n"
                         "【Scene 定义】\n"
-                        "- Scene 是最小叙事单元，不是物理章。\n"
+                        "- Scene 是一个独立的主要叙事单元，不是物理章。\n"
                         "- 一个 Scene 可以跨章。\n"
-                        "- Scene 应有明确的叙事目标、阻碍或张力。\n"
+                        "- 同一章可以有多个 Scene，但每个都必须有独立的主要"
+                        "叙事目标、冲突或关键状态转变。\n"
+                        "- 普通动作、过场、弱关联片段应吸收进邻近主要 Scene，"
+                        "不要单独建卡。\n"
+                        "- 伏笔、揭示、目标转变、关系或世界状态变化即使很短，"
+                        "也不得因长度而丢失。\n"
+                        "- 不使用字数、段落数或每章固定 Scene 数作为切分依据。\n"
                         "- 不要按章节机械切分，不要输出章节大纲。\n\n"
                         "【正文定位规则】\n"
                         "- start_anchor 必须从 start_chapter 正文逐字复制 "
@@ -451,7 +462,11 @@ class _Phase1aSceneSlicingLLM:
             temperature=0.2,
             max_tokens=max_tokens,
             response_format={"type": "json_object"},
-            extra=_deepseek_request_extra(profile, model=model),
+            extra=_deepseek_request_extra(
+                profile,
+                model=model,
+                high_quality=self.high_quality,
+            ),
         )
         try:
             return await _call_structured(
@@ -488,9 +503,11 @@ class _Phase1aSceneSlicingLLM:
 
         profile = resolve_llm_profile(self.project_settings)
         model = _phase_model(profile, high_quality=self.high_quality)
-        request_extra = _deepseek_request_extra(profile, model=model)
-        request_extra["thinking"] = {"type": "disabled"}
-        request_extra.pop("reasoning_effort", None)
+        request_extra = _deepseek_request_extra(
+            profile,
+            model=model,
+            high_quality=self.high_quality,
+        )
         candidate = dict(payload.get("candidate") or {})
         chapters = [
             chapter
@@ -548,10 +565,11 @@ class _Phase1aSceneSlicingLLM:
 
         profile = resolve_llm_profile(self.project_settings)
         model = _phase_model(profile, high_quality=self.high_quality)
-        request_extra = _deepseek_request_extra(profile, model=model)
-        if "thinking" in request_extra:
-            request_extra["thinking"] = {"type": "enabled"}
-            request_extra["reasoning_effort"] = "medium"
+        request_extra = _deepseek_request_extra(
+            profile,
+            model=model,
+            high_quality=self.high_quality,
+        )
         chapter = payload.get("chapter")
         chapters = [chapter] if isinstance(chapter, dict) else []
         chapter_index = int((chapter or {}).get("chapter_index") or 0)
@@ -569,8 +587,9 @@ class _Phase1aSceneSlicingLLM:
                     role="user",
                     content=(
                         f"{_chapters_text(chapters)}\n\n"
-                        f"仅切分第{chapter_index}章，输出 1-3 个有独立叙事意义的 "
-                        "Scene；不得引入其他章节。每个 Scene 都必须有标题、"
+                        f"仅切分第{chapter_index}章，输出具有独立主要叙事"
+                        "目标、冲突或关键状态转变的 Scene；不得引入其他章节。"
+                        "普通动作和过渡应吸收到邻近主要 Scene。每个 Scene 都必须有标题、"
                         "目标和核心冲突，start_chapter 与 end_chapter 都必须"
                         f"是 {chapter_index}。start_anchor 和 end_anchor 必须从正文"
                         "逐字复制 4-80 个连续字符，在正文中各自唯一；"
@@ -598,7 +617,7 @@ class _Phase1aSceneSlicingLLM:
             max_fix_attempts=_phase1a_structured_max_fix_attempts(self.project_settings),
             project_settings=self.project_settings,
             fix_prompt=(
-                "只输出 JSON object，scenes 必须包含 1-3 个 Scene；"
+                "只输出 JSON object，scenes 必须包含主要叙事 Scene；"
                 "章号必须等于当前章，两个 anchor 必须逐字复制自正文。"
             ),
         )
@@ -631,8 +650,9 @@ class _SingleChapterSceneCandidateLLM:
                     role="system",
                     content=(
                         service._load_prompt()
-                        + "\n\n这是小样本恢复路径。只处理单章正文，输出 1-3 个"
-                        "高价值 Scene。只输出 JSON，不要 Markdown。"
+                        + "\n\n这是小样本恢复路径。只处理单章正文，仅输出"
+                        "拥有独立主要叙事目标的 Scene。普通动作和过渡不单独建卡。"
+                        "只输出 JSON，不要 Markdown。"
                     ),
                 ),
                 LLMMessage(
@@ -649,6 +669,11 @@ class _SingleChapterSceneCandidateLLM:
             temperature=0.2,
             max_tokens=_phase01_scene_max_tokens(request_defaults["max_tokens"]),
             response_format={"type": "json_object"},
+            extra=_deepseek_request_extra(
+                profile,
+                model=request_defaults["model"],
+                high_quality=False,
+            ),
         )
         return await _call_structured(
             _llm_client_for_profile(self.project_settings, novel_id=self.novel_id),
@@ -930,7 +955,11 @@ class _Phase1bSceneEnrichmentLLM:
             temperature=0.2,
             max_tokens=max_tokens,
             response_format={"type": "json_object"},
-            extra=_deepseek_request_extra(profile, model=model),
+            extra=_deepseek_request_extra(
+                profile,
+                model=model,
+                high_quality=self.high_quality,
+            ),
         )
         return await _call_structured(
             _llm_client_for_profile(self.project_settings, novel_id=self.novel_id),
@@ -946,6 +975,88 @@ class _Phase1bSceneEnrichmentLLM:
                 "只能包含 emotional_beat、must_happen、must_not_happen、"
                 "narrative_tag、confidence、needs_review、review_reason。"
                 "不要输出 title、goal、core_conflict、start_chapter、end_chapter。"
+            ),
+        )
+
+
+class _Phase1cSceneFusionLLM:
+    """LLM adapter for one adjacent Phase 1c Scene boundary decision."""
+
+    def __init__(
+        self,
+        project_settings: dict[str, Any] | None = None,
+        *,
+        novel_id: str | None = None,
+        high_quality: bool = True,
+    ) -> None:
+        self.project_settings = project_settings
+        self.novel_id = novel_id
+        self.high_quality = high_quality
+
+    async def __call__(self, payload: dict[str, Any]) -> Any:
+        from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+        from modules.imports.scene_fusion_phase1c import Phase1cDecision
+
+        profile = resolve_llm_profile(self.project_settings)
+        model = _phase_model(profile, high_quality=self.high_quality)
+        max_tokens = deep_import_int_setting(
+            self.project_settings,
+            "phase1c",
+            "decision_max_tokens",
+            env_name="PHASE1C_DECISION_MAX_TOKENS",
+            default=PHASE1C_DECISION_MAX_TOKENS,
+        )
+        request = LLMCallRequest(
+            model=model,
+            messages=[
+                LLMMessage(
+                    role="system",
+                    content=(
+                        "你是长篇小说 Scene 边界审核器。判断相邻候选是同一个"
+                        "主要叙事目标的延续，还是各自独立的 Scene。只输出 JSON。"
+                    ),
+                ),
+                LLMMessage(
+                    role="user",
+                    content=(
+                        f"payload={json.dumps(payload, ensure_ascii=False)}\n\n"
+                        "决策只能是 merge、absorb_left、absorb_right、"
+                        "keep_separate、needs_review。merge 表示两者属于同一主要"
+                        "叙事单元；absorb_left 表示左侧只是应并入右侧的次要片段；"
+                        "absorb_right 相反。同章多个独立 Scene 合法，不得仅因同章或"
+                        "长度合并。短伏笔、揭示、目标或状态转变可以是重要 Scene。"
+                        "证据不足时选 needs_review。\n"
+                        '只输出 {"decision":"keep_separate","confidence":0.0,'
+                        '"reason":"..."}。'
+                    ),
+                ),
+            ],
+            temperature=0.1,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+            extra=_deepseek_request_extra(
+                profile,
+                model=model,
+                high_quality=self.high_quality,
+            ),
+        )
+        return await _call_structured(
+            _llm_client_for_profile(self.project_settings, novel_id=self.novel_id),
+            request,
+            Phase1cDecision,
+            step_name="phase1c_scene_fusion",
+            transport_retries=False,
+            timeout_seconds=deep_import_int_setting(
+                self.project_settings,
+                "phase1c",
+                "timeout_seconds",
+                env_name="PHASE1C_TIMEOUT_SECONDS",
+                default=PHASE1C_TIMEOUT_SECONDS,
+            ),
+            max_fix_attempts=1,
+            project_settings=self.project_settings,
+            fix_prompt=(
+                "只输出 JSON object，且只包含 decision、confidence、reason。"
             ),
         )
 
@@ -1094,7 +1205,11 @@ class _Phase2WorldExtractionLLM:
             temperature=0.2,
             max_tokens=max_tokens,
             response_format={"type": "json_object"},
-            extra=_deepseek_request_extra(profile, model=model),
+            extra=_deepseek_request_extra(
+                profile,
+                model=model,
+                high_quality=self.high_quality,
+            ),
         )
         return await _call_structured(
             _llm_client_for_profile(self.project_settings, novel_id=self.novel_id),

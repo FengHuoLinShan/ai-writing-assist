@@ -27,11 +27,11 @@ imports 模块负责将本地小说文件解析并导入系统，创建 WritingD
 
 DeepImportWorkflow 将 Scene 提取、实体抽取和结构分析串成受控自动流水线。启动前必须由
 用户一次性确认 `adoption_policy="user_authorized_pipeline"`；运行中不逐项打断。当前权威 Scene 阶段是
-`Phase 0 deterministic plan → Phase 1a scene slicing → Phase 1b scene enrichment → Scene commit`。
+`Phase 0 deterministic plan → Phase 1a scene slicing → Phase 1b scene enrichment → Phase 1c scene fusion → Scene commit`。
 旧 `scene_prefetch` / `scene_reinforcement` legacy pipeline 已删除；
-`scene_fusion` 仍作为内部兼容/修复组件保留，默认不进入 Scene 自动提取主路径。
+Phase 1c 仅在 `high_quality=true` 时运行，审核同章候选、跨章延续和重复窗口；高置信结果自动融合，其余进入通用融合建议队列。
 `workflow.py` 不再保留旧 prefetch / reinforcement / single-chapter fallback / fusion wrapper；
-默认路径只通过 `workflow_scene_phase.py` 调用 plan / slicing / enrichment / commit seam。
+默认路径只通过 `workflow_scene_phase.py` 调用 plan / slicing / enrichment / fusion / commit seam。
 `workflow.py` 仅保留 `DeepImportWorkflowRuntime` 要求的活跃 phase runner seam；
 非 runtime seam 的薄包装/死代码已清理，PhaseRunner DI 大重构不属于本次变更。
 
@@ -44,8 +44,8 @@ DeepImportWorkflow 将 Scene 提取、实体抽取和结构分析串成受控自
 - 切分并锁定 Scene 语义字段，同时要求 LLM 从正文逐字复制
   起止 anchor；本地 materializer 负责唯一命中、chapter-local offset、
   draft/content hash 绑定和邻接/整章覆盖推断。
-- `scene_chunks` 不由 LLM 自由填 offset；锚点未解析时使用关闭
-  thinking 的小上下文 repair，缺章先做单章恢复，仍失败才保留
+- `scene_chunks` 不由 LLM 自由填 offset；锚点未解析时使用统一
+  reasoning 策略的小上下文 repair，缺章先做单章恢复，仍失败才保留
   `needs_review` 的章节级语义 fallback。
 
 ### Phase 1b: scene enrichment
@@ -60,8 +60,14 @@ DeepImportWorkflow 将 Scene 提取、实体抽取和结构分析串成受控自
   env/default 值遮蔽项目配置。
 - 单 Scene enrichment 失败只影响当前 Scene：重试后仍失败则 fallback 并进入人工复核清单。
 
+### Phase 1c: scene fusion
+- 仅 `high_quality=true` 运行；普通导入记录 `skipped/high_quality_required`。
+- 默认自动融合阈值为 `0.92`，且两侧必须都有精确 offset、draft 和 source hash，fallback 候选不自动融合。
+- 同章多 Scene 合法；只有同一主要叙事目标的延续、应被吸收的次要片段或重复窗口才建议融合。
+- 低置信、冲突或调用失败结果保持分离，并与 Scene commit 同事务写入 `scene_fusion_suggestions`。
+
 ### Scene commit
-- Phase 1a / 1b 都是 workflow 中间层；正式 Scene 只在 Scene commit 后写入。
+- Phase 1a / 1b / 1c 都是 workflow 中间层；正式 Scene 只在 Scene commit 后写入。
 - 正式 Scene 写入携带 provenance / workflow / auto_ingested 信息；恢复或重跑时按 provenance 跳过已提交结果。无复核标记的结果计为已采用，`needs_review` 结果进入待处理汇总。
 - 提交前必须补齐 Scene 工作台健康检查依赖的 `core_conflict / must_happen / must_not_happen`，缺失时由来源目标和冲突保守派生。
 
@@ -87,7 +93,9 @@ DeepImportWorkflow 将 Scene 提取、实体抽取和结构分析串成受控自
 
 ### 进度状态
 
-由 `DeepImportProgress` Schema 定义，并写入 `async_tasks.result`；`async_tasks.progress` 使用 0.0 / 0.4 / 0.8 / 1.0 表示阶段推进：
+由 `DeepImportProgress` Schema 定义，并写入 `async_tasks.result`。完整深度导入
+保留 Scene / Entity / Structure 的全流水线区间；独立 Scene stage 的
+`async_tasks.progress` 则按实测耗时估算。完整深度导入中 Phase 1b 推进到 `30%`，Phase 1c 为 `30–35%`，Scene commit/建议写入为 `35–40%`；独立 Scene stage 在 Phase 1c/commit 收敛到 100%。阶段内按 window / Scene 已完成单元线性推进：
 - current_step: scene_segmentation / entity_extraction / structure_analysis
 - completed_steps: 已完成阶段
 - message: 当前可展示给用户的中文状态
@@ -202,17 +210,16 @@ persistence` 单一路径。默认 LLM 并发 20，provider/LLM 超时为 240/27
 结构化输出上限 32768；在连续限流、超时或格式失败时逐波减半降载。工作流的 `end_chapter` 作为可见硬截止，
 跨章 Scene 只装载截止章/offset 以前的精确 span。checkpoint 记录 activation
 version 和来源数量。Phase 2b
-在其后执行全局别名/关系 reconciliation，不回写早期 Scene 的可见性语义。DeepSeek 下 Phase 2a 保留高 reasoning，Phase 2b 关闭 thinking；两者的每次结构化请求都直接使用 32768 上限，不再为低价 token 试验最小上限，也不做改变 `max_tokens` 的阶梯扩容重试。
+在其后执行全局别名/关系 reconciliation，不回写早期 Scene 的可见性语义。DeepSeek 下 Phase 2a/2b 普通模式使用 `high` reasoning，高质量模式使用 `max`；Phase 2b 单调用默认超时 120 秒，高质量模式有效超时翻倍。
 
 Phase 1/2/3 的活跃 adapter 都使用上述冻结 project settings。
-`high_quality=true` 时 Scene、Phase 2a/2b 和 Phase 3 的实际 request model
-统一为 `deepseek-v4-pro`；context snapshot/managed provenance 记录实际
+`high_quality=true` 只开启最大 reasoning 和 Phase 1c，不改写项目手动选择的 request model；context snapshot/managed provenance 记录实际
 request model，不只记录 profile 默认模型。
 
 legacy `SceneSegmentationService` 只作兼容/测试工具保留，无生产
 入口调用方。它的 batch/single-chapter LLM 路径已迁移
 `open_project_llm_client(db, novel_id)`，不再占用 direct-client 例外；
-生产主路仍是 Phase 0/1a/1b。
+生产主路仍是 Phase 0/1a/1b，高质量模式追加 Phase 1c。
 
 Phase 3 复用 outline 的全书 Scene 摘要且不默认加载全书正文，追加 derived world
 background。空结构、无结构引用和无有效篇章范围会触发一次同 workflow 的 draft/candidate

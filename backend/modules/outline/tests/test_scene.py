@@ -633,7 +633,7 @@ class TestSceneRepository:
         monkeypatch.setattr(repo, "get", fake_get)
         monkeypatch.setattr(
             repo,
-            "stale_cross_chapter_suggestions_for_scene",
+            "stale_fusion_suggestions_for_scene",
             fake_stale,
         )
         db = FakeSession()

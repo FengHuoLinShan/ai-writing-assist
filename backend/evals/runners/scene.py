@@ -81,9 +81,8 @@ async def run_scene_workflow_cases(
         max(chapter_indices),
         stage="scenes",
         force=True,
-        # A baseline compares the project's effective model. The imports
-        # high-quality flag overrides DeepSeek profiles to deepseek-v4-pro,
-        # which would silently test a different system than recorded.
+        # Baseline boundary metrics exclude the optional Phase 1c fusion pass;
+        # high-quality mode is covered by dedicated Phase 1c tests/evals.
         high_quality=False,
         authorization_confirmed=True,
     )

@@ -87,8 +87,8 @@ beforeEach(() => {
   api.outline.mergeScenes = vi.fn()
   api.outline.previewSceneSplit = vi.fn()
   api.outline.splitScene = vi.fn()
-  api.outline.listCrossChapterSuggestions = vi.fn().mockResolvedValue({ items: [], total: 0 })
-  api.outline.dismissCrossChapterSuggestions = vi.fn().mockResolvedValue({ dismissed: 0 })
+  api.outline.listFusionSuggestions = vi.fn().mockResolvedValue({ items: [], total: 0 })
+  api.outline.dismissFusionSuggestions = vi.fn().mockResolvedValue({ dismissed: 0 })
   api.outline.updateScene.mockResolvedValue({ id: "s1" })
   sceneWorkbenchView._loading = false
   sceneWorkbenchView._workbench = null
@@ -117,7 +117,7 @@ beforeEach(() => {
   sceneWorkbenchView._autoExtractPoller = null
   sceneWorkbenchView._autoExtractMeta = null
   sceneWorkbenchView._autoExtractCancelPending = false
-  sceneWorkbenchView._crossChapterSuggestions = []
+  sceneWorkbenchView._fusionSuggestions = []
   sceneWorkbenchView._mobileDetailOpen = false
   sceneWorkbenchView._selectedSceneIdValue = null
 })
@@ -271,7 +271,7 @@ describe("sceneWorkbenchView", () => {
   it("submits scene auto extraction stage task", async () => {
     api.imports.startStage.mockResolvedValue({ task_id: "scene-task" })
     sceneWorkbenchView._showSceneAutoExtractForm()
-    expect(showModal.mock.calls[0][1].html).toContain("需要标准提取约8倍时间")
+    expect(showModal.mock.calls[0][1].html).toContain("最大推理 + Phase 1c 融合")
     expect(showModal.mock.calls[0][1].html).toContain("自动采用通过门禁")
     expect(showModal.mock.calls[0][1].html).toContain("进入待处理")
     expect(showModal.mock.calls[0][2][0].text).toBe("确认并开始提取")
@@ -432,6 +432,48 @@ describe("sceneWorkbenchView", () => {
     })
     expect(recoverActiveWorkflows("p1")).toHaveLength(1)
     sceneWorkbenchView.onLeave()
+  })
+
+  it("updates scene extraction progress without rerendering or moving the list", async () => {
+    sceneWorkbenchView._workbench = workbenchPayload
+    sceneWorkbenchView._autoExtractTaskId = "scene-running"
+    sceneWorkbenchView._autoExtractMeta = { start_chapter: 1, end_chapter: 60 }
+    document.body.innerHTML = `<main id="workspace-content">${await sceneWorkbenchView.render()}</main>`
+    sceneWorkbenchView._bindEvents()
+    const organize = document.querySelector(".scene-workbench__organize")
+    const search = document.getElementById("scene-filter-q")
+    organize.scrollTop = 88
+    search.value = "正在浏览"
+    api.tasks.get.mockResolvedValue({
+      task_id: "scene-running",
+      task_type: "scene_auto_extraction",
+      status: "running",
+      progress: 0.295,
+      result: {
+        current_phase: "phase1a_scene_slicing",
+        current_item: { kind: "window", completed: 2, total: 4 },
+        phase_timeline: [
+          { phase: "phase0_plan", status: "completed" },
+          { phase: "phase1a_scene_slicing", status: "running" },
+        ],
+      },
+    })
+
+    sceneWorkbenchView._startAutoExtractPolling("scene-running")
+    await vi.waitFor(() => {
+      expect(
+        document.querySelector('[data-role="scene-auto-extract-progress"]')?.textContent,
+      ).toContain("Phase 1a · Scene 边界切分｜窗口 2/4")
+    })
+    sceneWorkbenchView._stopAutoExtractPolling()
+
+    expect(router.renderCurrentView).not.toHaveBeenCalled()
+    expect(document.querySelector(".scene-workbench__organize")).toBe(organize)
+    expect(organize.scrollTop).toBe(88)
+    expect(document.getElementById("scene-filter-q").value).toBe("正在浏览")
+    expect(
+      document.querySelector('.scene-workbench-row[data-id="s1"]')?.classList.contains("is-selected"),
+    ).toBe(true)
   })
 
   it("retains a failed scene extraction task until dismissed", async () => {
@@ -904,12 +946,12 @@ describe("sceneWorkbenchView", () => {
     expect(api.outline.reviewSceneWorkbench).not.toHaveBeenCalled()
   })
 
-  it("loads persisted cross-chapter suggestions into a durable queue", async () => {
+  it("loads persisted fusion suggestions into a durable queue", async () => {
     api.outline.getSceneWorkbench.mockResolvedValue({
       ...workbenchPayload,
-      cross_chapter_suggestions: { pending_count: 1 },
+      fusion_suggestions: { pending_count: 1 },
     })
-    api.outline.listCrossChapterSuggestions.mockResolvedValue({
+    api.outline.listFusionSuggestions.mockResolvedValue({
       total: 1,
       items: [{
         id: "suggestion-1",
@@ -923,12 +965,12 @@ describe("sceneWorkbenchView", () => {
     await sceneWorkbenchView._loadWorkbench()
     const html = await sceneWorkbenchView.render()
 
-    expect(api.outline.listCrossChapterSuggestions).toHaveBeenCalledWith(
+    expect(api.outline.listFusionSuggestions).toHaveBeenCalledWith(
       "p1",
       { skip: 0, limit: 100 },
     )
-    expect(html).toContain("1 条跨章融合建议待处理")
-    expect(html).toContain('data-action="dismiss-cross-chapter-suggestions"')
+    expect(html).toContain("1 条 Scene 融合建议待处理")
+    expect(html).toContain('data-action="dismiss-fusion-suggestions"')
   })
 
   it("saves editable scene fields through outline updateScene", async () => {
@@ -1424,36 +1466,57 @@ describe("sceneWorkbenchView", () => {
     expect(toast).toHaveBeenCalledWith("Scene 拆分失败：split failed", "error")
   })
 
-  it("opens cross-chapter suggestions through draft review instead of saving", async () => {
+  it("opens fusion suggestions through draft review instead of saving", async () => {
     showModal.mockReset()
     showModal.mockImplementation(() => {})
     sceneWorkbenchView._workbench = workbenchPayload
-    sceneWorkbenchView._crossChapterProgress = {
-      taskId: "task-1",
-      done: true,
-      raw: {
-        result: {
-          suggestions: [
-            {
-              source_scene_ids: ["s1", "s2"],
-              chapter_span: [1, 3],
-              confidence: 0.8,
-              stop_reason: "keep_separate",
-              reason: "同一场追击",
-              proposed_scene: { title: "跨章追击" },
-              scan_trace: [],
-            },
-          ],
-        },
-      },
-    }
+    sceneWorkbenchView._fusionSuggestions = [{
+      source_scene_ids: ["s1", "s2"],
+      chapter_span: [1, 3],
+      confidence: 0.8,
+      proposed_action: "merge",
+      suggestion_kind: "cross_chapter",
+      reason: "同一场追击",
+      proposed_scene: { title: "跨章追击" },
+      scan_trace: [],
+    }]
 
-    sceneWorkbenchView._showCrossChapterSuggestions()
+    sceneWorkbenchView._showFusionSuggestions()
     const buttons = showModal.mock.calls[0][2]
     await buttons[0].handler()
 
     expect(api.outline.saveSceneFusion).not.toHaveBeenCalled()
     expect(showModal.mock.calls[1][0]).toBe("选择主 Scene")
+  })
+
+  it("handles keep-separate suggestions without opening fusion", async () => {
+    showModal.mockReset()
+    showModal.mockImplementation(() => {})
+    api.outline.dismissFusionSuggestions.mockResolvedValue({ dismissed: 1 })
+    const refresh = vi.spyOn(sceneWorkbenchView, "_refreshWorkbenchInPlace")
+      .mockResolvedValue()
+    sceneWorkbenchView._fusionSuggestions = [{
+      id: "sg-keep",
+      source_scene_ids: ["s1", "s2"],
+      chapter_span: [1],
+      confidence: 0.8,
+      proposed_action: "keep_separate",
+      suggestion_kind: "intra_chapter",
+      reason: "两个独立目标",
+      scan_trace: [],
+    }]
+
+    sceneWorkbenchView._showFusionSuggestions()
+    await showModal.mock.calls[0][2][0].handler()
+
+    expect(showModal.mock.calls[1][0]).toBe("保持 Scene 分开")
+    expect(api.outline.previewSceneFusion).not.toHaveBeenCalled()
+    await showModal.mock.calls[1][2][1].handler()
+    expect(api.outline.dismissFusionSuggestions).toHaveBeenCalledWith("p1", {
+      suggestion_ids: ["sg-keep"],
+      confirmed: true,
+    })
+    expect(refresh).toHaveBeenCalled()
   })
 
   it("opens writing at the first mapped chapter", () => {

@@ -9,8 +9,6 @@ from infrastructure.tasks.enqueuer import enqueue_task
 from modules.context.facade import attach_result_ref, require_fresh_confirmation
 from modules.outline.scene_workbench import SceneWorkbenchService
 from modules.outline.schemas import (
-    CrossChapterSceneDetectRequest,
-    CrossChapterSceneDetectResponse,
     ForeshadowingPlanCreate,
     ForeshadowingPlanListResponse,
     ForeshadowingPlanResponse,
@@ -34,13 +32,13 @@ from modules.outline.schemas import (
     RevealPlanResponse,
     RevealPlanUpdate,
     SceneCreate,
-    SceneCrossChapterSuggestionDismissRequest,
-    SceneCrossChapterSuggestionDismissResponse,
-    SceneCrossChapterSuggestionListResponse,
     SceneFusionPreviewRequest,
     SceneFusionPreviewResponse,
     SceneFusionSaveRequest,
     SceneFusionSaveResponse,
+    SceneFusionSuggestionDismissRequest,
+    SceneFusionSuggestionDismissResponse,
+    SceneFusionSuggestionListResponse,
     SceneImpactPreview,
     SceneListResponse,
     SceneMappingUpdate,
@@ -461,29 +459,11 @@ async def api_save_scene_fusion(
         raise _workbench_error(exc) from exc
 
 
-@router.post(
-    "/scene-workbench/cross-chapter/detect",
-    response_model=CrossChapterSceneDetectResponse,
-    status_code=http_status.HTTP_201_CREATED,
-)
-async def api_detect_cross_chapter_scenes(
-    data: CrossChapterSceneDetectRequest,
-    db: DbSession,
-):
-    task_id = enqueue_task(
-        db,
-        "scene_cross_chapter_detection",
-        meta=data.model_dump(exclude_none=True),
-    )
-    await db.flush()
-    return CrossChapterSceneDetectResponse(task_id=task_id)
-
-
 @router.get(
-    "/scene-workbench/cross-chapter/suggestions",
-    response_model=SceneCrossChapterSuggestionListResponse,
+    "/scene-workbench/fusion-suggestions",
+    response_model=SceneFusionSuggestionListResponse,
 )
-async def api_list_cross_chapter_suggestions(
+async def api_list_fusion_suggestions(
     db: DbSession,
     *,
     novel_id: NovelIdQuery,
@@ -491,7 +471,7 @@ async def api_list_cross_chapter_suggestions(
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
     try:
-        return await _scene_workbench_service.list_cross_chapter_suggestions(
+        return await _scene_workbench_service.list_fusion_suggestions(
             db,
             novel_id,
             skip=skip,
@@ -502,17 +482,17 @@ async def api_list_cross_chapter_suggestions(
 
 
 @router.post(
-    "/scene-workbench/cross-chapter/suggestions/dismiss",
-    response_model=SceneCrossChapterSuggestionDismissResponse,
+    "/scene-workbench/fusion-suggestions/dismiss",
+    response_model=SceneFusionSuggestionDismissResponse,
 )
-async def api_dismiss_cross_chapter_suggestions(
-    data: SceneCrossChapterSuggestionDismissRequest,
+async def api_dismiss_fusion_suggestions(
+    data: SceneFusionSuggestionDismissRequest,
     db: DbSession,
     *,
     novel_id: NovelIdQuery,
 ):
     try:
-        return await _scene_workbench_service.dismiss_cross_chapter_suggestions(
+        return await _scene_workbench_service.dismiss_fusion_suggestions(
             db,
             novel_id,
             data,

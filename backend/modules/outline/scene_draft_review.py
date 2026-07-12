@@ -48,7 +48,7 @@ class SceneDraftReviewService:
         sources: list[Scene],
         primary_scene_id: str,
         draft_scene: dict[str, Any],
-        mode: Literal["fusion", "cross_chapter_fusion"] = "fusion",
+        mode: Literal["fusion", "fusion_suggestion"] = "fusion",
         confidence: float | None = None,
         reason: str | None = None,
         warnings: list[str] | None = None,

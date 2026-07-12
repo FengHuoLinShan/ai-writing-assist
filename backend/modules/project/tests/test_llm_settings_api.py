@@ -208,7 +208,90 @@ async def test_update_project_llm_settings_preserves_existing_key_when_empty(
     assert "sk-secret-value" not in second.text
     data = second.json()
     assert data["provider_id"] == "kimi"
-    assert data["api_key_configured"] is True
+    assert data["api_key_configured"] is False
+    assert data["api_key_configured_providers"] == ["deepseek"]
+
+
+@pytest.mark.asyncio
+async def test_project_keeps_api_keys_per_provider_template(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    sample_project: dict,
+) -> None:
+    pid = sample_project["id"]
+    for provider_id, base_url, model, api_key in (
+        ("deepseek", "https://api.deepseek.com", "deepseek-v4-flash", "sk-ds"),
+        ("kimi", "https://api.moonshot.cn/v1", "kimi-k2.6", "sk-kimi"),
+    ):
+        response = await async_client.put(
+            f"/api/projects/{pid}/llm-settings",
+            headers=XHR_HEADERS,
+            json={
+                "provider_id": provider_id,
+                "base_url": base_url,
+                "model": model,
+                "api_key": api_key,
+            },
+        )
+        assert response.status_code == 200
+        assert api_key not in response.text
+
+    switched_back = await async_client.put(
+        f"/api/projects/{pid}/llm-settings",
+        headers=XHR_HEADERS,
+        json={
+            "provider_id": "deepseek",
+            "base_url": "https://api.deepseek.com",
+            "model": "deepseek-v4-flash",
+            "api_key": "",
+        },
+    )
+    body = switched_back.json()
+    assert body["api_key_configured"] is True
+    assert body["api_key_configured_providers"] == ["deepseek", "kimi"]
+    assert "sk-ds" not in switched_back.text
+    assert "sk-kimi" not in switched_back.text
+
+    stored = (
+        await db_session.execute(select(Project).where(Project.id == uuid.UUID(pid)))
+    ).scalar_one()
+    profile = stored.settings["llm"]
+    assert profile["api_key"] == profile["api_keys_by_provider"]["deepseek"]
+    assert profile["api_keys_by_provider"]["deepseek"]["encrypted"] is True
+    assert profile["api_keys_by_provider"]["kimi"]["encrypted"] is True
+
+    project_response = await async_client.get(f"/api/projects/{pid}")
+    assert "api_keys_by_provider" not in project_response.text
+
+    cleared = await async_client.put(
+        f"/api/projects/{pid}/llm-settings",
+        headers=XHR_HEADERS,
+        json={"clear_all_api_keys": True},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["api_key_configured"] is False
+    assert cleared.json()["api_key_configured_providers"] == []
+
+
+@pytest.mark.asyncio
+async def test_update_llm_key_reports_missing_encryption_configuration(
+    async_client: AsyncClient,
+    sample_project: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("LLM_SETTINGS_ENCRYPTION_KEY", raising=False)
+    response = await async_client.put(
+        f"/api/projects/{sample_project['id']}/llm-settings",
+        headers=XHR_HEADERS,
+        json={"provider_id": "deepseek", "api_key": "test-key-not-real"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "LLM API Key encryption is not configured; set "
+        "LLM_SETTINGS_ENCRYPTION_KEY and restart the backend"
+    )
+    assert "test-key-not-real" not in response.text
 
 
 @pytest.mark.asyncio

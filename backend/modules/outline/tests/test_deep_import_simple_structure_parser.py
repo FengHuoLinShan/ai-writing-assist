@@ -13,6 +13,7 @@ from modules.outline.generator import PlotStructureGenerator
 class FakeLLM:
     def __init__(self) -> None:
         self.requests = []
+        self.model_name = "deepseek-v4-flash"
 
     async def generate_structured(self, request, schema, **_kwargs):
         self.requests.append(request)
@@ -112,7 +113,7 @@ async def test_deep_import_simple_structure_parser_converts_probe_shape() -> Non
     request = llm.requests[0]
     assert request.model == "deepseek-v4-pro"
     assert request.extra["thinking"] == {"type": "enabled"}
-    assert request.extra["reasoning_effort"] == "max"
+    assert request.extra["reasoning_effort"] == "high"
     assert request.max_tokens == 32_768
     assert request.messages[1].content.startswith("【Scene卡片 JSON】")
     assert "## 世界对象" in request.messages[1].content
@@ -121,7 +122,7 @@ async def test_deep_import_simple_structure_parser_converts_probe_shape() -> Non
 
 
 @pytest.mark.asyncio
-async def test_deep_import_structure_generator_high_quality_uses_pro_model() -> None:
+async def test_deep_import_structure_generator_high_quality_keeps_model() -> None:
     class FakeContextBuilder:
         async def build(self, *_args, **_kwargs):
             return PlotStructureContext(
@@ -161,7 +162,8 @@ async def test_deep_import_structure_generator_high_quality_uses_pro_model() -> 
         persist=True,
     )
 
-    assert llm.requests[0].model == "deepseek-v4-pro"
+    assert llm.requests[0].model == "deepseek-v4-flash"
+    assert llm.requests[0].extra["reasoning_effort"] == "max"
 
 
 @pytest.mark.asyncio
@@ -219,6 +221,6 @@ async def test_deep_import_structure_generator_uses_and_closes_snapshot_client(
             {"novel_id": "00000000-0000-0000-0000-000000000001"},
         )
     ]
-    assert llm.requests[0].model == "deepseek-v4-pro"
+    assert llm.requests[0].model == "snapshot-default"
     assert llm.requests[0].max_tokens == 30_000
     llm.close.assert_awaited_once_with()

@@ -16,6 +16,24 @@ from modules.outline.contracts import (
 )
 
 
+async def persist_deep_import_fusion_suggestions(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    source_workflow_id: str,
+    suggestions: list[dict[str, Any]],
+) -> list[str]:
+    """Persist author-visible Phase 1c fusion suggestions inside outline."""
+    from modules.outline.scene_workbench import SceneWorkbenchService
+
+    return await SceneWorkbenchService().persist_fusion_suggestions(
+        db,
+        novel_id=novel_id,
+        source_workflow_id=source_workflow_id,
+        suggestions=suggestions,
+    )
+
+
 async def get_scene(db: AsyncSession, scene_id: str) -> dict[str, Any] | None:
     """按 ID 获取 Scene，返回 dict 或 None。"""
     from modules.outline.repositories import SceneRepository

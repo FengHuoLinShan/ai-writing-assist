@@ -195,26 +195,28 @@ class SceneSpan(Base, UUIDMixin, TimestampMixin, NovelMixin):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
 
 
-class SceneCrossChapterSuggestion(Base, UUIDMixin, TimestampMixin, NovelMixin):
-    """Author-visible, durable cross-chapter Scene fusion suggestion."""
+class SceneFusionSuggestion(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """Author-visible, durable Scene fusion suggestion."""
 
-    __tablename__ = "scene_cross_chapter_suggestions"
+    __tablename__ = "scene_fusion_suggestions"
     __table_args__ = (
         UniqueConstraint(
             "novel_id",
             "suggestion_key",
-            name="uq_scene_cross_chapter_suggestion_key",
+            name="uq_scene_fusion_suggestion_key",
         ),
         Index(
-            "ix_scene_cross_chapter_suggestions_queue",
+            "ix_scene_fusion_suggestions_queue",
             "novel_id",
             "status",
             "created_at",
         ),
-        {"comment": "跨章 Scene 识别产生的持久待处理建议"},
+        {"comment": "Phase 1c 产生的持久 Scene 融合建议"},
     )
 
-    source_task_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False)
+    source_workflow_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    suggestion_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    proposed_action: Mapped[str] = mapped_column(String(32), nullable=False)
     suggestion_key: Mapped[str] = mapped_column(String(64), nullable=False)
     source_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     source_scene_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)

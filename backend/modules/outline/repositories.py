@@ -12,7 +12,7 @@ from modules.outline.models import (
     PlotThread,
     Scene,
     SceneChapterLink,
-    SceneCrossChapterSuggestion,
+    SceneFusionSuggestion,
     SceneSpan,
 )
 from modules.outline.schemas import (
@@ -702,15 +702,15 @@ class SceneRepository:
         )
         await db.flush()
 
-    async def stale_cross_chapter_suggestions_for_scene(
+    async def stale_fusion_suggestions_for_scene(
         self,
         db: AsyncSession,
         scene: Scene,
     ) -> int:
         result = await db.execute(
-            select(SceneCrossChapterSuggestion).where(
-                SceneCrossChapterSuggestion.novel_id == scene.novel_id,
-                SceneCrossChapterSuggestion.status == "pending",
+            select(SceneFusionSuggestion).where(
+                SceneFusionSuggestion.novel_id == scene.novel_id,
+                SceneFusionSuggestion.status == "pending",
             )
         )
         matched = [
@@ -1200,7 +1200,7 @@ class SceneRepository:
         novel_id: uuid.UUID,
         chapter_index: int,
     ) -> Scene | None:
-        """获取包含指定章节的 Scene（一个章节只属于一个 Scene）"""
+        """获取包含指定章节的 Scene（同章可包含多个独立 Scene）。"""
         stmt = (
             select(Scene)
             .join(SceneChapterLink, SceneChapterLink.scene_id == Scene.id)
@@ -1281,7 +1281,7 @@ class SceneRepository:
             "chapter_ids",
             "scene_chunks",
         } & fields_set:
-            await self.stale_cross_chapter_suggestions_for_scene(db, scene)
+            await self.stale_fusion_suggestions_for_scene(db, scene)
         return scene
 
     async def deprecate_with_reference(
@@ -1316,7 +1316,7 @@ class SceneRepository:
                 )
             )
         for scene in scene_list:
-            await self.stale_cross_chapter_suggestions_for_scene(db, scene)
+            await self.stale_fusion_suggestions_for_scene(db, scene)
             if clear_mapping:
                 await self.delete_scene_spans(db, scene)
             else:
@@ -1370,28 +1370,30 @@ class SceneRepository:
         return result.rowcount or 0
 
 
-class SceneCrossChapterSuggestionRepository:
+class SceneFusionSuggestionRepository:
     async def upsert_pending(
         self,
         db: AsyncSession,
         *,
         novel_id: uuid.UUID,
-        source_task_id: uuid.UUID,
+        source_workflow_id: str,
         suggestion_key: str,
         source_fingerprint: str,
         payload: dict[str, Any],
-    ) -> SceneCrossChapterSuggestion:
+    ) -> SceneFusionSuggestion:
         result = await db.execute(
-            select(SceneCrossChapterSuggestion).where(
-                SceneCrossChapterSuggestion.novel_id == novel_id,
-                SceneCrossChapterSuggestion.suggestion_key == suggestion_key,
+            select(SceneFusionSuggestion).where(
+                SceneFusionSuggestion.novel_id == novel_id,
+                SceneFusionSuggestion.suggestion_key == suggestion_key,
             )
         )
         item = result.scalar_one_or_none()
         if item is None:
-            item = SceneCrossChapterSuggestion(
+            item = SceneFusionSuggestion(
                 novel_id=novel_id,
-                source_task_id=source_task_id,
+                source_workflow_id=source_workflow_id,
+                suggestion_kind=str(payload.get("suggestion_kind") or "cross_chapter"),
+                proposed_action=str(payload.get("proposed_action") or "needs_review"),
                 suggestion_key=suggestion_key,
                 source_fingerprint=source_fingerprint,
                 source_scene_ids=list(payload.get("source_scene_ids") or []),
@@ -1404,7 +1406,13 @@ class SceneCrossChapterSuggestionRepository:
             )
             db.add(item)
         elif item.status == "pending":
-            item.source_task_id = source_task_id
+            item.source_workflow_id = source_workflow_id
+            item.suggestion_kind = str(
+                payload.get("suggestion_kind") or item.suggestion_kind
+            )
+            item.proposed_action = str(
+                payload.get("proposed_action") or item.proposed_action
+            )
             item.source_scene_ids = list(payload.get("source_scene_ids") or [])
             item.chapter_span = list(payload.get("chapter_span") or [])
             item.proposed_scene = dict(payload.get("proposed_scene") or {})
@@ -1423,16 +1431,16 @@ class SceneCrossChapterSuggestionRepository:
         status: str = "pending",
         skip: int = 0,
         limit: int | None = None,
-    ) -> list[SceneCrossChapterSuggestion]:
+    ) -> list[SceneFusionSuggestion]:
         stmt = (
-            select(SceneCrossChapterSuggestion)
+            select(SceneFusionSuggestion)
             .where(
-                SceneCrossChapterSuggestion.novel_id == novel_id,
-                SceneCrossChapterSuggestion.status == status,
+                SceneFusionSuggestion.novel_id == novel_id,
+                SceneFusionSuggestion.status == status,
             )
             .order_by(
-                SceneCrossChapterSuggestion.created_at.desc(),
-                SceneCrossChapterSuggestion.id,
+                SceneFusionSuggestion.created_at.desc(),
+                SceneFusionSuggestion.id,
             )
             .offset(skip)
         )
@@ -1449,9 +1457,9 @@ class SceneCrossChapterSuggestionRepository:
         status: str = "pending",
     ) -> int:
         result = await db.execute(
-            select(func.count(SceneCrossChapterSuggestion.id)).where(
-                SceneCrossChapterSuggestion.novel_id == novel_id,
-                SceneCrossChapterSuggestion.status == status,
+            select(func.count(SceneFusionSuggestion.id)).where(
+                SceneFusionSuggestion.novel_id == novel_id,
+                SceneFusionSuggestion.status == status,
             )
         )
         return int(result.scalar_one() or 0)
@@ -1461,11 +1469,11 @@ class SceneCrossChapterSuggestionRepository:
         db: AsyncSession,
         novel_id: uuid.UUID,
         suggestion_id: uuid.UUID,
-    ) -> SceneCrossChapterSuggestion | None:
+    ) -> SceneFusionSuggestion | None:
         result = await db.execute(
-            select(SceneCrossChapterSuggestion).where(
-                SceneCrossChapterSuggestion.novel_id == novel_id,
-                SceneCrossChapterSuggestion.id == suggestion_id,
+            select(SceneFusionSuggestion).where(
+                SceneFusionSuggestion.novel_id == novel_id,
+                SceneFusionSuggestion.id == suggestion_id,
             )
         )
         return result.scalar_one_or_none()
@@ -1473,7 +1481,7 @@ class SceneCrossChapterSuggestionRepository:
     async def mark_status(
         self,
         db: AsyncSession,
-        item: SceneCrossChapterSuggestion,
+        item: SceneFusionSuggestion,
         *,
         status: str,
         result_scene_id: uuid.UUID | None = None,

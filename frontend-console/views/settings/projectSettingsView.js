@@ -145,6 +145,9 @@ const projectSettingsView = {
           this.saveLLM(payload, api_key, clear_api_key),
         onResetAll: () => this.resetAllLLMFields(),
         onResetField: (field) => this.resetLLMField(field),
+        templates: this._templates,
+        configuredProviders:
+          this._effectiveLLM.api_key_configured_providers?.value || [],
       })
     }
   },
@@ -160,8 +163,13 @@ const projectSettingsView = {
       })
       // D17: Key 未配置时给提示但仍报告其他字段已保存
       const eff = this._effectiveLLM
-      const keyConfigured = eff?.api_key_configured?.value === true
-      const willHaveKey = Boolean(apiKey) || (keyConfigured && !clearApiKey)
+      const selectedProvider = payload.provider_id
+      const configuredProviders = new Set(
+        eff?.api_key_configured_providers?.value || [],
+      )
+      const willHaveKey = Boolean(apiKey) || (
+        !clearApiKey && configuredProviders.has(selectedProvider)
+      )
       if (willHaveKey) {
         toast("LLM 配置已保存", "success")
       } else {
@@ -246,6 +254,7 @@ const projectSettingsView = {
         deep_import: {},
         api_key: "",
         clear_api_key: true,
+        clear_all_api_keys: true,
       })
       toast("已恢复所有 LLM 字段到全局默认", "success")
       await this._refreshEffective()

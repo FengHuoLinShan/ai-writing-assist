@@ -12,7 +12,7 @@ project 模块负责小说项目基础元信息，是其他所有模块的根。
 - 管理目标规模（字数/章节数）和当前创作阶段
 - 提供 `novel_id` / `project_id`
 - 提供项目级默认策略（如 `default_reveal_policy`）
-- 提供项目级 LLM Profile（供应商、Base URL、模型、写入式 API Key）
+- 提供项目级 LLM Profile（供应商、Base URL、模型、按供应商模板隔离的写入式 API Key）
 - 提供项目级智能去重扫描入口，聚合各业务模块自己的去重建议
 
 ## 边界
@@ -139,10 +139,13 @@ LLM 只生成建议；`smart-dedup/apply` 必须 `confirmed=true`。正史对象
 
 ### LLM 配置安全规则
 
-- `settings.llm.api_key` 是加密写入字段；`ProjectResponse` 和专用 LLM 设置响应只返回 `api_key_configured`
+- 当前模板使用的 `settings.llm.api_key` 与项目内按模板保存的 Key 均为加密写入字段；
+  `ProjectResponse` 和专用 LLM 设置响应只返回 `api_key_configured` 以及不含密钥的
+  `api_key_configured_providers`
 - 写入密钥需要配置 `LLM_SETTINGS_ENCRYPTION_KEY`；旧明文值可兼容读取，并会在后续保存时转为密文
 - 前端空提交 `api_key` 会保留已有密钥；`clear_api_key=true` 才清除
-- 供应商模板只提供可编辑预填值，不写入密钥
+- 供应商模板切换会预填该模板的常用 Base URL、默认模型、显示名称和参数；保存时 Key
+  绑定到当前项目的对应模板，回切模板会恢复该模板已保存的 Key
 - managed step journal 只记录 `novel_id`、profile source 和脱敏
   `profile_summary`；不记录 Key、完整 Base URL query 或正文
 

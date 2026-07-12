@@ -88,10 +88,7 @@ const sceneWorkbenchView = {
   _autoExtractPoller: null,
   _autoExtractMeta: null,
   _autoExtractCancelPending: false,
-  _crossChapterTaskId: null,
-  _crossChapterProgress: null,
-  _crossChapterPoller: null,
-  _crossChapterSuggestions: [],
+  _fusionSuggestions: [],
   _activeDraftReview: null,
   _mobileDetailOpen: false,
   _selectedSceneIdValue: null,
@@ -101,7 +98,7 @@ const sceneWorkbenchView = {
     this._workbench = null
     this._total = 0
     this._selectedFusionSceneIds = new Set()
-    this._crossChapterSuggestions = []
+    this._fusionSuggestions = []
     this._selectedSceneIdValue = this._routeSceneId()
     if (this._selectedSceneIdValue) {
       this._filters = { ...SCENE_FILTER_DEFAULTS }
@@ -114,7 +111,6 @@ const sceneWorkbenchView = {
     }
     try {
       this._recoverAutoExtractWorkflow()
-      this._recoverCrossChapterWorkflow()
       await this._loadWorkbench()
       if (typeof window !== "undefined" && window.innerWidth < 720 && this._selectedSceneId()) {
         this._mobileDetailOpen = true
@@ -133,7 +129,6 @@ const sceneWorkbenchView = {
 
   onLeave() {
     this._stopAutoExtractPolling()
-    this._stopCrossChapterPolling()
     this._mobileDetailOpen = false
   },
 
@@ -153,12 +148,10 @@ const sceneWorkbenchView = {
     const html = `
       <div class="scene-workbench-shell">
         <div class="scene-workbench-actions">
-          <button class="btn" data-action="detect-cross-chapter-scenes">识别跨章 Scene</button>
           <button class="btn btn-primary" data-action="scene-auto-extract">场景（scene）自动提取</button>
         </div>
-        ${this._renderAutoExtractProgress()}
-        ${this._renderCrossChapterProgress()}
-        ${this._renderCrossChapterSuggestionQueue()}
+        <div data-role="scene-auto-extract-progress">${this._renderAutoExtractProgress()}</div>
+        ${this._renderFusionSuggestionQueue()}
         <div class="scene-workbench ${narrow ? "is-narrow" : ""}">
           <section class="scene-workbench__organize">
             ${this._renderManagementFilters()}
@@ -195,16 +188,16 @@ const sceneWorkbenchView = {
       this._filters.skip = effectiveSkip
     }
     const pendingSuggestions = Number(
-      this._workbench?.cross_chapter_suggestions?.pending_count || 0,
+      this._workbench?.fusion_suggestions?.pending_count || 0,
     )
-    if (pendingSuggestions > 0 && api.outline.listCrossChapterSuggestions) {
-      const result = await api.outline.listCrossChapterSuggestions(
+    if (pendingSuggestions > 0 && api.outline.listFusionSuggestions) {
+      const result = await api.outline.listFusionSuggestions(
         state.currentProjectId,
         { skip: 0, limit: 100 },
       )
-      this._crossChapterSuggestions = Array.isArray(result?.items) ? result.items : []
+      this._fusionSuggestions = Array.isArray(result?.items) ? result.items : []
     } else {
-      this._crossChapterSuggestions = []
+      this._fusionSuggestions = []
     }
   },
 
@@ -299,7 +292,7 @@ const sceneWorkbenchView = {
           const breakdownText = [
             breakdown.scene_structure ? `结构 ${breakdown.scene_structure}` : "",
             breakdown.source_mapping ? `定位 ${breakdown.source_mapping}` : "",
-            breakdown.cross_chapter_suggestion ? `融合 ${breakdown.cross_chapter_suggestion}` : "",
+            breakdown.scene_fusion_suggestion ? `融合 ${breakdown.scene_fusion_suggestion}` : "",
           ].filter(Boolean).join(" · ")
           const activeHealth = this._filters.health || this._activeHealth
           const active = activeHealth === key ? "active" : ""
@@ -351,7 +344,7 @@ const sceneWorkbenchView = {
     const reasons = this._healthReasons(item)
     const reviewState = this._sceneReviewState(item)
     const display = structureAssetDisplay(scene)
-    const suggestion = reasons.find((reason) => reason.code === "pending_cross_chapter_suggestion")
+    const suggestion = reasons.find((reason) => reason.code === "pending_scene_fusion_suggestion")
     const sourceMapping = reasons.find((reason) => [
       "source_mapping_chapter_only",
       "source_mapping_unresolved",
@@ -359,7 +352,7 @@ const sceneWorkbenchView = {
     const structure = reasons.find((reason) => [
       "manual_organize",
       "duplicate_chapter",
-      "overlapping_chapter",
+      "overlapping_span",
       "chunk_chapter_mismatch",
     ].includes(reason.code))
     const reviewAction = {
@@ -371,7 +364,7 @@ const sceneWorkbenchView = {
     if (healthKey === "needs_organize") {
       if (suggestion) return {
         key: "suggestion",
-        action: "context-open-cross-suggestion",
+        action: "context-open-fusion-suggestion",
         label: "查看融合建议",
         suggestionId: suggestion.suggestion_id,
       }
@@ -739,9 +732,9 @@ const sceneWorkbenchView = {
     await this._loadWorkbench()
 
     const currentQueue = typeof document !== "undefined"
-      ? document.querySelector(".scene-cross-chapter-queue")
+      ? document.querySelector(".scene-fusion-queue")
       : null
-    const queueHtml = this._renderCrossChapterSuggestionQueue()
+    const queueHtml = this._renderFusionSuggestionQueue()
     if (currentQueue && queueHtml) currentQueue.outerHTML = queueHtml
     else if (currentQueue) currentQueue.remove()
     else if (queueHtml) {
@@ -1076,7 +1069,7 @@ const sceneWorkbenchView = {
     if (!sceneId) return
     if (action.key === "review") return this._markSceneReviewed(sceneId)
     if (action.key === "suggestion") {
-      return this._openCrossChapterSuggestion(action.suggestionId)
+      return this._openFusionSuggestion(action.suggestionId)
     }
     if (action.key === "source_mapping") {
       return this._confirmSourceMapping(sceneId, action.fingerprint)
@@ -1749,7 +1742,8 @@ const sceneWorkbenchView = {
       ? `范围: 章节 ${this._autoExtractMeta.start_chapter || 1}-${this._autoExtractMeta.end_chapter || 10}`
       : "范围: 所选章节"
     const dismissHtml = this._autoExtractProgress.failed
-      || this._autoExtractProgress.cancelled ? `
+      || this._autoExtractProgress.cancelled
+      || this._autoExtractProgress.done ? `
       <button class="btn btn-sm" data-action="dismiss-scene-auto-extract">关闭</button>
     ` : `<button class="btn btn-sm" data-action="cancel-scene-auto-extract" ${this._autoExtractCancelPending ? "disabled" : ""}>${this._autoExtractCancelPending ? "取消中..." : "取消任务"}</button>`
     return `<div class="scene-progress-card-wrap">${renderWorkflowCard(this._autoExtractProgress, {
@@ -1758,39 +1752,36 @@ const sceneWorkbenchView = {
     })}${dismissHtml}</div>`
   },
 
-  _renderCrossChapterProgress() {
-    if (!this._crossChapterProgress) return ""
-    const result = this._crossChapterProgress.raw?.result || {}
-    const suggestions = Array.isArray(result.suggestions) ? result.suggestions : []
-    const suggestionHtml = this._crossChapterProgress.done
-      && suggestions.length
-      && !this._crossChapterSuggestions.length ? `
-      <div class="scene-cross-chapter-suggestions">
-        <span class="scene-cross-chapter-suggestions__count">${esc(suggestions.length)} 条建议可查看</span>
-        <button class="btn btn-sm btn-primary" data-action="show-cross-chapter-suggestions">查看建议</button>
-      </div>
-    ` : ""
-    return `<div class="scene-progress-card-wrap">${renderWorkflowCard(this._crossChapterProgress, {
-      title: "跨章 Scene 识别",
-      destinationLabel: "完成后可选择建议并保存融合 Scene",
-    })}${suggestionHtml}</div>`
+  _updateProgressMount(role, html) {
+    if (typeof document === "undefined") return
+    const mount = document.querySelector(`[data-role="${role}"]`)
+    if (!mount) return
+    mount.innerHTML = html
+    this._bindEvents()
   },
 
-  _renderCrossChapterSuggestionQueue() {
+  _updateAutoExtractProgressDOM() {
+    this._updateProgressMount(
+      "scene-auto-extract-progress",
+      this._renderAutoExtractProgress(),
+    )
+  },
+
+  _renderFusionSuggestionQueue() {
     const count = Number(
-      this._workbench?.cross_chapter_suggestions?.pending_count
-      || this._crossChapterSuggestions.length
+      this._workbench?.fusion_suggestions?.pending_count
+      || this._fusionSuggestions.length
       || 0,
     )
     if (!count) return ""
     return `
-      <div class="scene-cross-chapter-queue" role="status">
+      <div class="scene-fusion-queue" role="status">
         <div>
-          <strong>${esc(count)} 条跨章融合建议待处理</strong>
-          <span>建议已保存，刷新页面后仍可继续。</span>
+          <strong>${esc(count)} 条 Scene 融合建议待处理</strong>
+          <span>高质量导入产生的低置信或冲突结果，刷新后仍可继续。</span>
         </div>
-        <button class="btn btn-sm btn-primary" data-action="show-cross-chapter-suggestions">逐条处理</button>
-        <button class="btn btn-sm" data-action="dismiss-cross-chapter-suggestions">全部忽略</button>
+        <button class="btn btn-sm btn-primary" data-action="show-fusion-suggestions">逐条处理</button>
+        <button class="btn btn-sm" data-action="dismiss-fusion-suggestions">全部忽略</button>
       </div>
     `
   },
@@ -1798,11 +1789,6 @@ const sceneWorkbenchView = {
   _stopAutoExtractPolling() {
     if (this._autoExtractPoller?.stop) this._autoExtractPoller.stop()
     this._autoExtractPoller = null
-  },
-
-  _stopCrossChapterPolling() {
-    if (this._crossChapterPoller?.stop) this._crossChapterPoller.stop()
-    this._crossChapterPoller = null
   },
 
   _startAutoExtractPolling(taskId) {
@@ -1814,19 +1800,20 @@ const sceneWorkbenchView = {
       apiClient: api,
       onUpdate: (progress) => {
         this._autoExtractProgress = progress
-        router.renderCurrentView()
+        this._updateAutoExtractProgressDOM()
       },
       onDone: async (progress) => {
         clearActiveWorkflow(progress.taskId || taskId)
         this._autoExtractTaskId = null
+        this._autoExtractProgress = progress
+        this._updateAutoExtractProgressDOM()
         toast("场景（scene）自动提取完成", "success")
-        await this._loadWorkbench()
-        router.refresh()
+        await this._refreshWorkbenchInPlace({ preserveScroll: true })
       },
       onFailed: async (progress) => {
         this._autoExtractProgress = progress
         toast(`场景（scene）自动提取失败: ${progress.errorMessage || "未知错误"}`, "error")
-        router.renderCurrentView()
+        this._updateAutoExtractProgressDOM()
       },
     })
   },
@@ -1857,7 +1844,7 @@ const sceneWorkbenchView = {
     this._autoExtractProgress = null
     this._autoExtractMeta = null
     this._autoExtractCancelPending = false
-    router.renderCurrentView()
+    this._updateAutoExtractProgressDOM()
   },
 
   async _cancelAutoExtractTask() {
@@ -1872,7 +1859,7 @@ const sceneWorkbenchView = {
 
     this._stopAutoExtractPolling()
     this._autoExtractCancelPending = true
-    router.renderCurrentView()
+    this._updateAutoExtractProgressDOM()
     try {
       await api.tasks.cancel(taskId, novelId)
       this._autoExtractCancelPending = false
@@ -1885,7 +1872,7 @@ const sceneWorkbenchView = {
         meta: this._autoExtractMeta,
       }, "scene_auto_extraction")
       toast("当前场景自动提取任务已取消", "warning")
-      router.renderCurrentView()
+      this._updateAutoExtractProgressDOM()
       return true
     } catch (err) {
       this._autoExtractCancelPending = false
@@ -1907,7 +1894,7 @@ const sceneWorkbenchView = {
       </div>
       <label class="scene-quality-option">
         <input id="scene-auto-extract-high-quality" type="checkbox" />
-        更高质量 <span class="scene-quality-option__hint">需要标准提取约8倍时间</span>
+        更高质量 <span class="scene-quality-option__hint">最大推理 + Phase 1c 融合，约需 2 倍时间</span>
       </label>
       <p class="writing-form-hint" role="note">${esc(importAuthorizationNotice())}</p>
     `
@@ -1973,114 +1960,43 @@ const sceneWorkbenchView = {
       closeModal()
       toast(`场景（scene）自动提取任务已提交：${result.task_id}`, "success")
       this._startAutoExtractPolling(result.task_id)
-      router.renderCurrentView()
+      this._updateAutoExtractProgressDOM()
     } catch (err) {
       toast(err.message || "提交失败", "error")
     }
   },
 
-  async _startCrossChapterDetection() {
-    if (!state.currentProjectId) {
-      toast("请先选择项目", "warning")
-      return
-    }
-    try {
-      const result = await api.outline.detectCrossChapterScenes({
-        novel_id: state.currentProjectId,
-      })
-      this._crossChapterTaskId = result.task_id
-      this._crossChapterProgress = normalizeTaskProgress({
-        ...result,
-        task_type: "scene_cross_chapter_detection",
-      }, "scene_cross_chapter_detection")
-      persistActiveWorkflow({
-        taskId: result.task_id,
-        workflowType: "scene_cross_chapter_detection",
-        label: "跨章 Scene 识别",
-        projectId: state.currentProjectId,
-        view: "scene",
-      })
-      toast("跨章 Scene 识别任务已提交", "success")
-      this._startCrossChapterPolling(result.task_id)
-      router.renderCurrentView()
-    } catch (err) {
-      toast(err.message || "提交失败", "error")
-    }
-  },
-
-  _startCrossChapterPolling(taskId) {
-    this._stopCrossChapterPolling()
-    this._crossChapterPoller = pollTaskProgress({
-      taskId,
-      workflowType: "scene_cross_chapter_detection",
-      novelId: state.currentProjectId,
-      apiClient: api,
-      onUpdate: (progress) => {
-        this._crossChapterProgress = progress
-        router.renderCurrentView()
-      },
-      onDone: async (progress) => {
-        clearActiveWorkflow(progress.taskId || taskId)
-        this._crossChapterTaskId = null
-        this._crossChapterProgress = progress
-        toast("跨章 Scene 识别完成", "success")
-        await this._loadWorkbench()
-        router.renderCurrentView()
-      },
-      onFailed: (progress) => {
-        clearActiveWorkflow(progress.taskId || taskId)
-        this._crossChapterTaskId = null
-        this._crossChapterProgress = progress
-        toast(`跨章 Scene 识别失败: ${progress.errorMessage || "未知错误"}`, "error")
-        router.renderCurrentView()
-      },
-    })
-  },
-
-  _recoverCrossChapterWorkflow() {
-    const workflow = recoverActiveWorkflows(state.currentProjectId)
-      .find((item) => item.workflowType === "scene_cross_chapter_detection")
-    if (!workflow?.taskId) return
-    this._crossChapterTaskId = workflow.taskId
-    this._crossChapterProgress = normalizeTaskProgress({
-      task_id: workflow.taskId,
-      task_type: "scene_cross_chapter_detection",
-      status: "running",
-      meta: workflow.meta || {},
-    }, "scene_cross_chapter_detection")
-    this._startCrossChapterPolling(workflow.taskId)
-  },
-
-  _showCrossChapterSuggestions() {
-    const result = this._crossChapterProgress?.raw?.result || {}
-    const suggestions = this._crossChapterSuggestions.length
-      ? this._crossChapterSuggestions
-      : (Array.isArray(result.suggestions) ? result.suggestions : [])
+  _showFusionSuggestions() {
+    const suggestions = this._fusionSuggestions
     if (!suggestions.length) {
-      toast("暂无跨章 Scene 建议", "info")
+      toast("暂无 Scene 融合建议", "info")
       return
     }
     const rows = suggestions.map((item, index) => {
       const span = Array.isArray(item.chapter_span) ? item.chapter_span.join("-") : "-"
       const trace = (item.scan_trace || []).map((step) => `${step.action}: ${step.reason || ""}`).join(" / ")
       return `
-        <label class="scene-fusion-suggestion scene-cross-chapter-suggestion">
-          <input type="radio" name="cross-chapter-suggestion" value="${esc(index)}" ${index === 0 ? "checked" : ""} />
-          <strong>${esc(item.proposed_scene?.title || "跨章融合建议")}</strong>
-          <div class="scene-fusion-suggestion__meta">章节 ${esc(span)} · 置信度 ${esc(item.confidence ?? "-")} · ${esc(item.stop_reason || "")}</div>
+        <label class="scene-fusion-suggestion">
+          <input type="radio" name="fusion-suggestion" value="${esc(index)}" ${index === 0 ? "checked" : ""} />
+          <strong>${esc(item.proposed_scene?.title || "Scene 融合建议")}</strong>
+          <div class="scene-fusion-suggestion__meta">${esc(item.suggestion_kind || "-")} · 章节 ${esc(span)} · 置信度 ${esc(item.confidence ?? "-")} · ${esc(item.proposed_action || "")}</div>
           <p class="scene-fusion-suggestion__summary">${esc(item.reason || "无说明")}</p>
           <details class="scene-fusion-suggestion__trace"><summary>扫描轨迹</summary><p>${esc(trace || "无")}</p></details>
         </label>
       `
     }).join("")
-    showModalHtml("跨章 Scene 建议", rows, [{
-      text: "打开 AI 融合建议",
+    showModalHtml("Scene 融合建议", rows, [{
+      text: "处理所选建议",
       class: "btn-primary",
       handler: async () => {
-        const selected = document.querySelector('input[name="cross-chapter-suggestion"]:checked')?.value
+        const selected = document.querySelector('input[name="fusion-suggestion"]:checked')?.value
         const suggestion = suggestions[Number(selected || 0)]
         if (!suggestion) return
         closeModal()
+        if (suggestion.proposed_action === "keep_separate") {
+          this._confirmKeepSeparateSuggestion(suggestion)
+          return
+        }
         await this._showPrimaryScenePicker(
           suggestion.source_scene_ids || [],
           suggestion.id || null,
@@ -2089,11 +2005,41 @@ const sceneWorkbenchView = {
     }])
   },
 
-  async _openCrossChapterSuggestion(suggestionId) {
-    if (!suggestionId) return this._showCrossChapterSuggestions()
-    const suggestion = this._crossChapterSuggestions.find((item) => item.id === suggestionId)
+  _confirmKeepSeparateSuggestion(suggestion) {
+    if (!suggestion?.id) return
+    showModalHtml("保持 Scene 分开", `
+      <p>将确认这些 Scene 保持独立，并将该建议标记为已处理。这不会修改 Scene 内容。</p>
+    `, [
+      { text: "取消", class: "", handler: () => closeModal() },
+      {
+        text: "确认保持分开",
+        class: "btn-primary",
+        handler: async () => {
+          try {
+            await api.outline.dismissFusionSuggestions(state.currentProjectId, {
+              suggestion_ids: [suggestion.id],
+              confirmed: true,
+            })
+            closeModal()
+            toast("已确认 Scene 保持分开", "success")
+            await this._refreshWorkbenchInPlace()
+          } catch (err) {
+            toast(err.message || "处理建议失败", "error")
+          }
+        },
+      },
+    ])
+  },
+
+  async _openFusionSuggestion(suggestionId) {
+    if (!suggestionId) return this._showFusionSuggestions()
+    const suggestion = this._fusionSuggestions.find((item) => item.id === suggestionId)
     if (!suggestion) {
       toast("该建议已变化，请刷新后重试", "warning")
+      return
+    }
+    if (suggestion.proposed_action === "keep_separate") {
+      this._confirmKeepSeparateSuggestion(suggestion)
       return
     }
     await this._showPrimaryScenePicker(
@@ -2102,10 +2048,10 @@ const sceneWorkbenchView = {
     )
   },
 
-  _dismissAllCrossChapterSuggestions() {
-    const ids = this._crossChapterSuggestions.map((item) => item.id).filter(Boolean)
+  _dismissAllFusionSuggestions() {
+    const ids = this._fusionSuggestions.map((item) => item.id).filter(Boolean)
     if (!ids.length) return
-    showModalHtml("忽略跨章融合建议", `
+    showModalHtml("忽略 Scene 融合建议", `
       <p>将忽略 ${esc(ids.length)} 条建议。这不会修改任何 Scene。</p>
     `, [
       { text: "取消", class: "", handler: () => closeModal() },
@@ -2114,7 +2060,7 @@ const sceneWorkbenchView = {
         class: "btn-primary",
         handler: async () => {
           try {
-            await api.outline.dismissCrossChapterSuggestions(state.currentProjectId, {
+            await api.outline.dismissFusionSuggestions(state.currentProjectId, {
               suggestion_ids: ids,
               confirmed: true,
             })
@@ -2141,16 +2087,15 @@ const sceneWorkbenchView = {
       "scene-auto-extract": () => this._showSceneAutoExtractForm(),
       "cancel-scene-auto-extract": () => this._cancelAutoExtractTask(),
       "dismiss-scene-auto-extract": () => this._dismissAutoExtractProgress(),
-      "detect-cross-chapter-scenes": () => this._startCrossChapterDetection(),
-      "show-cross-chapter-suggestions": () => this._showCrossChapterSuggestions(),
-      "dismiss-cross-chapter-suggestions": () => this._dismissAllCrossChapterSuggestions(),
+      "show-fusion-suggestions": () => this._showFusionSuggestions(),
+      "dismiss-fusion-suggestions": () => this._dismissAllFusionSuggestions(),
       "handle-scene-health": (e, t, ctx) => {
         e.stopPropagation()
         return this._handleSceneHealth(ctx.id, t.getAttribute("data-health"))
       },
       "context-review-scene": (_e, _t, ctx) => this._markSceneReviewed(ctx.id),
-      "context-open-cross-suggestion": (_e, t) => (
-        this._openCrossChapterSuggestion(t.getAttribute("data-suggestion-id"))
+      "context-open-fusion-suggestion": (_e, t) => (
+        this._openFusionSuggestion(t.getAttribute("data-suggestion-id"))
       ),
       "context-confirm-source-mapping": (_e, t, ctx) => (
         this._confirmSourceMapping(ctx.id, t.getAttribute("data-fingerprint"))

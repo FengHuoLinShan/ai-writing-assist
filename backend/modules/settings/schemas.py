@@ -30,6 +30,7 @@ class EffectiveLLMSettingsResponse(BaseModel):
     extra: FieldValueSource
     creative_mode: FieldValueSource
     api_key_configured: FieldValueSource
+    api_key_configured_providers: FieldValueSource
     deep_import: FieldValueSource
 
 

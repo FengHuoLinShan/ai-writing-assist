@@ -3490,7 +3490,7 @@ class TestDeepImportWorkflowAutoRun:
             (0.0, "running", "scene_segmentation", "phase0_plan", []),
             (0.1, "running", "scene_segmentation", "phase1a_scene_slicing", []),
             (0.2, "running", "scene_segmentation", "phase1b_enrichment", []),
-            (0.3, "running", "scene_segmentation", "scene_commit", []),
+            (0.35, "running", "scene_segmentation", "scene_commit", []),
             (
                 0.4,
                 "running",
@@ -4361,6 +4361,87 @@ class TestDeepImportOrchestrator:
         await orchestrator.run_task(AsyncMock(), task)
 
         task.update_progress.assert_called_once_with(0.4)
+
+    @pytest.mark.parametrize(
+        ("phase", "current_phase", "current_item", "expected"),
+        [
+            ("running", "phase0_plan", {}, 0.0),
+            ("running", "phase1a_scene_slicing", {"completed": 0, "total": 4}, 0.0),
+            ("running", "phase1a_scene_slicing", {"completed": 2, "total": 4}, 0.295),
+            ("running", "phase1a_scene_slicing", {"completed": 4, "total": 4}, 0.59),
+            ("running", "phase1b_enrichment", {"completed": 0, "total": 82}, 0.59),
+            ("running", "phase1b_enrichment", {"completed": 41, "total": 82}, 0.79),
+            ("running", "phase1b_enrichment", {"completed": 82, "total": 82}, 0.99),
+            ("running", "scene_commit", {"count": 82}, 0.99),
+            ("done", "scene_commit", {"count": 82}, 1.0),
+        ],
+    )
+    def test_scene_stage_progress_uses_elapsed_time_weights(
+        self,
+        phase,
+        current_phase,
+        current_item,
+        expected,
+    ):
+        progress = DeepImportProgress(
+            phase=phase,
+            current_phase=current_phase,
+            current_item=current_item,
+        )
+
+        value = DeepImportOrchestrator._scene_stage_progress_value(progress)
+
+        assert value == pytest.approx(expected)
+
+    @pytest.mark.asyncio
+    async def test_scene_stage_persists_elapsed_time_progress_instead_of_raw_ranges(
+        self,
+    ):
+        orchestrator = DeepImportOrchestrator()
+
+        async def run_step(*_args, on_progress=None, **_kwargs):
+            updates = [
+                ("running", "phase0_plan", {}, 0.0),
+                (
+                    "running",
+                    "phase1a_scene_slicing",
+                    {"completed": 2, "total": 4},
+                    0.15,
+                ),
+                (
+                    "running",
+                    "phase1b_enrichment",
+                    {"completed": 41, "total": 82},
+                    0.25,
+                ),
+                ("running", "scene_commit", {"count": 82}, 0.3),
+                ("done", "scene_commit", {"count": 82}, 1.0),
+            ]
+            latest = None
+            for phase, current_phase, current_item, raw_value in updates:
+                latest = DeepImportProgress(
+                    phase=phase,
+                    current_phase=current_phase,
+                    current_item=current_item,
+                )
+                await on_progress(latest, raw_value)
+            return latest
+
+        orchestrator.workflow.run_step = AsyncMock(side_effect=run_step)
+        task = Mock(
+            id=uuid.uuid4(),
+            task_type="scene_auto_extraction",
+            meta=_authorized_task_meta("n1", stage="scenes"),
+            result={},
+            progress=0.0,
+        )
+        task.update_progress = Mock()
+
+        await orchestrator.run_stage_task(AsyncMock(), task, stage="scenes")
+
+        assert [
+            call.args[0] for call in task.update_progress.call_args_list
+        ] == pytest.approx([0.0, 0.295, 0.79, 0.99, 1.0])
 
     @pytest.mark.asyncio
     async def test_run_task_raises_after_persisting_failed_progress(self):

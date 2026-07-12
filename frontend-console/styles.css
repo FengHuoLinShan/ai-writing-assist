@@ -4811,7 +4811,7 @@ kbd {
   color: var(--accent);
 }
 
-.scene-cross-chapter-queue {
+.scene-fusion-queue {
   display: flex;
   gap: 10px;
   align-items: center;
@@ -4821,13 +4821,13 @@ kbd {
   background: var(--accent-soft);
 }
 
-.scene-cross-chapter-queue > div {
+.scene-fusion-queue > div {
   display: grid;
   flex: 1;
   gap: 2px;
 }
 
-.scene-cross-chapter-queue span,
+.scene-fusion-queue span,
 .scene-batch-group span {
   color: var(--text-dim);
   font-size: 12px;
@@ -4991,7 +4991,7 @@ kbd {
     display: none;
   }
 
-  .scene-cross-chapter-queue {
+  .scene-fusion-queue {
     align-items: stretch;
     flex-direction: column;
   }
@@ -6083,18 +6083,6 @@ kbd {
   cursor: pointer;
 }
 
-.scene-cross-chapter-suggestions {
-  margin-top: var(--space-2);
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-}
-
-.scene-cross-chapter-suggestions__count {
-  color: var(--text-dim);
-  font-size: var(--text-sm);
-}
-
 .scene-picker-card {
   display: block;
   margin-bottom: var(--space-3);
@@ -6139,7 +6127,7 @@ kbd {
   color: var(--text-dim);
 }
 
-.scene-cross-chapter-suggestion {
+.scene-fusion-suggestion {
   display: block;
   margin-bottom: var(--space-3);
   border: 1px solid var(--border);
@@ -6149,7 +6137,7 @@ kbd {
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.scene-cross-chapter-suggestion:hover {
+.scene-fusion-suggestion:hover {
   border-color: var(--accent);
   background: var(--bg-hover);
 }

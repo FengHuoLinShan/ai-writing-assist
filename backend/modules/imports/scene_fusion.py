@@ -114,7 +114,12 @@ DiscardReason = Literal[
     "low_confidence_unusable",
     "outside_scope",
 ]
-FinalScenePhase = Literal["phase1b_fusion", "phase1b_enrichment", "phase1a_fallback"]
+FinalScenePhase = Literal[
+    "phase1b_fusion",
+    "phase1b_enrichment",
+    "phase1a_fallback",
+    "phase1c_fusion",
+]
 Phase1bLLMCallable = Callable[[dict[str, Any]], Awaitable[Any]]
 
 

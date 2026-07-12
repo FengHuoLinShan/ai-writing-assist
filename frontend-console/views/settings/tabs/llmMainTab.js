@@ -5,6 +5,8 @@
  * 依赖全局：document、toast、confirm。
  */
 import {
+  bindLLMApiKeyEvents,
+  bindLLMProviderTemplateEvents,
   bindLLMPresetEvents,
   renderLLMFormFields,
   readLLMFormFields,
@@ -24,6 +26,8 @@ const llmMainTab = {
       top_p: effectiveData.top_p?.value ?? null,
       extra: effectiveData.extra?.value || {},
       api_key_configured: effectiveData.api_key_configured?.value || false,
+      api_key_configured_providers:
+        effectiveData.api_key_configured_providers?.value || [],
       provider_id_source: effectiveData.provider_id?.source,
       base_url_source: effectiveData.base_url?.source,
     }
@@ -55,8 +59,10 @@ const llmMainTab = {
     `
   },
 
-  bindEvents({ onSave, onResetAll, onResetField }) {
+  bindEvents({ onSave, onResetAll, onResetField, templates = [], configuredProviders = [] }) {
     bindLLMPresetEvents()
+    bindLLMApiKeyEvents()
+    bindLLMProviderTemplateEvents(templates, configuredProviders)
     document.getElementById("llm-tab-save")?.addEventListener("click", () => {
       const { payload, api_key, clear_api_key } = readLLMFormFields()
       const v = validateLLMPayload(payload)

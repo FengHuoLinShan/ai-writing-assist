@@ -15,15 +15,15 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - 提交并编排深度导入任务（基于 async_tasks）
 - 提交并编排分阶段自动提取任务：Scene、世界对象与别名/关系、剧情结构
 - 在重复导入时返回覆盖确认要求，确认后才入队
-- 深度导入 Scene 阶段默认执行 `Phase0 deterministic plan → Phase1a scene slicing → Phase1b scene enrichment → Scene commit`，并记录质量统计
+- 深度导入 Scene 阶段执行 `Phase0 deterministic plan → Phase1a scene slicing → Phase1b scene enrichment → Phase1c scene fusion → Scene commit`；Phase 1c 仅在 `high_quality=true` 时运行
 - Phase 0 不调用 LLM；它按章节字符数计算窗口计划、owned range、固定右侧 2 章 overlap 和每窗 `max_tokens` 上限。默认目标输入约 `72000` 字符，窗口最多 20 章。DeepSeek v4 Flash 实测 `0.36`、`0.4`、`0.6` 都出现过截断；`0.75` 一次四窗首轮通过，但同一 1–60 章末窗的复跑仍在 `19898/19898` 处 `finish_reason=length`，因此不将偶然通过视为稳定。`max_tokens` 只是上限而不会强制模型用完，默认系数提升为 `1.0`，即 `max_tokens=clamp(round(input_chars * 1.0), 13000, 32768)`。这套阶段预算不继承项目通用 `max_tokens`；Phase 1b/2/3 从首次请求就使用各自冻结的 32768 上限，不实验更小预算。
-- Phase 1a 切分并锁定 Scene 语义字段，同时要求从正文逐字复制起止 anchor；本地 materializer 负责唯一命中、offset、draft/hash 绑定和邻接/整章覆盖推断。未解析锚点使用关闭 thinking 的小上下文修复；缺章先用单章恢复，仍失败才保留 `needs_review` 的章节级语义 fallback。
+- Phase 1a 切分并锁定 Scene 语义字段，同时要求从正文逐字复制起止 anchor；本地 materializer 负责唯一命中、offset、draft/hash 绑定和邻接/整章覆盖推断。Scene 按独立主要叙事目标、冲突或关键状态转变切分，不使用字数或每章数量阈值。锚点修复与缺章恢复同样使用统一 reasoning 策略。
 - Phase 1b 每个 Scene 一个并发 enrichment 请求，只解析补充字段；不得改写 Phase 1a 已确定的 `scene_chunks`。章节级 fallback 的语义状态仍为 fallback，但其整章 offset 和 source hash 是可确定的精确来源，两者分开记录。Phase 1b enrichment 的默认 `max_tokens` 已与其他结构化阶段统一为 32768，不再由旧的 4096 上限导致补充字段截断；实际 payload 从 effective `deep_import.phase1b.enrich_max_tokens` 生成，不再用 env/default 覆盖项目值，且该值在任务提交时进入冻结 deep-import settings。
-- 旧 `scene_prefetch` / `scene_reinforcement` legacy pipeline 已删除；`scene_fusion` 仍作为内部兼容/修复组件保留，不进入默认 Scene 自动提取主路径
+- Phase 1c 审核 `intra_chapter` / `cross_chapter` / `duplicate_window` 相邻候选；高置信且来源精确的结果自动融合，其余写入 outline 融合建议队列。旧独立跨章检测链已删除。
 - 深度导入保持自动流水线，不对每个 LLM step 重复弹出“AI 参考资料”确认；但首次提交必须显式传 `authorization_confirmed=true`，一次授权 `user_authorized_pipeline` 采用策略。Phase 3 结构分析显式使用 `context_mode="working"` 并包含待确认对象
 - 分阶段世界对象自动提取执行 Phase 2a / 2b：先基于已提交 Scene 抽取世界对象与 Delta，再补抽别名 / 关系
 - Phase 2a 对已持久化 Scene 以 Scene 为并发单元；每个请求只消费当前 Scene 的版本绑定精确 span 和前序 brief，写入仍按 `scene_index` 串行归并
-- Phase 2a 已收敛为 `ImportContextActivation -> concurrent LLM -> scene_index ordered persistence`：当前 Scene 在可见截止章/offset 以前的精确 span 正文和最多两个前序 brief 是唯一 Scene-local 证据，跨章 Scene 的未来 span 与后续 Scene 都不进入 prompt。真实 52 Scene 运行证明硬编码并发 64 会造成后半批量超时；当前默认并发 20、provider/LLM 超时 240/270 秒、结构化上限 32768，失败时继续逐波降载。Phase 2b 仍在 Phase 2a 后做全局别名/关系对账，但对 DeepSeek 显式关闭 thinking。Phase 2 每次结构化请求直接使用冻结的 32768 上限，不再做改变 `max_tokens` 的阶梯扩容；受控失败可保留一次同预算修复/重试。
+- Phase 2a 已收敛为 `ImportContextActivation -> concurrent LLM -> scene_index ordered persistence`：当前 Scene 在可见截止章/offset 以前的精确 span 正文和最多两个前序 brief 是唯一 Scene-local 证据。Phase 2a/2b 的 DeepSeek 请求普通模式使用 `high` reasoning，高质量模式使用 `max`；Phase 2b 单调用默认超时 120 秒，高质量模式有效超时翻倍。
 - Phase 2a 不接收后续 Scene 或右侧边界补充证据；需要全局信息的别名、关系和连续性对账仅在 Phase 2b 执行
 - Phase 2 入库前通过 world facade 使用名称 / 别名 / embedding 去重能力；高置信重复实体只记录建议目标并进入待处理，不自动融合到已有对象。重复关系走 create-or-merge，并在 progress/result 中记录 action、dedup、boundary supplement 和 degraded 统计
 - Phase 3 完成后会通过 outline facade 生成结构去重建议；只自动应用同一 deep import workflow 内的高置信重复，跨已有资产的建议仅写入任务结果
@@ -121,6 +121,9 @@ Phase 0 计算出的 `max_tokens`，在 length / invalid JSON 等截断类失败
 `24576 → 32768` 对失败窗口重试，仍失败则为缺失章节生成 `needs_review` fallback。
 Phase 1b 每个 Scene 失败只 retry 1 次，仍失败时仅 fallback 当前 Scene 并进入人工复核清单。
 
+`async_tasks.progress` 使用基于近期 1–60 章实测的阶段估算。完整深度导入中，Phase 1b 推进到 `30%`，高质量 Phase 1c 占 `30–35%`，Scene commit 与建议写入占 `35–40%`。独立 Scene stage 在 Phase 1c/commit 收敛到 100%。阶段内按当前
+window / Scene 的 `completed / total` 线性估算，该值不是精确剩余时间。
+
 ## 深度导入内部结构
 
 `DeepImportOrchestrator` 负责重复导入策略、任务提交、恢复和放弃清理；
@@ -132,7 +135,7 @@ single-chapter / fusion wrapper，以及非 runtime seam 的薄包装/死代码�
 
 - `workflow_phase_runner.py` — Phase runner 的共享 request / Protocol seam；
   `workflow.py` 通过该 seam 调用各阶段，旧 runner 方法保留兼容 adapter
-- `workflow_scene_phase.py` — Phase 0 / Phase 1a / Phase 1b / Scene commit
+- `workflow_scene_phase.py` — Phase 0 / Phase 1a / Phase 1b / Phase 1c / Scene commit
 - `workflow_entity_phase.py` — Phase 2a / Phase 2b 与 world_objects stage
 - `workflow_structure_phase.py` — Phase 3、plot_structure stage 与小样本结构保底
 - `workflow_progress.py` — progress timeline、诊断计数、checkpoint/audit/snapshot summary 合并
@@ -140,6 +143,7 @@ single-chapter / fusion wrapper，以及非 runtime seam 的薄包装/死代码�
 - `scene_planning.py` — Phase 0 章节字符统计、字符预算窗口 / overlap / max_tokens 规划
 - `scene_slicing.py` — Phase 1a Scene 边界切分、owned range 过滤和章节级 fallback
 - `scene_enrichment.py` — Phase 1b 逐 Scene 补字段、锁定字段保护、确定性 `scene_chunks`
+- `scene_fusion_phase1c.py` — 高质量导入的相邻 Scene 边界审核、高置信融合与建议生成
 - `scene_fusion.py` — 内部兼容/修复路径使用的候选融合组件；旧 `scene_prefetch.py` / `scene_reinforcement.py` 已删除
 - `scene_segmentation.py` — legacy 兼容/测试工具，无生产入口调用方；
   其 LLM batch/single-chapter 方法已使用 project runtime context manager，
@@ -160,7 +164,7 @@ payload 字段，并只保留脱敏 provider 摘要。服务路径还会返回
 
 当前验收和恢复证据以内嵌在 `async_tasks.result` 的 compact 数据为准，不再通过旧
 real-LLM artifact harness 驱动。正式 Scene 自动提取链路是
-`phase0_plan -> phase1a_scene_slicing -> phase1b_enrichment -> scene_commit`；
+`phase0_plan -> phase1a_scene_slicing -> phase1b_enrichment -> phase1c_scene_fusion -> scene_commit`；
 Phase 1a slicing 的 `max_tokens` 来自 Phase 0 window 的
 `clamp(round(input_chars * max_tokens_per_input_char), min_max_tokens, max_max_tokens)`。
 

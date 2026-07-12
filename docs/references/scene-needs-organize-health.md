@@ -21,7 +21,7 @@ Scene Workbench 的 `needs_organize` 同时包含 Scene 结构问题和正文定
 - `unreviewed`：待处理、未复核或 `needs_review`。
 - `unassigned`：未关联章节。
 - `missing_setup`：缺少目标、冲突、必须发生或禁止发生等关键设定。
-- `needs_organize`：需要结构整理、正文定位确认或处理跨章建议。
+- `needs_organize`：需要结构整理、正文定位确认或处理 Scene 融合建议。
 
 `needs_organize` 的子原因固定为：
 
@@ -29,11 +29,11 @@ Scene Workbench 的 `needs_organize` 同时包含 Scene 结构问题和正文定
 |---|---|---|
 | `manual_organize` | `structure_meta.needs_organize` 显式标记 | 整理映射/复核 |
 | `duplicate_chapter` | Scene 内章节关联重复 | 整理映射 |
-| `overlapping_chapter` | 多个 Scene 共用章节 | 整理映射，可进入移动/合并/拆分 |
+| `overlapping_span` | 两个 Scene 在同一正文版本上的精确正文 offset 真实重叠 | 整理映射或融合 |
 | `chunk_chapter_mismatch` | `scene_chunks` 与 `chapter_ids` 不一致 | 整理映射 |
 | `source_mapping_chapter_only` | 只能定位到章节 | 确认仅按章节关联 |
 | `source_mapping_unresolved` | 物理片段无法唯一定位 | 确认章节级精度或重新整理映射 |
-| `pending_cross_chapter_suggestion` | 有持久化的待处理融合建议 | 直接打开对应建议 |
+| `pending_scene_fusion_suggestion` | 有持久化的待处理融合建议 | 直接打开对应建议 |
 
 工作台在同一次诊断中生成：
 
@@ -76,15 +76,15 @@ Scene Workbench 的 `needs_organize` 同时包含 Scene 结构问题和正文定
 
 它绝不会把 `chapter_only/unresolved` 改成 `exact/reanchored`。当 span 变化导致 fingerprint 不同，旧确认自动失效。RAG/context 仍排除不精确 span，遵守“人工接受有限精度≠生成自动证据”。
 
-## 5. 跨章建议持久化
+## 5. Scene 融合建议持久化
 
-`scene_cross_chapter_suggestions` 由 outline 模块拥有，保存：
+`scene_fusion_suggestions` 由 outline 模块拥有，保存：
 
-- 检测 task、来源 Scene 列表、source fingerprint 和章节范围。
+- 深度导入 workflow、建议类型/动作、来源 Scene 列表、source fingerprint 和章节范围。
 - 建议内容、理由、置信度和 scan trace。
 - `pending / adopted / dismissed / stale` 状态以及处理后 Scene。
 
-检测完成只持久化 `pending` 建议，不修改 Scene。相同 source fingerprint 使用幂等 key 复用；任一来源 Scene 的语义或映射字段变化后，旧建议变为 `stale`。
+Phase 1c 只持久化未自动融合的 `pending` 建议。相同 source fingerprint 使用幂等 key 复用；任一来源 Scene 的语义或映射字段变化后，旧建议变为 `stale`。
 
 Workbench 返回 pending 数量，并通过专用查询接口在刷新后恢复横幅和行内按钮。`fusion/save` 接收可选 `suggestion_id`，保存成功后在同一事务中标记 `adopted`。用户可逐条处理或批量忽略；不提供“全部接受”，以免绕过主 Scene 选择、编辑和合并确认。
 
@@ -93,9 +93,9 @@ Workbench 返回 pending 数量，并通过专用查询接口在刷新后恢复�
 每行只显示当前最高优先级操作：
 
 1. 待处理、未复核或 `needs_review` → `采用` / `标记已检查`。
-2. 有 pending 跨章建议 → `查看融合建议`。
+2. 有 pending Scene 融合建议 → `查看融合建议`。
 3. `chapter_only/unresolved` → `确认章节定位`。
-4. 重复、重叠或 chunk 不一致 → `整理映射`。
+4. Scene 内重复章节或 chunk 不一致 → `整理映射`。
 5. 未关联章节 → `关联章节`。
 6. 缺关键设定 → `补全设定`。
 7. 无待办 → `编辑`。
@@ -112,6 +112,6 @@ Workbench 返回 pending 数量，并通过专用查询接口在刷新后恢复�
 | Scene/SceneSpan 同步和建议仓库 | `backend/modules/outline/repositories.py` |
 | SceneSpan 与持久建议模型 | `backend/modules/outline/models.py` |
 | Workbench HTTP 契约 | `backend/modules/outline/api.py`, `schemas.py` |
-| 跨章检测与 task 持久化衔接 | `backend/modules/outline/cross_chapter_detection.py`, `tasks.py` |
+| Phase 1c 融合与建议生成 | `backend/modules/imports/scene_fusion_phase1c.py` |
 | 上下文主按钮与批量交互 | `frontend-console/views/sceneWorkbenchView.js` |
 | API wrapper | `frontend-console/api.js` |

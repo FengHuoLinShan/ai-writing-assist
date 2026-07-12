@@ -29,6 +29,7 @@ from modules.imports.workflow_llm_adapters import (
     PHASE1B_COMPACT_TEXT_LIMIT,
     _Phase1aSceneSlicingLLM,
     _Phase1bSceneEnrichmentLLM,
+    _Phase1cSceneFusionLLM,
     _project_settings_for_novel,
 )
 from modules.imports.workflow_llm_adapters import (
@@ -60,6 +61,7 @@ from modules.imports.workflow_structure_phase import (
     minimum_structure_category_targets,
 )
 from shared.deep_import_settings import (
+    deep_import_float_setting,
     deep_import_int_setting,
 )
 
@@ -437,8 +439,6 @@ class DeepImportWorkflow:
             ),
         ).run(phase0_plan, on_batch_progress=on_batch_progress)
         result.quality_stats["high_quality"] = high_quality
-        if high_quality:
-            result.quality_stats["model_override"] = "deepseek-v4-pro"
         return result
 
     async def _run_phase1b_enrichment(
@@ -480,9 +480,66 @@ class DeepImportWorkflow:
             on_batch_progress=on_batch_progress,
         )
         result.quality_stats["high_quality"] = high_quality
-        if high_quality:
-            result.quality_stats["model_override"] = "deepseek-v4-pro"
         return result
+
+    async def _run_phase1c_scene_fusion(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        candidates,
+        *,
+        chapters,
+        on_pair_progress: Callable[[int, int, str], Awaitable[None]] | None = None,
+    ):
+        from modules.imports.scene_fusion_phase1c import Phase1cSceneFusionService
+        from modules.project.facade import get_project_context
+
+        project_settings = getattr(self, "_agent_project_settings", None)
+        if project_settings is None:
+            project_settings = await _project_settings_for_novel(db, novel_id)
+        context = await get_project_context(db, novel_id)
+        project_profile = (
+            {
+                "title": context.title,
+                "genre": context.genre,
+                "tone": context.tone,
+            }
+            if context is not None
+            else {}
+        )
+        return await Phase1cSceneFusionService(
+            _Phase1cSceneFusionLLM(
+                project_settings=project_settings,
+                novel_id=novel_id,
+                high_quality=True,
+            ),
+            auto_merge_confidence=deep_import_float_setting(
+                project_settings,
+                "phase1c",
+                "auto_merge_confidence",
+                env_name="PHASE1C_AUTO_MERGE_CONFIDENCE",
+                default=0.92,
+            ),
+            boundary_context_chars=deep_import_int_setting(
+                project_settings,
+                "phase1c",
+                "boundary_context_chars",
+                env_name="PHASE1C_BOUNDARY_CONTEXT_CHARS",
+                default=2000,
+            ),
+            concurrency=deep_import_int_setting(
+                project_settings,
+                "phase1c",
+                "concurrency",
+                env_name="PHASE1C_CONCURRENCY",
+                default=20,
+            ),
+        ).run(
+            candidates,
+            chapters,
+            project_profile=project_profile,
+            on_pair_progress=on_pair_progress,
+        )
 
     @staticmethod
     async def _commit_fused_scenes(
@@ -491,6 +548,7 @@ class DeepImportWorkflow:
         candidates,
         *,
         workflow_id: str,
+        fusion_suggestions=None,
     ):
         from modules.imports.scene_commit import SceneCommitter
 
@@ -499,6 +557,7 @@ class DeepImportWorkflow:
             novel_id,
             candidates,
             workflow_id=workflow_id,
+            fusion_suggestions=fusion_suggestions or [],
         )
 
     @staticmethod
@@ -845,12 +904,12 @@ class DeepImportWorkflow:
         high_quality = bool(getattr(self, "_deep_import_high_quality", False))
         from infrastructure.llm.profiles import resolve_llm_profile
 
-        profile_model = resolve_llm_profile(project_settings).model
-        request_model = "deepseek-v4-pro" if high_quality else profile_model
+        request_model = resolve_llm_profile(project_settings).model
         with phase2_project_settings_context(
             project_settings,
             novel_id=novel_id,
             request_model=request_model,
+            high_quality=high_quality,
         ):
             result = await handler(
                 db,
@@ -862,8 +921,6 @@ class DeepImportWorkflow:
                 end_chapter=end_chapter,
             )
         result["high_quality"] = high_quality
-        if high_quality:
-            result["model_override"] = "deepseek-v4-pro"
         return result
 
     # ------------------------------------------------------------------
@@ -909,8 +966,6 @@ class DeepImportWorkflow:
                 **structure_kwargs,
             )
             result["high_quality"] = high_quality
-            if high_quality:
-                result["model_override"] = "deepseek-v4-pro"
             result = await ensure_minimum_structure_outputs(
                 db,
                 novel_id,

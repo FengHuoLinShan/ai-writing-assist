@@ -747,7 +747,7 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
         if deprecated:
             await db.flush()
             for scene in deprecated_scenes:
-                await repo.stale_cross_chapter_suggestions_for_scene(db, scene)
+                await repo.stale_fusion_suggestions_for_scene(db, scene)
                 await repo.mirror_scene_span_lifecycle(db, scene)
         return deprecated
 

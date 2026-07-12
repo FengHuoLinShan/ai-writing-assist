@@ -53,6 +53,7 @@ export function renderLLMFormFields({ values, templates, sourceMap = {}, withApi
           <label for="llm-model">模型</label>
           <input class="form-input" id="llm-model" list="llm-model-options" value="${v.model || ""}" placeholder="输入或选择模型名" />
           <datalist id="llm-model-options">${modelOptions}</datalist>
+          <small id="llm-model-cost-hint" class="settings-section-hint" ${v.model === "deepseek-v4-pro" ? "" : "hidden"}>deepseek-v4-pro 预计约为 Flash 的 8 倍耗时；高质量开关不会自动切换模型。</small>
           ${sourceHtml(sourceMap.model)}
         </div>
         <div class="form-group">
@@ -119,7 +120,7 @@ function renderKeyBlock(configured, v) {
           清除
         </label>
       </div>
-      <div class="settings-key-status ${configured ? "success" : "muted"}">${configured ? "已保存" : "未保存"}</div>
+      <div id="llm-key-status" class="settings-key-status ${configured ? "success" : "muted"}">${configured ? "已保存" : "未保存"}</div>
       ${configured && v && (v.provider_id_source === "global" || v.base_url_source === "global" || v.provider_id_source === "system" || v.base_url_source === "system") ? "<p class='settings-key-mismatch-warning'>当前供应商/BaseURL 来自全局或系统默认，请确认 Key 与该供应商匹配</p>" : ""}
     </div>
   `
@@ -161,6 +162,70 @@ export function bindLLMPresetEvents() {
       })
     })
   })
+}
+
+export function bindLLMApiKeyEvents() {
+  const input = document.getElementById("llm-api-key")
+  const toggle = document.getElementById("llm-toggle-api-key")
+  if (!input || !toggle) return
+  toggle.addEventListener("click", () => {
+    const showing = input.type === "text"
+    input.type = showing ? "password" : "text"
+    toggle.textContent = showing ? "显示 Key" : "隐藏 Key"
+    toggle.setAttribute("aria-pressed", String(!showing))
+  })
+}
+
+export function bindLLMProviderTemplateEvents(templates = [], configuredProviders = []) {
+  const provider = document.getElementById("llm-provider")
+  if (!provider) return
+  const configured = new Set(configuredProviders || [])
+  const modelInput = document.getElementById("llm-model")
+  const updateModelHint = () => {
+    const hint = document.getElementById("llm-model-cost-hint")
+    if (hint) hint.hidden = modelInput?.value.trim() !== "deepseek-v4-pro"
+  }
+  modelInput?.addEventListener("input", updateModelHint)
+  provider.addEventListener("change", () => {
+    const template = templates.find((item) => item.id === provider.value)
+    if (!template) return
+    setFieldValue("llm-base-url", template.base_url || "")
+    setFieldValue("llm-model", template.default_model || "")
+    updateModelHint()
+    setFieldValue("llm-label", template.name || "")
+    const parameters = template.default_parameters || {}
+    setFieldValue("llm-timeout", parameters.timeout)
+    setFieldValue("llm-max-tokens", parameters.max_tokens)
+    setFieldValue("llm-temperature", parameters.temperature)
+    setFieldValue("llm-top-p", parameters.top_p)
+    setFieldValue(
+      "llm-extra",
+      parameters.extra && Object.keys(parameters.extra).length
+        ? JSON.stringify(parameters.extra, null, 2)
+        : "",
+    )
+    setFieldValue("llm-api-key", "")
+    const clearKey = document.getElementById("llm-clear-api-key")
+    if (clearKey) clearKey.checked = false
+    const hasKey = configured.has(template.id)
+    const status = document.getElementById("llm-key-status")
+    if (status) {
+      status.textContent = hasKey ? "已保存到此模板" : "此模板未保存"
+      status.classList.toggle("success", hasKey)
+      status.classList.toggle("muted", !hasKey)
+    }
+    const datalist = document.getElementById("llm-model-options")
+    if (datalist) {
+      datalist.innerHTML = (template.models || [])
+        .map((model) => `<option value="${model}"></option>`)
+        .join("")
+    }
+  })
+}
+
+function setFieldValue(id, value) {
+  const field = document.getElementById(id)
+  if (field) field.value = value == null ? "" : String(value)
 }
 
 function formatExtra(extra) {

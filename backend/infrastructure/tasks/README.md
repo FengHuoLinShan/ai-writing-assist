@@ -24,7 +24,7 @@ infrastructure/tasks/
 - world：`world_entity_extraction`、`world_alias_relation_extraction`、
   `world_entity_fusion_suggestions`、`world_bible_projection_refresh`
 - outline：`plot_structure_generate`、`chapter_card_extraction`、
-  `chapter_scene_generate`、`scene_cross_chapter_detection`、`outline_analyze`、
+  `chapter_scene_generate`、`outline_analyze`、
   `outline_generate`、`outline_chapter_scenes_extract`
 - rag：`rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`
 - writing：`publish_chapter`、`writing_generate`、`writing_conflict_ai_review`

@@ -11,6 +11,7 @@ from sqlalchemy.sql import Select
 
 from infrastructure.llm.profiles import (
     LLM_API_KEY_FIELD,
+    LLM_API_KEYS_BY_PROVIDER_FIELD,
     LLM_SETTINGS_KEY,
     get_llm_profile,
     get_runtime_llm_profile,
@@ -259,6 +260,10 @@ class SettingsService:
                 if secret_configured(proj_profile.get("api_key"))
                 else SOURCE_UNSET,
             ),
+            api_key_configured_providers=FieldValueSource(
+                value=self._configured_llm_provider_ids(proj_profile),
+                source=SOURCE_PROJECT,
+            ),
             deep_import=FieldValueSource(
                 value=proj_deep_import,
                 source=SOURCE_PROJECT if proj_deep_import else SOURCE_SYSTEM,
@@ -283,9 +288,29 @@ class SettingsService:
                 llm_profile[field_name] = field.value
         if raw_llm.get(LLM_API_KEY_FIELD):
             llm_profile[LLM_API_KEY_FIELD] = raw_llm[LLM_API_KEY_FIELD]
+        raw_profile = get_llm_profile(settings)
+        if raw_profile.get(LLM_API_KEYS_BY_PROVIDER_FIELD):
+            llm_profile[LLM_API_KEYS_BY_PROVIDER_FIELD] = raw_profile[
+                LLM_API_KEYS_BY_PROVIDER_FIELD
+            ]
         if llm_profile:
             settings[LLM_SETTINGS_KEY] = llm_profile
         return settings
+
+    @staticmethod
+    def _configured_llm_provider_ids(profile: dict) -> list[str]:
+        keys = profile.get(LLM_API_KEYS_BY_PROVIDER_FIELD)
+        configured = {
+            provider_id
+            for provider_id, secret in (keys.items() if isinstance(keys, dict) else [])
+            if isinstance(provider_id, str) and secret_configured(secret)
+        }
+        provider_id = profile.get("provider_id")
+        if secret_configured(profile.get(LLM_API_KEY_FIELD)) and isinstance(
+            provider_id, str
+        ):
+            configured.add(provider_id)
+        return sorted(configured)
 
     # ----- aggregation -----
     def fully_overridden_project_ids_subquery(self) -> Select[tuple[uuid.UUID]]:

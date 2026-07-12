@@ -12,12 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.errors import NotFoundError, ValidationError
 from infrastructure.llm.profiles import (
     LLM_API_KEY_FIELD,
+    LLM_API_KEYS_BY_PROVIDER_FIELD,
     LLM_SETTINGS_KEY,
     get_llm_profile,
     list_provider_templates,
     sanitize_llm_profile,
 )
-from infrastructure.llm.secret_store import ensure_encrypted_secret
+from infrastructure.llm.secret_store import ensure_encrypted_secret, secret_configured
 from modules.project.repositories import ProjectRepository
 from modules.project.schemas import (
     LLMFieldResetResponse,
@@ -152,6 +153,16 @@ class ProjectService:
         project = await self._get_existing_project(db, project_id)
         settings = dict(project.settings or {})
         existing_profile = get_llm_profile(settings)
+        existing_provider = str(existing_profile.get("provider_id") or "").strip()
+        target_provider = str(data.provider_id or existing_provider).strip()
+        stored_keys = existing_profile.get(LLM_API_KEYS_BY_PROVIDER_FIELD)
+        keyring = dict(stored_keys) if isinstance(stored_keys, dict) else {}
+        existing_active_key = existing_profile.get(LLM_API_KEY_FIELD)
+        if existing_provider and existing_active_key:
+            keyring.setdefault(
+                existing_provider,
+                self._encrypt_llm_secret(existing_active_key),
+            )
 
         next_profile: dict[str, object] = {}
         if data.provider_id is not None and data.provider_id != "":
@@ -173,14 +184,18 @@ class ProjectService:
         if data.extra:
             next_profile["extra"] = data.extra
 
-        if data.clear_api_key:
-            pass
-        elif data.api_key:
-            next_profile[LLM_API_KEY_FIELD] = ensure_encrypted_secret(data.api_key)
-        elif existing_profile.get(LLM_API_KEY_FIELD):
-            next_profile[LLM_API_KEY_FIELD] = ensure_encrypted_secret(
-                existing_profile[LLM_API_KEY_FIELD]
-            )
+        if data.clear_all_api_keys:
+            keyring = {}
+        elif data.clear_api_key and target_provider:
+            keyring.pop(target_provider, None)
+        elif data.api_key and target_provider:
+            keyring[target_provider] = self._encrypt_llm_secret(data.api_key)
+
+        if keyring:
+            next_profile[LLM_API_KEYS_BY_PROVIDER_FIELD] = keyring
+        selected_key = keyring.get(target_provider) if target_provider else None
+        if selected_key:
+            next_profile[LLM_API_KEY_FIELD] = self._encrypt_llm_secret(selected_key)
 
         if next_profile:
             settings[LLM_SETTINGS_KEY] = next_profile
@@ -210,12 +225,32 @@ class ProjectService:
             return data
         settings = dict(data.settings)
         llm = settings.get(LLM_SETTINGS_KEY)
-        if not isinstance(llm, dict) or not llm.get(LLM_API_KEY_FIELD):
+        if not isinstance(llm, dict):
             return data
         next_llm = dict(llm)
-        next_llm[LLM_API_KEY_FIELD] = ensure_encrypted_secret(next_llm[LLM_API_KEY_FIELD])
+        if next_llm.get(LLM_API_KEY_FIELD):
+            next_llm[LLM_API_KEY_FIELD] = ProjectService._encrypt_llm_secret(
+                next_llm[LLM_API_KEY_FIELD]
+            )
+        keys = next_llm.get(LLM_API_KEYS_BY_PROVIDER_FIELD)
+        if isinstance(keys, dict):
+            next_llm[LLM_API_KEYS_BY_PROVIDER_FIELD] = {
+                provider_id: ProjectService._encrypt_llm_secret(secret)
+                for provider_id, secret in keys.items()
+                if isinstance(provider_id, str) and secret_configured(secret)
+            }
         settings[LLM_SETTINGS_KEY] = next_llm
         return data.model_copy(update={"settings": settings})
+
+    @staticmethod
+    def _encrypt_llm_secret(value: object) -> object:
+        try:
+            return ensure_encrypted_secret(value)
+        except (RuntimeError, ValueError) as exc:
+            raise ValidationError(
+                "LLM API Key encryption is not configured; set "
+                "LLM_SETTINGS_ENCRYPTION_KEY and restart the backend"
+            ) from exc
 
     async def reset_llm_settings_field(
         self,

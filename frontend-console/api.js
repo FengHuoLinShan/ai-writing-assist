@@ -1198,14 +1198,11 @@ const api = {
     async saveSceneFusion(novelId, data) {
       return post(withQuery("/outline/scene-workbench/fusion/save", { novel_id: novelId }), data)
     },
-    async detectCrossChapterScenes(data) {
-      return post("/outline/scene-workbench/cross-chapter/detect", data)
+    async listFusionSuggestions(novelId, params = {}) {
+      return request(withQuery("/outline/scene-workbench/fusion-suggestions", { novel_id: novelId, ...params }))
     },
-    async listCrossChapterSuggestions(novelId, params = {}) {
-      return request(withQuery("/outline/scene-workbench/cross-chapter/suggestions", { novel_id: novelId, ...params }))
-    },
-    async dismissCrossChapterSuggestions(novelId, data) {
-      return post(withQuery("/outline/scene-workbench/cross-chapter/suggestions/dismiss", { novel_id: novelId }), data)
+    async dismissFusionSuggestions(novelId, data) {
+      return post(withQuery("/outline/scene-workbench/fusion-suggestions/dismiss", { novel_id: novelId }), data)
     },
     async previewSceneSplit(novelId, data) {
       return post(withQuery("/outline/scene-workbench/split/preview", { novel_id: novelId }), data)

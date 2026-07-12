@@ -32,7 +32,7 @@ PHASE2_PARALLEL_PROVIDER_TIMEOUT_SECONDS = 240
 PHASE2_PARALLEL_LLM_TIMEOUT_SECONDS = 270
 PHASE2_ALIAS_RELATION_TOTAL_TIMEOUT_SECONDS = 240
 PHASE2_ALIAS_RELATION_CONCURRENCY = 4
-PHASE2_ALIAS_RELATION_LLM_TIMEOUT_SECONDS = 75
+PHASE2_ALIAS_RELATION_LLM_TIMEOUT_SECONDS = 120
 PHASE2_ALIAS_RELATION_SCENE_CHAR_LIMIT = 3200
 PHASE2_ALIAS_RELATION_ENTITY_INDEX_CHAR_LIMIT = 3600
 PHASE2_ALIAS_RELATION_ENTITY_INDEX_FALLBACK_LIMIT = 30
@@ -57,6 +57,10 @@ _phase2_request_model: ContextVar[str | None] = ContextVar(
     "phase2_request_model",
     default=None,
 )
+_phase2_high_quality: ContextVar[bool] = ContextVar(
+    "phase2_high_quality",
+    default=False,
+)
 
 
 @contextmanager
@@ -65,13 +69,16 @@ def phase2_project_settings_context(
     *,
     novel_id: str | None = None,
     request_model: str | None = None,
+    high_quality: bool = False,
 ):
     settings_token = _phase2_project_settings.set(project_settings)
     novel_token = _phase2_novel_id.set(novel_id)
     model_token = _phase2_request_model.set(request_model)
+    quality_token = _phase2_high_quality.set(bool(high_quality))
     try:
         yield
     finally:
+        _phase2_high_quality.reset(quality_token)
         _phase2_request_model.reset(model_token)
         _phase2_novel_id.reset(novel_token)
         _phase2_project_settings.reset(settings_token)
@@ -91,6 +98,10 @@ def current_phase2_novel_id() -> str | None:
 
 def current_phase2_request_model() -> str | None:
     return _phase2_request_model.get()
+
+
+def current_phase2_high_quality() -> bool:
+    return _phase2_high_quality.get()
 
 
 def phase2_batch_size_scenes() -> int:
@@ -171,13 +182,14 @@ def phase2_parallel_llm_timeout_seconds() -> int:
 
 
 def phase2_alias_relation_total_timeout_seconds() -> int:
-    return deep_import_int_setting(
+    value = deep_import_int_setting(
         _project_settings(),
         "phase2",
         "alias_relation_total_timeout_seconds",
         env_name="PHASE2_ALIAS_RELATION_TOTAL_TIMEOUT_SECONDS",
         default=PHASE2_ALIAS_RELATION_TOTAL_TIMEOUT_SECONDS,
     )
+    return value * 2 if current_phase2_high_quality() else value
 
 
 def phase2_alias_relation_concurrency() -> int:
@@ -191,13 +203,14 @@ def phase2_alias_relation_concurrency() -> int:
 
 
 def phase2_alias_relation_llm_timeout_seconds() -> int:
-    return deep_import_int_setting(
+    value = deep_import_int_setting(
         _project_settings(),
         "phase2",
         "alias_relation_llm_timeout_seconds",
         env_name="PHASE2_ALIAS_RELATION_LLM_TIMEOUT_SECONDS",
         default=PHASE2_ALIAS_RELATION_LLM_TIMEOUT_SECONDS,
     )
+    return value * 2 if current_phase2_high_quality() else value
 
 
 def phase2_alias_relation_scene_char_limit() -> int:

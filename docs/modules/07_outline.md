@@ -87,8 +87,8 @@ POST   /api/outline/scene-workbench/split/preview
 POST   /api/outline/scene-workbench/split
 POST   /api/outline/scene-workbench/fusion/preview
 POST   /api/outline/scene-workbench/fusion/save
-GET    /api/outline/scene-workbench/cross-chapter/suggestions
-POST   /api/outline/scene-workbench/cross-chapter/suggestions/dismiss
+GET    /api/outline/scene-workbench/fusion-suggestions
+POST   /api/outline/scene-workbench/fusion-suggestions/dismiss
 POST   /api/outline/chapter-scenes/extract
 POST   /api/outline/chapter-scenes/apply
 
@@ -175,14 +175,14 @@ Scene 定位，不再维护第二套 Scene 管理 UI。
 - `未复核`：导入来源带 `needs_review`、低质量或缺少人工检查标记；它是注意原因
 - `未关联章节`：Scene 没有关联章节，或存在有正文草稿但未归入任何 Scene 的章节
 - `缺设定`：目标、核心冲突、必须发生、禁止发生等关键字段缺失
-- `待整理`：人工标记、重复章节映射、chunk/chapter 不一致，或
+- `待整理`：人工标记、Scene 内重复章节映射、chunk/chapter 不一致，或
   `chapter_only` / `unresolved` 来源映射等需要复核的信号
 
 顶层 `health` wire shape 保持不变。工作台同时返回每行 `health_details` 和汇总
 `breakdown`，其中待整理子原因固定为 `manual_organize`、
-`duplicate_chapter`、`overlapping_chapter`、`chunk_chapter_mismatch`、
+`duplicate_chapter`、`overlapping_span`、`chunk_chapter_mismatch`、
 `source_mapping_chapter_only`、`source_mapping_unresolved` 和
-`pending_cross_chapter_suggestion`。筛选、计数、响应和行内操作共用同一次
+`pending_scene_fusion_suggestion`。同一章中 span 不重叠的多个独立 Scene 是合法状态。筛选、计数、响应和行内操作共用同一次
 健康诊断，避免同一 Scene 在不同界面口径不一致。
 
 Scene 内容复核由 `scene-workbench/review` 统一设置 `status`、`reviewed_at`、

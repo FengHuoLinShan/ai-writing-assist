@@ -27,6 +27,8 @@ class SceneCommitResult(BaseModel):
     created_scene_ids: list[str] = Field(default_factory=list)
     skipped_provenance_keys: list[str] = Field(default_factory=list)
     conflict_provenance_keys: list[str] = Field(default_factory=list)
+    scene_ids_by_candidate_id: dict[str, str] = Field(default_factory=dict)
+    suggestion_ids: list[str] = Field(default_factory=list)
 
 
 def build_scene_provenance_key(
@@ -60,6 +62,7 @@ class SceneCommitter:
         novel_id: str,
         candidates: Sequence[FinalSceneCandidate],
         workflow_id: str,
+        fusion_suggestions: Sequence[Any] = (),
     ) -> SceneCommitResult:
         result = SceneCommitResult()
         next_scene_index: int | None = None
@@ -98,6 +101,9 @@ class SceneCommitter:
                     result.review_count += 1
                 else:
                     result.adopted_count += 1
+                result.scene_ids_by_candidate_id[candidate.candidate_id] = str(
+                    active_existing[0]["id"]
+                )
                 continue
             if existing_scenes:
                 result.conflict_count += 1
@@ -126,7 +132,32 @@ class SceneCommitter:
             else:
                 result.adopted_count += 1
             result.created_scene_ids.append(created["id"])
+            result.scene_ids_by_candidate_id[candidate.candidate_id] = created["id"]
             existing_by_key.setdefault(provenance_key, []).append(created)
+        suggestion_payloads: list[dict[str, Any]] = []
+        for suggestion in fusion_suggestions:
+            payload = (
+                suggestion.model_dump(mode="json")
+                if hasattr(suggestion, "model_dump")
+                else dict(suggestion)
+            )
+            source_scene_ids = [
+                result.scene_ids_by_candidate_id.get(str(candidate_id))
+                for candidate_id in payload.pop("source_candidate_ids", [])
+            ]
+            if any(scene_id is None for scene_id in source_scene_ids):
+                continue
+            payload["source_scene_ids"] = source_scene_ids
+            suggestion_payloads.append(payload)
+        if suggestion_payloads:
+            result.suggestion_ids = (
+                await outline_facade.persist_deep_import_fusion_suggestions(
+                    db,
+                    novel_id=novel_id,
+                    source_workflow_id=workflow_id,
+                    suggestions=suggestion_payloads,
+                )
+            )
         return result
 
 

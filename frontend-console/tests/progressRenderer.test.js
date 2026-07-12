@@ -169,7 +169,7 @@ describe("progressRenderer", () => {
       },
     })
 
-    expect(html).toContain("scene_commit")
+    expect(html).toContain("Scene commit · 正式写入")
     expect(html).toContain("Scene 60")
     expect(html).toContain("修复 1")
   })

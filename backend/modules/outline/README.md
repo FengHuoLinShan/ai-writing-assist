@@ -80,7 +80,8 @@ POST  /api/outline/scene-workbench/split/preview
 POST  /api/outline/scene-workbench/split
 POST  /api/outline/scene-workbench/fusion/preview
 POST  /api/outline/scene-workbench/fusion/save
-POST  /api/outline/scene-workbench/cross-chapter/detect
+GET   /api/outline/scene-workbench/fusion-suggestions
+POST  /api/outline/scene-workbench/fusion-suggestions/dismiss
 ```
 
 `scenes.structure_meta` 保存结构整理元信息，例如：
@@ -142,9 +143,8 @@ supporting_scene_ids` 写入 `provenance_meta`；无有效 Scene 证据、低置
 
 新 Scene 写入的 `status` 只允许 `draft / canonical`；更新路径另允许 `deprecated` 用于软废弃。兼容期仍可读取存量 `candidate` Scene，但新 create/apply/split/fusion 不再写 candidate。
 
-跨章 Scene 识别通过 `cross-chapter/detect` 创建异步任务，只生成相邻 Scene
-递归扩展建议，不直接修改 Scene。建议持久化在
-`scene_cross_chapter_suggestions`，使用 `pending/adopted/dismissed/stale`
+高质量深度导入 Phase 1c 生成同章候选、跨章延续和重复窗口的 Scene 融合建议。建议持久化在
+`scene_fusion_suggestions`，使用 `pending/adopted/dismissed/stale`
 生命周期；刷新后仍可继续处理。前端打开建议后进入同一个
 Scene 草稿审稿界面，由用户选择主 Scene 并确认编辑后再复用
 `fusion/save` 保存；不提供批量自动采用。
@@ -153,7 +153,7 @@ Scene 草稿审稿界面，由用户选择主 Scene 并确认编辑后再复用
 
 `scene_spans` 是 outline 拥有的派生读模型，用于把 Scene 的逻辑卡片映射到
 具体章节文本片段。权威输入仍是 `scenes.scene_chunks`；现有 API/前端继续返回
-`scene_chunks`，不把 `scene_spans` 作为新的编辑入口。
+`scene_chunks`，不把 `scene_spans` 作为新的编辑入口。Scene 与章节不是一对一：一个 Scene 可覆盖一至多章，同一章也可容纳多个 span 不重叠的独立 Scene。健康检查只在同一正文版本内比较精确 span，报告真实重叠、缺口或映射不一致。
 
 同步规则：
 
@@ -198,20 +198,19 @@ RAG 片段或资产摘要作为证据交给 LLM 判断 `merge`、`deprecate_dupl
 硬删除，只标记为 `deprecated`，并在 `provenance_meta` 写入
 `merged_into_asset_id`、`dedup_source="smart_dedup"` 和 `needs_review=true`。
 
-Analyze/generate/Scene extract、PlotStructureGenerator、跨章判断和结构去重均通过
+Analyze/generate/Scene extract、PlotStructureGenerator 和结构去重均通过
 project runtime seam 获取 client；batch/pair 外层复用同一 client，结果仍只进入
 preview/needs_review，不扩大自动 apply 权限。
 深度导入 Phase 3 传入任务提交时冻结的 project settings snapshot，
 `PlotStructureGenerator` 用 project snapshot seam 构造并在 `finally` 关闭 client；
-`high_quality=true` 时实际 request model 为 `deepseek-v4-pro`，不因
-worker 启动后项目默认模型变更而漂移。
+`high_quality=true` 时使用 `max` reasoning，但仍使用冻结 snapshot 中手动选择的 model，不因 worker 启动后项目默认模型变更而漂移。
 
 ## Facade
 
 跨模块调用优先走 `modules.outline.facade`。`facade.py` 是兼容 re-export hub，
 内部按 seam 拆到子 facade：
 
-- `scene_facade.py`：Scene 读取、创建、更新、章节拆分和 `SceneContract`
+- `scene_facade.py`：Scene 读取、创建、更新、章节拆分、Phase 1c 融合建议持久化和 `SceneContract`
 - `structure_dedup_facade.py`：outline 结构资产智能去重建议与应用
 - `deep_import_repair_facade.py`：deep import 修复、最小结构补齐和清理
 - `foreshadowing_facade.py`：伏笔计划只读上下文

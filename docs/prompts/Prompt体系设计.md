@@ -29,7 +29,7 @@
 ## 3. Prompt Contract System
 
 深度导入链路和生成中心世界对象草稿链路使用 `backend/tools/prompt_contracts/` 做开发期漂移检查，覆盖
-Phase 1a Scene slicing、Phase 1b Scene enrichment、Phase 2 world extraction、
+Phase 1a Scene slicing、Phase 1b Scene enrichment、Phase 1c Scene fusion、Phase 2 world extraction、
 Phase 2b alias/relation、Phase 3 simple structure，以及 Generation Center
 world object draft（`generation_center_world_object_draft`）。检查入口是
 `make prompt-contracts` 或 `cd backend && python -m tools.prompt_contracts check`。
@@ -84,7 +84,7 @@ shell、表达式或动态代码执行。默认只有 P0/P1 阻断；文档漂�
 - `extract_chapter_scene.md`
 
 这类 Prompt 服务于 Scene 和章节结构整理，不负责正史对象落库策略。
-深度导入 60 章主链的 Phase 0 / Phase 1a / Phase 1b prompt 不再由
+深度导入 60 章主链的 Phase 0 / Phase 1a / Phase 1b / Phase 1c prompt 不再由
 `scene_segmentation.md` 单独代表，而是在 imports 的 `workflow_llm_adapters.py`
 中按阶段组装，并通过 adapter、token budget 和 schema guard 输出中间候选或融合候选。
 `scene_segmentation.md` 仍用于正式 Scene 字段切分、小样本检测和单章恢复等受控路径。

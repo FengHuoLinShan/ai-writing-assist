@@ -682,7 +682,6 @@ def phase2_quality_stats(phase2_result: dict[str, Any]) -> dict[str, Any]:
         "uncertain_count": int(phase2_result.get("uncertain_count", 0) or 0),
         "retry_count": int(phase2_result.get("retry_count", 0) or 0),
         "high_quality": bool(phase2_result.get("high_quality")),
-        "model_override": phase2_result.get("model_override"),
         "degraded": bool(phase2_result.get("degraded")),
         "error_kind": phase2_result.get("error_kind"),
         "checkpoint_status_counts": status_counts,
