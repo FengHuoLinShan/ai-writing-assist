@@ -1,10 +1,13 @@
-# Writing 模块 — 正文草稿承载
+# Writing 模块 — 正文事实源与受控候选生成
 
 ## 定位
 
-Writing 模块当前 **不是** 核心 AI 正文生成模块，而是**人工正文草稿和结构化创作成果的承载模块**。
+Writing 模块是章节正文的事实源，同时负责在 fresh context confirmation 约束下生成
+可审查的 AI 正文 candidate。它管理人工正文、版本、发布事实、稳定范围引用和候选采用，
+但不会自动采用、覆盖或发布 AI 生成结果。
 
-系统的核心创作产物仍然是结构化资产（世界对象、人物档案、剧情线、章节卡等），正文草稿仅为作者手动写作或后续 AI 辅助写作提供基础承载。
+世界对象、人物档案、剧情线和 Scene 等结构化资产仍由各自领域模块拥有；writing
+只消费其稳定 context/contract，不复制结构正史。
 
 ## 职责
 
@@ -15,11 +18,15 @@ Writing 模块当前 **不是** 核心 AI 正文生成模块，而是**人工正
 - 版本历史查看
 - 创建草稿后提交 `publish_chapter` 异步索引任务
 - 写作页剧情设定冲突检查记录、问题状态与发布前检查快照归档
+- 从已确认 context 生成 AI 正文 candidate，并保存 confirmation/task provenance
+- 对规则冲突结果追加 AI 软复核和可编辑修复建议
 
 ## 不负责
 
-- AI 自动生成完整正文
-- 复杂正文审稿
+- 未经确认自动采用、覆盖或发布 AI 正文
+- 把 candidate 当作 working/canonical 正文
+- 自治式长篇生成或跨模块业务编排
+- 完整文学质量审稿
 - 文风润色
 - 多版本自动融合
 - 正文的 RAG 分块（由 RAG 模块负责）
@@ -121,6 +128,7 @@ GET /api/writing/conflict-checks/{id}             → 获取检查详情
 POST /api/writing/conflict-checks/{id}/ai-review  → 为检查追加 AI 软冲突判断
 PATCH /api/writing/conflict-check-items/{id}      → 更新问题处理状态
 POST /api/writing/conflict-check-items/{id}/ai-suggestion → 生成单条问题 AI 修复建议
+POST /api/writing/generate                        → 从已确认 context 生成正文 candidate
 ```
 
 `POST /api/writing/chapters/{chapter_index}/split` 仅允许未发布的 working 章节拓扑变更；
@@ -150,11 +158,10 @@ Phase 2 AI 能力是显式追加，不影响规则层检查：
 
 ## 后续扩展方向
 
-- 根据章节卡生成正文 Prompt
 - 正文局部重写
 - 文风润色
-- 正文审稿
-- 章节正文 RAG 分块
+- 文学质量与 POV 稳定性评测
+- candidate 局部比较与人工融合工具
 
 ## 测试方式
 

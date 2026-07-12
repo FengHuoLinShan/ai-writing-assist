@@ -302,27 +302,6 @@ def _normalize_deep_import_alias(
 # ============================================================
 
 
-async def upsert_relationship(
-    db: AsyncSession,
-    novel_id: str,
-    source_id: str,
-    target_id: str,
-    source_type: str = "",
-    target_type: str = "",
-    relation_type: str = "",
-    description: str | None = None,
-) -> None:
-    """兼容旧接口，委托新的 upsert 方法"""
-    await _relation_service.upsert(
-        db,
-        novel_id,
-        source_id=source_id,
-        target_id=target_id,
-        relation_type=relation_type,
-        description=description,
-    )
-
-
 async def get_entity_relations(
     db: AsyncSession,
     novel_id: str,

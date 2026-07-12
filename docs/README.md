@@ -76,6 +76,8 @@
 6. [`audit/2026-07-12-P0能力闭环完成审计.md`](audit/2026-07-12-P0能力闭环完成审计.md) — P0 工程/评测基础设施闭环证据、Pilot v1.1 四 suite 结果、历史 timing 限制与未达质量项
 7. [`superpowers/plans/2026-07-12-p1-observability-query-planning-stale-closure.md`](superpowers/plans/2026-07-12-p1-observability-query-planning-stale-closure.md) — P1.1 Scene/证据覆盖遥测、P1.2 context 确定性查询计划、P1.3 任务 stale 闭环的详细实现计划与验收标准
 8. [`audit/2026-07-12-P1运行盲区收敛完成审计.md`](audit/2026-07-12-P1运行盲区收敛完成审计.md) — P1 工程闭环、context-planner 正式对比结果、放宽验收与仍未达的严格质量目标
+9. [`superpowers/plans/2026-07-12-p2-compatibility-surface-doc-drift.md`](superpowers/plans/2026-07-12-p2-compatibility-surface-doc-drift.md) — P2 文档同步、world contract 解耦、facade 公共面冻结和 legacy 删除计划
+10. [`audit/2026-07-12-P2兼容面与文档漂移收敛完成审计.md`](audit/2026-07-12-P2兼容面与文档漂移收敛完成审计.md) — P2 删除清单、稳定接口影响与仓库级验证结果
 
 ## 当前状态
 

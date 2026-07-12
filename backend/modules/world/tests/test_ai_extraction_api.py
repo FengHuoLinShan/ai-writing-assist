@@ -62,11 +62,15 @@ async def test_entity_extraction_routes_new_assets_through_suggestion_queue(
     )
     monkeypatch.setattr(
         "modules.project.facade.get_project_context",
-        AsyncMock(return_value=None),
+        AsyncMock(return_value=SimpleNamespace(settings={"llm": {"model": "fake"}})),
     )
 
     class FakeLLM:
         model_name = "fake-model"
+
+        @classmethod
+        def from_project_settings(cls, _settings):
+            return cls()
 
         async def generate_embedding(self, texts, *, is_query=False):
             del is_query

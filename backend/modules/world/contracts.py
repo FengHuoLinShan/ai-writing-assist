@@ -109,19 +109,6 @@ class CharacterKnowledgeContract:
 
 
 @dataclass(frozen=True)
-class DuplicateSuggestion:
-    """去重建议（向后兼容）"""
-
-    candidate_id: str = ""
-    candidate_name: str = ""
-    existing_entity_id: str = ""
-    existing_entity_name: str = ""
-    similarity_score: float = 0.0
-    match_method: str = ""
-    action: str = "needs_user_decision"
-
-
-@dataclass(frozen=True)
 class MergeResult:
     """合并结果 — candidate 合并到 target 的统计信息"""
 
@@ -175,16 +162,15 @@ class WorldBackgroundBundleContract:
     warnings: list[str] = field(default_factory=list)
 
 
-# facade 返回类型（Pydantic schema），供跨模块导入使用
-from modules.world.schemas import (  # noqa: E402, F401
-    CharacterContextBundle,
-    CharacterKnowledgeContext,
-    CharacterResponse,
-    CoreEntityResponse,
-    DuplicateSuggestionResult,
-    EntityRelationResponse,
-    EventContext,
-    EventsContextBundle,
-    WorldContextBundle,
-    WorldEntityContext,
-)
+__all__ = [
+    "CharacterContract",
+    "CharacterKnowledgeContract",
+    "CoreEntityContract",
+    "EntityRelationContract",
+    "EntityRevisionContract",
+    "EventContract",
+    "MergeResult",
+    "ResolveResult",
+    "WorldBackgroundBundleContract",
+    "WorldBackgroundEntryContract",
+]

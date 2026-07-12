@@ -124,11 +124,11 @@ def multi_chapters():
 
 
 @pytest.fixture(autouse=True)
-def project_context_without_profile(monkeypatch):
-    """Keep existing extraction tests on the legacy no-profile path by default."""
+def project_context_with_test_profile(monkeypatch):
+    """Give Mock-db extraction tests an explicit project runtime profile."""
 
     async def _get_project_context(*_args, **_kwargs):
-        return None
+        return SimpleNamespace(settings={"llm": {"model": "gpt-4o"}})
 
     monkeypatch.setattr(
         "modules.project.facade.get_project_context",

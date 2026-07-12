@@ -314,9 +314,15 @@ class ResolveResult:
 ## Facade
 
 Root `facade.py` 是纯 re-export hub，不定义 async wrapper 或承载业务编排；
-旧 `modules.world.facade.*` import path 保持可用。具体薄委托按子域落在
+现有 `modules.world.facade.*` 生产路径保持可用，并由显式 `__all__` 与 public API
+snapshot 测试冻结。新增跨模块函数前必须先证明现有 deep seam 无法表达，不能为单一
+调用方增加 pass-through。具体薄委托按子域落在
 `entity_facade.py`、`character_facade.py`、`event_facade.py`、`map_facade.py`
 和 `worldbuilding_facade.py`。
+
+`contracts.py` 只定义跨模块稳定 dataclass，不重导出 HTTP Pydantic schema。
+HTTP 请求/响应类型属于 `schemas.py`；package root 不再兼容重导出 ORM、schema 或
+facade 函数，跨模块调用必须显式使用 `contracts.py` / `facade.py` / 已注册 DI port。
 
 `worldbuilding_facade.py` 承载世界书上下文激活相关入口：
 `preview_worldbuilding_activation()` 调用确定性 activation preview 服务；
@@ -455,7 +461,7 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 - `POST /api/world/entities/extract` 的确认 action 为 `world.entities.extract`。
 - entity extraction、entity fusion、对象草稿和世界书生成通过 project runtime seam 消费项目 profile；
   extraction 在成功、异常和取消路径都由 context manager 关闭 client；
-  Mock-only 测试兼容分支不是生产 fallback。
+  Mock-only 测试分支同样要求显式 project settings，不回退零参数 client。
   LLM 输出继续只形成 suggestion/draft，不直接成为 canonical。
 - 补抽结果写入 `context_confirmations.result_refs`，类型为 `world_entity`。
 - 候选提升、合并、重命名或忽略会将相关确认记录标记为 `needs_review` 或 `stale_context`，并写入 `stale_reasons`。
@@ -549,6 +555,9 @@ cd backend
 python -m pytest modules/world/tests/ -v
 ```
 
-## MVP
+## 当前范围
 
-实现世界对象 CRUD、关系管理、基础别名管理、关系一跳/二跳扩展、规则去重、人物档案与知识边界。
+world 当前拥有世界对象、关系、别名、人物与知识边界、建议队列、去重/融合、版本回滚、
+World Bible、生成模板，以及地图地形、地点、标记、势力范围、observation/fact 和 playback。
+它是事实模块，不拥有正文、Scene、context confirmation 或 RAG 候选；AI 输出默认进入
+待处理建议，只有用户明确授权的流水线才可按领域门禁写入可回滚资产。

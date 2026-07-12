@@ -87,11 +87,9 @@ class EntityExtractionService:
             from modules.project.facade import get_project_context
 
             project_context = await get_project_context(db, novel_id)
-            client = (
-                LLMClient.from_project_settings(project_context.settings)
-                if project_context is not None
-                else LLMClient()
-            )
+            if project_context is None:
+                raise ValidationError("Project LLM settings are required for extraction")
+            client = LLMClient.from_project_settings(project_context.settings)
             try:
                 return await self._extract_entities_from_chapters_with_client(
                     db,

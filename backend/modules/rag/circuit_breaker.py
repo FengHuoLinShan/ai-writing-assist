@@ -137,7 +137,3 @@ def reset_circuit_breakers_for_tests() -> None:
     _circuit_breaker.reset()
     with _circuit_breakers_lock:
         _novel_circuit_breakers.clear()
-
-
-def get_legacy_circuit_breaker() -> CircuitBreaker:
-    return _circuit_breaker

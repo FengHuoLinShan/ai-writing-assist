@@ -38,42 +38,6 @@ async def deprecate_deep_import_structure_assets_by_workflow(
     )
 
 
-async def reindex_scenes_for_deep_import_repair(
-    db: AsyncSession,
-    novel_id: str,
-) -> int:
-    """Reorder Scenes by chapter membership for deterministic deep-import display."""
-    from modules.outline.deep_import_repair_service import (
-        OutlineDeepImportRepairService,
-    )
-
-    return await OutlineDeepImportRepairService().reindex_scenes(db, novel_id)
-
-
-async def get_deep_import_structure_counts(
-    db: AsyncSession,
-    novel_id: str,
-) -> dict[str, int]:
-    """Count outline-owned structure assets for deep-import display repair."""
-    from modules.outline.deep_import_repair_service import (
-        OutlineDeepImportRepairService,
-    )
-
-    return await OutlineDeepImportRepairService().structure_counts(db, novel_id)
-
-
-async def get_deep_import_structure_payload(
-    db: AsyncSession,
-    novel_id: str,
-) -> dict[str, Any]:
-    """Return the structure-analysis payload shape consumed by import fallback logic."""
-    from modules.outline.deep_import_repair_service import (
-        OutlineDeepImportRepairService,
-    )
-
-    return await OutlineDeepImportRepairService().structure_payload(db, novel_id)
-
-
 async def ensure_deep_import_structure_outputs(
     db: AsyncSession,
     novel_id: str,
@@ -140,27 +104,6 @@ def get_deep_import_fallback_thread_type(index: int) -> str:
     return fallback_thread_type(index)
 
 
-async def ensure_deep_import_structure_minimums(
-    db: AsyncSession,
-    novel_id: str,
-    start_chapter: int,
-    end_chapter: int,
-    workflow_id: str | None,
-) -> dict[str, int]:
-    """Ensure outline structure minimums for repaired deep-import runs."""
-    from modules.outline.deep_import_repair_service import (
-        OutlineDeepImportRepairService,
-    )
-
-    return await OutlineDeepImportRepairService().ensure_structure_minimum_counts(
-        db,
-        novel_id,
-        start_chapter,
-        end_chapter,
-        workflow_id=workflow_id,
-    )
-
-
 async def select_deep_import_fallback_reveal_target(
     db: AsyncSession,
     novel_id: str,
@@ -178,14 +121,10 @@ async def select_deep_import_fallback_reveal_target(
 __all__ = [
     "deprecate_deep_import_scenes_by_workflow",
     "deprecate_deep_import_structure_assets_by_workflow",
-    "ensure_deep_import_structure_minimums",
     "ensure_deep_import_structure_outputs",
     "get_deep_import_fallback_thread_type",
     "get_deep_import_structure_category_counts",
     "get_deep_import_structure_category_targets",
-    "get_deep_import_structure_counts",
     "get_deep_import_structure_output_count",
-    "get_deep_import_structure_payload",
-    "reindex_scenes_for_deep_import_repair",
     "select_deep_import_fallback_reveal_target",
 ]

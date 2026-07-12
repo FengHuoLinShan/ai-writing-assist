@@ -216,8 +216,11 @@ worker 启动后项目默认模型变更而漂移。
 - `deep_import_repair_facade.py`：deep import 修复、最小结构补齐和清理
 - `foreshadowing_facade.py`：伏笔计划只读上下文
 
-旧 `modules.outline.facade.*` 路径仍是唯一跨模块公共 seam，供外部模块 import 和
-测试 monkeypatch；子 facade 只是 outline 内部的 locality 拆分。当前常用入口包括：
+`modules.outline.facade.*` 路径仍是唯一跨模块公共 seam，供外部模块 import 和
+测试 monkeypatch；子 facade 只是 outline 内部的 locality 拆分。root facade 的
+显式 `__all__` 与 public API snapshot 已冻结当前公共面。新增入口前必须证明现有
+Scene/repair/dedup/reveal seam 无法表达，并同步 contract、README 和调用方测试；不得
+为单一调用方增加 pass-through。当前常用入口包括：
 
 ```python
 async def get_scene(...)

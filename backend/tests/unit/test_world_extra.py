@@ -29,7 +29,6 @@ from modules.world.contracts import (
     CharacterContract,
     CharacterKnowledgeContract,
     CoreEntityContract,
-    DuplicateSuggestion,
     EntityRelationContract,
     EntityRevisionContract,
     EventContract,
@@ -1749,12 +1748,6 @@ class TestContractsConstruction:
         )
         assert k.known_content is None
         assert k.misconception is None
-
-    def test_duplicate_suggestion_defaults(self) -> None:
-        d = DuplicateSuggestion()
-        assert d.candidate_id == ""
-        assert d.similarity_score == 0.0
-        assert d.action == "needs_user_decision"
 
     def test_merge_result_defaults(self) -> None:
         m = MergeResult(target_entity_id="t1", candidate_entity_id="c1")

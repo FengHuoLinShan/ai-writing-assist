@@ -14,15 +14,11 @@ Facade 不写复杂业务逻辑，只做稳定的对外代理。
 from modules.outline.deep_import_repair_facade import (  # noqa: F401
     deprecate_deep_import_scenes_by_workflow,
     deprecate_deep_import_structure_assets_by_workflow,
-    ensure_deep_import_structure_minimums,
     ensure_deep_import_structure_outputs,
     get_deep_import_fallback_thread_type,
     get_deep_import_structure_category_counts,
     get_deep_import_structure_category_targets,
-    get_deep_import_structure_counts,
     get_deep_import_structure_output_count,
-    get_deep_import_structure_payload,
-    reindex_scenes_for_deep_import_repair,
     select_deep_import_fallback_reveal_target,
 )
 from modules.outline.foreshadowing_facade import (  # noqa: F401
@@ -55,6 +51,8 @@ from modules.outline.structure_dedup_facade import (  # noqa: F401
     suggest_structure_dedup,
 )
 
+# Frozen cross-module API. New names require a deletion test, contract/README
+# update, and an explicit change to the public-surface regression test.
 __all__ = [
     "apply_structure_dedup",
     "bind_scene_spans_to_source",
@@ -63,15 +61,12 @@ __all__ = [
     "create_scene",
     "deprecate_deep_import_scenes_by_workflow",
     "deprecate_deep_import_structure_assets_by_workflow",
-    "ensure_deep_import_structure_minimums",
     "ensure_deep_import_structure_outputs",
     "get_active_foreshadowing",
     "get_deep_import_fallback_thread_type",
     "get_deep_import_structure_category_counts",
     "get_deep_import_structure_category_targets",
-    "get_deep_import_structure_counts",
     "get_deep_import_structure_output_count",
-    "get_deep_import_structure_payload",
     "get_next_scene_index",
     "get_reader_reveal_decision",
     "get_scene",
@@ -85,7 +80,6 @@ __all__ = [
     "get_scenes_by_novel",
     "get_scenes_by_provenance_key",
     "get_scenes_by_provenance_keys",
-    "reindex_scenes_for_deep_import_repair",
     "rebuild_scene_summary_checkpoint",
     "select_deep_import_fallback_reveal_target",
     "split_scene_chunk_to_new_chapter",

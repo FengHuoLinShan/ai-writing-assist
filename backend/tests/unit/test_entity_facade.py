@@ -25,7 +25,6 @@ from modules.world.facade import (
     preview_worldbuilding_activation,
     suggest_entity_fusion,
     upsert_relation,
-    upsert_relationship,
 )
 from modules.world.schemas import EntityFusionApplyItem, EntityRelationResponse
 
@@ -302,70 +301,6 @@ async def test_upsert_relation_service_exception_propagates(mock_relation_servic
     # Act & Assert
     with pytest.raises(ConnectionError, match="lost"):
         await upsert_relation(db, TEST_NOVEL_ID, "s1", "t1", "friend")
-
-
-# ===========================================================================
-# upsert_relationship
-# ===========================================================================
-
-
-@mock.patch("modules.world.entity_facade._relation_service")
-async def test_upsert_relationship_happy_path_delegates_and_ignores_source_target_types(
-    mock_relation_service,
-):
-    """Compatible wrapper delegates to upsert and drops source_type / target_type."""
-    # Arrange
-    mock_relation_service.upsert = mock.AsyncMock(return_value=None)
-    db = mock.AsyncMock()
-    source_id = str(uuid.uuid4())
-    target_id = str(uuid.uuid4())
-
-    # Act
-    result = await upsert_relationship(
-        db,
-        TEST_NOVEL_ID,
-        source_id,
-        target_id,
-        source_type="character",
-        target_type="item",
-        relation_type="owns",
-        description="possession",
-    )
-
-    # Assert
-    assert result is None
-    mock_relation_service.upsert.assert_awaited_once_with(
-        db,
-        TEST_NOVEL_ID,
-        source_id=source_id,
-        target_id=target_id,
-        relation_type="owns",
-        description="possession",
-    )
-
-
-@mock.patch("modules.world.entity_facade._relation_service")
-async def test_upsert_relationship_with_defaults_uses_empty_relation_type(
-    mock_relation_service,
-):
-    """Default empty strings are accepted and forwarded as relation_type=''."""
-    # Arrange
-    mock_relation_service.upsert = mock.AsyncMock(return_value=None)
-    db = mock.AsyncMock()
-
-    # Act
-    result = await upsert_relationship(db, TEST_NOVEL_ID, "s1", "t1")
-
-    # Assert
-    assert result is None
-    mock_relation_service.upsert.assert_awaited_once_with(
-        db,
-        TEST_NOVEL_ID,
-        source_id="s1",
-        target_id="t1",
-        relation_type="",
-        description=None,
-    )
 
 
 # ===========================================================================

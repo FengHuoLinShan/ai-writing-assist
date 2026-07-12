@@ -20,9 +20,6 @@ ALLOWED_DIRECT_CLIENT_CALLS: dict[tuple[str, str], str] = {
     ("modules/rag/tuning.py", "constructor"): (
         "offline embedding tuning governed by EMBEDDING_* settings"
     ),
-    ("modules/world/services/core/extraction_service.py", "constructor"): (
-        "unit-test-only Mock session branch; production uses project runtime seam"
-    ),
     (
         "modules/world/services/core/extraction_service.py",
         "project_settings",
