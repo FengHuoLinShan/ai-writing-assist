@@ -20,6 +20,18 @@ class ContextSelectionRequest(BaseModel):
         ...,
         description="编译范围: project / world / world_character / arc / chapter / full",
     )
+    retrieval_purpose: Literal[
+        "writing_generation",
+        "conflict_review",
+        "outline_generation",
+        "cross_chapter_detection",
+        "world_fusion",
+        "import_scene_activation",
+        "reader_context",
+        "character_context",
+        "manual_search",
+        "generic_context",
+    ] = "generic_context"
     chapter_index: int | None = Field(
         None,
         ge=0,
@@ -56,6 +68,10 @@ class ContextSelectionRequest(BaseModel):
     character_ids: list[str] | None = Field(
         None,
         description="指定关注的人物 ID 列表",
+    )
+    thread_ids: list[str] | None = Field(
+        None,
+        description="指定关注的剧情线 ID 列表",
     )
     location_ids: list[str] | None = Field(
         None,
@@ -182,6 +198,49 @@ class ContextSectionItem(BaseModel):
     can_exclude: bool = Field(default=True, description="本次操作是否允许排除")
     excluded: bool = Field(default=False, description="是否已被排除")
     truncated_reason: str | None = Field(default=None, description="截断原因")
+    retrieval_metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="检索计划与命中原因摘要；不包含原始 query",
+    )
+
+
+class ContextRetrievalTraceResponse(BaseModel):
+    id: str
+    novel_id: str
+    content_mode: str
+    consumer_action: str
+    retrieval_purpose: str
+    reveal_mode: str
+    plan_version: str
+    plan_hash: str
+    clause_summaries: list[dict] = Field(default_factory=list)
+    scene_id: str | None = None
+    chapter_index: int | None = None
+    candidate_count: int = 0
+    unique_count: int = 0
+    hydrated_count: int = 0
+    drop_counts: dict[str, int] = Field(default_factory=dict)
+    safe_empty_reason: str | None = None
+    degraded: bool = False
+    warning_codes: list[str] = Field(default_factory=list)
+    latency_metadata: dict[str, float] = Field(default_factory=dict)
+    created_at: str
+
+
+class ContextRetrievalTraceListResponse(BaseModel):
+    items: list[ContextRetrievalTraceResponse] = Field(default_factory=list)
+    total: int = 0
+
+
+class EvidenceHealthResponse(BaseModel):
+    novel_id: str
+    content_mode: Literal["canonical", "working"]
+    window_hours: int
+    health_state: Literal["healthy", "degraded", "insufficient_data"]
+    health_reasons: list[str] = Field(default_factory=list)
+    scene_span_coverage: dict = Field(default_factory=dict)
+    rag_mapping_coverage: dict = Field(default_factory=dict)
+    retrieval_summary: dict = Field(default_factory=dict)
 
 
 class ContextBudgetEventItem(BaseModel):
@@ -348,6 +407,8 @@ class SnapshotHealthSummaryResponse(BaseModel):
     by_status: dict[str, int] = Field(default_factory=dict)
     by_phase: dict[str, dict[str, int]] = Field(default_factory=dict)
     stale_running_count: int = 0
+    owner_terminal_orphan_count: int = 0
+    owner_stale_count: int = 0
     retained_rendered_context_count: int = 0
     latest_failure: dict | None = None
 
@@ -360,6 +421,9 @@ class ContextSnapshotMaintenanceRequest(BaseModel):
     running_timeout_minutes: int = Field(default=120, ge=1)
     prune_rendered_context: bool = Field(default=True)
     retain_latest_full_context_per_project: int = Field(default=200, ge=0)
+    prune_retrieval_traces: bool = Field(default=True)
+    retrieval_trace_retention_days: int = Field(default=30, ge=1, le=365)
+    retain_latest_retrieval_traces: int = Field(default=10_000, ge=0, le=100_000)
     dry_run: bool = Field(default=True)
 
 
@@ -369,6 +433,7 @@ class ContextSnapshotMaintenanceResponse(BaseModel):
     snapshot_health_summary: SnapshotHealthSummaryResponse
     stale_running_count: int = 0
     pruned_rendered_context_count: int = 0
+    pruned_retrieval_trace_count: int = 0
     would_change_count: int = 0
     dry_run: bool = True
 

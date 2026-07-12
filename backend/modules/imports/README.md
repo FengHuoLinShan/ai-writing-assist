@@ -104,7 +104,10 @@ fail closed。旧的本地任务若没有此字段，兼容路径在首次新 wo
 
 ## 深度导入恢复语义
 
-worker 启动时会检测 stale 的 `deep_import` 任务并标记为需要恢复，但不会自动继续。
+worker 启动时会检测 stale 的 deep-import/stage task，清空旧 lease 并收敛为
+`failed + recovery_required`，但不会自动继续。前端只在任务 `available_actions`
+包含 `resume + abandon` 时展示恢复操作；resume 校验 failed 与双份 recovery flag 后，
+复用原 task 转回 pending，不伪装成仍在 running。
 前端通过 `GET /api/tasks/{task_id}` 展示 `recovery_required` / `recovery_summary`，
 用户点击继续后调用 `POST /api/imports/deep/resume` 复用原 task；放弃恢复调用
 `POST /api/imports/deep/abandon`，只清理同 `workflow_id` 的自动派生 Scene、实体和结构资产。

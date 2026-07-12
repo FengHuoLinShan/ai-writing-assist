@@ -64,7 +64,7 @@ async def _create_recoverable_deep_import_task(
     db_session: AsyncSession,
     *,
     task_type: str = "deep_import",
-    status: str = "running",
+    status: str = "failed",
     meta: dict | None = None,
     result: dict | None = None,
 ) -> AsyncTask:

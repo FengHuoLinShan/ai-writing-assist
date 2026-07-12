@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -71,22 +72,61 @@ class AsyncTask(Base, UUIDMixin, TimestampMixin):
         default=None,
         comment="上次心跳时间",
     )
+    attempt: Mapped[int] = mapped_column(
+        default=0,
+        nullable=False,
+        comment="已领取次数；首次 claim 后为 1",
+    )
+    max_attempts: Mapped[int] = mapped_column(
+        default=1,
+        nullable=False,
+        comment="冻结的最大领取次数",
+    )
+    recovery_policy: Mapped[str] = mapped_column(
+        String(32),
+        default="restart_origin",
+        nullable=False,
+        comment="auto_requeue/manual_resume/restart_origin/never_retry",
+    )
+    lease_id: Mapped[str | None] = mapped_column(
+        String(36),
+        default=None,
+        nullable=True,
+        index=True,
+        comment="当前 worker lease；pending/terminal 为空",
+    )
+    stale_detected_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        default=None,
+        nullable=True,
+    )
+    transition_reason: Mapped[str | None] = mapped_column(
+        String(64),
+        default=None,
+        nullable=True,
+    )
 
     def __repr__(self) -> str:
         return f"<AsyncTask id={self.id} type={self.task_type} status={self.status}>"
 
-    def mark_running(self) -> None:
+    def mark_running(self, *, lease_id: str | None = None) -> None:
         """标记任务为运行中"""
         now = datetime.now(UTC)
         self.status = "running"
         self.started_at = now
         self.heartbeat_at = now
+        self.attempt = int(self.attempt or 0) + 1
+        self.lease_id = lease_id or str(uuid.uuid4())
+        self.finished_at = None
+        self.transition_reason = None
+        self.error_message = None
 
     def mark_done(self, result_data: dict[str, Any] | None = None) -> None:
         """标记任务为已完成"""
         self.status = "done"
         self.finished_at = datetime.now(UTC)
         self.progress = 1.0
+        self.lease_id = None
         if result_data:
             self.result = result_data
 
@@ -95,11 +135,13 @@ class AsyncTask(Base, UUIDMixin, TimestampMixin):
         self.status = "failed"
         self.finished_at = datetime.now(UTC)
         self.error_message = error
+        self.lease_id = None
 
     def mark_cancelled(self) -> None:
         """标记任务为已取消"""
         self.status = "cancelled"
         self.finished_at = datetime.now(UTC)
+        self.lease_id = None
 
     def update_heartbeat(self) -> None:
         """更新心跳时间"""

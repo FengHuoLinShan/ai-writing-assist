@@ -11,7 +11,7 @@ from infrastructure.tasks.registry import task_handler
 logger = logging.getLogger(__name__)
 
 
-@task_handler("rag_index_chapter")
+@task_handler("rag_index_chapter", recovery_policy="auto_requeue", max_attempts=2)
 async def handle_rag_index_chapter(db, task):
     """处理 RAG 章节索引任务
 
@@ -92,7 +92,7 @@ async def handle_rag_index_chapter(db, task):
     }
 
 
-@task_handler("rag_reindex_novel")
+@task_handler("rag_reindex_novel", recovery_policy="auto_requeue", max_attempts=2)
 async def handle_rag_reindex_novel(db, task):
     """处理项目级 RAG 全量重建任务。
 
@@ -196,7 +196,7 @@ async def handle_rag_reindex_novel(db, task):
     }
 
 
-@task_handler("rag_retry_embeddings")
+@task_handler("rag_retry_embeddings", recovery_policy="auto_requeue", max_attempts=2)
 async def handle_rag_retry_embeddings(db, task):
     """重试 failed / pending_vectorization chunk 的 embedding。"""
     meta = task.meta or {}

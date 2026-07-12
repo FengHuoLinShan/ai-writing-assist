@@ -563,13 +563,19 @@ class TestTaskWorkerExecuteTask:
             patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
         ):
             worker = TaskWorker()
+            worker._lifecycle.finalize = AsyncMock(return_value=True)
             worker._registry.get_handler = MagicMock(return_value=handler)
 
             await worker._execute_task(task_mock, db_session)
 
         handler.assert_awaited_once_with(task=task_mock, db=db_session)
-        task_mock.mark_done.assert_called_once_with({"output": "success"})
-        db_session.commit.assert_awaited()
+        worker._lifecycle.finalize.assert_awaited_once_with(
+            db_session,
+            task_id=task_mock.id,
+            lease_id=str(task_mock.lease_id or ""),
+            status="done",
+            result_data={"output": "success"},
+        )
         assert worker._stats["succeeded"] == 1
         assert worker._stats["processed"] == 1
         assert task_mock.id not in worker._running_task_ids
@@ -623,10 +629,11 @@ class TestTaskWorkerExecuteTask:
             patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
         ):
             worker = TaskWorker()
+            worker._lifecycle.finalize = AsyncMock(return_value=True)
             worker._registry.get_handler = MagicMock(return_value=handler)
             await worker._execute_task(task_mock, db_session)
 
-        result_data = task_mock.mark_done.call_args.args[0]
+        result_data = worker._lifecycle.finalize.await_args.kwargs["result_data"]
         assert result_data["output"] == "success"
         records = result_data[MANAGED_LLM_PROVENANCE_KEY]
         assert [record["step_name"] for record in records] == [
@@ -660,11 +667,17 @@ class TestTaskWorkerExecuteTask:
             patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
         ):
             worker = TaskWorker()
+            worker._lifecycle.finalize = AsyncMock(return_value=True)
             worker._registry.get_handler = MagicMock(return_value=handler)
 
             await worker._execute_task(task_mock, db_session)
 
-        task_mock.mark_done.assert_called_once_with({"result": "simple_string_result"})
+        assert worker._lifecycle.finalize.await_args.kwargs == {
+            "task_id": task_mock.id,
+            "lease_id": str(task_mock.lease_id or ""),
+            "status": "done",
+            "result_data": {"result": "simple_string_result"},
+        }
 
     @pytest.mark.asyncio
     async def test_execute_handler_none_registered(self) -> None:
@@ -694,13 +707,15 @@ class TestTaskWorkerExecuteTask:
             ),
         ):
             worker = TaskWorker()
+            worker._lifecycle.finalize = AsyncMock(return_value=True)
             worker._registry.get_handler = MagicMock(return_value=None)
 
             await worker._execute_task(task_mock, db_session)
 
         db_session.rollback.assert_awaited_once()
-        task_mock.mark_failed.assert_called_once()
-        assert "No handler" in task_mock.mark_failed.call_args[0][0]
+        finalized = worker._lifecycle.finalize.await_args.kwargs
+        assert finalized["status"] == "failed"
+        assert "No handler" in finalized["error_message"]
         assert worker._stats["failed"] == 1
         assert worker._stats["processed"] == 1
 
@@ -726,13 +741,15 @@ class TestTaskWorkerExecuteTask:
             patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
         ):
             worker = TaskWorker()
+            worker._lifecycle.finalize = AsyncMock(return_value=True)
             worker._registry.get_handler = MagicMock(return_value=failing_handler)
 
             await worker._execute_task(task_mock, db_session)
 
         db_session.rollback.assert_awaited_once()
-        task_mock.mark_failed.assert_called_once()
-        assert "ValueError: processing error" in task_mock.mark_failed.call_args[0][0]
+        finalized = worker._lifecycle.finalize.await_args.kwargs
+        assert finalized["status"] == "failed"
+        assert "ValueError: processing error" in finalized["error_message"]
         assert worker._stats["failed"] == 1
 
     @pytest.mark.asyncio
@@ -773,14 +790,16 @@ class TestTaskWorkerExecuteTask:
             patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
         ):
             worker = TaskWorker()
+            worker._lifecycle.finalize = AsyncMock(return_value=True)
             worker._registry.get_handler = MagicMock(return_value=failing_handler)
             await worker._execute_task(task_mock, db_session)
 
-        assert task_mock.result["checkpoint"] == 2
-        record = task_mock.result[MANAGED_LLM_PROVENANCE_KEY][0]
+        result_data = worker._lifecycle.finalize.await_args.kwargs["result_data"]
+        assert result_data["checkpoint"] == 2
+        record = result_data[MANAGED_LLM_PROVENANCE_KEY][0]
         assert record["step_name"] == "test.failed"
         assert record["profile_summary"]["model"] == "failed-phase-model"
-        task_mock.mark_failed.assert_called_once()
+        assert worker._lifecycle.finalize.await_args.kwargs["status"] == "failed"
 
     def test_public_task_error_message_sanitizes_dbapi_details(self) -> None:
         """DB/SQL internals must not be exposed through task status."""
@@ -844,6 +863,7 @@ class TestTaskWorkerExecuteTask:
             caplog.at_level("ERROR", logger="infrastructure.tasks.worker"),
         ):
             worker = TaskWorker()
+            worker._lifecycle.finalize = AsyncMock(return_value=True)
             worker._registry.get_handler = MagicMock(return_value=failing_handler)
             await worker._execute_task(task_mock, db_session)
 
@@ -851,9 +871,9 @@ class TestTaskWorkerExecuteTask:
         assert "provider request failed" in logged
         assert "hidden-cause" not in logged
         assert "sk-hidden-cause" not in logged
-        task_mock.mark_failed.assert_called_once_with(
-            "RuntimeError: provider request failed"
-        )
+        finalized = worker._lifecycle.finalize.await_args.kwargs
+        assert finalized["status"] == "failed"
+        assert finalized["error_message"] == "RuntimeError: provider request failed"
 
     @pytest.mark.asyncio
     async def test_execute_cancelled_error(self) -> None:
@@ -877,12 +897,13 @@ class TestTaskWorkerExecuteTask:
             patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
         ):
             worker = TaskWorker()
+            worker._lifecycle.finalize = AsyncMock(return_value=True)
             worker._registry.get_handler = MagicMock(return_value=cancelling_handler)
 
             await worker._execute_task(task_mock, db_session)
 
         db_session.rollback.assert_awaited_once()
-        task_mock.mark_cancelled.assert_called_once()
+        assert worker._lifecycle.finalize.await_args.kwargs["status"] == "cancelled"
         assert worker._stats["cancelled"] == 1
 
     @pytest.mark.asyncio
@@ -923,13 +944,15 @@ class TestTaskWorkerExecuteTask:
             patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
         ):
             worker = TaskWorker()
+            worker._lifecycle.finalize = AsyncMock(return_value=True)
             worker._registry.get_handler = MagicMock(return_value=cancelling_handler)
             await worker._execute_task(task_mock, db_session)
 
-        record = task_mock.result[MANAGED_LLM_PROVENANCE_KEY][0]
+        result_data = worker._lifecycle.finalize.await_args.kwargs["result_data"]
+        record = result_data[MANAGED_LLM_PROVENANCE_KEY][0]
         assert record["step_name"] == "test.cancelled"
         assert record["profile_summary"]["model"] == "cancelled-phase-model"
-        task_mock.mark_cancelled.assert_called_once()
+        assert worker._lifecycle.finalize.await_args.kwargs["status"] == "cancelled"
 
     @pytest.mark.asyncio
     async def test_heartbeat_task_cancelled_in_finally(self) -> None:
@@ -1057,6 +1080,11 @@ class TestTaskWorkerRecoverStale:
         task_mock.task_type = "deep_import"
         task_mock.status = "running"
         task_mock.heartbeat_at = heartbeat_at
+        task_mock.started_at = heartbeat_at
+        task_mock.recovery_policy = "manual_resume"
+        task_mock.attempt = 1
+        task_mock.max_attempts = 1
+        task_mock.lease_id = str(uuid.uuid4())
         task_mock.result = {
             "current_phase": "entity_extraction",
             "current_chapter": 7,
@@ -1099,25 +1127,17 @@ class TestTaskWorkerRecoverStale:
         recovered = await worker.recover_stale_tasks()
 
         assert recovered == 0
-        assert task_mock.status == "running"
+        assert task_mock.status == "failed"
         assert task_mock.result["interrupted"] is True
         assert task_mock.result["recoverable"] is True
         assert task_mock.result["recovery_required"] is True
         assert task_mock.result["last_heartbeat_at"] == heartbeat_at.isoformat()
         assert task_mock.result["interrupted_at"]
-        assert task_mock.result["recovery_summary"]["reason"] == "heartbeat_timeout"
-        assert (
-            task_mock.result["recovery_summary"]["current_phase"] == "entity_extraction"
-        )
-        assert task_mock.result["recovery_summary"]["current_chapter"] == 7
-        assert task_mock.result["recovery_summary"]["current_chapter_range"] == "1-12"
-        assert task_mock.result["recovery_summary"]["committed_scenes"] == 9
-        assert task_mock.result["recovery_summary"]["committed_entities"] == 14
-        assert task_mock.result["recovery_summary"]["pending_scene_candidates"] == 2
+        assert task_mock.result["lifecycle"]["reason"] == "heartbeat_timeout"
         assert task_mock.meta["interrupted"] is True
         assert task_mock.meta["recoverable"] is True
         assert task_mock.meta["recovery_required"] is True
-        assert "recovery" in task_mock.error_message.lower()
+        assert "interrupted" in task_mock.error_message.lower()
         db_session.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -1128,7 +1148,18 @@ class TestTaskWorkerRecoverStale:
         from infrastructure.tasks.worker import TaskWorker
 
         deep_import_result = MagicMock()
-        deep_import_result.scalars.return_value.all.return_value = []
+        task_mock = MagicMock()
+        task_mock.task_type = "rag_reindex_novel"
+        task_mock.status = "running"
+        task_mock.started_at = datetime(2026, 6, 30, 10, 0, tzinfo=UTC)
+        task_mock.heartbeat_at = task_mock.started_at
+        task_mock.recovery_policy = "auto_requeue"
+        task_mock.attempt = 1
+        task_mock.max_attempts = 2
+        task_mock.lease_id = str(uuid.uuid4())
+        task_mock.result = {}
+        task_mock.meta = {"novel_id": "novel-1"}
+        deep_import_result.scalars.return_value.all.return_value = [task_mock]
 
         result_mock = MagicMock()
         result_mock.rowcount = 1
@@ -1148,7 +1179,8 @@ class TestTaskWorkerRecoverStale:
 
         recovered = await worker.recover_stale_tasks()
         assert recovered == 1
-        assert db_session.execute.await_count == 2
+        assert task_mock.status == "pending"
+        assert db_session.execute.await_count == 1
 
     @pytest.mark.asyncio
     async def test_recover_stale_tasks_rowcount_none(self) -> None:
@@ -1203,9 +1235,10 @@ class TestTaskWorkerRecoverStale:
 
         await worker.recover_stale_tasks()
 
-        update_stmt = db_session.execute.await_args_list[1].args[0]
-        stmt_text = str(update_stmt)
-        assert "async_tasks.task_type != :task_type_1" in stmt_text
+        scan_stmt = db_session.execute.await_args_list[0].args[0]
+        stmt_text = str(scan_stmt)
+        assert "async_tasks.status = :status_1" in stmt_text
+        assert "async_tasks.heartbeat_at" in stmt_text
 
     @pytest.mark.asyncio
     async def test_maybe_recover_stale_tasks_force_and_idle_interval(self) -> None:

@@ -10,6 +10,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.tasks.contracts import TaskLifecycleContract
+from infrastructure.tasks.facade import list_task_lifecycle_contracts
 from modules.context.contracts import ContextSnapshotContract, ContextSnapshotRequest
 from modules.context.repositories import ContextSnapshotRepository
 from shared.utils import parse_uuid
@@ -18,7 +20,10 @@ from shared.utils import parse_uuid
 class ContextSnapshotService:
     """Owns automated AI-call context snapshot semantics."""
 
-    def __init__(self, repository: ContextSnapshotRepository | None = None) -> None:
+    def __init__(
+        self,
+        repository: ContextSnapshotRepository | None = None,
+    ) -> None:
         self._repo = repository or ContextSnapshotRepository()
 
     async def create_context_snapshot(
@@ -227,9 +232,17 @@ class ContextSnapshotService:
             workflow_id=workflow_id,
         )
         cutoff = datetime.now(UTC) - timedelta(minutes=running_timeout_minutes)
+        owner_tasks = await self._owner_task_contracts(
+            db,
+            records=records,
+            novel_id=str(nid),
+            running_timeout_minutes=running_timeout_minutes,
+        )
         by_status = {"running": 0, "succeeded": 0, "failed": 0}
         by_phase: dict[str, dict[str, int]] = {}
         stale_running_count = 0
+        owner_terminal_orphan_count = 0
+        owner_stale_count = 0
         retained_rendered_context_count = 0
         latest_failure = None
 
@@ -242,8 +255,17 @@ class ContextSnapshotService:
             )
             phase_counts[status] = phase_counts.get(status, 0) + 1
 
-            if record.status == "running" and self._is_before(record.created_at, cutoff):
+            stale_reason = self._snapshot_stale_reason(
+                record,
+                owner_tasks=owner_tasks,
+                cutoff=cutoff,
+            )
+            if stale_reason is not None:
                 stale_running_count += 1
+                if stale_reason == "owner_task_terminal":
+                    owner_terminal_orphan_count += 1
+                elif stale_reason == "owner_task_stale":
+                    owner_stale_count += 1
             if record.rendered_context is not None:
                 retained_rendered_context_count += 1
             if record.status == "failed" and self._is_newer_failure(
@@ -268,6 +290,8 @@ class ContextSnapshotService:
             "by_status": by_status,
             "by_phase": by_phase,
             "stale_running_count": stale_running_count,
+            "owner_terminal_orphan_count": owner_terminal_orphan_count,
+            "owner_stale_count": owner_stale_count,
             "retained_rendered_context_count": retained_rendered_context_count,
             "latest_failure": latest_failure,
         }
@@ -288,21 +312,82 @@ class ContextSnapshotService:
             workflow_id=workflow_id,
         )
         cutoff = datetime.now(UTC) - timedelta(minutes=running_timeout_minutes)
+        owner_tasks = await self._owner_task_contracts(
+            db,
+            records=records,
+            novel_id=str(nid),
+            running_timeout_minutes=running_timeout_minutes,
+        )
         stale_records = [
-            record
+            (record, reason)
             for record in records
-            if record.status == "running" and self._is_before(record.created_at, cutoff)
+            if (
+                reason := self._snapshot_stale_reason(
+                    record,
+                    owner_tasks=owner_tasks,
+                    cutoff=cutoff,
+                )
+            )
+            is not None
         ]
         if dry_run:
             return len(stale_records)
 
-        for record in stale_records:
+        for record, reason in stale_records:
             record.status = "failed"
-            record.error_kind = "stale_running"
-            record.error_message = "Snapshot remained running past lifecycle timeout"
+            record.error_kind = reason
+            record.error_message = self._stale_error_message(reason)
         if stale_records:
             await db.flush()
         return len(stale_records)
+
+    async def _owner_task_contracts(
+        self,
+        db: AsyncSession,
+        *,
+        records: list,
+        novel_id: str,
+        running_timeout_minutes: int,
+    ) -> dict[str, TaskLifecycleContract]:
+        task_ids = [record.task_id for record in records if record.task_id]
+        return await list_task_lifecycle_contracts(
+            db,
+            task_ids=task_ids,
+            novel_id=novel_id,
+            max_heartbeat_gap=running_timeout_minutes * 60,
+        )
+
+    def _snapshot_stale_reason(
+        self,
+        record,
+        *,
+        owner_tasks: dict[str, TaskLifecycleContract],
+        cutoff: datetime,
+    ) -> str | None:
+        if record.status != "running":
+            return None
+        owner = owner_tasks.get(str(record.task_id)) if record.task_id else None
+        if owner is None:
+            return "stale_running" if self._is_before(record.created_at, cutoff) else None
+        if owner.status == "running":
+            return "owner_task_stale" if owner.stale else None
+        if owner.status == "pending":
+            return (
+                "owner_task_stale"
+                if owner.transition_reason == "heartbeat_timeout"
+                else None
+            )
+        if owner.status in {"done", "failed", "cancelled"}:
+            return "owner_task_terminal"
+        return "stale_running" if self._is_before(record.created_at, cutoff) else None
+
+    @staticmethod
+    def _stale_error_message(reason: str) -> str:
+        if reason == "owner_task_terminal":
+            return "Snapshot owner task reached a terminal state before closing snapshot"
+        if reason == "owner_task_stale":
+            return "Snapshot owner task lease became stale before closing snapshot"
+        return "Snapshot remained running past lifecycle timeout"
 
     async def prune_rendered_context(
         self,
@@ -337,6 +422,9 @@ class ContextSnapshotService:
         running_timeout_minutes: int = 120,
         prune_rendered_context: bool = True,
         retain_latest_full_context_per_project: int = 200,
+        prune_retrieval_traces: bool = True,
+        retrieval_trace_retention_days: int = 30,
+        retain_latest_retrieval_traces: int = 10_000,
         dry_run: bool = True,
     ) -> dict[str, Any]:
         stale_count = await self.mark_stale_running_snapshots(
@@ -357,6 +445,19 @@ class ContextSnapshotService:
                 ),
                 dry_run=dry_run,
             )
+        pruned_trace_count = 0
+        if prune_retrieval_traces:
+            from modules.context.services.retrieval_trace_service import (
+                RetrievalTraceService,
+            )
+
+            pruned_trace_count = await RetrievalTraceService().prune(
+                db,
+                novel_id=novel_id,
+                retention_days=retrieval_trace_retention_days,
+                retain_latest=retain_latest_retrieval_traces,
+                dry_run=dry_run,
+            )
         summary = await self.build_snapshot_health_summary(
             db,
             novel_id=novel_id,
@@ -367,7 +468,10 @@ class ContextSnapshotService:
             "snapshot_health_summary": summary,
             "stale_running_count": stale_count,
             "pruned_rendered_context_count": pruned_count,
-            "would_change_count": stale_count + pruned_count if dry_run else 0,
+            "pruned_retrieval_trace_count": pruned_trace_count,
+            "would_change_count": (
+                stale_count + pruned_count + pruned_trace_count if dry_run else 0
+            ),
             "dry_run": dry_run,
         }
 

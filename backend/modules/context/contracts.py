@@ -21,6 +21,10 @@ class CompileOptions:
     novel_id: str
     task: str
     scope: str
+    consumer_action: str | None = None
+    """后端确定的消费动作，如 writing.generate；不接受前端伪造"""
+    retrieval_purpose: str = "generic_context"
+    """确定性检索用途；未知调用方使用 generic_context"""
     chapter_index: int | None = None
     visible_until_chapter: int | None = None
     """RAG 读者进度上界；None 表示不启用未来章节硬过滤"""
@@ -39,6 +43,7 @@ class CompileOptions:
     """导入 Scene-local 上下文的前序邻居数，最大 4"""
     entity_ids: list[str] | None = None
     character_ids: list[str] | None = None
+    thread_ids: list[str] | None = None
     location_ids: list[str] | None = None
     reveal_mode: str = "author_safe"
     """揭示模式：author_safe / author_full / reader / character"""
@@ -161,6 +166,74 @@ class ContextSnapshotRequest:
 
 
 @dataclass(frozen=True)
+class ContextRetrievalTraceContract:
+    """Privacy-safe diagnostics for one context retrieval execution."""
+
+    id: str
+    novel_id: str
+    content_mode: str
+    consumer_action: str
+    retrieval_purpose: str
+    reveal_mode: str
+    plan_version: str
+    plan_hash: str
+    clause_summaries: list[dict] = field(default_factory=list)
+    scene_id: str | None = None
+    chapter_index: int | None = None
+    candidate_count: int = 0
+    unique_count: int = 0
+    hydrated_count: int = 0
+    drop_counts: dict[str, int] = field(default_factory=dict)
+    safe_empty_reason: str | None = None
+    degraded: bool = False
+    warning_codes: list[str] = field(default_factory=list)
+    latency_metadata: dict[str, float] = field(default_factory=dict)
+    created_at: str = ""
+
+
+@dataclass(frozen=True)
+class EvidenceHealthContract:
+    """Combined Scene, RAG mapping, and context retrieval health."""
+
+    novel_id: str
+    content_mode: str
+    window_hours: int
+    health_state: str
+    health_reasons: list[str] = field(default_factory=list)
+    scene_span_coverage: dict = field(default_factory=dict)
+    rag_mapping_coverage: dict = field(default_factory=dict)
+    retrieval_summary: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class RetrievalClause:
+    clause_id: str
+    query_text: str
+    mode: str
+    top_k: int
+    reason_code: str
+    entity_ids: list[str] | None = None
+    character_ids: list[str] | None = None
+    thread_ids: list[str] | None = None
+    chapter_index: int | None = None
+    scene_id: str | None = None
+    strict_scene_filter: bool = False
+    priority: float = 1.0
+
+
+@dataclass(frozen=True)
+class RetrievalQueryPlan:
+    version: str
+    purpose: str
+    clauses: list[RetrievalClause]
+    visible_until_chapter: int | None
+    visible_until_scene_id: str | None
+    visible_until_offset: int | None
+    final_top_k: int
+    plan_hash: str
+
+
+@dataclass(frozen=True)
 class ImportContextActivationContract:
     """Frozen, read-only preflight material for one deep-import Scene call."""
 
@@ -274,6 +347,8 @@ class StructureContextBundle:
     """当前 Scene 卡"""
     rag_chunks: list = field(default_factory=list)
     """RAG 检索片段列表"""
+    retrieval_trace: dict = field(default_factory=dict)
+    """本次 RAG 加载的结构化诊断；不进入 prompt 正文"""
 
     geo_filtered: bool = False
     """是否执行了地缘可达性过滤"""

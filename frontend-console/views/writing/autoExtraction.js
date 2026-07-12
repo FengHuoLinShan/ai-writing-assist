@@ -95,10 +95,6 @@ export function createAutoExtraction({
     }])
   }
 
-  function showDeepImportForm() {
-    showForm("scenes")
-  }
-
   async function submitStage(stage, startChapter, endChapter, force = false, highQuality = false) {
     const projectId = currentProjectId()
     const config = stageConfig(stage)
@@ -207,7 +203,6 @@ export function createAutoExtraction({
 
   return {
     showForm,
-    showDeepImportForm,
     extractChapterCards,
     dispose,
   }

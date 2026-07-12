@@ -246,6 +246,13 @@ def main() -> None:
     )
     run_parser.add_argument("--allow-unfrozen", action="store_true")
 
+    context_planner_parser = subparsers.add_parser("context-planner")
+    context_planner_parser.add_argument("dataset", type=Path)
+    context_planner_parser.add_argument("--novel-id", required=True)
+    context_planner_parser.add_argument("--dataset-version", required=True)
+    context_planner_parser.add_argument("--sut-profile", required=True)
+    context_planner_parser.add_argument("--output", type=Path, required=True)
+
     readiness_parser = subparsers.add_parser("baseline-check")
     readiness_parser.add_argument("dataset", type=Path)
     readiness_parser.add_argument(
@@ -424,6 +431,16 @@ def main() -> None:
         )
         if not report["ready"]:
             raise SystemExit(2)
+    elif args.command == "context-planner":
+        asyncio.run(
+            _run_context_planner_evaluation(
+                dataset=args.dataset,
+                novel_id=args.novel_id,
+                dataset_version=args.dataset_version,
+                sut_profile=args.sut_profile,
+                output=args.output,
+            )
+        )
     elif args.command == "freeze":
         _freeze_dataset(
             dataset=args.dataset,
@@ -465,6 +482,34 @@ def _fixture_manifest(output: Path | None) -> None:
         return
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(text + "\n", encoding="utf-8")
+
+
+async def _run_context_planner_evaluation(
+    *,
+    dataset: Path,
+    novel_id: str,
+    dataset_version: str,
+    sut_profile: str,
+    output: Path,
+) -> None:
+    from core.database import get_manager
+    from evals.runners.context_planner import evaluate_context_planner_cases
+
+    async with get_manager().session_factory() as db:
+        report = await evaluate_context_planner_cases(
+            db,
+            novel_id,
+            _load_cases(dataset),
+            dataset_version=dataset_version,
+            sut_profile=sut_profile,
+        )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_suffix(output.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(output)
 
 
 async def _scene_gold_repair(

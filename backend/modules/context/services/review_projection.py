@@ -40,6 +40,7 @@ def build_tier_compile_response(
                 can_exclude=section.can_exclude and int(section.tier) != 0,
                 excluded=section.excluded,
                 truncated_reason=section.truncated_reason,
+                retrieval_metadata=section.retrieval_metadata,
             )
             for section in ctx.sections
         ],

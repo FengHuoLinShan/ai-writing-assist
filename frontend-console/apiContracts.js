@@ -113,6 +113,17 @@
       requiredParams: ["snapshotId"],
     }),
     "context.activationPreview": define("GET", () => "/context/activation-preview"),
+    "context.evidenceHealth": define("GET", () => "/context/evidence-health", {
+      requiredQuery: ["novel_id"],
+    }),
+    "context.listRetrievalTraces": define("GET", () => "/context/retrieval-traces", {
+      requiredQuery: ["novel_id"],
+    }),
+
+    "tasks.retry": define("POST", ({ taskId }) => `/tasks/${required(taskId, "taskId", "tasks.retry")}/retry`, {
+      requiredParams: ["taskId"],
+      requiredQuery: ["novel_id"],
+    }),
 
     "world.listEntities": define("GET", () => "/world/entities"),
     "world.getEntity": define("GET", ({ id }) => `/world/entities/${required(id, "id", "world.getEntity")}`, {

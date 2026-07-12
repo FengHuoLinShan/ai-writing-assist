@@ -12,6 +12,7 @@ from modules.outline.contracts import (
     SceneContextWindowContract,
     SceneContract,
     SceneSpanContract,
+    SceneSpanCoverageContract,
 )
 
 
@@ -113,6 +114,22 @@ async def get_scene_spans_for_scene(
         novel_id,
         scene_id,
         status_filter=status_filter,
+        content_mode=content_mode,
+    )
+
+
+async def get_scene_span_coverage(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    content_mode: str = "canonical",
+) -> SceneSpanCoverageContract:
+    """Return Scene/SceneSpan location coverage for cross-module health checks."""
+    from modules.outline.scene_coverage import SceneSpanCoverageService
+
+    return await SceneSpanCoverageService().get_coverage(
+        db,
+        novel_id,
         content_mode=content_mode,
     )
 
@@ -416,6 +433,7 @@ __all__ = [
     "get_scene_summary_checkpoint",
     "get_scene_spans_by_chapter",
     "get_scene_spans_for_scene",
+    "get_scene_span_coverage",
     "get_scenes_by_chapter",
     "get_scenes_by_novel",
     "get_scenes_by_provenance_key",

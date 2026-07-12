@@ -1,7 +1,7 @@
 # 场景覆盖矩阵
 
 > 本文档基于 `docs/核心业务场景与预期行为.md` 中的场景覆盖矩阵，结合当前 E2E 测试实际状态维护。
-> 更新日期：2026-07-01（前端测试反馈优化后）
+> 更新日期：2026-07-12（P1 task lifecycle 与深度导入入口收敛后）
 
 ## 图例
 
@@ -32,8 +32,8 @@
 | `import.spec.js` | 场景 2 | 文件上传并解析（基础导入成功流）；1/1 通过 |
 | `import-errors.spec.js` | 场景 2 | 格式不支持、超大文件前端拦截、空文件导入失败且不创建章节；3/3 通过 |
 | `import-workflow-chaos.spec.js` | 场景 2/3 | 🧭 Placeholder metadata only；不计入导入/深度导入产品覆盖 |
-| `deep-import.spec.js` | 场景 3 | 从项目视图导入后启动深度导入、进度条路由切换后恢复、无章节时不显示按钮；3/3 通过 |
-| `deep-import-resilient.spec.js` | 场景 3 | 新版深度导入 Phase 0 / Phase 1a / Phase 1b 进度、422 阻断/降级、localStorage 恢复、手动继续/放弃恢复、移动端进度可读；7/7 通过 |
+| `deep-import.spec.js` | 场景 3 | 从项目视图导入后经当前场景自动提取入口启动、active workflow 路由恢复、无章节时不显示按钮；3/3 通过 |
+| `p1-lifecycle-health.spec.js` | 场景 3 / A1 | 后端 action 驱动的深度导入继续/放弃入口，以及 evidence health 展示；2/2 通过 |
 | `deep-import-worker.spec.js` | 场景 3 | guarded worker E2E：提交异步深度导入后关闭页面，任务继续由 worker 完成；需 `RUN_WORKER_E2E=1` 和运行中的 backend worker |
 | `deep-import-real.spec.js` | 场景 3 | 真实同步深度导入（`POST /api/imports/deep/sync`），不覆盖新版 Phase 0 / Phase 1a / Phase 1b 韧性策略 |
 | `writing.spec.js` | 场景 4 | 空状态、新建章节、编辑并暂存、发布、Scene 切换不丢内容、版本历史查看与恢复、断章更新左侧树、光标位置联动右侧 Scene 卡面板、AI 提取章节卡弹窗、离线恢复 localStorage、多 Tab 冲突检测；11/11 通过 |
@@ -60,7 +60,7 @@
 
 以下功能已有页面/API/基础 E2E，但仍有文档化操作路径未完整断言或未实现：
 
-- **深度导入流水线**：当前覆盖异步任务提交、轮询 UI、刷新/路由恢复、新版 Phase 0 / Phase 1a / Phase 1b 韧性进度、422 阻断/降级、手动恢复提示，以及 guarded worker 浏览器关闭场景。
+- **深度导入流水线**：当前覆盖受支持的场景自动提取入口、异步任务提交、active workflow 刷新/路由恢复、后端 action 驱动的手动恢复提示，以及 guarded worker 浏览器关闭场景；阶段质量细节由前端单测和 imports 后端测试覆盖。
 - **真实异步深度导入质量验收**：旧真实 LLM 验收 harness 已废弃；当前以 staged async task 结果、后端 imports 单元/集成测试和必要的手动 provider probe 作为质量回归依据。
 - **伏笔/揭示高级管理**：基础创建、删除与伏笔状态更新已有覆盖；回收率统计、积压高亮、手动标记回收仍待实现/验收。
 - **RAG 父子检索**：真实 chunk UI 召回与 embedding 降级 warning 已覆盖；父子检索补齐父 Scene 元数据和 Delta 摘要仍待实现/验收。

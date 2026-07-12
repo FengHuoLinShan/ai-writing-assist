@@ -112,3 +112,41 @@ async def test_cancel_task_requires_matching_novel_id(
     )
     assert ok.status_code == 200
     assert ok.json()["cancelled"] is True
+
+
+@pytest.mark.asyncio
+async def test_retry_task_is_novel_isolated_and_policy_limited(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    owner_novel = "00000000-0000-0000-0000-000000000706"
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="rag_reindex_novel",
+        status="failed",
+        meta={"novel_id": owner_novel},
+        recovery_policy="auto_requeue",
+        attempt=1,
+        max_attempts=2,
+    )
+    db_session.add(task)
+    await db_session.flush()
+
+    wrong = await async_client.post(
+        f"/api/tasks/{task.id}/retry",
+        params={"novel_id": "00000000-0000-0000-0000-000000000707"},
+    )
+    assert wrong.status_code == 404
+
+    retried = await async_client.post(
+        f"/api/tasks/{task.id}/retry",
+        params={"novel_id": owner_novel},
+    )
+    assert retried.status_code == 200
+    assert retried.json()["status"] == "pending"
+
+    rejected = await async_client.post(
+        f"/api/tasks/{task.id}/retry",
+        params={"novel_id": owner_novel},
+    )
+    assert rejected.status_code == 409

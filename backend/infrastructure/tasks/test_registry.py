@@ -22,6 +22,24 @@ class TestTaskRegistry:
         assert found is handler
         assert "test_type" in registry.registered_types
 
+    def test_definition_freezes_recovery_metadata(self) -> None:
+        registry = get_registry()
+
+        async def handler(db, task):
+            return {"ok": True}
+
+        registry.register(
+            "test_type",
+            handler,
+            recovery_policy="auto_requeue",
+            max_attempts=2,
+        )
+        definition = registry.get_definition("test_type")
+        assert definition is not None
+        assert definition.handler is handler
+        assert definition.recovery_policy == "auto_requeue"
+        assert definition.max_attempts == 2
+
     def test_duplicate_raises(self) -> None:
         registry = get_registry()
 

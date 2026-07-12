@@ -235,18 +235,10 @@ window.addEventListener("popstate", async (e) => {
 
 ---
 
-### M3. `projectView.js` — uploadFile 的 confirmAction 回调调用 async 未处理 rejection
+### M3. `projectView.js` — 已解决
 
-**文件**：`frontend-console/views/projectView.js:620-623`
-```js
-confirmAction("深度导入已启动", async () => {
-  await writingView._submitDeepImport(1, result.imported_chapters)
-}, "启动深度导入第一阶段（scene）")
-```
-
-**问题**：`confirmAction` 的回调通过 `modal.js:41` 的 `handler()` 调用，未被 await。`_submitDeepImport` 内部有 try/catch，但若其在 catch 之前 throw（如 guard 遗漏），则无声失败。
-
-**最小修复方向**：确保 `_submitDeepImport` 内部完全 try/catch 覆盖，或改造 confirmAction 支持 async。
+项目上传完成后不再调用已移除的私有深度导入方法。页面导航到写作台并提示用户从当前
+“场景自动提取”入口显式授权启动，异步提交错误由该入口自身处理。
 
 ---
 

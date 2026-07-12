@@ -132,6 +132,8 @@ globalThis.api = {
     confirm: vi.fn(),
     listSnapshots: vi.fn(),
     getSnapshot: vi.fn(),
+    evidenceHealth: vi.fn(),
+    listRetrievalTraces: vi.fn(),
   },
   generate: {
     listPromptTemplates: vi.fn(),
@@ -298,6 +300,7 @@ globalThis.api = {
     getStatus: vi.fn(),
     get: vi.fn(),
     cancel: vi.fn(),
+    retry: vi.fn(),
   },
   imports: {
     upload: vi.fn(),

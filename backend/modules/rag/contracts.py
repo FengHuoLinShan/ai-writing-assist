@@ -127,3 +127,21 @@ class RagIndexReport:
     warnings: list[str] = field(default_factory=list)
     embedding_failed_count: int = 0
     chunks_created_ids: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class RagSceneMappingCoverageContract:
+    """Scene/SceneSpan mapping health for chapter-text chunks."""
+
+    novel_id: str
+    content_mode: str
+    total_chapter_chunks: int = 0
+    scene_mapped_chunk_count: int = 0
+    span_mapped_chunk_count: int = 0
+    expected_overlap_chunk_count: int = 0
+    valid_span_mapped_chunk_count: int = 0
+    dangling_mapping_count: int = 0
+    wrong_source_mapping_count: int = 0
+    overall_scene_mapping_rate: float | None = None
+    overall_span_mapping_rate: float | None = None
+    eligible_mapping_rate: float | None = None

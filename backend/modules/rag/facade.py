@@ -12,7 +12,12 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.rag.chunking import ChunkingService
-from modules.rag.contracts import RagChunkContract, RagIndexReport, RagResultBundle
+from modules.rag.contracts import (
+    RagChunkContract,
+    RagIndexReport,
+    RagResultBundle,
+    RagSceneMappingCoverageContract,
+)
 from modules.rag.indexing import IndexingService
 from modules.rag.mappers import chunk_orm_to_contract as _to_chunk_contract
 from modules.rag.query_expansion import QueryExpander
@@ -152,6 +157,22 @@ async def get_index_status(db: AsyncSession, novel_id: str) -> dict:
         "circuit_breaker": get_circuit_breaker().status["state"],
         "index_freshness": freshness,
     }
+
+
+async def get_scene_mapping_coverage(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    content_mode: str = "canonical",
+) -> RagSceneMappingCoverageContract:
+    """Return RAG chunk Scene/Span mapping health through the stable seam."""
+    from modules.rag.scene_mapping_coverage import RagSceneMappingCoverageService
+
+    return await RagSceneMappingCoverageService().get_coverage(
+        db,
+        novel_id,
+        content_mode=content_mode,
+    )
 
 
 async def get_index_freshness(

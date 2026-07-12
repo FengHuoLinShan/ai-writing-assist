@@ -18,11 +18,15 @@ from sqlalchemy import select
 
 from core.api_params import NovelIdQuery
 from core.dependencies import DbSession
+from infrastructure.tasks.contracts import TaskAction
+from infrastructure.tasks.lifecycle import TaskLifecycleService, lifecycle_contract
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
+from shared.constants import TASK_MAX_HEARTBEAT_GAP
 from shared.enums import TaskStatus as TaskStatusEnum
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
+_lifecycle = TaskLifecycleService()
 
 _MODULE_API_ONLY_TASK_TYPES = {
     "deep_import",
@@ -71,6 +75,12 @@ class TaskStatusResponse(BaseModel):
     created_at: str | None
     started_at: str | None
     finished_at: str | None
+    heartbeat_at: str | None = None
+    attempt: int = 0
+    max_attempts: int = 1
+    stale: bool = False
+    lifecycle: dict[str, Any] = Field(default_factory=dict)
+    available_actions: list[TaskAction] = Field(default_factory=list)
 
 
 class TaskCancelResponse(BaseModel):
@@ -79,6 +89,13 @@ class TaskCancelResponse(BaseModel):
     task_id: str
     status: str
     cancelled: bool
+
+
+class TaskRetryResponse(BaseModel):
+    task_id: str
+    status: str
+    attempt: int
+    max_attempts: int
 
 
 # ============================================================
@@ -111,12 +128,16 @@ async def submit_task(
             f"Registered types: {registered}",
         )
 
+    definition = registry.get_definition(request.task_type)
     task = AsyncTask(
         id=uuid.uuid4(),
         task_type=request.task_type,
         status=TaskStatusEnum.pending.value,
         meta=request.meta or {},
         progress=0.0,
+        recovery_policy=(definition.recovery_policy if definition else "restart_origin"),
+        max_attempts=definition.max_attempts if definition else 1,
+        attempt=0,
     )
     db.add(task)
     await db.flush()
@@ -148,6 +169,10 @@ async def get_task_status(
     if task is None:
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
 
+    lifecycle = lifecycle_contract(
+        task,
+        max_heartbeat_gap=TASK_MAX_HEARTBEAT_GAP,
+    )
     return TaskStatusResponse(
         task_id=str(task.id),
         task_type=task.task_type,
@@ -159,6 +184,17 @@ async def get_task_status(
         created_at=str(task.created_at) if task.created_at else None,
         started_at=str(task.started_at) if task.started_at else None,
         finished_at=str(task.finished_at) if task.finished_at else None,
+        heartbeat_at=lifecycle.heartbeat_at,
+        attempt=lifecycle.attempt,
+        max_attempts=lifecycle.max_attempts,
+        stale=lifecycle.stale,
+        lifecycle={
+            "reason": lifecycle.transition_reason,
+            "recovery_policy": lifecycle.recovery_policy,
+            "recovery_required": lifecycle.recovery_required,
+            "stale_detected_at": lifecycle.stale_detected_at,
+        },
+        available_actions=lifecycle.available_actions,
     )
 
 
@@ -189,11 +225,37 @@ async def cancel_task(
             detail=f"Task cannot be cancelled (status: {task.status})",
         )
 
-    task.mark_cancelled()
+    await _lifecycle.cancel(db, task=task)
     await db.flush()
 
     return TaskCancelResponse(
         task_id=str(task.id),
         status=str(task.status),
         cancelled=True,
+    )
+
+
+@router.post("/{task_id}/retry", response_model=TaskRetryResponse)
+async def retry_task(
+    task_id: uuid.UUID,
+    db: DbSession,
+    *,
+    novel_id: NovelIdQuery,
+) -> TaskRetryResponse:
+    stmt = select(AsyncTask).where(
+        AsyncTask.id == task_id,
+        AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+    )
+    task = (await db.execute(stmt)).scalar_one_or_none()
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+    try:
+        await _lifecycle.retry(db, task=task)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return TaskRetryResponse(
+        task_id=str(task.id),
+        status=task.status,
+        attempt=int(task.attempt or 0),
+        max_attempts=int(task.max_attempts or 1),
     )

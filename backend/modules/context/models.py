@@ -253,3 +253,47 @@ class EvidenceLink(Base, TimestampMixin):
     precision: Mapped[str] = mapped_column(String(32), nullable=False, default="range")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     provenance: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
+
+class ContextRetrievalTrace(Base, TimestampMixin):
+    """Privacy-safe diagnostics for a context RAG retrieval execution."""
+
+    __tablename__ = "context_retrieval_traces"
+    __table_args__ = (
+        Index(
+            "ix_context_retrieval_traces_novel_mode_created",
+            "novel_id",
+            "content_mode",
+            "created_at",
+        ),
+        {"comment": "上下文检索运行诊断，不保存正文或原始 query"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    content_mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    consumer_action: Mapped[str] = mapped_column(
+        String(128), nullable=False, default="generic"
+    )
+    retrieval_purpose: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="generic_context"
+    )
+    reveal_mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    scene_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    chapter_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    plan_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    plan_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    clause_summaries: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    candidate_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    unique_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    hydrated_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    drop_counts: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    safe_empty_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    degraded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    warning_codes: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    latency_metadata: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)

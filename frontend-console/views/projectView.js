@@ -630,19 +630,13 @@ const projectView = {
         state.projects = data.items || data || []
 
         const result = await api.imports.upload(project.id, file)
-        toast(`项目「${projectName}」已创建，共解析 ${result.total_chapters || 0} 章，已保存 ${result.imported_chapters || 0} 章为章节工作稿`, "success")
+        const nextStep = result.imported_chapters > 0
+          ? "，可在写作台按需启动场景自动提取"
+          : ""
+        toast(`项目「${projectName}」已创建，共解析 ${result.total_chapters || 0} 章，已保存 ${result.imported_chapters || 0} 章为章节工作稿${nextStep}`, "success")
         api.clearCache()
         await router.navigate("writing")
         await router.refresh()
-        if (result.imported_chapters > 0) {
-          confirmAction(
-            `已导入 ${result.imported_chapters} 章，是否启动深度导入第一阶段（scene）？`,
-            async () => {
-              await writingView._submitDeepImport(1, result.imported_chapters)
-            },
-            "启动深度导入第一阶段（scene）",
-          )
-        }
       } catch (err) {
         const detail = err.message || "导入失败"
         toast(detail.includes("格式") || detail.includes("大小") || detail.includes("限制") ? detail : `导入失败：${detail}`, "error")
@@ -798,22 +792,16 @@ const projectView = {
         xhr.send(formData)
       })
 
-      toast(`导入完成：共解析 ${result.total_chapters || 0} 章，已保存 ${result.imported_chapters || 0} 章为章节工作稿`, "success")
+      const nextStep = result.imported_chapters > 0
+        ? "，可在写作台按需启动场景自动提取"
+        : ""
+      toast(`导入完成：共解析 ${result.total_chapters || 0} 章，已保存 ${result.imported_chapters || 0} 章为章节工作稿${nextStep}`, "success")
       api.clearCache()
       this._setUploadProgress("刷新项目", 100, "正在刷新项目...")
       await router.navigate("writing")
       await router.refresh()
       input.value = ""
       this._renderImportHistory()
-      if (result.imported_chapters > 0) {
-        confirmAction(
-          `已导入 ${result.imported_chapters} 章，是否启动深度导入第一阶段（scene）？`,
-          async () => {
-            await writingView._submitDeepImport(1, result.imported_chapters)
-          },
-          "启动深度导入第一阶段（scene）",
-        )
-      }
     } catch (err) {
       toast(err.message || "导入失败", "error")
       api.clearCache()

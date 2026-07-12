@@ -84,6 +84,26 @@ class SceneSpanContract:
     status: str = "draft"
 
 
+@dataclass(frozen=True)
+class SceneSpanCoverageContract:
+    """Project/content-mode SceneSpan location coverage summary."""
+
+    novel_id: str
+    content_mode: str
+    scene_count: int = 0
+    scene_with_span_count: int = 0
+    scene_without_span_count: int = 0
+    total_span_count: int = 0
+    exact_count: int = 0
+    reanchored_count: int = 0
+    chapter_only_count: int = 0
+    unresolved_count: int = 0
+    precise_span_count: int = 0
+    imprecise_span_count: int = 0
+    precise_span_rate: float | None = None
+    precise_spans: list[SceneSpanContract] = field(default_factory=list)
+
+
 @dataclass
 class SceneSummaryCheckpointContract:
     id: str

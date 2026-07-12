@@ -27,6 +27,7 @@ beforeEach(() => {
   ragView._scenes = []
   ragView._searchHits = []
   ragView._lastSearchPayload = null
+  ragView._evidenceHealth = null
   api.context.searchEvidence = vi.fn()
   api.context.grepEvidence = vi.fn()
   api.context.readEvidence = vi.fn()
@@ -38,6 +39,20 @@ beforeEach(() => {
 describe("ragView", () => {
   describe("ragView render", () => {
     it.each([
+      {
+        name: "status 子视图展示创作证据健康",
+        subView: "status",
+        setup: () => {
+          ragView._evidenceHealth = {
+            health_state: "degraded",
+            health_reasons: ["eligible_mapping_below_target"],
+            scene_span_coverage: { precise_span_rate: 0.91 },
+            rag_mapping_coverage: { eligible_mapping_rate: 0.82 },
+            retrieval_summary: { query_count: 12, empty_count: 3 },
+          }
+        },
+        expected: ["创作证据健康", "需要处理", "91%", "82%", "12"],
+      },
       {
         name: "status 子视图显示维度、worker 和 metrics 诊断",
         subView: "status",

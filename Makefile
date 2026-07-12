@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-collect test-fast test-v test-integration test-e2e test-real-llm test-manual test-frontend test-all eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast lint lint-fix format format-fix prompt-contracts prompt-contracts-json generate-e2e help db migrate doctor doctor-json doctor-llm
+.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-collect test-fast test-v test-integration test-e2e test-real-llm test-manual test-frontend test-all eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-context-planner lint lint-fix format format-fix prompt-contracts prompt-contracts-json generate-e2e help db migrate doctor doctor-json doctor-llm
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BACKEND_DIR := $(ROOT_DIR)backend
@@ -110,6 +110,9 @@ eval-pilot:  ## Generate/judge the 400-raw-case Pilot with resumable local cache
 
 eval-fast:  ## Run deterministic eval toolkit tests without remote LLM calls
 	cd $(BACKEND_DIR) && pytest evals/tests -q
+
+eval-context-planner:  ## Compare task-direct and planner-v1 on accepted RAG cases
+	cd $(BACKEND_DIR) && python -m evals.cli context-planner $(or $(DATASET),evals/datasets/local/pilot-v2-work/pilot-v1.1.accepted.jsonl) --novel-id $(NOVEL_ID) --dataset-version $(or $(DATASET_VERSION),pilot-v1.1) --sut-profile $(or $(SUT_PROFILE),local) --output $(or $(OUTPUT),evals/artifacts/results/$(or $(SUT_PROFILE),local)/$(or $(DATASET_VERSION),pilot-v1.1)/context-planner.result.json)
 
 lint:  ## Run ruff linter
 	cd $(BACKEND_DIR) && ruff check .

@@ -856,6 +856,21 @@ const api = {
     async activationPreview(params = {}) {
       return contractFetch("context.activationPreview", {}, params)
     },
+
+    async evidenceHealth(novelId, contentMode = "canonical", windowHours = 24) {
+      return contractFetch("context.evidenceHealth", {}, {
+        novel_id: novelId,
+        content_mode: contentMode,
+        window_hours: windowHours,
+      })
+    },
+
+    async listRetrievalTraces(novelId, params = {}) {
+      return contractFetch("context.listRetrievalTraces", {}, {
+        novel_id: novelId,
+        ...params,
+      })
+    },
   },
 
   // ============================================================
@@ -1239,6 +1254,11 @@ const api = {
 
     async get(taskId, novelId = null) {
       return this.getStatus(taskId, novelId)
+    },
+
+    async retry(taskId, novelId = null) {
+      const resolvedNovelId = novelId || globalThis.appState?.currentProjectId
+      return contractFetch("tasks.retry", { taskId }, { novel_id: resolvedNovelId })
     },
   },
 

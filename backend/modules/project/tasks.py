@@ -6,7 +6,7 @@ from infrastructure.tasks.registry import task_handler
 from modules.project.smart_dedup import SmartDedupService
 
 
-@task_handler("smart_dedup_scan")
+@task_handler("smart_dedup_scan", recovery_policy="restart_origin")
 async def handle_smart_dedup_scan(db, task):
     """Run one project-wide smart dedupe scan and store suggestions in task result."""
     meta = task.meta or {}

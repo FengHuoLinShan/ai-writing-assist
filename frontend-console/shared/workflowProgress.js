@@ -1,7 +1,6 @@
 import { authorFacingStateText } from "./assetDisplayState.js"
 
 const ACTIVE_WORKFLOWS_KEY = "novel_active_workflows_v1"
-const LEGACY_DEEP_IMPORT_KEY = "novel_deepImportTaskId"
 const LEGACY_WORLD_EXTRACT_KEY = "novel_world_extract_task"
 
 const TERMINAL_STATUSES = new Set(["done", "failed", "cancelled"])
@@ -34,6 +33,7 @@ const STATUS_LABELS = {
   done: "已完成",
   failed: "失败",
   cancelled: "已取消",
+  unknown: "状态未知",
 }
 
 const PHASE_MESSAGE_LABELS = {
@@ -250,6 +250,21 @@ export function normalizeTaskProgress(task, workflowType = undefined) {
   const message = authorFacingStateText(inferMessage({ status, workflowType: type, result, meta, percent }))
 
   const rawErrorMessage = raw.error_message || result.error_message || result.error || null
+  const lifecycle = safeObject(raw.lifecycle)
+  const recoveryRequired = Boolean(
+    lifecycle.recovery_required
+    || result.recovery_required
+    || meta.recovery_required,
+  )
+  const availableActions = Array.isArray(raw.available_actions)
+    ? raw.available_actions.filter(Boolean)
+    : recoveryRequired
+      ? ["resume", "abandon"]
+      : status === "failed"
+        ? ["dismiss"]
+        : RUNNING_STATUSES.has(status)
+          ? ["cancel"]
+          : ["dismiss"]
 
   return {
     id: raw.id || raw.task_id || meta.task_id || null,
@@ -267,6 +282,7 @@ export function normalizeTaskProgress(task, workflowType = undefined) {
     failed: status === "failed",
     cancelled: status === "cancelled",
     terminal: TERMINAL_STATUSES.has(status),
+    stateUnknown: status === "unknown",
     errorMessage: sanitizeTaskErrorMessage(rawErrorMessage, type),
     warnings: collectWarnings(result, meta).map(authorFacingStateText),
     resultSummary: authorFacingStateText(buildResultSummary(result, type)),
@@ -282,6 +298,13 @@ export function normalizeTaskProgress(task, workflowType = undefined) {
     createdAt: raw.created_at || meta.createdAt || null,
     startedAt: raw.started_at || null,
     updatedAt: raw.updated_at || raw.heartbeat_at || null,
+    heartbeatAt: raw.heartbeat_at || null,
+    attempt: Number.isFinite(raw.attempt) ? raw.attempt : 0,
+    maxAttempts: Number.isFinite(raw.max_attempts) ? raw.max_attempts : 1,
+    stale: Boolean(raw.stale),
+    lifecycle,
+    recoveryRequired,
+    availableActions,
     raw,
   }
 }
@@ -317,22 +340,6 @@ export function recoverActiveWorkflows(projectId = null, storage = globalThis.lo
   const items = readStorage(storage)
   const migrated = [...items]
   if (storage) {
-    const deepImportTaskId = storage.getItem(LEGACY_DEEP_IMPORT_KEY)
-    if (deepImportTaskId) {
-      migrated.push({
-        id: `${projectId || "global"}:deep_import:${deepImportTaskId}`,
-        taskId: deepImportTaskId,
-        workflowType: "deep_import",
-        label: WORKFLOW_LABELS.deep_import,
-        projectId,
-        view: "writing",
-        meta: { migratedFrom: LEGACY_DEEP_IMPORT_KEY },
-        createdAt: nowIso(),
-        updatedAt: nowIso(),
-      })
-      storage.removeItem(LEGACY_DEEP_IMPORT_KEY)
-    }
-
     const worldExtractTaskId = storage.getItem(LEGACY_WORLD_EXTRACT_KEY)
     if (worldExtractTaskId) {
       migrated.push({
@@ -448,13 +455,10 @@ export function pollTaskProgress({
         id: taskId,
         task_id: taskId,
         task_type: workflowType,
-        status: "failed",
+        status: "unknown",
         error_message: err.message || "任务状态查询失败",
       }, workflowType)
       onUpdate?.(progress, null)
-      stop()
-      onFailed?.(progress, null)
-      return
     } finally {
       inFlight = false
     }

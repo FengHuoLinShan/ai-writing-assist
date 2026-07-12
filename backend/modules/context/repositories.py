@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.context.models import ContextConfirmation, ContextSnapshot
+from modules.context.models import (
+    ContextConfirmation,
+    ContextRetrievalTrace,
+    ContextSnapshot,
+)
 
 
 class ContextConfirmationRepository:
@@ -294,3 +298,119 @@ class ContextSnapshotRepository:
         if changed and not dry_run:
             await db.flush()
         return changed
+
+
+class ContextRetrievalTraceRepository:
+    """Persistence for privacy-safe context retrieval diagnostics."""
+
+    async def create(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: uuid.UUID,
+        content_mode: str,
+        consumer_action: str,
+        retrieval_purpose: str,
+        reveal_mode: str,
+        scene_id: str | None,
+        chapter_index: int | None,
+        plan_version: str,
+        plan_hash: str,
+        clause_summaries: list[dict],
+        candidate_count: int,
+        unique_count: int,
+        hydrated_count: int,
+        drop_counts: dict[str, int],
+        safe_empty_reason: str | None,
+        degraded: bool,
+        warning_codes: list[str],
+        latency_metadata: dict[str, float],
+    ) -> ContextRetrievalTrace:
+        record = ContextRetrievalTrace(
+            novel_id=novel_id,
+            content_mode=content_mode,
+            consumer_action=consumer_action,
+            retrieval_purpose=retrieval_purpose,
+            reveal_mode=reveal_mode,
+            scene_id=scene_id,
+            chapter_index=chapter_index,
+            plan_version=plan_version,
+            plan_hash=plan_hash,
+            clause_summaries=clause_summaries,
+            candidate_count=candidate_count,
+            unique_count=unique_count,
+            hydrated_count=hydrated_count,
+            drop_counts=drop_counts,
+            safe_empty_reason=safe_empty_reason,
+            degraded=degraded,
+            warning_codes=warning_codes,
+            latency_metadata=latency_metadata,
+        )
+        db.add(record)
+        await db.flush()
+        return record
+
+    async def list_for_novel(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: uuid.UUID,
+        content_mode: str | None = None,
+        since: datetime | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[ContextRetrievalTrace]:
+        stmt = select(ContextRetrievalTrace).where(
+            ContextRetrievalTrace.novel_id == novel_id
+        )
+        if content_mode is not None:
+            stmt = stmt.where(ContextRetrievalTrace.content_mode == content_mode)
+        if since is not None:
+            stmt = stmt.where(ContextRetrievalTrace.created_at >= since)
+        stmt = (
+            stmt.order_by(
+                ContextRetrievalTrace.created_at.desc(),
+                ContextRetrievalTrace.id.desc(),
+            )
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def prune(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: uuid.UUID,
+        retention_days: int,
+        retain_latest: int,
+        dry_run: bool,
+    ) -> int:
+        cutoff = datetime.now(UTC) - timedelta(days=retention_days)
+        records = await self.list_for_novel(
+            db,
+            novel_id=novel_id,
+            since=None,
+            limit=100_000,
+        )
+        stale_ids = {
+            record.id
+            for index, record in enumerate(records)
+            if self._is_before(record.created_at, cutoff) or index >= retain_latest
+        }
+        if stale_ids and not dry_run:
+            await db.execute(
+                delete(ContextRetrievalTrace).where(
+                    ContextRetrievalTrace.novel_id == novel_id,
+                    ContextRetrievalTrace.id.in_(stale_ids),
+                )
+            )
+            await db.flush()
+        return len(stale_ids)
+
+    @staticmethod
+    def _is_before(value: datetime, cutoff: datetime) -> bool:
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value < cutoff

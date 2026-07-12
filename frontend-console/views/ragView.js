@@ -40,6 +40,7 @@ const ragView = {
   _searchHits: [],
   _lastSearchPayload: null,
   _drawerRefs: [],
+  _evidenceHealth: null,
 
   async onEnter() {
     this._loading = true
@@ -74,6 +75,18 @@ const ragView = {
       this._statusDegraded = false
       this._statusItems = []
       this._apiAvailable = false
+    }
+    this._evidenceHealth = null
+    if (api.context?.evidenceHealth) {
+      try {
+        this._evidenceHealth = await api.context.evidenceHealth(
+          state.currentProjectId,
+          "canonical",
+          24,
+        )
+      } catch {
+        this._evidenceHealth = null
+      }
     }
     if (api.world?.listCharacters) {
       try {
@@ -172,6 +185,7 @@ const ragView = {
             <div class="rag-status-metric"><strong class="rag-status-value">${esc(String(workingFreshness.fresh ?? 0))}/${esc(String(workingFreshness.total ?? 0))}</strong><br><span class="rag-status-label">工作稿索引新鲜度</span></div>
           </div>
         </div>
+        ${this._renderEvidenceHealth()}
         <div id="rag-diagnostics">${this._renderDiagnostics()}</div>
         ${this._statusDegraded ? `
           <div class="card rag-status-card rag-status-warning-card">
@@ -202,6 +216,36 @@ const ragView = {
         <button class="btn" data-action="prewarm-rag">预热检索引擎</button>
         ${this._retryableEmbeddingCount > 0 ? `<button class="btn" data-action="retry-embeddings">重试失败向量</button>` : ""}
         <button class="btn" data-action="nav-search">返回检索</button>
+      </div>
+    `
+  },
+
+  _renderEvidenceHealth() {
+    const health = this._evidenceHealth
+    if (!health) return ""
+    const stateLabels = {
+      healthy: "健康",
+      degraded: "需要处理",
+      insufficient_data: "数据不足",
+    }
+    const scene = health.scene_span_coverage || {}
+    const mapping = health.rag_mapping_coverage || {}
+    const retrieval = health.retrieval_summary || {}
+    const percent = (value) => value == null ? "-" : `${Math.round(value * 100)}%`
+    const reasons = Array.isArray(health.health_reasons)
+      ? health.health_reasons.join("；")
+      : ""
+    return `
+      <div class="card rag-status-card ${health.health_state === "degraded" ? "rag-status-warning-card" : ""}">
+        <div class="card-title">创作证据健康</div>
+        <div class="rag-status-metrics">
+          <div class="rag-status-metric"><strong class="rag-status-value">${esc(stateLabels[health.health_state] || health.health_state)}</strong><br><span class="rag-status-label">24 小时健康状态</span></div>
+          <div class="rag-status-metric"><strong class="rag-status-value">${esc(percent(scene.precise_span_rate))}</strong><br><span class="rag-status-label">Scene 精确定位</span></div>
+          <div class="rag-status-metric"><strong class="rag-status-value">${esc(percent(mapping.eligible_mapping_rate))}</strong><br><span class="rag-status-label">应映射片段覆盖</span></div>
+          <div class="rag-status-metric"><strong class="rag-status-value">${esc(String(retrieval.query_count ?? 0))}</strong><br><span class="rag-status-label">近期 context 检索</span></div>
+          <div class="rag-status-metric"><strong class="rag-status-value">${esc(String(retrieval.empty_count ?? 0))}</strong><br><span class="rag-status-label">空证据运行</span></div>
+        </div>
+        ${reasons ? `<p class="rag-empty-copy">原因：${esc(reasons)}</p>` : ""}
       </div>
     `
   },

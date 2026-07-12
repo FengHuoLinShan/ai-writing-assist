@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.models import AsyncTask
+from infrastructure.tasks.registry import TaskRegistry
 
 
 def enqueue_task(
@@ -22,12 +23,16 @@ def enqueue_task(
     progress: float = 0.0,
 ) -> str:
     """创建并添加一个异步任务到 session，返回 task_id"""
+    definition = TaskRegistry().get_definition(task_type)
     task = AsyncTask(
         id=uuid.uuid4(),
         task_type=task_type,
         status=status,
         meta=meta or {},
         progress=progress,
+        recovery_policy=(definition.recovery_policy if definition else "restart_origin"),
+        max_attempts=definition.max_attempts if definition else 1,
+        attempt=0,
     )
     db.add(task)
     return str(task.id)

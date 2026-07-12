@@ -14,7 +14,7 @@ from modules.imports.orchestrator import DeepImportOrchestrator
 logger = logging.getLogger(__name__)
 
 
-@task_handler("deep_import")
+@task_handler("deep_import", recovery_policy="manual_resume")
 async def handle_deep_import(db, task) -> dict[str, Any]:
     """处理深度导入任务 — 全自动三阶段（Scene 切分 + 实体提取 + 结构分析）
 
@@ -34,7 +34,7 @@ async def handle_deep_import(db, task) -> dict[str, Any]:
     return result
 
 
-@task_handler("scene_auto_extraction")
+@task_handler("scene_auto_extraction", recovery_policy="manual_resume")
 async def handle_scene_auto_extraction(db, task) -> dict[str, Any]:
     """处理场景（scene）自动提取任务 — Phase0/1a/1b + Scene commit。"""
     result = await DeepImportOrchestrator().run_stage_task(db, task, stage="scenes")
@@ -46,7 +46,7 @@ async def handle_scene_auto_extraction(db, task) -> dict[str, Any]:
     return result
 
 
-@task_handler("world_object_auto_extraction")
+@task_handler("world_object_auto_extraction", recovery_policy="manual_resume")
 async def handle_world_object_auto_extraction(db, task) -> dict[str, Any]:
     """处理世界对象与别名/关系自动提取任务 — Phase2a/2b。"""
     result = await DeepImportOrchestrator().run_stage_task(
@@ -62,7 +62,7 @@ async def handle_world_object_auto_extraction(db, task) -> dict[str, Any]:
     return result
 
 
-@task_handler("plot_structure_auto_extraction")
+@task_handler("plot_structure_auto_extraction", recovery_policy="manual_resume")
 async def handle_plot_structure_auto_extraction(db, task) -> dict[str, Any]:
     """处理剧情线自动提取任务 — Phase3。"""
     result = await DeepImportOrchestrator().run_stage_task(

@@ -48,6 +48,7 @@ class ContextSection(BaseModel):
     can_exclude: bool = True
     excluded: bool = False
     truncated_reason: str | None = None
+    retrieval_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ContextBudgetEvent(BaseModel):
@@ -150,6 +151,7 @@ class CompiledContext(BaseModel):
                                 can_exclude=s.can_exclude,
                                 excluded=s.excluded,
                                 truncated_reason=truncated_reason,
+                                retrieval_metadata=s.retrieval_metadata,
                             )
                         )
                         if s.key not in truncated_keys:
@@ -205,6 +207,7 @@ class CompiledContext(BaseModel):
                             can_exclude=s.can_exclude,
                             excluded=s.excluded,
                             truncated_reason="超过预算后保留前段摘要",
+                            retrieval_metadata=s.retrieval_metadata,
                         )
                     )
                     if s.key not in truncated_keys:

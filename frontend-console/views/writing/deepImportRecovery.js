@@ -122,11 +122,21 @@ export function createDeepImportRecovery({
   }
 
   function hasRecoveryPrompt(p = progress) {
-    return Boolean(p?.recoveryRequired || p?.interrupted || p?.recoverable)
+    const actions = Array.isArray(p?.availableActions) ? p.availableActions : []
+    return Boolean(
+      (actions.includes("resume") && actions.includes("abandon"))
+      || p?.recoveryRequired
+      || p?.interrupted
+      || p?.recoverable,
+    )
   }
 
   function buildProgressFromTask(task, result = {}, percent = null, stepLabel = "") {
     const recoverySummary = result.recovery_summary || result.recoverySummary || {}
+    const hasActionContract = Array.isArray(task?.available_actions)
+    const availableActions = hasActionContract ? task.available_actions : []
+    const contractRecovery = availableActions.includes("resume")
+      && availableActions.includes("abandon")
     return {
       phase: result.phase || task?.status || "running",
       workflowType: result.workflow_type || task?.task_type || "deep_import",
@@ -170,18 +180,20 @@ export function createDeepImportRecovery({
       degradedReason: result.degraded_reason || "",
       phase1aFallback: result.phase1a_fallback || false,
       recoverySummary,
-      interrupted: result.interrupted || false,
-      recoverable: result.recoverable || false,
-      recoveryRequired: result.recovery_required || false,
+      interrupted: hasActionContract ? contractRecovery : (result.interrupted || false),
+      recoverable: hasActionContract ? contractRecovery : (result.recoverable || false),
+      recoveryRequired: hasActionContract
+        ? contractRecovery
+        : (result.recovery_required || false),
+      lifecycle: task?.lifecycle || {},
+      availableActions,
     }
   }
 
   function normalizeProgress() {
     const p = progress || {}
     const needsRecovery = hasRecoveryPrompt(p)
-    const status = needsRecovery
-      ? "running"
-      : p.phase === "failed"
+    const status = p.phase === "failed"
         ? "failed"
         : p.phase === "done"
           ? "done"
@@ -528,7 +540,6 @@ export function createDeepImportRecovery({
 
   function clearWorkflow(id) {
     clearActiveWorkflow(id)
-    try { localStorage.removeItem("novel_deepImportTaskId") } catch {} // eslint-disable-line no-empty
   }
 
   function renderCurrentPosition() {

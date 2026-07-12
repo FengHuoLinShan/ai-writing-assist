@@ -43,6 +43,9 @@ async def build_snapshot_health_summary(...) -> dict
 async def mark_stale_running_snapshots(...) -> int
 async def prune_rendered_context(...) -> int
 async def run_snapshot_maintenance(...) -> dict
+async def list_retrieval_traces(...) -> list[ContextRetrievalTraceContract]
+async def get_evidence_health(...) -> EvidenceHealthContract
+async def retrieve_planned_context_evidence(...) -> StructureContextBundle
 async def grep_novel_evidence(...) -> dict
 async def search_novel_evidence(...) -> dict
 async def read_novel_evidence(...) -> dict
@@ -62,6 +65,7 @@ async def record_evidence_link(...) -> EvidenceLinkContract
 | `context_confirmations` | AI 参考资料确认记录，保存 `action`、`scope`、`context_mode`、`selected_asset_ids`、`result_refs`、`stale_reasons` |
 | `context_snapshots` | 自动 AI 调用上下文审计记录，保存 `task_id`、`workflow_id`、`phase`、`context_mode`、`included_asset_ids`、摘要、`prompt_hash`、token/section metadata、`result_refs`、错误信息和可选 `rendered_context` |
 | `evidence_links` | 使用 `TargetRef + claim_path` 将对象/人物知识/结构字段连到 `SourceRangeRef`；只记录 provenance，不判定事实真假 |
+| `context_retrieval_traces` | 按 novel/content mode 保存查询计划哈希、clause 摘要、候选/回读/丢弃计数与 safe-empty 原因；不保存 raw task/query/正文 |
 
 `context_confirmations` 和 `context_snapshots` 是两套语义：
 
@@ -100,6 +104,20 @@ ReaderRevealPolicy/公开基线允许的世界信息、从 writing 回读且 has
 `budget_events` 记录预算执行过程，包含 `section_key`、`event_type`、`reason`、`before_tokens`、`after_tokens`、`tier`。被 evict 的 section 不再返回正文，但会通过 `budget_events` 告知前端“已移除”；被 truncate 的 section 保留裁剪后的正文和裁剪原因。
 
 `context_confirmations` 仍只持久化摘要字段：`selected_asset_ids`、`compile_options`、`warnings`、`result_refs`、`stale_reasons` 等。`sections` 和 `budget_events` 是本次编译的实时展示结果，不写入确认记录。
+
+## 检索计划与运行健康
+
+`RetrievalQueryPlanner` 是 context 拥有的纯确定性函数，不调 LLM。它把 purpose、Scene、
+entity/character/thread 和 visibility 组装为最多 3 条 clause；RAG 仍只执行单条受控检索。
+loader 按稳定 RRF 合并，然后统一回读 writing 正文并复核 source hash/可见截止。
+
+`GET /api/context/evidence-health` 组合 Outline SceneSpan 覆盖、RAG 映射覆盖和近期 trace；
+`GET /api/context/retrieval-traces` 只返回隐私安全的运行摘要。无运行样本时 health 是
+`insufficient_data`，不伪装成绿色通过。trace 默认保留 30 天且每项目最多保留
+10,000 条，通过现有 snapshot maintenance 入口 dry-run/执行。
+
+snapshot stale 优先与 owner task 对账：owner 心跳新鲜则长时运行不算 stale；
+owner terminal 或 lease stale 则分别以 `owner_task_terminal` / `owner_task_stale` 关闭孤儿快照。
 
 ### Section 级排除
 

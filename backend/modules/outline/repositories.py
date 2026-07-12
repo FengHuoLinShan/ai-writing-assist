@@ -806,6 +806,40 @@ class SceneRepository:
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_active_scene_ids_for_coverage(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        statuses: tuple[str, ...],
+    ) -> set[uuid.UUID]:
+        stmt = select(Scene.id).where(
+            Scene.novel_id == novel_id,
+            Scene.status.in_(statuses),
+        )
+        result = await db.execute(stmt)
+        return set(result.scalars().all())
+
+    async def get_scene_spans_for_coverage(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        content_mode: str,
+        statuses: tuple[str, ...],
+    ) -> list[SceneSpan]:
+        stmt = (
+            select(SceneSpan)
+            .where(
+                SceneSpan.novel_id == novel_id,
+                SceneSpan.content_mode == content_mode,
+                SceneSpan.status.in_(statuses),
+            )
+            .order_by(SceneSpan.chapter_index, SceneSpan.part_no, SceneSpan.id)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
     async def get_scene_spans_for_scene(
         self,
         db: AsyncSession,

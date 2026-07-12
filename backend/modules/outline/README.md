@@ -235,6 +235,10 @@ async def apply_structure_dedup(...)
 ```
 
 异步 AI 任务入口只解析 task meta、更新进度并委托 `OutlineAIWorkflowService`；
+
+`get_scene_span_coverage()` 是只读稳定 facade，按 `novel_id + content_mode + active
+Scene/status` 统计 exact/reanchored/chapter_only/unresolved、无 span Scene 和 precise rate。
+该指标只表示运行覆盖，不代替 Scene 边界 P/R/F1。
 facade 只保留跨模块稳定函数名和返回形状。Scene 读取继续通过 facade 暴露给跨模块
 调用；Scene mutation 统一归 Workbench service 拥有，API/facade 不直接拼装
 Scene 业务规则。

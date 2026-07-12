@@ -1388,9 +1388,12 @@ class TestRagChunksLoader:
         mock_result = MagicMock()
         mock_result.chunks = [mock_chunk]
 
-        loader = RagChunksLoader(retrieve_fn=AsyncMock(return_value=mock_result))
+        loader = RagChunksLoader(
+            retrieve_fn=AsyncMock(return_value=mock_result),
+            trace_recorder=AsyncMock(),
+        )
         loader._rehydrate_chunks = AsyncMock(  # type: ignore[method-assign]
-            return_value=[{"text": "相关文章内容", "score": 0.85}]
+            return_value=([{"text": "相关文章内容", "score": 0.85}], {})
         )
         bundle = StructureContextBundle(novel_id="id", task="t", scope="full")
         options = MagicMock(
@@ -1416,7 +1419,7 @@ class TestRagChunksLoader:
         mock_result.chunks = []
 
         retrieve = AsyncMock(return_value=mock_result)
-        loader = RagChunksLoader(retrieve_fn=retrieve)
+        loader = RagChunksLoader(retrieve_fn=retrieve, trace_recorder=AsyncMock())
         bundle = StructureContextBundle(novel_id="id", task="t", scope="full")
         options = MagicMock(
             novel_id="id",
@@ -1443,9 +1446,15 @@ class TestRagChunksLoader:
         mock_result = MagicMock()
         mock_result.chunks = chunks
 
-        loader = RagChunksLoader(retrieve_fn=AsyncMock(return_value=mock_result))
+        loader = RagChunksLoader(
+            retrieve_fn=AsyncMock(return_value=mock_result),
+            trace_recorder=AsyncMock(),
+        )
         loader._rehydrate_chunks = AsyncMock(  # type: ignore[method-assign]
-            return_value=[{"text": f"chunk{i}", "score": 0.9} for i in range(2)]
+            return_value=(
+                [{"text": f"chunk{i}", "score": 0.9} for i in range(2)],
+                {},
+            )
         )
         bundle = StructureContextBundle(novel_id="id", task="t", scope="full")
         options = MagicMock(

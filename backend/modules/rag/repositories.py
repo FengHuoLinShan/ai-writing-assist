@@ -837,6 +837,35 @@ class RagChunkRepository:
         result = await db.execute(stmt)
         return result.scalar_one()
 
+    async def list_scene_mapping_rows(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        content_mode: str,
+    ) -> list:
+        """Load only fields required by Scene mapping coverage."""
+        stmt = (
+            select(
+                RagChunk.id,
+                RagChunk.source_id,
+                RagChunk.source_content_hash,
+                RagChunk.chapter_index,
+                RagChunk.start_offset,
+                RagChunk.end_offset,
+                RagChunk.scene_id,
+                RagChunk.scene_span_id,
+            )
+            .where(
+                RagChunk.novel_id == novel_id,
+                RagChunk.content_mode == content_mode,
+                RagChunk.source_type == "chapter_text",
+            )
+            .order_by(RagChunk.chapter_index, RagChunk.chunk_index, RagChunk.id)
+        )
+        result = await db.execute(stmt)
+        return list(result.all())
+
     async def has_embeddings(
         self,
         db: AsyncSession,

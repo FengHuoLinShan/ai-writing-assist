@@ -16,9 +16,11 @@ from modules.context.contracts import VisibilityContextContract
 from modules.context.facade import compile_with_tiers
 from modules.context.facade import confirm_context as _confirm_context
 from modules.context.facade import get_context_snapshot as _get_context_snapshot
+from modules.context.facade import get_evidence_health as _get_evidence_health
 from modules.context.facade import grep_novel_evidence as _grep_novel_evidence
 from modules.context.facade import inspect_novel_target as _inspect_novel_target
 from modules.context.facade import list_context_snapshots as _list_context_snapshots
+from modules.context.facade import list_retrieval_traces as _list_retrieval_traces
 from modules.context.facade import preview_activation as _preview_activation
 from modules.context.facade import read_novel_evidence as _read_novel_evidence
 from modules.context.facade import run_snapshot_maintenance as _run_snapshot_maintenance
@@ -33,6 +35,8 @@ from modules.context.schemas import (
     ContextConfirmRequest,
     ContextRenderRequest,
     ContextRenderResponse,
+    ContextRetrievalTraceListResponse,
+    ContextRetrievalTraceResponse,
     ContextSnapshotListItemResponse,
     ContextSnapshotListResponse,
     ContextSnapshotMaintenanceRequest,
@@ -40,6 +44,7 @@ from modules.context.schemas import (
     ContextSnapshotResponse,
     ContextTierCompileResponse,
     EvidenceGrepRequest,
+    EvidenceHealthResponse,
     EvidenceInspectRequest,
     EvidenceInspectResponse,
     EvidenceReadRequest,
@@ -120,6 +125,7 @@ async def compile_context(
         scope=request.scope,
         budget_tokens=request.budget_tokens,
         scene_id=request.scene_id,
+        retrieval_purpose=request.retrieval_purpose,
         chapter_index=request.chapter_index,
         visible_until_chapter=request.visible_until_chapter,
         visible_until_scene_id=request.visible_until_scene_id,
@@ -127,6 +133,7 @@ async def compile_context(
         arc_id=request.arc_id,
         entity_ids=request.entity_ids,
         character_ids=request.character_ids,
+        thread_ids=request.thread_ids,
         location_ids=request.location_ids,
         reveal_mode=request.reveal_mode,
         enable_geo_filter=request.enable_geo_filter,
@@ -161,6 +168,7 @@ async def render_context(
         scope=request.scope,
         budget_tokens=request.budget_tokens,
         scene_id=request.scene_id,
+        retrieval_purpose=request.retrieval_purpose,
         chapter_index=request.chapter_index,
         visible_until_chapter=request.visible_until_chapter,
         visible_until_scene_id=request.visible_until_scene_id,
@@ -168,6 +176,7 @@ async def render_context(
         arc_id=request.arc_id,
         entity_ids=request.entity_ids,
         character_ids=request.character_ids,
+        thread_ids=request.thread_ids,
         location_ids=request.location_ids,
         reveal_mode=request.reveal_mode,
         enable_geo_filter=request.enable_geo_filter,
@@ -207,6 +216,7 @@ async def confirm_context(
         action=request.action,
         task=request.task,
         scope=request.scope,
+        retrieval_purpose=request.retrieval_purpose,
         chapter_index=request.chapter_index,
         visible_until_chapter=request.visible_until_chapter,
         visible_until_scene_id=request.visible_until_scene_id,
@@ -215,6 +225,7 @@ async def confirm_context(
         arc_id=request.arc_id,
         entity_ids=request.entity_ids,
         character_ids=request.character_ids,
+        thread_ids=request.thread_ids,
         location_ids=request.location_ids,
         reveal_mode=request.reveal_mode,
         enable_geo_filter=request.enable_geo_filter,
@@ -227,6 +238,46 @@ async def confirm_context(
         user_note=request.user_note,
     )
     return ContextConfirmationResponse(**confirmation.__dict__)
+
+
+@router.get("/evidence-health", response_model=EvidenceHealthResponse)
+async def get_evidence_health(
+    db: DbSession,
+    *,
+    novel_id: NovelIdQuery,
+    content_mode: str = Query("canonical", pattern="^(canonical|working)$"),
+    window_hours: int = Query(24, ge=1, le=24 * 30),
+) -> EvidenceHealthResponse:
+    result = await _get_evidence_health(
+        db,
+        novel_id=str(novel_id),
+        content_mode=content_mode,
+        window_hours=window_hours,
+    )
+    return EvidenceHealthResponse(**result.__dict__)
+
+
+@router.get(
+    "/retrieval-traces",
+    response_model=ContextRetrievalTraceListResponse,
+)
+async def list_retrieval_traces(
+    db: DbSession,
+    *,
+    novel_id: NovelIdQuery,
+    content_mode: str | None = Query(None, pattern="^(canonical|working)$"),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+) -> ContextRetrievalTraceListResponse:
+    records = await _list_retrieval_traces(
+        db,
+        novel_id=str(novel_id),
+        content_mode=content_mode,
+        limit=limit,
+        offset=offset,
+    )
+    items = [ContextRetrievalTraceResponse(**record.__dict__) for record in records]
+    return ContextRetrievalTraceListResponse(items=items, total=len(items))
 
 
 def _visibility(request) -> VisibilityContextContract:
@@ -405,6 +456,9 @@ async def maintain_context_snapshots(
         retain_latest_full_context_per_project=(
             request.retain_latest_full_context_per_project
         ),
+        prune_retrieval_traces=request.prune_retrieval_traces,
+        retrieval_trace_retention_days=request.retrieval_trace_retention_days,
+        retain_latest_retrieval_traces=request.retain_latest_retrieval_traces,
         dry_run=request.dry_run,
     )
     return ContextSnapshotMaintenanceResponse(**result)

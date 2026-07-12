@@ -89,6 +89,8 @@ class PlotStructureContextBuilder:
             novel_id=novel_id,
             task="生成剧情结构",
             scope="full",
+            retrieval_purpose="outline_generation",
+            consumer_action="outline.generate",
             chapter_index=start_chapter,
             visible_until_chapter=end_chapter,
             reveal_mode="author_only",

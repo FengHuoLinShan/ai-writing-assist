@@ -75,6 +75,7 @@
 5. [`superpowers/plans/2026-07-11-p0-capability-closure-plan.md`](superpowers/plans/2026-07-11-p0-capability-closure-plan.md) — P0.1/P0.2/P0.3 详细实现计划、评测数据生产线、验收标准与首轮实测结果
 6. [`audit/2026-07-12-P0能力闭环完成审计.md`](audit/2026-07-12-P0能力闭环完成审计.md) — P0 工程/评测基础设施闭环证据、Pilot v1.1 四 suite 结果、历史 timing 限制与未达质量项
 7. [`superpowers/plans/2026-07-12-p1-observability-query-planning-stale-closure.md`](superpowers/plans/2026-07-12-p1-observability-query-planning-stale-closure.md) — P1.1 Scene/证据覆盖遥测、P1.2 context 确定性查询计划、P1.3 任务 stale 闭环的详细实现计划与验收标准
+8. [`audit/2026-07-12-P1运行盲区收敛完成审计.md`](audit/2026-07-12-P1运行盲区收敛完成审计.md) — P1 工程闭环、context-planner 正式对比结果、放宽验收与仍未达的严格质量目标
 
 ## 当前状态
 

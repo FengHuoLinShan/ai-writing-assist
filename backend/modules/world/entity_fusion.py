@@ -363,20 +363,20 @@ class WorldEntityFusionService:
         source: CoreEntity,
         target: CoreEntity,
     ) -> list[dict[str, Any]]:
-        from modules.context.contracts import VisibilityContextContract
-        from modules.context.facade import search_novel_evidence
+        from modules.context.facade import retrieve_planned_context_evidence
 
         query = (
             f"{source.name} {target.name} {source.summary or ''} {target.summary or ''}"
         )
         try:
-            result = await search_novel_evidence(
+            bundle = await retrieve_planned_context_evidence(
                 db,
                 novel_id=novel_id,
-                query=query[:500],
+                task=query[:500],
+                retrieval_purpose="world_fusion",
+                consumer_action="world.entity_fusion",
                 content_mode="canonical",
-                visibility=VisibilityContextContract(mode="author"),
-                scopes=["manuscript"],
+                entity_ids=[str(source.id), str(target.id)],
                 top_k=5,
             )
         except Exception:
@@ -388,7 +388,7 @@ class WorldEntityFusionService:
                     "snippet": _clip(f"{source.summary or ''}\n{target.summary or ''}"),
                 }
             ]
-        hits = list(result.get("hits") or [])
+        hits = list(bundle.rag_chunks or [])
         if not hits:
             return [
                 {
@@ -404,7 +404,7 @@ class WorldEntityFusionService:
                 "source_ref": hit.get("source_ref"),
                 "chapter_index": hit.get("chapter_index"),
                 "scene_refs": hit.get("scene_refs") or [],
-                "snippet": _clip(str(hit.get("snippet") or "")),
+                "snippet": _clip(str(hit.get("text") or "")),
             }
             for hit in hits[:5]
         ]

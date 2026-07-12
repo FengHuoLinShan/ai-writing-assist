@@ -17,7 +17,7 @@ from modules.world.services.core.extraction_service import EntityExtractionServi
 logger = logging.getLogger(__name__)
 
 
-@task_handler("world_entity_extraction")
+@task_handler("world_entity_extraction", recovery_policy="restart_origin")
 async def handle_world_entity_extraction(db, task):
     """处理世界对象抽取任务
 
@@ -105,7 +105,7 @@ async def handle_world_entity_extraction(db, task):
     }
 
 
-@task_handler("world_alias_relation_extraction")
+@task_handler("world_alias_relation_extraction", recovery_policy="restart_origin")
 async def handle_world_alias_relation_extraction(db, task):
     """处理别名/关系补抽任务。"""
     meta = task.meta or {}
@@ -163,7 +163,7 @@ async def handle_world_alias_relation_extraction(db, task):
     }
 
 
-@task_handler("world_entity_fusion_suggestions")
+@task_handler("world_entity_fusion_suggestions", recovery_policy="restart_origin")
 async def handle_world_entity_fusion_suggestions(db, task):
     """生成世界对象 LLM 融合/合并建议，不直接改实体。"""
     from modules.world.entity_fusion import WorldEntityFusionService
@@ -196,7 +196,11 @@ async def handle_world_entity_fusion_suggestions(db, task):
     return result
 
 
-@task_handler("world_bible_projection_refresh")
+@task_handler(
+    "world_bible_projection_refresh",
+    recovery_policy="auto_requeue",
+    max_attempts=2,
+)
 async def handle_world_bible_projection_refresh(db, task):
     """Refresh a World Bible page projection."""
     from modules.world.services.worldbuilding.worldbuilding_service import (

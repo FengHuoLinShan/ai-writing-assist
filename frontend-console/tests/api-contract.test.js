@@ -219,6 +219,10 @@ describe("前后端 API 契约", () => {
       timeoutKind: "contextConfirm",
       timeout: 90000,
     })
+    expect(contractPath("context.evidenceHealth", {}, { novel_id: "novel-1" }))
+      .toBe("/context/evidence-health?novel_id=novel-1")
+    expect(contractPath("tasks.retry", { taskId: "task-1" }, { novel_id: "novel-1" }))
+      .toBe("/tasks/task-1/retry?novel_id=novel-1")
     expect(getApiContract("rag.search")).toMatchObject({
       method: "POST",
       timeoutKind: "ragSearch",

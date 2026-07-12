@@ -18,11 +18,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Mapping
-from datetime import UTC, datetime, timedelta
 from time import monotonic
 from typing import Any
 
-from sqlalchemy import select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +32,7 @@ from infrastructure.llm.agent_step_harness import (
     merge_managed_llm_provenance,
 )
 from infrastructure.llm.redaction import redact_diagnostic
+from infrastructure.tasks.lifecycle import TaskLifecycleService
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
 from shared.constants import (
@@ -110,6 +109,7 @@ class TaskWorker:
     ) -> None:
         self._db_manager = db_manager or get_manager()
         self._registry = TaskRegistry()
+        self._lifecycle = TaskLifecycleService()
         self._poll_interval = poll_interval
         self._heartbeat_interval = heartbeat_interval
         self._max_heartbeat_gap = max_heartbeat_gap
@@ -120,6 +120,7 @@ class TaskWorker:
         self._running = False
         self._running_task_ids: set[Any] = set()
         self._heartbeat_tasks: dict[Any, asyncio.Task[None]] = {}
+        self._runner_tasks: dict[Any, asyncio.Task[Any]] = {}
         self._last_stale_scan_at: float | None = None
         self._stats: dict[str, int] = {
             "processed": 0,
@@ -251,18 +252,8 @@ class TaskWorker:
 
     async def _claim_task(self, session: AsyncSession) -> AsyncTask | None:
         """使用 FOR UPDATE SKIP LOCKED 领取一个 pending 任务"""
-        stmt = (
-            select(AsyncTask)
-            .where(AsyncTask.status == "pending")
-            .order_by(AsyncTask.created_at)
-            .limit(1)
-            .with_for_update(skip_locked=True)
-        )
-        result = await session.execute(stmt)
-        task = result.scalar_one_or_none()
+        task = await self._lifecycle.claim_next(session)
         if task is not None:
-            task.mark_running()
-            await session.commit()
             self._running_task_ids.add(task.id)
             logger.info("Task claimed: %s (type=%s)", task.id, task.task_type)
         return task
@@ -270,16 +261,22 @@ class TaskWorker:
     async def _execute_task(self, task: AsyncTask, session: AsyncSession) -> None:
         """执行任务的完整生命周期"""
         self._stats["processed"] += 1
+        lease_id = str(task.lease_id or "")
+        current_runner = asyncio.current_task()
+        if current_runner is not None:
+            self._runner_tasks[task.id] = current_runner
 
         # 启动心跳协程（使用独立 session，避免与主执行共享连接）
         self._running_task_ids.add(task.id)
-        heartbeat_task = asyncio.create_task(self._heartbeat_loop(task.id))
+        heartbeat_task = asyncio.create_task(self._heartbeat_loop(task.id, lease_id))
         self._heartbeat_tasks[task.id] = heartbeat_task
 
         with managed_llm_provenance_scope() as managed_llm_steps:
+            terminal_recovery_policy: str | None = None
             try:
                 handler = self._registry.get_handler(task.task_type)
                 if handler is None:
+                    terminal_recovery_policy = "never_retry"
                     raise ValueError(
                         f"No handler registered for task type: {task.task_type}. "
                         f"Registered types: {self._registry.registered_types}"
@@ -304,10 +301,19 @@ class TaskWorker:
                         result_data,
                         managed_llm_steps,
                     )
-                task.mark_done(result_data)
-                await session.commit()
-                self._stats["succeeded"] += 1
-                logger.info("Task completed: %s (type=%s)", task.id, task.task_type)
+                accepted = await self._lifecycle.finalize(
+                    session,
+                    task_id=task.id,
+                    lease_id=lease_id,
+                    status="done",
+                    result_data=result_data,
+                )
+                if accepted:
+                    await session.refresh(task)
+                    self._stats["succeeded"] += 1
+                    logger.info("Task completed: %s (type=%s)", task.id, task.task_type)
+                else:
+                    logger.warning("Discarded completion from stale lease: %s", task.id)
 
             except asyncio.CancelledError:
                 failure_result = (
@@ -319,12 +325,22 @@ class TaskWorker:
                     else None
                 )
                 await session.rollback()
-                if failure_result is not None:
-                    task.result = failure_result
-                task.mark_cancelled()
-                await session.commit()
-                self._stats["cancelled"] += 1
-                logger.info("Task cancelled: %s (type=%s)", task.id, task.task_type)
+                accepted = await self._lifecycle.finalize(
+                    session,
+                    task_id=task.id,
+                    lease_id=lease_id,
+                    status="cancelled",
+                    result_data=failure_result,
+                )
+                if accepted:
+                    await session.refresh(task)
+                    self._stats["cancelled"] += 1
+                logger.info(
+                    "Task cancelled: %s (type=%s, accepted=%s)",
+                    task.id,
+                    task.task_type,
+                    accepted,
+                )
 
             except Exception as e:
                 failure_result = (
@@ -336,20 +352,33 @@ class TaskWorker:
                     else None
                 )
                 await session.rollback()
-                if failure_result is not None:
-                    task.result = failure_result
-                task.mark_failed(_public_task_error_message(e))
-                await session.commit()
-                self._stats["failed"] += 1
+                finalize_kwargs = {
+                    "task_id": task.id,
+                    "lease_id": lease_id,
+                    "status": "failed",
+                    "result_data": failure_result,
+                    "error_message": _public_task_error_message(e),
+                }
+                if terminal_recovery_policy is not None:
+                    finalize_kwargs["recovery_policy"] = terminal_recovery_policy
+                accepted = await self._lifecycle.finalize(
+                    session,
+                    **finalize_kwargs,
+                )
+                if accepted:
+                    await session.refresh(task)
+                    self._stats["failed"] += 1
                 logger.error(
-                    "Task failed: %s (type=%s) — %s",
+                    "Task failed: %s (type=%s, accepted=%s) — %s",
                     task.id,
                     task.task_type,
+                    accepted,
                     _public_task_error_message(e),
                 )
 
             finally:
                 self._running_task_ids.discard(task.id)
+                self._runner_tasks.pop(task.id, None)
                 heartbeat_task = self._heartbeat_tasks.pop(task.id, None)
                 if heartbeat_task is not None:
                     heartbeat_task.cancel()
@@ -358,20 +387,23 @@ class TaskWorker:
                     except asyncio.CancelledError:
                         pass
 
-    async def _heartbeat_loop(self, task_id: Any) -> None:
+    async def _heartbeat_loop(self, task_id: Any, lease_id: str = "") -> None:
         """定期更新心跳（使用独立 session，避免与主执行共享）"""
         try:
             while True:
                 await asyncio.sleep(self._heartbeat_interval)
                 try:
                     async with self._db_manager.session_factory() as hb_session:
-                        stmt = (
-                            update(AsyncTask)
-                            .where(AsyncTask.id == task_id)
-                            .values(heartbeat_at=datetime.now(UTC))
+                        accepted = await self._lifecycle.heartbeat(
+                            hb_session,
+                            task_id=task_id,
+                            lease_id=lease_id,
                         )
-                        await hb_session.execute(stmt)
-                        await hb_session.commit()
+                        if not accepted:
+                            runner = self._runner_tasks.get(task_id)
+                            if runner is not None and not runner.done():
+                                runner.cancel()
+                            return
                 except Exception:
                     logger.warning(
                         "Heartbeat update failed for task %s", task_id, exc_info=True
@@ -402,134 +434,17 @@ class TaskWorker:
         Returns:
             自动恢复为 pending 的任务数量，不包含 stale deep_import
         """
-        cutoff = datetime.now(UTC) - timedelta(seconds=self._max_heartbeat_gap)
         async with self._db_manager.session_factory() as session:
-            deep_imports = await self._mark_stale_deep_imports(session, cutoff)
-
-            result = await session.execute(
-                update(AsyncTask)
-                .where(
-                    AsyncTask.status == "running",
-                    AsyncTask.task_type != "deep_import",
-                    AsyncTask.heartbeat_at < cutoff,
-                )
-                .values(
-                    status="pending",
-                    error_message="Task recovered: heartbeat timeout",
-                )
+            counts = await self._lifecycle.recover_stale(
+                session,
+                max_heartbeat_gap=self._max_heartbeat_gap,
             )
-            await session.commit()
-            recovered = result.rowcount if result.rowcount is not None else 0
+            recovered = counts["auto_requeued"]
             if recovered > 0:
                 logger.info("Recovered %d stale tasks", recovered)
-            if deep_imports > 0:
-                logger.info("Marked %d stale deep_import tasks recoverable", deep_imports)
+            if counts["manual_resume"] > 0:
+                logger.info(
+                    "Marked %d stale import tasks recoverable",
+                    counts["manual_resume"],
+                )
             return recovered
-
-    async def _mark_stale_deep_imports(
-        self,
-        session: AsyncSession,
-        cutoff: datetime,
-    ) -> int:
-        """标记 stale deep_import 为可恢复，但不改回 pending。"""
-        result = await session.execute(
-            select(AsyncTask)
-            .where(
-                AsyncTask.status == "running",
-                AsyncTask.task_type == "deep_import",
-                AsyncTask.heartbeat_at < cutoff,
-            )
-            .with_for_update(skip_locked=True)
-        )
-        tasks = result.scalars().all()
-        interrupted_at = datetime.now(UTC).isoformat()
-        marked = 0
-
-        for task in tasks:
-            result_data = dict(task.result or {})
-            meta_data = dict(task.meta or {})
-            if (
-                result_data.get("recovery_required") is True
-                and meta_data.get("recovery_required") is True
-            ):
-                continue
-
-            last_heartbeat_at = (
-                task.heartbeat_at.isoformat() if task.heartbeat_at is not None else None
-            )
-            progress_snapshot = (
-                result_data.get("progress")
-                if isinstance(result_data.get("progress"), dict)
-                else result_data
-            )
-            quality_stats = (
-                progress_snapshot.get("quality_stats") or {}
-                if isinstance(progress_snapshot, dict)
-                else {}
-            )
-            scene_commit_stats = (
-                quality_stats.get("scene_commit") or {}
-                if isinstance(quality_stats.get("scene_commit"), dict)
-                else {}
-            )
-            phase2_stats = (
-                quality_stats.get("phase2") or {}
-                if isinstance(quality_stats.get("phase2"), dict)
-                else {}
-            )
-            checkpoints = (
-                progress_snapshot.get("checkpoints") or {}
-                if isinstance(progress_snapshot, dict)
-                else {}
-            )
-            phase2_checkpoints = (
-                checkpoints.get("phase2") or {}
-                if isinstance(checkpoints.get("phase2"), dict)
-                else {}
-            )
-            phase2_checkpoint_scenes_raw = phase2_checkpoints.get("scenes")
-            phase2_checkpoint_scenes: list = (
-                phase2_checkpoint_scenes_raw
-                if isinstance(phase2_checkpoint_scenes_raw, list)
-                else []
-            )
-            pending_scene_candidates = sum(
-                1
-                for item in phase2_checkpoint_scenes
-                if isinstance(item, dict)
-                and str(item.get("status") or "")
-                not in {"succeeded", "completed", "success"}
-            )
-            recovery_summary = {
-                "reason": "heartbeat_timeout",
-                "message": (
-                    "Deep import worker heartbeat timed out; user recovery required."
-                ),
-                "current_phase": progress_snapshot.get("current_phase")
-                if isinstance(progress_snapshot, dict)
-                else None,
-                "current_chapter": progress_snapshot.get("current_chapter")
-                if isinstance(progress_snapshot, dict)
-                else None,
-                "current_chapter_range": progress_snapshot.get("current_chapter_range")
-                if isinstance(progress_snapshot, dict)
-                else None,
-                "committed_scenes": int(scene_commit_stats.get("created_count", 0) or 0),
-                "committed_entities": int(phase2_stats.get("total_created", 0) or 0),
-                "pending_scene_candidates": pending_scene_candidates,
-            }
-            recovery_flags = {
-                "interrupted": True,
-                "recoverable": True,
-                "recovery_required": True,
-                "interrupted_at": interrupted_at,
-                "last_heartbeat_at": last_heartbeat_at,
-                "recovery_summary": recovery_summary,
-            }
-
-            task.result = {**result_data, **recovery_flags}
-            task.meta = {**meta_data, **recovery_flags}
-            task.error_message = "Task interrupted: heartbeat timeout; recovery required"
-            marked += 1
-
-        return marked

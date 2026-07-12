@@ -24,7 +24,7 @@ async def _attempt_savepoint(db) -> AsyncIterator[None]:
         yield
 
 
-@task_handler("publish_chapter")
+@task_handler("publish_chapter", recovery_policy="restart_origin")
 async def handle_publish_chapter(db, task):
     """处理章节发布任务
 
@@ -150,7 +150,7 @@ async def handle_publish_chapter(db, task):
     return results
 
 
-@task_handler("writing_generate")
+@task_handler("writing_generate", recovery_policy="restart_origin")
 async def handle_writing_generate(db, task):
     """处理 AI 正文建议生成任务。"""
     from modules.context.facade import bind_confirmed_action_result
@@ -190,7 +190,7 @@ async def handle_writing_generate(db, task):
     return {"draft_id": draft.id, "chapter_index": draft.chapter_index}
 
 
-@task_handler("writing_conflict_ai_review")
+@task_handler("writing_conflict_ai_review", recovery_policy="restart_origin")
 async def handle_writing_conflict_ai_review(db, task):
     """处理写作冲突检查的 AI 软复核任务。"""
     from modules.writing.services import WritingConflictCheckService

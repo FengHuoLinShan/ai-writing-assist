@@ -247,7 +247,6 @@ const writingView = {
       "dismiss-publish-error": () => this._publish?.dismissError?.(),
       "run-conflict-check": () => this._runConflictCheck(),
       "auto-extract-stage": (e, t) => this._autoExtraction?.showForm?.(t.getAttribute("data-stage") || "scenes"),
-      "deep-import": () => this._autoExtraction?.showDeepImportForm?.(),
       "open-map": (e, t) => {
         if (t.closest("#writing-panel-container")) return
         this._scenePanel?.openMap?.()

@@ -38,7 +38,6 @@ describe("createAutoExtraction", () => {
   it("returns the public API", () => {
     const extractor = createAutoExtraction({ api: createMockApi(), esc })
     expect(extractor.showForm).toBeTypeOf("function")
-    expect(extractor.showDeepImportForm).toBeTypeOf("function")
     expect(extractor.extractChapterCards).toBeTypeOf("function")
     expect(extractor.dispose).toBeTypeOf("function")
   })
@@ -66,7 +65,7 @@ describe("createAutoExtraction", () => {
     expect(modal.showModalHtml.mock.calls[0][2][0].text).toBe("确认并开始提取")
   })
 
-  it("showDeepImportForm renders scenes form", () => {
+  it("showForm renders the scenes stage", () => {
     const modal = createMockModal()
     const extractor = createAutoExtraction({
       state: { currentProjectId: "p1", _chapterList: [1, 2] },
@@ -75,7 +74,7 @@ describe("createAutoExtraction", () => {
       modal,
     })
 
-    extractor.showDeepImportForm()
+    extractor.showForm("scenes")
 
     const [title] = modal.showModalHtml.mock.calls[0]
     expect(title).toBe("场景（scene）自动提取")

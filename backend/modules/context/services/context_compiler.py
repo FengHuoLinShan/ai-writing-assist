@@ -381,12 +381,13 @@ class ContextCompiler:
                     title="RAG 证据包",
                     preview=content[:160],
                     status=options.context_mode if options else "canonical",
-                    activation_reason="RAG 检索命中",
+                    activation_reason=self._retrieval_activation_reason(bundle),
                     sources=self._sources_from_items(
                         bundle.rag_chunks,
                         default_type="rag",
                         status=options.context_mode if options else "canonical",
                     ),
+                    retrieval_metadata=dict(bundle.retrieval_trace or {}),
                 )
             )
 
@@ -479,13 +480,14 @@ class ContextCompiler:
                     title="读者可见正文证据",
                     content=visible_evidence,
                     status=status,
-                    activation_reason="正文来源位置与 hash 复核后",
+                    activation_reason=self._retrieval_activation_reason(bundle),
                     sources=self._safe_sources_from_items(
                         bundle.rag_chunks,
                         default_type="writing_source",
                         status=status,
                     ),
                     truncatable_per_item=True,
+                    retrieval_metadata=dict(bundle.retrieval_trace or {}),
                 )
             )
 
@@ -667,6 +669,7 @@ class ContextCompiler:
                         status=status,
                     ),
                     truncatable_per_item=True,
+                    retrieval_metadata=dict(bundle.retrieval_trace or {}),
                 )
             )
 
@@ -748,6 +751,7 @@ class ContextCompiler:
         sources: list[dict[str, Any]],
         can_exclude: bool = True,
         truncatable_per_item: bool = False,
+        retrieval_metadata: dict[str, Any] | None = None,
     ) -> ContextSection:
         return ContextSection(
             key=key,
@@ -761,6 +765,7 @@ class ContextCompiler:
             activation_reason=activation_reason,
             sources=sources,
             can_exclude=can_exclude,
+            retrieval_metadata=retrieval_metadata or {},
         )
 
     @staticmethod
@@ -816,6 +821,21 @@ class ContextCompiler:
             if text and isinstance(source_ref, dict):
                 lines.append(f"- {text}")
         return "\n".join(lines)
+
+    @staticmethod
+    def _retrieval_activation_reason(bundle: StructureContextBundle) -> str:
+        labels = {
+            "current_scene": "当前 Scene",
+            "structured_relation_focus": "相关人物/对象/剧情线",
+            "task_intent": "任务意图",
+        }
+        reasons = [
+            labels.get(str(item.get("reason_code")), str(item.get("reason_code")))
+            for item in (bundle.retrieval_trace or {}).get("clause_summaries", [])
+            if item.get("reason_code")
+        ]
+        reasons = list(dict.fromkeys(reason for reason in reasons if reason))
+        return f"RAG 检索命中：{'、'.join(reasons)}" if reasons else "RAG 检索命中"
 
     @staticmethod
     def _format_role_visible_knowledge(world_entities: list) -> str:

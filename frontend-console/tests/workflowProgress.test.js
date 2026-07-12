@@ -115,6 +115,29 @@ describe("normalizeTaskProgress", () => {
     expect(progress.warnings).toEqual(["warn"])
   })
 
+  it("uses backend lifecycle actions without guessing from heartbeat", () => {
+    const progress = normalizeTaskProgress({
+      task_id: "stale-import",
+      task_type: "deep_import",
+      status: "failed",
+      heartbeat_at: "2026-07-12T01:00:00Z",
+      attempt: 1,
+      max_attempts: 1,
+      stale: false,
+      lifecycle: {
+        reason: "heartbeat_timeout",
+        recovery_policy: "manual_resume",
+        recovery_required: true,
+      },
+      available_actions: ["resume", "abandon"],
+    })
+
+    expect(progress.failed).toBe(true)
+    expect(progress.recoveryRequired).toBe(true)
+    expect(progress.availableActions).toEqual(["resume", "abandon"])
+    expect(progress.attempt).toBe(1)
+  })
+
   it("sanitizes raw DBAPI publish failures", () => {
     const raw = "DBAPIError: asyncpg.exceptions.InFailedSQLTransactionError [SQL: UPDATE async_tasks SET progress=$1]"
     const progress = normalizeTaskProgress({
@@ -231,16 +254,14 @@ describe("active workflow storage", () => {
     expect(recoverActiveWorkflows("p1")).toEqual([])
   })
 
-  it("migrates legacy task keys", () => {
-    localStorage.setItem("novel_deepImportTaskId", "legacy-deep")
+  it("migrates the supported legacy world extraction key", () => {
     localStorage.setItem("novel_world_extract_task", "legacy-world")
 
     const recovered = recoverActiveWorkflows("p1")
 
-    expect(recovered.map((item) => item.taskId).sort()).toEqual(["legacy-deep", "legacy-world"])
-    expect(localStorage.getItem("novel_deepImportTaskId")).toBe(null)
+    expect(recovered.map((item) => item.taskId)).toEqual(["legacy-world"])
     expect(localStorage.getItem("novel_world_extract_task")).toBe(null)
-    expect(JSON.parse(localStorage.getItem(workflowProgressStorageKey))).toHaveLength(2)
+    expect(JSON.parse(localStorage.getItem(workflowProgressStorageKey))).toHaveLength(1)
   })
 })
 
@@ -339,5 +360,33 @@ describe("pollTaskProgress", () => {
     await Promise.resolve()
 
     expect(apiClient.tasks.get).toHaveBeenCalledTimes(1)
+  })
+
+  it("reports polling errors as unknown and keeps polling", async () => {
+    vi.useFakeTimers()
+    mockVisibilityState("visible")
+    const onUpdate = vi.fn()
+    const onFailed = vi.fn()
+    const apiClient = {
+      tasks: {
+        get: vi.fn()
+          .mockRejectedValueOnce(new Error("network down"))
+          .mockResolvedValueOnce({ task_id: "t1", status: "done", progress: 1 }),
+      },
+    }
+
+    pollTaskProgress({
+      taskId: "t1",
+      intervalMs: 10,
+      apiClient,
+      onUpdate,
+      onFailed,
+    })
+    await vi.runOnlyPendingTimersAsync()
+    await vi.runOnlyPendingTimersAsync()
+
+    expect(onUpdate.mock.calls[0][0].stateUnknown).toBe(true)
+    expect(apiClient.tasks.get).toHaveBeenCalledTimes(2)
+    expect(onFailed).not.toHaveBeenCalled()
   })
 })

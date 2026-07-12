@@ -1258,7 +1258,7 @@ async def _create_recoverable_deep_import_task(
     task = AsyncTask(
         id=uuid.uuid4(),
         task_type=task_type,
-        status="running",
+        status="failed",
         meta={
             "novel_id": novel_id,
             "start_chapter": 1,

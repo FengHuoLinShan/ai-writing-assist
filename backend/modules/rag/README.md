@@ -3,6 +3,11 @@
 ## 定位
 
 rag 模块负责从结构化小说知识库和文本片段中检索与当前创作任务相关的信息。
+
+`get_scene_mapping_coverage()` 是只读稳定 facade，对 chapter-text chunk 批量对账
+`scene_id + scene_span_id + source_id + source_content_hash + offset overlap`，分开返回
+valid、dangling、wrong-source 和 expected-overlap 分母。它是覆盖健康指标，不代替
+RAG P@5/MRR/R@10 语义质量评测。
 它不是复杂 GraphRAG 系统，也不是自动剧情推理系统。
 
 ## 负责

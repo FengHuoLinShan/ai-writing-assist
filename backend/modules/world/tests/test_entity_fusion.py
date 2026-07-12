@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -15,6 +16,46 @@ from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import CoreEntityCreate, EntityFusionApplyItem
 
 pytestmark = [pytest.mark.asyncio]
+
+
+async def test_entity_fusion_evidence_uses_context_planner_with_entity_anchors(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = _fusion_entity(name="克莱恩", summary="占卜家")
+    target = _fusion_entity(name="道恩·唐泰斯", summary="值夜者")
+    source.id = uuid.uuid4()
+    target.id = uuid.uuid4()
+    captured = {}
+
+    async def retrieve(_db, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            rag_chunks=[
+                {
+                    "source_ref": {"draft_id": "draft-1"},
+                    "chapter_index": 3,
+                    "scene_refs": [],
+                    "text": "两人在值夜者会面。",
+                }
+            ]
+        )
+
+    monkeypatch.setattr(
+        "modules.context.facade.retrieve_planned_context_evidence",
+        retrieve,
+    )
+
+    evidence = await WorldEntityFusionService()._evidence(
+        db_session,
+        str(uuid.uuid4()),
+        source,
+        target,
+    )
+
+    assert captured["retrieval_purpose"] == "world_fusion"
+    assert captured["entity_ids"] == [str(source.id), str(target.id)]
+    assert evidence[0]["snippet"] == "两人在值夜者会面。"
 
 
 async def test_entity_fusion_service_has_no_direct_http_exception_dependency() -> None:

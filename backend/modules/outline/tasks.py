@@ -20,7 +20,7 @@ def _int_or_default(value: object, default: int) -> int:
     return int(value)
 
 
-@task_handler("plot_structure_generate")
+@task_handler("plot_structure_generate", recovery_policy="restart_origin")
 async def handle_plot_structure_generate(db, task):
     """处理 legacy 剧情结构 preview 生成任务。
 
@@ -66,7 +66,7 @@ async def handle_plot_structure_generate(db, task):
     return result
 
 
-@task_handler("chapter_card_extraction")
+@task_handler("chapter_card_extraction", recovery_policy="restart_origin")
 async def handle_chapter_card_extraction(db, task):
     """兼容旧任务类型：章节卡生成尚未有独立 domain handler。
 
@@ -107,7 +107,7 @@ async def handle_chapter_card_extraction(db, task):
     }
 
 
-@task_handler("chapter_scene_generate")
+@task_handler("chapter_scene_generate", recovery_policy="restart_origin")
 async def handle_chapter_scene_generate(db, task):
     """兼容任务枚举中的章节/场景生成类型。
 
@@ -125,7 +125,7 @@ async def handle_chapter_scene_generate(db, task):
     }
 
 
-@task_handler("scene_cross_chapter_detection")
+@task_handler("scene_cross_chapter_detection", recovery_policy="restart_origin")
 async def handle_scene_cross_chapter_detection(db, task):
     """识别已提交 Scene 中可能跨多章的相邻 Scene 融合建议。"""
     from modules.outline.cross_chapter_detection import (
@@ -163,7 +163,7 @@ async def handle_scene_cross_chapter_detection(db, task):
     return result
 
 
-@task_handler("outline_analyze")
+@task_handler("outline_analyze", recovery_policy="restart_origin")
 async def handle_outline_analyze(db, task):
     """处理确认后的剧情分析任务。"""
     from modules.outline.ai_workflow_service import OutlineAIWorkflowService
@@ -185,7 +185,7 @@ async def handle_outline_analyze(db, task):
     )
 
 
-@task_handler("outline_generate")
+@task_handler("outline_generate", recovery_policy="restart_origin")
 async def handle_outline_generate(db, task):
     """处理确认上下文后的剧情结构 preview 生成任务。"""
     from modules.outline.ai_workflow_service import OutlineAIWorkflowService
@@ -217,7 +217,7 @@ async def handle_outline_generate(db, task):
     return result
 
 
-@task_handler("outline_chapter_scenes_extract")
+@task_handler("outline_chapter_scenes_extract", recovery_policy="restart_origin")
 async def handle_outline_chapter_scenes_extract(db, task):
     """处理确认后的章节/Scene 卡提取任务。"""
     from modules.outline.ai_workflow_service import OutlineAIWorkflowService

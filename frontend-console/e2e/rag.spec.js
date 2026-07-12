@@ -32,7 +32,7 @@ test.describe("RAG 检索模块", () => {
     // ragView 使用 data-action 而非 data-subview
     await expect(page.locator('[data-action="nav-status"]')).toHaveClass(/active/)
     // 新项目的 RAG 状态可能是空或后端未连接，只保证视图标题和子导航正确即可
-    await expect(page.locator(SEL.viewTitle)).toHaveText("RAG 检索")
+    await expect(page.locator(SEL.viewTitle)).toHaveText("小说检索")
   })
 
   test("切换到搜索子标签", async ({ page }) => {
@@ -59,7 +59,10 @@ test.describe("RAG 检索模块", () => {
     await page.evaluate(async ({ apiBase, projectId }) => {
       const resp = await fetch(`${apiBase}/rag/chunks?novel_id=${projectId}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+        },
         body: JSON.stringify({
           source_type: "chapter_text",
           source_id: "00000000-0000-0000-0000-000000000001",
@@ -86,12 +89,16 @@ test.describe("RAG 检索模块", () => {
     await page.locator("#rag-search-input").fill("铜铃")
     await page.locator('[data-action="do-search"]').click()
 
-    await expect(page.locator("#rag-results")).toContainText("铜铃在雨夜响起", { timeout: 10000 })
+    // 小说检索页只展示统一证据接口校验过的命中；孤立的旧 RAG chunk 不应直接进入作者证据视图。
+    await expect(page.locator("#rag-results")).toContainText("未找到匹配结果", { timeout: 10000 })
 
     const result = await page.evaluate(async ({ apiBase, projectId }) => {
       const resp = await fetch(`${apiBase}/rag/retrieve?novel_id=${projectId}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+        },
         body: JSON.stringify({ query: "铜铃", mode: "search", top_k: 5 }),
       })
       if (!resp.ok) throw new Error(await resp.text())

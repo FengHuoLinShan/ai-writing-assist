@@ -549,11 +549,19 @@ class DeepImportOrchestrator:
         for payload in (result_data, meta_data):
             payload["interrupted"] = False
             payload["recovery_required"] = False
+            payload["recoverable"] = False
+        lifecycle = dict(result_data.get("lifecycle") or {})
+        lifecycle["reason"] = "manual_resume"
+        lifecycle["recovery_required"] = False
+        result_data["lifecycle"] = lifecycle
 
         task.result = result_data
         task.meta = meta_data
         task.status = "pending"
         task.finished_at = None
+        task.heartbeat_at = None
+        task.lease_id = None
+        task.transition_reason = "manual_resume"
         task.error_message = None
         await db.flush()
 
@@ -677,6 +685,8 @@ class DeepImportOrchestrator:
             raise ValueError(
                 "task_id must reference a deep_import or deep import stage task"
             )
+        if task.status != "failed":
+            raise ValueError("only failed interrupted deep import tasks can recover")
 
         result_data = task.result or {}
         meta_data = task.meta or {}

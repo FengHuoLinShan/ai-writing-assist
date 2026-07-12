@@ -13,8 +13,10 @@ from modules.context.contracts import (
     CompileOptions,
     ConfirmedAIActionContext,
     ContextConfirmationContract,
+    ContextRetrievalTraceContract,
     ContextSnapshotContract,
     ContextSnapshotRequest,
+    EvidenceHealthContract,
     ImportContextActivationContract,
     StructureContextBundle,
     VisibilityContextContract,
@@ -39,6 +41,18 @@ _confirmation_service = ContextConfirmationService()
 _confirmed_ai_action_service = ConfirmedAIActionService(_confirmation_service)
 _snapshot_service = ContextSnapshotService()
 _hidden_guard_builder = HiddenGuardBuilder()
+
+
+def _retrieval_trace_service():
+    from modules.context.services.retrieval_trace_service import RetrievalTraceService
+
+    return RetrievalTraceService()
+
+
+def _evidence_health_service():
+    from modules.context.services.evidence_health_service import EvidenceHealthService
+
+    return EvidenceHealthService()
 
 
 def _evidence_service():
@@ -90,6 +104,9 @@ async def compile_structure_context(
     include_pending_objects: bool = False,
     excluded_asset_ids: dict[str, list[str]] | None = None,
     user_note: str | None = None,
+    retrieval_purpose: str = "generic_context",
+    consumer_action: str | None = None,
+    thread_ids: list[str] | None = None,
 ) -> StructureContextBundle:
     """编译结构化创作上下文
 
@@ -124,10 +141,17 @@ async def compile_structure_context(
     Returns:
         StructureContextBundle — 结构化创作上下文包
     """
+    if retrieval_purpose == "generic_context":
+        if reveal_mode == "character":
+            retrieval_purpose = "character_context"
+        elif reveal_mode == "reader":
+            retrieval_purpose = "reader_context"
     options = CompileOptions(
         novel_id=novel_id,
         task=task,
         scope=scope,
+        consumer_action=consumer_action,
+        retrieval_purpose=retrieval_purpose,
         chapter_index=chapter_index,
         visible_until_chapter=visible_until_chapter,
         visible_until_scene_id=visible_until_scene_id,
@@ -137,6 +161,7 @@ async def compile_structure_context(
         focus_entity_id=focus_entity_id,
         entity_ids=entity_ids,
         character_ids=character_ids,
+        thread_ids=thread_ids,
         location_ids=location_ids,
         reveal_mode=reveal_mode,
         enable_geo_filter=enable_geo_filter,
@@ -148,6 +173,43 @@ async def compile_structure_context(
         user_note=user_note,
     )
     return await _compiler.compile(db, options)
+
+
+async def retrieve_planned_context_evidence(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    task: str,
+    retrieval_purpose: str,
+    consumer_action: str,
+    content_mode: str = "canonical",
+    chapter_index: int | None = None,
+    scene_id: str | None = None,
+    entity_ids: list[str] | None = None,
+    character_ids: list[str] | None = None,
+    thread_ids: list[str] | None = None,
+    top_k: int = 5,
+) -> StructureContextBundle:
+    """Run only the context-owned planner/RAG/rehydrate path for a consumer."""
+    from modules.context.services.planned_retrieval_service import (
+        PlannedContextRetrievalService,
+    )
+
+    options = CompileOptions(
+        novel_id=novel_id,
+        task=task,
+        scope="full",
+        consumer_action=consumer_action,
+        retrieval_purpose=retrieval_purpose,
+        chapter_index=chapter_index,
+        scene_id=scene_id,
+        entity_ids=entity_ids,
+        character_ids=character_ids,
+        thread_ids=thread_ids,
+        content_mode=content_mode,
+        top_k=max(1, min(top_k, 50)),
+    )
+    return await PlannedContextRetrievalService().retrieve(db, options)
 
 
 async def prepare_import_context_activation(
@@ -280,6 +342,7 @@ async def confirm_context(
     arc_id: str | None = None,
     entity_ids: list[str] | None = None,
     character_ids: list[str] | None = None,
+    thread_ids: list[str] | None = None,
     location_ids: list[str] | None = None,
     reveal_mode: str = "author_safe",
     enable_geo_filter: bool = False,
@@ -290,6 +353,7 @@ async def confirm_context(
     include_pending_objects: bool = False,
     excluded_asset_ids: dict[str, list[str]] | None = None,
     user_note: str | None = None,
+    retrieval_purpose: str = "generic_context",
 ) -> ContextConfirmationContract:
     return await _confirmation_service.confirm_context(
         db,
@@ -297,6 +361,7 @@ async def confirm_context(
         action=action,
         task=task,
         scope=scope,
+        retrieval_purpose=retrieval_purpose,
         chapter_index=chapter_index,
         visible_until_chapter=visible_until_chapter,
         visible_until_scene_id=visible_until_scene_id,
@@ -305,6 +370,7 @@ async def confirm_context(
         arc_id=arc_id,
         entity_ids=entity_ids,
         character_ids=character_ids,
+        thread_ids=thread_ids,
         location_ids=location_ids,
         reveal_mode=reveal_mode,
         enable_geo_filter=enable_geo_filter,
@@ -752,6 +818,38 @@ async def build_snapshot_health_summary(
     )
 
 
+async def list_retrieval_traces(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    content_mode: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[ContextRetrievalTraceContract]:
+    return await _retrieval_trace_service().list(
+        db,
+        novel_id=novel_id,
+        content_mode=content_mode,
+        limit=limit,
+        offset=offset,
+    )
+
+
+async def get_evidence_health(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    content_mode: str = "canonical",
+    window_hours: int = 24,
+) -> EvidenceHealthContract:
+    return await _evidence_health_service().get_health(
+        db,
+        novel_id=novel_id,
+        content_mode=content_mode,
+        window_hours=max(1, min(window_hours, 24 * 30)),
+    )
+
+
 async def mark_stale_running_snapshots(
     db: AsyncSession,
     *,
@@ -798,6 +896,9 @@ async def run_snapshot_maintenance(
     running_timeout_minutes: int = 120,
     prune_rendered_context: bool = True,
     retain_latest_full_context_per_project: int = 200,
+    prune_retrieval_traces: bool = True,
+    retrieval_trace_retention_days: int = 30,
+    retain_latest_retrieval_traces: int = 10_000,
     dry_run: bool = True,
 ) -> dict:
     return await _snapshot_service.run_snapshot_maintenance(
@@ -807,5 +908,8 @@ async def run_snapshot_maintenance(
         running_timeout_minutes=running_timeout_minutes,
         prune_rendered_context=prune_rendered_context,
         retain_latest_full_context_per_project=retain_latest_full_context_per_project,
+        prune_retrieval_traces=prune_retrieval_traces,
+        retrieval_trace_retention_days=retrieval_trace_retention_days,
+        retain_latest_retrieval_traces=retain_latest_retrieval_traces,
         dry_run=dry_run,
     )
