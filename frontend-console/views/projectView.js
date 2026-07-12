@@ -688,6 +688,7 @@ const projectView = {
       warnings: [],
     }, {
       showTaskId: false,
+      collapseStorageKey: `workflow-progress-card:project-upload:${state.currentProjectId || "global"}`,
     })
   },
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from dataclasses import replace
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -60,6 +61,7 @@ class ManuscriptSourceService:
         visible_end_offsets: dict[int, int] | None = None,
         skip: int = 0,
         limit: int = 20,
+        group_by_chapter: bool = False,
     ) -> tuple[list[ManuscriptSearchHitContract], int, list[int]]:
         pattern = pattern.strip()
         if not pattern or len(pattern) > MAX_PATTERN_LENGTH:
@@ -119,6 +121,18 @@ class ManuscriptSourceService:
                 )
                 offset = end if end > start else start + 1
         total = len(hits)
+        if group_by_chapter:
+            grouped: dict[int, ManuscriptSearchHitContract] = {}
+            counts: dict[int, int] = {}
+            for hit in hits:
+                chapter_index = hit.source_ref.chapter_index
+                counts[chapter_index] = counts.get(chapter_index, 0) + 1
+                grouped.setdefault(chapter_index, hit)
+            hits = [
+                replace(hit, match_count=counts[chapter_index])
+                for chapter_index, hit in grouped.items()
+            ]
+            total = len(hits)
         return hits[skip : skip + limit], total, missing
 
     async def read(

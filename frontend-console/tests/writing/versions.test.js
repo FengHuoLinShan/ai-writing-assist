@@ -52,8 +52,8 @@ describe("createVersionManager", () => {
     state.currentProjectId = "p1"
     api.writing.getVersionHistory.mockResolvedValue({
       versions: [
-        { id: "d2", version_number: 2, word_count: 200, created_at: "2026-07-06T10:00:00Z" },
-        { id: "d1", version_number: 1, word_count: 100, created_at: "2026-07-05T10:00:00Z" },
+        { id: "d2", version_number: 2, status: "draft", version_origin: "manual", word_count: 200, created_at: "2026-07-06T10:00:00Z" },
+        { id: "d1", version_number: 1, status: "published", word_count: 100, created_at: "2026-07-05T10:00:00Z" },
       ],
     })
 
@@ -62,8 +62,12 @@ describe("createVersionManager", () => {
     const html = manager.render()
 
     expect(html).toContain("version-selector")
+    expect(html).toContain("writing-version-select-wrap")
+    expect(html).toContain('aria-label="选择章节版本"')
     expect(html).toContain("v2 (最新)")
     expect(html).toContain("v1")
+    expect(html).toContain("手动保存")
+    expect(html).toContain("已发布")
     expect(html).toContain('data-action="version-history"')
     expect(html).toContain('data-action="delete-version"')
     expect(html).toContain("publish-status-dot")
@@ -73,7 +77,7 @@ describe("createVersionManager", () => {
     state.currentProjectId = "p1"
     api.writing.getVersionHistory.mockResolvedValue({
       versions: [
-        { id: "d2", version_number: 2 },
+        { id: "d2", version_number: 2, updated_at: "2026-07-06T00:02:00Z" },
         { id: "d1", version_number: 1 },
       ],
     })
@@ -98,6 +102,8 @@ describe("createVersionManager", () => {
       versionNumber: 1,
       isReadonly: true,
       restoreSourceVersion: 1,
+      restoreExpectedVersion: 2,
+      restoreExpectedUpdatedAt: "2026-07-06T00:02:00Z",
       title: "旧标题",
       content: "旧版本",
     }))
@@ -172,7 +178,7 @@ describe("createVersionManager", () => {
     state.currentProjectId = "p1"
     api.writing.getVersionHistory.mockResolvedValue({
       versions: [
-        { id: "d2", version_number: 2 },
+        { id: "d2", version_number: 2, updated_at: "2026-07-06T00:02:00Z" },
         { id: "d1", version_number: 1 },
       ],
     })
@@ -206,6 +212,8 @@ describe("createVersionManager", () => {
         versionNumber: 1,
         isReadonly: false,
         restoreSourceVersion: 1,
+        restoreExpectedVersion: 2,
+        restoreExpectedUpdatedAt: "2026-07-06T00:02:00Z",
       })))
     } finally {
       window.writingView = previousWritingView

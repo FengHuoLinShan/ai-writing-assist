@@ -10,6 +10,8 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from shared.constants import DEFAULT_LLM_MAX_TOKENS
+
 # Demo owner 占位：nil UUID
 LOCAL_OWNER_ID: uuid.UUID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 LOCAL_OWNER_LABEL: str = "local"
@@ -28,7 +30,7 @@ LLM_DEFAULTS_SYSTEM: dict[str, Any] = {
     "base_url": "https://api.deepseek.com",
     "model": "deepseek-v4-flash",
     "timeout": 180,
-    "max_tokens": 4096,
+    "max_tokens": DEFAULT_LLM_MAX_TOKENS,
     "temperature": 0.3,
     "top_p": None,
     "extra": {},

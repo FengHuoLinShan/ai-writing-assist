@@ -90,6 +90,8 @@ def create_project_snapshot_llm_client(
 `open_project_llm_client()` 获取 effective project profile。该 seam 统一执行
 项目存在性、Key/Base URL/模型 fail-closed 校验、字段来源物化、脱敏 runtime
 metadata 和成功/异常/取消时的 client 关闭；调用方不能传 provider/Key 绕过设置。
+普通业务请求不填写 `LLMCallRequest.max_tokens` 时，由 client 物化项目有效默认值；
+当前系统默认是 `12000`。只有深度导入阶段预算和健康检查可以显式覆盖该值。
 深度导入 worker 消费已持久化的 effective profile snapshot 时，通过
 `create_project_snapshot_llm_client()` 执行相同的 Key/Base URL/model/timeout
 fail-closed 校验；传入 `novel_id` 时同时绑定脱敏的

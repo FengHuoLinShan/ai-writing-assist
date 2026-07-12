@@ -13,12 +13,22 @@ writing 模块拥有正文版本事实源。作者界面只区分工作稿、已
 
 ## 版本管理
 
-每次发布或对 published 的首次编辑创建新版本（version_number 自增），
-旧 published 版本不可变，保留供稳定引用与版本历史回读。
-API 提供了两种写入模式：
+对 published 或手动 checkpoint 的正文首次实质编辑创建 auto 工作版本
+（version_number 自增），后续自动保存原地更新它。实质变化的判定只比较
+移除 Unicode 空白后的正文；标题或纯排版修改只保存在前端本地备份，
+除非作者显式强制保存新版本。旧 published 版本不可变，保留供稳定引用。
+API 提供四种写入模式：
 
-1. **发布草稿**（`POST /drafts`）→ 新版本 + 自动入队 `publish_chapter` 任务
+1. **发布草稿**（`POST /drafts`）→ 原位提升当前 draft + 自动入队 `publish_chapter` 任务；响应的 `new_version=false` 表示无实质变化且未入队
 2. **更新草稿**（`PUT /drafts/{id}`）→ working 可原地暂存；published 以 copy-on-write 返回新 draft ID
+3. **显式留版**（`POST /drafts/{id}/checkpoint`）→ 将 auto 版本标记为 manual，或创建新 manual 版本
+4. **放弃更改**（`POST /drafts/{id}/discard`）→ 软废弃最新 draft 并返回 `base_draft_id`
+
+auto 工作版本在发布前撤回到手动 checkpoint 内容时，auto 版本软废弃，
+手动 checkpoint 按原版本号原位提升为 published 并正常入队；若基线已经 published，
+则复用它且不重复入队。历史恢复使用 `restore_source_version` 标识来源版本，
+并用既有 `expected_version / expected_updated_at` 校验选择恢复时看到的章节最新快照，
+过期操作返回 409。
 
 `canonical` 选择每章最新非废弃 `published`，缺失时不回退 working；
 `working` 只选择最新的 `draft / published / canonical` 兼容版本，不选择未采用
@@ -57,6 +67,8 @@ outline 时不在服务模块顶层 import outline facade，而是通过可注�
 POST   /api/writing/drafts                              # 发布草稿（新版本 + publish_chapter 任务）
 GET    /api/writing/drafts/{id}                         # 获取草稿
 POST   /api/writing/drafts/{id}/adopt                   # 将 AI 正文建议复制为普通工作稿
+POST   /api/writing/drafts/{id}/checkpoint              # 显式保存未发布版本
+POST   /api/writing/drafts/{id}/discard                 # 放弃未发布更改并回到基线
 PUT    /api/writing/drafts/{id}                         # 暂存；published copy-on-write，支持 expected_version
 DELETE /api/writing/drafts/{id}                         # 软废弃单个版本
 DELETE /api/writing/chapters/{index}                    # 软废弃整章所有版本
@@ -87,7 +99,8 @@ outline provider 重映射 Scene chunk，不修改正文事实源，也不自动
 
 ## 版本历史
 
-`GET /chapters/{index}/versions` 返回该章所有版本（版本号/创建时间/字数），前端写作工作台显示为模态框，支持预览和恢复到历史版本。
+`GET /chapters/{index}/versions` 返回该章活跃的工作/已发布版本，增补
+`status / version_origin`；不把 candidate/deprecated 混入作者版本历史。
 
 ## 多 Tab 冲突检测
 

@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import sceneWorkbenchView from "../views/sceneWorkbenchView.js"
 import {
+  persistActiveWorkflow,
+  recoverActiveWorkflows,
+} from "../shared/workflowProgress.js"
+import {
   autoConfirm,
   captureModalHandler,
   clearDocument,
@@ -71,6 +75,7 @@ beforeEach(() => {
   vi.restoreAllMocks()
   resetState({ currentProjectId: "p1", currentView: "scene", currentSubView: "s1" })
   clearDocument()
+  localStorage.clear()
   vi.clearAllMocks()
   api.outline.getSceneWorkbench = vi.fn().mockResolvedValue(workbenchPayload)
   api.outline.updateSceneWorkbenchMapping = vi.fn()
@@ -111,6 +116,7 @@ beforeEach(() => {
   sceneWorkbenchView._autoExtractProgress = null
   sceneWorkbenchView._autoExtractPoller = null
   sceneWorkbenchView._autoExtractMeta = null
+  sceneWorkbenchView._autoExtractCancelPending = false
   sceneWorkbenchView._crossChapterSuggestions = []
   sceneWorkbenchView._mobileDetailOpen = false
   sceneWorkbenchView._selectedSceneIdValue = null
@@ -397,6 +403,118 @@ describe("sceneWorkbenchView", () => {
     })
     expect(sceneWorkbenchView._workbench.items[0].scene.title).toBe("潜入")
     expect(sceneWorkbenchView._total).toBe(2)
+  })
+
+  it("recovers a persisted scene extraction task with its project id", async () => {
+    api.tasks.get.mockResolvedValue({
+      task_id: "scene-recover",
+      task_type: "scene_auto_extraction",
+      status: "running",
+      progress: 0.2,
+      result: { phase: "running" },
+    })
+    persistActiveWorkflow({
+      taskId: "scene-recover",
+      workflowType: "scene_auto_extraction",
+      projectId: "p1",
+      view: "scene",
+      meta: { start_chapter: 2, end_chapter: 6 },
+    })
+
+    await sceneWorkbenchView.onEnter()
+    await Promise.resolve()
+
+    expect(api.tasks.get).toHaveBeenCalledWith("scene-recover", "p1")
+    expect(sceneWorkbenchView._autoExtractTaskId).toBe("scene-recover")
+    expect(sceneWorkbenchView._autoExtractMeta).toEqual({
+      start_chapter: 2,
+      end_chapter: 6,
+    })
+    expect(recoverActiveWorkflows("p1")).toHaveLength(1)
+    sceneWorkbenchView.onLeave()
+  })
+
+  it("retains a failed scene extraction task until dismissed", async () => {
+    sceneWorkbenchView._autoExtractTaskId = "scene-failed"
+    sceneWorkbenchView._autoExtractProgress = {
+      failed: true,
+      cancelled: false,
+      label: "场景（scene）自动提取",
+      statusLabel: "失败",
+      message: "API Key 未配置",
+      warnings: [],
+      phaseArtifacts: {},
+      acceptanceChecks: [],
+      phaseTimeline: [],
+      progressEvents: [],
+      phaseErrors: [],
+      diagnosticCounts: {},
+      assetSummary: {},
+    }
+    persistActiveWorkflow({
+      taskId: "scene-failed",
+      workflowType: "scene_auto_extraction",
+      projectId: "p1",
+      view: "scene",
+    })
+
+    expect(sceneWorkbenchView._renderAutoExtractProgress()).toContain(
+      'data-action="dismiss-scene-auto-extract"',
+    )
+    sceneWorkbenchView._dismissAutoExtractProgress()
+
+    expect(recoverActiveWorkflows("p1")).toEqual([])
+    expect(sceneWorkbenchView._autoExtractProgress).toBeNull()
+  })
+
+  it("confirms and cancels the running scene extraction task for the current project", async () => {
+    autoConfirm()
+    api.tasks.cancel.mockResolvedValue({
+      task_id: "scene-running",
+      status: "cancelled",
+      cancelled: true,
+    })
+    sceneWorkbenchView._autoExtractTaskId = "scene-running"
+    sceneWorkbenchView._autoExtractMeta = { start_chapter: 2, end_chapter: 6 }
+    sceneWorkbenchView._autoExtractProgress = {
+      failed: false,
+      cancelled: false,
+      percent: 20,
+      label: "场景（scene）自动提取",
+      statusLabel: "进行中",
+      message: "正在提取",
+      warnings: [],
+      phaseArtifacts: {},
+      acceptanceChecks: [],
+      phaseTimeline: [],
+      progressEvents: [],
+      phaseErrors: [],
+      diagnosticCounts: {},
+      assetSummary: {},
+    }
+    persistActiveWorkflow({
+      taskId: "scene-running",
+      workflowType: "scene_auto_extraction",
+      projectId: "p1",
+      view: "scene",
+    })
+
+    expect(sceneWorkbenchView._renderAutoExtractProgress()).toContain(
+      'data-action="cancel-scene-auto-extract"',
+    )
+    await sceneWorkbenchView._cancelAutoExtractTask()
+
+    expect(confirmAction).toHaveBeenCalledWith(
+      expect.stringContaining("确认取消当前场景自动提取任务"),
+      expect.any(Function),
+      "确认取消",
+    )
+    expect(api.tasks.cancel).toHaveBeenCalledWith("scene-running", "p1")
+    expect(sceneWorkbenchView._autoExtractProgress.cancelled).toBe(true)
+    expect(sceneWorkbenchView._renderAutoExtractProgress()).toContain(
+      'data-action="dismiss-scene-auto-extract"',
+    )
+    expect(recoverActiveWorkflows("p1")).toHaveLength(1)
   })
 
   it("uses the server window containing a selected scene outside the first page", async () => {

@@ -10,6 +10,7 @@
 - **项目作者偏好所有字段允许 NULL**：NULL = 继承全局（D2）。`UNIQUE(project_id)` 保证每个项目最多一行。
 - **字段级 DELETE 硬白名单**：`AUTHOR_PREFS_FIELDS`（作者偏好）、`LLM_INHERITABLE_FIELDS`（LLM 字段，不含 `api_key`）。非白名单返回 400，不拼列名、不拼 JSON path。
 - **全局 `deep_import` 本期永不写入**（D9）：`global_llm_defaults.deep_import` 列存在但保持 NULL；全局页不渲染 40+ 深度导入字段，避免臃肿。未来需要全局默认时单独开 issue。
+- **通用输出上限默认 `12000`**：项目未覆盖时按项目 → 全局 → 系统顺序解析；深度导入不继承该值，继续使用自己的阶段预算。
 
 ## effective 响应结构（契约）
 

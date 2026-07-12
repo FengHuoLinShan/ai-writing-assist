@@ -520,6 +520,10 @@ describe("writingView conflict check", () => {
   it("运行冲突检查前先自动保存", async () => {
     api.writing.autosave.mockResolvedValue({ version_number: 2, updated_at: "2026-07-05T00:01:00Z" })
     const runSpy = vi.spyOn(writingView._conflictCheck, "run").mockResolvedValue()
+    writingView._editor.setState({
+      content: "第一章正文已修改",
+      lastSavedContent: "第一章正文",
+    })
 
     await writingView._runConflictCheck()
 
@@ -1020,6 +1024,10 @@ describe("writingView publish flow", () => {
       scene_id: null,
       title: "第一章",
       content: "第一章正文",
+      draft_id: "draft-1",
+      expected_version: 1,
+      expected_updated_at: "2026-07-05T00:00:00Z",
+      restore_source_version: null,
     })
     await vi.waitFor(() => {
       const status = document.querySelector('[data-chapter="1"] .chapter-status')

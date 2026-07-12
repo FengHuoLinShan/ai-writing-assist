@@ -300,6 +300,7 @@ async def grep_evidence(
         case_sensitive=request.case_sensitive,
         skip=request.skip,
         limit=request.limit,
+        group_by_chapter=request.group_by_chapter,
     )
     return EvidenceSearchResponse(**result)
 

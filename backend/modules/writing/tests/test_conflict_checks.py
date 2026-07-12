@@ -1114,7 +1114,7 @@ async def test_ai_review_valid_output_adds_ai_judgment_items(
 
 
 @pytest.mark.asyncio
-async def test_ai_review_uses_large_budget_and_concise_prompt_constraints(
+async def test_ai_review_inherits_project_budget_and_uses_concise_prompt_constraints(
     async_client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1129,7 +1129,7 @@ async def test_ai_review_uses_large_budget_and_concise_prompt_constraints(
     )
 
     async def fake_generate_structured(_self, request, schema, **_kwargs):
-        assert request.max_tokens == 20000
+        assert request.max_tokens is None
         prompt = request.messages[-1].content
         assert "最多输出 2 条 issues" in prompt
         assert "summary/evidence/rationale 各限制 1-2 句" in prompt
@@ -1446,7 +1446,7 @@ async def test_ai_suggestion_uses_large_budget_and_concise_prompt_constraints(
     )
 
     async def fake_generate_structured(_self, request, schema, **_kwargs):
-        assert request.max_tokens == 20000
+        assert request.max_tokens is None
         prompt = request.messages[-1].content
         assert "strategy/rationale 各 1-2 句" in prompt
         assert "suggested_text 控制在 300-600 字以内" in prompt

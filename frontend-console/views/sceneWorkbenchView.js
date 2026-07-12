@@ -9,6 +9,8 @@ import {
 import { renderWorkflowCard } from "../shared/progressRenderer.js"
 import { structureAssetDisplay } from "../shared/assetDisplayState.js"
 import { importAuthorizationNotice, importAuthorizationPayload } from "../shared/importAuthorization.js"
+import { confirmAsync } from "../shared/confirmAsync.js"
+import { renderWorkspaceRail, workspaceRailKey } from "../shared/workspaceRail.js"
 
 const HEALTH_ORDER = [
   ["unreviewed", "未复核"],
@@ -85,6 +87,7 @@ const sceneWorkbenchView = {
   _autoExtractProgress: null,
   _autoExtractPoller: null,
   _autoExtractMeta: null,
+  _autoExtractCancelPending: false,
   _crossChapterTaskId: null,
   _crossChapterProgress: null,
   _crossChapterPoller: null,
@@ -110,6 +113,7 @@ const sceneWorkbenchView = {
       return
     }
     try {
+      this._recoverAutoExtractWorkflow()
       this._recoverCrossChapterWorkflow()
       await this._loadWorkbench()
       if (typeof window !== "undefined" && window.innerWidth < 720 && this._selectedSceneId()) {
@@ -163,7 +167,13 @@ const sceneWorkbenchView = {
             ${this._renderSceneList()}
             ${this._renderPagination()}
           </section>
-          ${narrow ? "" : `<aside class="scene-workbench__detail">${detail}</aside>`}
+          ${narrow ? "" : renderWorkspaceRail({
+            key: workspaceRailKey("scene-workbench", state.currentProjectId, "detail"),
+            title: "Scene 详情",
+            className: "scene-detail-rail workspace-rail--right",
+            defaultOpen: true,
+            content: `<aside class="scene-workbench__detail">${detail}</aside>`,
+          })}
           ${showNarrowDetail ? `<div class="scene-workbench-drawer">${detail}</div>` : ""}
         </div>
       </div>
@@ -762,7 +772,13 @@ const sceneWorkbenchView = {
         ${this._renderSceneList()}
         ${this._renderPagination()}
       </section>
-      ${narrow ? "" : `<aside class="scene-workbench__detail">${detail}</aside>`}
+      ${narrow ? "" : renderWorkspaceRail({
+        key: workspaceRailKey("scene-workbench", state.currentProjectId, "detail"),
+        title: "Scene 详情",
+        className: "scene-detail-rail workspace-rail--right",
+        defaultOpen: true,
+        content: `<aside class="scene-workbench__detail">${detail}</aside>`,
+      })}
       ${showNarrowDetail ? `<div class="scene-workbench-drawer">${detail}</div>` : ""}
     `
     const nextOrganize = root.querySelector(".scene-workbench__organize")
@@ -1732,10 +1748,14 @@ const sceneWorkbenchView = {
     const rangeText = this._autoExtractMeta
       ? `范围: 章节 ${this._autoExtractMeta.start_chapter || 1}-${this._autoExtractMeta.end_chapter || 10}`
       : "范围: 所选章节"
+    const dismissHtml = this._autoExtractProgress.failed
+      || this._autoExtractProgress.cancelled ? `
+      <button class="btn btn-sm" data-action="dismiss-scene-auto-extract">关闭</button>
+    ` : `<button class="btn btn-sm" data-action="cancel-scene-auto-extract" ${this._autoExtractCancelPending ? "disabled" : ""}>${this._autoExtractCancelPending ? "取消中..." : "取消任务"}</button>`
     return `<div class="scene-progress-card-wrap">${renderWorkflowCard(this._autoExtractProgress, {
       title: "场景（scene）自动提取",
       destinationLabel: rangeText,
-    })}</div>`
+    })}${dismissHtml}</div>`
   },
 
   _renderCrossChapterProgress() {
@@ -1790,6 +1810,7 @@ const sceneWorkbenchView = {
     this._autoExtractPoller = pollTaskProgress({
       taskId,
       workflowType: "scene_auto_extraction",
+      novelId: state.currentProjectId,
       apiClient: api,
       onUpdate: (progress) => {
         this._autoExtractProgress = progress
@@ -1803,12 +1824,75 @@ const sceneWorkbenchView = {
         router.refresh()
       },
       onFailed: async (progress) => {
-        clearActiveWorkflow(progress.taskId || taskId)
-        this._autoExtractTaskId = null
+        this._autoExtractProgress = progress
         toast(`场景（scene）自动提取失败: ${progress.errorMessage || "未知错误"}`, "error")
         router.renderCurrentView()
       },
     })
+  },
+
+  _recoverAutoExtractWorkflow() {
+    const workflow = recoverActiveWorkflows(state.currentProjectId)
+      .find((item) => item.workflowType === "scene_auto_extraction")
+    if (!workflow?.taskId) return
+    this._autoExtractTaskId = workflow.taskId
+    this._autoExtractCancelPending = false
+    this._autoExtractMeta = {
+      start_chapter: workflow.meta?.start_chapter ?? workflow.meta?.startChapter ?? 1,
+      end_chapter: workflow.meta?.end_chapter ?? workflow.meta?.endChapter ?? 10,
+    }
+    this._autoExtractProgress = normalizeTaskProgress({
+      task_id: workflow.taskId,
+      task_type: "scene_auto_extraction",
+      status: "running",
+      meta: this._autoExtractMeta,
+    }, "scene_auto_extraction")
+    this._startAutoExtractPolling(workflow.taskId)
+  },
+
+  _dismissAutoExtractProgress() {
+    this._stopAutoExtractPolling()
+    clearActiveWorkflow(this._autoExtractTaskId)
+    this._autoExtractTaskId = null
+    this._autoExtractProgress = null
+    this._autoExtractMeta = null
+    this._autoExtractCancelPending = false
+    router.renderCurrentView()
+  },
+
+  async _cancelAutoExtractTask() {
+    const taskId = this._autoExtractTaskId
+    const novelId = state.currentProjectId
+    if (!taskId || !novelId || this._autoExtractCancelPending) return false
+    const confirmed = await confirmAsync(
+      "确认取消当前场景自动提取任务？已完成的阶段结果不会自动删除。",
+      "确认取消",
+    )
+    if (!confirmed) return false
+
+    this._stopAutoExtractPolling()
+    this._autoExtractCancelPending = true
+    router.renderCurrentView()
+    try {
+      await api.tasks.cancel(taskId, novelId)
+      this._autoExtractCancelPending = false
+      this._autoExtractProgress = normalizeTaskProgress({
+        task_id: taskId,
+        task_type: "scene_auto_extraction",
+        status: "cancelled",
+        progress: this._autoExtractProgress?.percent,
+        result: { message: "任务已取消" },
+        meta: this._autoExtractMeta,
+      }, "scene_auto_extraction")
+      toast("当前场景自动提取任务已取消", "warning")
+      router.renderCurrentView()
+      return true
+    } catch (err) {
+      this._autoExtractCancelPending = false
+      toast(err.message || "取消任务失败", "error")
+      this._startAutoExtractPolling(taskId)
+      return false
+    }
   },
 
   _showSceneAutoExtractForm() {
@@ -1871,6 +1955,7 @@ const sceneWorkbenchView = {
       }
 
       this._autoExtractTaskId = result.task_id
+      this._autoExtractCancelPending = false
       this._autoExtractMeta = { start_chapter: start, end_chapter: end }
       this._autoExtractProgress = normalizeTaskProgress({
         ...result,
@@ -1928,6 +2013,7 @@ const sceneWorkbenchView = {
     this._crossChapterPoller = pollTaskProgress({
       taskId,
       workflowType: "scene_cross_chapter_detection",
+      novelId: state.currentProjectId,
       apiClient: api,
       onUpdate: (progress) => {
         this._crossChapterProgress = progress
@@ -2053,6 +2139,8 @@ const sceneWorkbenchView = {
       "nav-foreshadowing": () => router.navigate("outline", "foreshadowing"),
       "nav-reveals": () => router.navigate("outline", "reveals"),
       "scene-auto-extract": () => this._showSceneAutoExtractForm(),
+      "cancel-scene-auto-extract": () => this._cancelAutoExtractTask(),
+      "dismiss-scene-auto-extract": () => this._dismissAutoExtractProgress(),
       "detect-cross-chapter-scenes": () => this._startCrossChapterDetection(),
       "show-cross-chapter-suggestions": () => this._showCrossChapterSuggestions(),
       "dismiss-cross-chapter-suggestions": () => this._dismissAllCrossChapterSuggestions(),

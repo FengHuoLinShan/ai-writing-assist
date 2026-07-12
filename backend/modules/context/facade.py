@@ -396,6 +396,7 @@ async def grep_novel_evidence(
     case_sensitive: bool = False,
     skip: int = 0,
     limit: int = 20,
+    group_by_chapter: bool = False,
 ) -> dict:
     return await _evidence_service().grep(
         db,
@@ -408,6 +409,7 @@ async def grep_novel_evidence(
         case_sensitive=case_sensitive,
         skip=skip,
         limit=limit,
+        group_by_chapter=group_by_chapter,
     )
 
 
@@ -422,7 +424,7 @@ async def search_novel_evidence(
     include_pending_objects: bool = False,
     chapter_from: int | None = None,
     chapter_to: int | None = None,
-    top_k: int = 12,
+    top_k: int = 100,
 ) -> dict:
     return await _evidence_service().search(
         db,

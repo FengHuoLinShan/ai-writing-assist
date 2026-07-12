@@ -44,4 +44,13 @@ describe("global typography tokens", () => {
     expect(styles).toMatch(/\.bible-ai-message--assistant/)
     expect(styles).toMatch(/\.world-bible-suggestion-preview\s*\{/)
   })
+
+  it("fully styles collapsible workspace rails and progress summaries", () => {
+    expect(styles).toMatch(/--workspace-main-share:\s*64fr;/)
+    expect(styles).toMatch(/\.workspace-rail > summary::\-webkit-details-marker\s*\{\s*display:\s*none;/s)
+    expect(styles).toMatch(/\.workspace-rail__summary:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--accent\);/s)
+    expect(styles).toMatch(/\.workflow-progress > summary::\-webkit-details-marker\s*\{\s*display:\s*none;/s)
+    expect(styles).toMatch(/\.workflow-progress__compact:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--accent\);/s)
+    expect(styles).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.workspace-rail__icon,[\s\S]*\.workflow-progress__chevron/)
+  })
 })

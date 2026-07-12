@@ -110,6 +110,24 @@ class WritingDraftUpdate(BaseModel):
     )
 
 
+class WritingDraftCheckpoint(WritingDraftUpdate):
+    """显式保存一个未发布版本。"""
+
+    force: bool = Field(
+        False,
+        description="正文无实质变化时，用户二次确认后强制留版",
+    )
+
+
+class WritingPublishRequest(WritingDraftCreate):
+    """发布当前工作版本，兼容未传 draft_id 的旧调用方。"""
+
+    draft_id: str | None = Field(None, description="当前工作版本 ID")
+    expected_version: int | None = Field(None, ge=1)
+    expected_updated_at: datetime | None = None
+    restore_source_version: int | None = Field(None, ge=1)
+
+
 # ============================================================
 # 响应 Schema
 # ============================================================
@@ -213,9 +231,38 @@ class DraftListItem(BaseModel):
     id: str
     version_number: int
     title: str | None = None
+    status: str = "draft"
+    version_origin: Literal["auto", "manual", "legacy"] = "legacy"
     word_count: int = 0
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def derive_version_origin(cls, value: object) -> object:
+        if isinstance(value, dict):
+            data = dict(value)
+            provenance = data.get("provenance_json")
+        else:
+            data = {
+                "id": getattr(value, "id", None),
+                "version_number": getattr(value, "version_number", 1),
+                "title": getattr(value, "title", None),
+                "status": getattr(value, "status", "draft"),
+                "created_at": getattr(value, "created_at", None),
+                "updated_at": getattr(value, "updated_at", None),
+            }
+            provenance = getattr(value, "provenance_json", None)
+        if not data.get("version_origin"):
+            raw_origin = (
+                (provenance or {}).get("version_origin")
+                if isinstance(provenance, dict)
+                else None
+            )
+            data["version_origin"] = (
+                raw_origin if raw_origin in {"auto", "manual"} else "legacy"
+            )
+        return data
 
     @field_validator("id", mode="before")
     @classmethod

@@ -141,11 +141,6 @@ async def restore_project_llm_execution_settings(
     if not expected_hash or _stable_hash(unsigned) != expected_hash:
         raise ProjectLLMConfigurationError("Project LLM execution snapshot hash mismatch")
 
-    (
-        materialized,
-        current_profile,
-        _current_sources,
-    ) = await _resolve_project_runtime_profile(db, novel_id)
     public_profile = snapshot.get("profile")
     sources = snapshot.get("sources")
     if not isinstance(public_profile, dict) or not isinstance(sources, dict):
@@ -154,8 +149,22 @@ async def restore_project_llm_execution_settings(
         raise ProjectLLMConfigurationError(
             "Project LLM API key was not configured when the task started"
         )
+    if not public_profile.get("model") or not public_profile.get("base_url_hash"):
+        raise ProjectLLMConfigurationError(
+            "Project LLM base_url and model are required"
+        )
+
+    (
+        materialized,
+        current_profile,
+        _current_sources,
+    ) = await _resolve_project_runtime_profile(db, novel_id)
     if not current_profile.api_key:
         raise ProjectLLMConfigurationError("Project LLM API key is not configured")
+    if not current_profile.base_url or not public_profile.get("model"):
+        raise ProjectLLMConfigurationError(
+            "Project LLM base_url and model are required"
+        )
     if _stable_hash(current_profile.base_url) != public_profile.get("base_url_hash"):
         raise ProjectLLMConfigurationError(
             "Project LLM base_url changed after the task started"

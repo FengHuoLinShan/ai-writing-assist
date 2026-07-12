@@ -169,6 +169,11 @@ RAG loader 不会直接把 chunk text 视为事实。它按 `source_id` 从 writ
 `NovelEvidenceService` 在 context 内集中编排 writing、RAG、outline 和 world，
 对外只暴露确定性 grep/search/read/inspect/trace，不是自主选择工具的 Agent。
 
+面向作者的小说检索按章节聚合正文结果：字面搜索汇总同章全部出现位置；智能搜索
+先按语义召回并合并同章 chunk，再在索引新鲜时用精确字面命中补足章节覆盖。
+响应中的 `match_count` 与 `match_basis` 分别说明聚合数量以及数量代表
+`occurrence` 还是 `chunk`。索引过期时智能搜索不会绕过 freshness guard 直接读取新稿。
+
 `VisibilityContextContract` 有三种模式：
 
 - `author`：无剧透截止。

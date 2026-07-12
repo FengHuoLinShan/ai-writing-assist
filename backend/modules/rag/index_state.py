@@ -220,12 +220,22 @@ class RagIndexStateService:
             return True
         if state.status == "running":
             return False
+
+        # A queued task may outlive the source version captured when it was
+        # requested.  Refresh the target when the task actually claims the
+        # state row so finish() compares its report with the source it was
+        # asked to index, instead of requeueing forever against a stale hash.
+        state.requested_source_id = (
+            uuid.UUID(str(source.id)) if source and source.id else None
+        )
+        state.requested_hash = source.content_hash if source else None
         if (
             source is not None
             and state.status == "succeeded"
             and state.indexed_hash == source.content_hash
             and state.indexed_source_id == uuid.UUID(str(source.id))
         ):
+            await db.flush()
             return False
         state.status = "running"
         await db.flush()

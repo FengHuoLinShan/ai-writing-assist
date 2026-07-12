@@ -22,4 +22,9 @@ describe("fieldSourceLabel", () => {
     expect(html).not.toContain("<img")
     expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;")
   })
+  it("formats object values as JSON instead of object coercion", () => {
+    const html = renderSourceLabel({ source: "project", value: { reasoning_effort: "high" } })
+    expect(html).toContain('{&quot;reasoning_effort&quot;:&quot;high&quot;}')
+    expect(html).not.toContain("[object Object]")
+  })
 })

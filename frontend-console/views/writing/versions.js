@@ -35,19 +35,24 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
     let html = `
       <div class="writing-version-bar">
         <span class="writing-version-label">版本：</span>
-        <select id="version-selector" class="writing-version-select">
+        <span class="writing-version-select-wrap">
+          <select id="version-selector" class="writing-version-select" aria-label="选择章节版本">
     `
 
     for (const v of _versions) {
       const selected = v.version_number === _currentVersionNumber
       const isCurLatest = v.version_number === _versions[0]?.version_number
-      html += `<option value="${esc(v.id)}" data-version="${esc(v.version_number)}" data-latest="${isCurLatest ? 1 : 0}" ${selected ? "selected" : ""}>v${esc(v.version_number)}${isCurLatest ? " (最新)" : ""}</option>`
+      const stateLabel = v.status === "published"
+        ? "已发布"
+        : (v.version_origin === "manual" ? "手动保存" : "未发布")
+      html += `<option value="${esc(v.id)}" data-version="${esc(v.version_number)}" data-latest="${isCurLatest ? 1 : 0}" ${selected ? "selected" : ""}>v${esc(v.version_number)}${isCurLatest ? " (最新)" : ""} · ${stateLabel}</option>`
     }
 
     html += `
-        </select>
+          </select>
+        </span>
         <button class="btn btn-sm writing-btn-compact" data-action="version-history" title="版本历史">历史</button>
-        <button class="btn btn-sm writing-version-delete" id="btn-delete-version" data-action="delete-version" title="删除当前版本">🗑</button>
+        <button class="btn btn-sm writing-version-delete" id="btn-delete-version" data-action="delete-version" title="删除当前版本" aria-label="删除当前版本">🗑</button>
         <span id="publish-status-dot" class="publish-status-dot" title="发布任务进行中"></span>
       </div>
     `
@@ -82,11 +87,14 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
       const draftData = await api.writing.get(draftId, state.currentProjectId)
       _currentDraftId = draftData.id
       _currentVersionNumber = versionNumber
+      const latest = _versions[0] || null
       onSwitch({
         draftId: draftData.id,
         versionNumber,
         isReadonly: options.isReadonly !== undefined ? options.isReadonly : !isLatest,
         restoreSourceVersion: options.restoreSourceVersion !== undefined ? options.restoreSourceVersion : (isLatest ? null : versionNumber),
+        restoreExpectedVersion: isLatest ? null : (latest?.version_number || null),
+        restoreExpectedUpdatedAt: isLatest ? null : (latest?.updated_at || null),
         title: draftData.title || "",
         content: draftData.content || "",
         updatedAt: draftData.updated_at || null,
@@ -106,6 +114,8 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
       versionNumber: _currentVersionNumber,
       isReadonly: false,
       restoreSourceVersion: _currentVersionNumber,
+      restoreExpectedVersion: _versions[0]?.version_number || null,
+      restoreExpectedUpdatedAt: _versions[0]?.updated_at || null,
     })
     toast("已创建新版本，可继续编辑", "success")
   }
@@ -154,10 +164,14 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
       const wordCount = v.word_count || 0
       const created = v.created_at ? new Date(v.created_at).toLocaleDateString("zh-CN") : ""
       const isCurrent = v.version_number === _currentVersionNumber
+      const stateLabel = v.status === "published"
+        ? "已发布"
+        : (v.version_origin === "manual" ? "手动保存" : "未发布")
       listHtml += `
         <div class="writing-version-item ${isCurrent ? "writing-version-item--current" : ""}">
           <div class="writing-version-item__main">
             <span class="writing-version-item__number">v${esc(v.version_number)}</span>
+            <span class="pill">${stateLabel}</span>
             ${isLatest ? " <span class=\"badge badge-canonical\">最新</span>" : ""}
             ${isCurrent ? " <span class=\"pill pill-accent\">当前</span>" : ""}
             <div class="writing-version-item__meta">${esc(created)} · ${esc(wordCount)} 字</div>

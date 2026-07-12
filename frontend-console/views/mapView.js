@@ -232,9 +232,9 @@ const mapView = {
       this._tooltipPopup = null
     }
     if (this._leaflet) {
-      this._leaflet.off("resize zoom move")
-      this._leaflet.off("zoomend moveend")
-      this._leaflet.remove()
+      this._leaflet.off?.("resize zoom move")
+      this._leaflet.off?.("zoomend moveend")
+      this._leaflet.remove?.()
       this._leaflet = null
     }
     if (this._redrawFrame) {

@@ -67,6 +67,8 @@ class ManuscriptSearchHitContract:
     snippet: str
     match_start: int
     match_end: int
+    match_count: int = 1
+    """Number of literal occurrences represented by this hit."""
 
 
 @dataclass(frozen=True)

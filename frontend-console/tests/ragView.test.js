@@ -28,6 +28,10 @@ beforeEach(() => {
   ragView._searchHits = []
   ragView._lastSearchPayload = null
   ragView._evidenceHealth = null
+  ragView._retrievalTraces = []
+  ragView._retrievalTracesState = "idle"
+  ragView._retrievalTracesError = ""
+  ragView._taskRetryPending = false
   api.context.searchEvidence = vi.fn()
   api.context.grepEvidence = vi.fn()
   api.context.readEvidence = vi.fn()
@@ -89,7 +93,7 @@ describe("ragView", () => {
         name: "search 子视图包含搜索框",
         subView: "search",
         setup: () => {},
-        expected: ["检索方式", "字面搜索", "可见视角"],
+        expected: ["检索方式", "字面搜索", "可见视角", "按语义相关性查找", "聚合显示"],
       },
       {
         name: "status 子视图展示最近片段列表",
@@ -188,6 +192,88 @@ describe("ragView", () => {
     })
   })
 
+  it("技术诊断按需加载隐私安全的检索记录", async () => {
+    state.currentProjectId = "p1"
+    api.context.listRetrievalTraces.mockResolvedValue({
+      items: [{
+        id: "trace-1",
+        content_mode: "canonical",
+        retrieval_purpose: "scene_context",
+        candidate_count: 12,
+        unique_count: 8,
+        hydrated_count: 5,
+        drop_counts: { stale_hash: 2, visibility: 1 },
+        safe_empty_reason: "no_visible_evidence",
+        warning_codes: ["safe_empty"],
+        created_at: "2026-07-12T08:00:00Z",
+      }],
+    })
+    document.body.innerHTML = `<div id="rag-diagnostics">${ragView._renderDiagnostics()}</div>`
+
+    await ragView._loadRetrievalTraces()
+
+    expect(api.context.listRetrievalTraces).toHaveBeenCalledWith("p1", {
+      content_mode: "canonical",
+      limit: 20,
+    })
+    expect(document.getElementById("rag-diagnostics").textContent).toContain("scene_context")
+    expect(document.getElementById("rag-diagnostics").textContent).toContain("候选 12")
+    expect(document.getElementById("rag-diagnostics").textContent).toContain("丢弃 3")
+    expect(document.getElementById("rag-diagnostics").textContent).toContain("no_visible_evidence")
+  })
+
+  it("重试失败的 RAG 任务后恢复轮询", async () => {
+    state.currentProjectId = "p1"
+    ragView._rebuildProgress = {
+      taskId: "task-1",
+      taskType: "rag_reindex_novel",
+      workflowType: "rag_reindex_novel",
+      availableActions: ["retry"],
+      raw: { task_id: "task-1", task_type: "rag_reindex_novel" },
+    }
+    document.body.innerHTML = '<div id="rag-rebuild-progress"></div>'
+    api.tasks.retry.mockResolvedValue({ task_id: "task-1", status: "pending", attempt: 1, max_attempts: 2 })
+    const polling = vi.spyOn(ragView, "_startRebuildPolling").mockImplementation(() => {})
+
+    await expect(ragView._retryFailedTask()).resolves.toBe(true)
+
+    expect(api.tasks.retry).toHaveBeenCalledWith("task-1", "p1")
+    expect(ragView._rebuildProgress.status).toBe("pending")
+    expect(polling).toHaveBeenCalledWith("task-1", "rag_reindex_novel")
+    polling.mockRestore()
+  })
+
+  it("重试请求失败时保留原失败任务卡", async () => {
+    state.currentProjectId = "p1"
+    const failedProgress = {
+      taskId: "task-1",
+      workflowType: "rag_reindex_novel",
+      availableActions: ["retry"],
+      raw: { task_id: "task-1", task_type: "rag_reindex_novel" },
+    }
+    ragView._rebuildProgress = failedProgress
+    document.body.innerHTML = '<div id="rag-rebuild-progress"></div>'
+    api.tasks.retry.mockRejectedValue(new Error("重试配额已耗尽"))
+
+    await expect(ragView._retryFailedTask()).resolves.toBe(false)
+
+    expect(ragView._rebuildProgress).toBe(failedProgress)
+    expect(ragView._taskRetryPending).toBe(false)
+    expect(toast).toHaveBeenCalledWith("重试配额已耗尽", "error")
+  })
+
+  it("检索记录加载失败只在诊断区显示错误", async () => {
+    state.currentProjectId = "p1"
+    document.body.innerHTML = `<div id="rag-diagnostics">${ragView._renderDiagnostics()}</div>`
+    api.context.listRetrievalTraces.mockRejectedValue(new Error("暂时不可用"))
+
+    await ragView._loadRetrievalTraces()
+
+    expect(ragView._retrievalTracesState).toBe("error")
+    expect(document.getElementById("rag-diagnostics").textContent).toContain("检索记录加载失败：暂时不可用")
+    expect(toast).not.toHaveBeenCalledWith(expect.stringContaining("暂时不可用"), expect.anything())
+  })
+
   it("智能搜索传递正文版本、可见性和范围", async () => {
     state.currentProjectId = "p1"
     document.body.innerHTML = `
@@ -254,6 +340,51 @@ describe("ragView", () => {
     expect(world.disabled).toBe(true)
     expect(outline.checked).toBe(false)
     expect(outline.disabled).toBe(true)
+  })
+
+  it("字面搜索按章节请求聚合并显示章内命中数", async () => {
+    state.currentProjectId = "p1"
+    document.body.innerHTML = `
+      <div id="rag-results"></div>
+      <select id="rag-search-kind"><option value="literal" selected>literal</option></select>
+      <select id="rag-content-mode"><option value="canonical" selected>canonical</option></select>
+      <select id="rag-visibility-mode"><option value="author" selected>author</option></select>
+      <input type="checkbox" data-search-scope="manuscript" checked />
+    `
+    api.context.grepEvidence.mockResolvedValue({
+      total: 2,
+      hits: [{
+        kind: "manuscript",
+        title: "第一章",
+        snippet: "克莱恩醒来",
+        chapter_index: 1,
+        match_count: 7,
+        match_basis: "occurrence",
+      }],
+    })
+
+    await ragView._doSearch("克莱恩")
+
+    expect(api.context.grepEvidence).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pattern: "克莱恩",
+        limit: 100,
+        group_by_chapter: true,
+      }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
+    expect(document.getElementById("rag-results").textContent).toContain("找到 2 个章节结果")
+    expect(document.getElementById("rag-results").textContent).toContain("本章 7 处命中")
+  })
+
+  it("切换检索方式时更新简要说明", () => {
+    document.body.innerHTML = '<p id="rag-search-kind-help"></p>'
+
+    ragView._updateSearchKindHelp("literal")
+    expect(document.getElementById("rag-search-kind-help").textContent).toContain("完全相同的文字")
+
+    ragView._updateSearchKindHelp("smart")
+    expect(document.getElementById("rag-search-kind-help").textContent).toContain("语义相关性")
   })
 
   it("零命中时仍显示工作稿索引警告", async () => {

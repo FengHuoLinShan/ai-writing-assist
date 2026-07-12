@@ -75,7 +75,7 @@ CONTEXT_BUDGET_DEFAULTS: Final[dict[str, int]] = {
 DEFAULT_LLM_TIMEOUT: Final[int] = 60
 """LLM 调用默认超时（秒）"""
 
-DEFAULT_LLM_MAX_TOKENS: Final[int] = 4096
+DEFAULT_LLM_MAX_TOKENS: Final[int] = 12_000
 """LLM 调用默认最大 token 数"""
 
 LLM_RETRY_MAX_ATTEMPTS: Final[int] = 3

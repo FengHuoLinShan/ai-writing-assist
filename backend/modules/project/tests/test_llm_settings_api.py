@@ -240,6 +240,7 @@ async def test_effective_llm_settings_all_system_when_no_config(async_client, fa
     assert body["base_url"]["value"] == "https://api.deepseek.com"
     assert body["model"]["value"] == "deepseek-v4-flash"
     assert body["timeout"]["value"] == 180
+    assert body["max_tokens"]["value"] == 12_000
     assert body["api_key_configured"]["source"] == "unset"
     assert body["api_key_configured"]["value"] is False
 

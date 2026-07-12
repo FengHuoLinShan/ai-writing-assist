@@ -58,7 +58,7 @@ function computeDeepImportPercent(task, result) {
   if (phase === "phase1b_enrichment") {
     return p1Total > 0 ? 20 + Math.min(10, Math.round((p1Completed / p1Total) * 10)) : 25
   }
-  if (phase === "scene_commit") return 35
+  if (phase === "scene_commit") return 30
   if (phase === "entity_extraction") {
     return p2Total > 0 ? 40 + Math.min(40, Math.round((p2Completed / p2Total) * 40)) : 50
   }
@@ -97,6 +97,10 @@ export function createDeepImportRecovery({
   let progress = null
   let timer = null
   let pollFailures = 0
+  let pollingGeneration = 0
+  let pollingActive = false
+  let taskProjectId = null
+  let cancelPending = false
 
   function currentProjectId() {
     return projectState.currentProjectId
@@ -106,7 +110,7 @@ export function createDeepImportRecovery({
     return {
       taskId,
       progress: progress ? { ...progress } : null,
-      polling: Boolean(timer),
+      polling: pollingActive,
       pollFailures,
     }
   }
@@ -270,15 +274,18 @@ export function createDeepImportRecovery({
     if (!recoveredTaskId) return
 
     try {
-      const task = await api.tasks.get(recoveredTaskId)
+      const recoveredProjectId = workflow?.projectId || pid
+      taskProjectId = recoveredProjectId
+      const task = await api.tasks.get(recoveredTaskId, recoveredProjectId)
       if (!task || task.status === "done" || task.status === "failed" || task.status === "cancelled") {
         if (task) {
           const result = task.result || {}
           const workflowType = result.workflow_type || task.task_type || workflow?.workflowType || "deep_import"
           const stage = result.stage || workflow?.meta?.stage || stageFromWorkflowType(workflowType)
           const label = workflow?.label || stageConfig(stage).label
+          const terminalPercent = computeDeepImportPercent(task, result)
           const recoveryProgress = buildProgressFromTask(
-            task, result, task.status === "failed" ? 0 : 100, "",
+            task, result, task.status === "done" ? 100 : terminalPercent, "",
           )
           recoveryProgress.confirmationId = recoveryProgress.confirmationId
             || workflow?.meta?.confirmationId
@@ -300,7 +307,7 @@ export function createDeepImportRecovery({
             phase: isFailed ? "failed" : task.status === "cancelled" ? "cancelled" : "done",
             step: result.current_step || "",
             message: result.message || (isFailed ? `${label}失败` : `${label}完成`),
-            percent: isFailed ? 0 : 100,
+            percent: task.status === "done" ? 100 : terminalPercent,
             stepLabel: isFailed ? "失败" : task.status === "cancelled" ? "已取消" : "完成",
             degraded: result.degraded || false,
             degradedBatches: result.degraded_batches || [],
@@ -316,11 +323,12 @@ export function createDeepImportRecovery({
           notifyStatus()
           return
         }
-        clearWorkflow(recoveredTaskId)
+        if (progress?.phase === "done") clearWorkflow(recoveredTaskId)
         notifyStatus()
         return
       }
       taskId = recoveredTaskId
+      taskProjectId = recoveredProjectId
       const result = task.result || {}
       const workflowType = result.workflow_type || task.task_type || workflow?.workflowType || "deep_import"
       const stage = result.stage || workflow?.meta?.stage || stageFromWorkflowType(workflowType)
@@ -357,10 +365,37 @@ export function createDeepImportRecovery({
         notifyPrompt()
         return
       }
-      startPolling()
-    } catch {
-      clearWorkflow(recoveredTaskId)
+      startPolling(workflow?.projectId || pid, false)
+    } catch (err) {
+      if (err?.status === 404) {
+        pausePolling()
+        clearWorkflow(recoveredTaskId)
+        taskId = null
+        taskProjectId = null
+        progress = null
+        notifyStatus()
+        return
+      }
+      taskId = recoveredTaskId
+      taskProjectId = workflow?.projectId || pid
+      progress = {
+        workflowType: workflow?.workflowType || "deep_import",
+        stage: workflow?.meta?.stage || stageFromWorkflowType(workflow?.workflowType),
+        label: workflow?.label || "深度导入",
+        phase: "running",
+        step: "",
+        message: "任务状态查询暂时不可用，正在重试...",
+        percent: null,
+        degraded: false,
+        degradedBatches: [],
+        phaseError: "",
+        phaseErrors: [],
+        qualityStatus: "pending",
+        auditSummary: {},
+        snapshotHealthSummary: {},
+      }
       notifyStatus()
+      startPolling(workflow?.projectId || pid, false)
     }
   }
 
@@ -377,6 +412,8 @@ export function createDeepImportRecovery({
     if (!newTaskId) return
     const config = stageConfig(stage || "scenes")
     taskId = newTaskId
+    taskProjectId = currentProjectId()
+    cancelPending = false
     progress = {
       workflowType: workflowType || config.taskType,
       stage: stage || "scenes",
@@ -412,22 +449,43 @@ export function createDeepImportRecovery({
       },
     })
     notifyStatus()
-    startPolling()
+    startPolling(currentProjectId())
   }
 
-  function startPolling() {
+  function startPolling(projectId = currentProjectId(), immediate = true) {
     pausePolling()
-    const capturedProjectId = currentProjectId()
+    pollingActive = true
+    const generation = pollingGeneration
+    const capturedProjectId = projectId
     const capturedTaskId = taskId
-    const poll = async () => {
-      if (!taskId || taskId !== capturedTaskId) {
-        stopPolling()
+    let inFlight = false
+
+    const scheduleNext = (delayMs) => {
+      if (
+        generation !== pollingGeneration
+        || !taskId
+        || taskId !== capturedTaskId
+        || currentProjectId() !== capturedProjectId
+      ) {
         return
       }
+      timer = setTimeout(poll, delayMs)
+    }
+
+    const poll = async () => {
+      if (!taskId || taskId !== capturedTaskId) {
+        pausePolling()
+        return
+      }
+      if (currentProjectId() !== capturedProjectId || inFlight) {
+        pausePolling()
+        return
+      }
+      inFlight = true
+      let nextDelay = null
       try {
-        const task = await api.tasks.get(taskId)
+        const task = await api.tasks.get(capturedTaskId, capturedProjectId)
         const result = task.result || {}
-        const steps = result.completed_steps || []
         const currentWorkflowType = result.workflow_type || task.task_type
           || progress?.workflowType || "deep_import"
         const currentStage = result.stage || progress?.stage || stageFromWorkflowType(currentWorkflowType)
@@ -463,11 +521,6 @@ export function createDeepImportRecovery({
             || result.audit_summary || result.auditSummary || {},
         }
 
-        if (currentProjectId() !== capturedProjectId) {
-          stopPolling()
-          return
-        }
-
         if (hasRecoveryPrompt(progress)) {
           pausePolling()
           notifyPrompt()
@@ -484,7 +537,10 @@ export function createDeepImportRecovery({
             toast?.(`${currentLabel}已生成 ${progress.draftScenes.length} 条待处理建议`, "info")
             return
           }
-          stopPolling()
+          pausePolling()
+          clearWorkflow(capturedTaskId)
+          taskId = null
+          taskProjectId = null
           if (progress.qualityStatus === "partial") {
             toast?.(`${currentLabel}部分完成，请查看降级原因`, "warning")
           } else {
@@ -502,40 +558,57 @@ export function createDeepImportRecovery({
           progress.phaseError = (
             result.phase_error || result.error || task.error_message || progress.message
           )
-          stopPolling()
+          pausePolling()
           toast?.(`${currentLabel}失败`, "error")
-          setTimeout(() => {
-            progress = null
-            notifyStatus()
-          }, 5000)
+          notifyStatus()
+          return
+        }
+        if (task.status === "cancelled") {
+          progress.phase = "cancelled"
+          pausePolling()
+          toast?.(`${currentLabel}已取消`, "warning")
+          notifyStatus()
           return
         }
         notifyStatus()
         pollFailures = 0
+        nextDelay = 3000
       } catch (err) {
-        pollFailures += 1
-        if (pollFailures >= 5) {
-          stopPolling()
-          toast?.(`自动提取状态轮询连续失败 ${pollFailures} 次，已停止。请刷新后重试。`, "error")
+        if (err?.status === 404) {
+          pausePolling()
+          clearWorkflow(capturedTaskId)
+          taskId = null
+          taskProjectId = null
+          progress = null
+          notifyStatus()
+          toast?.("自动提取任务不存在，已清除本地恢复记录。", "warning")
+          return
         }
+        pollFailures += 1
+        progress = {
+          ...(progress || {}),
+          message: `任务状态查询暂时不可用，正在重试（${pollFailures}）...`,
+        }
+        notifyStatus()
+        const delays = [3000, 6000, 12000, 24000, 30000]
+        nextDelay = delays[Math.min(pollFailures - 1, delays.length - 1)]
+      } finally {
+        inFlight = false
+        if (nextDelay !== null) scheduleNext(nextDelay)
       }
     }
     pollFailures = 0
-    timer = setInterval(poll, 3000)
+    if (immediate) poll()
+    else scheduleNext(3000)
   }
 
   function pausePolling() {
+    pollingGeneration += 1
+    pollingActive = false
     if (timer) {
-      clearInterval(timer)
+      clearTimeout(timer)
       timer = null
     }
-  }
-
-  function stopPolling() {
-    pausePolling()
-    const capturedTaskId = taskId
-    taskId = null
-    clearWorkflow(capturedTaskId)
   }
 
   function clearWorkflow(id) {
@@ -861,9 +934,9 @@ export function createDeepImportRecovery({
   function renderBar() {
     if (!progress) return ""
     const normalized = normalizeProgress()
-    const actionsHtml = normalized.failed
+    const actionsHtml = normalized.failed || normalized.cancelled
       ? `<button class="btn btn-sm writing-deep-import-btn" data-action="dismiss-deep-import">关闭</button>`
-      : ""
+      : `<button class="btn btn-sm writing-deep-import-btn" data-action="cancel-deep-import" ${cancelPending ? "disabled" : ""}>${cancelPending ? "取消中..." : "取消任务"}</button>`
     const recoveryHtml = renderRecoveryPrompt()
     const currentPositionHtml = renderCurrentPosition()
     const qualityStatsHtml = renderQualityStats()
@@ -874,6 +947,7 @@ export function createDeepImportRecovery({
       message: normalized.message,
       showTaskId: false,
       className: aliveClass,
+      attentionRequired: Boolean(normalized.failed || progress?.recoveryRequired || hasPendingScenePreview()),
       actionsHtml: [
         currentPositionHtml,
         qualityStatsHtml,
@@ -930,6 +1004,8 @@ export function createDeepImportRecovery({
           const entities = summary.deprecated_entities ?? summary.entities ?? 0
           progress = null
           taskId = null
+          taskProjectId = null
+          cancelPending = false
           clearWorkflow(currentTaskId)
           notifyStatus()
           toast?.(`已放弃恢复：Scene ${scenes} 个，实体 ${entities} 个`, "success")
@@ -941,11 +1017,49 @@ export function createDeepImportRecovery({
     return confirmedWork
   }
 
+  async function cancel() {
+    const currentTaskId = taskId
+    const projectId = taskProjectId || currentProjectId()
+    if (!currentTaskId || !projectId || cancelPending) return Promise.resolve(false)
+    if (["done", "failed", "cancelled"].includes(progress?.phase)) return Promise.resolve(false)
+
+    let confirmedWork = Promise.resolve(false)
+    modalApi.confirmAction("确认取消当前任务？已完成的阶段结果不会自动删除。", () => {
+      confirmedWork = (async () => {
+        pausePolling()
+        cancelPending = true
+        notifyStatus()
+        try {
+          await api.tasks.cancel(currentTaskId, projectId)
+          cancelPending = false
+          progress = {
+            ...(progress || {}),
+            phase: "cancelled",
+            message: "任务已取消",
+            stepLabel: "已取消",
+          }
+          notifyStatus()
+          toast?.("当前任务已取消", "warning")
+          return true
+        } catch (err) {
+          cancelPending = false
+          notifyStatus()
+          toast?.(err.message || "取消任务失败", "error")
+          startPolling(projectId)
+          return false
+        }
+      })()
+    }, "确认取消")
+    return confirmedWork
+  }
+
   function dismiss() {
     pausePolling()
     const capturedTaskId = taskId
     progress = null
     taskId = null
+    taskProjectId = null
+    cancelPending = false
     clearWorkflow(capturedTaskId)
     notifyStatus()
   }
@@ -1019,6 +1133,7 @@ export function createDeepImportRecovery({
     renderRecoveryPrompt,
     resume,
     abandon,
+    cancel,
     showAuditDetails,
     showScenePreview,
     applyScenePreview,

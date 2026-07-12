@@ -173,8 +173,8 @@ test.describe("写作台模块", () => {
     // 注入完整状态（当前为 v2 最新版本）
     await page.evaluate(({ v1, v2 }) => {
       writingView._versions = [
-        { id: v2.draft.id, version_number: 2, title: v2.draft.title, word_count: 7 },
-        { id: v1.draft.id, version_number: 1, title: v1.draft.title, word_count: 7 },
+        { id: v2.draft.id, version_number: 2, title: v2.draft.title, word_count: 7, updated_at: v2.draft.updated_at },
+        { id: v1.draft.id, version_number: 1, title: v1.draft.title, word_count: 7, updated_at: v1.draft.updated_at },
       ]
       writingView._currentChapter = 1
       writingView._currentDraftId = v2.draft.id
@@ -210,6 +210,160 @@ test.describe("写作台模块", () => {
     await page.locator('[data-action="autosave"]').click()
     await confirmPublishIfPrompted(page)
     await expect(page.locator(SEL.toastContainer)).toContainText("已发布", { timeout: 15000 })
+  })
+
+  test("实质变化留版、强制 checkpoint 和发布前撤销", async ({ page }) => {
+    const v1 = await createDraft(testProjectId, 1, "第一章", "甲\n乙")
+    await reloadWorkbench(page, "writing")
+    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
+    await page.locator('[data-action="select-chapter"][data-chapter="1"]').click()
+    await expect(page.locator("#writing-editor")).toHaveValue("甲\n乙")
+
+    // 纯空白修改只留本地，用户可显式强制留版。
+    await page.locator("#writing-editor").fill(" 　甲\t\n\n乙 ")
+    await page.locator('[data-action="autosave"]').click()
+    await expect(page.locator("#writing-save-status")).toHaveText("仅本地修改")
+    await page.locator('[data-action="checkpoint-version"]').click()
+    await expect(page.locator("#modal-overlay")).toContainText("正文没有实质变化")
+    await page.locator("#modal-footer").getByRole("button", { name: "保存新版本" }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("已保存为新版本")
+    await expect(page.locator("#version-selector")).toContainText("v2")
+
+    // 手动版本需显式确认放弃，回到 v1。
+    await page.locator('[data-action="discard-writing-changes"]').click()
+    await page.locator("#modal-footer").getByRole("button", { name: "放弃更改" }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("已回到上一版")
+    await expect(page.locator("#writing-editor")).toHaveValue(v1.draft.content)
+
+    // 实质修改自动创建工作版，撤销回基线时自动回到 v1。
+    await page.locator("#writing-editor").fill("甲乙丙")
+    await page.locator('[data-action="autosave"]').click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("已暂存")
+    await page.locator("#writing-editor").fill("甲\n乙")
+    await page.locator('[data-action="autosave"]').click()
+    await expect(page.locator("#version-selector option").first()).toContainText("v1")
+
+    // 再次修改后发布，当前工作版原位提升，不多加一版。
+    await page.locator("#writing-editor").fill("甲乙丁")
+    await page.locator('[data-action="autosave"]').click()
+    await expect(page.locator("#version-selector option").first()).not.toContainText("v1")
+    const workingVersion = await page.locator("#version-selector option").first().getAttribute("data-version")
+    await page.locator('[data-action="publish"]').click()
+    await confirmPublishIfPrompted(page)
+    await expect(page.locator(SEL.toastContainer)).toContainText("已发布", { timeout: 15000 })
+
+    const history = await page.evaluate(async ({ apiBase, projectId }) => {
+      const response = await fetch(`${apiBase}/writing/chapters/1/versions?novel_id=${projectId}`)
+      return response.json()
+    }, { apiBase: API_BASE, projectId: testProjectId })
+    expect(String(history.versions[0].version_number)).toBe(workingVersion)
+    expect(history.versions[0].status).toBe("published")
+  })
+
+  test("自动保存响应不会覆盖请求期间的新输入", async ({ page }) => {
+    await createDraft(testProjectId, 1, "第一章", "原文")
+    await reloadWorkbench(page, "writing")
+    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
+    await page.locator('[data-action="select-chapter"][data-chapter="1"]').click()
+
+    let autosaveRequests = 0
+    let releaseFirstAutosave
+    const firstAutosaveGate = new Promise((resolve) => { releaseFirstAutosave = resolve })
+    await page.route("**/api/writing/drafts/**", async (route) => {
+      if (route.request().method() !== "PUT") {
+        await route.continue()
+        return
+      }
+      autosaveRequests += 1
+      if (autosaveRequests === 1) {
+        await firstAutosaveGate
+      }
+      await route.continue()
+    })
+
+    await page.locator("#writing-editor").fill("第一次修改")
+    await page.evaluate(() => { void writingView._editor.autosave() })
+    await expect.poll(() => autosaveRequests).toBe(1)
+    await page.locator("#writing-editor").fill("第二次修改")
+    await page.evaluate(() => { void writingView._editor.autosave() })
+    releaseFirstAutosave()
+    await page.waitForFunction(
+      () => !writingView._editor._currentSavePromise && !writingView._editor._autoSaving,
+      null,
+      { timeout: 15000 },
+    )
+
+    await expect(page.locator("#writing-editor")).toHaveValue("第二次修改")
+    await expect.poll(async () => {
+      const historyResponse = await page.request.get(
+        `${API_BASE}/writing/chapters/1/versions?novel_id=${testProjectId}`,
+      )
+      const history = await historyResponse.json()
+      const latestId = history.versions?.[0]?.id
+      if (!latestId) return null
+      const draftResponse = await page.request.get(
+        `${API_BASE}/writing/drafts/${latestId}?novel_id=${testProjectId}`,
+      )
+      return (await draftResponse.json()).content
+    }).toBe("第二次修改")
+    await page.unrouteAll({ behavior: "wait" })
+  })
+
+  test("auto 回退到手动基线时原位发布手动版本", async ({ page }) => {
+    await createDraft(testProjectId, 1, "第一章", "v1")
+    await reloadWorkbench(page, "writing")
+    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
+    await page.locator('[data-action="select-chapter"][data-chapter="1"]').click()
+    await page.locator("#writing-editor").fill("v2")
+    await page.locator('[data-action="autosave"]').click()
+    await expect(page.locator("#version-selector option").first()).toContainText("v2")
+    await expect(page.locator("#writing-save-status")).toHaveText("已保存")
+    await page.locator('[data-action="checkpoint-version"]').click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("已保存为新版本")
+    const manualVersion = await page.locator("#version-selector option").first().getAttribute("data-version")
+
+    await page.locator("#writing-editor").fill("v3")
+    await page.locator('[data-action="autosave"]').click()
+    await expect(page.locator("#version-selector option").first()).toContainText(
+      `v${Number(manualVersion) + 1}`,
+    )
+    await expect(page.locator("#writing-save-status")).toHaveText("已保存")
+    await page.locator("#writing-editor").fill("v2")
+    await page.locator('[data-action="publish"]').click()
+    await confirmPublishIfPrompted(page)
+    await expect(page.locator(SEL.toastContainer)).toContainText("已发布", { timeout: 15000 })
+
+    const history = await page.evaluate(async ({ apiBase, projectId }) => {
+      const response = await fetch(`${apiBase}/writing/chapters/1/versions?novel_id=${projectId}`)
+      return response.json()
+    }, { apiBase: API_BASE, projectId: testProjectId })
+    expect(String(history.versions[0].version_number)).toBe(manualVersion)
+    expect(history.versions[0].status).toBe("published")
+    expect(history.versions.map((item) => item.version_number)).not.toContain(Number(manualVersion) + 1)
+  })
+
+  test("历史恢复在最新版本变化后返回并发冲突", async ({ page }) => {
+    await createDraft(testProjectId, 1, "第一章", "v1")
+    await createDraft(testProjectId, 1, "第一章", "v2")
+    await reloadWorkbench(page, "writing")
+    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
+    await page.locator('[data-action="select-chapter"][data-chapter="1"]').click()
+    await page.locator('[data-action="version-history"]').click()
+    await page.locator('.version-restore-btn[data-version="1"]').click()
+    await page.locator("#modal-footer").getByRole("button", { name: "确认恢复" }).click()
+    await expect(page.locator("#writing-editor")).toHaveValue("v1")
+
+    const newest = await createDraft(testProjectId, 1, "第一章", "v3")
+    await page.locator("#writing-editor").fill("基于 v1 恢复")
+    await page.locator('[data-action="publish"]').click()
+    await confirmPublishIfPrompted(page)
+    await expect(page.locator(SEL.toastContainer)).toContainText("其他会话更新")
+
+    const history = await page.evaluate(async ({ apiBase, projectId }) => {
+      const response = await fetch(`${apiBase}/writing/chapters/1/versions?novel_id=${projectId}`)
+      return response.json()
+    }, { apiBase: API_BASE, projectId: testProjectId })
+    expect(history.versions[0].id).toBe(newest.draft.id)
   })
 
   // ============================================================
@@ -393,6 +547,37 @@ test.describe("写作台模块", () => {
     expect(geometry.containerWidth).toBeGreaterThan(geometry.workspaceWidth * 0.8)
     expect(geometry.editorWidth).toBeGreaterThanOrEqual(700)
     expect(geometry.editorCenterOffset).toBeLessThanOrEqual(2)
+  })
+
+  test("桌面内容优先布局让正文占主要宽度且辅助栏可独立收起", async ({ page }) => {
+    await createDraft(testProjectId, 1, "第一章 内容优先", "用于验证工作台分栏比例的正文。")
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await reloadWorkbench(page, "writing")
+    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
+    await page.locator('[data-action="select-chapter"][data-chapter="1"]').click()
+
+    const before = await page.evaluate(() => {
+      const layout = document.querySelector(".writing-workspace-layout")
+      const editor = document.querySelector("#writing-editor-container")
+      const left = document.querySelector(".writing-tree-rail")
+      const right = document.querySelector(".writing-panel-rail")
+      if (!layout || !editor || !left || !right) return null
+      const contentWidth = editor.getBoundingClientRect().width
+        + left.getBoundingClientRect().width
+        + right.getBoundingClientRect().width
+      return {
+        editorWidth: editor.getBoundingClientRect().width,
+        contentWidth,
+      }
+    })
+
+    expect(before).not.toBeNull()
+    expect(before.editorWidth / before.contentWidth).toBeGreaterThanOrEqual(0.63)
+
+    await page.locator(".writing-panel-rail > summary").click()
+    await expect(page.locator(".writing-panel-rail")).not.toHaveAttribute("open", "")
+    const collapsedWidth = await page.locator("#writing-editor-container").evaluate((node) => node.getBoundingClientRect().width)
+    expect(collapsedWidth).toBeGreaterThan(before.editorWidth)
   })
 
   test("剧情设定冲突检查流程、状态更新和发布快照归档", async ({ page }) => {
@@ -660,7 +845,7 @@ test.describe("写作台模块", () => {
     await expect(page.locator("#btn-conflict-check")).toBeEnabled()
   })
 
-  test("发布按钮启动任务轮询并显示成功状态，重复点击不制造冗余版本", async ({ page }) => {
+  test("重复发布无实质变化的正文不制造版本或任务", async ({ page }) => {
     const initial = await createDraft(testProjectId, 3, "第三章 归潮尽头", "第三章正文")
     await reloadWorkbench(page, "writing")
     await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
@@ -695,10 +880,8 @@ test.describe("写作台模块", () => {
 
     await page.locator('[data-action="publish"]').click()
     await confirmPublishIfPrompted(page)
-    await expect(page.locator("#writing-save-status")).toContainText("发布成功", { timeout: 10000 })
-    await expect(page.locator("#writing-publish-bar-container")).toContainText("发布完成", { timeout: 10000 })
-    await expect.poll(() => polledTaskUrls.length).toBeGreaterThan(0)
-    expect(polledTaskUrls.every((url) => new URL(url).searchParams.get("novel_id") === testProjectId)).toBe(true)
+    await expect(page.locator(SEL.toastContainer)).toContainText("无实质变化")
+    expect(polledTaskUrls).toEqual([])
 
     const afterFirstPublish = await getLatestDraft(testProjectId, 3)
     expect(afterFirstPublish.version_number).toBe(initial.draft.version_number)
@@ -706,7 +889,7 @@ test.describe("写作台模块", () => {
 
     await page.locator('[data-action="publish"]').click()
     await confirmPublishIfPrompted(page)
-    await expect(page.locator("#writing-save-status")).toContainText("发布成功", { timeout: 10000 })
+    await expect(page.locator(SEL.toastContainer)).toContainText("无实质变化")
 
     const afterSecondPublish = await getLatestDraft(testProjectId, 3)
     expect(afterSecondPublish.version_number).toBe(afterFirstPublish.version_number)

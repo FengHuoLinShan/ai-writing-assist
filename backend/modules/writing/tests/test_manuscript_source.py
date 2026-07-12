@@ -237,3 +237,36 @@ async def test_literal_grep_reads_raw_source_across_derived_chunk_boundaries(
     assert total == 1
     assert missing == []
     assert hits[0].source_ref.start_offset == 1396
+
+
+@pytest.mark.asyncio
+async def test_literal_grep_can_group_occurrences_by_chapter(
+    db_session,
+    test_project_id,
+) -> None:
+    await create_published_draft_only(
+        db_session,
+        test_project_id,
+        1,
+        content="克莱恩醒来。克莱恩出门。",
+    )
+    await create_published_draft_only(
+        db_session,
+        test_project_id,
+        2,
+        content="第二章再次提到克莱恩。",
+    )
+
+    hits, total, missing = await grep_manuscript(
+        db_session,
+        test_project_id,
+        "克莱恩",
+        content_mode="canonical",
+        group_by_chapter=True,
+        limit=100,
+    )
+
+    assert total == 2
+    assert missing == []
+    assert [hit.source_ref.chapter_index for hit in hits] == [1, 2]
+    assert [hit.match_count for hit in hits] == [2, 1]

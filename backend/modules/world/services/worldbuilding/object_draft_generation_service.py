@@ -80,7 +80,6 @@ class ObjectDraftGenerationService:
                     model=self._model_for(data.quality_mode),
                     messages=self._chat_messages(data, chapters, template),
                     temperature=0.8,
-                    max_tokens=2048,
                 ),
                 step_name="world.object_draft.chat.generate",
             )
@@ -109,7 +108,6 @@ class ObjectDraftGenerationService:
                     model=self._model_for(data.quality_mode),
                     messages=self._structured_messages(data, chapters, template),
                     temperature=0.35,
-                    max_tokens=4096,
                 ),
                 GeneratedObjectDraftOutput,
                 step_name="world.object_draft.generate.structured",

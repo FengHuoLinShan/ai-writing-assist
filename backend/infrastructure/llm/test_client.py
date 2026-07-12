@@ -99,7 +99,7 @@ def test_resolve_llm_profile_uses_deepseek_code_defaults_without_env(monkeypatch
     assert profile.base_url == "https://api.deepseek.com"
     assert profile.model == "deepseek-v4-flash"
     assert profile.timeout == 180
-    assert profile.max_tokens == 4096
+    assert profile.max_tokens == 12_000
     assert profile.sources["model"] == "default"
     assert profile.sources["timeout"] == "default"
 
@@ -117,7 +117,7 @@ def test_resolve_llm_profile_ignores_legacy_env_when_configured(monkeypatch) -> 
     assert profile.base_url == "https://api.deepseek.com"
     assert profile.model == "deepseek-v4-flash"
     assert profile.timeout == 180
-    assert profile.max_tokens == 4096
+    assert profile.max_tokens == 12_000
     assert profile.sources["api_key"] == "default"
     assert profile.sources["base_url"] == "default"
 
@@ -174,7 +174,7 @@ def test_resolve_llm_profile_invalid_overrides_fall_back(monkeypatch) -> None:
     )
 
     assert profile.timeout == 180
-    assert profile.max_tokens == 4096
+    assert profile.max_tokens == 12_000
     assert profile.sources["timeout"] == "default"
     assert profile.sources["max_tokens"] == "default"
 
@@ -359,6 +359,7 @@ async def test_generate_uses_process_concurrency_limiter(monkeypatch) -> None:
 
         async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
             nonlocal active, max_active
+            assert request.max_tokens == 12_000
             active += 1
             max_active = max(max_active, active)
             if not first_started.is_set():
@@ -446,6 +447,8 @@ async def test_generate_stream_holds_limiter_until_stream_consumed(monkeypatch) 
             self,
             request: LLMCallRequest,
         ) -> AsyncIterator[LLMStreamChunk]:
+            assert request.max_tokens == 12_000
+
             async def stream() -> AsyncIterator[LLMStreamChunk]:
                 nonlocal active_streams, max_active_streams
                 active_streams += 1
@@ -763,7 +766,7 @@ async def test_generate_structured_accepts_markdown_json() -> None:
             "attempt": 1,
             "finish_reason": "stop",
             "completion_tokens": 9,
-            "max_tokens": 4096,
+            "max_tokens": 12_000,
         },
     ]
 

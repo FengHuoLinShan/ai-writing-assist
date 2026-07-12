@@ -5,6 +5,7 @@
  * 依赖全局：document、toast、confirm。
  */
 import {
+  bindLLMPresetEvents,
   renderLLMFormFields,
   readLLMFormFields,
   validateLLMPayload,
@@ -55,6 +56,7 @@ const llmMainTab = {
   },
 
   bindEvents({ onSave, onResetAll, onResetField }) {
+    bindLLMPresetEvents()
     document.getElementById("llm-tab-save")?.addEventListener("click", () => {
       const { payload, api_key, clear_api_key } = readLLMFormFields()
       const v = validateLLMPayload(payload)

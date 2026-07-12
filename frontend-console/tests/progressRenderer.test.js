@@ -1,7 +1,80 @@
-import { describe, it, expect } from "vitest"
+import { beforeEach, describe, it, expect } from "vitest"
 import { renderFixedProgress, renderInlineProgress, renderWorkflowCard } from "../shared/progressRenderer.js"
 
 describe("progressRenderer", () => {
+  beforeEach(() => sessionStorage.clear())
+
+  it("keeps running and completed tasks compact but opens attention states", () => {
+    const running = renderWorkflowCard({
+      taskId: "running-task",
+      label: "深度导入",
+      message: "处理中",
+      statusLabel: "运行中",
+      status: "running",
+      percent: 32,
+      hasPercent: true,
+    })
+    const done = renderWorkflowCard({
+      taskId: "done-task",
+      label: "索引任务",
+      message: "已完成",
+      statusLabel: "已完成",
+      status: "done",
+      done: true,
+      percent: 100,
+      hasPercent: true,
+    })
+    const failed = renderWorkflowCard({
+      taskId: "failed-task",
+      label: "索引任务",
+      message: "失败",
+      statusLabel: "失败",
+      status: "failed",
+      failed: true,
+    })
+    const attention = renderWorkflowCard({
+      taskId: "recovery-task",
+      label: "恢复任务",
+      message: "等待处理",
+      statusLabel: "需处理",
+      status: "paused",
+    }, { attentionRequired: true })
+
+    expect(running).toContain('<details class="workflow-progress workflow-progress--card" data-collapse-storage-key="workflow-progress-card:running-task">')
+    expect(done).toContain('data-collapse-storage-key="workflow-progress-card:done-task">')
+    expect(failed).toContain('data-collapse-storage-key="workflow-progress-card:failed-task" open>')
+    expect(attention).toContain('data-collapse-storage-key="workflow-progress-card:recovery-task" open>')
+    expect(running).toContain("workflow-progress__compact")
+    expect(running).toContain('aria-valuenow="32"')
+  })
+
+  it("lets a stored user choice override automatic attention expansion", () => {
+    sessionStorage.setItem("workflow-progress-card:failed-sticky", "closed")
+    const html = renderWorkflowCard({
+      taskId: "failed-sticky",
+      label: "失败任务",
+      message: "请重试",
+      statusLabel: "失败",
+      status: "failed",
+      failed: true,
+    })
+
+    expect(html).toContain('data-collapse-storage-key="workflow-progress-card:failed-sticky">')
+    expect(html).not.toContain('data-collapse-storage-key="workflow-progress-card:failed-sticky" open>')
+  })
+
+  it("supports an explicitly non-collapsible progress surface", () => {
+    const html = renderInlineProgress({
+      label: "同步状态",
+      message: "处理中",
+      statusLabel: "运行中",
+      status: "running",
+    }, { collapsible: false })
+
+    expect(html).toContain("workflow-progress--expanded")
+    expect(html).not.toContain("<details")
+  })
+
   it("escapes dynamic progress text", () => {
     const html = renderInlineProgress({
       label: "<img src=x onerror=alert(1)>",
@@ -35,6 +108,31 @@ describe("progressRenderer", () => {
     expect(html).toContain("workflow-progress--indeterminate")
     expect(html).toContain("workflow-progress__fill--indeterminate")
     expect(html).toContain("任务 t1")
+  })
+
+  it("只在后端明确允许 retry 时渲染重试操作", () => {
+    const retryHtml = renderWorkflowCard({
+      taskId: "task-retry",
+      label: "RAG 索引",
+      message: "任务失败",
+      statusLabel: "失败",
+      status: "failed",
+      failed: true,
+      availableActions: ["retry"],
+    }, { enableRetry: true })
+    const restartHtml = renderWorkflowCard({
+      taskId: "task-restart",
+      label: "生成任务",
+      message: "任务失败",
+      statusLabel: "失败",
+      status: "failed",
+      failed: true,
+      availableActions: ["restart_origin"],
+    }, { enableRetry: true })
+
+    expect(retryHtml).toContain('data-action="retry-task"')
+    expect(retryHtml).toContain("重试任务")
+    expect(restartHtml).not.toContain('data-action="retry-task"')
   })
 
   it("renders fixed progress wrapper with offset", () => {

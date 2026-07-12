@@ -16,7 +16,7 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - 提交并编排分阶段自动提取任务：Scene、世界对象与别名/关系、剧情结构
 - 在重复导入时返回覆盖确认要求，确认后才入队
 - 深度导入 Scene 阶段默认执行 `Phase0 deterministic plan → Phase1a scene slicing → Phase1b scene enrichment → Scene commit`，并记录质量统计
-- Phase 0 不调用 LLM；它按章节字符数计算窗口计划、owned range、固定右侧 2 章 overlap 和每窗 `max_tokens` 上限。默认目标输入约 `72000` 字符，窗口最多 20 章。DeepSeek v4 Flash 实测 `0.36`、`0.4`、`0.6` 都出现过截断；`0.75` 一次四窗首轮通过，但同一 1–60 章末窗的复跑仍在 `19898/19898` 处 `finish_reason=length`，因此不将偶然通过视为稳定。`max_tokens` 只是上限而不会强制模型用完，默认系数提升为 `1.0`，即 `max_tokens=clamp(round(input_chars * 1.0), 13000, 32768)`。Phase 1b/2/3 从首次请求就使用各自冻结的 32768 上限，不实验更小预算。
+- Phase 0 不调用 LLM；它按章节字符数计算窗口计划、owned range、固定右侧 2 章 overlap 和每窗 `max_tokens` 上限。默认目标输入约 `72000` 字符，窗口最多 20 章。DeepSeek v4 Flash 实测 `0.36`、`0.4`、`0.6` 都出现过截断；`0.75` 一次四窗首轮通过，但同一 1–60 章末窗的复跑仍在 `19898/19898` 处 `finish_reason=length`，因此不将偶然通过视为稳定。`max_tokens` 只是上限而不会强制模型用完，默认系数提升为 `1.0`，即 `max_tokens=clamp(round(input_chars * 1.0), 13000, 32768)`。这套阶段预算不继承项目通用 `max_tokens`；Phase 1b/2/3 从首次请求就使用各自冻结的 32768 上限，不实验更小预算。
 - Phase 1a 切分并锁定 Scene 语义字段，同时要求从正文逐字复制起止 anchor；本地 materializer 负责唯一命中、offset、draft/hash 绑定和邻接/整章覆盖推断。未解析锚点使用关闭 thinking 的小上下文修复；缺章先用单章恢复，仍失败才保留 `needs_review` 的章节级语义 fallback。
 - Phase 1b 每个 Scene 一个并发 enrichment 请求，只解析补充字段；不得改写 Phase 1a 已确定的 `scene_chunks`。章节级 fallback 的语义状态仍为 fallback，但其整章 offset 和 source hash 是可确定的精确来源，两者分开记录。Phase 1b enrichment 的默认 `max_tokens` 已与其他结构化阶段统一为 32768，不再由旧的 4096 上限导致补充字段截断；实际 payload 从 effective `deep_import.phase1b.enrich_max_tokens` 生成，不再用 env/default 覆盖项目值，且该值在任务提交时进入冻结 deep-import settings。
 - 旧 `scene_prefetch` / `scene_reinforcement` legacy pipeline 已删除；`scene_fusion` 仍作为内部兼容/修复组件保留，不进入默认 Scene 自动提取主路径
@@ -104,11 +104,16 @@ fail closed。旧的本地任务若没有此字段，兼容路径在首次新 wo
 
 ## 深度导入恢复语义
 
+提交 deep-import/stage task 前会通过 project facade 验证当前 LLM
+execution snapshot。API Key、Base URL 或 model 不可用时直接返回 400，
+不入队，也不执行 force 覆盖前的派生数据废弃。worker 内的工作流
+`phase="failed"` 必须收敛为 task `failed`；失败保留当前进度，只有成功终态写入 100%。
+
 worker 启动时会检测 stale 的 deep-import/stage task，清空旧 lease 并收敛为
 `failed + recovery_required`，但不会自动继续。前端只在任务 `available_actions`
 包含 `resume + abandon` 时展示恢复操作；resume 校验 failed 与双份 recovery flag 后，
 复用原 task 转回 pending，不伪装成仍在 running。
-前端通过 `GET /api/tasks/{task_id}` 展示 `recovery_required` / `recovery_summary`，
+前端通过 `GET /api/tasks/{task_id}?novel_id=...` 展示 `recovery_required` / `recovery_summary`，
 用户点击继续后调用 `POST /api/imports/deep/resume` 复用原 task；放弃恢复调用
 `POST /api/imports/deep/abandon`，只清理同 `workflow_id` 的自动派生 Scene、实体和结构资产。
 Phase 0 只做确定性窗口规划，不执行 LLM 健康或 422 门禁；Phase 1a 使用

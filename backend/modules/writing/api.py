@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import asdict
+from datetime import datetime
 
 from fastapi import APIRouter, Path, Query
 from pydantic import BaseModel, Field
@@ -36,11 +37,12 @@ from modules.writing.schemas import (
     WritingConflictItemResponse,
     WritingConflictItemUpdate,
     WritingDraftAutosaveCreate,
-    WritingDraftCreate,
+    WritingDraftCheckpoint,
     WritingDraftResponse,
     WritingDraftUpdate,
     WritingGenerateRequest,
     WritingGenerateResponse,
+    WritingPublishRequest,
 )
 from modules.writing.services import WritingConflictCheckService, WritingDraftService
 
@@ -57,6 +59,7 @@ class PublishResponse(BaseModel):
 
     draft: WritingDraftResponse
     task_id: str | None = None
+    new_version: bool = True
 
 
 class DeleteChapterResponse(BaseModel):
@@ -294,9 +297,9 @@ async def generate_writing_candidate(
 @router.post("/drafts", response_model=PublishResponse, status_code=201)
 async def create_draft(
     db: DbSession,
-    data: WritingDraftCreate,
+    data: WritingPublishRequest,
 ) -> PublishResponse:
-    """发布草稿 — 创建新版本 + 入队发布任务"""
+    """发布当前工作版本；无实质变化时复用已发布版本。"""
     snapshot = None
     try:
         snapshot = await _conflict_service.latest_snapshot(
@@ -307,9 +310,10 @@ async def create_draft(
         )
     except Exception as exc:
         logger.warning("writing conflict snapshot lookup failed: %s", exc)
-    result = await _service.publish_draft(db, data)
-    result.conflict_check_snapshot_json = snapshot
-    if snapshot:
+    result, published_new_version = await _service.publish_draft_result(db, data)
+    if published_new_version:
+        result.conflict_check_snapshot_json = snapshot
+    if snapshot and published_new_version:
         try:
             await _service.set_conflict_check_snapshot(
                 db,
@@ -321,22 +325,28 @@ async def create_draft(
             logger.warning("writing conflict snapshot archive failed: %s", exc)
     from modules.rag.facade import mark_chapter_index_dirty
 
-    await mark_chapter_index_dirty(
-        db,
-        data.novel_id,
-        data.chapter_index,
-        content_mode="canonical",
-    )
-    task_id = enqueue_task(
-        db,
-        "publish_chapter",
-        meta={
-            "novel_id": data.novel_id,
-            "chapter_index": data.chapter_index,
-        },
-    )
+    task_id = None
+    if published_new_version:
+        await mark_chapter_index_dirty(
+            db,
+            data.novel_id,
+            data.chapter_index,
+            content_mode="canonical",
+        )
+        task_id = enqueue_task(
+            db,
+            "publish_chapter",
+            meta={
+                "novel_id": data.novel_id,
+                "chapter_index": data.chapter_index,
+            },
+        )
     await db.flush()
-    return PublishResponse(draft=result, task_id=task_id)
+    return PublishResponse(
+        draft=result,
+        task_id=task_id,
+        new_version=published_new_version,
+    )
 
 
 @router.get("/drafts/{draft_id}", response_model=WritingDraftResponse)
@@ -387,6 +397,60 @@ async def update_draft(
     from modules.rag.facade import request_chapter_index
 
     result = await _service.update_draft(db, draft_id, data, novel_id)
+    await request_chapter_index(
+        db,
+        novel_id,
+        result.chapter_index,
+        content_mode="working",
+    )
+    return result
+
+
+@router.post(
+    "/drafts/{draft_id}/checkpoint",
+    response_model=WritingDraftResponse,
+)
+async def checkpoint_draft(
+    db: DbSession,
+    data: WritingDraftCheckpoint,
+    draft_id: str = Path(..., description="当前草稿 ID"),
+    *,
+    novel_id: NovelIdQuery,
+) -> WritingDraftResponse:
+    """显式保存一个未发布版本。"""
+    from modules.rag.facade import request_chapter_index
+
+    result = await _service.checkpoint_draft(db, draft_id, data, novel_id)
+    await request_chapter_index(
+        db,
+        novel_id,
+        result.chapter_index,
+        content_mode="working",
+    )
+    return result
+
+
+@router.post(
+    "/drafts/{draft_id}/discard",
+    response_model=WritingDraftResponse,
+)
+async def discard_draft(
+    db: DbSession,
+    draft_id: str = Path(..., description="当前未发布草稿 ID"),
+    *,
+    novel_id: NovelIdQuery,
+    expected_version: int | None = Query(None, ge=1),
+    expected_updated_at: datetime | None = Query(None),
+) -> WritingDraftResponse:
+    """放弃当前未发布版本并返回其基线。"""
+    from modules.rag.facade import request_chapter_index
+    result = await _service.discard_draft(
+        db,
+        draft_id,
+        novel_id,
+        expected_version=expected_version,
+        expected_updated_at=expected_updated_at,
+    )
     await request_chapter_index(
         db,
         novel_id,

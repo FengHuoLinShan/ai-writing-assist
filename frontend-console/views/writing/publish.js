@@ -19,6 +19,10 @@ export function createPublishManager({ state, api, toast, modal, esc, onStatusCh
   let _lastTitle = ""
   let _lastChapterIndex = null
   let _lastScene = null
+  let _lastDraftId = null
+  let _lastVersionNumber = null
+  let _lastUpdatedAt = null
+  let _lastRestoreSourceVersion = null
 
   function _normalizePublishProgress() {
     const p = _publishProgress || {}
@@ -62,7 +66,7 @@ export function createPublishManager({ state, api, toast, modal, esc, onStatusCh
     }
   }
 
-  async function publish(content, title, chapterIndex, currentDraftId, currentScene) {
+  async function publish(content, title, chapterIndex, currentDraftId, currentScene, currentVersionNumber, currentUpdatedAt) {
     if (_publishProgress?.phase === "running" || _publishTaskId) {
       toast("发布任务正在进行中", "info")
       return
@@ -77,15 +81,32 @@ export function createPublishManager({ state, api, toast, modal, esc, onStatusCh
     _lastTitle = title || `第 ${chapterIndex} 章`
     _lastChapterIndex = chapterIndex
     _lastScene = currentScene
+    _lastDraftId = currentDraftId
+    _lastVersionNumber = state._restoreSourceVersion
+      ? (state._restoreExpectedVersion || currentVersionNumber)
+      : currentVersionNumber
+    _lastUpdatedAt = state._restoreSourceVersion
+      ? (state._restoreExpectedUpdatedAt || currentUpdatedAt)
+      : currentUpdatedAt
+    _lastRestoreSourceVersion = state._restoreSourceVersion || null
 
     try {
       const result = await api.writing.publish({
         novel_id: state.currentProjectId,
         chapter_index: chapterIndex,
         scene_id: currentScene?.id || null,
+        draft_id: currentDraftId || null,
+        expected_version: _lastVersionNumber || null,
+        expected_updated_at: _lastUpdatedAt || null,
+        restore_source_version: _lastRestoreSourceVersion,
         title: _lastTitle,
         content,
       })
+
+      if (result.new_version === false) {
+        toast("正文无实质变化，已沿用当前发布版本", "info")
+        return result
+      }
 
       if (result.task_id) {
         _publishTaskId = result.task_id
@@ -117,7 +138,16 @@ export function createPublishManager({ state, api, toast, modal, esc, onStatusCh
         scene_id: _lastScene?.id || null,
         title: _lastTitle || "",
         content: _lastContent || "",
+        draft_id: _lastDraftId,
+        expected_version: _lastVersionNumber,
+        expected_updated_at: _lastUpdatedAt,
+        restore_source_version: _lastRestoreSourceVersion,
       })
+      if (result.new_version === false) {
+        _publishProgress = null
+        toast("正文无实质变化，已沿用当前发布版本", "info")
+        return result
+      }
       if (result.task_id) {
         _publishTaskId = result.task_id
         _startPublishPolling()

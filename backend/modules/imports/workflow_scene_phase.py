@@ -190,7 +190,7 @@ class ScenePhaseRunner:
                 error_kind=progress.degraded_reason,
                 error_message=progress.message,
             )
-            await workflow._emit_progress(progress, 1.0, on_progress)
+            await workflow._emit_progress(progress, 0.0, on_progress)
             return ScenePhaseOutcome(total_scenes=0, stopped=True)
         workflow._finish_phase(
             progress,
@@ -226,7 +226,7 @@ class ScenePhaseRunner:
                 "completed": completed,
                 "total": total,
             }
-            value = 0.0 + 0.1 * (completed / total) if total else 0.0
+            value = min(0.2, 0.1 + 0.1 * (completed / total)) if total else 0.1
             await workflow._emit_progress(progress, value, on_progress)
 
         phase1a_result = await workflow._run_phase1a_scene_slicing(
@@ -297,7 +297,7 @@ class ScenePhaseRunner:
                 error_kind=progress.degraded_reason,
                 error_message=progress.message,
             )
-            await workflow._emit_progress(progress, 1.0, on_progress)
+            await workflow._emit_progress(progress, 0.2, on_progress)
             return ScenePhaseOutcome(total_scenes=0, stopped=True)
 
         add_phase_artifact(
@@ -362,7 +362,7 @@ class ScenePhaseRunner:
                 "completed": completed,
                 "total": total,
             }
-            value = 0.1 + 0.1 * (completed / total) if total else 0.1
+            value = min(0.3, 0.2 + 0.1 * (completed / total)) if total else 0.2
             await workflow._emit_progress(progress, value, on_progress)
 
         phase1b_result = await workflow._run_phase1b_enrichment(
@@ -461,7 +461,7 @@ class ScenePhaseRunner:
                 error_kind="missing_chapter_coverage",
                 error_message=progress.message,
             )
-            await workflow._emit_progress(progress, 1.0, on_progress)
+            await workflow._emit_progress(progress, 0.3, on_progress)
             return ScenePhaseOutcome(total_scenes=0, stopped=True)
         workflow._finish_phase(
             progress,
@@ -581,7 +581,7 @@ class ScenePhaseRunner:
                 error_kind=progress.degraded_reason,
                 error_message=progress.message,
             )
-            await workflow._emit_progress(progress, 1.0, on_progress)
+            await workflow._emit_progress(progress, 0.3, on_progress)
             return ScenePhaseOutcome(total_scenes=0, stopped=True)
         progress.message = (
             "Scene 提交完成，"

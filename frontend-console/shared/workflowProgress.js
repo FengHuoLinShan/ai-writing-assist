@@ -249,7 +249,9 @@ export function normalizeTaskProgress(task, workflowType = undefined) {
   const label = WORKFLOW_LABELS[type] || meta.label || "后台任务"
   const message = authorFacingStateText(inferMessage({ status, workflowType: type, result, meta, percent }))
 
-  const rawErrorMessage = raw.error_message || result.error_message || result.error || null
+  const rawErrorMessage = status === "failed" || status === "unknown"
+    ? raw.error_message || result.error_message || result.error || null
+    : null
   const lifecycle = safeObject(raw.lifecycle)
   const recoveryRequired = Boolean(
     lifecycle.recovery_required
@@ -375,6 +377,7 @@ export function recoverActiveWorkflows(projectId = null, storage = globalThis.lo
 export function pollTaskProgress({
   taskId,
   workflowType,
+  novelId = null,
   intervalMs = 1500,
   apiClient = globalThis.api,
   pauseWhenHidden = true,
@@ -435,7 +438,9 @@ export function pollTaskProgress({
     }
     inFlight = true
     try {
-      const task = await apiClient.tasks.get(taskId)
+      const task = novelId
+        ? await apiClient.tasks.get(taskId, novelId)
+        : await apiClient.tasks.get(taskId)
       if (stopped) return
       const progress = normalizeTaskProgress(task, workflowType)
       onUpdate?.(progress, task)

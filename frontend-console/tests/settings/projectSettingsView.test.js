@@ -36,7 +36,7 @@ describe("projectSettingsView", () => {
       base_url: { value: "", source: "system" },
       model: { value: "", source: "system" },
       timeout: { value: 180, source: "system" },
-      max_tokens: { value: 4096, source: "system" },
+      max_tokens: { value: 12000, source: "system" },
       temperature: { value: 0.3, source: "system" },
       top_p: { value: null, source: "unset" },
       extra: { value: {}, source: "system" },
@@ -54,5 +54,9 @@ describe("projectSettingsView", () => {
     expect(html).toContain("主配置")
     expect(html).toContain("深度导入")
     expect(html).toContain("作者偏好")
+
+    projectSettingsView._tab = "deep"
+    const deepHtml = await projectSettingsView.render()
+    expect(deepHtml).toContain("深度导入不继承“默认输出上限”")
   })
 })

@@ -3,6 +3,7 @@
  */
 import { pollTaskProgress } from "../shared/workflowProgress.js"
 import { displayStateBadgeClass, worldAssetDisplay } from "../shared/assetDisplayState.js"
+import { renderWorkspaceRail, workspaceRailKey } from "../shared/workspaceRail.js"
 
 const PROJECTION_TYPE = "context_brief"
 const BIBLE_AI_TEMPLATES = [
@@ -47,6 +48,7 @@ const worldBibleView = {
   _task: null,
   _projectionConflictHint: null,
   _projectionPoller: null,
+  _projectionRetryPending: false,
   _beforeUnloadBound: false,
   _aiOpen: false,
   _aiMessages: [],
@@ -102,6 +104,7 @@ const worldBibleView = {
       else if (action === "bible-save-page") this._savePage()
       else if (action === "bible-refresh-projection") this._refreshProjection(false)
       else if (action === "bible-force-refresh-projection") this._refreshProjection(true)
+      else if (action === "bible-retry-projection") this._retryProjectionTask()
       else if (action === "bible-open-suggestions") this._openSuggestions()
       else if (action === "bible-open-conflicts") this._openConflicts()
       else if (action === "bible-toggle-ai") this._toggleAi()
@@ -187,10 +190,13 @@ const worldBibleView = {
   _renderEditorMode() {
     return `
       <div class="world-bible-layout">
-        <aside class="panel world-bible-page-nav">
-          <div class="world-bible-page-nav__heading">页面</div>
-          ${this._renderPageNav()}
-        </aside>
+        ${renderWorkspaceRail({
+          key: workspaceRailKey("world-bible", state.currentProjectId, "pages"),
+          title: "页面",
+          className: "world-bible-nav-rail workspace-rail--left",
+          defaultOpen: typeof window === "undefined" || window.innerWidth > 760,
+          content: `<aside class="panel world-bible-page-nav"><div class="world-bible-page-nav__heading">页面</div>${this._renderPageNav()}</aside>`,
+        })}
         <main class="panel world-bible-editor-panel">
           ${this._renderActivePage()}
         </main>
@@ -520,6 +526,9 @@ const worldBibleView = {
     const retry = task.status === "failed" || task.status === "done"
       ? `<button class="btn btn-sm" data-action="bible-force-refresh-projection">强制重新刷新</button>`
       : ""
+    const retryTask = task.status === "failed" && task.available_actions?.includes("retry")
+      ? `<button class="btn btn-sm" data-action="bible-retry-projection" ${this._projectionRetryPending ? "disabled" : ""}>${this._projectionRetryPending ? "重试中..." : "重试任务"}</button>`
+      : ""
     const hintHtml = this._projectionConflictHint
       ? `<div class="world-bible-projection-status__hint">${esc(this._projectionConflictHint)}</div>`
       : ""
@@ -529,9 +538,45 @@ const worldBibleView = {
         <div>状态：${esc(task.status || "pending")} · 进度 ${Math.round((task.progress || 0) * 100)}%</div>
         ${task.error_message ? `<div class="world-bible-projection-status__error">${esc(task.error_message)}</div>` : ""}
         ${hintHtml}
+        ${retryTask}
         ${retry}
       </div>
     `
+  },
+
+  async _retryProjectionTask() {
+    const taskId = this._task?.task_id || this._task?.id
+    const page = this._activePage
+    if (
+      !taskId
+      || !page
+      || this._projectionRetryPending
+      || !this._task?.available_actions?.includes("retry")
+    ) return false
+    this._projectionRetryPending = true
+    router.renderCurrentView()
+    try {
+      const result = await api.tasks.retry(taskId, state.currentProjectId)
+      this._task = {
+        ...this._task,
+        ...result,
+        task_id: taskId,
+        status: result.status || "pending",
+        error_message: null,
+        available_actions: ["cancel"],
+      }
+      this._projectionRetryPending = false
+      this._projectionConflictHint = null
+      this._startProjectionPolling(taskId, page)
+      toast("投影刷新任务已重新加入队列", "success")
+      router.renderCurrentView()
+      return true
+    } catch (err) {
+      this._projectionRetryPending = false
+      toast(err.message || "重试投影刷新失败", "error")
+      router.renderCurrentView()
+      return false
+    }
   },
 
   async _createPage() {

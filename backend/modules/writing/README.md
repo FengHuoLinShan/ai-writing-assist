@@ -98,7 +98,8 @@ AI 生成结果会在 `provenance_json` 中记录 `source_confirmation_id` 和�
 不回退到 working。`working` 只选择已采用的 `draft / published / canonical` 兼容状态；未采用 `candidate` 不进入章节最新稿、项目统计、原文 grep 或 RAG working 来源。`SourceRangeRefContract`
 包含 draft/version/mode/offset 与 source/range hash；范围不得跨章，读取时必须
 重新校验 novel 归属、源 hash 和范围 hash。V1 grep 只支持有上限、可分页的
-字面匹配，不接受正则表达式。
+字面匹配，不接受正则表达式。检索页可传 `group_by_chapter=True`，此时每章只返回
+一个代表命中，`match_count` 表示该章的字面出现次数，分页与 `total` 都按章节组计算。
 
 `facade.list_latest_drafts_for_chapters(..., content_limit=N)` 供跨模块批量加载正文时做 DB-side 截断；默认 `None` 保持返回完整最新正文。`content_limit` 必须为正整数，启用时仅投影跨模块契约必要字段，不加载完整 `WritingDraft` ORM。
 
@@ -111,10 +112,12 @@ Writing 服务需要同步 outline 结构时通过可注入 port 调用：断章
 ## API
 
 ```http
-POST /api/writing/drafts                          → 发布草稿（新版本 + publish_chapter 任务）
+POST /api/writing/drafts                          → 发布当前工作版本；无实质变化时复用
 GET  /api/writing/drafts/{id}                     → 获取草稿
 POST /api/writing/drafts/{id}/adopt               → 将 AI 建议复制为最新工作稿，原建议归档
 PUT  /api/writing/drafts/{id}                     → 暂存；published 首次编辑 copy-on-write 为新 working ID
+POST /api/writing/drafts/{id}/checkpoint           → 显式保存未发布版本，可确认后强制留版
+POST /api/writing/drafts/{id}/discard              → 放弃最新未发布版本并回到基线
 DELETE /api/writing/drafts/{id}                   → 软废弃单个版本
 DELETE /api/writing/chapters/{chapter_index}      → 软废弃整章所有版本
 GET /api/writing/chapters/{chapter_index}/draft   → 获取章节最新草稿
@@ -137,6 +140,17 @@ split provider 同步 Scene chunk；该操作不入队 `publish_chapter`。
 
 已发布版本不得原地修改。单版本/整章删除仅将状态改为 `deprecated`，
 `version_number` 永不重排；只有项目永久删除可通过外键级联硬删除。
+
+自动版本判定只比较正文：入库前安全清洗后，比较时移除 Unicode
+空白，但不改写作者原文。标题或纯空白修改不由自动保存创建
+版本；前端先保留在本地备份，作者可通过 checkpoint 二次确认后强制
+留版。`provenance_json.version_origin` 区分 `auto / manual`，
+`base_draft_id` 用于自动或显式撤销。发布 draft 时原位提升为
+`published`，不再额外创建一个版本；auto 工作稿若已撤回到手动基线，
+则废弃 auto 版本并原位发布该手动基线。重复发布已发布基线不再入队索引任务。
+从历史版本恢复发布时，`restore_source_version` 标识旧版本，
+`expected_version / expected_updated_at` 校验用户选择恢复时看到的章节最新快照；
+快照过期返回 409，且不创建版本或任务。
 
 采用 AI 建议使用 copy-on-adopt：新建一个最高 `version_number` 的普通 `draft`，写入 `adopted_from_candidate_id / adopted_at / adopted_by`；原 candidate 改为 `deprecated` 并记录 `adoption_result_draft_id`。这使采用结果即使晚于其他手工保存也会成为最新 working，同时保留建议历史。
 

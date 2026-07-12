@@ -288,6 +288,23 @@ describe("pollTaskProgress", () => {
     expect(onDone).toHaveBeenCalledTimes(1)
   })
 
+  it("passes an explicit novel id to task status queries", async () => {
+    const apiClient = {
+      tasks: {
+        get: vi.fn().mockResolvedValue({ task_id: "t1", status: "done" }),
+      },
+    }
+
+    pollTaskProgress({
+      taskId: "t1",
+      novelId: "p1",
+      apiClient,
+    })
+    await Promise.resolve()
+
+    expect(apiClient.tasks.get).toHaveBeenCalledWith("t1", "p1")
+  })
+
   it("skips API calls while the page is hidden", async () => {
     vi.useFakeTimers()
     mockVisibilityState("hidden")

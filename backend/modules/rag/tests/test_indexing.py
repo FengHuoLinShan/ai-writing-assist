@@ -95,6 +95,74 @@ async def test_index_state_coalesces_requests_and_requeues_latest_source(
 
 
 @pytest.mark.asyncio
+async def test_queued_index_claim_refreshes_source_changed_before_execution(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from unittest.mock import MagicMock, patch
+
+    from modules.rag.contracts import RagIndexReport
+    from modules.rag.index_state import RagIndexStateService
+    from modules.writing.facade import create_draft_only
+
+    first_source = await create_draft_only(
+        db_session,
+        test_project_id,
+        23,
+        content="入队时的工作稿",
+    )
+    service = RagIndexStateService()
+    enqueue = MagicMock(return_value="task-1")
+    with patch("modules.rag.index_state.enqueue_task", enqueue):
+        requested = await service.request(
+            db_session,
+            novel_id=test_project_id,
+            chapter_index=23,
+            content_mode="working",
+        )
+        assert requested["requested_source_id"] == first_source.id
+
+        latest_source = await create_draft_only(
+            db_session,
+            test_project_id,
+            23,
+            content="执行前已经切换的工作稿",
+        )
+        assert await service.mark_running(
+            db_session,
+            novel_id=test_project_id,
+            chapter_index=23,
+            content_mode="working",
+        )
+
+        stored = await service._get(
+            db_session,
+            novel_id=test_project_id,
+            chapter_index=23,
+            content_mode="working",
+            lock=False,
+        )
+        assert stored is not None
+        assert str(stored.requested_source_id) == latest_source.id
+        assert stored.requested_hash == latest_source.content_hash
+
+        followup = await service.finish(
+            db_session,
+            novel_id=test_project_id,
+            report=RagIndexReport(
+                chapter_index=23,
+                content_mode="working",
+                source_draft_id=latest_source.id,
+                source_content_hash=latest_source.content_hash,
+                chunks_created=1,
+            ),
+        )
+
+    assert followup is None
+    assert enqueue.call_count == 1
+
+
+@pytest.mark.asyncio
 async def test_mark_index_dirty_records_publish_source_without_extra_task(
     db_session: AsyncSession,
     test_project_id: str,  # noqa: F811

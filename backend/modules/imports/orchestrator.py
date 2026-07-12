@@ -38,6 +38,10 @@ STAGE_TASK_TYPES = {
 }
 
 
+class DeepImportWorkflowFailedError(RuntimeError):
+    """A persisted workflow failure that must become a failed async task."""
+
+
 class DeepImportOrchestrator:
     """Stable implementation behind imports facade and task handler."""
 
@@ -68,6 +72,10 @@ class DeepImportOrchestrator:
             adoption_policy=adoption_policy,
             authorization_confirmed=authorization_confirmed,
         )
+        llm_execution_snapshot = await self._build_llm_execution_snapshot(
+            db,
+            novel_id,
+        )
         warning = await self._check_duplicate_import(
             db, novel_id, start_chapter, end_chapter
         )
@@ -84,10 +92,6 @@ class DeepImportOrchestrator:
         if force:
             await self._deprecate_derived_data(db, novel_id, start_chapter, end_chapter)
 
-        llm_execution_snapshot = await self._build_llm_execution_snapshot(
-            db,
-            novel_id,
-        )
         task_id = self._enqueue_deep_import(
             db,
             novel_id,
@@ -139,6 +143,10 @@ class DeepImportOrchestrator:
             authorization_confirmed=authorization_confirmed,
             stage=stage,
         )
+        llm_execution_snapshot = await self._build_llm_execution_snapshot(
+            db,
+            novel_id,
+        )
 
         if stage == "scenes":
             warning = await self._check_duplicate_import(
@@ -158,10 +166,6 @@ class DeepImportOrchestrator:
                     db, novel_id, start_chapter, end_chapter
                 )
 
-        llm_execution_snapshot = await self._build_llm_execution_snapshot(
-            db,
-            novel_id,
-        )
         task_id = self._enqueue_stage_task(
             db,
             task_type=STAGE_TASK_TYPES[stage],
@@ -220,10 +224,10 @@ class DeepImportOrchestrator:
         ) -> None:
             updated.asset_summary = build_asset_summary(updated.quality_stats)
             task.result = updated.model_dump(mode="json")
-            task.update_progress(progress_value)
+            persisted_value = self._update_task_progress(task, progress_value)
             await db.commit()
             if self.progress_observer is not None:
-                await self.progress_observer(updated, progress_value, task)
+                await self.progress_observer(updated, persisted_value, task)
 
         progress = await self.workflow.run_step(
             db,
@@ -239,6 +243,11 @@ class DeepImportOrchestrator:
             on_progress=_record_progress,
         )
         self._hydrate_authorization(progress, meta)
+        if progress.phase == "failed":
+            await _record_progress(progress, self._task_progress_value(task))
+            raise DeepImportWorkflowFailedError(
+                progress.message or "Deep import workflow failed"
+            )
         return self._result_from_progress(progress)
 
     async def run_stage_task(
@@ -278,10 +287,10 @@ class DeepImportOrchestrator:
             updated.stage = stage
             updated.asset_summary = build_asset_summary(updated.quality_stats)
             task.result = updated.model_dump(mode="json")
-            task.update_progress(progress_value)
+            persisted_value = self._update_task_progress(task, progress_value)
             await db.commit()
             if self.progress_observer is not None:
-                await self.progress_observer(updated, progress_value, task)
+                await self.progress_observer(updated, persisted_value, task)
 
         if stage == "scenes":
             progress = await self.workflow.run_step(
@@ -327,6 +336,11 @@ class DeepImportOrchestrator:
         else:
             raise ValueError(f"unsupported deep import stage: {stage}")
         self._hydrate_authorization(progress, meta)
+        if progress.phase == "failed":
+            await _record_progress(progress, self._task_progress_value(task))
+            raise DeepImportWorkflowFailedError(
+                progress.message or f"Deep import stage {stage} failed"
+            )
         return self._result_from_progress(progress)
 
     async def run_submitted_stage_inline(
@@ -516,9 +530,28 @@ class DeepImportOrchestrator:
 
         if isinstance(db, Mock):
             return {}
-        from modules.project.facade import build_project_llm_execution_snapshot
+        from modules.project.facade import (
+            build_project_llm_execution_snapshot,
+            restore_project_llm_execution_settings,
+        )
 
-        return await build_project_llm_execution_snapshot(db, novel_id)
+        snapshot = await build_project_llm_execution_snapshot(db, novel_id)
+        await restore_project_llm_execution_settings(db, novel_id, snapshot)
+        return snapshot
+
+    @staticmethod
+    def _task_progress_value(task: Any) -> float:
+        try:
+            return float(getattr(task, "progress", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    @classmethod
+    def _update_task_progress(cls, task: Any, progress_value: float) -> float:
+        bounded = min(1.0, max(0.0, float(progress_value)))
+        persisted = max(cls._task_progress_value(task), bounded)
+        task.update_progress(persisted)
+        return persisted
 
     @staticmethod
     async def _initialize_task_result(

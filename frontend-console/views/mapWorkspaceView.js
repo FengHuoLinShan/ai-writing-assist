@@ -6,6 +6,7 @@ import { buildMapLayout } from "./mapLayoutEngine.js"
 import mapQuickCreateView from "./mapQuickCreateView.js"
 import { parseMapRouteContext } from "./mapRouteContext.js"
 import { authorFacingStateText, mapAssetDisplay } from "../shared/assetDisplayState.js"
+import { renderWorkspaceRail, workspaceRailKey } from "../shared/workspaceRail.js"
 
 const RECENT_PREFIX = "novel_map_recent:"
 
@@ -489,9 +490,13 @@ const mapWorkspaceView = {
             </div>
             <div id="map-root" class="map-root"></div>
           </main>
-          <aside id="map-dynamic-summary" class="map-dynamic-panel">
-            ${this._renderDynamicSummary()}
-          </aside>
+          ${renderWorkspaceRail({
+            key: workspaceRailKey("map", state.currentProjectId, "dynamic-summary"),
+            title: "动态摘要",
+            className: "map-dynamic-rail workspace-rail--right",
+            defaultOpen: typeof window === "undefined" || window.innerWidth > 1099,
+            content: `<aside id="map-dynamic-summary" class="map-dynamic-panel">${this._renderDynamicSummary()}</aside>`,
+          })}
         </div>
       </div>
     `

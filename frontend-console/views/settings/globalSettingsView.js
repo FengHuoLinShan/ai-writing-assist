@@ -8,6 +8,7 @@
  */
 import {
   SYSTEM_LLM_DEFAULTS,
+  bindLLMPresetEvents,
   renderLLMFormFields,
   readLLMFormFields,
   validateLLMPayload,
@@ -134,6 +135,7 @@ const globalSettingsView = {
   },
 
   bindEvents() {
+    bindLLMPresetEvents()
     document.getElementById("global-llm-save")?.addEventListener("click", () => this.saveLLM())
     document.getElementById("global-author-save")?.addEventListener("click", () => this.saveAuthor())
     document.getElementById("goto-recent-project-btn")?.addEventListener("click", () => {

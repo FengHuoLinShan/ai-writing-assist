@@ -40,6 +40,7 @@ class _FakeLLMClient:
         self.calls: list[dict] = []
         self.profile_summary = {
             "model": "test-model",
+            "max_tokens": 12_000,
             "api_key_configured": True,
         }
         self.runtime_scope = {
@@ -119,6 +120,7 @@ async def test_managed_generate_records_secret_free_runtime_scope() -> None:
     assert runtime["profile_source"] == "project"
     assert runtime["profile_summary"]["model"] == "phase-model-override"
     assert runtime["profile_summary"]["default_model"] == "test-model"
+    assert runtime["profile_summary"]["max_tokens"] == 12_000
     assert "api_key" not in runtime["profile_summary"]
 
 

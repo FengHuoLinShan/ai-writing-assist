@@ -119,7 +119,7 @@ Modules choose files by responsibility. Do not create empty contracts or pass-th
 ## Core Infrastructure
 
 - **`core/`**: Config (`config.py`, frozen dataclass, `get_settings()` singleton), Database lifecycle (`database.py`, `DatabaseManager`, `get_db()` dependency), ORM base (`base.py`, UUID/Timestamp/Status mixins), Dependency injection (`container.py` process singleton/transient scopes and shutdown, `dependencies.py` `DbSession`/`AppSettings` type aliases)
-- **`infrastructure/llm/`**: LLM client with OpenAI-compatible provider, project-level profile helpers, explicit HTTP transport/proxy controls, retry with exponential backoff, structured JSON output with Pydantic schema validation, streaming support, and sanitized health checks (`GET /api/health/llm`)
+- **`infrastructure/llm/`**: LLM client with OpenAI-compatible provider, project-level profile helpers, inherited general request budgets (`max_tokens=None` resolves from the client profile; system default `12000`), explicit HTTP transport/proxy controls, retry with exponential backoff, structured JSON output with Pydantic schema validation, streaming support, and sanitized health checks (`GET /api/health/llm`)
 - **`infrastructure/tasks/`**: Async task system with `@task_handler` registry, status tracking, heartbeat, FOR UPDATE SKIP LOCKED for worker safety
 - **`shared/`**: Global enums (`enums.py`), constants (`constants.py`), types (`types.py`), utilities (`utils.py`)
 

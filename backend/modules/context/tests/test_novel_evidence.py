@@ -642,6 +642,41 @@ async def test_working_smart_search_reports_pending_index_without_old_chunks(
 
 
 @pytest.mark.asyncio
+async def test_smart_search_aggregates_exact_matches_by_chapter(
+    db_session,
+    test_project_id,
+) -> None:
+    await create_published_draft_only(
+        db_session,
+        test_project_id,
+        21,
+        "第二十一章",
+        "克莱恩观察门窗，随后克莱恩记下线索。",
+    )
+    await create_published_draft_only(
+        db_session,
+        test_project_id,
+        22,
+        "第二十二章",
+        "克莱恩抵达车站。",
+    )
+
+    result = await search_novel_evidence(
+        db_session,
+        novel_id=test_project_id,
+        query="克莱恩",
+        content_mode="canonical",
+        visibility=VisibilityContextContract(mode="author"),
+        scopes=["manuscript"],
+        top_k=100,
+    )
+
+    assert [item["chapter_index"] for item in result["hits"]] == [21, 22]
+    assert [item["match_count"] for item in result["hits"]] == [2, 1]
+    assert all(item["match_basis"] == "occurrence" for item in result["hits"])
+
+
+@pytest.mark.asyncio
 async def test_reader_outline_search_marks_extract_only_checkpoint_degraded(
     db_session,
     test_project_id,

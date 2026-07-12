@@ -120,6 +120,15 @@
       requiredQuery: ["novel_id"],
     }),
 
+    "generate.listPromptTemplateRevisions": define("GET", ({ templateId }) => `/world/generation-prompt-templates/${required(templateId, "templateId", "generate.listPromptTemplateRevisions")}/revisions`, {
+      requiredParams: ["templateId"],
+      requiredQuery: ["novel_id"],
+    }),
+
+    "tasks.cancel": define("POST", ({ taskId }) => `/tasks/${required(taskId, "taskId", "tasks.cancel")}/cancel`, {
+      requiredParams: ["taskId"],
+      requiredQuery: ["novel_id"],
+    }),
     "tasks.retry": define("POST", ({ taskId }) => `/tasks/${required(taskId, "taskId", "tasks.retry")}/retry`, {
       requiredParams: ["taskId"],
       requiredQuery: ["novel_id"],
@@ -174,6 +183,15 @@
       requiredParams: ["draftId"],
       requiredQuery: ["novel_id"],
       hasBody: true,
+    }),
+    "writing.checkpoint": define("POST", ({ draftId }) => `/writing/drafts/${required(draftId, "draftId", "writing.checkpoint")}/checkpoint`, {
+      requiredParams: ["draftId"],
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+    }),
+    "writing.discard": define("POST", ({ draftId }) => `/writing/drafts/${required(draftId, "draftId", "writing.discard")}/discard`, {
+      requiredParams: ["draftId"],
+      requiredQuery: ["novel_id"],
     }),
     "writing.adoptDraftCandidate": define("POST", ({ draftId }) => `/writing/drafts/${required(draftId, "draftId", "writing.adoptDraftCandidate")}/adopt`, {
       requiredParams: ["draftId"],

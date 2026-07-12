@@ -6,12 +6,13 @@ import asyncio
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.project import llm_runtime
 from modules.project.contracts import ProjectLLMConfigurationError
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
@@ -310,6 +311,38 @@ async def test_execution_snapshot_freezes_model_and_rejects_endpoint_drift(
             db_session,
             test_project_id,
             snapshot,
+        )
+
+
+@pytest.mark.asyncio
+async def test_execution_snapshot_rejects_missing_original_key_before_db_lookup(
+    db_session: AsyncSession,
+    test_project_id: str,
+) -> None:
+    payload = {
+        "version": llm_runtime.PROJECT_LLM_EXECUTION_SNAPSHOT_VERSION,
+        "novel_id": test_project_id,
+        "profile": {
+            "api_key_configured": False,
+            "model": "snapshot-model",
+            "base_url_hash": llm_runtime._stable_hash("https://example.test/v1"),
+        },
+        "sources": {},
+        "deep_import": {},
+    }
+    payload["profile_hash"] = llm_runtime._stable_hash(payload)
+
+    with (
+        patch(
+            "modules.project.llm_runtime._resolve_project_runtime_profile",
+            new=AsyncMock(side_effect=AssertionError("must not query project")),
+        ),
+        pytest.raises(ProjectLLMConfigurationError, match="was not configured"),
+    ):
+        await restore_project_llm_execution_settings(
+            db_session,
+            test_project_id,
+            payload,
         )
 
 

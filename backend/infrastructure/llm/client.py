@@ -423,6 +423,13 @@ class LLMClient:
         """Return a defensive copy of secret-free managed-step scope."""
         return deepcopy(self._runtime_scope)
 
+    def resolve_request_defaults(self, request: LLMCallRequest) -> LLMCallRequest:
+        """Return a request copy with client-owned defaults materialized."""
+        resolved = request.model_copy(deep=True)
+        if resolved.max_tokens is None:
+            resolved.max_tokens = self._default_max_tokens
+        return resolved
+
     async def generate(self, request: LLMCallRequest) -> LLMCallResponse:
         """执行 LLM 调用（带自动重试）
 
@@ -435,6 +442,7 @@ class LLMClient:
         Raises:
             LLMError: 所有重试均失败
         """
+        resolved_request = self.resolve_request_defaults(request)
         limiter = get_llm_limiter()
         return await limiter.run(
             lambda: retry_with_backoff(
@@ -442,7 +450,7 @@ class LLMClient:
                 max_attempts=self._settings.llm_retry_max_attempts,
                 base_delay=self._settings.llm_retry_base_delay,
                 max_delay=self._settings.llm_retry_max_delay,
-                request=request,
+                request=resolved_request,
             )
         )
 
@@ -460,6 +468,7 @@ class LLMClient:
         """
         # 流式调用也包装重试，但只在开始前重试
         # 一旦流开始后断掉，由上层处理
+        resolved_request = self.resolve_request_defaults(request)
         limiter = get_llm_limiter()
         async with limiter.scope():
             stream = await retry_with_backoff(
@@ -467,7 +476,7 @@ class LLMClient:
                 max_attempts=self._settings.llm_retry_max_attempts,
                 base_delay=self._settings.llm_retry_base_delay,
                 max_delay=self._settings.llm_retry_max_delay,
-                request=request,
+                request=resolved_request,
             )
             async for chunk in stream:
                 yield chunk
@@ -509,7 +518,7 @@ class LLMClient:
             LLMInvalidResponseError: 输出格式持续错误
         """
         # 设置 JSON 输出格式
-        req = request.model_copy(deep=True)
+        req = self.resolve_request_defaults(request)
         if req.response_format is None:
             req.response_format = {"type": "json_object"}
         if req.temperature is None:

@@ -90,6 +90,7 @@ beforeEach(() => {
     is_builtin: false,
     version_number: 2,
   })
+  api.generate.listPromptTemplateRevisions.mockResolvedValue([])
   api.context.compile.mockResolvedValue({
     total_tokens: 1200,
     budget_tokens: 4000,
@@ -285,6 +286,48 @@ describe("generateView chatbox", () => {
       template_name: "人物",
       template_prompt: "人物模板：必须写清楚誓言与代价。",
     }))
+  })
+
+  it("自定义模板可加载历史版本到编辑器但不自动保存", async () => {
+    generateView._templates = [{
+      id: "tpl-1",
+      value: "tpl-1",
+      label: "人物模板",
+      prompt: "当前版本",
+      object_template: "character",
+      is_builtin: false,
+      version_number: 3,
+    }]
+    generateView._templatesLoaded = true
+    api.generate.listPromptTemplateRevisions.mockResolvedValue([
+      {
+        id: "rev-2",
+        template_id: "tpl-1",
+        version_number: 2,
+        name: "人物模板旧版",
+        prompt_text: "旧版本提示词 <script>",
+        validation_state: "valid",
+        created_at: "2026-07-11T10:00:00Z",
+      },
+    ])
+    document.body.innerHTML = generateView._renderTemplateEditor("tpl-1")
+    generateView._bindTemplateEditor()
+
+    document.getElementById("generate-template-history-load").click()
+    await vi.waitFor(() => {
+      expect(api.generate.listPromptTemplateRevisions).toHaveBeenCalledWith("tpl-1", "p1")
+    })
+
+    const history = document.getElementById("generate-template-history")
+    expect(history.innerHTML).toContain("v2")
+    expect(history.innerHTML).toContain("&lt;script&gt;")
+    expect(history.querySelector("script")).toBeNull()
+    history.querySelector("[data-template-revision-index='0']").click()
+
+    expect(document.getElementById("generate-template-editor-name").value).toBe("人物模板旧版")
+    expect(document.getElementById("generate-template-editor-prompt").value).toBe("旧版本提示词 <script>")
+    expect(document.querySelector(".generate-template-editor-help").textContent).toContain("内容尚未保存")
+    expect(api.generate.updatePromptTemplate).not.toHaveBeenCalled()
   })
 
   it("可以创建新提示词模板并用于生成 payload", async () => {
@@ -1071,6 +1114,16 @@ describe("generateView task execution", () => {
 
     expect(api.context.compile).not.toHaveBeenCalled()
     expect(toast).toHaveBeenCalledWith("角色视角模式必须选择或输入视角人物 ID", "warning")
+  })
+})
+
+describe("generateView content-first layout", () => {
+  it("keeps a collapsed assistant rail full-width on narrow screens", () => {
+    const styles = generateView._renderStyles()
+
+    expect(styles).toContain("grid-template-columns:minmax(0,72fr) minmax(210px,28fr)")
+    expect(styles).toContain(".generate-chatbox, .generate-chatbox:has(.generate-side-rail:not([open])) { grid-template-columns:1fr")
+    expect(styles).toContain(".generate-side-rail { grid-column:1 / -1; }")
   })
 })
 

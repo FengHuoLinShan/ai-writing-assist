@@ -156,6 +156,24 @@ class WritingDraftRepository:
         result = await db.execute(stmt)
         return result.scalars().all()
 
+    async def get_previous_working_version(
+        self,
+        db: AsyncSession,
+        draft: WritingDraft,
+    ) -> WritingDraft | None:
+        stmt = (
+            select(WritingDraft)
+            .where(
+                WritingDraft.novel_id == draft.novel_id,
+                WritingDraft.chapter_index == draft.chapter_index,
+                WritingDraft.version_number < draft.version_number,
+                WritingDraft.status.in_(WORKING_DRAFT_STATUSES),
+            )
+            .order_by(WritingDraft.version_number.desc())
+            .limit(1)
+        )
+        return (await db.execute(stmt)).scalar_one_or_none()
+
     async def update(
         self,
         db: AsyncSession,

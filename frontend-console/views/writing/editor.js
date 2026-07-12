@@ -11,6 +11,11 @@
 
 import { findCurrentScene as locateCurrentScene } from "../../shared/sceneLocator.js"
 import { writingAssetDisplay } from "../../shared/assetDisplayState.js"
+import { confirmAsync } from "../../shared/confirmAsync.js"
+
+export function substantiveWritingText(text) {
+  return String(text || "").replace(/\s/gu, "")
+}
 
 /**
  * @param {Object} deps
@@ -22,7 +27,7 @@ import { writingAssetDisplay } from "../../shared/assetDisplayState.js"
  * @param {Function} [deps.onSceneChange] - (sceneId) => void
  * @param {Function} [deps.onDraftAdopted] - (draft) => void
  */
-export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatusChange, onSceneChange, onDraftAdopted }) {
+export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatusChange, onSceneChange, onDraftAdopted, onVersionChanged }) {
   const editor = {
     // 当前编辑器状态
     _currentChapter: null,
@@ -34,6 +39,8 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     _lastSavedContent: null,
     _isReadonly: false,
     _restoreSourceVersion: null,
+    _restoreExpectedVersion: null,
+    _restoreExpectedUpdatedAt: null,
     _lastPublishStatus: null,
     _draftStatus: "draft",
     _currentProvenanceJson: null,
@@ -42,6 +49,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     _autoSaveTimer: null,
     _autoSaving: false,
     _currentSavePromise: null,
+    _editRevision: 0,
     _cursorDebounceTimer: null,
     _cursorOffset: 0,
     _boundSelectionChange: null,
@@ -60,6 +68,8 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
    * @param {number} [options.versionNumber]
    * @param {boolean} [options.isReadonly]
    * @param {number} [options.restoreSourceVersion]
+   * @param {number} [options.restoreExpectedVersion]
+   * @param {string} [options.restoreExpectedUpdatedAt]
    */
   async function loadChapter(chapterIndex, options = {}) {
     editor._currentChapter = chapterIndex
@@ -83,7 +93,9 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     const titleInput = container.querySelector("#writing-title-input")
     if (titleInput) {
       titleInput.oninput = () => {
+        editor._editRevision += 1
         editor._currentTitle = titleInput.value
+        _saveBackup(getContent(), titleInput.value)
         _scheduleAutoSave()
       }
     }
@@ -92,7 +104,9 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     if (editorEl) {
       _clearCursorDebounceTimer()
       editorEl.oninput = () => {
+        editor._editRevision += 1
         editor._currentContent = editorEl.value
+        _saveBackup(editorEl.value, getTitle())
         updateWordcount()
         _scheduleAutoSave()
       }
@@ -152,7 +166,14 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
 
   async function autosave() {
     _clearAutoSaveTimer()
-    if (editor._currentSavePromise) return
+    if (editor._currentSavePromise) {
+      const pendingSave = editor._currentSavePromise
+      await pendingSave
+      if (editor._currentSavePromise === pendingSave) {
+        editor._currentSavePromise = null
+      }
+      return autosave()
+    }
     if (!editor._currentChapter) return
     if (editor._isReadonly || editor._draftStatus === "candidate") return
 
@@ -161,6 +182,11 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
 
     const content = getContent()
     const title = getTitle()
+    const requestRevision = editor._editRevision
+    if (substantiveWritingText(content) === substantiveWritingText(editor._lastSavedContent)) {
+      _updateSaveStatus()
+      return
+    }
 
     const savePromise = (async () => {
       try {
@@ -175,20 +201,35 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
           },
           state.currentProjectId,
         )
-        if (result.id && result.id !== editor._currentDraftId) {
-          editor._currentDraftId = result.id
-          state._currentDraftId = result.id
+        const changedDraft = result.id && result.id !== editor._currentDraftId
+        const hasNewerEdits = editor._editRevision !== requestRevision
+        const keepsLocalFormatting = (
+          changedDraft
+          && result.status === "published"
+          && substantiveWritingText(content) === substantiveWritingText(result.content)
+          && (content !== (result.content || "") || title !== (result.title || ""))
+        )
+        if (hasNewerEdits) {
+          _applyAutosaveMetadata(result, content)
+        } else {
+          _applyDraft(result, { isReadonly: false })
         }
-        editor._currentContent = content
-        editor._currentTitle = title
-        editor._currentVersionNumber = result.version_number
-        editor._currentUpdatedAt = result.updated_at || editor._currentUpdatedAt
-        editor._draftStatus = result.status || editor._draftStatus
-        editor._currentProvenanceJson = result.provenance_json || editor._currentProvenanceJson
-        editor._lastSavedContent = content
+        if (keepsLocalFormatting && !hasNewerEdits) {
+          editor._currentContent = content
+          editor._currentTitle = title
+        }
+        state._currentDraftId = editor._currentDraftId
         editor._lastPublishStatus = null
-        _saveBackup(null, null)
-        toast("已暂存", "success")
+        if (hasNewerEdits) {
+          _saveBackup(getContent(), getTitle())
+        } else if (keepsLocalFormatting) {
+          _saveBackup(content, title)
+          toast("已回到上一版；排版或标题修改仅保存在本地", "info")
+        } else {
+          _saveBackup(null, null)
+          toast("已暂存", "success")
+        }
+        if (changedDraft && onVersionChanged) await onVersionChanged(result)
       } catch (err) {
         _saveBackup(content, title)
         if (err.status === 409) {
@@ -207,6 +248,57 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
       await savePromise
     } finally {
       editor._currentSavePromise = null
+    }
+  }
+
+  async function checkpoint() {
+    if (!editor._currentDraftId || editor._isReadonly || editor._draftStatus === "candidate") return null
+    const content = getContent()
+    const title = getTitle()
+    const origin = editor._currentProvenanceJson?.version_origin
+    let force = false
+    if (origin !== "auto" && substantiveWritingText(content) === substantiveWritingText(editor._lastSavedContent)) {
+      force = await confirmAsync("正文没有实质变化。仍要强制保存一个新版本吗？", "保存新版本")
+      if (!force) return null
+    }
+    try {
+      const result = await api.writing.checkpoint(editor._currentDraftId, {
+        title,
+        content,
+        expected_version: editor._currentVersionNumber,
+        expected_updated_at: editor._currentUpdatedAt,
+        force,
+      }, state.currentProjectId)
+      _applyDraft(result, { isReadonly: false })
+      state._currentDraftId = editor._currentDraftId
+      _saveBackup(null, null)
+      toast("已保存为新版本", "success")
+      if (onVersionChanged) await onVersionChanged(result)
+      return result
+    } catch (err) {
+      toast(err.message || "保存新版本失败", "error")
+      return null
+    }
+  }
+
+  async function discardChanges() {
+    if (!editor._currentDraftId || editor._draftStatus !== "draft") return null
+    const confirmed = await confirmAsync("放弃当前未发布更改并回到上一版？", "放弃更改")
+    if (!confirmed) return null
+    try {
+      const result = await api.writing.discard(editor._currentDraftId, state.currentProjectId, {
+        expected_version: editor._currentVersionNumber,
+        expected_updated_at: editor._currentUpdatedAt,
+      })
+      _applyDraft(result, { isReadonly: false })
+      state._currentDraftId = editor._currentDraftId
+      _saveBackup(null, null)
+      toast("已回到上一版", "success")
+      if (onVersionChanged) await onVersionChanged(result)
+      return result
+    } catch (err) {
+      toast(err.message || "放弃更改失败", "error")
+      return null
     }
   }
 
@@ -242,7 +334,9 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     const end = el.selectionEnd || start
     el.value = `${el.value.slice(0, start)}${text}${el.value.slice(end)}`
     el.selectionStart = el.selectionEnd = start + text.length
+    editor._editRevision += 1
     editor._currentContent = el.value
+    _saveBackup(el.value, getTitle())
     updateWordcount()
     _scheduleAutoSave()
     el.focus()
@@ -269,6 +363,14 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     return editor._restoreSourceVersion
   }
 
+  function getRestoreExpectedVersion() {
+    return editor._restoreExpectedVersion
+  }
+
+  function getRestoreExpectedUpdatedAt() {
+    return editor._restoreExpectedUpdatedAt
+  }
+
   function getDraftStatus() {
     return editor._draftStatus
   }
@@ -289,6 +391,8 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     if (patch.title !== undefined) editor._currentTitle = patch.title
     if (patch.isReadonly !== undefined) editor._isReadonly = Boolean(patch.isReadonly)
     if (patch.restoreSourceVersion !== undefined) editor._restoreSourceVersion = patch.restoreSourceVersion || null
+    if (patch.restoreExpectedVersion !== undefined) editor._restoreExpectedVersion = patch.restoreExpectedVersion || null
+    if (patch.restoreExpectedUpdatedAt !== undefined) editor._restoreExpectedUpdatedAt = patch.restoreExpectedUpdatedAt || null
     if (patch.lastPublishStatus !== undefined) editor._lastPublishStatus = patch.lastPublishStatus || null
     if (patch.draftStatus !== undefined) editor._draftStatus = patch.draftStatus || "draft"
     if (patch.lastSavedContent !== undefined) editor._lastSavedContent = patch.lastSavedContent
@@ -389,6 +493,19 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
       } else if ((!editor._isReadonly || editor._draftStatus === "candidate") && existingRestore) {
         existingRestore.remove()
       }
+
+      const existingDiscard = buttonsContainer.querySelector('[data-action="discard-writing-changes"]')
+      const canDiscard = editor._draftStatus === "draft" && editor._currentVersionNumber > 1
+      if (canDiscard && !existingDiscard) {
+        const discardBtn = document.createElement("button")
+        discardBtn.className = "btn btn-ghost"
+        discardBtn.setAttribute("data-action", "discard-writing-changes")
+        discardBtn.textContent = "放弃未发布更改"
+        const publishBtn = buttonsContainer.querySelector('[data-action="publish"]')
+        buttonsContainer.insertBefore(discardBtn, publishBtn)
+      } else if (!canDiscard && existingDiscard) {
+        existingDiscard.remove()
+      }
     }
 
     const focusBtn = document.querySelector('[data-action="toggle-focus-mode"]')
@@ -401,14 +518,17 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     if (editor._autoSaving) return "保存中..."
     if (editor._isReadonly || editor._currentChapter === null) return ""
     const currentContent = getContent()
-    if (currentContent !== undefined && currentContent !== editor._lastSavedContent) return "未保存"
+    if (currentContent !== undefined && currentContent !== editor._lastSavedContent) {
+      if (substantiveWritingText(currentContent) === substantiveWritingText(editor._lastSavedContent)) return "仅本地修改"
+      return "未保存"
+    }
     if (editor._lastPublishStatus) return editor._lastPublishStatus
     if (_chapterStatus(editor._currentChapter) === "published") return "已发布"
     return editor._lastSavedContent !== null ? "已保存" : ""
   }
 
   function _saveBadgeClass(status) {
-    if (status === "未保存") return "writing-save-badge--unsaved"
+    if (status === "未保存" || status === "仅本地修改") return "writing-save-badge--unsaved"
     if (status === "已保存" || status === "发布成功" || status === "已发布") return "writing-save-badge--saved"
     return ""
   }
@@ -468,7 +588,9 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
           </div>
           <div class="writing-editor-buttons" id="writing-editor-buttons">
             ${editor._isReadonly && editor._draftStatus !== "candidate" ? `<button class="btn btn-primary" data-action="restore-from-version">基于此版本创建</button>` : ""}
-            <button class="btn" data-action="autosave" id="btn-autosave" ${hasSelection && !editor._isReadonly ? "" : "disabled"} title="${hasSelection && !editor._isReadonly ? "暂存当前编辑内容" : esc(disabledReason)}">${editor._restoreSourceVersion ? "发布为新版本" : "暂存"}</button>
+            <button class="btn" data-action="autosave" id="btn-autosave" ${hasSelection && !editor._isReadonly ? "" : "disabled"} title="${hasSelection && !editor._isReadonly ? "暂存实质性正文修改" : esc(disabledReason)}">暂存</button>
+            <button class="btn" data-action="checkpoint-version" id="btn-checkpoint-version" ${hasSelection && !editor._isReadonly ? "" : "disabled"} title="显式保存一个未发布版本">保存为新版本</button>
+            ${editor._draftStatus === "draft" && editor._currentVersionNumber > 1 ? '<button class="btn btn-ghost" data-action="discard-writing-changes">放弃未发布更改</button>' : ""}
             <button class="btn btn-primary" data-action="publish" id="btn-publish" ${hasSelection && !editor._isReadonly ? "" : "disabled"} title="${hasSelection && !editor._isReadonly ? "发布当前章节版本" : esc(disabledReason)}">发布</button>
             <button class="btn btn-primary" data-action="run-conflict-check" id="btn-conflict-check" ${hasSelection && !editor._isReadonly ? "" : "disabled"}>剧情设定冲突检查</button>
             <button class="btn btn-sm btn-ghost" data-action="ai-continue" title="AI 续写：基于当前上下文生成后续内容">AI 续写</button>
@@ -670,6 +792,8 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     editor._lastSavedContent = null
     editor._isReadonly = false
     editor._restoreSourceVersion = null
+    editor._restoreExpectedVersion = null
+    editor._restoreExpectedUpdatedAt = null
     editor._lastPublishStatus = null
     editor._currentProvenanceJson = null
 
@@ -680,6 +804,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
         const latest = versions[0]
         const draftData = await api.writing.get(latest.id, state.currentProjectId)
         _applyDraft(draftData, { isReadonly: false })
+        await _maybeRestoreBackup(chapterIndex)
         return
       }
     } catch {
@@ -714,14 +839,28 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     editor._lastSavedContent = draftData.content || ""
     editor._isReadonly = ["candidate", "deprecated"].includes(draftData.status) || Boolean(options.isReadonly)
     editor._restoreSourceVersion = options.restoreSourceVersion || null
+    editor._restoreExpectedVersion = options.restoreExpectedVersion || null
+    editor._restoreExpectedUpdatedAt = options.restoreExpectedUpdatedAt || null
     editor._draftStatus = draftData.status || "draft"
+    editor._lastPublishStatus = draftData.status === "published" ? "发布成功" : null
+    editor._currentProvenanceJson = draftData.provenance_json || null
+  }
+
+  function _applyAutosaveMetadata(draftData, savedContent) {
+    editor._currentDraftId = draftData.id || editor._currentDraftId
+    editor._currentVersionNumber = draftData.version_number ?? editor._currentVersionNumber
+    editor._currentUpdatedAt = draftData.updated_at || editor._currentUpdatedAt
+    editor._lastSavedContent = savedContent
+    editor._isReadonly = ["candidate", "deprecated"].includes(draftData.status)
+    editor._draftStatus = draftData.status || editor._draftStatus
     editor._lastPublishStatus = draftData.status === "published" ? "发布成功" : null
     editor._currentProvenanceJson = draftData.provenance_json || null
   }
 
   async function _maybeRestoreBackup(chapterIndex) {
     const backup = _loadBackup(chapterIndex)
-    if (!backup || !backup.content) return false
+    if (!backup || (backup.content === undefined && backup.title === undefined)) return false
+    if (backup.content === editor._currentContent && (backup.title || "") === editor._currentTitle) return false
 
     const age = ((Date.now() - (backup.timestamp || 0)) / 1000 / 60).toFixed(0)
     const confirmed = await new Promise((resolve) => {
@@ -739,13 +878,14 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     if (!confirmed) return false
     editor._currentContent = backup.content
     editor._currentTitle = backup.title || ""
+    editor._editRevision += 1
     return true
   }
 
   function _saveBackup(content, title) {
     if (!state.currentProjectId || !editor._currentChapter) return
     const key = `draft_backup_${state.currentProjectId}_${editor._currentChapter}`
-    if (!content) {
+    if (content === null) {
       localStorage.removeItem(key)
       return
     }
@@ -818,7 +958,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
 
   function _saveStateForDashboard() {
     if (editor._autoSaving) return "saving"
-    return saveStatusText() === "未保存" ? "unsaved" : "saved"
+    return ["未保存", "仅本地修改"].includes(saveStatusText()) ? "unsaved" : "saved"
   }
 
   // ============================================================
@@ -901,6 +1041,8 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     render,
     bindEvents,
     autosave,
+    checkpoint,
+    discardChanges,
     getContent,
     getTitle,
     getCurrentSceneId,
@@ -909,6 +1051,8 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     getVersionNumber,
     getUpdatedAt,
     getRestoreSourceVersion,
+    getRestoreExpectedVersion,
+    getRestoreExpectedUpdatedAt,
     getDraftStatus,
     isReadonly,
     insertTextAtCursor,

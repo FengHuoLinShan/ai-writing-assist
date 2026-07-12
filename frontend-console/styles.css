@@ -111,6 +111,11 @@
   /* 布局尺寸 */
   --topbar-height: 56px;
   --sidebar-width: 64px;
+  --workspace-main-share: 64fr;
+  --workspace-side-share: 18fr;
+  --workspace-rail-left-min: 176px;
+  --workspace-rail-right-min: 190px;
+  --workspace-rail-collapsed: 44px;
 
   /* === 兼容旧主题变量 === */
   --bg: var(--bg-base);
@@ -1682,6 +1687,100 @@ html, body {
   min-width: 0;
 }
 
+/* ===== 内容优先工作区辅助栏 ===== */
+.workspace-rail {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+}
+
+.workspace-rail > summary {
+  list-style: none;
+}
+
+.workspace-rail > summary::-webkit-details-marker {
+  display: none;
+}
+
+.workspace-rail__summary {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.15s var(--ease-default), background 0.15s var(--ease-default), color 0.15s var(--ease-default);
+}
+
+.workspace-rail__summary:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.workspace-rail__summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.workspace-rail__icon {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 0.18s var(--ease-default);
+}
+
+.workspace-rail:not([open]) .workspace-rail__icon {
+  transform: rotate(-45deg);
+}
+
+.workspace-rail__title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.workspace-rail__state {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.workspace-rail__body {
+  min-width: 0;
+  margin-top: var(--space-2);
+}
+
+.workspace-rail:not([open]) .workspace-rail__summary {
+  min-height: 132px;
+  height: 100%;
+  flex-direction: column;
+  justify-content: flex-start;
+  padding: var(--space-3) var(--space-2);
+}
+
+.workspace-rail:not([open]) .workspace-rail__title {
+  flex: 0 1 auto;
+  writing-mode: vertical-rl;
+  letter-spacing: 0.08em;
+}
+
+.workspace-rail:not([open]) .workspace-rail__state {
+  display: none;
+}
+
 .generate-type-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1691,9 +1790,24 @@ html, body {
 
 .writing-workspace-layout {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) 260px;
+  grid-template-columns:
+    minmax(var(--workspace-rail-left-min), var(--workspace-side-share))
+    minmax(0, var(--workspace-main-share))
+    minmax(var(--workspace-rail-right-min), var(--workspace-side-share));
   gap: 20px;
   align-items: start;
+}
+
+.writing-workspace-layout:has(.writing-tree-rail:not([open])) {
+  grid-template-columns: var(--workspace-rail-collapsed) minmax(0, 82fr) minmax(var(--workspace-rail-right-min), var(--workspace-side-share));
+}
+
+.writing-workspace-layout:has(.writing-panel-rail:not([open])) {
+  grid-template-columns: minmax(var(--workspace-rail-left-min), var(--workspace-side-share)) minmax(0, 82fr) var(--workspace-rail-collapsed);
+}
+
+.writing-workspace-layout:has(.writing-tree-rail:not([open])):has(.writing-panel-rail:not([open])) {
+  grid-template-columns: var(--workspace-rail-collapsed) minmax(0, 1fr) var(--workspace-rail-collapsed);
 }
 
 #writing-tree-container,
@@ -1706,6 +1820,16 @@ html, body {
   position: sticky;
   top: 0;
   align-self: start;
+}
+
+.writing-panel-rail[open] .workspace-rail__body {
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.writing-panel-rail .scene-cockpit {
+  max-height: calc(100vh - 200px);
 }
 
 .writing-editor-buttons,
@@ -1879,6 +2003,38 @@ html, body {
   font-family: var(--font-mono);
 }
 
+.writing-title-input {
+  display: block;
+  width: 100%;
+  margin-bottom: var(--space-2);
+  padding: var(--space-3) 28px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: var(--leading-normal);
+  transition: border-color 0.2s var(--ease-default), box-shadow 0.2s var(--ease-default);
+}
+
+.writing-title-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.writing-title-input:focus-visible {
+  border-bottom-color: var(--accent);
+  box-shadow: 0 2px 0 var(--accent-glow);
+}
+
+.writing-title-input:read-only {
+  color: var(--text-secondary);
+  cursor: default;
+}
+
 .novel-editor {
   width: 100%;
   min-height: 60vh;
@@ -1929,6 +2085,76 @@ html, body {
   transition: width 0.2s ease;
 }
 
+.writing-version-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-height: 40px;
+  margin-top: var(--space-1);
+  padding: var(--space-2) 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.writing-version-label {
+  font-weight: 600;
+}
+
+.writing-version-select-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 112px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  background: var(--bg-active);
+  color: var(--text-secondary);
+  transition: border-color 0.15s var(--ease-default), box-shadow 0.15s var(--ease-default), background 0.15s var(--ease-default);
+}
+
+.writing-version-select-wrap::after {
+  content: "";
+  position: absolute;
+  right: var(--space-3);
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+  pointer-events: none;
+}
+
+.writing-version-select-wrap:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.writing-version-select-wrap:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.writing-version-select {
+  width: 100%;
+  min-height: 30px;
+  padding: 0 var(--space-6) 0 var(--space-3);
+  border: 0;
+  outline: 0;
+  appearance: none;
+  background: transparent;
+  color: var(--text-body);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.writing-version-delete {
+  width: 32px;
+  min-width: 32px;
+  padding-inline: 0;
+}
+
 .ai-suggestion-panel {
   margin-top: 8px;
   border: 1px dashed var(--border);
@@ -1957,6 +2183,11 @@ html, body {
   grid-column: 1 / -1;
   width: 100%;
   min-width: 0;
+}
+
+.focus-mode-active .writing-tree-rail,
+.focus-mode-active .writing-panel-rail {
+  display: none;
 }
 
 .novel-editor--focus {
@@ -3551,9 +3782,37 @@ kbd {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--panel);
-  padding: var(--space-3);
+  padding: var(--space-2) var(--space-3);
   color: var(--text);
   min-width: 0;
+}
+
+.workflow-progress > summary {
+  list-style: none;
+}
+
+.workflow-progress > summary::-webkit-details-marker {
+  display: none;
+}
+
+.workflow-progress__compact {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 3px var(--space-3);
+  padding-right: var(--space-5);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.workflow-progress__compact:hover .workflow-progress__title {
+  color: var(--accent);
+}
+
+.workflow-progress__compact:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 .workflow-progress__header {
@@ -3562,6 +3821,7 @@ kbd {
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
+  grid-column: 1 / -1;
 }
 
 .workflow-progress__title {
@@ -3590,6 +3850,12 @@ kbd {
   overflow-wrap: anywhere;
 }
 
+.workflow-progress__body {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
 .workflow-progress__summary,
 .workflow-progress__destination {
   color: var(--text-secondary);
@@ -3600,19 +3866,44 @@ kbd {
 }
 
 .workflow-progress__bar {
-  height: 6px;
-  margin-top: var(--space-2);
+  display: block;
+  grid-column: 1;
+  height: 4px;
+  margin-top: 1px;
   border-radius: var(--radius-sm);
   background: var(--border);
   overflow: hidden;
 }
 
 .workflow-progress__fill {
+  display: block;
   height: 100%;
   width: 0;
   border-radius: var(--radius-sm);
   background: var(--accent);
   transition: width 0.3s ease;
+}
+
+.workflow-progress__compact > .workflow-progress__meta {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: center;
+}
+
+.workflow-progress__chevron {
+  position: absolute;
+  top: 5px;
+  right: 2px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--text-tertiary);
+  border-bottom: 2px solid var(--text-tertiary);
+  transform: rotate(45deg);
+  transition: transform 0.18s var(--ease-default);
+}
+
+.workflow-progress:not([open]) .workflow-progress__chevron {
+  transform: rotate(-45deg);
 }
 
 .workflow-progress__fill--indeterminate {
@@ -3712,7 +4003,7 @@ kbd {
 }
 
 .workflow-progress--fixed {
-  max-width: 900px;
+  max-width: 760px;
   margin: 0 auto;
 }
 
@@ -3795,8 +4086,11 @@ kbd {
 
 @media (prefers-reduced-motion: reduce) {
   .deep-import-progress--alive,
-  .deep-import-progress--alive .workflow-progress__fill {
+  .deep-import-progress--alive .workflow-progress__fill,
+  .workspace-rail__icon,
+  .workflow-progress__chevron {
     animation: none;
+    transition: none;
   }
 }
 
@@ -3807,6 +4101,19 @@ kbd {
 }
 
 /* ===== 响应式 ===== */
+@media (min-width: 761px) and (max-width: 1099px) {
+  .writing-workspace-layout,
+  .writing-workspace-layout:has(.writing-tree-rail:not([open])),
+  .writing-workspace-layout:has(.writing-panel-rail:not([open])),
+  .writing-workspace-layout:has(.writing-tree-rail:not([open])):has(.writing-panel-rail:not([open])) {
+    grid-template-columns: minmax(176px, 24fr) minmax(0, 76fr);
+  }
+
+  .writing-panel-rail {
+    grid-column: 1 / -1;
+  }
+}
+
 @media (max-width: 900px) {
   #contextual-notes {
     display: none;
@@ -3815,11 +4122,7 @@ kbd {
     margin-right: var(--space-4);
   }
 
-  .writing-workspace-layout {
-    grid-template-columns: minmax(180px, 0.35fr) minmax(0, 1fr);
-  }
-
-  #writing-panel-container {
+  .writing-panel-rail {
     grid-column: 1 / -1;
     position: static;
   }
@@ -3872,6 +4175,45 @@ kbd {
   .map-toolbar-right,
   .map-scene-bar {
     flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 760px) {
+  .writing-workspace-layout,
+  .writing-workspace-layout:has(.writing-tree-rail:not([open])),
+  .writing-workspace-layout:has(.writing-panel-rail:not([open])),
+  .writing-workspace-layout:has(.writing-tree-rail:not([open])):has(.writing-panel-rail:not([open])),
+  .world-bible-layout,
+  .world-bible-layout:has(.world-bible-nav-rail:not([open])),
+  .map-workspace-body,
+  .map-workspace-body:has(.map-dynamic-rail:not([open])) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .writing-tree-rail,
+  .writing-panel-rail,
+  .world-bible-nav-rail,
+  .map-dynamic-rail,
+  .generate-side-rail {
+    grid-column: 1 / -1;
+  }
+
+  .workspace-rail:not([open]) .workspace-rail__summary {
+    min-height: 38px;
+    height: auto;
+    flex-direction: row;
+    justify-content: flex-start;
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .workspace-rail:not([open]) .workspace-rail__title {
+    flex: 1;
+    writing-mode: horizontal-tb;
+    letter-spacing: normal;
+  }
+
+  .workspace-rail:not([open]) .workspace-rail__state {
+    display: inline;
   }
 }
 
@@ -4214,11 +4556,32 @@ kbd {
 
 .scene-workbench {
   display: grid;
-  grid-template-columns: minmax(0, 62fr) minmax(320px, 38fr);
+  grid-template-columns: minmax(0, 68fr) minmax(280px, 32fr);
   flex: 1 1 auto;
   gap: 16px;
   height: auto;
   min-height: 0;
+}
+
+.scene-workbench:has(.scene-detail-rail:not([open])) {
+  grid-template-columns: minmax(0, 1fr) var(--workspace-rail-collapsed);
+}
+
+.scene-detail-rail {
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+  flex-direction: column;
+}
+
+.scene-detail-rail > .workspace-rail__summary {
+  flex: 0 0 auto;
+}
+
+.scene-detail-rail > .workspace-rail__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
 }
 
 .scene-workbench__organize,
@@ -4642,6 +5005,8 @@ kbd {
     padding: 14px;
     overflow-y: auto;
     box-shadow: var(--shadow-lg);
+    overscroll-behavior: contain;
+    box-shadow: 0 0 0 100vmax color-mix(in srgb, var(--text-primary) 26%, transparent), var(--shadow-lg);
   }
 }
 
@@ -4677,9 +5042,13 @@ kbd {
 
 .map-workspace-body {
   display: grid;
-  grid-template-columns: minmax(520px, 1fr) minmax(260px, 320px);
+  grid-template-columns: minmax(0, 72fr) minmax(220px, 28fr);
   gap: 12px;
   align-items: start;
+}
+
+.map-workspace-body:has(.map-dynamic-rail:not([open])) {
+  grid-template-columns: minmax(0, 1fr) var(--workspace-rail-collapsed);
 }
 
 .map-workspace-main {
@@ -4810,6 +5179,10 @@ kbd {
   padding: 12px;
   background: var(--bg-surface);
   min-width: 0;
+}
+
+.map-dynamic-rail .map-dynamic-panel {
+  border-radius: var(--radius-md);
 }
 
 .map-dynamic-header {
@@ -6358,6 +6731,26 @@ kbd {
   margin-top: var(--space-2);
 }
 
+.rag-retrieval-traces {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.rag-retrieval-trace-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.rag-retrieval-trace {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: var(--line-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+}
+
 .rag-diagnostics-value {
   font-size: var(--text-md);
   color: var(--text-primary);
@@ -6493,6 +6886,13 @@ kbd {
   gap: 6px;
   color: var(--text-secondary);
   font-size: 13px;
+}
+
+.rag-search-kind-help {
+  margin: -6px 0 0;
+  color: var(--text-dim);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
 }
 
 .novel-search-scopes,
@@ -6759,8 +7159,16 @@ kbd {
 /* 世界书 */
 .world-bible-layout {
   display: grid;
-  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  grid-template-columns: minmax(176px, 20fr) minmax(0, 80fr);
   gap: var(--space-4);
+}
+
+.world-bible-layout:has(.world-bible-nav-rail:not([open])) {
+  grid-template-columns: var(--workspace-rail-collapsed) minmax(0, 1fr);
+}
+
+.world-bible-nav-rail .world-bible-page-nav {
+  width: 100%;
 }
 
 .world-bible-panel {

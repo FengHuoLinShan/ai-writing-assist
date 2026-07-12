@@ -31,6 +31,7 @@ beforeEach(() => {
   worldBibleView._conflicts = []
   worldBibleView._task = null
   worldBibleView._projectionConflictHint = null
+  worldBibleView._projectionRetryPending = false
   worldBibleView._aiOpen = false
   worldBibleView._aiMessages = []
   worldBibleView._aiOutputTarget = "chat"
@@ -150,6 +151,34 @@ describe("worldBibleView", () => {
       "投影刷新任务暂不可用，请确认后端 worker 已更新并重启后重试",
       "error",
     )
+  })
+
+  it("仅当任务动作允许时重试投影刷新并恢复轮询", async () => {
+    worldBibleView._activePage = page
+    worldBibleView._task = {
+      task_id: "task-retry",
+      task_type: "world_bible_projection_refresh",
+      status: "failed",
+      progress: 0.5,
+      error_message: "provider unavailable",
+      available_actions: ["retry"],
+    }
+    api.tasks.retry.mockResolvedValue({
+      task_id: "task-retry",
+      status: "pending",
+      attempt: 1,
+      max_attempts: 2,
+    })
+    const polling = vi.spyOn(worldBibleView, "_startProjectionPolling").mockImplementation(() => {})
+
+    expect(worldBibleView._renderProjectionStatus(page)).toContain("重试任务")
+    await expect(worldBibleView._retryProjectionTask()).resolves.toBe(true)
+
+    expect(api.tasks.retry).toHaveBeenCalledWith("task-retry", "p1")
+    expect(worldBibleView._task.status).toBe("pending")
+    expect(worldBibleView._task.error_message).toBeNull()
+    expect(polling).toHaveBeenCalledWith("task-retry", page)
+    polling.mockRestore()
   })
 
   it("bindEvents does not add duplicate click listeners on repeated renders", async () => {

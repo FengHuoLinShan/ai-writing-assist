@@ -11,6 +11,7 @@ from typing import Annotated, Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from infrastructure.llm.profiles import sanitize_project_settings
+from shared.constants import DEFAULT_LLM_MAX_TOKENS
 from shared.deep_import_settings import clean_deep_import_settings
 
 
@@ -211,7 +212,7 @@ class ProjectLLMSettingsResponse(BaseModel):
     base_url: str = "https://api.deepseek.com"
     model: str = "deepseek-v4-flash"
     timeout: int | None = 180
-    max_tokens: int | None = 4096
+    max_tokens: int | None = DEFAULT_LLM_MAX_TOKENS
     temperature: float | None = 0.3
     top_p: float | None = None
     extra: dict[str, Any] = Field(default_factory=dict)

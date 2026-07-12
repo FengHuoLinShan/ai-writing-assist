@@ -16,6 +16,7 @@ from infrastructure.llm.secret_store import (
     decrypt_secret,
     secret_configured,
 )
+from shared.constants import DEFAULT_LLM_MAX_TOKENS
 
 LLM_SETTINGS_KEY = "llm"
 LLM_API_KEY_FIELD = "api_key"
@@ -31,7 +32,7 @@ _DEFAULT_LLM_PROFILE: dict[str, Any] = {
     "base_url": "https://api.deepseek.com",
     "model": "deepseek-v4-flash",
     "timeout": 180,
-    "max_tokens": 4096,
+    "max_tokens": DEFAULT_LLM_MAX_TOKENS,
     "temperature": 0.3,
     "top_p": None,
     "extra": {},
@@ -42,7 +43,7 @@ _FLOAT_FIELDS = {"temperature", "top_p"}
 
 _DEFAULT_PROVIDER_PARAMETERS: dict[str, Any] = {
     "timeout": 180,
-    "max_tokens": 4096,
+    "max_tokens": DEFAULT_LLM_MAX_TOKENS,
     "temperature": 0.3,
     "top_p": None,
     "extra": {},
@@ -268,7 +269,7 @@ class ResolvedLLMProfile:
     base_url: str = ""
     model: str = ""
     timeout: int = 60
-    max_tokens: int = 4096
+    max_tokens: int = DEFAULT_LLM_MAX_TOKENS
     temperature: float | None = 0.3
     top_p: float | None = None
     extra: dict[str, Any] = field(default_factory=dict)
@@ -399,7 +400,10 @@ def resolve_llm_profile(
         base_url=str(values.get("base_url") or ""),
         model=str(values.get("model") or ""),
         timeout=max(int(values.get("timeout") or 60), 1),
-        max_tokens=max(int(values.get("max_tokens") or 4096), 1),
+        max_tokens=max(
+            int(values.get("max_tokens") or DEFAULT_LLM_MAX_TOKENS),
+            1,
+        ),
         temperature=_optional_float(values.get("temperature")),
         top_p=_optional_float(values.get("top_p")),
         extra=deepcopy(values.get("extra") or {}),

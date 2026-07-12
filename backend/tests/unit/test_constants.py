@@ -129,7 +129,7 @@ class TestLLM:
         assert LLM_RETRY_BASE_DELAY > 0
 
     def test_default_tokens(self):
-        assert DEFAULT_LLM_MAX_TOKENS == 4096
+        assert DEFAULT_LLM_MAX_TOKENS == 12_000
 
     def test_default_timeout(self):
         assert DEFAULT_LLM_TIMEOUT == 60

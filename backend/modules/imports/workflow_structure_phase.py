@@ -426,7 +426,7 @@ class StructureAnalysisPhaseRunner:
                     if error.get("phase") == DeepImportStep.structure_analysis.value
                 ],
             )
-            await workflow._emit_progress(progress, 1.0, on_progress)
+            await workflow._emit_progress(progress, 0.05, on_progress)
             return progress
 
         if await workflow._count_world_objects(db, novel_id) <= 0:

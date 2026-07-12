@@ -33,7 +33,7 @@ class TestSettingsEffectiveDefaults:
         assert Settings().echo_sql is False
 
     def test_effective_llm_max_tokens(self):
-        assert Settings().llm_max_tokens == 4096
+        assert Settings().llm_max_tokens == 12_000
 
     def test_effective_llm_timeout(self):
         assert Settings().llm_timeout == 180

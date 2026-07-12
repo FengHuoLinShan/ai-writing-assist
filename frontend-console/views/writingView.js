@@ -8,6 +8,7 @@
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
 import { confirmAsync } from "../shared/confirmAsync.js"
 import { applyToolsResult } from "../shared/writingToolsResult.js"
+import { renderWorkspaceRail, workspaceRailKey } from "../shared/workspaceRail.js"
 import { buildMapUrl } from "./mapRouteContext.js"
 import { createWritingSubModules } from "./writing/submodules.js"
 
@@ -88,6 +89,8 @@ const writingView = {
         versionNumber: saved.currentVersionNumber,
         isReadonly: saved.isReadonly,
         restoreSourceVersion: saved.restoreSourceVersion,
+        restoreExpectedVersion: saved.restoreExpectedVersion,
+        restoreExpectedUpdatedAt: saved.restoreExpectedUpdatedAt,
       })
     }
 
@@ -116,6 +119,8 @@ const writingView = {
       currentUpdatedAt: this._editor?.getUpdatedAt?.() ?? null,
       isReadonly: this._editor?.isReadonly?.() ?? false,
       restoreSourceVersion: this._editor?.getRestoreSourceVersion?.() ?? null,
+      restoreExpectedVersion: this._editor?.getRestoreExpectedVersion?.() ?? null,
+      restoreExpectedUpdatedAt: this._editor?.getRestoreExpectedUpdatedAt?.() ?? null,
     }
 
     this._disposeSubModules()
@@ -196,7 +201,13 @@ const writingView = {
         手动工作台 — 选择章节，撰写正文。
       </p>
       <div class="writing-workspace-layout">
-        <div id="writing-tree-container">${this._chapterTree?.render?.() ?? ""}</div>
+        ${renderWorkspaceRail({
+          key: workspaceRailKey("writing", state.currentProjectId, "chapters"),
+          title: "章节",
+          className: "writing-tree-rail workspace-rail--left",
+          defaultOpen: typeof window === "undefined" || window.innerWidth > 760,
+          content: `<div id="writing-tree-container">${this._chapterTree?.render?.() ?? ""}</div>`,
+        })}
         <div id="writing-editor-container">
           ${this._editor?.render?.() ?? ""}
           <div id="writing-versions-container">${this._versions?.render?.() ?? ""}</div>
@@ -205,7 +216,13 @@ const writingView = {
           <div id="writing-deep-import-bar-container">${this._deepImportRecovery?.renderBar?.() ?? ""}</div>
           ${this._conflictCheck?.renderStrip?.() ?? ""}
         </div>
-        <div id="writing-panel-container">${this._scenePanel?.render?.() ?? ""}</div>
+        ${renderWorkspaceRail({
+          key: workspaceRailKey("writing", state.currentProjectId, "reference"),
+          title: "写作参考",
+          className: "writing-panel-rail workspace-rail--right",
+          defaultOpen: typeof window === "undefined" || window.innerWidth > 1099,
+          content: `<div id="writing-panel-container">${this._scenePanel?.render?.() ?? ""}</div>`,
+        })}
       </div>
       ${this._outlineFloat?.render?.() ?? ""}
     `
@@ -236,6 +253,8 @@ const writingView = {
 
     bindWorkspaceClick(this, {
       "autosave": () => this._autosave(),
+      "checkpoint-version": () => this._editor?.checkpoint?.(),
+      "discard-writing-changes": () => this._editor?.discardChanges?.(),
       "publish": () => this._handlePublish(),
       "toggle-focus-mode": () => this._toggleFocusMode(),
       "toggle-outline-float": () => this._toggleOutlineFloat(),
@@ -252,6 +271,7 @@ const writingView = {
         this._scenePanel?.openMap?.()
       },
       "dismiss-deep-import": () => this._deepImportRecovery?.dismiss?.(),
+      "cancel-deep-import": () => this._deepImportRecovery?.cancel?.(),
       "resume-deep-import": () => this._deepImportRecovery?.resume?.(),
       "abandon-deep-import": () => this._deepImportRecovery?.abandon?.(),
       "view-deep-import-audit": () => this._deepImportRecovery?.showAuditDetails?.(),
@@ -328,6 +348,8 @@ const writingView = {
       if (Object.prototype.hasOwnProperty.call(this, "_isReadonly")) patch.isReadonly = this._isReadonly
       if (Object.prototype.hasOwnProperty.call(this, "_lastSavedContent")) patch.lastSavedContent = this._lastSavedContent
       if (Object.prototype.hasOwnProperty.call(this, "_restoreSourceVersion")) patch.restoreSourceVersion = this._restoreSourceVersion
+      if (Object.prototype.hasOwnProperty.call(this, "_restoreExpectedVersion")) patch.restoreExpectedVersion = this._restoreExpectedVersion
+      if (Object.prototype.hasOwnProperty.call(this, "_restoreExpectedUpdatedAt")) patch.restoreExpectedUpdatedAt = this._restoreExpectedUpdatedAt
       if (Object.prototype.hasOwnProperty.call(this, "_currentChapter")) patch.chapter = this._currentChapter
       if (Object.keys(patch).length > 0) {
         this._editor.setState(patch)
@@ -341,6 +363,8 @@ const writingView = {
       delete this._isReadonly
       delete this._lastSavedContent
       delete this._restoreSourceVersion
+      delete this._restoreExpectedVersion
+      delete this._restoreExpectedUpdatedAt
     }
   },
 
@@ -371,6 +395,9 @@ const writingView = {
     state._currentSuggestionDraftId = isSuggestionPreview ? (editor?.getDraftId?.() ?? null) : null
     state._currentVersionNumber = editor?.getVersionNumber?.() ?? null
     state._currentUpdatedAt = editor?.getUpdatedAt?.() ?? null
+    state._restoreSourceVersion = editor?.getRestoreSourceVersion?.() ?? null
+    state._restoreExpectedVersion = editor?.getRestoreExpectedVersion?.() ?? null
+    state._restoreExpectedUpdatedAt = editor?.getRestoreExpectedUpdatedAt?.() ?? null
     state._isReadonly = editor?.isReadonly?.() ?? false
     state._cursorOffset = editor?.getCursorOffset?.() ?? 0
     state._focusMode = this._focusMode
@@ -493,12 +520,17 @@ const writingView = {
       versionNumber: info.versionNumber,
       isReadonly: info.isReadonly,
       restoreSourceVersion: info.restoreSourceVersion,
+      restoreExpectedVersion: info.restoreExpectedVersion,
+      restoreExpectedUpdatedAt: info.restoreExpectedUpdatedAt,
     })
     this._syncSharedStateToSubModules()
     await this._rerender()
   },
 
-  async _onPublished() {
+  async _onPublished(result = null) {
+    if (result?.new_version !== false) {
+      this._editor?.saveBackup?.(null, null)
+    }
     await this._chapterTree.load()
     this._chapterList = this._chapterTree._getChapterList()
     this._chapters = this._chapterTree._getChapterMap()
@@ -599,6 +631,8 @@ const writingView = {
       this._currentChapter,
       this._editor.getDraftId(),
       currentScene,
+      this._editor.getVersionNumber(),
+      this._editor.getUpdatedAt(),
     )
   },
 

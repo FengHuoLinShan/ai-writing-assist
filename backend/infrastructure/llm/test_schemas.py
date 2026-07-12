@@ -32,7 +32,7 @@ class TestLLMCallRequest:
         assert req.model == "deepseek-v4-flash"
         assert req.messages == []
         assert req.temperature == 0.7
-        assert req.max_tokens == 4096
+        assert req.max_tokens is None
 
     def test_with_messages(self) -> None:
         req = LLMCallRequest(

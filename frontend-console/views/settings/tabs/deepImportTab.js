@@ -14,6 +14,9 @@ const deepImportTab = {
     const settings = di?.source === "project" ? di.value || {} : {}
     return `
       <div class="deep-import-tab">
+        <p class="settings-section-hint">
+          深度导入不继承“默认输出上限”，而是按阶段使用独立的系数、下限和上限。
+        </p>
         <p class="deep-import-source-hint">
           深度导入参数 ${renderSourceLabel(di || { source: "system", value: null })}
         </p>

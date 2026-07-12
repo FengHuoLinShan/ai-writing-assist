@@ -885,6 +885,18 @@ const api = {
       return contractJson("writing.autosave", { draftId }, { novel_id: novelId }, payload)
     },
 
+    async checkpoint(draftId, payload, novelId) {
+      return contractJson("writing.checkpoint", { draftId }, { novel_id: novelId }, payload)
+    },
+
+    async discard(draftId, novelId, expected = {}) {
+      return contractJson("writing.discard", { draftId }, {
+        novel_id: novelId,
+        expected_version: expected.expected_version,
+        expected_updated_at: expected.expected_updated_at,
+      })
+    },
+
     async adoptDraftCandidate(draftId, novelId) {
       return contractJson("writing.adoptDraftCandidate", { draftId }, { novel_id: novelId })
     },
@@ -982,7 +994,7 @@ const api = {
     },
 
     async listPromptTemplateRevisions(templateId, novelId) {
-      return request(withQuery(`/world/generation-prompt-templates/${templateId}/revisions`, { novel_id: novelId }))
+      return contractFetch("generate.listPromptTemplateRevisions", { templateId }, { novel_id: novelId })
     },
 
     async validatePromptTemplate(payload) {
@@ -1254,6 +1266,11 @@ const api = {
 
     async get(taskId, novelId = null) {
       return this.getStatus(taskId, novelId)
+    },
+
+    async cancel(taskId, novelId = null) {
+      const resolvedNovelId = novelId || globalThis.appState?.currentProjectId
+      return contractFetch("tasks.cancel", { taskId }, { novel_id: resolvedNovelId })
     },
 
     async retry(taskId, novelId = null) {

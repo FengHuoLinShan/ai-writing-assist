@@ -373,7 +373,8 @@ export function drawCandidateMarkers(ctx, markers, size, offsetX, offsetY) {
  * @param {string} factionId
  * @returns {string} 十六进制颜色字符串（如 "#7B1FA2"）
  */
-export function hashColor(factionId) {
+export function hashColor(factionId = "") {
+  factionId = String(factionId || "unassigned")
   let hash = 0
   for (let i = 0; i < factionId.length; i++) {
     hash = ((hash << 5) - hash) + factionId.charCodeAt(i)

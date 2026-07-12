@@ -1,12 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { createDeepImportRecovery } from "../../views/writing/deepImportRecovery.js"
-import { persistActiveWorkflow } from "../../shared/workflowProgress.js"
+import {
+  persistActiveWorkflow,
+  recoverActiveWorkflows,
+} from "../../shared/workflowProgress.js"
 import { resetState, clearDocument } from "../helpers.js"
 
 function createMockApi(overrides = {}) {
   return {
     tasks: {
       get: vi.fn(),
+      cancel: vi.fn(),
     },
     imports: {
       resumeDeepImport: vi.fn(),
@@ -55,6 +59,7 @@ describe("createDeepImportRecovery", () => {
     expect(manager.renderRecoveryPrompt).toBeTypeOf("function")
     expect(manager.resume).toBeTypeOf("function")
     expect(manager.abandon).toBeTypeOf("function")
+    expect(manager.cancel).toBeTypeOf("function")
     expect(manager.showAuditDetails).toBeTypeOf("function")
     expect(manager.showScenePreview).toBeTypeOf("function")
     expect(manager.applyScenePreview).toBeTypeOf("function")
@@ -88,7 +93,7 @@ describe("createDeepImportRecovery", () => {
 
     await manager.recover()
 
-    expect(api.tasks.get).toHaveBeenCalledWith("d1")
+    expect(api.tasks.get).toHaveBeenCalledWith("d1", "p1")
     const state = manager.getState()
     expect(state.taskId).toBe("d1")
     expect(state.progress.workflowType).toBe("deep_import")
@@ -143,6 +148,66 @@ describe("createDeepImportRecovery", () => {
     expect(manager.getState().taskId).toBeNull()
     expect(manager.getState().progress).toBeNull()
     expect(manager.renderBar()).toBe("")
+  })
+
+  it("confirms cancellation with the persisted project id and retains the record", async () => {
+    const api = createMockApi()
+    api.tasks.cancel.mockResolvedValue({
+      task_id: "d-cancel",
+      status: "cancelled",
+      cancelled: true,
+    })
+    const modal = createMockModal()
+    modal.confirmAction.mockImplementation((_message, onConfirm) => onConfirm())
+    const manager = createTestManager({ api, modal })
+    manager.startTask({
+      taskId: "d-cancel",
+      workflowType: "deep_import",
+      stage: "scenes",
+      label: "深度导入",
+    })
+
+    expect(manager.renderBar()).toContain('data-action="cancel-deep-import"')
+    await manager.cancel()
+
+    expect(modal.confirmAction).toHaveBeenCalledWith(
+      expect.stringContaining("确认取消当前任务"),
+      expect.any(Function),
+      "确认取消",
+    )
+    expect(api.tasks.cancel).toHaveBeenCalledWith("d-cancel", "p1")
+    expect(manager.getState().progress.phase).toBe("cancelled")
+    expect(manager.renderBar()).toContain("已取消")
+    expect(manager.renderBar()).toContain('data-action="dismiss-deep-import"')
+    expect(recoverActiveWorkflows("p1")).toHaveLength(1)
+  })
+
+  it("keeps polling and the recovery record when cancellation fails", async () => {
+    const api = createMockApi()
+    api.tasks.cancel.mockRejectedValue(new Error("取消接口暂时不可用"))
+    api.tasks.get.mockResolvedValue({
+      task_id: "d-cancel-failed",
+      task_type: "deep_import",
+      status: "running",
+      progress: 0.2,
+      result: { phase: "running" },
+    })
+    const modal = createMockModal()
+    modal.confirmAction.mockImplementation((_message, onConfirm) => onConfirm())
+    const manager = createTestManager({ api, modal })
+    manager.startTask({
+      taskId: "d-cancel-failed",
+      workflowType: "deep_import",
+      stage: "scenes",
+      label: "深度导入",
+    })
+
+    await manager.cancel()
+
+    expect(manager.getState().polling).toBe(true)
+    expect(recoverActiveWorkflows("p1")).toHaveLength(1)
+    expect(toast).toHaveBeenCalledWith("取消接口暂时不可用", "error")
+    manager.dispose()
   })
 
   it("resume calls API and restarts polling", async () => {
@@ -278,6 +343,86 @@ describe("createDeepImportRecovery", () => {
     expect(html).toContain("workflow-progress--indeterminate")
     expect(html).toContain("正在生成剧情结构")
     manager.dispose()
+  })
+
+  it("keeps the persisted workflow across transient recovery errors", async () => {
+    vi.useFakeTimers()
+    const api = createMockApi()
+    api.tasks.get
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockResolvedValue({
+        task_id: "d-transient",
+        task_type: "scene_auto_extraction",
+        status: "running",
+        progress: 0.2,
+        result: { phase: "running" },
+      })
+    persistActiveWorkflow({
+      taskId: "d-transient",
+      workflowType: "scene_auto_extraction",
+      projectId: "p1",
+      view: "writing",
+    })
+    const manager = createTestManager({ api })
+
+    await manager.recover()
+
+    expect(recoverActiveWorkflows("p1")).toHaveLength(1)
+    expect(manager.getState().progress.message).toContain("正在重试")
+
+    await vi.advanceTimersByTimeAsync(3000)
+
+    expect(api.tasks.get).toHaveBeenLastCalledWith("d-transient", "p1")
+    expect(manager.getState().progress.percent).toBe(20)
+    manager.dispose()
+  })
+
+  it("clears a persisted workflow only after a confirmed 404", async () => {
+    const api = createMockApi()
+    const notFound = new Error("not found")
+    notFound.status = 404
+    api.tasks.get.mockRejectedValue(notFound)
+    persistActiveWorkflow({
+      taskId: "d-missing",
+      workflowType: "scene_auto_extraction",
+      projectId: "p1",
+      view: "writing",
+    })
+    const manager = createTestManager({ api })
+
+    await manager.recover()
+
+    expect(recoverActiveWorkflows("p1")).toEqual([])
+    expect(manager.getState().taskId).toBeNull()
+  })
+
+  it("retains a failed workflow until the user dismisses it", async () => {
+    const api = createMockApi()
+    api.tasks.get.mockResolvedValue({
+      task_id: "d-failed",
+      task_type: "scene_auto_extraction",
+      status: "failed",
+      progress: 0.3,
+      error_message: "LLM API key is not configured",
+      result: { phase: "failed", message: "场景提取失败" },
+    })
+    persistActiveWorkflow({
+      taskId: "d-failed",
+      workflowType: "scene_auto_extraction",
+      projectId: "p1",
+      view: "writing",
+    })
+    const manager = createTestManager({ api })
+
+    await manager.recover()
+
+    expect(manager.getState().progress.phase).toBe("failed")
+    expect(manager.getState().progress.percent).toBe(30)
+    expect(recoverActiveWorkflows("p1")).toHaveLength(1)
+
+    manager.dismiss()
+
+    expect(recoverActiveWorkflows("p1")).toEqual([])
   })
 
   it("recovers a completed Scene preview and applies edited suggestions explicitly", async () => {

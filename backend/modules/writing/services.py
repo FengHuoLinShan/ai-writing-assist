@@ -57,11 +57,14 @@ from modules.writing.schemas import (
     WritingConflictCheckResponse,
     WritingConflictItemResponse,
     WritingConflictItemUpdate,
+    WritingDraftCheckpoint,
     WritingDraftCreate,
     WritingDraftResponse,
     WritingDraftUpdate,
+    WritingPublishRequest,
     project_writing_draft_state,
 )
+from modules.writing.source_hashing import has_substantive_change, hash_text
 from modules.writing.text_sanitizer import sanitize_writing_text
 from shared.utils import parse_uuid as _shared_parse_uuid
 
@@ -187,12 +190,12 @@ class WritingDraftService:
         draft = await self.create_published_draft(db, data)
         return self._to_contract(draft)
 
-    async def publish_draft(
+    async def publish_draft_result(
         self,
         db: AsyncSession,
-        data: WritingDraftCreate,
-    ) -> WritingDraftResponse:
-        """发布章节正文；最新已发布内容相同时复用版本，避免重复版本膨胀。"""
+        data: WritingPublishRequest,
+    ) -> tuple[WritingDraftResponse, bool]:
+        """发布当前工作版本，返回（版本，是否新发布）。"""
         sanitized_data, _summary = _sanitize_draft_create(data)
         nid = _parse_uuid(sanitized_data.novel_id, "novel")
         latest = await self._repo.get_latest_by_chapter(
@@ -200,15 +203,86 @@ class WritingDraftService:
             nid,
             sanitized_data.chapter_index,
         )
-        if (
-            latest is not None
-            and latest.status == "published"
-            and (latest.title or "") == (sanitized_data.title or "")
-            and (latest.content or "") == (sanitized_data.content or "")
-        ):
-            return WritingDraftResponse.model_validate(latest)
+        current = latest
+        if data.draft_id:
+            current = await self._repo.get(db, _parse_uuid(data.draft_id, "draft"))
+            if (
+                current is None
+                or current.novel_id != nid
+                or current.chapter_index != sanitized_data.chapter_index
+            ):
+                raise NotFoundError(f"Draft {data.draft_id} not found")
+            if data.restore_source_version is not None:
+                if current.version_number != data.restore_source_version:
+                    raise ConflictError("历史版本已变化，请重新选择。")
+                self._ensure_expected_snapshot(latest, data)
+                restored = await self.create_published_draft(
+                    db,
+                    sanitized_data.model_copy(
+                        update={
+                            "provenance_json": {
+                                **(sanitized_data.provenance_json or {}),
+                                "base_draft_id": str(current.id),
+                                "version_origin": "manual",
+                                "restored_from_version": current.version_number,
+                            }
+                        }
+                    ),
+                )
+                return restored, True
+            self._ensure_latest_and_expected(current, latest, data)
 
-        return await self.create_published_draft(db, sanitized_data)
+        if current is not None and current.status == "draft":
+            base = await self._get_base_draft(db, current)
+            provenance = dict(current.provenance_json or {})
+            if (
+                provenance.get("version_origin") != "manual"
+                and base is not None
+                and not has_substantive_change(base.content, sanitized_data.content)
+            ):
+                current.status = "deprecated"
+                current.provenance_json = {
+                    **provenance,
+                    "deprecated_from_status": "draft",
+                    "discard_reason": "publish_without_substantive_change",
+                }
+                db.add(current)
+                await db.flush()
+                if base.status == "draft":
+                    promoted = await self._promote_loaded_draft(db, base)
+                    return promoted, True
+                return WritingDraftResponse.model_validate(base), False
+
+            promoted = await self._promote_loaded_draft(
+                db,
+                current,
+                title=sanitized_data.title,
+                content=sanitized_data.content,
+                replace_content=True,
+            )
+            return promoted, True
+
+        if current is not None and not has_substantive_change(
+            current.content, sanitized_data.content
+        ):
+            return WritingDraftResponse.model_validate(current), False
+
+        published = await self.create_published_draft(db, sanitized_data)
+        return published, True
+
+    async def publish_draft(
+        self,
+        db: AsyncSession,
+        data: WritingDraftCreate | WritingPublishRequest,
+    ) -> WritingDraftResponse:
+        """兼容返回单个 response 的服务调用方。"""
+        publish_data = (
+            data
+            if isinstance(data, WritingPublishRequest)
+            else WritingPublishRequest(**data.model_dump())
+        )
+        result, _created = await self.publish_draft_result(db, publish_data)
+        return result
 
     async def get_draft(
         self,
@@ -303,24 +377,16 @@ class WritingDraftService:
         latest = await self._repo.get_latest_by_chapter(
             db, draft.novel_id, draft.chapter_index
         )
-        latest_version = latest.version_number if latest else draft.version_number
-        latest_updated_at = latest.updated_at if latest else draft.updated_at
-
-        if data.expected_updated_at is not None and latest_updated_at is not None:
-            db_updated_at = _as_utc_aware(latest_updated_at)
-            expected_updated_at = _as_utc_aware(data.expected_updated_at)
-            if db_updated_at > expected_updated_at:
-                raise ConflictError(
-                    "该章节已被其他会话更新（当前修改时间晚于期望时间，请刷新后重新编辑。"
-                )
-
-        if data.expected_version is not None and latest_version != data.expected_version:
-            raise ConflictError(
-                f"该章节已被其他会话更新（当前版本 v{latest_version}，"
-                f"期望版本 v{data.expected_version}）。请刷新后重新编辑。"
-            )
+        self._ensure_latest_and_expected(draft, latest, data)
         sanitized_data = _sanitize_draft_update(data)
+        next_content = (
+            sanitized_data.content
+            if sanitized_data.content is not None
+            else draft.content
+        )
         if draft.status == "published":
+            if not has_substantive_change(draft.content, next_content):
+                return WritingDraftResponse.model_validate(draft)
             copied = WritingDraftCreate(
                 novel_id=str(draft.novel_id),
                 chapter_index=draft.chapter_index,
@@ -337,16 +403,213 @@ class WritingDraftService:
                 provenance_json={
                     **(draft.provenance_json or {}),
                     "copied_from_published_draft_id": str(draft.id),
+                    "base_draft_id": str(draft.id),
+                    "version_origin": "auto",
                 },
             )
             updated = await self._repo.create(db, copied)
             updated.conflict_check_snapshot_json = draft.conflict_check_snapshot_json
             await db.flush()
+        elif (draft.provenance_json or {}).get("version_origin") == "manual":
+            if not has_substantive_change(draft.content, next_content):
+                return WritingDraftResponse.model_validate(draft)
+            copied = WritingDraftCreate(
+                novel_id=str(draft.novel_id),
+                chapter_index=draft.chapter_index,
+                title=(
+                    sanitized_data.title
+                    if sanitized_data.title is not None
+                    else draft.title
+                ),
+                content=next_content,
+                provenance_json={
+                    **(draft.provenance_json or {}),
+                    "base_draft_id": str(draft.id),
+                    "version_origin": "auto",
+                },
+            )
+            updated = await self._repo.create(db, copied)
+        elif (draft.provenance_json or {}).get("version_origin") == "auto":
+            base = await self._get_base_draft(db, draft)
+            if base is not None and not has_substantive_change(
+                base.content, next_content
+            ):
+                return await self._discard_loaded_draft(
+                    db, draft, base, "automatic_revert"
+                )
+            updated = await self._repo.update(db, draft, sanitized_data)
         else:
             updated = await self._repo.update(db, draft, sanitized_data)
         if updated is None:
             raise NotFoundError(f"Draft {draft_id} not found")
         return WritingDraftResponse.model_validate(updated)
+
+    async def checkpoint_draft(
+        self,
+        db: AsyncSession,
+        draft_id: str,
+        data: WritingDraftCheckpoint,
+        novel_id: str,
+    ) -> WritingDraftResponse:
+        draft = await self._load_scoped_latest(db, draft_id, novel_id, data)
+        sanitized = _sanitize_draft_update(data)
+        content = sanitized.content if sanitized.content is not None else draft.content
+        title = sanitized.title if sanitized.title is not None else draft.title
+        provenance = dict(draft.provenance_json or {})
+        if draft.status == "draft" and provenance.get("version_origin") == "auto":
+            base = await self._get_base_draft(db, draft)
+            if (
+                not data.force
+                and base is not None
+                and not has_substantive_change(base.content, content)
+            ):
+                raise ValidationError(
+                    "正文无实质变化；确认后可强制保存新版本"
+                )
+            updated = await self._repo.update(
+                db,
+                draft,
+                WritingDraftUpdate(title=title, content=content),
+            )
+            assert updated is not None
+            updated.provenance_json = {**provenance, "version_origin": "manual"}
+            db.add(updated)
+            await db.flush()
+            return WritingDraftResponse.model_validate(updated)
+
+        if not data.force and not has_substantive_change(draft.content, content):
+            raise ValidationError(
+                "正文无实质变化；确认后可强制保存新版本"
+            )
+
+        checkpoint = await self._repo.create(
+            db,
+            WritingDraftCreate(
+                novel_id=str(draft.novel_id),
+                chapter_index=draft.chapter_index,
+                title=title,
+                content=content,
+                provenance_json={
+                    **provenance,
+                    "base_draft_id": str(draft.id),
+                    "version_origin": "manual",
+                },
+            ),
+        )
+        return WritingDraftResponse.model_validate(checkpoint)
+
+    async def discard_draft(
+        self,
+        db: AsyncSession,
+        draft_id: str,
+        novel_id: str,
+        *,
+        expected_version: int | None = None,
+        expected_updated_at: datetime | None = None,
+    ) -> WritingDraftResponse:
+        data = WritingDraftUpdate(
+            expected_version=expected_version,
+            expected_updated_at=expected_updated_at,
+        )
+        draft = await self._load_scoped_latest(db, draft_id, novel_id, data)
+        if draft.status != "draft":
+            raise ValidationError("只能放弃未发布的工作版本")
+        base = await self._get_base_draft(db, draft)
+        if base is None:
+            raise ValidationError("当前工作版本没有可回退的基线版本")
+        return await self._discard_loaded_draft(db, draft, base, "author_discard")
+
+    async def _load_scoped_latest(
+        self,
+        db: AsyncSession,
+        draft_id: str,
+        novel_id: str,
+        data: WritingDraftUpdate,
+    ):
+        draft = await self._repo.get(db, _parse_uuid(draft_id, "draft"))
+        nid = _parse_uuid(novel_id, "novel")
+        if draft is None or draft.novel_id != nid:
+            raise NotFoundError(f"Draft {draft_id} not found")
+        latest = await self._repo.get_latest_by_chapter(db, nid, draft.chapter_index)
+        self._ensure_latest_and_expected(draft, latest, data)
+        return draft
+
+    def _ensure_latest_and_expected(self, draft, latest, data) -> None:
+        self._ensure_expected_snapshot(latest or draft, data)
+        latest_version = latest.version_number if latest else draft.version_number
+        has_expectation = (
+            data.expected_version is not None or data.expected_updated_at is not None
+        )
+        if has_expectation and latest is not None and latest.id != draft.id:
+            raise ConflictError(
+                f"当前版本不是该章节最新版本 v{latest_version}，"
+                "请刷新后重新编辑。"
+            )
+
+    def _ensure_expected_snapshot(self, latest, data) -> None:
+        if latest is None:
+            if data.expected_version is not None or data.expected_updated_at is not None:
+                raise ConflictError("该章节最新版本已变化，请刷新后重新编辑。")
+            return
+        latest_version = latest.version_number
+        latest_updated_at = latest.updated_at
+        if data.expected_updated_at is not None and latest_updated_at is not None:
+            if _as_utc_aware(latest_updated_at) > _as_utc_aware(data.expected_updated_at):
+                raise ConflictError("该章节已被其他会话更新，请刷新后重新编辑。")
+        if data.expected_version is not None and latest_version != data.expected_version:
+            raise ConflictError(
+                f"该章节已被其他会话更新（当前版本 v{latest_version}，"
+                f"期望版本 v{data.expected_version}）。请刷新后重新编辑。"
+            )
+
+    async def _promote_loaded_draft(
+        self,
+        db: AsyncSession,
+        draft,
+        *,
+        title: str | None = None,
+        content: str | None = None,
+        replace_content: bool = False,
+    ) -> WritingDraftResponse:
+        if replace_content:
+            draft.title = title
+            draft.content = content
+            draft.content_hash = hash_text(content)
+        draft.status = "published"
+        draft.provenance_json = {
+            **(draft.provenance_json or {}),
+            "published_from_draft": True,
+        }
+        db.add(draft)
+        await db.flush()
+        return WritingDraftResponse.model_validate(draft)
+
+    async def _get_base_draft(self, db: AsyncSession, draft):
+        base_id = (draft.provenance_json or {}).get("base_draft_id")
+        if base_id:
+            try:
+                base = await self._repo.get(db, _parse_uuid(base_id, "base draft"))
+            except ValidationError:
+                base = None
+            if (
+                base is not None
+                and base.novel_id == draft.novel_id
+                and base.chapter_index == draft.chapter_index
+                and base.status in WORKING_DRAFT_STATUSES
+            ):
+                return base
+        return await self._repo.get_previous_working_version(db, draft)
+
+    async def _discard_loaded_draft(self, db, draft, base, reason: str):
+        draft.provenance_json = {
+            **(draft.provenance_json or {}),
+            "deprecated_from_status": draft.status,
+            "discard_reason": reason,
+        }
+        draft.status = "deprecated"
+        db.add(draft)
+        await db.flush()
+        return WritingDraftResponse.model_validate(base)
 
     async def delete_draft(
         self,
@@ -414,6 +677,8 @@ class WritingDraftService:
         versions = await self._repo.get_version_history(db, nid, chapter_index)
         items = []
         for v in versions:
+            if v.status not in WORKING_DRAFT_STATUSES:
+                continue
             item = DraftListItem.model_validate(v)
             item.word_count = len(v.content) if v.content else 0
             items.append(item)
@@ -1240,7 +1505,6 @@ class WritingGenerationService:
                 LLMMessage(role="user", content=prompt),
             ],
             temperature=0.7,
-            max_tokens=4096,
             response_format=response_format,
         )
         response = await run_managed_generate(

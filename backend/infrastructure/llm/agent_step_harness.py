@@ -158,7 +158,7 @@ def _sanitize_profile_summary(
                 request_value, bool
             ):
                 summary[field_name] = request_value
-            elif request_value is None:
+            elif request_value is None and field_name != "max_tokens":
                 summary[field_name] = None
 
     return summary

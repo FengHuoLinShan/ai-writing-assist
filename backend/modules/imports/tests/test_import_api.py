@@ -19,13 +19,24 @@ from infrastructure.tasks.models import AsyncTask
 from modules.imports import api as import_api
 from modules.imports import services as import_services
 from modules.imports.schemas import ImportResponse
+from modules.project.models import Project
 
 
 @pytest.fixture
-async def sample_project(async_client: AsyncClient):
+async def sample_project(async_client: AsyncClient, db_session):
     resp = await async_client.post("/api/projects", json={"title": "导入 API 测试小说"})
     assert resp.status_code == 201
-    return resp.json()
+    data = resp.json()
+    project = await db_session.get(Project, uuid.UUID(data["id"]))
+    project.settings = {
+        "llm": {
+            "api_key": "sk-import-api-test",
+            "base_url": "https://example.test/v1",
+            "model": "test-model",
+        }
+    }
+    await db_session.flush()
+    return data
 
 
 @pytest.mark.asyncio
@@ -495,6 +506,35 @@ async def test_deep_import_stage_endpoints_enqueue_expected_task(
     assert "api_key" not in llm_snapshot["profile"]
     assert "base_url" not in llm_snapshot["profile"]
     assert task.result["asset_summary"]["adopted"] == 0
+
+
+@pytest.mark.asyncio
+async def test_scene_stage_rejects_missing_llm_key_without_enqueue(
+    async_client: AsyncClient,
+    db_session,
+) -> None:
+    project_resp = await async_client.post(
+        "/api/projects",
+        json={"title": "无 LLM 配置项目"},
+    )
+    novel_id = project_resp.json()["id"]
+
+    resp = await async_client.post(
+        "/api/imports/stages/scenes",
+        json={
+            "novel_id": novel_id,
+            "start_chapter": 1,
+            "end_chapter": 5,
+            "authorization_confirmed": True,
+        },
+    )
+
+    assert resp.status_code == 400
+    assert "API key" in resp.json()["detail"]
+    result = await db_session.execute(
+        select(AsyncTask).where(AsyncTask.meta["novel_id"].as_string() == novel_id)
+    )
+    assert result.scalars().all() == []
 
 
 @pytest.mark.asyncio

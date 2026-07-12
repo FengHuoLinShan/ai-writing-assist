@@ -9,8 +9,20 @@ export function renderSourceLabel({ source, value }) {
       : source === "unset"
         ? "source-label source-unset"
         : "source-label source-system"
-  const valStr = value === null || value === undefined ? "—" : String(value)
+  const valStr = formatSourceValue(value)
   return `<span class="${cls}">${label}</span><small class="source-value">${esc(valStr)}</small>`
+}
+
+function formatSourceValue(value) {
+  if (value === null || value === undefined) return "—"
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value)
+    } catch {
+      return "—"
+    }
+  }
+  return String(value)
 }
 
 export function resettableField(fieldName, opts = {}) {

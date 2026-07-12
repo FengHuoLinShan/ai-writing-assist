@@ -68,7 +68,7 @@ test.describe("深度导入流水线", () => {
     await expect(page.locator(SEL.modalTitle)).toContainText("场景（scene）自动提取")
 
     // Step 4: Mock 深度导入 API 以加速测试
-    await page.route("**/api/imports/deep", async (route) => {
+    await page.route("**/api/imports/stages/scenes", async (route) => {
       await route.fulfill({
         status: 200,
         body: JSON.stringify({ task_id: `mock-deep-import-${Date.now()}` }),
@@ -107,6 +107,9 @@ test.describe("深度导入流水线", () => {
 
     // 使用 context.route 确保路由在整个浏览器上下文中有效
     await page.context().route(`**/api/tasks/${mockTaskId}**`, async (route) => {
+      expect(new URL(route.request().url()).searchParams.get("novel_id")).toBe(
+        testProjectId,
+      )
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -154,6 +157,165 @@ test.describe("深度导入流水线", () => {
       "Phase: entity_extraction",
       { timeout: 10000 },
     )
+  })
+
+  test("刷新恢复遇到 503 会保留记录并退避重试", async ({ page }) => {
+    const mockTaskId = `mock-transient-task-${Date.now()}`
+    let queryCount = 0
+    await page.context().route(`**/api/tasks/${mockTaskId}**`, async (route) => {
+      expect(new URL(route.request().url()).searchParams.get("novel_id")).toBe(
+        testProjectId,
+      )
+      queryCount += 1
+      if (queryCount === 1) {
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ detail: "temporary unavailable" }),
+        })
+        return
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          task_id: mockTaskId,
+          task_type: "scene_auto_extraction",
+          status: "running",
+          progress: 0.2,
+          result: { phase: "running", current_step: "entity_extraction" },
+        }),
+      })
+    })
+    await page.evaluate(({ tid, projectId }) => {
+      localStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+        id: `${projectId}:scene_auto_extraction:${tid}`,
+        taskId: tid,
+        workflowType: "scene_auto_extraction",
+        projectId,
+        view: "writing",
+      }]))
+    }, { tid: mockTaskId, projectId: testProjectId })
+
+    await page.evaluate(() => window.router.navigate("project"))
+    await page.waitForFunction(() => !state.loading)
+    await page.evaluate(() => window.router.navigate("writing"))
+    await page.waitForFunction(() => !state.loading)
+
+    await expect(page.locator("#writing-deep-import-bar-container")).toContainText(
+      "任务状态查询暂时不可用",
+    )
+    await expect(page.locator("#writing-deep-import-bar-container")).toContainText(
+      "Phase: entity_extraction",
+      { timeout: 10000 },
+    )
+    const retained = await page.evaluate(() => (
+      JSON.parse(localStorage.getItem("novel_active_workflows_v1") || "[]")
+    ))
+    expect(retained).toHaveLength(1)
+  })
+
+  test("运行中任务经二次确认后取消", async ({ page }) => {
+    const mockTaskId = `mock-cancel-task-${Date.now()}`
+    let cancelRequestSeen = false
+    await page.context().route(`**/api/tasks/${mockTaskId}**`, async (route) => {
+      const request = route.request()
+      expect(new URL(request.url()).searchParams.get("novel_id")).toBe(testProjectId)
+      if (request.method() === "POST" && request.url().includes("/cancel")) {
+        cancelRequestSeen = true
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            task_id: mockTaskId,
+            status: "cancelled",
+            cancelled: true,
+          }),
+        })
+        return
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          task_id: mockTaskId,
+          task_type: "scene_auto_extraction",
+          status: "running",
+          progress: 0.2,
+          result: { phase: "running", current_step: "entity_extraction" },
+        }),
+      })
+    })
+    await page.evaluate(({ tid, projectId }) => {
+      localStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+        id: `${projectId}:scene_auto_extraction:${tid}`,
+        taskId: tid,
+        workflowType: "scene_auto_extraction",
+        projectId,
+        view: "writing",
+      }]))
+    }, { tid: mockTaskId, projectId: testProjectId })
+
+    await page.evaluate(() => window.router.navigate("project"))
+    await page.waitForFunction(() => !state.loading)
+    await page.evaluate(() => window.router.navigate("writing"))
+    await page.waitForFunction(() => !state.loading)
+
+    const bar = page.locator("#writing-deep-import-bar-container")
+    await expect(bar.locator('[data-action="cancel-deep-import"]')).toBeVisible()
+    await bar.locator('[data-action="cancel-deep-import"]').click()
+    await expect(page.locator(SEL.modalTitle)).toContainText("确认")
+    await page.locator("#modal-footer").getByRole("button", { name: "确认取消" }).click()
+
+    await expect(bar).toContainText("已取消")
+    expect(cancelRequestSeen).toBe(true)
+    expect(await page.evaluate(() => (
+      JSON.parse(localStorage.getItem("novel_active_workflows_v1") || "[]").length
+    ))).toBe(1)
+  })
+
+  test("失败任务刷新后保留，直到用户关闭", async ({ page }) => {
+    const mockTaskId = `mock-failed-task-${Date.now()}`
+    await page.context().route(`**/api/tasks/${mockTaskId}**`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          task_id: mockTaskId,
+          task_type: "scene_auto_extraction",
+          status: "failed",
+          progress: 0.3,
+          error_message: "Project LLM API key is not configured",
+          result: { phase: "failed", message: "场景自动提取失败" },
+        }),
+      })
+    })
+    await page.evaluate(({ tid, projectId }) => {
+      localStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+        id: `${projectId}:scene_auto_extraction:${tid}`,
+        taskId: tid,
+        workflowType: "scene_auto_extraction",
+        projectId,
+        view: "writing",
+      }]))
+    }, { tid: mockTaskId, projectId: testProjectId })
+
+    await page.evaluate(() => window.router.navigate("project"))
+    await page.waitForFunction(() => !state.loading)
+    await page.evaluate(() => window.router.navigate("writing"))
+    await page.waitForFunction(() => !state.loading)
+
+    const bar = page.locator("#writing-deep-import-bar-container")
+    await expect(bar).toContainText("失败")
+    await expect(bar).toContainText("30%")
+    expect(await page.evaluate(() => (
+      JSON.parse(localStorage.getItem("novel_active_workflows_v1") || "[]").length
+    ))).toBe(1)
+
+    await bar.locator('[data-action="dismiss-deep-import"]').click()
+    expect(await page.evaluate(() => (
+      JSON.parse(localStorage.getItem("novel_active_workflows_v1") || "[]").length
+    ))).toBe(0)
   })
 
   test("无章节时场景自动提取入口不显示", async ({ page }) => {

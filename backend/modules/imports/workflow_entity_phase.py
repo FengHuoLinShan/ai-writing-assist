@@ -358,7 +358,7 @@ class EntityExtractionPhaseRunner:
                     if error.get("phase") == DeepImportStep.entity_extraction.value
                 ],
             )
-            await workflow._emit_progress(progress, 1.0, on_progress)
+            await workflow._emit_progress(progress, 0.05, on_progress)
             return progress
 
         async def _on_scene_progress(
@@ -472,7 +472,11 @@ class EntityExtractionPhaseRunner:
         workflow._finish_phase(
             progress,
             "entity_extraction",
-            status="degraded" if progress.degraded else "completed",
+            status=(
+                "failed"
+                if progress.phase == "failed"
+                else ("degraded" if progress.degraded else "completed")
+            ),
             details=progress.quality_stats.get("phase2"),
             error_kind=progress.degraded_reason,
             error_message=progress.message if progress.phase == "failed" else None,
@@ -497,7 +501,11 @@ class EntityExtractionPhaseRunner:
                 if error.get("phase") == DeepImportStep.entity_extraction.value
             ],
         )
-        await workflow._emit_progress(progress, 1.0, on_progress)
+        await workflow._emit_progress(
+            progress,
+            1.0 if progress.phase == "done" else 0.95,
+            on_progress,
+        )
         return progress
 
     async def _maybe_repair_phase2a(

@@ -196,6 +196,8 @@ globalThis.api = {
     getDraft: vi.fn(),
     get: vi.fn(),
     autosave: vi.fn(),
+    checkpoint: vi.fn(),
+    discard: vi.fn(),
     autosaveDraftOnly: vi.fn(),
     saveDraft: vi.fn(),
     publish: vi.fn(),

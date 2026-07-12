@@ -27,6 +27,9 @@ beforeEach(() => {
   clearDocument()
   localStorage.clear()
   vi.clearAllMocks()
+  state._restoreSourceVersion = null
+  state._restoreExpectedVersion = null
+  state._restoreExpectedUpdatedAt = null
 })
 
 afterEach(() => {
@@ -75,6 +78,84 @@ describe("createPublishManager", () => {
     }))
     expect(onStatusChange).toHaveBeenCalledWith("发布成功")
     expect(onPublished).toHaveBeenCalledWith(result)
+  })
+
+  it("keeps local formatting edits when backend reuses published version", async () => {
+    state.currentProjectId = "p1"
+    api.writing.publish.mockResolvedValue({ new_version: false, task_id: null })
+    const onStatusChange = vi.fn()
+    const onPublished = vi.fn()
+    const manager = createTestManager({ onStatusChange, onPublished })
+
+    await manager.publish(" 正文 ", "标题", 1, "d1", null, 1, "2026-07-12T00:00:00Z")
+
+    expect(onPublished).not.toHaveBeenCalled()
+    expect(onStatusChange).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("正文无实质变化，已沿用当前发布版本", "info")
+  })
+
+  it("publishes a restored version against the latest history snapshot", async () => {
+    state.currentProjectId = "p1"
+    state._restoreSourceVersion = 1
+    state._restoreExpectedVersion = 3
+    state._restoreExpectedUpdatedAt = "2026-07-03T00:00:00Z"
+    api.writing.publish.mockResolvedValue({ task_id: null, new_version: true })
+    const manager = createTestManager()
+
+    await manager.publish(
+      "恢复内容",
+      "标题",
+      1,
+      "d1",
+      null,
+      1,
+      "2026-07-01T00:00:00Z",
+    )
+
+    expect(api.writing.publish).toHaveBeenCalledWith(expect.objectContaining({
+      draft_id: "d1",
+      restore_source_version: 1,
+      expected_version: 3,
+      expected_updated_at: "2026-07-03T00:00:00Z",
+    }))
+  })
+
+  it("retries restoration with the snapshot captured by the first request", async () => {
+    state.currentProjectId = "p1"
+    state._restoreSourceVersion = 1
+    state._restoreExpectedVersion = 3
+    state._restoreExpectedUpdatedAt = "2026-07-03T00:00:00Z"
+    api.writing.publish.mockResolvedValue({ task_id: null, new_version: true })
+    const manager = createTestManager()
+
+    await manager.publish("恢复内容", "标题", 1, "d1", null, 1, null)
+    state._restoreSourceVersion = 2
+    state._restoreExpectedVersion = 9
+    state._restoreExpectedUpdatedAt = "2026-07-09T00:00:00Z"
+    await manager.retry()
+
+    expect(api.writing.publish).toHaveBeenLastCalledWith(expect.objectContaining({
+      restore_source_version: 1,
+      expected_version: 3,
+      expected_updated_at: "2026-07-03T00:00:00Z",
+    }))
+  })
+
+  it("restore conflict reports an error without publishing success", async () => {
+    state.currentProjectId = "p1"
+    state._restoreSourceVersion = 1
+    state._restoreExpectedVersion = 2
+    api.writing.publish.mockRejectedValue({ status: 409, message: "该章节已被其他会话更新" })
+    const onStatusChange = vi.fn()
+    const onPublished = vi.fn()
+    const manager = createTestManager({ onStatusChange, onPublished })
+
+    await manager.publish("恢复内容", "标题", 1, "d1", null, 1, null)
+
+    expect(toast).toHaveBeenCalledWith("该章节已被其他会话更新", "error")
+    expect(onStatusChange).toHaveBeenCalledWith("发布失败")
+    expect(onStatusChange).not.toHaveBeenCalledWith("发布成功")
+    expect(onPublished).not.toHaveBeenCalled()
   })
 
   it("starts polling when task_id returned", async () => {

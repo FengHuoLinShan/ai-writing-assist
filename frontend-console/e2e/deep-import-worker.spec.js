@@ -122,6 +122,8 @@ test.describe("深度导入异步 Worker 受理", () => {
           novel_id: projectId,
           start_chapter: 1,
           end_chapter: 3,
+          adoption_policy: "user_authorized_pipeline",
+          authorization_confirmed: true,
         }),
       })
       if (!deepResp.ok) {

@@ -29,7 +29,10 @@ from modules.imports.llm_schemas import (
     SceneEntityExtractionOutput,
     SceneSegmentationOutput,
 )
-from modules.imports.orchestrator import DeepImportOrchestrator
+from modules.imports.orchestrator import (
+    DeepImportOrchestrator,
+    DeepImportWorkflowFailedError,
+)
 from modules.imports.phase2_world_extraction import (
     PHASE2_WORLD_WINDOW_CONCURRENCY,
     Phase2WorldExtractor,
@@ -64,6 +67,7 @@ from modules.imports.workflow_structure_phase import (
     ensure_minimum_structure_outputs,
     phase3_quality_stats,
 )
+from modules.project.contracts import ProjectLLMConfigurationError
 from modules.writing.contracts import WritingDraftContract
 from shared.deep_import_settings import DEEP_IMPORT_DEFAULT_SETTINGS
 
@@ -2784,6 +2788,7 @@ class TestDeepImportWorkflowAutoRun:
         assert "1-3" in chapter_ranges
         assert None not in chapter_ranges
         assert emitted_values, "progress should be emitted during phase1"
+        assert emitted_values == sorted(emitted_values)
         assert 0.0 in emitted_values or any(v <= 0.1 for v in emitted_values)
         assert any(v >= 0.4 for v in emitted_values)
 
@@ -3570,6 +3575,30 @@ class TestDeepImportOrchestrator:
             )
 
     @pytest.mark.asyncio
+    async def test_start_does_not_enqueue_when_llm_preflight_fails(self):
+        orchestrator = DeepImportOrchestrator()
+        orchestrator._build_llm_execution_snapshot = AsyncMock(
+            side_effect=ProjectLLMConfigurationError(
+                "Project LLM API key is not configured"
+            )
+        )
+        orchestrator._check_duplicate_import = AsyncMock()
+        orchestrator._enqueue_deep_import = Mock()
+
+        with pytest.raises(ProjectLLMConfigurationError, match="API key"):
+            await orchestrator.start(
+                db=AsyncMock(),
+                novel_id="novel-1",
+                start_chapter=1,
+                end_chapter=3,
+                force=True,
+                authorization_confirmed=True,
+            )
+
+        orchestrator._check_duplicate_import.assert_not_awaited()
+        orchestrator._enqueue_deep_import.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_start_returns_confirmation_without_enqueue_when_duplicates_exist(self):
         orchestrator = DeepImportOrchestrator()
         orchestrator._check_duplicate_import = AsyncMock(return_value="已有派生数据")
@@ -4310,6 +4339,51 @@ class TestDeepImportOrchestrator:
             }
         ]
         task.update_progress.assert_called_once_with(0.25)
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_run_task_keeps_progress_monotonic(self):
+        orchestrator = DeepImportOrchestrator()
+
+        async def run_step(*_args, on_progress=None, **_kwargs):
+            progress = DeepImportProgress(phase="running")
+            await on_progress(progress, 0.25)
+            return DeepImportProgress(phase="done", message="完成")
+
+        orchestrator.workflow.run_step = AsyncMock(side_effect=run_step)
+        task = Mock(
+            id=uuid.uuid4(),
+            meta=_authorized_task_meta("n1"),
+            progress=0.4,
+        )
+        task.update_progress = Mock()
+
+        await orchestrator.run_task(AsyncMock(), task)
+
+        task.update_progress.assert_called_once_with(0.4)
+
+    @pytest.mark.asyncio
+    async def test_run_task_raises_after_persisting_failed_progress(self):
+        orchestrator = DeepImportOrchestrator()
+        failed = DeepImportProgress(
+            phase="failed",
+            quality_status="failed",
+            message="Scene 提交失败",
+        )
+        orchestrator.workflow.run_step = AsyncMock(return_value=failed)
+        task = Mock(
+            id=uuid.uuid4(),
+            meta=_authorized_task_meta("n1"),
+            progress=0.3,
+        )
+        task.update_progress = Mock()
+        db = AsyncMock()
+
+        with pytest.raises(DeepImportWorkflowFailedError, match="Scene 提交失败"):
+            await orchestrator.run_task(db, task)
+
+        assert task.result["phase"] == "failed"
+        task.update_progress.assert_called_once_with(0.3)
         db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio

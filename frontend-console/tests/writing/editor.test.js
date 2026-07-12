@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { createEditor } from "../../views/writing/editor.js"
-import { resetState, clearDocument } from "../helpers.js"
+import { resetState, clearDocument, autoConfirm } from "../helpers.js"
 
 function createTestEditor(overrides = {}) {
   return createEditor({
@@ -191,6 +191,213 @@ describe("createEditor", () => {
     )
     expect(editor.getDraftId()).toBe("working-2")
     expect(state._currentDraftId).toBe("working-2")
+  })
+
+  it("保存进行中再次编辑会在前一次完成后继续暂存", async () => {
+    state.currentProjectId = "p1"
+    api.writing.get.mockResolvedValue({
+      id: "published-1",
+      content: "原文",
+      title: "第一章",
+      version_number: 1,
+      status: "published",
+    })
+    let resolveFirst
+    let resolveSecond
+    api.writing.autosave
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve }))
+    let editor
+    editor = createTestEditor({
+      onVersionChanged: async () => editor.updateMeta(),
+    })
+    await editor.loadChapter(1, { draftId: "published-1" })
+    document.body.innerHTML = editor.render()
+    editor.bindEvents(document.body)
+    const textarea = document.getElementById("writing-editor")
+    textarea.value = "第一次修改"
+    textarea.dispatchEvent(new Event("input"))
+    const firstSave = editor.autosave()
+    textarea.value = "第二次修改"
+    textarea.dispatchEvent(new Event("input"))
+    const secondSave = editor.autosave()
+    resolveFirst({
+      id: "working-2",
+      content: "第一次修改",
+      title: "第一章",
+      version_number: 2,
+      status: "draft",
+      provenance_json: { version_origin: "auto", base_draft_id: "published-1" },
+    })
+
+    await vi.waitFor(() => expect(api.writing.autosave).toHaveBeenCalledTimes(2))
+
+    expect(document.getElementById("writing-editor").value).toBe("第二次修改")
+    expect(localStorage.getItem("draft_backup_p1_1")).toContain("第二次修改")
+    resolveSecond({
+      id: "working-2",
+      content: "第二次修改",
+      title: "第一章",
+      version_number: 2,
+      status: "draft",
+      provenance_json: { version_origin: "auto", base_draft_id: "published-1" },
+    })
+
+    await Promise.all([firstSave, secondSave])
+
+    expect(api.writing.autosave).toHaveBeenCalledTimes(2)
+    expect(api.writing.autosave).toHaveBeenLastCalledWith(
+      "working-2",
+      expect.objectContaining({ content: "第二次修改", expected_version: 2 }),
+      "p1",
+    )
+    expect(localStorage.getItem("draft_backup_p1_1")).toBeNull()
+  })
+
+  it("保存历史恢复所需的最新版本快照", async () => {
+    state.currentProjectId = "p1"
+    api.writing.get.mockResolvedValue({
+      id: "d1",
+      content: "旧版本",
+      title: "旧标题",
+      version_number: 1,
+      updated_at: "2026-07-01T00:00:00Z",
+      status: "published",
+    })
+    const editor = createTestEditor()
+
+    await editor.loadChapter(1, {
+      draftId: "d1",
+      versionNumber: 1,
+      isReadonly: false,
+      restoreSourceVersion: 1,
+      restoreExpectedVersion: 3,
+      restoreExpectedUpdatedAt: "2026-07-03T00:00:00Z",
+    })
+
+    expect(editor.getRestoreSourceVersion()).toBe(1)
+    expect(editor.getRestoreExpectedVersion()).toBe(3)
+    expect(editor.getRestoreExpectedUpdatedAt()).toBe("2026-07-03T00:00:00Z")
+  })
+
+  it("纯空白修改只保存本地且不请求自动版本", async () => {
+    state.currentProjectId = "p1"
+    api.writing.getVersionHistory.mockResolvedValue({ versions: [{ id: "published-1", version_number: 1 }] })
+    api.writing.get.mockResolvedValue({
+      id: "published-1",
+      content: "甲\n乙",
+      title: "第一章",
+      version_number: 1,
+      status: "published",
+    })
+    const editor = createTestEditor()
+    await editor.loadChapter(1)
+    document.body.innerHTML = editor.render()
+    editor.bindEvents(document.body)
+    const textarea = document.getElementById("writing-editor")
+    textarea.value = " \u3000甲\t\n\n乙 "
+    textarea.dispatchEvent(new Event("input"))
+
+    await editor.autosave()
+
+    expect(api.writing.autosave).not.toHaveBeenCalled()
+    expect(editor.saveStatusText()).toBe("仅本地修改")
+    expect(localStorage.getItem("draft_backup_p1_1")).toContain("甲")
+  })
+
+  it("撤销 auto 版本时保留纯排版和标题本地修改", async () => {
+    state.currentProjectId = "p1"
+    api.writing.get.mockResolvedValue({
+      id: "working-2",
+      content: "新正文",
+      title: "第一章",
+      version_number: 2,
+      status: "draft",
+      provenance_json: { version_origin: "auto", base_draft_id: "published-1" },
+    })
+    api.writing.autosave.mockResolvedValue({
+      id: "published-1",
+      content: "甲\n乙",
+      title: "第一章",
+      version_number: 1,
+      status: "published",
+    })
+    const editor = createTestEditor()
+    await editor.loadChapter(1, { draftId: "working-2" })
+    document.body.innerHTML = editor.render()
+    document.getElementById("writing-editor").value = " 甲\n\n乙 "
+    document.getElementById("writing-title-input").value = "新标题"
+
+    await editor.autosave()
+
+    expect(editor.getDraftId()).toBe("published-1")
+    expect(editor.getContent()).toBe(" 甲\n\n乙 ")
+    expect(editor.getTitle()).toBe("新标题")
+    expect(editor.saveStatusText()).toBe("仅本地修改")
+    expect(localStorage.getItem("draft_backup_p1_1")).toContain("新标题")
+  })
+
+  it("可强制保存无实质变化的新版本", async () => {
+    state.currentProjectId = "p1"
+    api.writing.get.mockResolvedValue({
+      id: "published-1",
+      content: "正文",
+      title: "第一章",
+      version_number: 1,
+      status: "published",
+    })
+    api.writing.checkpoint.mockResolvedValue({
+      id: "manual-2",
+      content: "正文",
+      title: "第一章",
+      version_number: 2,
+      status: "draft",
+      provenance_json: { version_origin: "manual", base_draft_id: "published-1" },
+    })
+    autoConfirm()
+    const editor = createTestEditor()
+    await editor.loadChapter(1, { draftId: "published-1" })
+
+    await editor.checkpoint()
+
+    expect(api.writing.checkpoint).toHaveBeenCalledWith(
+      "published-1",
+      expect.objectContaining({ force: true }),
+      "p1",
+    )
+    expect(editor.getDraftId()).toBe("manual-2")
+  })
+
+  it("显式放弃未发布版本后回到基线", async () => {
+    state.currentProjectId = "p1"
+    api.writing.get.mockResolvedValue({
+      id: "working-2",
+      content: "修改",
+      title: "第一章",
+      version_number: 2,
+      status: "draft",
+      provenance_json: { version_origin: "auto", base_draft_id: "published-1" },
+    })
+    api.writing.discard.mockResolvedValue({
+      id: "published-1",
+      content: "原文",
+      title: "第一章",
+      version_number: 1,
+      status: "published",
+    })
+    autoConfirm()
+    const editor = createTestEditor()
+    await editor.loadChapter(1, { draftId: "working-2" })
+
+    await editor.discardChanges()
+
+    expect(api.writing.discard).toHaveBeenCalledWith(
+      "working-2",
+      "p1",
+      expect.objectContaining({ expected_version: 2 }),
+    )
+    expect(editor.getDraftId()).toBe("published-1")
+    expect(editor.getContent()).toBe("原文")
   })
 
   it("按 draftId 加载只读版本", async () => {

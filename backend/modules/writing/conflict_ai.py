@@ -25,7 +25,6 @@ logger = logging.getLogger(__name__)
 
 AI_REVIEW_ACTION = "writing.conflict_check.ai_review"
 AI_SUGGESTION_ACTION = "writing.conflict_check.ai_suggestion"
-WRITING_CONFLICT_AI_MAX_TOKENS = 20000
 
 
 def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
@@ -122,7 +121,6 @@ class ConflictCheckAiReviewService:
                         ),
                     ],
                     temperature=0.2,
-                    max_tokens=WRITING_CONFLICT_AI_MAX_TOKENS,
                 ),
                 WritingConflictAiReviewRawOutput,
                 step_name="writing.conflict_check.ai_review.structured",
@@ -293,7 +291,6 @@ class ConflictSuggestionService:
                         ),
                     ],
                     temperature=0.3,
-                    max_tokens=WRITING_CONFLICT_AI_MAX_TOKENS,
                 ),
                 WritingConflictSuggestionOutput,
                 step_name="writing.conflict_check.ai_suggestion.structured",

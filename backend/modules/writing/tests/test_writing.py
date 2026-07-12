@@ -1873,12 +1873,364 @@ class TestWritingPublishApi:
         assert data3["draft"]["id"] == data2["draft"]["id"]
         assert data3["draft"]["version_number"] == 2
         assert data3["draft"]["status"] == "published"
-        assert data3["task_id"] is not None
-        assert data3["task_id"] != task_id_2
+        assert data3["task_id"] is None
+        assert data3["new_version"] is False
 
         service = WritingDraftService()
         history = await service.get_version_history(db_session, novel_id, 1)
         assert history.total == 2
+
+    @pytest.mark.asyncio
+    async def test_autosave_ignores_whitespace_only_change_to_published(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        published = (
+            await async_client.post(
+                "/api/writing/drafts",
+                json={
+                    "novel_id": novel_id,
+                    "chapter_index": 1,
+                    "title": "第一章",
+                    "content": "甲\n乙",
+                },
+            )
+        ).json()["draft"]
+
+        response = await async_client.put(
+            f"/api/writing/drafts/{published['id']}?novel_id={novel_id}",
+            json={
+                "title": "标题也不触发版本",
+                "content": " \u3000甲\t\n\n乙 ",
+                "expected_version": 1,
+                "expected_updated_at": published["updated_at"],
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["id"] == published["id"]
+        history = await async_client.get(
+            f"/api/writing/chapters/1/versions?novel_id={novel_id}"
+        )
+        assert history.json()["total"] == 1
+
+    @pytest.mark.asyncio
+    async def test_auto_working_version_can_revert_to_published_baseline(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        published = (
+            await async_client.post(
+                "/api/writing/drafts",
+                json={"novel_id": novel_id, "chapter_index": 1, "content": "旧正文"},
+            )
+        ).json()["draft"]
+        changed = (
+            await async_client.put(
+                f"/api/writing/drafts/{published['id']}?novel_id={novel_id}",
+                json={
+                    "content": "新正文",
+                    "expected_version": 1,
+                    "expected_updated_at": published["updated_at"],
+                },
+            )
+        ).json()
+        assert changed["version_number"] == 2
+        assert changed["provenance_json"]["version_origin"] == "auto"
+
+        reverted = await async_client.put(
+            f"/api/writing/drafts/{changed['id']}?novel_id={novel_id}",
+            json={
+                "content": " 旧 \n 正文 ",
+                "expected_version": 2,
+                "expected_updated_at": changed["updated_at"],
+            },
+        )
+        assert reverted.status_code == 200
+        assert reverted.json()["id"] == published["id"]
+        history = await async_client.get(
+            f"/api/writing/chapters/1/versions?novel_id={novel_id}"
+        )
+        assert [item["version_number"] for item in history.json()["versions"]] == [1]
+
+    @pytest.mark.asyncio
+    async def test_checkpoint_and_publish_promote_without_extra_version(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        published = (
+            await async_client.post(
+                "/api/writing/drafts",
+                json={"novel_id": novel_id, "chapter_index": 1, "content": "v1"},
+            )
+        ).json()["draft"]
+        working = (
+            await async_client.put(
+                f"/api/writing/drafts/{published['id']}?novel_id={novel_id}",
+                json={"content": "v2", "expected_version": 1},
+            )
+        ).json()
+        checkpoint = await async_client.post(
+            f"/api/writing/drafts/{working['id']}/checkpoint?novel_id={novel_id}",
+            json={"content": "v2", "expected_version": 2},
+        )
+        assert checkpoint.status_code == 200
+        assert checkpoint.json()["id"] == working["id"]
+        assert checkpoint.json()["provenance_json"]["version_origin"] == "manual"
+
+        published_v2 = await async_client.post(
+            "/api/writing/drafts",
+            json={
+                "novel_id": novel_id,
+                "chapter_index": 1,
+                "content": "v2",
+                "draft_id": working["id"],
+                "expected_version": 2,
+            },
+        )
+        assert published_v2.status_code == 201
+        assert published_v2.json()["draft"]["id"] == working["id"]
+        assert published_v2.json()["draft"]["version_number"] == 2
+        assert published_v2.json()["draft"]["status"] == "published"
+        assert published_v2.json()["task_id"] is not None
+
+    @pytest.mark.asyncio
+    async def test_publish_reverted_auto_promotes_manual_baseline(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        published = (
+            await async_client.post(
+                "/api/writing/drafts",
+                json={"novel_id": novel_id, "chapter_index": 1, "content": "v1"},
+            )
+        ).json()["draft"]
+        auto_v2 = (
+            await async_client.put(
+                f"/api/writing/drafts/{published['id']}?novel_id={novel_id}",
+                json={"content": "v2", "expected_version": 1},
+            )
+        ).json()
+        manual_v2 = (
+            await async_client.post(
+                f"/api/writing/drafts/{auto_v2['id']}/checkpoint?novel_id={novel_id}",
+                json={"content": "v2", "expected_version": 2},
+            )
+        ).json()
+        auto_v3 = (
+            await async_client.put(
+                f"/api/writing/drafts/{manual_v2['id']}?novel_id={novel_id}",
+                json={"content": "v3", "expected_version": 2},
+            )
+        ).json()
+        tasks_before = list((await db_session.execute(select(AsyncTask))).scalars())
+
+        response = await async_client.post(
+            "/api/writing/drafts",
+            json={
+                "novel_id": novel_id,
+                "chapter_index": 1,
+                "content": "v2",
+                "draft_id": auto_v3["id"],
+                "expected_version": 3,
+            },
+        )
+
+        assert response.status_code == 201
+        body = response.json()
+        assert body["new_version"] is True
+        assert body["task_id"] is not None
+        assert body["draft"]["id"] == manual_v2["id"]
+        assert body["draft"]["version_number"] == 2
+        assert body["draft"]["status"] == "published"
+        assert body["draft"]["content"] == "v2"
+        assert body["draft"]["content_hash"] == manual_v2["content_hash"]
+        tasks_after = list((await db_session.execute(select(AsyncTask))).scalars())
+        assert len(tasks_after) == len(tasks_before) + 1
+        discarded = await WritingDraftRepository().get(
+            db_session, uuid.UUID(auto_v3["id"])
+        )
+        assert discarded is not None
+        assert discarded.status == "deprecated"
+        history = await async_client.get(
+            f"/api/writing/chapters/1/versions?novel_id={novel_id}"
+        )
+        assert [item["version_number"] for item in history.json()["versions"]] == [2, 1]
+
+    @pytest.mark.asyncio
+    async def test_restore_version_validates_latest_snapshot(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        v1_response = await async_client.post(
+            "/api/writing/drafts",
+            json={"novel_id": novel_id, "chapter_index": 1, "content": "v1"},
+        )
+        v1 = v1_response.json()["draft"]
+        v2_response = await async_client.post(
+            "/api/writing/drafts",
+            json={"novel_id": novel_id, "chapter_index": 1, "content": "v2"},
+        )
+        v2 = v2_response.json()["draft"]
+
+        restored = await async_client.post(
+            "/api/writing/drafts",
+            json={
+                "novel_id": novel_id,
+                "chapter_index": 1,
+                "content": "基于 v1 恢复",
+                "draft_id": v1["id"],
+                "restore_source_version": 1,
+                "expected_version": 2,
+                "expected_updated_at": v2["updated_at"],
+            },
+        )
+
+        assert restored.status_code == 201
+        assert restored.json()["draft"]["version_number"] == 3
+        assert restored.json()["draft"]["provenance_json"]["restored_from_version"] == 1
+
+        stale_snapshot = restored.json()["draft"]
+        newest = (
+            await async_client.post(
+                "/api/writing/drafts",
+                json={"novel_id": novel_id, "chapter_index": 1, "content": "v4"},
+            )
+        ).json()["draft"]
+        tasks_before = list((await db_session.execute(select(AsyncTask))).scalars())
+
+        stale_restore = await async_client.post(
+            "/api/writing/drafts",
+            json={
+                "novel_id": novel_id,
+                "chapter_index": 1,
+                "content": "过期恢复",
+                "draft_id": v1["id"],
+                "restore_source_version": 1,
+                "expected_version": stale_snapshot["version_number"],
+                "expected_updated_at": stale_snapshot["updated_at"],
+            },
+        )
+
+        assert stale_restore.status_code == 409
+        history = await async_client.get(
+            f"/api/writing/chapters/1/versions?novel_id={novel_id}"
+        )
+        assert history.json()["versions"][0]["id"] == newest["id"]
+        tasks_after = list((await db_session.execute(select(AsyncTask))).scalars())
+        assert len(tasks_after) == len(tasks_before)
+
+    @pytest.mark.asyncio
+    async def test_restore_version_rejects_in_place_latest_update(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        v1 = (
+            await async_client.post(
+                "/api/writing/drafts",
+                json={"novel_id": novel_id, "chapter_index": 1, "content": "v1"},
+            )
+        ).json()["draft"]
+        auto_v2 = (
+            await async_client.put(
+                f"/api/writing/drafts/{v1['id']}?novel_id={novel_id}",
+                json={"content": "v2", "expected_version": 1},
+            )
+        ).json()
+        snapshot_updated_at = auto_v2["updated_at"]
+        updated_v2 = await async_client.put(
+            f"/api/writing/drafts/{auto_v2['id']}?novel_id={novel_id}",
+            json={
+                "content": "v2 再次修改",
+                "expected_version": 2,
+                "expected_updated_at": snapshot_updated_at,
+            },
+        )
+        assert updated_v2.status_code == 200
+        assert updated_v2.json()["version_number"] == 2
+
+        stale_restore = await async_client.post(
+            "/api/writing/drafts",
+            json={
+                "novel_id": novel_id,
+                "chapter_index": 1,
+                "content": "过期恢复",
+                "draft_id": v1["id"],
+                "restore_source_version": 1,
+                "expected_version": 2,
+                "expected_updated_at": snapshot_updated_at,
+            },
+        )
+
+        assert stale_restore.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_force_checkpoint_and_explicit_discard(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        published = (
+            await async_client.post(
+                "/api/writing/drafts",
+                json={"novel_id": novel_id, "chapter_index": 1, "content": "相同"},
+            )
+        ).json()["draft"]
+        checkpoint = await async_client.post(
+            f"/api/writing/drafts/{published['id']}/checkpoint?novel_id={novel_id}",
+            json={"content": " \u76f8 \n同 ", "expected_version": 1, "force": True},
+        )
+        assert checkpoint.status_code == 200
+        saved = checkpoint.json()
+        assert saved["version_number"] == 2
+        assert saved["provenance_json"]["version_origin"] == "manual"
+
+        discarded = await async_client.post(
+            f"/api/writing/drafts/{saved['id']}/discard",
+            params={"novel_id": novel_id, "expected_version": 2},
+        )
+        assert discarded.status_code == 200
+        assert discarded.json()["id"] == published["id"]
+
+    @pytest.mark.asyncio
+    async def test_checkpoint_and_discard_are_novel_scoped(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        other_novel_id = str(uuid.uuid4())
+        published = (
+            await async_client.post(
+                "/api/writing/drafts",
+                json={"novel_id": novel_id, "chapter_index": 1, "content": "v1"},
+            )
+        ).json()["draft"]
+        denied_checkpoint = await async_client.post(
+            f"/api/writing/drafts/{published['id']}/checkpoint",
+            params={"novel_id": other_novel_id},
+            json={"content": "v2", "force": True},
+        )
+        assert denied_checkpoint.status_code == 404
+
+        working = (
+            await async_client.put(
+                f"/api/writing/drafts/{published['id']}?novel_id={novel_id}",
+                json={"content": "v2", "expected_version": 1},
+            )
+        ).json()
+        denied_discard = await async_client.post(
+            f"/api/writing/drafts/{working['id']}/discard",
+            params={"novel_id": other_novel_id, "expected_version": 2},
+        )
+        assert denied_discard.status_code == 404
 
     @pytest.mark.asyncio
     async def test_update_draft_conflict_returns_409(

@@ -31,6 +31,7 @@ class NovelEvidenceService:
         case_sensitive: bool = False,
         skip: int = 0,
         limit: int = 20,
+        group_by_chapter: bool = False,
     ) -> dict:
         from modules.writing.facade import grep_manuscript
 
@@ -56,6 +57,7 @@ class NovelEvidenceService:
             visible_end_offsets=visible_end_offsets,
             skip=skip,
             limit=limit,
+            group_by_chapter=group_by_chapter,
         )
         result: list[EvidenceHitContract] = []
         for hit in hits:
@@ -73,6 +75,8 @@ class NovelEvidenceService:
                     scene_refs=scene_refs,
                     object_refs=object_refs,
                     visibility_decision=_visibility_decision(visibility),
+                    match_count=hit.match_count,
+                    match_basis="occurrence",
                 )
             )
         warnings = list(visibility_warnings)
@@ -98,7 +102,7 @@ class NovelEvidenceService:
         include_pending_objects: bool = False,
         chapter_from: int | None = None,
         chapter_to: int | None = None,
-        top_k: int = 12,
+        top_k: int = 100,
     ) -> dict:
         self._require_visibility(visibility)
         visibility, visibility_warnings = await self._resolve_visibility_cursor(
@@ -642,6 +646,7 @@ class NovelEvidenceService:
         from modules.writing.facade import build_manuscript_range_ref
 
         visibility = kwargs["visibility"]
+        requested_top_k = kwargs["top_k"]
         result = await retrieve(
             db,
             kwargs["novel_id"],
@@ -650,7 +655,7 @@ class NovelEvidenceService:
             visible_until_chapter=_effective_chapter_to(
                 kwargs.get("chapter_to"), visibility
             ),
-            top_k=kwargs["top_k"],
+            top_k=min(50, max(requested_top_k, 12)),
             mode="search",
         )
         hits: list[EvidenceHitContract] = []
@@ -743,6 +748,66 @@ class NovelEvidenceService:
                     visibility_decision=_visibility_decision(visibility),
                 )
             )
+
+        # Manual search is chapter-oriented: several matching chunks from the
+        # same chapter should not consume the whole result budget.
+        grouped: dict[int, EvidenceHitContract] = {}
+        chunk_counts: dict[int, int] = {}
+        for hit in hits:
+            chapter_index = hit.chapter_index or 0
+            chunk_counts[chapter_index] = chunk_counts.get(chapter_index, 0) + 1
+            current = grouped.get(chapter_index)
+            if current is None or (hit.score or 0.0) > (current.score or 0.0):
+                grouped[chapter_index] = hit
+        hits = [
+            replace(hit, match_count=chunk_counts[chapter_index], match_basis="chunk")
+            for chapter_index, hit in grouped.items()
+        ]
+
+        # Exact occurrences complement semantic retrieval with chapter
+        # coverage. This keeps a protagonist query from being dominated by
+        # many high-scoring chunks in the opening chapters.
+        literal_hits = []
+        if len(kwargs["query"]) <= 200 and not freshness["stale"]:
+            from modules.writing.facade import grep_manuscript
+
+            literal_hits, _, _ = await grep_manuscript(
+                db,
+                kwargs["novel_id"],
+                kwargs["query"],
+                content_mode=kwargs["content_mode"],
+                chapter_from=kwargs.get("chapter_from"),
+                chapter_to=_effective_chapter_to(kwargs.get("chapter_to"), visibility),
+                visible_end_offsets=(
+                    {visibility.cutoff_chapter: visibility.cutoff_offset}
+                    if visibility.cutoff_chapter and visibility.cutoff_offset is not None
+                    else None
+                ),
+                limit=requested_top_k,
+                group_by_chapter=True,
+            )
+        for literal in literal_hits:
+            chapter_index = literal.source_ref.chapter_index
+            existing = grouped.get(chapter_index)
+            literal_hit = EvidenceHitContract(
+                kind="manuscript",
+                title=literal.title or f"第 {chapter_index} 章",
+                snippet=literal.snippet,
+                source_ref=asdict(literal.source_ref),
+                chapter_index=chapter_index,
+                score=max(1.0, existing.score or 0.0) if existing else 1.0,
+                scene_refs=(existing.scene_refs if existing else []),
+                object_refs=(existing.object_refs if existing else []),
+                visibility_decision=_visibility_decision(visibility),
+                match_count=literal.match_count,
+                match_basis="occurrence",
+            )
+            grouped[chapter_index] = literal_hit
+
+        hits = sorted(
+            grouped.values(),
+            key=lambda item: (-(item.score or 0.0), item.chapter_index or 0),
+        )[:requested_top_k]
         return hits, warnings, bool(result.degraded or warnings)
 
     async def _search_world(

@@ -1,9 +1,9 @@
 import { renderSourceLabel } from "./fieldSourceLabel.js"
 
 const CREATIVE_PRESETS = {
-  creative: { label: "灵感创作", temperature: 0.9, top_p: 0.95, max_tokens: 8192 },
-  precise: { label: "精修校对", temperature: 0.25, top_p: 0.8, max_tokens: 4096 },
-  fast: { label: "快速生成", temperature: 0.6, top_p: 0.9, max_tokens: 2048 },
+  creative: { label: "灵感创作", temperature: 0.9, top_p: 0.95 },
+  precise: { label: "精修校对", temperature: 0.25, top_p: 0.8 },
+  fast: { label: "快速生成", temperature: 0.6, top_p: 0.9 },
   custom: { label: "自定义" },
 }
 
@@ -15,7 +15,7 @@ const SYSTEM_LLM_DEFAULTS = {
   base_url: "https://api.deepseek.com",
   model: "deepseek-v4-flash",
   timeout: 180,
-  max_tokens: 4096,
+  max_tokens: 12000,
   temperature: 0.3,
   top_p: null,
   extra: {},
@@ -39,6 +39,7 @@ export function renderLLMFormFields({ values, templates, sourceMap = {}, withApi
           <select class="form-input" id="llm-provider" ${(templates || []).length ? "" : "disabled"}>
             ${providerOptions}
           </select>
+          ${sourceHtml(sourceMap.provider_id)}
         </div>
         ${withApiKey ? renderKeyBlock(v.api_key_configured, v) : ""}
       </div>
@@ -52,10 +53,12 @@ export function renderLLMFormFields({ values, templates, sourceMap = {}, withApi
           <label for="llm-model">模型</label>
           <input class="form-input" id="llm-model" list="llm-model-options" value="${v.model || ""}" placeholder="输入或选择模型名" />
           <datalist id="llm-model-options">${modelOptions}</datalist>
+          ${sourceHtml(sourceMap.model)}
         </div>
         <div class="form-group">
           <label for="llm-label">显示名称</label>
           <input class="form-input" id="llm-label" value="${v.label || ""}" placeholder="可选" />
+          ${sourceHtml(sourceMap.label)}
         </div>
       </div>
       <div class="llm-advanced-panel">
@@ -65,7 +68,7 @@ export function renderLLMFormFields({ values, templates, sourceMap = {}, withApi
             ${Object.entries(CREATIVE_PRESETS).map(([id, p]) => `
               <button class="llm-preset-item ${creativeMode === id ? "active" : ""}" type="button" data-preset-id="${id}">
                 <span>${p.label}</span>
-                <small>${id === "custom" ? "保留当前参数" : `T ${p.temperature} · P ${p.top_p} · ${p.max_tokens} tokens`}</small>
+                <small>${id === "custom" ? "保留当前参数" : `T ${p.temperature} · P ${p.top_p}`}</small>
               </button>`).join("")}
           </div>
         </div>
@@ -73,25 +76,31 @@ export function renderLLMFormFields({ values, templates, sourceMap = {}, withApi
           <div class="form-group">
             <label for="llm-timeout">超时（秒）</label>
             <input class="form-input" id="llm-timeout" type="number" min="1" max="3600" value="${v.timeout ?? ""}" placeholder="180" />
+            ${sourceHtml(sourceMap.timeout)}
           </div>
           <div class="form-group">
-            <label for="llm-max-tokens">Max tokens</label>
-            <input class="form-input" id="llm-max-tokens" type="number" min="1" max="200000" value="${v.max_tokens ?? ""}" placeholder="4096" />
+            <label for="llm-max-tokens">默认输出上限（tokens）</label>
+            <input class="form-input" id="llm-max-tokens" type="number" min="1" max="200000" value="${v.max_tokens ?? ""}" placeholder="12000" />
+            <small class="settings-section-hint">深度导入以外的业务 LLM 调用继承此值。</small>
+            ${sourceHtml(sourceMap.max_tokens)}
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
             <label for="llm-temperature">Temperature</label>
             <input class="form-input" id="llm-temperature" type="number" min="0" max="2" step="0.1" value="${v.temperature ?? ""}" placeholder="0.3" />
+            ${sourceHtml(sourceMap.temperature)}
           </div>
           <div class="form-group">
             <label for="llm-top-p">Top P</label>
             <input class="form-input" id="llm-top-p" type="number" min="0" max="1" step="0.05" value="${v.top_p ?? ""}" placeholder="可选" />
+            ${sourceHtml(sourceMap.top_p)}
           </div>
         </div>
         <div class="form-group">
           <label for="llm-extra">供应商扩展参数（JSON）</label>
           <textarea class="form-input llm-extra-json" id="llm-extra" rows="4" placeholder='{"reasoning_effort":"high"}'>${formatExtra(v.extra)}</textarea>
+          ${sourceHtml(sourceMap.extra)}
         </div>
       </div>
     </div>
@@ -124,7 +133,7 @@ function sourceHtml(src) {
 function detectCreativeMode(values) {
   for (const [id, p] of Object.entries(CREATIVE_PRESETS)) {
     if (id === "custom") continue
-    if (Number(values?.temperature) === p.temperature && Number(values?.top_p) === p.top_p && Number(values?.max_tokens) === p.max_tokens) {
+    if (Number(values?.temperature) === p.temperature && Number(values?.top_p) === p.top_p) {
       return id
     }
   }
@@ -133,6 +142,25 @@ function detectCreativeMode(values) {
 
 export function detectCreativeModeExport(values) {
   return detectCreativeMode(values)
+}
+
+export function bindLLMPresetEvents() {
+  document.querySelectorAll(".llm-preset-item[data-preset-id]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      const selected = event.currentTarget
+      const preset = CREATIVE_PRESETS[selected.dataset.presetId]
+      if (!preset) return
+      if (selected.dataset.presetId !== "custom") {
+        const temperature = document.getElementById("llm-temperature")
+        const topP = document.getElementById("llm-top-p")
+        if (temperature) temperature.value = String(preset.temperature)
+        if (topP) topP.value = String(preset.top_p)
+      }
+      document.querySelectorAll(".llm-preset-item").forEach((item) => {
+        item.classList.toggle("active", item === selected)
+      })
+    })
+  })
 }
 
 function formatExtra(extra) {

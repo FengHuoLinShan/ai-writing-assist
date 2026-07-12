@@ -5,6 +5,7 @@
 import { confirmAiReference } from "../shared/aiReferenceModal.js"
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
 import { worldAssetDisplay } from "../shared/assetDisplayState.js"
+import { renderWorkspaceRail, workspaceRailKey } from "../shared/workspaceRail.js"
 
 const BUILTIN_TEMPLATE_PROMPTS = {
   none: "不预设对象类型，按用户聊天内容自由收束为一个有用的世界对象建议。",
@@ -209,7 +210,12 @@ const generateView = {
           </div>
         </div>
 
-        <div class="generate-chat-side">
+        ${renderWorkspaceRail({
+          key: workspaceRailKey("generate", state.currentProjectId, "assistant"),
+          title: "生成辅助",
+          className: "generate-side-rail workspace-rail--right",
+          defaultOpen: typeof window === "undefined" || window.innerWidth > 1099,
+          content: `<div class="generate-chat-side">
           <div class="card generate-settings-card">
             <div class="generate-card-title-row">
               <div class="card-title">模板</div>
@@ -235,7 +241,8 @@ const generateView = {
               `}
             </div>
           </div>
-        </div>
+        </div>`,
+        })}
       </div>
 
     `
@@ -322,7 +329,8 @@ const generateView = {
     return `
       <style>
         .topbar-generate-note { margin-left:10px; color:var(--text-secondary); font-size:12px; font-style:italic; white-space:nowrap; }
-        .generate-chatbox { display:grid; grid-template-columns:minmax(0,1fr) 280px; gap:12px; align-items:stretch; height:calc(100vh - 180px); min-height:480px; overflow:hidden; }
+        .generate-chatbox { display:grid; grid-template-columns:minmax(0,72fr) minmax(210px,28fr); gap:12px; align-items:stretch; height:calc(100vh - 180px); min-height:480px; overflow:hidden; }
+        .generate-chatbox:has(.generate-side-rail:not([open])) { grid-template-columns:minmax(0,1fr) var(--workspace-rail-collapsed); }
         .generate-chat-main { min-height:0; overflow:hidden; }
         .generate-chat-panel { display:flex; flex-direction:column; height:100%; min-height:0; overflow:hidden; }
         .generate-chat-side { min-height:0; max-height:100%; overflow:auto; padding-right:2px; }
@@ -359,8 +367,12 @@ const generateView = {
         .generate-template-editor label { display:block; color:var(--text-muted); font-size:12px; margin-bottom:4px; }
         .generate-template-editor textarea { min-height:180px; }
         .generate-template-editor-help { color:var(--text-dim); font-size:12px; line-height:1.5; margin:0; }
+        .generate-template-history { display:grid; gap:8px; max-height:320px; overflow:auto; }
+        .generate-template-revision { display:grid; gap:6px; border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px; }
+        .generate-template-revision pre { margin:0; white-space:pre-wrap; max-height:120px; overflow:auto; color:var(--text-muted); font:12px/1.5 var(--font-mono); }
         @media (max-width: 900px) {
-          .generate-chatbox { grid-template-columns:1fr; height:auto; min-height:0; overflow:visible; }
+          .generate-chatbox, .generate-chatbox:has(.generate-side-rail:not([open])) { grid-template-columns:1fr; height:auto; min-height:0; overflow:visible; }
+          .generate-side-rail { grid-column:1 / -1; }
           .topbar-generate-note { display:none; }
           .generate-chat-panel { min-height:auto; }
           .generate-chat-side { max-height:none; overflow:visible; padding-right:0; }
@@ -369,7 +381,7 @@ const generateView = {
         .generate-subtabs { display:flex; gap:6px; margin-bottom:12px; overflow-x:auto; white-space:nowrap; }
         .generate-subtab { flex-shrink:0; border:1px solid var(--border); background:var(--panel); color:var(--text); border-radius:var(--radius-sm); padding:5px 12px; cursor:pointer; font-size:13px; }
         .generate-subtab.active { border-color:var(--accent); background:var(--selected); color:var(--accent); }
-        .generate-task-workspace { display:grid; grid-template-columns:minmax(0,260px) minmax(0,1fr); gap:12px; align-items:start; }
+        .generate-task-workspace { display:grid; grid-template-columns:minmax(190px,22fr) minmax(0,78fr); gap:12px; align-items:start; }
         .generate-task-cards { display:grid; gap:8px; }
         .generate-task-card { border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px; cursor:pointer; text-align:left; background:var(--panel); color:var(--text); }
         .generate-task-card.active { border-color:var(--accent); background:var(--selected); }
@@ -380,7 +392,7 @@ const generateView = {
         .generate-task-result { margin-top:12px; }
         .generate-context-preview-source { color:var(--text-muted); font-size:12px; margin-bottom:10px; }
         .generate-context-preview-empty { color:var(--text-dim); font-size:13px; line-height:1.6; }
-        .generate-pov-workspace { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:12px; align-items:start; }
+        .generate-pov-workspace { display:grid; grid-template-columns:minmax(0,72fr) minmax(220px,28fr); gap:12px; align-items:start; }
         .generate-pov-form { display:grid; gap:12px; }
         .generate-pov-form label { display:grid; gap:4px; color:var(--text-muted); font-size:12px; }
         .generate-form-grid { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px; }
@@ -577,6 +589,10 @@ const generateView = {
             ? "内置模板为只读；点击“保存模板”会以原名称创建项目级副本，点击“新建模板”则使用当前输入的名称创建新模板。"
             : "修改自定义模板会更新后端存储的版本，所有设备同步生效。"}
         </p>
+        <div class="generate-template-history-actions" ${isBuiltin ? "hidden" : ""}>
+          <button class="btn btn-sm" id="generate-template-history-load" type="button">版本历史</button>
+        </div>
+        <div id="generate-template-history" class="generate-template-history"></div>
       </div>
     `
   },
@@ -596,7 +612,53 @@ const generateView = {
           ? "内置模板为只读；点击“保存模板”会以原名称创建项目级副本，点击“新建模板”则使用当前输入的名称创建新模板。"
           : "修改自定义模板会更新后端存储的版本，所有设备同步生效。"
       }
+      const historyActions = document.querySelector(".generate-template-history-actions")
+      if (historyActions) historyActions.hidden = Boolean(item.is_builtin)
+      const history = document.getElementById("generate-template-history")
+      if (history) history.innerHTML = ""
     })
+    document.getElementById("generate-template-history-load")?.addEventListener("click", () => {
+      const item = this._findTemplate(select?.value || this._selectedTemplateId)
+      if (item && !item.is_builtin) this._loadTemplateHistory(item.id)
+    })
+  },
+
+  async _loadTemplateHistory(templateId) {
+    const container = document.getElementById("generate-template-history")
+    if (!container || !templateId || !state.currentProjectId) return
+    container.innerHTML = '<p class="generate-template-editor-help">加载版本历史…</p>'
+    try {
+      const result = await api.generate.listPromptTemplateRevisions(templateId, state.currentProjectId)
+      const revisions = Array.isArray(result) ? result : (result?.items || [])
+      if (!revisions.length) {
+        container.innerHTML = '<p class="generate-template-editor-help">暂无版本历史。</p>'
+        return
+      }
+      container.innerHTML = revisions.map((revision, index) => `
+        <article class="generate-template-revision">
+          <div><strong>v${esc(String(revision.version_number || "-"))}</strong> · ${esc(revision.created_at ? new Date(revision.created_at).toLocaleString("zh-CN") : "-")} · ${esc(revision.validation_state || "unknown")}</div>
+          <pre>${esc(String(revision.prompt_text || "").slice(0, 800))}</pre>
+          <button class="btn btn-sm" type="button" data-template-revision-index="${index}">载入到编辑器</button>
+        </article>
+      `).join("")
+      container.querySelectorAll("[data-template-revision-index]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const revision = revisions[Number(button.getAttribute("data-template-revision-index"))]
+          if (revision) this._loadTemplateRevisionIntoEditor(revision)
+        })
+      })
+    } catch (err) {
+      container.innerHTML = `<p class="generate-template-warning">版本历史加载失败：${esc(err.message || "未知错误")}</p>`
+    }
+  },
+
+  _loadTemplateRevisionIntoEditor(revision) {
+    const name = document.getElementById("generate-template-editor-name")
+    const prompt = document.getElementById("generate-template-editor-prompt")
+    const help = document.querySelector(".generate-template-editor-help")
+    if (name && revision.name) name.value = revision.name
+    if (prompt) prompt.value = revision.prompt_text || ""
+    if (help) help.textContent = `已载入 v${revision.version_number || "-"}；内容尚未保存，点击“保存模板”后才会生成新版本。`
   },
 
   async _saveTemplateFromEditor() {

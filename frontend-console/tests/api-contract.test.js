@@ -221,6 +221,15 @@ describe("前后端 API 契约", () => {
     })
     expect(contractPath("context.evidenceHealth", {}, { novel_id: "novel-1" }))
       .toBe("/context/evidence-health?novel_id=novel-1")
+    expect(contractPath("context.listRetrievalTraces", {}, {
+      novel_id: "novel-1",
+      content_mode: "canonical",
+      limit: 20,
+    })).toBe("/context/retrieval-traces?novel_id=novel-1&content_mode=canonical&limit=20")
+    expect(contractPath("generate.listPromptTemplateRevisions", { templateId: "tpl-1" }, { novel_id: "novel-1" }))
+      .toBe("/world/generation-prompt-templates/tpl-1/revisions?novel_id=novel-1")
+    expect(contractPath("tasks.cancel", { taskId: "task-1" }, { novel_id: "novel-1" }))
+      .toBe("/tasks/task-1/cancel?novel_id=novel-1")
     expect(contractPath("tasks.retry", { taskId: "task-1" }, { novel_id: "novel-1" }))
       .toBe("/tasks/task-1/retry?novel_id=novel-1")
     expect(getApiContract("rag.search")).toMatchObject({
@@ -238,6 +247,10 @@ describe("前后端 API 契约", () => {
       .toBe("/writing/conflict-checks/check-1/ai-review")
     expect(contractPath("writing.adoptDraftCandidate", { draftId: "draft-1" }, { novel_id: "novel-1" }))
       .toBe("/writing/drafts/draft-1/adopt?novel_id=novel-1")
+    expect(contractPath("writing.checkpoint", { draftId: "draft-1" }, { novel_id: "novel-1" }))
+      .toBe("/writing/drafts/draft-1/checkpoint?novel_id=novel-1")
+    expect(contractPath("writing.discard", { draftId: "draft-1" }, { novel_id: "novel-1" }))
+      .toBe("/writing/drafts/draft-1/discard?novel_id=novel-1")
     expect(contractPath("writing.enqueueConflictAiReview", { checkId: "check-1" }))
       .toBe("/writing/conflict-checks/check-1/ai-review-task")
   })

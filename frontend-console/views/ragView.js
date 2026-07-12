@@ -41,9 +41,14 @@ const ragView = {
   _lastSearchPayload: null,
   _drawerRefs: [],
   _evidenceHealth: null,
+  _retrievalTraces: [],
+  _retrievalTracesState: "idle",
+  _retrievalTracesError: "",
+  _taskRetryPending: false,
 
   async onEnter() {
     this._loading = true
+    this._taskRetryPending = false
     this._abortController = new AbortController()
     if (!state.currentProjectId) {
       this._totalChunks = null
@@ -77,6 +82,9 @@ const ragView = {
       this._apiAvailable = false
     }
     this._evidenceHealth = null
+    this._retrievalTraces = []
+    this._retrievalTracesState = "idle"
+    this._retrievalTracesError = ""
     if (api.context?.evidenceHealth) {
       try {
         this._evidenceHealth = await api.context.evidenceHealth(
@@ -287,8 +295,64 @@ const ragView = {
         </div>
         ${this._embeddingDimensionMismatch ? `<p class="rag-diagnostics-warning">向量维度配置漂移，请同步配置后重启后端。</p>` : ""}
         ${warning}
+        <div class="rag-retrieval-traces">
+          <button class="btn btn-sm" data-action="load-retrieval-traces" ${this._retrievalTracesState === "loading" ? "disabled" : ""}>
+            ${this._retrievalTracesState === "loading" ? "加载中..." : this._retrievalTracesState === "loaded" ? "刷新近期检索记录" : "查看近期检索记录"}
+          </button>
+          ${this._renderRetrievalTraces()}
+        </div>
       </details>
     `
+  },
+
+  _renderRetrievalTraces() {
+    if (this._retrievalTracesState === "idle") return ""
+    if (this._retrievalTracesState === "loading") {
+      return '<p class="rag-empty-copy">正在加载隐私安全的检索摘要…</p>'
+    }
+    if (this._retrievalTracesState === "error") {
+      return `<p class="rag-diagnostics-warning">检索记录加载失败：${esc(this._retrievalTracesError || "未知错误")}</p>`
+    }
+    if (!this._retrievalTraces.length) {
+      return '<p class="rag-empty-copy">暂无近期检索记录。</p>'
+    }
+    return `
+      <div class="rag-retrieval-trace-list" aria-label="近期检索记录">
+        ${this._retrievalTraces.map((trace) => {
+          const dropped = Object.values(trace.drop_counts || {})
+            .reduce((sum, value) => sum + (Number(value) || 0), 0)
+          const time = trace.created_at ? new Date(trace.created_at).toLocaleString("zh-CN") : "-"
+          return `
+            <article class="rag-retrieval-trace">
+              <div><strong>${esc(trace.retrieval_purpose || trace.consumer_action || "context")}</strong> · ${esc(trace.content_mode || "-")} · ${esc(time)}</div>
+              <div class="rag-empty-copy">候选 ${esc(String(trace.candidate_count ?? 0))} · 去重 ${esc(String(trace.unique_count ?? 0))} · 回读 ${esc(String(trace.hydrated_count ?? 0))} · 丢弃 ${esc(String(dropped))}</div>
+              ${trace.safe_empty_reason ? `<div class="rag-diagnostics-warning">空证据原因：${esc(trace.safe_empty_reason)}</div>` : ""}
+              ${(trace.warning_codes || []).length ? `<div class="rag-diagnostics-warning">警告：${esc(trace.warning_codes.join("、"))}</div>` : ""}
+            </article>
+          `
+        }).join("")}
+      </div>
+    `
+  },
+
+  async _loadRetrievalTraces() {
+    if (!state.currentProjectId || this._retrievalTracesState === "loading") return
+    this._retrievalTracesState = "loading"
+    this._retrievalTracesError = ""
+    this._updateDiagnosticsDOM()
+    try {
+      const result = await api.context.listRetrievalTraces(state.currentProjectId, {
+        content_mode: "canonical",
+        limit: 20,
+      })
+      this._retrievalTraces = Array.isArray(result) ? result : (result?.items || [])
+      this._retrievalTracesState = "loaded"
+    } catch (err) {
+      this._retrievalTraces = []
+      this._retrievalTracesState = "error"
+      this._retrievalTracesError = err.message || "未知错误"
+    }
+    this._updateDiagnosticsDOM()
   },
 
   _updateDiagnosticsDOM() {
@@ -363,6 +427,8 @@ const ragView = {
       return renderWorkflowCard(this._rebuildProgress, {
         title: "重建 RAG 索引",
         destinationLabel: "完成后本页索引概览会更新，可继续测试搜索。",
+        enableRetry: true,
+        retryPending: this._taskRetryPending,
       })
     }
     if (this._rebuildInfo) {
@@ -423,10 +489,50 @@ const ragView = {
         this._handleRebuildDone(taskId, workflowType, result)
       },
       onFailed: () => {
-        clearActiveWorkflow(taskId)
         this._updateRebuildProgressDOM()
       },
     })
+  },
+
+  async _retryFailedTask() {
+    const progress = this._rebuildProgress
+    const taskId = progress?.taskId
+    if (
+      !taskId
+      || !state.currentProjectId
+      || this._taskRetryPending
+      || !progress.availableActions?.includes("retry")
+    ) return false
+    this._taskRetryPending = true
+    this._updateRebuildProgressDOM()
+    try {
+      const result = await api.tasks.retry(taskId, state.currentProjectId)
+      const workflowType = progress.workflowType || progress.taskType || "rag_reindex_novel"
+      this._rebuildProgress = normalizeTaskProgress({
+        ...progress.raw,
+        ...result,
+        task_id: taskId,
+        task_type: workflowType,
+        status: result.status || "pending",
+        error_message: null,
+        result: {
+          ...(progress.raw?.result || {}),
+          error: null,
+          error_message: null,
+        },
+        available_actions: ["cancel"],
+      }, workflowType)
+      this._taskRetryPending = false
+      this._updateRebuildProgressDOM()
+      this._startRebuildPolling(taskId, workflowType)
+      toast("任务已重新加入队列", "success")
+      return true
+    } catch (err) {
+      this._taskRetryPending = false
+      this._updateRebuildProgressDOM()
+      toast(err.message || "重试任务失败", "error")
+      return false
+    }
   },
 
   _recoverRebuildWorkflow() {
@@ -528,8 +634,8 @@ const ragView = {
         <div class="novel-search-filters">
           <label>检索方式
             <select class="form-input" id="rag-search-kind">
-              <option value="literal">字面搜索</option>
               <option value="smart">智能搜索</option>
+              <option value="literal">字面搜索</option>
             </select>
           </label>
           <label>正文版本
@@ -556,6 +662,9 @@ const ragView = {
             <select class="form-input" id="rag-character-id"><option value="">请选择</option>${characterOptions}</select>
           </label>
         </div>
+        <p class="rag-search-kind-help" id="rag-search-kind-help">
+          智能搜索：按语义相关性查找，并把同一章的相关片段聚合显示。
+        </p>
         <div class="novel-search-scopes">
           <span>检索范围</span>
           <label><input type="checkbox" data-search-scope="manuscript" checked /> 正文</label>
@@ -598,7 +707,12 @@ const ragView = {
           top_k: limit,
           ...rest
         } = payload
-        data = await api.context.grepEvidence({ ...rest, pattern, limit }, options)
+        data = await api.context.grepEvidence({
+          ...rest,
+          pattern,
+          limit,
+          group_by_chapter: true,
+        }, options)
       } else if (api.context?.searchEvidence) {
         const { search_kind: _kind, ...request } = payload
         data = await api.context.searchEvidence(request, options)
@@ -616,7 +730,9 @@ const ragView = {
       }
 
       let html = `<div class="rag-results-list">${warningHtml}`
-      html += `<p class="rag-result-count">找到 ${this._searchHits.length} 条结果</p>`
+      const chapterResultCount = this._searchHits.filter((hit) => hit.chapter_index).length
+      const resultLabel = chapterResultCount === this._searchHits.length ? "个章节结果" : "条结果"
+      html += `<p class="rag-result-count">找到 ${esc(String(data?.total ?? this._searchHits.length))} ${resultLabel}</p>`
       for (const [index, hit] of this._searchHits.entries()) {
         const score = hit.score || ""
         const mode = hit.source_ref?.content_mode === "working" ? "工作稿" : "已发布"
@@ -631,6 +747,7 @@ const ragView = {
             <div class="card-meta">
               ${esc(kind)}
               ${hit.chapter_index ? ` · 第 ${esc(String(hit.chapter_index))} 章` : ""}
+              ${hit.match_count > 1 ? ` · ${hit.match_basis === "occurrence" ? `本章 ${esc(String(hit.match_count))} 处命中` : `聚合 ${esc(String(hit.match_count))} 个相关片段`}` : ""}
               ${hit.source_ref ? ` · ${mode} v${esc(String(hit.source_ref.version_number || "-"))}` : ""}
               ${hit.index_fresh === false ? " · 索引待更新" : ""}
               ${(hit.scene_refs || []).length ? ` · Scene ${esc(String(hit.scene_refs.length))}` : ""}
@@ -689,7 +806,7 @@ const ragView = {
       include_pending_objects: Boolean(document.getElementById("rag-include-pending")?.checked),
       chapter_from: integer("rag-chapter-from"),
       chapter_to: integer("rag-chapter-to"),
-      top_k: 12,
+      top_k: 100,
     }
   },
 
@@ -703,6 +820,8 @@ const ragView = {
       scene_refs: item.scene_refs || [],
       object_refs: item.object_refs || [],
       index_fresh: item.index_fresh !== false,
+      match_count: Number(item.match_count) > 0 ? Number(item.match_count) : 1,
+      match_basis: item.match_basis === "occurrence" ? "occurrence" : "chunk",
     }
   },
 
@@ -957,8 +1076,12 @@ const ragView = {
     }
     const searchKindSelect = document.getElementById("rag-search-kind")
     if (searchKindSelect) {
-      searchKindSelect.onchange = () => this._toggleSearchScopes(searchKindSelect.value)
+      searchKindSelect.onchange = () => {
+        this._toggleSearchScopes(searchKindSelect.value)
+        this._updateSearchKindHelp(searchKindSelect.value)
+      }
       this._toggleSearchScopes(searchKindSelect.value)
+      this._updateSearchKindHelp(searchKindSelect.value)
     }
 
     bindWorkspaceClick(this, {
@@ -996,6 +1119,8 @@ const ragView = {
       "rebuild-index": () => this._rebuildIndex(),
       "prewarm-rag": () => this._prewarm(),
       "retry-embeddings": () => this._retryEmbeddings(),
+      "retry-task": () => this._retryFailedTask(),
+      "load-retrieval-traces": () => this._loadRetrievalTraces(),
     })
   },
 
@@ -1017,6 +1142,14 @@ const ragView = {
       input.disabled = literal && !manuscript
       if (literal) input.checked = manuscript
     }
+  },
+
+  _updateSearchKindHelp(searchKind) {
+    const help = document.getElementById("rag-search-kind-help")
+    if (!help) return
+    help.textContent = searchKind === "literal"
+      ? "字面搜索：查找完全相同的文字，并按章节汇总该章的全部出现位置。"
+      : "智能搜索：按语义相关性查找，并把同一章的相关片段聚合显示。"
   },
 }
 

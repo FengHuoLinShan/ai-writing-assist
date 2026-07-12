@@ -42,10 +42,10 @@
 | `mapView` | 具体地图渲染与编辑：地形、地点绑定、标记、势力范围；浏览态地点标签避让与聚合 |
 | `outlineView` | 大纲子导航与结构生成；在 `scenes` 子标签组合 Scene 工作台，其余子标签管理剧情线、篇章纲、伏笔和揭示 |
 | `sceneWorkbenchView` | 由 `outline/scenes` 承载的 Scene 管理、筛选、拆分/合并、复核与深度导入 Scene 整理；旧 `scene` 路由仅作兼容重定向 |
-| `ragView` | 检索、章节索引、索引重建 |
-| `generateView` | 生成中心 Chatbox：自由共创、粘贴外部对话、可选附带正文，并承担上下文任务预览 / 编译入口和生成待处理世界对象建议 |
+| `ragView` | 智能/字面检索说明、同章结果聚合、章节索引、索引重建，以及隐私安全的近期检索追踪诊断 |
+| `generateView` | 生成中心 Chatbox：自由共创、粘贴外部对话、可选附带正文，并承担上下文任务预览 / 编译入口、生成待处理世界对象建议和自定义模板修订历史 |
 | `globalSettingsView` | `settings` 路由；管理全局 LLM 默认、全局作者偏好、引用此默认的项目列表和本地偏好迁移；全局 LLM 默认不存 API Key |
-| `projectSettingsView` | `project-settings` 路由；管理项目 LLM 主配置、深度导入参数和项目作者偏好；展示 effective source 并支持字段恢复继承 |
+| `projectSettingsView` | `project-settings` 路由；管理项目 LLM 主配置、深度导入参数和项目作者偏好；展示 effective source 并支持字段恢复继承；通用输出上限与深度导入阶段预算分开说明 |
 
 ## 路由与状态特性
 
@@ -58,6 +58,14 @@
 - `llm` 是旧入口兼容别名：有当前项目时跳转 `project-settings`，否则跳转 `settings`
 - 旧 `context` hash 会重定向到 `generate?tab=task`；上下文任务预览和编译入口由生成中心承担
 
+## 内容优先布局契约
+
+- 创作工作台以正文、主列表、编辑区、生成结果和地图画布为主对象；桌面端主对象目标占分栏内容宽度的约 `64%–68%`。
+- `shared/workspaceRail.js` 统一渲染主题化辅助栏，并以 `项目 + 页面 + 栏位` 为 key 在 `sessionStorage` 保存折叠状态。辅助栏折叠不得重置选择、筛选、滚动位置或未保存编辑内容。
+- 写作专注模式高于普通辅助栏状态；中等宽度重排第三栏，`760px` 及以下使用单栏、抽屉或手风琴，不允许产生页面级横向溢出。
+- `shared/progressRenderer.js` 的任务卡默认可折叠：普通运行/完成态显示紧凑摘要，失败或调用方标记 `attentionRequired` 的恢复、重试和确认状态默认展开；用户保存状态优先于自动规则。
+- 折叠栏和进度摘要必须使用现有设计 token，并覆盖 hover、focus-visible、disabled、错误、暗色主题和 `prefers-reduced-motion`，不得暴露浏览器默认折叠标记。
+
 ## 开发与验证脚本
 
 - 开发服务器使用 Vite：`npm run dev`，默认端口 8080，可通过 `FRONTEND_PORT` 覆盖。
@@ -66,6 +74,7 @@
 - `npm run test:all` 先跑 Vitest，再跑 Playwright。
 - 当前 `package.json` 未定义前端构建脚本，也没有独立 lint/format 依赖；前端静态约束以现有测试和 `git diff --check` 为主。
 - 当前已落地 vanilla JS 共享 API 契约校验第一阶段，覆盖项目、设置、导入、上下文、世界/地图、写作冲突检查和 RAG 的高风险 wrapper 子集；TypeScript / OpenAPI codegen 仍是未来设计项，当前说明见 `docs/frontend/typescript-api-contracts.md`。
+- 任务进度卡仅依据后端 `available_actions` 显示 retry；RAG 和世界书投影在 retry 成功后恢复原 task id 的轮询，请求失败时保留原失败卡。
 
 ## 写作流补充
 

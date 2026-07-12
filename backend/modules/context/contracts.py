@@ -276,6 +276,10 @@ class EvidenceHitContract:
     object_refs: list[dict] = field(default_factory=list)
     index_fresh: bool = True
     visibility_decision: dict = field(default_factory=dict)
+    match_count: int = 1
+    """Number of occurrences or chunks aggregated into this chapter-level hit."""
+    match_basis: str = "chunk"
+    """Aggregation basis: occurrence or chunk."""
 
 
 @dataclass(frozen=True)

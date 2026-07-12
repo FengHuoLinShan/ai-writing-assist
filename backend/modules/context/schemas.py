@@ -481,6 +481,7 @@ class EvidenceGrepRequest(BaseModel):
     case_sensitive: bool = False
     skip: int = Field(0, ge=0)
     limit: int = Field(20, ge=1, le=100)
+    group_by_chapter: bool = False
 
 
 class EvidenceSearchRequest(BaseModel):
@@ -497,7 +498,7 @@ class EvidenceSearchRequest(BaseModel):
     )
     chapter_from: int | None = Field(None, ge=1)
     chapter_to: int | None = Field(None, ge=1)
-    top_k: int = Field(12, ge=1, le=50)
+    top_k: int = Field(100, ge=1, le=100)
 
 
 class EvidenceReadRequest(BaseModel):
@@ -532,6 +533,8 @@ class EvidenceHitResponse(BaseModel):
     object_refs: list[dict] = Field(default_factory=list)
     index_fresh: bool = True
     visibility_decision: dict = Field(default_factory=dict)
+    match_count: int = Field(1, ge=1)
+    match_basis: Literal["occurrence", "chunk"] = "chunk"
 
 
 class EvidenceSearchResponse(BaseModel):

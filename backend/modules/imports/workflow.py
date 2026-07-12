@@ -275,7 +275,7 @@ class DeepImportWorkflow:
                             "message": health.message[:300],
                         }
                     )
-                    await self._emit_progress(progress, 1.0, on_progress)
+                    await self._emit_progress(progress, 0.0, on_progress)
                     return progress
 
             progress.phase = "running"
@@ -747,7 +747,8 @@ class DeepImportWorkflow:
                 "message": health.message[:300],
             }
         )
-        await self._emit_progress(progress, 1.0, on_progress)
+        current_progress = 0.05 if progress.current_phase else 0.0
+        await self._emit_progress(progress, current_progress, on_progress)
         return progress
 
     async def _scene_chapter_coverage(

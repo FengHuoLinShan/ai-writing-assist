@@ -41,6 +41,12 @@ export function createWritingSubModules(orchestrator, deps) {
       orchestrator._syncSharedStateToSubModules?.()
       await orchestrator._rerender?.()
     },
+    onVersionChanged: async () => {
+      await orchestrator._versions?.load?.(orchestrator._currentChapter)
+      orchestrator._syncChapterMetaToTree?.(orchestrator._currentChapter)
+      orchestrator._syncSharedStateToSubModules?.()
+      await orchestrator._rerender?.()
+    },
     onSceneChange: (sceneId) => {
       orchestrator._syncSharedStateToSubModules()
       orchestrator._scenePanel.update(sceneId, orchestrator._currentChapter)
@@ -67,7 +73,7 @@ export function createWritingSubModules(orchestrator, deps) {
       editor.setPublishStatus(status)
       orchestrator._rerender()
     },
-    onPublished: () => orchestrator._onPublished(),
+    onPublished: (result) => orchestrator._onPublished(result),
   })
 
   const deepImportRecovery = createDeepImportRecovery({

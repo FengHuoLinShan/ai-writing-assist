@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
+from shared.constants import DEFAULT_LLM_MAX_TOKENS
+
 
 def load_env_file(env_path: Path | None = None) -> None:
     """Load backend .env values without overriding existing environment."""
@@ -114,7 +116,7 @@ class Settings:
     llm_api_key: str = ""
     llm_base_url: str = "https://api.deepseek.com"
     llm_model: str = "deepseek-v4-flash"
-    llm_max_tokens: int = 4096
+    llm_max_tokens: int = DEFAULT_LLM_MAX_TOKENS
     llm_timeout: int = 180
     llm_trust_env: bool = field(default_factory=lambda: _env_bool("LLM_TRUST_ENV", False))
     llm_proxy_url: str = field(default_factory=lambda: _env("LLM_PROXY_URL", ""))

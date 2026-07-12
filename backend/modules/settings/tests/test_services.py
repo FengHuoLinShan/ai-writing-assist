@@ -109,6 +109,8 @@ async def test_get_effective_llm_settings_for_raw_project_settings_layers_values
     assert resp.provider_id.value == "kimi"
     assert resp.model.source == SOURCE_PROJECT
     assert resp.model.value == "project-model"
+    assert resp.max_tokens.source == SOURCE_SYSTEM
+    assert resp.max_tokens.value == 12_000
     assert resp.top_p.source == SOURCE_GLOBAL
     assert resp.top_p.value == 0.7
     assert resp.api_key_configured.source == SOURCE_PROJECT

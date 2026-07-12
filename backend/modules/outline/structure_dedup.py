@@ -355,7 +355,6 @@ class OutlineStructureDedupService:
                         ),
                     ],
                     temperature=0.1,
-                    max_tokens=768,
                     response_format={"type": "json_object"},
                 ),
                 StructureDedupDecision,

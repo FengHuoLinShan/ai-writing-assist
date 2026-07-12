@@ -204,7 +204,28 @@ function renderMeta(progress, options = {}) {
   if (progress.statusLabel) bits.push(progress.statusLabel)
   if (options.showTaskId !== false && progress.taskId) bits.push(`任务 ${progress.taskId}`)
   if (options.elapsedText) bits.push(options.elapsedText)
-  return bits.length ? `<div class="workflow-progress__meta">${bits.map(escapeHtml).join(" · ")}</div>` : ""
+  return bits.length ? `<span class="workflow-progress__meta">${bits.map(escapeHtml).join(" · ")}</span>` : ""
+}
+
+function progressCollapseState(progress, options = {}) {
+  const storageKey = options.collapseStorageKey || (
+    progress.taskId ? `workflow-progress-card:${progress.taskId}` : null
+  )
+  let stored = null
+  if (storageKey && globalThis.sessionStorage) {
+    try {
+      stored = globalThis.sessionStorage.getItem(storageKey)
+    } catch {
+      stored = null
+    }
+  }
+  const fallbackOpen = typeof options.defaultExpanded === "boolean"
+    ? options.defaultExpanded
+    : Boolean(progress.failed || options.attentionRequired)
+  return {
+    open: stored === "open" || (stored !== "closed" && fallbackOpen),
+    storageKey,
+  }
 }
 
 export function renderInlineProgress(progress, options = {}) {
@@ -214,16 +235,20 @@ export function renderInlineProgress(progress, options = {}) {
   const summary = progress.resultSummary ? `<div class="workflow-progress__summary">${escapeHtml(progress.resultSummary)}</div>` : ""
   const error = progress.errorMessage ? `<div class="workflow-progress__error">${escapeHtml(progress.errorMessage)}</div>` : ""
   const actionHtml = options.actionsHtml || ""
-
-  return `
-    <div class="${classesFor(progress, options.className || "")}">
-      <div class="workflow-progress__header">
-        <div class="workflow-progress__title">${escapeHtml(title)}</div>
-        <div class="workflow-progress__status">${escapeHtml(progress.statusLabel || "")}</div>
-      </div>
-      <div class="workflow-progress__message">${escapeHtml(message)}</div>
-      ${renderProgressBar(progress)}
-      ${renderMeta(progress, options)}
+  const collapsible = options.collapsible !== false
+  const collapseState = progressCollapseState(progress, options)
+  const className = classesFor(progress, options.className || "")
+  const compactHeader = `
+    <span class="workflow-progress__header">
+      <span class="workflow-progress__title">${escapeHtml(title)}</span>
+      <span class="workflow-progress__status">${escapeHtml(progress.statusLabel || "")}</span>
+    </span>
+    ${renderProgressBar(progress)}
+    ${renderMeta(progress, options)}
+  `
+  const body = `
+    <div class="workflow-progress__body">
+      ${message ? `<div class="workflow-progress__message">${escapeHtml(message)}</div>` : ""}
       ${summary}
       ${renderAssetSummary(progress.assetSummary)}
       ${renderPhaseArtifacts(progress.phaseArtifacts)}
@@ -232,6 +257,24 @@ export function renderInlineProgress(progress, options = {}) {
       ${renderWarnings(progress.warnings)}
       ${actionHtml}
     </div>
+  `
+
+  if (!collapsible) {
+    return `<div class="${className} workflow-progress--expanded"><div class="workflow-progress__compact">${compactHeader}</div>${body}</div>`
+  }
+
+  const storageAttr = collapseState.storageKey
+    ? ` data-collapse-storage-key="${escapeHtml(collapseState.storageKey)}"`
+    : ""
+
+  return `
+    <details class="${className}"${storageAttr}${collapseState.open ? " open" : ""}>
+      <summary class="workflow-progress__compact" aria-label="${collapseState.open ? "收起" : "展开"}${escapeHtml(title)}进度">
+        ${compactHeader}
+        <span class="workflow-progress__chevron" aria-hidden="true"></span>
+      </summary>
+      ${body}
+    </details>
   `
 }
 
@@ -254,9 +297,15 @@ export function renderWorkflowCard(progress, options = {}) {
   const destination = options.destinationLabel
     ? `<div class="workflow-progress__destination">${escapeHtml(options.destinationLabel)}</div>`
     : ""
+  const canRetry = options.enableRetry === true
+    && Array.isArray(progress.availableActions)
+    && progress.availableActions.includes("retry")
+  const retryAction = canRetry
+    ? `<div class="workflow-progress__actions"><button class="btn btn-sm" data-action="retry-task" data-task-id="${escapeHtml(progress.taskId || "")}" ${options.retryPending ? "disabled" : ""}>${options.retryPending ? "重试中..." : "重试任务"}</button></div>`
+    : ""
   return renderInlineProgress(progress, {
     ...options,
-    actionsHtml: `${destination}${options.actionsHtml || ""}`,
+    actionsHtml: `${destination}${retryAction}${options.actionsHtml || ""}`,
     className: `workflow-progress--card ${options.className || ""}`.trim(),
   })
 }
@@ -265,13 +314,21 @@ if (!globalThis.__workflowProgressDetailsBound) {
   globalThis.__workflowProgressDetailsBound = true
   globalThis.document?.addEventListener("toggle", (event) => {
     const details = event.target
-    if (!details?.matches?.(".workflow-progress__details")) return
-    const storageKey = details.getAttribute("data-details-storage-key")
+    if (!details?.matches?.(".workflow-progress__details, .workflow-progress")) return
+    const isCard = details.matches(".workflow-progress")
+    const storageKey = isCard
+      ? details.getAttribute("data-collapse-storage-key")
+      : details.getAttribute("data-details-storage-key")
     if (!storageKey || !globalThis.sessionStorage) return
     try {
       globalThis.sessionStorage.setItem(storageKey, details.open ? "open" : "closed")
     } catch {
       // Ignore storage failures; the details element still works for this render.
+    }
+    if (isCard) {
+      const summary = details.querySelector(":scope > .workflow-progress__compact")
+      const title = details.querySelector(":scope > .workflow-progress__compact .workflow-progress__title")?.textContent || "任务"
+      summary?.setAttribute("aria-label", `${details.open ? "收起" : "展开"}${title}进度`)
     }
   }, true)
 }
