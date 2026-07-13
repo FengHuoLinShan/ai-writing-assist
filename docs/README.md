@@ -1,6 +1,24 @@
 # AI 长篇小说结构化创作引擎文档索引
 
-## 顶层文档
+本文档是受版本控制项目文档的分类入口。运行时产物（`.test-logs/`、
+`.opencode/loop-history/`、缓存、虚拟环境）不属于项目文档，不在此索引或归档。
+
+## 根目录保留文件
+
+根目录只保留仓库入口和编码 Agent 必须在工作开始前发现的指导文件；它们不是未归类文档。
+
+| 文件 | 分类 | 用途 |
+|---|---|---|
+| `README.md` | 项目入口 | 产品简介、启动方式与主要模块入口。 |
+| `AGENTS.md` | Agent 硬约束 | 协作协议、安全/数据边界与终止条件。 |
+| `CLAUDE.md` | Agent 开发导航 | 架构导航、开发入口、命名与测试约定。 |
+| `CONTEXT.md` | 领域上下文 | 稳定领域术语与跨模块语义。 |
+| `DECISIONS.md` | 临时决策日志 | 设计演进中的轻量决策；长期架构决策进入 `adr/`。 |
+| `NOTES.md` | 实现笔记 | 仍在维护的实现边界和后续同步事项。 |
+| `development-guide.md` | 开发指南 | 本地开发、工程命令与工作流。 |
+| `testing-guide.md` | 测试指南 | 测试层级、Review 分级与门禁。 |
+
+## 当前设计与契约
 
 1. [`00_整体设计.md`](00_整体设计.md) — 项目定位、核心原则、三层架构、模块职责
 2. [`01_数据库设计.md`](01_数据库设计.md) — 当前数据库表、关系、约束与 schema 权威来源说明
@@ -23,7 +41,7 @@
 - [`superpowers/README.md`](superpowers/README.md) 说明历史交付计划、设计快照、报告和验收
   记录的分类。`superpowers/plans/` 中的旧计划不是当前需求或架构契约，维护时只更新分类，
   不回写历史计划正文。
-- `audit/`、`待更新清单.md` 和已完成验收报告是时间点记录，不作为当前状态判断依据。
+- `audit/`、`archive/maintenance/document-update-log.md` 和已完成验收报告是时间点记录，不作为当前状态判断依据。
 - [`architecture/README.md`](architecture/README.md) 分类架构图：只有模块架构图维护当前
   模块清单；`diagrams/` 下的旧图仅作历史视觉参考。
 
@@ -42,11 +60,39 @@
 11. `modules/15_map.md` — 动态地图子系统（world 模块子系统）
 12. `modules/16_settings.md` — 设置模块（全局 LLM 默认、作者偏好与项目覆盖）
 
+`modules/` 只放当前模块的设计与稳定接口说明；已替代的模块文档位于
+`archive/modules/`，代码分析参考位于 `references/`。
+
 已移除的旧模块：`geo` / `character` / `timeline` / `review`。地点、人物、事件能力已并入 `world`，结构复查模块暂缓。
 
 ## Prompt 设计
 
 1. `prompts/Prompt体系设计.md` — Prompt 体系总览
+
+## 参考与历史资料
+
+- `references/` — 当前实现可查阅但不构成契约的分析和历史设计依据；包括
+  [`map-prd-v1.1.md`](references/map-prd-v1.1.md)、
+  [`deep-import-progress-backend-query-analysis.md`](references/deep-import-progress-backend-query-analysis.md)
+  与 Scene 健康标记参考。
+- `audit/` — 代码、性能、安全和文档审计的时间点记录。
+- `acceptance/` — 验收基线、已完成验收报告和回归样本。
+- `superpowers/` — 历史实施计划、设计快照、报告和验收记录；见
+  [`superpowers/README.md`](superpowers/README.md)。
+- `archive/` — 已完成、废弃或仅作追溯的文档；包含旧模块说明、维护记录、
+  Agent 修复提示词及只读审查报告。详见 [`archive/README.md`](archive/README.md)。
+
+## 代码邻近文档与运行记录
+
+- `backend/modules/*/README.md`、模块级 `CLAUDE.md` 与 `backend/infrastructure/*/README.md`
+  是代码邻近的模块接口/实现说明，随相应代码维护。
+- `backend/prompts/` 是运行时 Prompt 模板；其清单与调用契约由
+  `prompts/Prompt体系设计.md` 维护。
+- `frontend-console/README.md` 与 `frontend-console/e2e/scenario-coverage.md` 是前端入口和
+  测试覆盖文档；`frontend-console/docs/` 是前端历史分析和实施记录。
+- `workflows/` 是已落地工作流的实现说明；`tools/*/README.md` 是各开发工具的局部说明。
+- `backend/evals/` 与 `.test-logs/` 保存可复现实验/测试产物，不是当前设计契约；其中受版本
+  控制的报告仍保留在产生它们的评测目录中。
 
 ## 验收基线
 

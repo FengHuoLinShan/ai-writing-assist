@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
@@ -180,7 +182,15 @@ class TestWritingMissingFlows:
         assert updated.status_code == 200, updated.text
         assert updated.json()["content"] == "修订后的正文"
 
-    async def test_writing_delete_chapter_removes_all_versions(self, ctx):
+    async def test_writing_delete_chapter_soft_deprecates_all_versions(
+        self,
+        ctx,
+        db_session: AsyncSession,
+    ):
+        from sqlalchemy import select
+
+        from modules.writing.models import WritingDraft
+
         client, pid = ctx
         for content in ("第一版", "第二版"):
             response = await client.post(
@@ -195,6 +205,20 @@ class TestWritingMissingFlows:
         assert deleted.json()["deleted_versions"] == before.json()["total"]
         after = await client.get(f"/api/writing/chapters/3/versions?novel_id={pid}")
         assert after.status_code == 200, after.text
-        assert after.json()["total"] == before.json()["total"]
+        assert after.json()["total"] == 0
         latest = await client.get(f"/api/writing/chapters/3/draft?novel_id={pid}")
         assert latest.status_code == 404
+        stored_versions = list(
+            (
+                await db_session.execute(
+                    select(WritingDraft).where(
+                        WritingDraft.novel_id == uuid.UUID(pid),
+                        WritingDraft.chapter_index == 3,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(stored_versions) == before.json()["total"]
+        assert {draft.status for draft in stored_versions} == {"deprecated"}

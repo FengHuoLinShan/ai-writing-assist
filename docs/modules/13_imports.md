@@ -64,7 +64,7 @@ Phase 1c 仅在 `high_quality=true` 时运行，审核同章候选、跨章延�
 - 仅 `high_quality=true` 运行；普通导入记录 `skipped/high_quality_required`。
 - 默认自动融合阈值为 `0.92`，且两侧必须都有精确 offset、draft 和 source hash，fallback 候选不自动融合。
 - 同章多 Scene 合法；只有同一主要叙事目标的延续、应被吸收的次要片段或重复窗口才建议融合。
-- 低置信、冲突或调用失败结果保持分离，并与 Scene commit 同事务写入 `scene_fusion_suggestions`。
+- 低置信、冲突或调用失败结果保持分离，并与 Scene commit 同事务写入 `scene_fusion_suggestions`。来源指纹仍有效的 pending、dismissed、adopted 决定由 Scene 工作台独占处理；项目级 Scene 去重跳过来源对，以及 adopted 融合结果与其来源的组合，来源变化后才可重新扫描。
 
 ### Scene commit
 - Phase 1a / 1b / 1c 都是 workflow 中间层；正式 Scene 只在 Scene commit 后写入。

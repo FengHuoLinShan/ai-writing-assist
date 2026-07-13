@@ -2,7 +2,7 @@
 
 - **状态**: Accepted
 - **日期**: 2026-06-14
-- **背景**: 动态地图功能 PRD v1.1（`docs/PRD-动态地图功能.md`）
+- **背景**: 动态地图功能 PRD v1.1（[`map-prd-v1.1.md`](../references/map-prd-v1.1.md)）
 
 ## 背景与问题
 

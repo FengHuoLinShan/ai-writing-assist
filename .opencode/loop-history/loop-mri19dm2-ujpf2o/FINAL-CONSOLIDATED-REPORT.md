@@ -1,8 +1,9 @@
 # 🔍 最终整合报告：优先级排序与修复路线图
 
 **生成日期**: 2026-07-13  
-**来源**: 20 轮审计（R1-R19 完成，R18-R19 进行中）  
-**累计发现**: ~1,700 项（CRITICAL: ~81, HIGH: ~242, MEDIUM: ~414, LOW: ~421 + ~500 i18n）
+**来源**: 20 轮审计（R1-R20 完成）  
+**累计发现**: ~1,700 项（CRITICAL: ~81, HIGH: ~242, MEDIUM: ~414, LOW: ~421 + ~500 i18n）  
+**验证状态**: 全部 P0/P1 已由并行 sub-agent 验证，8 项原报告误差已修正（详见文末）」
 
 ---
 
@@ -12,24 +13,24 @@
 
 | # | 标题 | 位置 | 为什么现在修复 | 工作量 |
 |---|------|------|---------------|--------|
-| 1 | **API Key 已提交至 Git 历史** | `backend/.env`（曾提交） | 真实 `sk-5MQh...` 和 `AqPK...` 密钥已泄露。需立即轮换 + Git 历史清理 | 2h 轮换密钥 + 4h BFG 清理 |
-| 2 | **CRIT-1: 零 CI/CD + 无分支保护** | 项目根 | 任何变更直接合入 main，无测试/审查门禁。Block 所有其他修复 | 4h 搭建 GitHub Actions + main 保护 |
-| 3 | **Mock-in-production — 生产代码检测 Mock** | `imports/workflow.py:17`, `orchestrator.py:514,541`, `extraction_service.py:81` | 7 处 `isinstance(db, Mock)` 改变生产行为，测试未验证真实路径 | 3h 移除 Mock 检测，重构测试 |
+| 1 | **API Key 曾提交至 Git 历史** | `backend/.env`（曾提交） | 占位符密钥 `sk-placeholder` 在初始提交 `ee3290966` 中提交，后于 `87144222a` 中删除。非真实密钥泄露，但环境文件曾进入历史是不安全实践 | 2h 确认当前 .env 无真实密钥 + BFG 清理 |
+| 2 | **零 CI/CD + 无分支保护** | 项目根 | 任何变更直接合入 main，无测试/审查门禁。Block 所有其他修复 | 4h 搭建 GitHub Actions + main 保护 |
+| 3 | **Mock-in-production — 生产代码检测 Mock** | `imports/workflow.py:17`, `orchestrator.py:514,541`, `extraction_service.py:81` | 9 处 `isinstance(db, Mock)` 改变生产行为，测试未验证真实路径（含模块级 `from unittest.mock import Mock`） | 3h 移除 Mock 检测，重构测试 |
 | 4 | **无 HTTP 速率限制 — 无 DoS 防护** | 全局（FastAPI 应用） | 任何客户端可耗尽连接池、压垮 LLM。缺 `slowapi`/令牌桶 | 3h 集成速率限制中间件 |
 | 5 | **后端完全缺失安全响应头** | `main.py` 中间件 | 无 HSTS/X-Frame-Options/X-Content-Type-Options → 点击劫持/MIME 嗅探/降级攻击 | 2h 添加安全头中间件 |
-| 6 | **enqueue_task 未导入 — 3 个端点运行时必挂** | `outline/api.py:105` | `analyze`/`generate`/`extract` 端点调用未导入函数 | 0.5h 添加 import |
-| 7 | **~20+ 处 `except Exception: pass` 吞关键错误** | 多个模块（embedding/worker.py, world/services, rag/source_collection.py 等） | 掩盖 DB 连接失败、LLM 超时、竞态条件，导致无声数据丢失 | 4h 逐处修复：记录日志 + 最小恢复 |
-| 8 | **DTO 对象因 `PendingRollbackError` 回滚后瘫痪** | `world/repositories.py:158-165,725-728` | `pg_trgm` 错误后 fallback 查询前未 `rollback()` → 后续所有查询失败 | 2h 添加 `rollback()` 守卫 |
+| 6 | **3 处 `except Exception: pass` 吞关键错误** | `rag/query_expansion.py:65`, `world/entity_alias_service.py:181`, `world/suggestion_queue_service.py:680` | 纯 `pass` 掩盖错误，无日志记录 | 2h 添加日志 + 最小恢复 |
+| 7 | **pg_trgm fallback 后缺 `db.rollback()`** | `world/repositories.py:158-165,725-728` | `pg_trgm` 错误后直接执行 fallback 查询，session 处于错误状态可能导致后续查询全失败 | 2h 添加 `rollback()` 守卫 |
+| 8 | **无 Dockerfile — 无法可重复部署** | 项目根 | 零容器化路径，每次部署手工操作不可重现 | 4h 编写 Dockerfile + .dockerignore |
 
 ### P1-HIGH
 
 | # | 标题 | 位置 | 为什么现在修复 | 工作量 |
 |---|------|------|---------------|--------|
-| 9 | **无 Dockerfile — 无法可重复部署** | 项目根 | 零容器化路径，每次部署手工操作不可重现 | 4h 编写 Dockerfile + .dockerignore |
-| 10 | **无领域事件机制 — 模块间耦合严重的发布工作流** | `writing/tasks.py` publish_chapter handler | RAG 索引→内存快照硬编码顺序，无法扩展 | 8h 设计轻量领域事件总线 |
-| 11 | **前端 `innerHTML` 未转义（XSS 风险）** | 多处前端文件 | API 返回内容直接 `innerHTML` 赋值，用户/AI 内容可能含恶意脚本 | 4h 全面审计并加 `esc()` |
+| 9 | **领域事件机制缺失 — 发布工作流强耦合** | `writing/tasks.py` publish_chapter handler | RAG 索引→内存快照硬编码顺序，无法扩展 | 8h 设计轻量领域事件总线 |
+| 10 | **50+ 处 `detail=str(exc)` 泄露 Python 异常给前端** | 多个 api.py | 暴露 SQL/路径/内部实现细节给客户端（已验证 21 处跨 7 个文件） | 3h 替换为安全错误消息 |
+| 11 | **前端 `showModalHtml` 依赖调用方转义纪律（XSS 风险）** | `modal.js:107` | 74 处 innerHTML 中绝大部分已正确使用 `esc()`，但 `showModalHtml` 依赖调用方自觉转义，无法强制 | 2h 增加内置转义或 lint 规则 |
 | 12 | **LLM 生成 API 前端 15s 超时 — 必然失败** | 前端 `api.js` 调用 | AI 生成需 60-120s，前端超时设置远低于实际耗时 | 1h 调整超时配置 |
-| 13 | **3 个 API 端点接受未经类型验证的 dict body** | `imports/api.py:281,308` + 多处 | `body: dict = Body(...)` 绕过所有 Pydantic 校验 | 2h 定义 Pydantic schema |
+| 13 | **2 个 API 端点接受未经类型验证的 dict body** | `imports/api.py:281,308` | `body: dict = Body(...)` 绕过所有 Pydantic 校验 | 2h 定义 Pydantic schema |
 | 14 | **嵌入缓存 key 缺模型名** | `embedding/cache.py:28-30` | 切换模型后最多 1h 返回旧模型结果 | 1h key 中加入 model_name |
 | 15 | **无删除撤销系统 — 所有删除操作不可逆** | 全局（除 project 回收站） | 章节/场景/剧情线/伏笔/揭示硬删除，无用户错误恢复路径 | 12h 设计软删除/回收站方案 |
 | 16 | **CSS 骨架屏已定义但零使用** | `styles.css` + 各视图 | 5 个视图还在用"加载中..."文本，骨架屏 CSS 完全浪费 | 2h 替换 5 处 loading 状态 |
@@ -38,10 +39,10 @@
 
 | # | 标题 | 位置 | 为什么现在修复 | 工作量 |
 |---|------|------|---------------|--------|
-| 17 | **无 Python lock 文件 — 依赖图不可复现** | 项目根 | 不同 install 解析不同依赖图，团队/CI 行为不一致 | 1h 生成 `requirements.lock` |
-| 18 | **50+ 处 `detail=str(exc)` 泄露 Python 异常给前端** | 多个 api.py | 暴露 SQL/路径/内部实现细节给客户端 | 3h 替换为安全错误消息 |
-| 19 | **`autospec=True` 零使用 — mock 不验证 API 形状** | 150+ `@patch` 调用 | 签名变化时 mock 不失败，测试假阳性 | 6h 逐步添加 autospec |
-| 20 | **项目列表（入口页面）无 loading/错误状态** | `projectView.js:280-295` | 用户看到的第一个页面，API 失败只显示空数组 | 1h 添加 loading + error UI |
+| 17 | **`autospec=True` 零使用 — mock 不验证 API 形状** | 246 处 `@patch`/`@mock.patch` 调用 | 签名变化时 mock 不失败，测试假阳性 | 6h 逐步添加 autospec |
+| 18 | **项目列表（入口页面）无 loading/错误状态** | `projectView.js:280-295` | 用户看到的第一个页面，API 失败只显示空数组 | 1h 添加 loading + error UI |
+| 19 | **`settings/facade.py` `LookupError` 抛 500 而非 404** | `settings/facade.py:37` | 不存在的 project_id 请求 effective-llm-settings 返回 500→应 404 | 0.5h 改为 `raise HTTPException(404)` |
+| 20 | **无请求日志中间件 — 无访问日志/审计轨迹** | `main.py` | 零请求日志，无法审计或排障 | 2h 添加 access log 中间件 |
 
 ---
 
@@ -193,12 +194,12 @@
 ## 路线图总结建议
 
 ### 立即处理（1-2 天）— 安全 + 部署底线
-1. 轮换泄露的 API Key + 清理 Git 历史
+1. 确认 `.env` 中无真实 API Key，清理 Git 历史中的 `.env` blob
 2. 搭建 CI/CD 流水线 + main 分支保护
-3. 修复 `except Exception: pass` 吞错误（20+ 处）
+3. 修复 3 处 `except Exception: pass` 吞错误（+ 7 处静默降级加日志）
 4. 添加 HTTP 速率限制 + 安全响应头
-5. 修复 `enqueue_task` 未导入
-6. 移除 Mock-in-production 检测
+5. 移除 Mock-in-production 检测（9 处 `isinstance(db, Mock)`）
+6. 修复 `world/repositories.py` 2 处 `pg_trgm` fallback 缺 `rollback()`
 
 ### 短期（1 周）— 数据完整 + 用户体验
 1. 修复竞态条件（writing/outline 模块 10+ 处）
@@ -213,7 +214,7 @@
 2. 领域事件机制
 3. 核心基础设施测试覆盖
 4. Sentry/Prometheus 监控
-5. Python lock 文件 + 依赖同步
+5. `writing.generate` 前端超时修复 + 缓存 key 加模型名
 6. 模块拆分（2000+ 行文件 → 可维护大小）
 
 ### 长期（1-3 月）— 架构演进
@@ -222,3 +223,39 @@
 3. WebSocket 替代 REST 轮询
 4. 前端虚拟 DOM 迁移评估
 5. AGPLv3 许可证依赖替换评估
+
+---
+
+## 附录：验证修正记录
+
+以下修正基于并行 sub-agent 对全部 P0/P1 发现的实际代码审查，修正前文不准确项。
+
+### 误报（NOT FOUND — 原报告错误）
+
+| 原报告断言 | 验证结果 | 修正说明 |
+|-----------|---------|---------|
+| `enqueue_task` 未导入（P0） | 已正确导入 `outline/api.py:8` | 审计误读代码 |
+| 真实 API Key 泄露（P0） | 仅占位符 `sk-placeholder` 曾提交 | 无真实密钥泄露 |
+| 20+ 处 `except Exception: pass`（P0） | 3 处纯 pass + 若干静默降级 | 其余有日志/返回值 |
+| 1494 处冗余 `@pytest.mark.asyncio` | 实际 246 处 | 计数高估 6 倍 |
+| 无 Python lock 文件（P2） | 已有 `uv.lock` + `requirements.txt` | 审计遗漏文件 |
+| 3 个 dict body 端点 | 实际 2 处 | 多报了 1 处 |
+
+### 需修正措辞（PARTIALLY — 原报告夸大了严重性或低估了数量）
+
+| 原报告断言 | 验证修正 |
+|-----------|---------|
+| core/shared 零测试覆盖 | core 的 config/database/container 在 `tests/unit/` 下有测试；dependencies.py + 整个 shared 为零 |
+| 8 处 async fixture 误用 | 实际 10 处（多了 `test_base.py` 2 处 + `test_project_api.py`/`test_llm_settings_api.py`） |
+| 前端 innerHTML 未转义 | 74 处 innerHTML 中绝大部分正确使用 `esc()`；`showModalHtml` 依赖调用方纪律 |
+| 跨模块 E2E 场景缺失 | 各模块有碎片化 E2E 测试，但缺少完整串行流程（导入→生成→发布→检索） |
+
+### 完全确认（CONFIRMED — 与实际代码一致）
+
+| 类别 | 项数 | 关键项 |
+|------|------|--------|
+| P0 | 6 | Mock-in-production 9 处、零 CI/CD、无速率限制、无安全头、except pass 3 处、pg_trgm 缺 rollback |
+| P1 Top 20 | 8 | 领域事件缺失、writing.generate 15s 超时、缓存 key 缺模型名、dict body 2 处、无撤销、骨架屏零使用、项目无 loading、LookupError 500 |
+| 安全 | 8 | CSRF 仅 X-Requested-With、CSP unsafe-inline、无 MIME 验证、LLM 无限流、sessionStorage token、metrics 无认证、DB 单用户、env 命名不匹配 |
+| 测试+部署 | 12 | async fixture 10 处、无 xdist/timeout、memory/rag 无 API 测试、无 cov 配置、无 gunicorn、start.sh 无 worker、无 nginx、密码明文、无 .dockerignore |
+| UX+Ops | 13 | 409 未映射、11 处 setTimeout 竞态、4 处静默 error、ARIA 缺失、无脏状态、router 导航竞态、localStorage 无限制、日志无 novel_id、无 access log、无 metrics、DomainError 静默、无备份、EbookLib AGPLv3+ |

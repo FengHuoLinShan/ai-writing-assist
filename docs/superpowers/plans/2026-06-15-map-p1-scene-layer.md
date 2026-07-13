@@ -1121,7 +1121,7 @@ cd /Users/tywww/Desktop/项目/ai-writing-assist && git add frontend-console/tes
 ## Task 14: PRD 偏差清单更新 + 文档同步
 
 **Files:**
-- Modify: `docs/PRD-动态地图功能.md`
+- Modify: `docs/references/map-prd-v1.1.md`
 
 - [ ] **Step 1: 更新 PRD 偏差清单**
 
@@ -1143,7 +1143,7 @@ cd /Users/tywww/Desktop/项目/ai-writing-assist && git add frontend-console/tes
 - [ ] **Step 2: Commit**
 
 ```bash
-cd /Users/tywww/Desktop/项目/ai-writing-assist && git add docs/PRD-动态地图功能.md && git commit -m "docs(map): update PRD with P0 gap fixes and P1 status"
+cd /Users/tywww/Desktop/项目/ai-writing-assist && git add docs/references/map-prd-v1.1.md && git commit -m "docs(map): update PRD with P0 gap fixes and P1 status"
 ```
 
 ---

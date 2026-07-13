@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 补齐 PRD `docs/PRD-动态地图功能.md` 文末列出的 7 个 P0 前端已知偏差，使地图浏览与编辑体验闭环。
+**Goal:** 补齐 PRD `docs/references/map-prd-v1.1.md` 文末列出的 7 个 P0 前端已知偏差，使地图浏览与编辑体验闭环。
 
 **Architecture:** 先扩展 `mapState.js` 统一承载 pending/drag/hover/selected 状态，再扩展 `mapHexRenderer.js` 负责绘制，最后集中修改 `mapView.js` 的渲染与事件处理。所有动态文本通过 `esc()` 安全处理；tooltip 使用 Leaflet popup；批量绑定保存通过现有 `createLocationBindings` API。
 

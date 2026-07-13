@@ -21,5 +21,11 @@
 | `review-module-removed.md` | review 旧文档入口已移除，结构复查模块暂缓 | `docs/modules/review/README.md` |
 | `timeline-module-removed.md` | timeline 旧文档入口已移除，事件/时间线语义并入 world/context | `docs/modules/timeline/README.md` |
 | `review_findings.json` | 代码审查临时输出 | 根目录 |
+| `agent-prompts/chaos-test-fixes-prompt.md` | 2026-06-24 混沌测试修复清单；问题已进入后续修复轮次 | 根目录 |
+| `agent-prompts/review-fixes-prompt.md` | 特定提交范围的历史 Review 修复清单 | 根目录 |
+| `reports/frontend-ui-ux-review-report.md` | 只读 UI/UX 审查产物；不是当前前端设计契约 | 根目录 |
+| `modules/04_settings.md` | 已被 `docs/modules/16_settings.md` 取代的 settings 模块说明 | `docs/modules/` |
+| `maintenance/document-update-log.md` | 已完成的文档同步记录，不反映当前状态 | `docs/` |
+| `test-plans/TDD_TEST_PLAN.md` | 已完成的测试重构计划；当前测试契约以 `testing-guide.md` 和活跃测试为准 | `backend/tests/` |
 
 未迁移项：`docs/architecture/old-scene-pipeline.md` 当前无现存副本；旧 Scene prefetch/reinforcement 已由 legacy guard 和 imports 模块废弃说明替代，无需创建归档副本。

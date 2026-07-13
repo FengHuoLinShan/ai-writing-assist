@@ -158,6 +158,43 @@ describe("worldView render", () => {
     expect(router.navigate).toHaveBeenCalledWith("map", null)
   })
 
+  it("对象库渲染顶部工具栏，包含新建对象、自动提取和视图切换", async () => {
+    state.currentProjectId = "p1"
+    worldView._entities = [{ id: "e1", name: "王都", entity_type: "location", status: "canonical" }]
+    worldView._total = 1
+    const html = await worldView.render()
+
+    expect(html).toContain("world-toolbar")
+    expect(html).toContain("世界对象")
+    expect(html).toContain("btn-new-entity")
+    expect(html).toContain('data-action="toggle-extract"')
+    expect(html).toContain('data-action="set-object-view"')
+  })
+
+  it("自动提取面板默认收起，点击 toggle 后展开", async () => {
+    state.currentProjectId = "p1"
+    worldView._entities = [{ id: "e1", name: "王都", entity_type: "location", status: "canonical" }]
+    worldView._autoExtractOpen = false
+
+    document.body.innerHTML = `<main id="workspace-content">${await worldView.render()}</main>`
+    worldView._bindEvents()
+    expect(document.querySelector(".world-extract-drawer")).toBeNull()
+
+    document.querySelector('[data-action="toggle-extract"]')?.click()
+    expect(worldView._autoExtractOpen).toBe(true)
+  })
+
+  it("工具栏显示当前项目名称", async () => {
+    state.currentProjectId = "p1"
+    state.currentProject = { id: "p1", title: "测试项目" }
+    worldView._entities = [{ id: "e1", name: "王都", entity_type: "location", status: "canonical" }]
+
+    const html = await worldView.render()
+
+    expect(html).toContain("测试项目")
+    expect(html).toContain("view-toolbar__project")
+  })
+
   it("repeated render and bind does not double-fire direct-bound button clicks", async () => {
     state.currentProjectId = "p1"
     worldView._entities = [{ id: "e1", name: "王都", entity_type: "location", status: "canonical" }]

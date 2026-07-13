@@ -133,6 +133,8 @@ deep-import 快照在提交时已将项目值、环境覆盖和代码默认
 - `world_entity` 走 world 的实体融合建议和确认合并 / 别名登记逻辑。
 - `plot_thread`、`outline_arc`、`scene`、`foreshadowing_plan`、`reveal_plan`
   走 outline 的结构资产去重逻辑。
+  其中 Scene 会跳过来源指纹仍有效的 Phase 1c pending、dismissed、adopted 融合决定的
+  来源对，以及 adopted 融合结果与其来源的组合；Scene 工作台是唯一处理入口，来源变化后可再次参加全局扫描。
 
 LLM 只生成建议；`smart-dedup/apply` 必须 `confirmed=true`。正史对象到正史对象的
 世界对象合并仍需逐条 `allow_canonical_merge=true`。

@@ -29,15 +29,15 @@ test.describe("项目模块", () => {
     const emptyState = page.locator(SEL.emptyState)
     const grid = page.locator(SEL.projectGrid)
     if (await emptyState.isVisible().catch(() => false)) {
-      await expect(page.locator("#btn-create-project")).toBeVisible()
+      await expect(page.locator('[data-action="new"]').first()).toBeVisible()
     } else {
       await expect(grid).toBeVisible()
-      await expect(page.locator("#btn-create-project")).toBeVisible()
+      await expect(page.locator('[data-action="new"]').first()).toBeVisible()
     }
   })
 
   test("创建项目并自动切换到写作视图", async ({ page }) => {
-    await page.locator("#btn-create-project").click()
+    await page.locator('[data-action="new"]').first().click()
     await expect(page.locator(SEL.modalOverlay)).not.toHaveClass(/hidden/)
     await expect(page.locator(SEL.modalTitle)).toHaveText("新建项目")
 

@@ -5,6 +5,7 @@ import json
 import uuid
 from collections import defaultdict
 from datetime import UTC, datetime
+from itertools import combinations
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -74,6 +75,7 @@ HEALTH_REASON_GROUPS = {
 }
 
 CONFIDENCE_BANDS = {"low", "medium", "high"}
+_FUSION_DECISION_STATUSES = ("pending", "dismissed", "adopted")
 
 
 class SceneWorkbenchService:
@@ -475,6 +477,36 @@ class SceneWorkbenchService:
             )
             stored_ids.append(str(stored.id))
         return stored_ids
+
+    async def get_current_fusion_decision_pairs(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> set[frozenset[str]]:
+        """Return current Scene pairs already decided through Phase 1c review.
+
+        This is an outline-internal read model for global structure dedup. A
+        current pending or dismissed decision owns its source pair. An adopted
+        decision also owns every source-to-result pair so keep-originals does
+        not reappear as a global duplicate suggestion.
+        """
+        decisions = await self._current_fusion_suggestions(
+            db,
+            parse_uuid(novel_id, "novel_id"),
+            statuses=_FUSION_DECISION_STATUSES,
+        )
+        protected_pairs: set[frozenset[str]] = set()
+        for item in decisions:
+            source_ids = [str(value) for value in item.source_scene_ids or []]
+            protected_pairs.update(
+                frozenset(pair) for pair in combinations(source_ids, 2)
+            )
+            if item.status == "adopted" and item.result_scene_id is not None:
+                result_id = str(item.result_scene_id)
+                protected_pairs.update(
+                    frozenset((source_id, result_id)) for source_id in source_ids
+                )
+        return protected_pairs
 
     async def list_fusion_suggestions(
         self,
@@ -1416,36 +1448,82 @@ class SceneWorkbenchService:
         db: AsyncSession,
         novel_id: uuid.UUID,
     ) -> list[SceneFusionSuggestion]:
-        pending = await self._suggestion_repo.list_by_status(
+        return await self._current_fusion_suggestions(
             db,
             novel_id,
-            status="pending",
+            statuses=("pending",),
+        )
+
+    async def _current_fusion_suggestions(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        statuses: tuple[str, ...],
+    ) -> list[SceneFusionSuggestion]:
+        candidates = await self._suggestion_repo.list_by_statuses(
+            db,
+            novel_id,
+            statuses=statuses,
             skip=0,
             limit=None,
         )
-        active: list[SceneFusionSuggestion] = []
-        for item in pending:
-            if await self._suggestion_is_current(db, item):
-                active.append(item)
-        return active
+        parsed_candidates: list[tuple[SceneFusionSuggestion, list[uuid.UUID]]] = []
+        source_ids: set[uuid.UUID] = set()
+        for item in candidates:
+            parsed_ids = self._parse_suggestion_source_ids(item)
+            if parsed_ids is None:
+                continue
+            parsed_candidates.append((item, parsed_ids))
+            source_ids.update(parsed_ids)
+        if not parsed_candidates:
+            return []
+
+        scenes = await self.repo.get_many_for_novel(
+            db,
+            novel_id,
+            list(source_ids),
+        )
+        scene_by_id = {scene.id: scene for scene in scenes}
+        return [
+            item
+            for item, parsed_ids in parsed_candidates
+            if self._suggestion_sources_are_current(item, parsed_ids, scene_by_id)
+        ]
 
     async def _suggestion_is_current(
         self,
         db: AsyncSession,
         item: SceneFusionSuggestion,
     ) -> bool:
-        parsed_ids: list[uuid.UUID] = []
-        try:
-            parsed_ids = [uuid.UUID(str(value)) for value in item.source_scene_ids or []]
-        except (TypeError, ValueError):
-            return False
-        if len(parsed_ids) < 2 or len(set(parsed_ids)) != len(parsed_ids):
+        parsed_ids = self._parse_suggestion_source_ids(item)
+        if parsed_ids is None:
             return False
         scenes = await self.repo.get_many_for_novel(db, item.novel_id, parsed_ids)
         scene_by_id = {scene.id: scene for scene in scenes}
-        if len(scene_by_id) != len(parsed_ids):
+        return self._suggestion_sources_are_current(item, parsed_ids, scene_by_id)
+
+    @staticmethod
+    def _parse_suggestion_source_ids(
+        item: SceneFusionSuggestion,
+    ) -> list[uuid.UUID] | None:
+        try:
+            parsed_ids = [uuid.UUID(str(value)) for value in item.source_scene_ids or []]
+        except (TypeError, ValueError):
+            return None
+        if len(parsed_ids) < 2 or len(set(parsed_ids)) != len(parsed_ids):
+            return None
+        return parsed_ids
+
+    def _suggestion_sources_are_current(
+        self,
+        item: SceneFusionSuggestion,
+        source_ids: list[uuid.UUID],
+        scene_by_id: dict[uuid.UUID, Scene],
+    ) -> bool:
+        if any(scene_id not in scene_by_id for scene_id in source_ids):
             return False
-        ordered = [scene_by_id[scene_id] for scene_id in parsed_ids]
+        ordered = [scene_by_id[scene_id] for scene_id in source_ids]
         if any(scene.status == "deprecated" for scene in ordered):
             return False
         return self._suggestion_source_fingerprint(ordered) == item.source_fingerprint

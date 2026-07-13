@@ -13,7 +13,7 @@
 ## 权威来源
 
 - 主业务 8 条路径：`docs/核心业务场景与预期行为.md`
-- 地图 7 条路径：`docs/PRD-动态地图功能.md`
+- 地图 7 条路径：`docs/references/map-prd-v1.1.md`
 - 地图一级工作台承接规则：`docs/superpowers/specs/2026-06-26-map-workspace-design.md`
 - 现有浏览器覆盖现状：`frontend-console/e2e/scenario-coverage.md`
 

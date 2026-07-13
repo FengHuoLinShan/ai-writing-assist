@@ -45,23 +45,31 @@ const projectView = {
           <h2>开始你的第一部小说</h2>
           <p>创建项目，导入正文，让 AI 协助你构建世界观与剧情。</p>
           <div class="actions">
-            <button class="btn btn-primary" data-action="new" id="btn-create-project">新建项目</button>
+            <button class="btn btn-primary" data-action="new">新建项目</button>
             <button class="btn btn-ghost" data-action="import">导入小说</button>
           </div>
         </div>
       `
     } else {
+      const currentProjectId = state.currentProjectId || null
       html += `
-        <div class="project-header">
-          <div class="project-header__top">
-            <button class="btn btn-ghost btn-sm" data-action="recycle-bin">回收站</button>
+        <div class="project-toolbar">
+          <div class="project-toolbar__title">
+            全部项目
+            <span class="project-toolbar__count">${projects.length} 个项目</span>
           </div>
-          <p>选择一个项目继续创作，或创建新项目。</p>
-          <div class="divider"></div>
+          <div class="project-toolbar__actions">
+            <button class="btn btn-sm btn-ghost" data-action="recycle-bin">回收站</button>
+            <button class="btn btn-sm btn-ghost" data-action="toggle-import">${this._importSectionOpen ? "收起导入" : "导入小说"}</button>
+            <button class="btn btn-sm btn-primary" data-action="new">新建项目</button>
+          </div>
         </div>
         ${this._renderProjectBulkToolbar(projects)}
-        <div class="project-grid">
       `
+      if (this._importSectionOpen) {
+        html += `<div class="project-import-drawer">${this._renderImportSection()}</div>`
+      }
+      html += `<div class="project-grid">`
 
       for (let i = 0; i < projects.length; i++) {
         const p = projects[i]
@@ -70,11 +78,13 @@ const projectView = {
         const created = p.created_at ? new Date(p.created_at).toLocaleDateString("zh-CN") : ""
         const stats = this._projectStats(p)
         const activeTime = this._projectActivityTime(p)
+        const isCurrent = p.id === currentProjectId
         html += `
-          <div class="project-card ${i === 0 ? "featured" : ""}" data-id="${esc(p.id)}" data-action="open-project">
+          <div class="project-card ${isCurrent ? "current" : ""}" data-id="${esc(p.id)}" data-action="open-project">
             <div class="project-card-selection" data-action="noop">
               ${renderSelectionCell(this, "project-cards", p.id, `选择 ${p.title || p.name || "项目"}`)}
             </div>
+            ${isCurrent ? '<span class="project-current-badge">当前项目</span>' : ""}
             <div class="project-status">
               <span class="status-dot ${isCanonical ? "canonical" : "draft"}"></span>
               <span class="pill ${isCanonical ? "pill-success" : "pill-warning"}">${isCanonical ? "进行中" : "已归档"}</span>
@@ -103,27 +113,14 @@ const projectView = {
       }
 
       html += `
-          <div class="project-card project-card-placeholder" data-action="new" id="btn-create-project">
+          <div class="project-card project-card-placeholder" data-action="new">
             <div class="plus">+</div>
             <div class="label">创建新项目</div>
           </div>
         </div>
       `
 
-      html += `
-        <div class="project-import-section">
-          <button class="btn btn-ghost btn-sm" data-action="toggle-import">
-            ${this._importSectionOpen ? "收起导入" : "导入小说到当前项目"}
-          </button>
-          ${this._importSectionOpen ? this._renderImportSection() : ""}
-        </div>
-        <div class="import-list">
-          <div class="import-list-header">导入记录</div>
-          <div id="import-list-body">
-            <p class="project-import-list__status">加载中...</p>
-          </div>
-        </div>
-      `
+
     }
 
     setTimeout(() => this._bindEvents(), 0)
@@ -138,12 +135,15 @@ const projectView = {
     const ids = projects.map((project) => project.id).filter(Boolean)
     reconcileBulkSelection(this, "project-cards", ids)
     return `
-      <div class="row-actions project-bulk-toolbar__select">
-        <button class="btn btn-sm" data-action="select-visible-projects" ${ids.length === 0 ? "disabled" : ""}>全选当前项目</button>
+      <div class="project-bulk-bar">
+        <div class="row-actions project-bulk-toolbar__select">
+          <button class="btn btn-sm" data-action="select-visible-projects" ${ids.length === 0 ? "disabled" : ""}>全选当前项目</button>
+        </div>
+        ${renderBulkToolbar(this, "project-cards", [
+          { action: "delete-projects", label: "批量移入回收站", className: "btn-danger" },
+        ], { noun: "项目", hint: "只处理当前可见项目" })}
       </div>
-    ` + renderBulkToolbar(this, "project-cards", [
-      { action: "delete-projects", label: "批量移入回收站", className: "btn-danger" },
-    ], { noun: "项目", hint: "只处理当前可见项目" })
+    `
   },
 
   _stageLabel(stage) {
@@ -217,12 +217,7 @@ const projectView = {
   },
 
   _bindEvents() {
-    document.getElementById("btn-create-project")?.addEventListener("click", (e) => {
-      e.stopPropagation()
-      this.showCreateForm()
-    })
     this._bindCardDelegation()
-    this._bindImportButtons()
   },
 
   _bindCardDelegation() {
@@ -273,9 +268,6 @@ const projectView = {
     }, "移入回收站")
   },
 
-  _bindImportButtons() {
-    document.getElementById("btn-import-file")?.addEventListener("click", () => this.importFile())
-  },
 
   async onEnter() {
     try {
@@ -666,9 +658,15 @@ const projectView = {
           <button class="btn btn-primary" data-action="upload-file" ${this._importUploading || !hasProject ? "disabled" : ""}>
             ${this._importUploading ? "上传中..." : "上传并导入"}
           </button>
+          <button class="btn btn-ghost" data-action="import">导入为新项目</button>
         </div>
         <div id="pv-upload-progress" class="project-import-panel__progress">${this._renderUploadProgress()}</div>
-        <div id="pv-import-history" class="project-import-panel__history"></div>
+        <div class="project-import-panel__history">
+          <div class="project-import-panel__history-header">导入记录</div>
+          <div id="import-list-body" class="project-import-panel__history-list">
+            <p class="project-import-list__status">加载中...</p>
+          </div>
+        </div>
       </div>
     `
   },

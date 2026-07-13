@@ -41,7 +41,7 @@
 | `frontend-console/views/mapView.js` | 修改 | 新增聚焦模式 UI、势力编辑工具 |
 | `frontend-console/styles.css` | 修改 | 新增聚焦模式、势力相关 CSS |
 | `frontend-console/tests/mapView.test.js` | 修改 | 新增 territory/focus 测试 |
-| `docs/PRD-动态地图功能.md` | 修改 | 更新 P2 实现状态 |
+| `docs/references/map-prd-v1.1.md` | 修改 | 更新 P2 实现状态 |
 
 ---
 
@@ -965,7 +965,7 @@ describe("mapView P2 势力范围", () => {
 ## Task 13: 文档同步
 
 **Files:**
-- Modify: `docs/PRD-动态地图功能.md`
+- Modify: `docs/references/map-prd-v1.1.md`
 
 1. 在 "实现记录" 末尾追加 P2 实现记录
 2. 更新 "未实现 Feature 全景" 表格，标记 P2 为已实现

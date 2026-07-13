@@ -2,83 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from modules.imports.deep_import_dedup import DeepImportDedupCoordinator
-from modules.imports.llm_schemas import SceneChunk
-from modules.imports.scene_fusion import FinalSceneCandidate
-
-
-def _candidate(
-    candidate_id: str,
-    *,
-    source_ids: list[str],
-    chapters: list[int],
-    chunks: list[SceneChunk],
-    title: str = "灰雾聚会",
-    goal: str = "克莱恩建立神秘会面",
-    confidence: float = 0.8,
-) -> FinalSceneCandidate:
-    return FinalSceneCandidate(
-        candidate_id=candidate_id,
-        title=title,
-        goal=goal,
-        core_conflict="身份伪装与信息差",
-        emotional_beat="谨慎",
-        scene_chunks=chunks,
-        source_candidate_ids=source_ids,
-        source_chapter_indices=chapters,
-        confidence=confidence,
-    )
-
-
-def test_scene_dedup_collapses_same_source_and_preserves_cross_chapter_chunks():
-    result = DeepImportDedupCoordinator().dedupe_scenes(
-        [
-            _candidate(
-                "scene-a",
-                source_ids=["source-1"],
-                chapters=[6],
-                chunks=[SceneChunk(chapter_index=6, start_paragraph=1)],
-                confidence=0.82,
-            ),
-            _candidate(
-                "scene-b",
-                source_ids=["source-1"],
-                chapters=[7],
-                chunks=[SceneChunk(chapter_index=7, start_paragraph=2)],
-                confidence=0.88,
-            ),
-        ]
-    )
-
-    assert len(result.candidates) == 1
-    merged = result.candidates[0]
-    assert merged.operation == "merged"
-    assert merged.source_candidate_ids == ["source-1"]
-    assert merged.source_chapter_indices == [6, 7]
-    assert [chunk.chapter_index for chunk in merged.scene_chunks] == [6, 7]
-    assert result.quality_stats["same_workflow_collapsed"] == 1
-
-
-def test_scene_dedup_keeps_same_title_without_shared_text_anchor_separate():
-    result = DeepImportDedupCoordinator().dedupe_scenes(
-        [
-            _candidate(
-                "scene-a",
-                source_ids=["source-1"],
-                chapters=[6],
-                chunks=[SceneChunk(chapter_index=6, start_paragraph=1)],
-            ),
-            _candidate(
-                "scene-b",
-                source_ids=["source-2"],
-                chapters=[6],
-                chunks=[SceneChunk(chapter_index=6, start_paragraph=9)],
-            ),
-        ]
-    )
-
-    assert len(result.candidates) == 2
-    assert result.quality_stats["same_workflow_collapsed"] == 0
+from modules.imports.deep_import_dedup import StructureReviewAgent
 
 
 @pytest.mark.asyncio
@@ -128,7 +52,7 @@ async def test_structure_review_applies_only_same_workflow_high_confidence(
         fake_apply_structure_dedup,
     )
 
-    result = await DeepImportDedupCoordinator().review_structure(
+    result = await StructureReviewAgent().review(
         object(),
         "novel-1",
         workflow_id="wf-1",
@@ -182,7 +106,7 @@ async def test_structure_review_ignores_old_only_suggestion_pairs(monkeypatch):
         fake_suggest_structure_dedup,
     )
 
-    result = await DeepImportDedupCoordinator().review_structure(
+    result = await StructureReviewAgent().review(
         object(),
         "novel-1",
         workflow_id="wf-current",
@@ -229,7 +153,7 @@ async def test_structure_review_counts_many_to_many_pairs_as_unique_assets(monke
         fake_suggest_structure_dedup,
     )
 
-    result = await DeepImportDedupCoordinator().review_structure(
+    result = await StructureReviewAgent().review(
         object(),
         "novel-1",
         workflow_id="wf-current",

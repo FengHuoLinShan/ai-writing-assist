@@ -455,4 +455,4 @@ cd backend/prompts && grep -n "candidate\|候选" *.md
 - [ ] `tests/integration/` 中 SQLite 可运行的全部通过；`test_extraction_pipeline.py` 正确标记 skip
 - [ ] `tests/e2e/` 在缺少 PostgreSQL 时自动 skip，不 hang
 - [ ] `backend/prompts/shared_rules.md` 和 `structure_world_character.md` 反映"直接入正史"架构
-- [ ] `docs/待更新清单.md` 和 `CONTEXT.md` 如有 Prompt 引用也同步更新
+- [ ] `docs/archive/maintenance/document-update-log.md` 和 `CONTEXT.md` 如有 Prompt 引用也同步更新

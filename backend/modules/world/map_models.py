@@ -23,7 +23,17 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import JSON, Boolean, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -519,13 +529,12 @@ class MapTerritoryTile(Base, UUIDMixin, TimestampMixin, NovelMixin):
 
     __tablename__ = "map_territory_tiles"
     __table_args__ = (
-        Index(
-            "uq_map_territory_map_faction_qr",
+        UniqueConstraint(
             "map_id",
             "faction_entity_id",
             "hex_q",
             "hex_r",
-            unique=True,
+            name="uq_map_territory_map_faction_qr",
         ),
         {"comment": "势力范围（P2）"},
     )

@@ -9,7 +9,7 @@
 - 当前前端主入口是一级路由 `map`（`mapWorkspaceView`）
 - `world` 里的 `map` 子标签只保留兼容跳转
 
-**设计来源**：`docs/PRD-动态地图功能.md`；当前代码已覆盖地图基础 P0-P2、世界动态 P0/P1，并提供世界动态 P2/P3 的前端与只读派生脚手架。
+**设计来源**：[`map-prd-v1.1.md`](../references/map-prd-v1.1.md)；当前代码已覆盖地图基础 P0-P2、世界动态 P0/P1，并提供世界动态 P2/P3 的前端与只读派生脚手架。
 
 ---
 
@@ -515,4 +515,4 @@
 | `frontend-console/views/mapHexRenderer.js` | 六边形 Canvas 渲染 |
 | `frontend-console/views/mapEditPanel.js` | 编辑侧边栏 |
 | `frontend-console/api.js` | 前端 API 封装 |
-| `docs/PRD-动态地图功能.md` | 原始 PRD 与实现偏差记录 |
+| [`docs/references/map-prd-v1.1.md`](../references/map-prd-v1.1.md) | 原始 PRD 与实现偏差记录 |

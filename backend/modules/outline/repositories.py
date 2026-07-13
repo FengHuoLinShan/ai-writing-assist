@@ -1432,11 +1432,30 @@ class SceneFusionSuggestionRepository:
         skip: int = 0,
         limit: int | None = None,
     ) -> list[SceneFusionSuggestion]:
+        return await self.list_by_statuses(
+            db,
+            novel_id,
+            statuses=(status,),
+            skip=skip,
+            limit=limit,
+        )
+
+    async def list_by_statuses(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        statuses: tuple[str, ...],
+        skip: int = 0,
+        limit: int | None = None,
+    ) -> list[SceneFusionSuggestion]:
+        if not statuses:
+            return []
         stmt = (
             select(SceneFusionSuggestion)
             .where(
                 SceneFusionSuggestion.novel_id == novel_id,
-                SceneFusionSuggestion.status == status,
+                SceneFusionSuggestion.status.in_(statuses),
             )
             .order_by(
                 SceneFusionSuggestion.created_at.desc(),

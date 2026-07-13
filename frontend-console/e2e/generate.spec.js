@@ -153,7 +153,7 @@ test.describe("生成中心模块", () => {
   })
 
   test("生成中心页面加载", async ({ page }) => {
-    await expect(page.locator("#view-title")).toContainText("生成中心")
+    await expect(page.locator("#topbar-module")).toContainText("生成中心")
     await expect(page.locator("#topbar-generate-note")).toContainText("先自由聊")
     await expect(page.locator("#workspace-content")).toContainText("人物")
     await expect(page.locator("#workspace-content")).toContainText("高质量")

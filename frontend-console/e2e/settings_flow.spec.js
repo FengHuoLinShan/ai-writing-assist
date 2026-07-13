@@ -35,7 +35,7 @@ test.describe("设置流程", () => {
     await page.goto("/#settings")
     // hash-only goto 在 SPA 中偶发不触发重新渲染，reload 强制 initRouter 按 URL hash 渲染（确定性）
     await page.reload()
-    // 限定 workspace-content，避免与 topbar 的 #view-title（同名 h2）冲突
+    // 限定 workspace-content，避免与顶部栏模块标题冲突
     await expect(page.locator("#workspace-content").getByRole("heading", { name: "全局设置" })).toBeVisible({ timeout: 10000 })
     await expect(page.getByRole("heading", { name: "作者偏好全局默认" })).toBeVisible({ timeout: 10000 })
     await expect(page.getByRole("heading", { name: "LLM 全局默认" })).toBeVisible({ timeout: 10000 })

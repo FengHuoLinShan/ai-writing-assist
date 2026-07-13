@@ -15,6 +15,7 @@ beforeEach(() => {
   localStorage.clear()
   sessionStorage.clear()
   clearDocument()
+  projectView._importSectionOpen = false
   projectView._uploadProgress = null
   vi.clearAllMocks()
 })
@@ -126,6 +127,68 @@ describe("projectView", () => {
 
       expect(stats.wordCountText).toBe("12,000")
       expect(stats.chapterCountText).toBe("8")
+    })
+  })
+
+  // ============================================================
+  // 工具栏与当前项目高亮
+  // ============================================================
+
+  describe("project toolbar and current project highlight", () => {
+    it("工具栏显示项目数量与操作按钮", async () => {
+      state.projects = [
+        { id: "p1", title: "项目A" },
+        { id: "p2", title: "项目B" },
+        { id: "p3", title: "项目C" },
+      ]
+
+      const html = await projectView.render()
+
+      expect(html).toContain("project-toolbar")
+      expect(html).toContain("全部项目")
+      expect(html).toContain("3 个项目")
+      expect(html).toContain('data-action="recycle-bin"')
+      expect(html).toContain('data-action="toggle-import"')
+      expect(html).toContain('data-action="new"')
+    })
+
+    it("当前项目卡片添加 current 类与徽章", async () => {
+      state.projects = [
+        { id: "p1", title: "项目A" },
+        { id: "p2", title: "项目B" },
+      ]
+      state.currentProjectId = "p2"
+      state.currentProject = state.projects[1]
+
+      const html = await projectView.render()
+      document.body.innerHTML = html
+
+      const currentCard = document.querySelector('.project-card.current[data-id="p2"]')
+      expect(currentCard).not.toBeNull()
+      expect(currentCard?.querySelector(".project-current-badge")).not.toBeNull()
+      expect(document.querySelector('.project-card.current[data-id="p1"]')).toBeNull()
+    })
+
+    it("导入抽屉默认折叠", async () => {
+      state.projects = [{ id: "p1", title: "项目A" }]
+      projectView._importSectionOpen = false
+
+      const html = await projectView.render()
+
+      expect(html).not.toContain("project-import-drawer")
+    })
+
+    it("导入抽屉展开时包含导入记录容器", async () => {
+      state.projects = [{ id: "p1", title: "项目A" }]
+      state.currentProjectId = "p1"
+      state.currentProject = state.projects[0]
+      projectView._importSectionOpen = true
+
+      const html = await projectView.render()
+
+      expect(html).toContain("project-import-drawer")
+      expect(html).toContain("project-import-panel__history-header")
+      expect(html).toContain('id="import-list-body"')
     })
   })
 

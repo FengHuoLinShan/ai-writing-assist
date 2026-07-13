@@ -42,7 +42,7 @@ test.describe("Scene 工作台", () => {
     await openWorkbench(page, project, "writing")
     await page.locator('[data-action="open-scene-workbench"]').click()
 
-    await expect(page.locator("#view-title")).toHaveText("大纲")
+    await expect(page.locator("#topbar-module")).toHaveText("大纲")
     await expect(page.locator(`.scene-workbench-row[data-id="${scene.id}"]`)).toHaveClass(/is-selected/)
   })
 
@@ -182,7 +182,7 @@ test.describe("Scene 工作台", () => {
     await expect(openWriting).toBeVisible()
     await openWriting.click()
 
-    await expect(page.locator("#view-title")).toHaveText("写作台")
+    await expect(page.locator("#topbar-module")).toHaveText("写作台")
     await expect(page.locator("#writing-panel-container")).toContainText("新标题")
     await expect(page.locator("#writing-panel-container")).toContainText("新目标")
   })

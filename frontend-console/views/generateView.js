@@ -170,6 +170,12 @@ const generateView = {
     `
   },
 
+  _renderProjectChip() {
+    const title = state.currentProject?.title || state.currentProject?.name
+    if (!title) return ""
+    return `<span class="view-toolbar__project" title="${esc(title)}">${esc(title)}</span>`
+  },
+
   _renderGenerateSubTabs() {
     return `
       <div class="generate-subtabs" role="tablist" aria-label="生成模式">
@@ -190,11 +196,23 @@ const generateView = {
 
   _renderChatTab() {
     return `
+      <div class="view-toolbar generate-toolbar">
+        <div class="view-toolbar__title">
+          自由对话
+          ${this._renderProjectChip()}
+        </div>
+        <div class="view-toolbar__actions">
+          <button class="btn btn-sm" data-action="send-chat-message">发送</button>
+          <button class="btn btn-sm btn-primary" data-action="generate-object-draft">生成世界对象建议</button>
+        </div>
+      </div>
+      <div id="generate-template-row" class="generate-template-row generate-template-row--toolbar">
+        ${this._renderTemplateButtons()}
+      </div>
       <div class="generate-chatbox">
         <div class="generate-chat-main">
           <div class="card generate-chat-panel">
             <div id="generate-chat-messages" class="generate-chat-messages"></div>
-
             <div class="generate-composer">
               <textarea
                 class="generate-chat-input"
@@ -202,10 +220,6 @@ const generateView = {
                 rows="4"
                 placeholder="直接聊，或把其他 Chatbox 的完整讨论粘贴到这里。"
               ></textarea>
-              <div class="generate-chat-actions">
-                <button class="btn" data-action="send-chat-message">发送</button>
-                <button class="btn btn-primary" data-action="generate-object-draft">生成世界对象建议</button>
-              </div>
             </div>
           </div>
         </div>
@@ -218,11 +232,8 @@ const generateView = {
           content: `<div class="generate-chat-side">
           <div class="card generate-settings-card">
             <div class="generate-card-title-row">
-              <div class="card-title">模板</div>
+              <div class="card-title">选项</div>
               <button class="btn btn-sm" data-action="edit-object-templates">编辑模板</button>
-            </div>
-            <div id="generate-template-row" class="generate-template-row">
-              ${this._renderTemplateButtons()}
             </div>
             <div class="generate-side-options">
               <label class="generate-quality-toggle">
@@ -244,7 +255,6 @@ const generateView = {
         </div>`,
         })}
       </div>
-
     `
   },
 
@@ -257,9 +267,17 @@ const generateView = {
     const hasManualRole = Boolean(form.viewpointCharacterId && scenePovId && form.viewpointCharacterId !== scenePovId)
     const hasSceneWithoutPov = Boolean(scene && !scenePovId)
     return `
+      <div class="view-toolbar generate-toolbar">
+        <div class="view-toolbar__title">
+          角色视角正文
+          ${this._renderProjectChip()}
+        </div>
+        <div class="view-toolbar__actions">
+          <button class="btn btn-sm btn-primary" data-action="generate-pov-prose">生成角色视角正文</button>
+        </div>
+      </div>
       <div class="generate-pov-workspace">
         <div class="card generate-pov-form">
-          <div class="card-title">角色视角正文</div>
           ${this._povLoadWarning ? `<div class="generate-template-warning">${esc(this._povLoadWarning)}</div>` : ""}
           <div class="generate-form-grid">
             <label>章节 *
@@ -301,9 +319,6 @@ const generateView = {
           <label>作者指令
             <textarea class="form-textarea" id="generate-pov-instruction" rows="5" placeholder="作为作者意图输入，不等于角色知识。">${esc(form.instruction || "")}</textarea>
           </label>
-          <div class="generate-result-actions">
-            <button class="btn btn-primary" data-action="generate-pov-prose">生成角色视角正文</button>
-          </div>
           <p class="generate-empty-copy">生成结果先保存为正文建议；采用到工作稿后才能继续编辑和发布。结构化 POV 面板会展示泄漏诊断。</p>
         </div>
         <div class="card">
@@ -329,7 +344,7 @@ const generateView = {
     return `
       <style>
         .topbar-generate-note { margin-left:10px; color:var(--text-secondary); font-size:12px; font-style:italic; white-space:nowrap; }
-        .generate-chatbox { display:grid; grid-template-columns:minmax(0,72fr) minmax(210px,28fr); gap:12px; align-items:stretch; height:calc(100vh - 180px); min-height:480px; overflow:hidden; }
+        .generate-chatbox { display:grid; grid-template-columns:minmax(0,78fr) minmax(180px,22fr); gap:12px; align-items:stretch; height:calc(100vh - 180px); min-height:480px; overflow:hidden; }
         .generate-chatbox:has(.generate-side-rail:not([open])) { grid-template-columns:minmax(0,1fr) var(--workspace-rail-collapsed); }
         .generate-chat-main { min-height:0; overflow:hidden; }
         .generate-chat-panel { display:flex; flex-direction:column; height:100%; min-height:0; overflow:hidden; }
@@ -351,9 +366,11 @@ const generateView = {
         .generate-chat-message.assistant .generate-chat-bubble { border-color:var(--accent-dim); }
         .generate-chat-message.pending .generate-chat-bubble { color:var(--text-dim); font-style:italic; }
         .generate-chat-message.error .generate-chat-bubble { color:var(--danger); border-color:var(--danger); background:var(--panel); }
-        .generate-composer { flex:0 0 auto; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--panel); padding:10px; }
-        .generate-chat-input { width:100%; min-height:92px; resize:vertical; border:0; outline:0; background:transparent; color:var(--text); font:inherit; line-height:1.5; }
+        .generate-composer { flex:0 0 auto; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--panel); padding:8px; }
+        .generate-chat-input { width:100%; min-height:72px; resize:vertical; border:0; outline:0; background:transparent; color:var(--text); font:inherit; line-height:1.5; }
         .generate-chat-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:8px; flex-wrap:wrap; }
+        .generate-toolbar { margin-bottom:var(--space-2); }
+        .generate-template-row--toolbar { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:var(--space-2); }
         .generate-empty-copy { color:var(--text-dim); font-size:13px; line-height:1.6; margin:0; }
         .generate-result-card { border:1px solid var(--accent); border-radius:var(--radius-sm); padding:12px; background:var(--panel); }
         .generate-result-title { font-weight:600; margin-bottom:6px; }
@@ -378,24 +395,24 @@ const generateView = {
           .generate-chat-side { max-height:none; overflow:visible; padding-right:0; }
           .generate-chat-messages { min-height:260px; max-height:60vh; }
         }
-        .generate-subtabs { display:flex; gap:6px; margin-bottom:12px; overflow-x:auto; white-space:nowrap; }
+        .generate-subtabs { display:flex; gap:6px; margin-bottom:8px; overflow-x:auto; white-space:nowrap; }
         .generate-subtab { flex-shrink:0; border:1px solid var(--border); background:var(--panel); color:var(--text); border-radius:var(--radius-sm); padding:5px 12px; cursor:pointer; font-size:13px; }
         .generate-subtab.active { border-color:var(--accent); background:var(--selected); color:var(--accent); }
         .generate-task-workspace { display:grid; grid-template-columns:minmax(190px,22fr) minmax(0,78fr); gap:12px; align-items:start; }
         .generate-task-cards { display:grid; gap:8px; }
-        .generate-task-card { border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px; cursor:pointer; text-align:left; background:var(--panel); color:var(--text); }
+        .generate-task-card { border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px 10px; cursor:pointer; text-align:left; background:var(--panel); color:var(--text); }
         .generate-task-card.active { border-color:var(--accent); background:var(--selected); }
-        .generate-task-card h4 { margin:0 0 4px; font-size:14px; }
-        .generate-task-card p { margin:0; color:var(--text-dim); font-size:12px; line-height:1.5; }
+        .generate-task-card h4 { margin:0 0 2px; font-size:13px; }
+        .generate-task-card p { margin:0; color:var(--text-dim); font-size:12px; line-height:1.45; }
         .generate-task-form .form-group { margin-bottom:10px; }
         .generate-task-form label { display:block; color:var(--text-muted); font-size:12px; margin-bottom:4px; }
         .generate-task-result { margin-top:12px; }
         .generate-context-preview-source { color:var(--text-muted); font-size:12px; margin-bottom:10px; }
         .generate-context-preview-empty { color:var(--text-dim); font-size:13px; line-height:1.6; }
-        .generate-pov-workspace { display:grid; grid-template-columns:minmax(0,72fr) minmax(220px,28fr); gap:12px; align-items:start; }
-        .generate-pov-form { display:grid; gap:12px; }
+        .generate-pov-workspace { display:grid; grid-template-columns:minmax(0,72fr) minmax(200px,28fr); gap:12px; align-items:start; }
+        .generate-pov-form { display:grid; gap:10px; }
         .generate-pov-form label { display:grid; gap:4px; color:var(--text-muted); font-size:12px; }
-        .generate-form-grid { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px; }
+        .generate-form-grid { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; }
         .generate-template-warning { border:1px solid var(--warning); border-radius:var(--radius-sm); color:var(--warning); padding:7px; font-size:12px; margin-bottom:10px; }
         .generate-pov-note { border:1px solid var(--warning); border-radius:var(--radius-sm); color:var(--warning); padding:8px; font-size:12px; }
         .generate-pov-summary { display:grid; gap:5px; margin-top:12px; color:var(--text-dim); font-size:12px; line-height:1.5; }
@@ -1606,6 +1623,18 @@ const generateView = {
     const preset = TASK_PRESETS[this._taskPreset] || TASK_PRESETS.custom
     const form = this._taskForm
     return `
+      <div class="view-toolbar generate-toolbar">
+        <div class="view-toolbar__title">
+          任务
+          ${this._renderProjectChip()}
+        </div>
+        <div class="view-toolbar__actions">
+          <button class="btn btn-sm btn-primary" data-action="run-task">执行任务</button>
+          <button class="btn btn-sm" data-action="preview-task-context">预览上下文</button>
+          <button class="btn btn-sm" data-action="render-task-md">渲染 Markdown</button>
+          <button class="btn btn-sm" data-action="apply-to-chat">应用到聊天</button>
+        </div>
+      </div>
       <div class="generate-task-workspace">
         <div class="generate-task-cards">
           ${Object.entries(TASK_PRESETS).map(([key, p]) => `
@@ -1670,12 +1699,6 @@ const generateView = {
                 <p class="generate-form-hint">角色视角模式仅使用此 ID 作为视角人物，与“相关人物”相互独立。</p>
               </div>
             </details>
-            <div class="generate-result-actions">
-              <button class="btn btn-primary" data-action="run-task">执行任务</button>
-              <button class="btn" data-action="preview-task-context">预览上下文</button>
-              <button class="btn" data-action="render-task-md">渲染 Markdown</button>
-              <button class="btn" data-action="apply-to-chat">应用到聊天</button>
-            </div>
           </div>
           <div class="card generate-task-result">
             <div class="card-title generate-task-output-header">
@@ -1697,6 +1720,14 @@ const generateView = {
   _renderContextPreviewTab() {
     const sourceText = this._lastContextSource === "chat" ? "自由对话" : this._lastContextSource === "task" ? `任务：${TASK_PRESETS[this._taskPreset]?.label || "自定义任务"}` : ""
     return `
+      <div class="view-toolbar generate-toolbar">
+        <div class="view-toolbar__title">
+          上下文预览
+          ${sourceText ? `<span class="view-toolbar__count">来自：${esc(sourceText)}</span>` : ""}
+          ${this._renderProjectChip()}
+        </div>
+        <div class="view-toolbar__actions"></div>
+      </div>
       <div class="card">
         <div class="card-title">上下文预览</div>
         ${sourceText ? `<div class="generate-context-preview-source">来自：${esc(sourceText)}</div>` : ""}

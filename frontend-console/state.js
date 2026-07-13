@@ -126,12 +126,7 @@ const state = new Proxy(appState, {
 function updateUIForState(key, value) {
   switch (key) {
     case "currentView": {
-      const titleEl = document.getElementById("view-title")
       const moduleEl = document.getElementById("topbar-module")
-      if (titleEl) {
-        const route = router.getRoute(value)
-        titleEl.textContent = route ? route.title : value
-      }
       if (moduleEl) {
         const route = router.getRoute(value)
         moduleEl.textContent = route ? route.title : value

@@ -138,9 +138,21 @@ describe("generateView chatbox", () => {
     expect(html).not.toContain("generate-pasted-context")
   })
 
+  it("自由对话渲染顶部工具栏，并把模板行移到工具栏下方", async () => {
+    state.currentProject = { id: "p1", title: "测试项目" }
+    const html = await generateView.render()
+
+    expect(html).toContain("generate-toolbar")
+    expect(html).toContain("自由对话")
+    expect(html).toContain("测试项目")
+    expect(html).toContain('data-action="send-chat-message"')
+    expect(html).toContain('data-action="generate-object-draft"')
+    expect(html).toContain("generate-template-row--toolbar")
+  })
+
   it("在页面标题栏挂载生成中心说明，离开时清理", () => {
     document.body.innerHTML = `
-      <header id="workspace-header"><h2 id="view-title">生成中心</h2><div id="view-actions"></div></header>
+      <header id="workspace-header"><div id="view-actions"></div></header>
       <div class="topbar-center"><span id="topbar-module">生成中心</span></div>
     `
 
@@ -1121,9 +1133,10 @@ describe("generateView content-first layout", () => {
   it("keeps a collapsed assistant rail full-width on narrow screens", () => {
     const styles = generateView._renderStyles()
 
-    expect(styles).toContain("grid-template-columns:minmax(0,72fr) minmax(210px,28fr)")
+    expect(styles).toContain("grid-template-columns:minmax(0,78fr) minmax(180px,22fr)")
     expect(styles).toContain(".generate-chatbox, .generate-chatbox:has(.generate-side-rail:not([open])) { grid-template-columns:1fr")
     expect(styles).toContain(".generate-side-rail { grid-column:1 / -1; }")
+    expect(styles).toContain(".generate-template-row--toolbar")
   })
 })
 

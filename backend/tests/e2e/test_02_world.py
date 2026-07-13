@@ -25,8 +25,8 @@ class TestWorldEntityCRUD:
         await db_session.flush()
         return async_client, meta["project_id"], meta["entity_ids"]
 
-    async def test_world_entity_create_basic_returns_201_with_draft_status(self, ctx):
-        """使用基本字段创建世界对象应返回 201 且状态为 draft"""
+    async def test_world_entity_create_basic_returns_active_canonical(self, ctx):
+        """人工创建的世界对象应直接成为已采用资产。"""
         client, pid, _ = ctx
 
         # Act
@@ -44,7 +44,8 @@ class TestWorldEntityCRUD:
         data = resp.json()
         assert data["name"] == "测试城市"
         assert data["entity_type"] == "location"
-        assert data["status"] == "draft"
+        assert data["status"] == "canonical"
+        assert data["display_state"] == "active"
 
     async def test_world_entity_create_with_all_fields_persists_all_values(self, ctx):
         """使用完整字段创建世界对象应持久化所有字段值"""
@@ -221,8 +222,8 @@ class TestRelationshipCRUD:
             "source_id": eids["克莱恩·莫雷蒂"],
             "target_type": "world_entity",
             "target_id": eids["值夜者"],
-            "relation_type": "member_of",
-            "description": "克莱恩是值夜者成员",
+            "relation_type": "works_with",
+            "description": "克莱恩与值夜者协作",
         }
 
         # Act
@@ -230,7 +231,7 @@ class TestRelationshipCRUD:
 
         # Assert
         assert resp.status_code == 201
-        assert resp.json()["relation_type"] == "member_of"
+        assert resp.json()["relation_type"] == "works_with"
 
     async def test_relationship_list_returns_created_relationships(self, ctx):
         """列表接口应返回已创建的关系"""
@@ -431,7 +432,7 @@ class TestWorldCandidateAndGraphFlows:
             json={
                 "source_id": eids["克莱恩·莫雷蒂"],
                 "target_id": eids["值夜者"],
-                "relation_type": "member_of",
+                "relation_type": "serves_with",
             },
         )
         assert created.status_code == 201, created.text

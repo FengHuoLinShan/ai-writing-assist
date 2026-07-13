@@ -20,16 +20,13 @@ describe("global typography tokens", () => {
     expect(styles).toMatch(/--tracking-normal:\s*0;/)
   })
 
-  it("uses compact page-title typography instead of display sizing", () => {
-    expect(styles).toMatch(/#view-title\s*\{[^}]*font-size:\s*var\(--text-xl\);/s)
-    expect(styles).toMatch(/#view-title\s*\{[^}]*line-height:\s*var\(--leading-snug\);/s)
-    expect(styles).toMatch(/#view-title\s*\{[^}]*letter-spacing:\s*0;/s)
-    expect(styles).toMatch(/#view-title\s*\{[^}]*margin-left:\s*0;/s)
+  it("keeps topbar module title compact instead of display sizing", () => {
+    expect(styles).toMatch(/#topbar-module\s*\{[^}]*max-width:\s*clamp\(/s)
   })
 
   it("does not use negative offsets for prominent Chinese titles", () => {
     expect(styles).toMatch(/\.editor-title\s*\{[^}]*margin-left:\s*0;/s)
-    expect(styles).toMatch(/\.project-header h1\s*\{[^}]*margin-left:\s*0;/s)
+    expect(styles).toMatch(/\.project-toolbar__title\s*\{[^}]*margin-left:\s*0;/s)
   })
 
   it("lets modal action buttons wrap instead of clipping long footer rows", () => {
@@ -51,6 +48,6 @@ describe("global typography tokens", () => {
     expect(styles).toMatch(/\.workspace-rail__summary:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--accent\);/s)
     expect(styles).toMatch(/\.workflow-progress > summary::\-webkit-details-marker\s*\{\s*display:\s*none;/s)
     expect(styles).toMatch(/\.workflow-progress__compact:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--accent\);/s)
-    expect(styles).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.workspace-rail__icon,[\s\S]*\.workflow-progress__chevron/)
+    expect(styles).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.workspace-rail__chevron,[\s\S]*\.workflow-progress__chevron/)
   })
 })

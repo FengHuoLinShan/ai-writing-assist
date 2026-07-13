@@ -331,7 +331,7 @@ const outlineView = {
 
     if (subView !== "scenes") setTimeout(() => this._bindEvents(), 0)
     if (subView === "scenes") return `<div class="outline-scene-layout">${html}</div>`
-    return this._renderOutlineGenerateProgress() + this._renderPlotAutoExtractProgress() + html
+    return html
   },
 
   _renderOutlineGenerateProgress() {
@@ -671,9 +671,58 @@ const outlineView = {
     `
   },
 
+  _renderProjectChip() {
+    const title = state.currentProject?.title || state.currentProject?.name
+    if (!title) return ""
+    return `<span class="view-toolbar__project" title="${esc(title)}">${esc(title)}</span>`
+  },
+
   _renderPlotAutoExtractAction() {
     return `
-      <button class="btn" data-action="plot-structure-auto-extract">剧情线自动提取</button>
+      <button class="btn btn-sm" data-action="plot-structure-auto-extract">剧情线自动提取</button>
+    `
+  },
+
+  _renderOutlineProgressStatus() {
+    const parts = []
+    if (this._outlineGenerateProgress) {
+      const rangeText = this._outlineGenerateMeta
+        ? `范围: 章节 ${this._outlineGenerateMeta.start_chapter || 1}-${this._outlineGenerateMeta.end_chapter || 10}`
+        : "范围: 所选章节"
+      parts.push(renderWorkflowCard(this._outlineGenerateProgress, {
+        title: "剧情结构建议",
+        destinationLabel: rangeText,
+        className: "outline-progress-mini",
+      }))
+    }
+    if (this._plotAutoExtractProgress) {
+      const rangeText = this._plotAutoExtractMeta
+        ? `范围: 章节 ${this._plotAutoExtractMeta.start_chapter || 1}-${this._plotAutoExtractMeta.end_chapter || 10}`
+        : "范围: 所选章节"
+      parts.push(renderWorkflowCard(this._plotAutoExtractProgress, {
+        title: "剧情线自动提取",
+        destinationLabel: rangeText,
+        className: "outline-progress-mini",
+      }))
+    }
+    return parts.join("")
+  },
+
+  _renderOutlineToolbar({ title, count, createAction, createLabel }) {
+    const status = this._renderOutlineProgressStatus()
+    return `
+      <div class="view-toolbar outline-toolbar">
+        <div class="view-toolbar__title">
+          ${esc(title)}
+          ${count > 0 ? `<span class="view-toolbar__count">共 ${esc(count)} 个</span>` : ""}
+          ${this._renderProjectChip()}
+        </div>
+        <div class="view-toolbar__actions">
+          ${createAction ? `<button class="btn btn-sm btn-primary" data-action="${esc(createAction)}">${esc(createLabel)}</button>` : ""}
+          ${this._renderPlotAutoExtractAction()}
+        </div>
+        ${status ? `<div class="view-toolbar__status">${status}</div>` : ""}
+      </div>
     `
   },
 
@@ -690,13 +739,12 @@ const outlineView = {
       return '<div class="empty-state"><p>请先从左侧选择一个项目，或创建一个新项目开始。</p></div>'
     }
 
-    let html = `
-      <div class="outline-actions-bar">
-        <button class="btn btn-primary" data-action="create-thread">新建剧情线</button>
-        ${this._renderPlotAutoExtractAction()}
-      </div>
-      ${this._renderStructureFilters("threads")}
-    `
+    let html = this._renderOutlineToolbar({
+      title: "剧情线",
+      count: this._structureTotals.threads,
+      createAction: "create-thread",
+      createLabel: "新建剧情线",
+    }) + this._renderStructureFilters("threads")
 
     if (this._threads.length === 0) {
       return html + this._renderStructureEmptyState("剧情线", "threads")
@@ -759,13 +807,12 @@ const outlineView = {
       return '<div class="empty-state"><p>请先从左侧选择一个项目，或创建一个新项目开始。</p></div>'
     }
 
-    let html = `
-      <div class="outline-actions-bar">
-        <button class="btn btn-primary" data-action="create-arc">新建篇章纲</button>
-        ${this._renderPlotAutoExtractAction()}
-      </div>
-      ${this._renderStructureFilters("arcs")}
-    `
+    let html = this._renderOutlineToolbar({
+      title: "篇章纲",
+      count: this._structureTotals.arcs,
+      createAction: "create-arc",
+      createLabel: "新建篇章纲",
+    }) + this._renderStructureFilters("arcs")
 
     if (this._arcs.length === 0) {
       return html + this._renderStructureEmptyState("篇章纲", "arcs")
@@ -829,13 +876,12 @@ const outlineView = {
       return '<div class="empty-state"><p>请先从左侧选择一个项目，或创建一个新项目开始。</p></div>'
     }
 
-    let html = `
-      <div class="outline-actions-bar">
-        <button class="btn btn-primary" data-action="create-foreshadowing">新建伏笔</button>
-        ${this._renderPlotAutoExtractAction()}
-      </div>
-      ${this._renderStructureFilters("foreshadowing")}
-    `
+    let html = this._renderOutlineToolbar({
+      title: "伏笔",
+      count: this._structureTotals.foreshadowing,
+      createAction: "create-foreshadowing",
+      createLabel: "新建伏笔",
+    }) + this._renderStructureFilters("foreshadowing")
 
     if (this._foreshadowing.length === 0) {
       return html + this._renderStructureEmptyState("伏笔", "foreshadowing")
@@ -878,13 +924,12 @@ const outlineView = {
       return '<div class="empty-state"><p>请先从左侧选择一个项目，或创建一个新项目开始。</p></div>'
     }
 
-    let html = `
-      <div class="outline-actions-bar">
-        <button class="btn btn-primary" data-action="create-reveal">新建揭示</button>
-        ${this._renderPlotAutoExtractAction()}
-      </div>
-      ${this._renderStructureFilters("reveals")}
-    `
+    let html = this._renderOutlineToolbar({
+      title: "揭示",
+      count: this._structureTotals.reveals,
+      createAction: "create-reveal",
+      createLabel: "新建揭示",
+    }) + this._renderStructureFilters("reveals")
 
     if (this._reveals.length === 0) {
       return html + this._renderStructureEmptyState("揭示", "reveals")

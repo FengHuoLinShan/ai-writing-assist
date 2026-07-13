@@ -20,7 +20,13 @@ depends_on = None
 def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
-    if "scene_cross_chapter_suggestions" in set(inspector.get_table_names()):
+    tables = set(inspector.get_table_names())
+    # The demo squash baseline imports current metadata, so fresh databases
+    # already have the generalized successor table.
+    if {
+        "scene_cross_chapter_suggestions",
+        "scene_fusion_suggestions",
+    } & tables:
         return
     op.create_table(
         "scene_cross_chapter_suggestions",

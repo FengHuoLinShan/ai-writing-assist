@@ -9,7 +9,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.imports.deep_import_dedup import DeepImportDedupCoordinator
+from modules.imports.deep_import_dedup import StructureReviewAgent
 from modules.imports.service_phase_artifacts import add_phase_artifact
 from modules.imports.workflow_phase_runner import (
     StructureFullPipelineRequest,
@@ -66,7 +66,7 @@ async def _review_structure_dedup(
             "skip_reason": "non_async_session",
             "suggestions": [],
         }
-    return await DeepImportDedupCoordinator().review_structure(
+    return await StructureReviewAgent().review(
         db,
         novel_id,
         workflow_id=workflow_id,

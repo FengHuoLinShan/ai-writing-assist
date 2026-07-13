@@ -91,6 +91,27 @@ Key points:
 - Each test starts with an empty logical database through transaction rollback; do not add per-module `create_all()` fixtures.
 - Feature fixtures may import the concrete models they construct (for example `modules.outline.models` for `scenes` / `scene_spans`); `WritingDraft` itself has no `chapter_cards` FK.
 
+### Mock conventions
+
+给 `@patch` / `mock.patch` 的所有调用必须加 `autospec=True`，确保 mock 对象签名与被 mock 的 API 一致：
+
+```python
+# ✅ 正确
+@patch("modules.world.services.SomeService.method", autospec=True)
+# ❌ 错误 — 签名变化时不失败
+@patch("modules.world.services.SomeService.method")
+```
+
+例外仅在 C 扩展等无法 autospec 的场景，需显式注释原因。
+
+**禁止在生产代码中检测 Mock** — 不要写 `isinstance(db, Mock)` 守卫或 `from unittest.mock import Mock` 在生产 import。测试替身应通过 DI 注入（可选参数或 `Depends` override）传递，而非运行时类型检测改变生产逻辑。
+
+### Fixture conventions
+
+- 异步 fixture 必须使用 `@pytest_asyncio.fixture`，而非 `@pytest.fixture` + `async def`。虽然 `asyncio_mode = "auto"` 下后者技术上可运行，但 `@pytest_asyncio.fixture` 是显式约定，与 `conftest.py` 用法一致
+- `asyncio_mode = "auto"` 启用后，`@pytest.mark.asyncio` 是冗余装饰器。新测试无需添加；旧测试可逐步清理
+- 模块级 fixture 应放在模块的 `conftest.py` 中；E2E 共用的 `ctx` fixture 应提取到 `e2e/conftest.py`，避免 20+ 次重复实现
+
 ### Future subpackage test paths
 
 `imports` and `world` may later split large internal service directories into subpackages such as `imports/parsing/`, `imports/workflow/`, `imports/entity_extraction/`, `imports/scene/` or `world/services/core/`, `world/services/map/`, `world/services/worldbuilding/`. When that happens, tests may follow the owning subpackage path to keep fixtures close to the implementation.

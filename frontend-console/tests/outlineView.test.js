@@ -259,6 +259,45 @@ describe("outlineView render", () => {
     expect(html).toContain(expected)
   })
 
+  it.each([
+    { subView: "threads", title: "剧情线", createAction: "create-thread" },
+    { subView: "arcs", title: "篇章纲", createAction: "create-arc" },
+    { subView: "foreshadowing", title: "伏笔", createAction: "create-foreshadowing" },
+    { subView: "reveals", title: "揭示", createAction: "create-reveal" },
+  ])("$subView 子标签渲染顶部工具栏、新建按钮和剧情线自动提取", async ({ subView, title, createAction }) => {
+    outlineView._loading = false
+    state.currentSubView = subView
+    state.currentProjectId = "p1"
+    outlineView._threads = [{ id: "t1", name: "主线A", thread_type: "main", summary: "desc", status: "canonical" }]
+    outlineView._structureTotals = { threads: 1, arcs: 1, foreshadowing: 1, reveals: 1 }
+
+    const html = await outlineView.render()
+
+    expect(html).toContain("outline-toolbar")
+    expect(html).toContain(title)
+    expect(html).toContain(`data-action="${createAction}"`)
+    expect(html).toContain('data-action="plot-structure-auto-extract"')
+  })
+
+  it("进度卡片出现在工具栏状态区，不再独占一行", async () => {
+    outlineView._loading = false
+    state.currentSubView = "threads"
+    state.currentProjectId = "p1"
+    outlineView._threads = [{ id: "t1", name: "主线A", thread_type: "main", summary: "desc", status: "canonical" }]
+    outlineView._outlineGenerateProgress = {
+      taskId: "task-1",
+      label: "剧情结构建议",
+      statusLabel: "运行中",
+      percent: 50,
+      hasPercent: true,
+    }
+
+    const html = await outlineView.render()
+
+    expect(html).toContain("outline-progress-mini")
+    expect(html).not.toMatch(/^\s*<div class="outline-progress-card-wrap"/)
+  })
+
   it("深度导入工作稿伏笔和揭示显示中文状态", async () => {
     outlineView._loading = false
     state.currentProjectId = "p1"

@@ -15,7 +15,7 @@ export const SEL = {
   // 工作区
   workspace: "#workspace",
   workspaceContent: "#workspace-content",
-  viewTitle: "#view-title",
+  viewTitle: "#topbar-module",
   viewActions: "#view-actions",
 
   // 空态 / 加载

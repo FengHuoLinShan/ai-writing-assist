@@ -92,6 +92,14 @@ class OutlineStructureDedupService:
                 )
         selected_types = set(asset_types or _SUPPORTED_ASSET_TYPES)
         assets = await self._load_assets(db, novel_id=novel_id, limit=limit)
+        managed_scene_pairs = (
+            await SceneWorkbenchService().get_current_fusion_decision_pairs(
+                db,
+                novel_id,
+            )
+            if "scene" in selected_types
+            else set()
+        )
         suggestions: list[dict[str, Any]] = []
         scanned_counts: dict[str, int] = {}
 
@@ -99,7 +107,13 @@ class OutlineStructureDedupService:
             if asset_type not in selected_types:
                 continue
             scanned_counts[asset_type] = len(items)
-            pairs = self._candidate_pairs(items, max_pairs=max_suggestions * 2)
+            pairs = self._candidate_pairs(
+                items,
+                max_pairs=max_suggestions * 2,
+                excluded_pairs=(
+                    managed_scene_pairs if asset_type == "scene" else None
+                ),
+            )
             for pair_index, (source, target, match) in enumerate(pairs):
                 if len(suggestions) >= max_suggestions:
                     break
@@ -253,6 +267,7 @@ class OutlineStructureDedupService:
         items: list[_StructureAsset],
         *,
         max_pairs: int,
+        excluded_pairs: set[frozenset[str]] | None = None,
     ) -> list[tuple[_StructureAsset, _StructureAsset, dict[str, Any]]]:
         pairs: dict[
             tuple[str, str],
@@ -274,7 +289,12 @@ class OutlineStructureDedupService:
             key=lambda item: item[2].get("similarity_score", 0),
             reverse=True,
         )
-        return ordered[:max_pairs]
+        excluded = excluded_pairs or set()
+        return [
+            item
+            for item in ordered
+            if frozenset((item[0].asset_id, item[1].asset_id)) not in excluded
+        ][:max_pairs]
 
     async def _evidence(
         self,

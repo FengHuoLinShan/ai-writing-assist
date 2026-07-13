@@ -807,14 +807,27 @@ const worldView = {
   },
 
   _renderEntityList() {
-    if (this._entities.length === 0) {
-      return `
-        <div class="world-list-actions">
-          <button class="btn btn-primary" data-action="new" id="btn-new-entity">新建对象</button>
-          <button class="btn" data-action="toggle-extract" style="margin-left:8px;">${this._autoExtractOpen ? "▾" : "▸"} 世界对象与别名/关系自动提取</button>
+    const extractLabel = "世界对象与别名/关系自动提取"
+    const toolbar = `
+      <div class="view-toolbar world-toolbar">
+        <div class="view-toolbar__title">
+          世界对象
+          <span class="view-toolbar__count">共 ${esc(this._total)} 个</span>
+          ${this._renderProjectChip()}
         </div>
-        ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_object_auto_extraction", "世界对象与别名/关系自动提取") : ""}
-        ${this._renderFilters()}
+        <div class="view-toolbar__actions">
+          <button class="btn btn-sm btn-primary" data-action="new" id="btn-new-entity">新建对象</button>
+          <button class="btn btn-sm" data-action="toggle-extract">${this._autoExtractOpen ? "▾" : "▸"} 自动提取</button>
+          ${this._renderObjectViewToggle()}
+        </div>
+      </div>
+    `
+    const extractDrawer = this._autoExtractOpen
+      ? `<div class="world-extract-drawer">${this._renderAutoExtractPanel("world_object_auto_extraction", extractLabel)}</div>`
+      : ""
+
+    if (this._entities.length === 0) {
+      return `${toolbar}${extractDrawer}${this._renderFilters()}
         ${this._entitiesLoadError ? `
           <div class="empty-state" role="alert">
             <div class="empty-icon" style="color:var(--warning);">&#9888;</div>
@@ -834,21 +847,9 @@ const worldView = {
       `
     }
 
-    let html = `
-      <div class="world-list-actions">
-        <button class="btn btn-primary" data-action="new" id="btn-new-entity">新建对象</button>
-        <button class="btn" data-action="toggle-extract" style="margin-left:8px;">
-          ${this._autoExtractOpen ? "▾" : "▸"} 世界对象与别名/关系自动提取
-        </button>
-      </div>
-      ${this._autoExtractOpen ? this._renderAutoExtractPanel("world_object_auto_extraction", "世界对象与别名/关系自动提取") : ""}
-      <div class="world-list-actions__secondary">
-        <button class="btn btn-sm" data-action="nav-candidates">待处理（${this._candidateTotal || this._candidates.length}）</button>
-      </div>
-    `
+    let html = `${toolbar}${extractDrawer}`
 
     html += this._renderFilters()
-    html += this._renderObjectViewToggle()
 
     // 判断是否有自动入库批次
     const hasBatches = this._batches && this._batches.length > 0
@@ -951,10 +952,10 @@ const worldView = {
 
   _renderObjectViewToggle() {
     return `
-      <div class="world-object-view-toggle" aria-label="对象库视图">
+      <span class="world-object-view-toggle" aria-label="对象库视图">
         <button class="btn btn-sm ${this._objectViewMode === "table" ? "btn-primary" : ""}" data-action="set-object-view" data-view-mode="table">表格</button>
         <button class="btn btn-sm ${this._objectViewMode === "card" ? "btn-primary" : ""}" data-action="set-object-view" data-view-mode="card">卡片</button>
-      </div>
+      </span>
     `
   },
 
@@ -987,6 +988,12 @@ const worldView = {
         <button class="btn btn-sm" data-action="${esc(nextAction)}" ${nextDisabled}>下一页</button>
       </div>
     `
+  },
+
+  _renderProjectChip() {
+    const title = state.currentProject?.title || state.currentProject?.name
+    if (!title) return ""
+    return `<span class="view-toolbar__project" title="${esc(title)}">${esc(title)}</span>`
   },
 
   _formatBatchTime(isoStr) {
@@ -1280,9 +1287,18 @@ const worldView = {
   },
 
   _renderCandidatesList({ reviewOnly = false } = {}) {
+    const toolbar = `
+      <div class="view-toolbar world-toolbar">
+        <div class="view-toolbar__title">
+          待处理对象
+          <span class="view-toolbar__count">共 ${esc(this._candidateTotal)} 个</span>
+          ${this._renderProjectChip()}
+        </div>
+        <div class="view-toolbar__actions"></div>
+      </div>
+    `
     if (this._candidates.length === 0) {
-      return `
-        ${reviewOnly ? this._renderCandidateReviewFilters() : ""}
+      return `${toolbar}${reviewOnly ? this._renderCandidateReviewFilters() : ""}
         <div class="empty-state">
           <div class="empty-icon">&#128269;</div>
           <p>没有待处理对象。</p>
@@ -1294,8 +1310,7 @@ const worldView = {
     const ids = this._candidates.map((candidate) => this._entityId(candidate))
     reconcileBulkSelection(this, scope, ids)
 
-    let html = `
-      ${reviewOnly ? this._renderCandidateReviewFilters() : ""}
+    let html = `${toolbar}${reviewOnly ? this._renderCandidateReviewFilters() : ""}
       <p class="world-list-description">
         以下内容尚未进入当前有效设定。请结合来源和证据决定采用、合并、设为别名或忽略。
       </p>
@@ -1397,16 +1412,26 @@ const worldView = {
   },
 
   async _renderRelations({ reviewOnly = false } = {}) {
-    let html = `
+    const renderToolbar = (total) => `
+      <div class="view-toolbar world-toolbar">
+        <div class="view-toolbar__title">
+          ${reviewOnly ? "待处理关系" : "关系网"}
+          ${total > 0 ? `<span class="view-toolbar__count">共 ${esc(total)} 个</span>` : ""}
+          ${this._renderProjectChip()}
+        </div>
+        <div class="view-toolbar__actions">
+          ${reviewOnly ? "" : `<button class="btn btn-sm btn-primary" data-action="create-relation">新建关系</button>`}
+        </div>
+      </div>
+    `
+    const description = `
       <p class="world-list-description">
         ${reviewOnly ? "处理 AI 抽取或导入提出、尚未采用的关系。" : "管理世界对象与人物之间的关系。"}
       </p>
-      ${reviewOnly ? this._renderRelationReviewFilters() : `<div class="world-list-actions__secondary">
-        <button class="btn btn-primary" data-action="create-relation">新建关系</button>
-      </div>`}
     `
-    if (!state.currentProjectId) return html + '<div class="empty-state"><p>请先选择项目。</p></div>'
+    if (!state.currentProjectId) return renderToolbar(0) + description + '<div class="empty-state"><p>请先选择项目。</p></div>'
 
+    let html = renderToolbar(this._relationTotal || 0) + description
     try {
       const params = {
         novel_id: state.currentProjectId,
@@ -1423,9 +1448,11 @@ const worldView = {
       const rels = data.items || data || []
       this._relations = rels
       this._relationTotal = Number(data.total ?? rels.length) || 0
+      html = renderToolbar(this._relationTotal) + description
       if (rels.length === 0) {
         return html + `<div class="empty-state"><p>${reviewOnly ? "没有待处理关系。" : "还没有建立人物关系。"}</p><p class="world-text-dim">关系网可以帮助你梳理角色之间的恩怨情仇。</p></div>`
       }
+      html += reviewOnly ? this._renderRelationReviewFilters() : ""
       const scope = "world-relations"
       const ids = rels.map((rel) => rel.id || rel.relationship_id).filter(Boolean)
       reconcileBulkSelection(this, scope, ids)
@@ -1651,16 +1678,26 @@ const worldView = {
   },
 
   async _renderAliases({ reviewOnly = false } = {}) {
-    let html = `
+    const renderToolbar = (total) => `
+      <div class="view-toolbar world-toolbar">
+        <div class="view-toolbar__title">
+          ${reviewOnly ? "待处理别名" : "别名"}
+          ${total > 0 ? `<span class="view-toolbar__count">共 ${esc(total)} 个</span>` : ""}
+          ${this._renderProjectChip()}
+        </div>
+        <div class="view-toolbar__actions">
+          ${reviewOnly ? "" : `<button class="btn btn-sm btn-primary" data-action="create-alias">新建别名</button>`}
+        </div>
+      </div>
+    `
+    const description = `
       <p class="world-list-description">
         ${reviewOnly ? "处理尚未采用的别名。别名不独立创建对象。" : "管理世界对象的别名、称号和化名。别名不独立创建对象。"}
       </p>
-      ${reviewOnly ? this._renderAliasReviewFilters() : `<div class="world-list-actions__secondary">
-        <button class="btn btn-primary" data-action="create-alias">新建别名</button>
-      </div>`}
     `
-    if (!state.currentProjectId) return html + '<div class="empty-state"><p>请先选择项目。</p></div>'
+    if (!state.currentProjectId) return renderToolbar(0) + description + '<div class="empty-state"><p>请先选择项目。</p></div>'
 
+    let html = renderToolbar(this._aliasTotal || 0) + description
     try {
       const params = {
         novel_id: state.currentProjectId,
@@ -1679,9 +1716,11 @@ const worldView = {
       const aliases = data.items || data || []
       this._aliases = aliases
       this._aliasTotal = Number(data.total ?? aliases.length) || 0
+      html = renderToolbar(this._aliasTotal) + description
       if (aliases.length === 0) {
         return html + `<div class="empty-state"><p>${reviewOnly ? "没有待处理别名。" : "还没有设置别名。"}</p><p class="world-text-dim">别名可以帮助你管理角色的化名、称号和绰号。</p></div>`
       }
+      html += reviewOnly ? this._renderAliasReviewFilters() : ""
       const typeMap = { name: "名称", title: "称号", nickname: "昵称", alias: "化名", translation: "译名" }
       const scope = "world-aliases"
       const ids = aliases.map((alias) => this._aliasKey(alias)).filter(Boolean)

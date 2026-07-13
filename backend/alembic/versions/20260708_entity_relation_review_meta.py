@@ -15,11 +15,21 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "entity_relations",
-        sa.Column("review_meta", sa.JSON(), nullable=True),
-    )
+    columns = {
+        column["name"]
+        for column in sa.inspect(op.get_bind()).get_columns("entity_relations")
+    }
+    if "review_meta" not in columns:
+        op.add_column(
+            "entity_relations",
+            sa.Column("review_meta", sa.JSON(), nullable=True),
+        )
 
 
 def downgrade() -> None:
-    op.drop_column("entity_relations", "review_meta")
+    columns = {
+        column["name"]
+        for column in sa.inspect(op.get_bind()).get_columns("entity_relations")
+    }
+    if "review_meta" in columns:
+        op.drop_column("entity_relations", "review_meta")

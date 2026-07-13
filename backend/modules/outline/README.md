@@ -147,7 +147,10 @@ supporting_scene_ids` 写入 `provenance_meta`；无有效 Scene 证据、低置
 `scene_fusion_suggestions`，使用 `pending/adopted/dismissed/stale`
 生命周期；刷新后仍可继续处理。前端打开建议后进入同一个
 Scene 草稿审稿界面，由用户选择主 Scene 并确认编辑后再复用
-`fusion/save` 保存；不提供批量自动采用。
+`fusion/save` 保存；不提供批量自动采用。来源指纹仍有效的 pending、dismissed、adopted
+建议来源对，以及 adopted 融合结果与其来源的组合，由工作台独占处理，
+`OutlineStructureDedupService` 的项目级 Scene 扫描会跳过它们；
+来源 Scene 变更或废弃后建议失效，才恢复全局扫描资格。
 
 ### SceneSpan 派生读模型
 
@@ -192,7 +195,8 @@ outline 模块拥有剧情线、篇章纲、Scene、伏笔和揭示的去重判�
 `OutlineStructureDedupService` 先用标题 / 摘要 / 章节范围召回相似资产，再用
 RAG 片段或资产摘要作为证据交给 LLM 判断 `merge`、`deprecate_duplicate`、
 `keep_separate` 或 `needs_review`。RAG 不可用时降级为摘要证据，并在建议中保留
-`degraded` reason。
+`degraded` reason。对 Scene，它会先排除仍由 Phase 1c 融合决定管理的来源对，以及
+已采用融合结果与其来源的组合，避免全局语义扫描与导入边界审稿产生两条待办。
 
 应用建议必须由用户确认。Scene 复用 Scene 工作台 merge 逻辑；其他结构资产不会
 硬删除，只标记为 `deprecated`，并在 `provenance_meta` 写入

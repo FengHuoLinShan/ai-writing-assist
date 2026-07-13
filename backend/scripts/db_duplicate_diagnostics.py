@@ -60,13 +60,26 @@ CHECKS = [
     DuplicateCheck(
         "rag_chunks chapter text key",
         """
-        SELECT novel_id, source_type, chapter_index, chunk_index, index_version,
+        SELECT novel_id, source_type, content_mode, chapter_index, chunk_index,
+               index_version,
                COUNT(*) AS count
         FROM rag_chunks
         WHERE source_type = 'chapter_text'
           AND chapter_index IS NOT NULL
           AND chunk_index IS NOT NULL
-        GROUP BY novel_id, source_type, chapter_index, chunk_index, index_version
+        GROUP BY novel_id, source_type, content_mode, chapter_index, chunk_index,
+                 index_version
+        HAVING COUNT(*) > 1
+        ORDER BY count DESC
+        LIMIT 20
+        """,
+    ),
+    DuplicateCheck(
+        "writing_drafts chapter version",
+        """
+        SELECT novel_id, chapter_index, version_number, COUNT(*) AS count
+        FROM writing_drafts
+        GROUP BY novel_id, chapter_index, version_number
         HAVING COUNT(*) > 1
         ORDER BY count DESC
         LIMIT 20
