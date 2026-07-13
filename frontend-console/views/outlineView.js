@@ -201,7 +201,7 @@ const outlineView = {
         api.outline.listThreads(state.currentProjectId, filterParams)
           .then((data) => {
             const items = data.items || data || []
-            this._threads = filterParams.status ? items : items.filter((item) => !structureAssetDisplay(item).isHistory)
+            this._threads = items
             this._structureTotals.threads = Number(data.total ?? this._threads.length) || 0
           })
           .catch(() => { this._threads = []; this._structureTotals.threads = 0 })
@@ -212,7 +212,7 @@ const outlineView = {
         api.outline.listArcs(state.currentProjectId, filterParams)
           .then((data) => {
             const items = data.items || data || []
-            this._arcs = filterParams.status ? items : items.filter((item) => !structureAssetDisplay(item).isHistory)
+            this._arcs = items
             this._structureTotals.arcs = Number(data.total ?? this._arcs.length) || 0
           })
           .catch(() => { this._arcs = []; this._structureTotals.arcs = 0 })
@@ -223,7 +223,7 @@ const outlineView = {
         api.outline.listForeshadowing(state.currentProjectId, filterParams)
           .then((data) => {
             const items = data.items || data || []
-            this._foreshadowing = filterParams.status ? items : items.filter((item) => !structureAssetDisplay(item).isHistory)
+            this._foreshadowing = items
             this._structureTotals.foreshadowing = Number(data.total ?? this._foreshadowing.length) || 0
           })
           .catch(() => { this._foreshadowing = []; this._structureTotals.foreshadowing = 0 })
@@ -234,7 +234,7 @@ const outlineView = {
         api.outline.listReveals(state.currentProjectId, filterParams)
           .then((data) => {
             const items = data.items || data || []
-            this._reveals = filterParams.status ? items : items.filter((item) => !structureAssetDisplay(item).isHistory)
+            this._reveals = items
             this._structureTotals.reveals = Number(data.total ?? this._reveals.length) || 0
           })
           .catch(() => { this._reveals = []; this._structureTotals.reveals = 0 })
@@ -1958,6 +1958,7 @@ const outlineView = {
 
   _countRangeOverlap(items, start, end, startKey, endKey) {
     return items.filter((item) => {
+      if (item.status === "deprecated") return false
       const s = item[startKey]
       const e = item[endKey]
       if (s == null && e == null) return false

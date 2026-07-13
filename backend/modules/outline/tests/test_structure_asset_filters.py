@@ -275,3 +275,54 @@ async def test_structure_asset_lists_filter_by_status_and_provenance(
     data = resp.json()
     assert data["total"] == 1
     assert [item["id"] for item in data["items"]] == [matching_id]
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "creator"),
+    [
+        ("/api/outline/threads", _thread_creator),
+        ("/api/outline/arcs", _arc_creator),
+        ("/api/outline/foreshadowing", _foreshadowing_creator),
+        ("/api/outline/reveals", _reveal_creator),
+    ],
+    ids=["threads", "arcs", "foreshadowing", "reveals"],
+)
+async def test_structure_asset_lists_exclude_deprecated_before_pagination(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    test_project_id: str,
+    endpoint: str,
+    creator: Creator,
+) -> None:
+    other_project_id = await _create_project(db_session, "Other novel")
+    active_ids = {
+        await creator(db_session, test_project_id, "active a", "draft", {}),
+        await creator(db_session, test_project_id, "active b", "canonical", {}),
+    }
+    deprecated_id = await creator(
+        db_session,
+        test_project_id,
+        "deprecated",
+        "deprecated",
+        {},
+    )
+    await creator(db_session, other_project_id, "other novel", "draft", {})
+    await db_session.flush()
+
+    first_page = await async_client.get(
+        endpoint,
+        params={"novel_id": test_project_id, "skip": 0, "limit": 1},
+    )
+    second_page = await async_client.get(
+        endpoint,
+        params={"novel_id": test_project_id, "skip": 1, "limit": 1},
+    )
+
+    assert first_page.status_code == 200
+    assert second_page.status_code == 200
+    first_data = first_page.json()
+    second_data = second_page.json()
+    assert first_data["total"] == second_data["total"] == 2
+    returned_ids = {first_data["items"][0]["id"], second_data["items"][0]["id"]}
+    assert returned_ids == active_ids
+    assert deprecated_id not in returned_ids

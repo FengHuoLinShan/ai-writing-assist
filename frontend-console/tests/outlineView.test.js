@@ -145,6 +145,26 @@ describe("outlineView onEnter", () => {
       limit: 50,
     })
   })
+
+  it.each([
+    { subView: "threads", apiName: "listThreads", store: "_threads", totalKey: "threads" },
+    { subView: "arcs", apiName: "listArcs", store: "_arcs", totalKey: "arcs" },
+    { subView: "foreshadowing", apiName: "listForeshadowing", store: "_foreshadowing", totalKey: "foreshadowing" },
+    { subView: "reveals", apiName: "listReveals", store: "_reveals", totalKey: "reveals" },
+  ])("直接采用 $subView 服务端分页 items 和 total", async ({ subView, apiName, store, totalKey }) => {
+    state.currentProjectId = "p1"
+    state.currentSubView = subView
+    const serverItems = [
+      { id: "active", status: "draft" },
+      { id: "server-history", status: "deprecated" },
+    ]
+    api.outline[apiName].mockResolvedValue({ items: serverItems, total: 17 })
+
+    await outlineView.onEnter()
+
+    expect(outlineView[store]).toEqual(serverItems)
+    expect(outlineView._structureTotals[totalKey]).toBe(17)
+  })
 })
 
 describe("outlineView 批量操作", () => {
@@ -975,10 +995,12 @@ describe("_showGenerateStructureForm", () => {
       { id: "t1", start_chapter: 1, planned_payoff_chapter: 3 },
       { id: "t2", start_chapter: 6, planned_payoff_chapter: 10 },
       { id: "t3", start_chapter: null, planned_payoff_chapter: 2 },
+      { id: "t4", status: "deprecated", start_chapter: 2, planned_payoff_chapter: 5 },
     ]
     const arcs = [
       { id: "a1", start_chapter: 4, end_chapter: 8 },
       { id: "a2", start_chapter: 20, end_chapter: 30 },
+      { id: "a3", status: "deprecated", start_chapter: 2, end_chapter: 5 },
     ]
 
     const threadCount = outlineView._countRangeOverlap(threads, 2, 5, "start_chapter", "planned_payoff_chapter")

@@ -37,6 +37,8 @@ def apply_structure_asset_filters(
 ) -> None:
     if status is not None:
         conditions.append(model.status == status)
+    else:
+        conditions.append(model.status != "deprecated")
     if source is not None:
         conditions.append(model.provenance_meta["source"].as_string() == source)
     if workflow_id is not None:

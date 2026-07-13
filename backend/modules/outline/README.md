@@ -55,8 +55,9 @@ GET /api/outline/reveals
 以上列表接口支持 `status`、`source`、`workflow_id`、`needs_review`、
 `skip`、`limit` query 参数。其中 `status` 匹配表字段；`source`、
 `workflow_id`、`needs_review` 匹配 `provenance_meta`，用于整理深度导入
-产生的 `deprecated`、`needs_review` 等结构资产。返回的 `total` 为筛选后的
-总数，仍按 `novel_id` 隔离。
+产生的 `deprecated`、`needs_review` 等结构资产。未指定 `status` 时默认排除
+`deprecated`；显式传入 `status=deprecated` 时可查看历史。返回的 `items` 和
+`total` 使用同一过滤条件，分页在过滤后执行，仍按 `novel_id` 隔离。
 
 ## Scene 工作台
 
