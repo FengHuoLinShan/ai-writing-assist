@@ -21,7 +21,11 @@ from core.errors import NotFoundError
 from core.errors import ValidationError as DomainValidationError
 from infrastructure.tasks.models import AsyncTask
 from modules.project.contracts import ProjectContext
-from modules.project.facade import get_project_context, list_active_project_summaries
+from modules.project.facade import (
+    get_project_context,
+    list_active_project_summaries,
+    require_active_project,
+)
 from modules.project.models import Project
 from modules.project.repositories import ProjectRepository
 from modules.project.schemas import (
@@ -558,13 +562,19 @@ class TestProjectService:
         repo = MagicMock()
         repo.get = AsyncMock(return_value=project)
         repo.soft_delete = AsyncMock(return_value=True)
-        service = ProjectService(repo=repo)
+        task_canceller = AsyncMock(return_value=2)
+        service = ProjectService(repo=repo, task_canceller=task_canceller)
         db = MagicMock()
 
         result = await service.delete_project(db, project_id)
 
         assert result is None
         repo.soft_delete.assert_awaited_once_with(db, uuid.UUID(project_id))
+        task_canceller.assert_awaited_once_with(
+            db,
+            novel_id=project_id,
+            transition_reason="project_soft_deleted",
+        )
 
     @pytest.mark.asyncio
     async def test_restore_project(self) -> None:
@@ -603,8 +613,8 @@ class TestProjectService:
         project_id = str(uuid.uuid4())
         repo = MagicMock()
         repo.permanent_delete = AsyncMock(return_value=True)
-        repo.delete_async_tasks_for_project = AsyncMock(return_value=1)
-        service = ProjectService(repo=repo)
+        task_deleter = AsyncMock(return_value=1)
+        service = ProjectService(repo=repo, task_deleter=task_deleter)
         db = MagicMock()
 
         result = await service.permanent_delete_project(
@@ -615,10 +625,7 @@ class TestProjectService:
 
         assert result is None
         repo.permanent_delete.assert_awaited_once_with(db, uuid.UUID(project_id))
-        repo.delete_async_tasks_for_project.assert_awaited_once_with(
-            db,
-            uuid.UUID(project_id),
-        )
+        task_deleter.assert_awaited_once_with(db, novel_id=project_id)
 
     @pytest.mark.asyncio
     async def test_permanent_delete_projects_deduplicates_ids(self) -> None:
@@ -627,8 +634,8 @@ class TestProjectService:
         repo = MagicMock()
         repo.list_deleted_ids = AsyncMock(return_value=set(project_ids))
         repo.permanent_delete_many = AsyncMock(return_value=2)
-        repo.delete_async_tasks_for_projects = AsyncMock(return_value=3)
-        service = ProjectService(repo=repo)
+        tasks_deleter = AsyncMock(return_value=3)
+        service = ProjectService(repo=repo, tasks_deleter=tasks_deleter)
         db = MagicMock()
 
         result = await service.permanent_delete_projects(
@@ -640,7 +647,10 @@ class TestProjectService:
         assert result.deleted_count == 2
         assert result.deleted_ids == [str(project_id) for project_id in project_ids]
         repo.permanent_delete_many.assert_awaited_once_with(db, project_ids)
-        repo.delete_async_tasks_for_projects.assert_awaited_once_with(db, project_ids)
+        tasks_deleter.assert_awaited_once_with(
+            db,
+            novel_ids=[str(project_id) for project_id in project_ids],
+        )
 
     @pytest.mark.asyncio
     async def test_permanent_delete_projects_rejects_partial_match(self) -> None:
@@ -649,8 +659,8 @@ class TestProjectService:
         repo = MagicMock()
         repo.list_deleted_ids = AsyncMock(return_value={project_ids[0]})
         repo.permanent_delete_many = AsyncMock()
-        repo.delete_async_tasks_for_projects = AsyncMock()
-        service = ProjectService(repo=repo)
+        tasks_deleter = AsyncMock()
+        service = ProjectService(repo=repo, tasks_deleter=tasks_deleter)
 
         with pytest.raises(NotFoundError):
             await service.permanent_delete_projects(
@@ -660,7 +670,7 @@ class TestProjectService:
             )
 
         repo.permanent_delete_many.assert_not_awaited()
-        repo.delete_async_tasks_for_projects.assert_not_awaited()
+        tasks_deleter.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_get_project_context(self) -> None:
@@ -758,6 +768,32 @@ class TestProjectFacade:
         """测试 facade 获取不存在的项目"""
         ctx = await get_project_context(db_session, str(uuid.uuid4()))
         assert ctx is None
+
+    @pytest.mark.asyncio
+    async def test_require_active_project_accepts_active_project(
+        self,
+        db_session: AsyncSession,
+        sample_create_data: ProjectCreate,
+    ) -> None:
+        project = await _repo.create(db_session, sample_create_data)
+
+        result = await require_active_project(db_session, str(project.id))
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_require_active_project_hides_missing_and_deleted_projects(
+        self,
+        db_session: AsyncSession,
+        sample_create_data: ProjectCreate,
+    ) -> None:
+        deleted = await _repo.create(db_session, sample_create_data)
+        await _repo.soft_delete(db_session, deleted.id)
+
+        for project_id in (deleted.id, uuid.uuid4()):
+            with pytest.raises(NotFoundError) as exc_info:
+                await require_active_project(db_session, str(project_id))
+            assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
     async def test_list_active_project_summaries_filters_orders_and_excludes(

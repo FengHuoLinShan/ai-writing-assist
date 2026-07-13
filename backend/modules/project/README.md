@@ -64,6 +64,8 @@ class ProjectContract:
 ```python
 async def get_project_context(db, novel_id: str) -> ProjectContext: ...
 
+async def require_active_project(db, novel_id: str) -> None: ...
+
 @asynccontextmanager
 async def open_project_llm_client(
     db, novel_id: str, *, timeout_override: int | None = None
@@ -86,6 +88,8 @@ def create_project_snapshot_llm_client(
 ```
 
 供其他模块获取项目上下文信息，包含项目基本元信息和策略配置。
+`require_active_project()` 是所有项目级业务入口的稳定门禁：项目不存在或已软删除
+均返回同样的 404，调用方不得绕过该 seam 自行读取 project 内部实现。
 所有带 `novel_id` 的业务文本/结构化 LLM 调用通过
 `open_project_llm_client()` 获取 effective project profile。该 seam 统一执行
 项目存在性、Key/Base URL/模型 fail-closed 校验、字段来源物化、脱敏 runtime
@@ -118,7 +122,7 @@ deep-import 快照在提交时已将项目值、环境覆盖和代码默认
 | GET | `/api/projects` | 项目列表 |
 | GET | `/api/projects/{project_id}` | 项目详情 |
 | PUT | `/api/projects/{project_id}` | 更新项目 |
-| DELETE | `/api/projects/{project_id}` | 软删除项目（移至回收站） |
+| DELETE | `/api/projects/{project_id}` | 软删除项目（移至回收站）并取消未完成任务 |
 | GET | `/api/projects/recycle-bin` | 回收站列表 |
 | GET | `/api/projects/llm/provider-templates` | LLM 供应商模板 |
 | GET | `/api/projects/{project_id}/llm-settings` | 项目级 LLM 配置（不回显 API Key） |
@@ -131,6 +135,10 @@ deep-import 快照在提交时已将项目值、环境覆盖和代码默认
 
 单个和批量永久删除都必须显式提交 `confirmed=true`，且只能删除已在回收站的
 项目。批量请求会去重 ID；任一项目不在回收站时整批拒绝，不会部分删除。
+
+项目软删除与按 `novel_id` 取消 `pending/running` 任务在同一数据库事务中完成。
+取消会清除 lease，记录 `transition_reason="project_soft_deleted"` 和结束时间；终态任务、
+其他项目任务不受影响。恢复项目只恢复资产可访问性，不会重启已取消的旧任务。
 
 ## 智能去重
 

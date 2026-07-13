@@ -383,21 +383,6 @@ class TestCancelTask:
 class TestTaskWorkerInitAndProps:
     """TaskWorker 初始化和属性"""
 
-    def test_worker_registers_batched_writing_draft_provider_dependency(self) -> None:
-        """Worker DI 注册集必须覆盖后台世界抽取需要的正文批量接口。"""
-        from core.container import get, register, reset
-        from infrastructure.tasks.worker import _register_container_services
-
-        sentinel = object()
-        reset()
-        try:
-            register("memory.capture_snapshot", sentinel)
-            _register_container_services()
-            assert callable(get("writing.list_latest_drafts_for_chapters"))
-            assert get("memory.capture_snapshot") is sentinel
-        finally:
-            reset()
-
     def test_init_defaults(self) -> None:
         """GREEN: 默认初始化使用全局常量"""
         from infrastructure.tasks.worker import TaskWorker
@@ -407,7 +392,7 @@ class TestTaskWorkerInitAndProps:
             TASK_POLL_INTERVAL,
         )
 
-        with patch("infrastructure.tasks.worker.get_manager"):
+        with patch("infrastructure.tasks.worker.get_manager", autospec=True):
             worker = TaskWorker()
 
         assert worker._poll_interval == TASK_POLL_INTERVAL
@@ -438,6 +423,16 @@ class TestTaskWorkerInitAndProps:
         assert worker._poll_interval == 0.5
         assert worker._heartbeat_interval == 5.0
         assert worker._max_heartbeat_gap == 30.0
+
+    def test_custom_task_preflight(self) -> None:
+        """Worker keeps project policy behind an injected async preflight."""
+        from infrastructure.tasks.worker import TaskWorker
+
+        preflight = AsyncMock()
+        with patch("infrastructure.tasks.worker.get_manager", autospec=True):
+            worker = TaskWorker(task_preflight=preflight)
+
+        assert worker._task_preflight is preflight
 
     def test_stats_property(self) -> None:
         """GREEN: stats 返回副本而非引用"""
@@ -559,8 +554,13 @@ class TestTaskWorkerExecuteTask:
         handler = AsyncMock(return_value={"output": "success"})
 
         with (
-            patch("infrastructure.tasks.worker.get_manager"),
-            patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
+            patch("infrastructure.tasks.worker.get_manager", autospec=True),
+            patch.object(
+                TaskWorker,
+                "_heartbeat_loop",
+                autospec=True,
+                return_value=None,
+            ),
         ):
             worker = TaskWorker()
             worker._lifecycle.finalize = AsyncMock(return_value=True)
@@ -579,6 +579,41 @@ class TestTaskWorkerExecuteTask:
         assert worker._stats["succeeded"] == 1
         assert worker._stats["processed"] == 1
         assert task_mock.id not in worker._running_task_ids
+
+    @pytest.mark.asyncio
+    async def test_preflight_rejects_task_before_handler_runs(self) -> None:
+        """A recycled-project preflight failure must prevent business writes."""
+        from core.errors import NotFoundError
+        from infrastructure.tasks.worker import TaskWorker
+
+        task_mock = MagicMock()
+        task_mock.id = uuid.uuid4()
+        task_mock.task_type = "test_type"
+        task_mock.meta = {"novel_id": str(uuid.uuid4())}
+        task_mock.result = {}
+        db_session = AsyncMock()
+        handler = AsyncMock()
+        preflight = AsyncMock(side_effect=NotFoundError("Project not found"))
+
+        with (
+            patch("infrastructure.tasks.worker.get_manager", autospec=True),
+            patch.object(
+                TaskWorker,
+                "_heartbeat_loop",
+                autospec=True,
+                return_value=None,
+            ),
+        ):
+            worker = TaskWorker(task_preflight=preflight)
+            worker._lifecycle.finalize = AsyncMock(return_value=False)
+            worker._registry.get_handler = MagicMock(return_value=handler)
+
+            await worker._execute_task(task_mock, db_session)
+
+        preflight.assert_awaited_once_with(db_session, task_mock)
+        handler.assert_not_awaited()
+        db_session.rollback.assert_awaited_once()
+        assert worker._lifecycle.finalize.await_args.kwargs["status"] == "failed"
 
     @pytest.mark.asyncio
     async def test_execute_success_persists_deduplicated_llm_provenance(
@@ -1064,6 +1099,35 @@ class TestTaskWorkerHeartbeat:
         # 即使失败也不应崩溃, 循环应继续直到取消
         # 没有断言异常就是成功
 
+    @pytest.mark.asyncio
+    async def test_rejected_heartbeat_cancels_runner(self) -> None:
+        """Clearing a deleted project's lease cancels and rolls back its runner."""
+        from infrastructure.tasks.worker import TaskWorker
+
+        task_id = uuid.uuid4()
+        hb_session = AsyncMock()
+        db_manager = MagicMock()
+        db_manager.session_factory = MagicMock(return_value=AsyncMock())
+        db_manager.session_factory.return_value.__aenter__ = AsyncMock(
+            return_value=hb_session
+        )
+        db_manager.session_factory.return_value.__aexit__ = AsyncMock()
+        runner = MagicMock()
+        runner.done.return_value = False
+
+        worker = TaskWorker(db_manager=db_manager, heartbeat_interval=0.001)
+        worker._lifecycle.heartbeat = AsyncMock(return_value=False)
+        worker._runner_tasks[task_id] = runner
+
+        await worker._heartbeat_loop(task_id, "stale-lease")
+
+        worker._lifecycle.heartbeat.assert_awaited_once_with(
+            hb_session,
+            task_id=task_id,
+            lease_id="stale-lease",
+        )
+        runner.cancel.assert_called_once_with()
+
 
 class TestTaskWorkerRecoverStale:
     """TaskWorker.recover_stale_tasks 单元测试"""
@@ -1363,15 +1427,14 @@ class TestTaskWorkerRunForever:
         worker._claim_task_runner = AsyncMock(side_effect=fake_claim_task_runner)
         worker._maybe_recover_stale_tasks = AsyncMock(return_value=0)
 
-        with patch("infrastructure.tasks.worker._register_container_services"):
-            run_task = asyncio.create_task(worker.run_forever())
-            await asyncio.wait_for(both_started.wait(), timeout=1.0)
+        run_task = asyncio.create_task(worker.run_forever())
+        await asyncio.wait_for(both_started.wait(), timeout=1.0)
 
-            assert created == 2
-            assert max_active == 2
-            assert not run_task.done()
+        assert created == 2
+        assert max_active == 2
+        assert not run_task.done()
 
-            release.set()
-            await asyncio.wait_for(run_task, timeout=1.0)
+        release.set()
+        await asyncio.wait_for(run_task, timeout=1.0)
 
         assert active == 0

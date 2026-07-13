@@ -50,6 +50,15 @@ await worker.run_forever()   # 常驻循环
 await worker.run_once()      # 单次执行
 ```
 
+其他模块的稳定写入 seam 位于 `facade.py`：
+
+- `cancel_unfinished_tasks_for_novel()` 仅取消指定 `novel_id` 的
+  `pending/running` 任务，不自行提交事务。
+- `delete_tasks_for_novel()` / `delete_tasks_for_novels()` 仅供项目永久删除后
+  清理任务历史。
+
+业务模块不得直接依赖 `AsyncTask` ORM 执行这些跨模块操作。
+
 ## 任务领取
 
 使用 `SELECT ... FOR UPDATE SKIP LOCKED` 并发安全领取。
@@ -58,6 +67,15 @@ await worker.run_once()      # 单次执行
 
 每次 claim 都会物化新的 `lease_id` 并递增 `attempt`。心跳和最终状态更新都必须同时匹配
 `task_id + running + lease_id`；stale scanner 清空旧 lease 后，旧 worker 不能覆盖新 attempt。
+项目软删除同样会取消未完成任务并清空 lease。已领取任务的下一次心跳因
+lease 不匹配而失败，worker 取消 runner，handler session 回滚，旧 runner 的 finalize 不能
+覆盖已持久化的 `cancelled` 状态。
+即使 handler 在下一次心跳前返回，finalize 发现 lease 已失效时也会回滚当前
+session，不会提交该 attempt 的业务写入。
+
+`TaskWorker(task_preflight=...)` 支持组合根注入执行前门禁。worker 本身不依赖任何
+业务模块；`run_worker.py` 统一注册业务 handler / DI，并仅对带 `meta.novel_id`
+的任务调用 project 活跃性门禁，无 `novel_id` 的全局任务直接放行。
 
 handler 注册时声明四种冻结策略：
 

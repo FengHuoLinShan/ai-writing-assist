@@ -19,6 +19,11 @@ from infrastructure.llm.profiles import (
     sanitize_llm_profile,
 )
 from infrastructure.llm.secret_store import ensure_encrypted_secret, secret_configured
+from infrastructure.tasks.facade import (
+    cancel_unfinished_tasks_for_novel,
+    delete_tasks_for_novel,
+    delete_tasks_for_novels,
+)
 from modules.project.repositories import ProjectRepository
 from modules.project.schemas import (
     LLMFieldResetResponse,
@@ -66,6 +71,11 @@ class ProjectService:
             Awaitable[dict[str, WritingProjectStatsContract]],
         ]
         | None = None,
+        task_canceller: Callable[..., Awaitable[int]] = (
+            cancel_unfinished_tasks_for_novel
+        ),
+        task_deleter: Callable[..., Awaitable[int]] = delete_tasks_for_novel,
+        tasks_deleter: Callable[..., Awaitable[int]] = delete_tasks_for_novels,
     ) -> None:
         self._repo = repo or ProjectRepository()
         self._writing_stats_provider = writing_stats_provider or (
@@ -76,6 +86,9 @@ class ProjectService:
             if repo is None
             else _empty_project_writing_stats_batch
         )
+        self._task_canceller = task_canceller
+        self._task_deleter = task_deleter
+        self._tasks_deleter = tasks_deleter
 
     def list_llm_provider_templates(self) -> LLMProviderTemplateListResponse:
         return LLMProviderTemplateListResponse(items=list_provider_templates())
@@ -281,11 +294,16 @@ class ProjectService:
         return LLMFieldResetResponse(field=field_name, reset=True)
 
     async def delete_project(self, db: AsyncSession, project_id: str) -> None:
-        """软删除：标记项目为已删除（移至回收站）"""
+        """软删除项目，并在同一事务取消其未完成任务。"""
         pid = _parse_uuid(project_id, "project_id")
         deleted = await self._repo.soft_delete(db, pid)
         if not deleted:
             raise NotFoundError(f"Project {project_id} not found or already deleted")
+        await self._task_canceller(
+            db,
+            novel_id=str(pid),
+            transition_reason="project_soft_deleted",
+        )
 
     async def restore_project(self, db: AsyncSession, project_id: str) -> ProjectResponse:
         """从回收站恢复项目"""
@@ -312,7 +330,7 @@ class ProjectService:
         deleted = await self._repo.permanent_delete(db, pid)
         if not deleted:
             raise NotFoundError(f"Project {project_id} not found in recycle bin")
-        await self._repo.delete_async_tasks_for_project(db, pid)
+        await self._task_deleter(db, novel_id=str(pid))
 
     async def permanent_delete_projects(
         self,
@@ -341,7 +359,10 @@ class ProjectService:
                 "Recycle bin changed during bulk permanent delete; "
                 "no projects were deleted"
             )
-        await self._repo.delete_async_tasks_for_projects(db, unique_ids)
+        await self._tasks_deleter(
+            db,
+            novel_ids=[str(project_id) for project_id in unique_ids],
+        )
         return ProjectBulkPermanentDeleteResponse(
             deleted_ids=[str(project_id) for project_id in unique_ids],
             deleted_count=deleted_count,

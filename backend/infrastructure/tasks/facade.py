@@ -1,4 +1,4 @@
-"""Stable read-only task lifecycle projections for other modules."""
+"""Stable task lifecycle seams for other modules."""
 
 from __future__ import annotations
 
@@ -20,4 +20,39 @@ async def list_task_lifecycle_contracts(
         task_ids=task_ids,
         novel_id=novel_id,
         max_heartbeat_gap=max_heartbeat_gap,
+    )
+
+
+async def cancel_unfinished_tasks_for_novel(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    transition_reason: str,
+) -> int:
+    """Cancel only pending/running tasks belonging to one novel."""
+    return await TaskLifecycleService().cancel_unfinished_for_novel(
+        db,
+        novel_id=novel_id,
+        transition_reason=transition_reason,
+    )
+
+
+async def delete_tasks_for_novel(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+) -> int:
+    """Delete task history after one project is permanently deleted."""
+    return await delete_tasks_for_novels(db, novel_ids=[novel_id])
+
+
+async def delete_tasks_for_novels(
+    db: AsyncSession,
+    *,
+    novel_ids: list[str],
+) -> int:
+    """Delete task history after projects are permanently deleted."""
+    return await TaskLifecycleService().delete_for_novels(
+        db,
+        novel_ids=novel_ids,
     )

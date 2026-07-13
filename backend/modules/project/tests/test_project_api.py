@@ -11,6 +11,10 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from infrastructure.tasks.models import AsyncTask
 
 
 @pytest.fixture
@@ -111,6 +115,60 @@ async def test_soft_delete_and_restore(
     resp = await async_client.post(f"/api/projects/{pid}/restore")
     assert resp.status_code == 200
     assert resp.json()["deleted_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_soft_delete_cancels_unfinished_tasks_and_restore_does_not_restart(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    sample_project: dict,
+) -> None:
+    project_id = sample_project["id"]
+    other_project_id = str(uuid.uuid4())
+    tasks = [
+        AsyncTask(
+            task_type="pending-task",
+            status="pending",
+            meta={"novel_id": project_id},
+        ),
+        AsyncTask(
+            task_type="running-task",
+            status="running",
+            meta={"novel_id": project_id},
+            lease_id=str(uuid.uuid4()),
+        ),
+        AsyncTask(
+            task_type="done-task",
+            status="done",
+            meta={"novel_id": project_id},
+        ),
+        AsyncTask(
+            task_type="other-project-task",
+            status="pending",
+            meta={"novel_id": other_project_id},
+        ),
+    ]
+    db_session.add_all(tasks)
+    await db_session.flush()
+
+    deleted = await async_client.delete(f"/api/projects/{project_id}")
+    assert deleted.status_code == 204
+    restored = await async_client.post(f"/api/projects/{project_id}/restore")
+    assert restored.status_code == 200
+
+    db_session.expire_all()
+    task_by_type = {
+        task.task_type: task
+        for task in (await db_session.execute(select(AsyncTask))).scalars().all()
+    }
+    for task_type in ("pending-task", "running-task"):
+        task = task_by_type[task_type]
+        assert task.status == "cancelled"
+        assert task.finished_at is not None
+        assert task.lease_id is None
+        assert task.transition_reason == "project_soft_deleted"
+    assert task_by_type["done-task"].status == "done"
+    assert task_by_type["other-project-task"].status == "pending"
 
 
 @pytest.mark.asyncio

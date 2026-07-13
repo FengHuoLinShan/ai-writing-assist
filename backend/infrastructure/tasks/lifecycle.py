@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.contracts import TaskAction, TaskLifecycleContract
@@ -14,6 +14,49 @@ from infrastructure.tasks.models import AsyncTask
 
 
 class TaskLifecycleService:
+    async def cancel_unfinished_for_novel(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        transition_reason: str,
+    ) -> int:
+        """Cancel pending/running tasks owned by one novel without committing."""
+        result = await db.execute(
+            update(AsyncTask)
+            .where(
+                AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+                AsyncTask.status.in_(("pending", "running")),
+            )
+            .values(
+                status="cancelled",
+                finished_at=datetime.now(UTC),
+                lease_id=None,
+                transition_reason=transition_reason,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        await db.flush()
+        return result.rowcount or 0
+
+    async def delete_for_novels(
+        self,
+        db: AsyncSession,
+        *,
+        novel_ids: list[str],
+    ) -> int:
+        """Delete task history for permanently deleted projects."""
+        normalized_ids = list(dict.fromkeys(str(novel_id) for novel_id in novel_ids))
+        if not normalized_ids:
+            return 0
+        result = await db.execute(
+            delete(AsyncTask).where(
+                AsyncTask.meta["novel_id"].as_string().in_(normalized_ids),
+            )
+        )
+        await db.flush()
+        return result.rowcount or 0
+
     async def list_contracts(
         self,
         db: AsyncSession,
@@ -119,8 +162,15 @@ class TaskLifecycleService:
             .values(**values)
             .execution_options(synchronize_session=False)
         )
-        await db.commit()
-        return bool(result.rowcount)
+        accepted = bool(result.rowcount)
+        if accepted:
+            await db.commit()
+        else:
+            # A cleared/replaced lease means the handler no longer owns this
+            # attempt. Roll back its business writes together with the rejected
+            # terminal transition instead of committing stale work.
+            await db.rollback()
+        return accepted
 
     async def cancel(
         self,

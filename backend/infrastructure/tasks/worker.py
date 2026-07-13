@@ -17,14 +17,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from time import monotonic
 from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bootstrap import register_container_services
 from core.config import get_settings
 from core.database import DatabaseManager, get_manager
 from infrastructure.llm.agent_step_harness import (
@@ -42,18 +41,6 @@ from shared.constants import (
 )
 
 logger = logging.getLogger(__name__)
-
-# 注册 projects 表（NovelMixin FK 依赖）
-import modules.imports.models  # noqa: E402, F401
-import modules.imports.tasks  # noqa: E402, F401
-import modules.outline.tasks  # noqa: E402, F401
-import modules.project.models  # noqa: E402, F401
-import modules.project.tasks  # noqa: E402, F401
-import modules.rag.tasks  # noqa: E402, F401
-
-# 注册所有任务处理器（与 app/main.py 同步）
-import modules.world.tasks  # noqa: E402, F401
-import modules.writing.tasks  # noqa: E402, F401
 
 _TASK_DB_ERROR_MESSAGE = "后台任务遇到数据库临时错误，请稍后重试。"
 
@@ -74,11 +61,6 @@ def _public_task_error_message(exc: Exception) -> str:
     ):
         return _TASK_DB_ERROR_MESSAGE
     return redact_diagnostic(raw, limit=1000)
-
-
-def _register_container_services() -> None:
-    """Register worker process-singleton DI services without replacing objects."""
-    register_container_services(ignore_existing=True)
 
 
 def _task_result_snapshot(task: AsyncTask) -> dict[str, Any]:
@@ -106,6 +88,10 @@ class TaskWorker:
         poll_interval: float = TASK_POLL_INTERVAL,
         heartbeat_interval: float = TASK_HEARTBEAT_INTERVAL,
         max_heartbeat_gap: float = TASK_MAX_HEARTBEAT_GAP,
+        task_preflight: Callable[
+            [AsyncSession, AsyncTask], Awaitable[None]
+        ]
+        | None = None,
     ) -> None:
         self._db_manager = db_manager or get_manager()
         self._registry = TaskRegistry()
@@ -113,6 +99,7 @@ class TaskWorker:
         self._poll_interval = poll_interval
         self._heartbeat_interval = heartbeat_interval
         self._max_heartbeat_gap = max_heartbeat_gap
+        self._task_preflight = task_preflight
         self._max_concurrent_tasks = max(
             1,
             int(get_settings().task_worker_max_concurrent_tasks),
@@ -140,7 +127,6 @@ class TaskWorker:
         Returns:
             执行完成的任务对象，如果没有 pending 任务则返回 None
         """
-        _register_container_services()
         async with self._db_manager.session_factory() as session:
             task = await self._claim_task(session)
             if task is None:
@@ -150,7 +136,6 @@ class TaskWorker:
 
     async def run_forever(self) -> None:
         """常驻循环：持续领取并执行任务"""
-        _register_container_services()
         self._running = True
         logger.info(
             "TaskWorker started — poll_interval=%.1fs, heartbeat_interval=%.1fs, "
@@ -281,6 +266,9 @@ class TaskWorker:
                         f"No handler registered for task type: {task.task_type}. "
                         f"Registered types: {self._registry.registered_types}"
                     )
+
+                if self._task_preflight is not None:
+                    await self._task_preflight(session, task)
 
                 logger.info(
                     "Executing task %s (type=%s) with handler %s",

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib
 import logging
 import sys
 from pathlib import Path
@@ -22,6 +23,14 @@ RELOAD_DIRS = (
     "modules",
     "prompts",
 )
+TASK_HANDLER_MODULES = (
+    "modules.imports.tasks",
+    "modules.outline.tasks",
+    "modules.project.tasks",
+    "modules.rag.tasks",
+    "modules.world.tasks",
+    "modules.writing.tasks",
+)
 
 
 def setup_logging() -> None:
@@ -32,10 +41,31 @@ def setup_logging() -> None:
     )
 
 
+async def _require_active_task_project(db, task) -> None:
+    """Composition-root adapter from generic task metadata to project guard."""
+    novel_id = str((task.meta or {}).get("novel_id") or "").strip()
+    if not novel_id:
+        return
+
+    from modules.project.facade import require_active_project
+
+    await require_active_project(db, novel_id)
+
+
+def _configure_worker_process() -> None:
+    """Register domain DI and handlers at the worker composition root."""
+    from app.bootstrap import register_container_services
+
+    register_container_services(ignore_existing=True)
+    for module_name in TASK_HANDLER_MODULES:
+        importlib.import_module(module_name)
+
+
 async def main() -> None:
     from infrastructure.tasks.worker import TaskWorker
 
-    worker = TaskWorker()
+    _configure_worker_process()
+    worker = TaskWorker(task_preflight=_require_active_task_project)
     await worker.run_forever()
 
 
