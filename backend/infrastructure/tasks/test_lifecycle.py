@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy import select
@@ -9,6 +10,40 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.lifecycle import TaskLifecycleService, lifecycle_contract
 from infrastructure.tasks.models import AsyncTask
+
+
+@pytest.mark.asyncio
+async def test_get_owner_returns_minimal_projection_without_task_payloads() -> None:
+    service = TaskLifecycleService()
+    task_id = str(uuid.uuid4())
+    owner_novel_id = str(uuid.uuid4())
+    db = AsyncMock()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = owner_novel_id
+    db.execute.return_value = result
+
+    owner = await service.get_owner(db, task_id=task_id)
+
+    assert owner is not None
+    assert owner.novel_id == owner_novel_id
+    compiled = db.execute.await_args.args[0].compile()
+    statement = str(compiled)
+    assert "novel_id" in compiled.params.values()
+    assert "async_tasks.result" not in statement
+    assert "async_tasks.error_message" not in statement
+
+
+@pytest.mark.asyncio
+async def test_get_owner_returns_none_for_missing_or_invalid_task() -> None:
+    service = TaskLifecycleService()
+    db = AsyncMock()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    db.execute.return_value = result
+
+    assert await service.get_owner(db, task_id=str(uuid.uuid4())) is None
+    assert await service.get_owner(db, task_id="not-a-uuid") is None
+    db.execute.assert_awaited_once()
 
 
 @pytest.mark.asyncio

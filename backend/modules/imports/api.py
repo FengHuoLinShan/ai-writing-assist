@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, model_validator
 from core.api_params import NovelIdForm, NovelIdQuery
 from core.config import get_settings
 from core.dependencies import DbSession
-from core.errors import DomainError
+from core.errors import DomainError, NotFoundError
 from core.errors import ValidationError as DomainValidationError
 from modules.imports.parsers import MAX_FILE_SIZE
 from modules.imports.schemas import ImportListResponse, ImportResponse
@@ -34,6 +34,22 @@ async def _require_active_project(db: DbSession, novel_id: str) -> None:
     from modules.project.facade import require_active_project
 
     await require_active_project(db, novel_id)
+
+
+async def _require_task_owner_active_project(
+    db: DbSession,
+    task_id: str,
+) -> None:
+    from infrastructure.tasks.facade import get_task_owner
+    from modules.imports.contracts import TaskNotFoundError
+
+    owner = await get_task_owner(db, task_id=task_id)
+    if owner is None:
+        raise TaskNotFoundError(task_id)
+    try:
+        await _require_active_project(db, owner.novel_id)
+    except NotFoundError as exc:
+        raise HTTPException(404, detail="Not found") from exc
 
 
 class DeepImportRequest(BaseModel):
@@ -305,8 +321,7 @@ async def resume_deep_import(
     from modules.imports.contracts import TaskNotFoundError
 
     try:
-        novel_id = await imports_facade.get_deep_import_task_novel_id(db, task_id)
-        await _require_active_project(db, novel_id)
+        await _require_task_owner_active_project(db, task_id)
         result = await imports_facade.resume_deep_import(db, task_id)
     except TaskNotFoundError as exc:
         raise HTTPException(404, detail=str(exc)) from exc
@@ -334,8 +349,7 @@ async def abandon_deep_import(
     from modules.imports.contracts import TaskNotFoundError
 
     try:
-        novel_id = await imports_facade.get_deep_import_task_novel_id(db, task_id)
-        await _require_active_project(db, novel_id)
+        await _require_task_owner_active_project(db, task_id)
         result = await imports_facade.abandon_deep_import(db, task_id)
     except TaskNotFoundError as exc:
         raise HTTPException(404, detail=str(exc)) from exc

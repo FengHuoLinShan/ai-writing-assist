@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.tasks.contracts import TaskLifecycleContract
+from infrastructure.tasks.contracts import TaskLifecycleContract, TaskOwnerContract
 from infrastructure.tasks.lifecycle import TaskLifecycleService
 
 
@@ -21,6 +21,15 @@ async def list_task_lifecycle_contracts(
         novel_id=novel_id,
         max_heartbeat_gap=max_heartbeat_gap,
     )
+
+
+async def get_task_owner(
+    db: AsyncSession,
+    *,
+    task_id: str,
+) -> TaskOwnerContract | None:
+    """Return only the novel owner needed by an external authorization guard."""
+    return await TaskLifecycleService().get_owner(db, task_id=task_id)
 
 
 async def cancel_unfinished_tasks_for_novel(

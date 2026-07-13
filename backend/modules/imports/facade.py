@@ -96,15 +96,6 @@ async def run_submitted_deep_import_stage(
     )
 
 
-async def get_deep_import_task_novel_id(
-    db: AsyncSession,
-    task_id: str,
-) -> str:
-    """Resolve a deep-import task owner without mutating recovery state."""
-    _parse_uuid(task_id)
-    return await _orchestrator.get_task_novel_id(db, task_id)
-
-
 async def resume_deep_import(
     db: AsyncSession,
     prev_task_id: str,

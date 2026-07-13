@@ -4572,11 +4572,13 @@ class TestDeepImportRecoveryApi:
         }
 
         novel_id = str(uuid.uuid4())
+        from infrastructure.tasks.contracts import TaskOwnerContract
+
         with (
             patch(
-                "modules.imports.facade.get_deep_import_task_novel_id",
+                "infrastructure.tasks.facade.get_task_owner",
                 autospec=True,
-                return_value=novel_id,
+                return_value=TaskOwnerContract(novel_id=novel_id),
             ) as resolve_owner,
             patch(
                 "modules.imports.api._require_active_project",
@@ -4618,11 +4620,13 @@ class TestDeepImportRecoveryApi:
         }
 
         novel_id = str(uuid.uuid4())
+        from infrastructure.tasks.contracts import TaskOwnerContract
+
         with (
             patch(
-                "modules.imports.facade.get_deep_import_task_novel_id",
+                "infrastructure.tasks.facade.get_task_owner",
                 autospec=True,
-                return_value=novel_id,
+                return_value=TaskOwnerContract(novel_id=novel_id),
             ) as resolve_owner,
             patch(
                 "modules.imports.api._require_active_project",

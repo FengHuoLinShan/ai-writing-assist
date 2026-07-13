@@ -44,3 +44,10 @@ class TaskLifecycleContract:
     stale: bool = False
     recovery_required: bool = False
     available_actions: list[TaskAction] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class TaskOwnerContract:
+    """Minimal owner projection for authorization checks outside tasks."""
+
+    novel_id: str

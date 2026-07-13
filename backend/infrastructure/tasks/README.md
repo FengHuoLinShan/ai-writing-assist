@@ -52,6 +52,8 @@ await worker.run_once()      # 单次执行
 
 其他模块的稳定写入 seam 位于 `facade.py`：
 
+- `get_task_owner()` 只返回授权所需的 `TaskOwnerContract.novel_id`；查询不加载
+  task meta/result，任务不存在或缺少 owner 时返回 `None`。
 - `cancel_unfinished_tasks_for_novel()` 仅取消指定 `novel_id` 的
   `pending/running` 任务，不自行提交事务。
 - `delete_tasks_for_novel()` / `delete_tasks_for_novels()` 仅供项目永久删除后

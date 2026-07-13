@@ -770,8 +770,8 @@ async def test_deep_import_recovery_checks_task_existence_then_project_gate(
         id=uuid.uuid4(),
         task_type="deep_import",
         status="failed",
-        meta={"novel_id": novel_id},
-        result={"secret": "must-not-leak"},
+        meta={"novel_id": novel_id, "meta_secret": "meta-must-not-leak"},
+        result={"result_secret": "result-must-not-leak"},
     )
     db_session.add(task)
     await db_session.flush()
@@ -782,5 +782,10 @@ async def test_deep_import_recovery_checks_task_existence_then_project_gate(
     )
 
     assert recycled.status_code == 404
-    assert "must-not-leak" not in recycled.text
+    assert recycled.json()["detail"] == "Not found"
+    assert novel_id not in recycled.text
+    assert "meta-must-not-leak" not in recycled.text
+    assert "result-must-not-leak" not in recycled.text
+    assert "meta_secret" not in recycled.text
+    assert "result_secret" not in recycled.text
     assert task.status == "failed"

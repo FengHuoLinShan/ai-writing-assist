@@ -9,11 +9,34 @@ from typing import Any
 from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from infrastructure.tasks.contracts import TaskAction, TaskLifecycleContract
+from infrastructure.tasks.contracts import (
+    TaskAction,
+    TaskLifecycleContract,
+    TaskOwnerContract,
+)
 from infrastructure.tasks.models import AsyncTask
 
 
 class TaskLifecycleService:
+    async def get_owner(
+        self,
+        db: AsyncSession,
+        *,
+        task_id: str,
+    ) -> TaskOwnerContract | None:
+        """Read only a task's novel owner, without loading meta/result payloads."""
+        try:
+            parsed_task_id = uuid.UUID(str(task_id))
+        except (TypeError, ValueError):
+            return None
+        stmt = select(AsyncTask.meta["novel_id"].as_string()).where(
+            AsyncTask.id == parsed_task_id
+        )
+        novel_id = (await db.execute(stmt)).scalar_one_or_none()
+        if not novel_id:
+            return None
+        return TaskOwnerContract(novel_id=str(novel_id))
+
     async def cancel_unfinished_for_novel(
         self,
         db: AsyncSession,
