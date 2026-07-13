@@ -86,6 +86,19 @@ export async function createDraft(novelId, chapterIndex, title, content) {
   })
 }
 
+export async function createAutosavedDraft(novelId, chapterIndex, title, content) {
+  return request("/writing/drafts/autosave", {
+    method: "POST",
+    body: JSON.stringify({ novel_id: novelId, chapter_index: chapterIndex, title, content }),
+  })
+}
+
+export async function deleteDraft(novelId, draftId) {
+  return request(`/writing/drafts/${draftId}?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "DELETE",
+  })
+}
+
 export async function getLatestDraft(novelId, chapterIndex) {
   return request(`/writing/chapters/${chapterIndex}/draft?novel_id=${encodeURIComponent(novelId)}`)
 }

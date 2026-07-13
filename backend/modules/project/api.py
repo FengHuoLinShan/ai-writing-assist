@@ -12,6 +12,8 @@ from infrastructure.tasks.enqueuer import enqueue_task
 from modules.project.schemas import (
     LLMFieldResetResponse,
     LLMProviderTemplateListResponse,
+    ProjectBulkPermanentDeleteRequest,
+    ProjectBulkPermanentDeleteResponse,
     ProjectCreate,
     ProjectListResponse,
     ProjectLLMSettingsResponse,
@@ -68,6 +70,22 @@ async def api_list_deleted_projects(
 ) -> ProjectListResponse:
     """获取回收站中的项目列表"""
     return await _service.list_deleted_projects(db, skip=skip, limit=limit)
+
+
+@router.post(
+    "/recycle-bin/permanent-delete",
+    response_model=ProjectBulkPermanentDeleteResponse,
+)
+async def api_bulk_permanent_delete_projects(
+    db: DbSession,
+    data: ProjectBulkPermanentDeleteRequest,
+) -> ProjectBulkPermanentDeleteResponse:
+    """批量永久删除回收站项目（原子操作）。"""
+    return await _service.permanent_delete_projects(
+        db,
+        data.project_ids,
+        confirmed=data.confirmed,
+    )
 
 
 @router.get("/llm/provider-templates", response_model=LLMProviderTemplateListResponse)

@@ -85,16 +85,16 @@ const projectSettingsView = {
       .join("")
     return `
       <div class="project-settings-view">
-        <div class="section-header">
-          <div>
-            <h2>项目设置</h2>
-            <p class="section-subtitle">${esc(title)}</p>
-          </div>
-          <div class="llm-global-actions">
-            <button class="btn btn-link" id="project-settings-goto-global">全局设置 →</button>
+        <div class="view-header view-header--with-tabs section-header">
+          <h2 class="view-header__title">
+            项目设置
+            <span class="view-header__project">${esc(title)}</span>
+          </h2>
+          <nav class="subnav settings-tab-nav">${tabs}</nav>
+          <div class="view-header__actions llm-global-actions">
+            <button class="btn btn-sm btn-link" id="project-settings-goto-global">全局设置 →</button>
           </div>
         </div>
-        <nav class="settings-tab-nav">${tabs}</nav>
         <div class="settings-tab-content">${this._renderCurrentTab()}</div>
       </div>
     `

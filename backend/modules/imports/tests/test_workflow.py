@@ -3602,7 +3602,6 @@ class TestDeepImportOrchestrator:
     async def test_start_returns_confirmation_without_enqueue_when_duplicates_exist(self):
         orchestrator = DeepImportOrchestrator()
         orchestrator._check_duplicate_import = AsyncMock(return_value="已有派生数据")
-        orchestrator._deprecate_derived_data = AsyncMock()
         orchestrator._enqueue_deep_import = AsyncMock()
 
         result = await orchestrator.start(
@@ -3622,18 +3621,14 @@ class TestDeepImportOrchestrator:
             "warning": "已有派生数据",
             "message": "已有派生数据",
         }
-        orchestrator._deprecate_derived_data.assert_not_awaited()
         orchestrator._enqueue_deep_import.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_start_force_deprecates_then_enqueues(self):
+    async def test_start_force_defers_replacement_then_enqueues(self):
         orchestrator = DeepImportOrchestrator()
         task_id = uuid.uuid4()
         db = AsyncMock()
         orchestrator._check_duplicate_import = AsyncMock(return_value="已有派生数据")
-        orchestrator._deprecate_derived_data = AsyncMock(
-            return_value={"deprecated_scenes": 1, "deprecated_entities": 2}
-        )
         orchestrator._enqueue_deep_import = Mock(return_value=task_id)
 
         result = await orchestrator.start(
@@ -3645,11 +3640,11 @@ class TestDeepImportOrchestrator:
             authorization_confirmed=True,
         )
 
-        orchestrator._deprecate_derived_data.assert_awaited_once_with(db, "novel-1", 1, 3)
         _, enqueue_kwargs = orchestrator._enqueue_deep_import.call_args
         assert enqueue_kwargs["context_mode"] == "working"
         assert enqueue_kwargs["include_pending_objects"] is True
         assert enqueue_kwargs["high_quality"] is False
+        assert enqueue_kwargs["replace_existing"] is True
         snapshot = enqueue_kwargs["authorization_snapshot"]
         assert snapshot["adoption_policy"] == "user_authorized_pipeline"
         assert snapshot["authorization_confirmed"] is True

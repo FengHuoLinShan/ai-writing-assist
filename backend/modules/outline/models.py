@@ -231,6 +231,7 @@ class SceneFusionSuggestion(Base, UUIDMixin, TimestampMixin, NovelMixin):
         ForeignKey("scenes.id", ondelete="SET NULL"),
         nullable=True,
     )
+    result_scene_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
 
 
 class SceneSummaryCheckpoint(Base, UUIDMixin, TimestampMixin, NovelMixin):

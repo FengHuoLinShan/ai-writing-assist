@@ -584,17 +584,17 @@ class TestDuplicateImportAndDeprecation:
             },
         )
 
-        result = await start_deep_import(
+        task_result = await start_deep_import(
             db_session,
             novel_with_drafts,
             1,
             1,
             authorization_confirmed=True,
         )
-        assert result["requires_confirmation"] is True
-        assert "workflow_id" in result
+        assert task_result["requires_confirmation"] is True
+        assert "workflow_id" in task_result
 
-    async def test_force_import_deprecates_old_data(
+    async def test_force_import_defers_scene_replacement_without_touching_entities(
         self,
         db_session: AsyncSession,
         novel_with_drafts: str,
@@ -660,7 +660,7 @@ class TestDuplicateImportAndDeprecation:
             },
         )
 
-        result = await start_deep_import(
+        task_result = await start_deep_import(
             db_session,
             novel_with_drafts,
             1,
@@ -668,8 +668,8 @@ class TestDuplicateImportAndDeprecation:
             force=True,
             authorization_confirmed=True,
         )
-        assert result["requires_confirmation"] is False
-        assert "task_id" in result
+        assert task_result["requires_confirmation"] is False
+        assert "task_id" in task_result
 
         from sqlalchemy import select
 
@@ -677,10 +677,10 @@ class TestDuplicateImportAndDeprecation:
         from shared.utils import parse_uuid
 
         nid = parse_uuid(novel_with_drafts, "novel_id")
-        stmt = select(Scene).where(Scene.novel_id == nid, Scene.status == "deprecated")
+        stmt = select(Scene).where(Scene.novel_id == nid, Scene.title == "old scene")
         result = await db_session.execute(stmt)
-        scenes = result.scalars().all()
-        assert any(s.title == "old scene" for s in scenes)
+        old_scene = result.scalar_one()
+        assert old_scene.status == "draft"
         manual = await db_session.get(Scene, uuid.UUID(manual_scene["id"]))
         assert manual is not None
         assert manual.status == "draft"
@@ -699,7 +699,46 @@ class TestDuplicateImportAndDeprecation:
         result = await db_session.execute(stmt)
         old = result.scalar_one_or_none()
         assert old is not None
-        assert old.status == "deprecated"
+        assert old.status == "canonical"
+
+        from infrastructure.tasks.models import AsyncTask
+
+        task = await db_session.get(AsyncTask, uuid.UUID(task_result["task_id"]))
+        assert task is not None
+        assert task.meta["replace_existing"] is True
+
+    async def test_manual_scene_also_requires_reextract_confirmation(
+        self,
+        db_session: AsyncSession,
+        novel_with_drafts: str,
+    ) -> None:
+        from modules.imports.facade import start_deep_import_stage
+        from modules.outline.facade import create_scene
+
+        await create_scene(
+            db_session,
+            novel_with_drafts,
+            {
+                "scene_index": 0,
+                "title": "Protected manual Scene",
+                "source": "manual",
+                "scene_chunks": [{"chapter_index": 1}],
+                "chapter_ids": ["1"],
+                "status": "canonical",
+            },
+        )
+
+        result = await start_deep_import_stage(
+            db_session,
+            novel_with_drafts,
+            1,
+            1,
+            stage="scenes",
+            authorization_confirmed=True,
+        )
+
+        assert result["requires_confirmation"] is True
+        assert "1 个已采用/受保护 Scene" in result["warning"]
 
     async def test_duplicate_import_novel_isolation(
         self,

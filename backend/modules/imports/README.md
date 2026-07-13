@@ -14,7 +14,8 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - 记录导入历史
 - 提交并编排深度导入任务（基于 async_tasks）
 - 提交并编排分阶段自动提取任务：Scene、世界对象与别名/关系、剧情结构
-- 在重复导入时返回覆盖确认要求，确认后才入队
+- 在重复导入时返回覆盖确认要求，确认后才入队；确认只冻结
+  `replace_existing` 意图，不在任务执行前修改 Scene 或实体
 - 深度导入 Scene 阶段执行 `Phase0 deterministic plan → Phase1a scene slicing → Phase1b scene enrichment → Phase1c scene fusion → Scene commit`；Phase 1c 仅在 `high_quality=true` 时运行
 - Phase 0 不调用 LLM；它按章节字符数计算窗口计划、owned range、固定右侧 2 章 overlap 和每窗 `max_tokens` 上限。默认目标输入约 `72000` 字符，窗口最多 20 章。DeepSeek v4 Flash 实测 `0.36`、`0.4`、`0.6` 都出现过截断；`0.75` 一次四窗首轮通过，但同一 1–60 章末窗的复跑仍在 `19898/19898` 处 `finish_reason=length`，因此不将偶然通过视为稳定。`max_tokens` 只是上限而不会强制模型用完，默认系数提升为 `1.0`，即 `max_tokens=clamp(round(input_chars * 1.0), 13000, 32768)`。这套阶段预算不继承项目通用 `max_tokens`；Phase 1b/2/3 从首次请求就使用各自冻结的 32768 上限，不实验更小预算。
 - Phase 1a 切分并锁定 Scene 语义字段，同时要求从正文逐字复制起止 anchor；本地 materializer 负责唯一命中、offset、draft/hash 绑定和邻接/整章覆盖推断。Scene 按独立主要叙事目标、冲突或关键状态转变切分，不使用字数或每章数量阈值。锚点修复与缺章恢复同样使用统一 reasoning 策略。
@@ -82,7 +83,12 @@ fail closed。旧的本地任务若没有此字段，兼容路径在首次新 wo
 
 完成结果增加 `asset_summary={adopted, review, not_adopted, by_kind}`。`by_kind` 固定包含 `scene/entity/relation/alias/structure`，缺失 phase 统计显式记 0。Scene 的 `needs_review` fallback、world candidate/关系/别名、不确定结构和跨旧资产去重建议进入 review。结构去重保留旧的 suggestion-pair 统计作为兼容字段，同时通过 `structure_dedup.current_workflow_asset_outcomes` 按当前 workflow 的唯一资产计算 review / not_adopted；旧资产之间的建议不进入本次资产汇总，同一资产出现在多个 pair 中也只计一次。Phase 3 自身的 `review_asset_count`、`uncertain_count` 与去重资产结果合并后会按结构总数 clamp，保持 adopted / review / not_adopted 互斥且总和等于本次结构资产数。高置信实体去重建议进入 review；只有授权策略明确允许且无 review 标记的工作资产计入 adopted。ignored、temporary-only、provenance conflict 和同 workflow 去重时被软废弃的重复结构计入 not_adopted。低置信结果不会自动提升为 canonical。
 
-`force=true` 的 Scene 清理同时要求 `source="deep_import"` 且 `structure_meta.workflow_id` 或 `structure_meta.auto_ingested=true`；人工 Scene 和仅伪装来源但无 workflow ownership 的 Scene 不会被废弃。清理仍是软废弃，保留 source/workflow/evidence 供回滚和审计。
+`force=true` 的重复 Scene 提取把替换意图写入 task meta，直到 Scene commit 才执行。
+commit 只软废弃 workflow-owned、未人工编辑的 `draft/candidate`；`canonical`、
+`user_edited`、人工 Scene 和无合法 ownership 的 Scene 均受保护。新候选与受保护 Scene
+重叠时不写入 active Scene，而是按重叠连通组持久化 replacement suggestion。完整导入的
+Phase 2/3 使用 commit 后的有效 active Scene 集；Scene-only 重提和完整重提均不提前清理
+world entities。任务在 commit 前失败时旧资产保持不变。
 
 放弃可恢复 workflow 时会按 `novel_id + workflow_id` 整批回滚：Scene、世界对象、候选关系、候选别名和结构资产软废弃，Memory DeltaLog 在 `meta` 中标记 `rolled_back`，尚未采用的 MapObservation 转为 `ignored`。回滚幂等、保留审计字段，且不处理其他 workflow/小说或已标记 `user_edited` 的资产。
 

@@ -96,9 +96,6 @@ class DeepImportOrchestrator:
                 "message": warning,
             }
 
-        if force:
-            await self._deprecate_derived_data(db, novel_id, start_chapter, end_chapter)
-
         task_id = self._enqueue_deep_import(
             db,
             novel_id,
@@ -107,6 +104,7 @@ class DeepImportOrchestrator:
             context_mode="working",
             include_pending_objects=True,
             high_quality=high_quality,
+            replace_existing=force,
             authorization_snapshot=authorization_snapshot,
             llm_execution_snapshot=llm_execution_snapshot,
         )
@@ -168,11 +166,6 @@ class DeepImportOrchestrator:
                     "warning": warning,
                     "message": warning,
                 }
-            if force:
-                await self._deprecate_derived_data(
-                    db, novel_id, start_chapter, end_chapter
-                )
-
         task_id = self._enqueue_stage_task(
             db,
             task_type=STAGE_TASK_TYPES[stage],
@@ -183,6 +176,7 @@ class DeepImportOrchestrator:
             context_mode="working",
             include_pending_objects=True,
             high_quality=high_quality,
+            replace_existing=force if stage == "scenes" else False,
             authorization_snapshot=authorization_snapshot,
             llm_execution_snapshot=llm_execution_snapshot,
         )
@@ -213,6 +207,7 @@ class DeepImportOrchestrator:
         context_mode = meta.get("context_mode", "working")
         include_pending_objects = bool(meta.get("include_pending_objects", True))
         high_quality = bool(meta.get("high_quality", False))
+        replace_existing = bool(meta.get("replace_existing", False))
         if not novel_id:
             raise ValueError("novel_id is required for deep_import")
 
@@ -246,6 +241,7 @@ class DeepImportOrchestrator:
             context_mode=context_mode,
             include_pending_objects=include_pending_objects,
             high_quality=high_quality,
+            replace_existing=replace_existing,
             project_settings=project_settings,
             on_progress=_record_progress,
         )
@@ -271,6 +267,7 @@ class DeepImportOrchestrator:
         context_mode = meta.get("context_mode", "working")
         include_pending_objects = bool(meta.get("include_pending_objects", True))
         high_quality = bool(meta.get("high_quality", False))
+        replace_existing = bool(meta.get("replace_existing", False))
         if not novel_id:
             raise ValueError(f"novel_id is required for {task.task_type}")
 
@@ -315,6 +312,7 @@ class DeepImportOrchestrator:
                 context_mode=context_mode,
                 include_pending_objects=include_pending_objects,
                 high_quality=high_quality,
+                replace_existing=replace_existing,
                 project_settings=project_settings,
                 on_progress=_record_progress,
                 stop_after=DeepImportStep.scene_segmentation,
@@ -779,13 +777,22 @@ class DeepImportOrchestrator:
         from modules.world.facade import list_auto_ingested_entities
 
         scenes = await get_scenes_by_novel(
-            db, novel_id, status_filter=["draft", "canonical"]
+            db, novel_id, status_filter=["candidate", "draft", "canonical"]
         )
         overlapping_scenes = [
             s
             for s in scenes
-            if self._is_workflow_owned_deep_import_scene(s)
-            and self._scene_overlaps_range(s, start_chapter, end_chapter)
+            if self._scene_overlaps_range(s, start_chapter, end_chapter)
+        ]
+        replaceable_scenes = [
+            scene
+            for scene in overlapping_scenes
+            if self._is_workflow_owned_deep_import_scene(scene)
+            and scene.get("status") in {"candidate", "draft"}
+            and (scene.get("structure_meta") or {}).get("user_edited") is not True
+        ]
+        protected_scenes = [
+            scene for scene in overlapping_scenes if scene not in replaceable_scenes
         ]
         overlapping_entities = await list_auto_ingested_entities(
             db,
@@ -797,49 +804,13 @@ class DeepImportOrchestrator:
         if overlapping_scenes or overlapping_entities:
             return (
                 f"第 {start_chapter}-{end_chapter} 章已有 "
-                f"{len(overlapping_scenes)} 个 Scene、"
+                f"{len(replaceable_scenes)} 个可替换 Scene、"
+                f"{len(protected_scenes)} 个已采用/受保护 Scene、"
                 f"{len(overlapping_entities)} 个实体。"
-                f"重新导入将覆盖/刷新该范围数据。是否继续？"
+                "重新提取会替换未确认 Scene；受保护 Scene 只生成比较建议，"
+                "不会直接覆盖，实体也不会在入队时清理。是否继续？"
             )
         return None
-
-    async def _deprecate_derived_data(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        start_chapter: int,
-        end_chapter: int,
-    ) -> dict[str, int]:
-        """将指定章节范围内的旧派生 Scene 和自动实体标记为 deprecated。"""
-        from modules.outline.facade import get_scenes_by_novel, update_scene
-        from modules.world.facade import list_auto_ingested_entities, update_entity
-
-        deprecated_scenes = 0
-        scenes = await get_scenes_by_novel(
-            db, novel_id, status_filter=["draft", "canonical"]
-        )
-        for scene in scenes:
-            if self._is_workflow_owned_deep_import_scene(
-                scene
-            ) and self._scene_overlaps_range(scene, start_chapter, end_chapter):
-                await update_scene(db, novel_id, scene["id"], {"status": "deprecated"})
-                deprecated_scenes += 1
-
-        deprecated_entities = 0
-        entities = await list_auto_ingested_entities(
-            db,
-            novel_id,
-            start_chapter=start_chapter,
-            end_chapter=end_chapter,
-        )
-        for entity in entities:
-            await update_entity(db, novel_id, entity["id"], {"status": "deprecated"})
-            deprecated_entities += 1
-
-        return {
-            "deprecated_scenes": deprecated_scenes,
-            "deprecated_entities": deprecated_entities,
-        }
 
     @staticmethod
     def _enqueue_deep_import(
@@ -851,6 +822,7 @@ class DeepImportOrchestrator:
         context_mode: str = "working",
         include_pending_objects: bool = True,
         high_quality: bool = False,
+        replace_existing: bool = False,
         authorization_snapshot: dict[str, Any],
         llm_execution_snapshot: dict[str, Any] | None = None,
     ):
@@ -866,6 +838,7 @@ class DeepImportOrchestrator:
                 "context_mode": context_mode,
                 "include_pending_objects": include_pending_objects,
                 "high_quality": high_quality,
+                "replace_existing": replace_existing,
                 "adoption_policy": authorization_snapshot["adoption_policy"],
                 "authorization_confirmed": authorization_snapshot[
                     "authorization_confirmed"
@@ -887,6 +860,7 @@ class DeepImportOrchestrator:
         context_mode: str = "working",
         include_pending_objects: bool = True,
         high_quality: bool = False,
+        replace_existing: bool = False,
         authorization_snapshot: dict[str, Any],
         llm_execution_snapshot: dict[str, Any] | None = None,
     ):
@@ -903,6 +877,7 @@ class DeepImportOrchestrator:
                 "context_mode": context_mode,
                 "include_pending_objects": include_pending_objects,
                 "high_quality": high_quality,
+                "replace_existing": replace_existing,
                 "adoption_policy": authorization_snapshot["adoption_policy"],
                 "authorization_confirmed": authorization_snapshot[
                     "authorization_confirmed"

@@ -17,6 +17,7 @@ beforeEach(() => {
   clearDocument()
   projectView._importSectionOpen = false
   projectView._uploadProgress = null
+  projectView._recycleBinSkip = 0
   vi.clearAllMocks()
 })
 
@@ -514,6 +515,7 @@ describe("projectView", () => {
   describe("回收站失败反馈", () => {
     beforeEach(() => {
       vi.useFakeTimers()
+      confirmAction.mockImplementation(() => {})
       api.projects.listDeleted = vi.fn().mockResolvedValue({
         items: [
           { id: "p1", title: "项目A", deleted_at: "2026-07-08T00:00:00Z" },
@@ -544,6 +546,32 @@ describe("projectView", () => {
       })
     })
 
+    it("回收站每页显示 20 条并渲染分页", async () => {
+      const items = Array.from({ length: 20 }, (_, index) => ({
+        id: `p${index + 1}`,
+        title: `项目${index + 1}`,
+        deleted_at: "2026-07-08T00:00:00Z",
+      }))
+      api.projects.listDeleted.mockResolvedValue({ items, total: 45 })
+
+      await projectView.showRecycleBin(20)
+
+      expect(api.projects.listDeleted).toHaveBeenCalledWith(20, 20)
+      expect(latestModalHtml()).toContain("第 2 / 3 页，共 45 条")
+      expect(latestModalHtml().match(/recycle-bin__item\"/g)).toHaveLength(20)
+      expect(showModalHtml).toHaveBeenLastCalledWith(
+        "回收站",
+        expect.any(String),
+        [],
+        { size: "large" },
+      )
+
+      document.body.innerHTML = latestModalHtml()
+      await vi.advanceTimersByTimeAsync(100)
+      await document.getElementById("recycle-next-page").onclick()
+      expect(api.projects.listDeleted).toHaveBeenLastCalledWith(40, 20)
+    })
+
     it("批量永久删除仍走确认且 reject 时不关闭确认 modal", async () => {
       await openRecycleBinDom()
       document.querySelectorAll(".recycle-project-checkbox").forEach((input) => { input.checked = true })
@@ -556,11 +584,25 @@ describe("projectView", () => {
         "永久删除",
       )
 
-      api.projects.permanentDelete.mockRejectedValue(new Error("delete failed"))
+      api.projects.permanentDeleteMany.mockRejectedValue(new Error("delete failed"))
       const result = await confirmAction.mock.calls.at(-1)[1]()
 
       expect(result).toBe(false)
       expect(toast).toHaveBeenCalledWith("批量永久删除失败：delete failed", "error")
+    })
+
+    it("批量永久删除一次提交选中项目", async () => {
+      await openRecycleBinDom()
+      document.querySelectorAll(".recycle-project-checkbox").forEach((input) => { input.checked = true })
+      api.projects.permanentDeleteMany.mockResolvedValue({ deleted_count: 2, deleted_ids: ["p1", "p2"] })
+
+      document.getElementById("recycle-bulk-delete").click()
+      const result = await confirmAction.mock.calls.at(-1)[1]()
+
+      expect(result).toBe(true)
+      expect(api.projects.permanentDeleteMany).toHaveBeenCalledOnce()
+      expect(api.projects.permanentDeleteMany).toHaveBeenCalledWith(["p1", "p2"])
+      expect(toast).toHaveBeenCalledWith("已永久删除 2 个项目", "success")
     })
 
     it("单个永久删除仍走确认且 reject 时不关闭确认 modal", async () => {

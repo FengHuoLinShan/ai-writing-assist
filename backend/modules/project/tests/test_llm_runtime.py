@@ -21,6 +21,7 @@ from modules.project.facade import (
     restore_project_llm_execution_settings,
 )
 from modules.project.models import Project
+from modules.settings.services import SettingsService
 from shared.deep_import_settings import (
     DEEP_IMPORT_FROZEN_SETTINGS_KEY,
     deep_import_int_setting,
@@ -72,6 +73,40 @@ async def test_open_project_llm_client_uses_sanitized_effective_profile(
         }
         assert "sk-runtime-secret" not in str(summary)
         assert "token=hidden" not in str(summary)
+
+
+@pytest.mark.asyncio
+async def test_open_project_llm_client_inherits_global_defaults_before_system(
+    db_session: AsyncSession,
+    test_project_id: str,
+) -> None:
+    await SettingsService().upsert_global_llm_defaults(
+        db_session,
+        {
+            "provider_id": "openai-compatible",
+            "label": "Global Gateway",
+            "base_url": "https://global.example.test/v1",
+            "model": "global-model",
+            "timeout": 77,
+            "max_tokens": 6789,
+        },
+    )
+    await _set_llm_profile(
+        db_session,
+        test_project_id,
+        {"api_key": "sk-project-only-secret"},
+    )
+
+    async with open_project_llm_client(db_session, test_project_id) as client:
+        summary = client.profile_summary
+        assert client.model_name == "global-model"
+        assert summary["base_url_host"] == "global.example.test"
+        assert summary["timeout"] == 77
+        assert summary["max_tokens"] == 6789
+        assert summary["sources"]["provider_id"] == "global"
+        assert summary["sources"]["base_url"] == "global"
+        assert summary["sources"]["model"] == "global"
+        assert summary["sources"]["api_key"] == "project"
 
 
 @pytest.mark.asyncio

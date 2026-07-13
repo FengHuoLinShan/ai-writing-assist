@@ -204,9 +204,12 @@ const mapQuickCreateView = {
     const allSelected = total > 0 && selectedCount === total
     return `
       ${warnings}
-      <div class="map-toolbar">
-        <button class="btn btn-sm" id="map-quick-undo" ${this._layoutHistory.length ? "" : "disabled"}>撤销</button>
-        <span class="map-quick-meta">已选 ${selectedCount} / 共 ${total}</span>
+      <div class="view-header map-toolbar">
+        <div class="view-header__title">快速放置</div>
+        <div class="view-header__actions">
+          <button class="btn btn-sm" id="map-quick-undo" ${this._layoutHistory.length ? "" : "disabled"}>撤销</button>
+          <span class="view-header__count">已选 ${selectedCount} / 共 ${total}</span>
+        </div>
       </div>
       <table class="data-table">
         <thead><tr>

@@ -428,6 +428,47 @@ class TestSceneWorkbenchApi:
             "wf-scene-filter"
         )
 
+    async def test_health_filter_excludes_deprecated_scenes(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "上一轮已软废弃 Scene",
+                "source": "deep_import",
+                "status": "deprecated",
+                "chapter_ids": [],
+                "structure_meta": {"needs_organize": True},
+            },
+        )
+
+        history = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={
+                "novel_id": test_project_id,
+                "status": "deprecated",
+            },
+        )
+        pending = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={
+                "novel_id": test_project_id,
+                "status": "deprecated",
+                "health": "needs_organize",
+            },
+        )
+
+        assert history.status_code == 200, history.text
+        assert len(history.json()["items"]) == 1
+        assert pending.status_code == 200, pending.text
+        assert pending.json()["items"] == []
+        assert pending.json()["total"] == 0
+        assert pending.json()["health"]["needs_organize"]["count"] == 0
+
     async def test_workbench_filters_text_query_and_preserves_novel_isolation(
         self,
         async_client: AsyncClient,
@@ -2148,3 +2189,77 @@ class TestSceneWorkbenchApi:
         }
         spans[1].source_content_hash = "b" * 64
         assert service._overlapping_span_chapters(spans) == {}
+
+    async def test_apply_replacement_adopts_new_and_archives_source(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        test_project_id: str,
+    ) -> None:
+        from modules.imports.llm_schemas import SceneChunk
+        from modules.imports.scene_commit import SceneCommitter
+        from modules.imports.scene_fusion import FinalSceneCandidate
+
+        source = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "已采用旧 Scene",
+                "source": "deep_import",
+                "scene_chunks": [{"chapter_index": 1}],
+                "chapter_ids": ["1"],
+                "structure_meta": {
+                    "auto_ingested": True,
+                    "workflow_id": "old-workflow",
+                },
+                "status": "canonical",
+            },
+        )
+        candidate = FinalSceneCandidate(
+            candidate_id="replacement-1",
+            title="新版 Scene",
+            goal="新版目标",
+            scene_chunks=[SceneChunk(chapter_index=1)],
+            source_candidate_ids=["candidate-1"],
+            source_chapter_indices=[1],
+            needs_review=False,
+        )
+        committed = await SceneCommitter().commit(
+            db_session,
+            test_project_id,
+            [candidate],
+            workflow_id="new-workflow",
+            start_chapter=1,
+            end_chapter=1,
+            replace_existing=True,
+        )
+        await db_session.commit()
+
+        resp = await async_client.post(
+            "/api/outline/scene-workbench/replacement-suggestions/apply",
+            params={"novel_id": test_project_id},
+            json={
+                "suggestion_id": committed.suggestion_ids[0],
+                "decision": "replace",
+                "confirmed": True,
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["deprecated_scene_ids"] == [source["id"]]
+        assert len(body["result_scene_ids"]) == 1
+        old = await async_client.get(
+            f"/api/outline/scenes/{source['id']}",
+            params={"novel_id": test_project_id},
+        )
+        assert old.status_code == 200
+        assert old.json()["status"] == "deprecated"
+        created = await async_client.get(
+            f"/api/outline/scenes/{body['result_scene_ids'][0]}",
+            params={"novel_id": test_project_id},
+        )
+        assert created.status_code == 200
+        assert created.json()["status"] == "canonical"
+        assert created.json()["title"] == "新版 Scene"

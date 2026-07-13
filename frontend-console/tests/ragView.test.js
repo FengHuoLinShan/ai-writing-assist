@@ -41,6 +41,27 @@ beforeEach(() => {
 })
 
 describe("ragView", () => {
+  it("按后端分页上限加载全部角色筛选项", async () => {
+    const firstPage = Array.from({ length: 50 }, (_, index) => ({
+      id: `character-${index + 1}`,
+      name: `角色 ${index + 1}`,
+    }))
+    api.world.listCharacters
+      .mockResolvedValueOnce({ items: firstPage, total: 51 })
+      .mockResolvedValueOnce({
+        items: [{ id: "character-51", name: "角色 51" }],
+        total: 51,
+      })
+
+    const characters = await ragView._loadAllCharacters("p1")
+
+    expect(api.world.listCharacters.mock.calls).toEqual([
+      [{ novel_id: "p1", skip: 0, limit: 50 }],
+      [{ novel_id: "p1", skip: 50, limit: 50 }],
+    ])
+    expect(characters).toHaveLength(51)
+  })
+
   describe("ragView render", () => {
     it.each([
       {

@@ -1355,6 +1355,36 @@ describe("mapView 批量绑定保存", () => {
     })
   })
 
+  it("_applyTerrainChanges 在服务批次上限前保留 pending", async () => {
+    globalThis.state.currentProjectId = "p1"
+    mapView._state = { map: { id: "m1" } }
+    mapState.pendingTerrainChanges = Object.fromEntries(
+      Array.from({ length: 10001 }, (_, index) => [
+        `${index},0`,
+        { hex_q: index, hex_r: 0, terrain_type: "water" },
+      ]),
+    )
+
+    await expect(mapView._applyTerrainChanges()).rejects.toThrow("单次最多应用 10000 个地形变更")
+    expect(api.world.batchUpdateTiles).not.toHaveBeenCalled()
+    expect(Object.keys(mapState.pendingTerrainChanges)).toHaveLength(10001)
+  })
+
+  it("_applyBindings 在单地点绑定上限前保留 pending", async () => {
+    globalThis.state.currentProjectId = "p1"
+    mapView._state = { map: { id: "m1" } }
+    mapState.pendingBindings = Object.fromEntries(
+      Array.from({ length: 5001 }, (_, index) => [
+        `${index},0`,
+        { location_entity_id: "loc1", hex_q: index, hex_r: 0, is_center: false },
+      ]),
+    )
+
+    await expect(mapView._applyBindings()).rejects.toThrow("单个地点单次最多绑定 5000 个地图格")
+    expect(api.world.createLocationBindings).not.toHaveBeenCalled()
+    expect(Object.keys(mapState.pendingBindings)).toHaveLength(5001)
+  })
+
 })
 
 describe("mapView 撤销", () => {

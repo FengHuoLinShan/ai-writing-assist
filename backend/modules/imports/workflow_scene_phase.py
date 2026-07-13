@@ -108,6 +108,7 @@ class ScenePhaseRunner:
         workflow_id = request.workflow_id
         on_progress = request.on_progress
         stop_after = request.stop_after
+        replace_existing = request.replace_existing
         workflow = self.workflow
 
         # Phase 0: deterministic Scene import plan.
@@ -590,8 +591,14 @@ class ScenePhaseRunner:
         await workflow._emit_progress(progress, 0.35, on_progress)
 
         commit_kwargs: dict[str, Any] = {
-            "workflow_id": workflow_id or progress.workflow_id or "manual"
+            "workflow_id": workflow_id or progress.workflow_id or "manual",
         }
+        if replace_existing:
+            commit_kwargs.update(
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+                replace_existing=True,
+            )
         if fusion_suggestions:
             commit_kwargs["fusion_suggestions"] = fusion_suggestions
         commit_result = await workflow._commit_fused_scenes(
@@ -608,8 +615,16 @@ class ScenePhaseRunner:
             commit_completed=True,
         )
         progress.quality_stats["scene_commit"] = commit_result.model_dump(mode="json")
-        total_scenes = commit_result.created_count + commit_result.skipped_count
-        scene_commit_coverage = final_coverage
+        total_scenes = (
+            commit_result.effective_scene_count
+            if replace_existing
+            else commit_result.created_count + commit_result.skipped_count
+        )
+        scene_commit_coverage = (
+            commit_result.effective_coverage
+            if replace_existing and commit_result.effective_coverage
+            else final_coverage
+        )
         add_phase_artifact(
             progress,
             "scene_commit",
@@ -626,17 +641,22 @@ class ScenePhaseRunner:
                 "created_count": commit_result.created_count,
                 "skipped_count": commit_result.skipped_count,
                 "conflict_count": commit_result.conflict_count,
+                "replacement_suggestion_count": (
+                    commit_result.replacement_suggestion_count
+                ),
                 "total_scenes": total_scenes,
             },
             coverage=scene_commit_coverage,
         )
         if total_scenes > 0 and scene_commit_coverage["coverage_complete"]:
-            rag_task_id = _enqueue_rag_reindex_after_scene_commit(
-                db,
-                novel_id,
-                start_chapter,
-                end_chapter,
-            )
+            rag_task_id = None
+            if not replace_existing or commit_result.active_scene_changed:
+                rag_task_id = _enqueue_rag_reindex_after_scene_commit(
+                    db,
+                    novel_id,
+                    start_chapter,
+                    end_chapter,
+                )
             if rag_task_id is not None:
                 progress.quality_stats["scene_commit"]["rag_reindex_task_id"] = (
                     rag_task_id

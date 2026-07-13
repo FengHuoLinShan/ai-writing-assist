@@ -34,6 +34,7 @@ infrastructure/llm/
 ## 对外接口
 
 ```python
+# 仅 infrastructure 内部、独立 embedding 适配器或测试可直接构造。
 from infrastructure.llm import LLMClient
 
 client = LLMClient()
@@ -89,13 +90,20 @@ request messages。需要主动裁剪上下文时，应显式使用 `ContextBudg
 - `api_key` — 写入字段；存储时使用 `LLM_SETTINGS_ENCRYPTION_KEY` 加密，
   API 响应必须脱敏，不得回显
 
-业务模块若要使用项目级配置，应通过项目上下文读取 `settings`，再构造客户端：
+带 `novel_id` 的业务模块不得自行读取项目配置或直接构造客户端，必须使用 project
+模块的稳定 facade。该入口会先物化项目覆盖，再继承数据库全局默认，最后回退系统默认，
+并统一处理密钥校验、脱敏 metadata 与 client 关闭：
 
 ```python
-client = LLMClient.from_project_settings(project_context.settings)
+from modules.project.facade import open_project_llm_client
+
+async with open_project_llm_client(db, novel_id) as client:
+    result = await client.generate(request)
 ```
 
-缺失字段会回退到数据库全局默认或代码内置 DeepSeek 默认。业务 LLM Profile
+可恢复任务使用 project snapshot seam；业务代码不得调用
+`LLMClient.from_project_settings()` 或自行拼装 provider/profile。缺失字段会回退到数据库
+全局默认或代码内置 DeepSeek 默认。业务 LLM Profile
 不会从 `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` 等环境变量继承；API Key
 只允许项目级配置。代理、重试和 health gate 等运行参数仍由 `core.config.Settings`
 管理。

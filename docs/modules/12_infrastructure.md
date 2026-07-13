@@ -92,6 +92,11 @@ project settings.llm > global settings.llm > system default
 
 `test override` 只用于显式测试注入，不是生产项目之间的回退来源。
 
+新增带 `novel_id` 的业务 LLM 服务必须使用 project facade 的 runtime seam，不能直接
+构造 `LLMClient`、调用 `from_project_settings()` 或自行解析 profile。静态门禁会扫描
+生产业务模块，并只允许已登记的 project runtime / project snapshot / 独立 embedding
+窄例外；因此后续服务默认继承数据库全局 LLM 设置，而不会悄然回退成模块私有配置。
+
 resolver 返回 effective api_key / base_url / model / timeout / max_tokens /
 temperature / top_p / extra，并保留字段来源。日志、JSONL、health check 和前端响应
 只能使用脱敏 summary：`provider_id`、`label`、`model`、`base_url_host`、

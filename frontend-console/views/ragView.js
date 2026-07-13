@@ -13,6 +13,8 @@ import {
 } from "../shared/workflowProgress.js"
 import { renderWorkflowCard } from "../shared/progressRenderer.js"
 
+const CHARACTER_PAGE_SIZE = 50
+
 const ragView = {
   _totalChunks: null,
   _embeddingFailedCount: 0,
@@ -98,11 +100,7 @@ const ragView = {
     }
     if (api.world?.listCharacters) {
       try {
-        const result = await api.world.listCharacters({
-          novel_id: state.currentProjectId,
-          limit: 200,
-        })
-        this._characters = Array.isArray(result) ? result : (result?.items || [])
+        this._characters = await this._loadAllCharacters(state.currentProjectId)
       } catch {
         this._characters = []
       }
@@ -117,6 +115,29 @@ const ragView = {
     }
     this._recoverRebuildWorkflow()
     this._loading = false
+  },
+
+  async _loadAllCharacters(novelId) {
+    const characters = []
+    let skip = 0
+    while (true) {
+      const result = await api.world.listCharacters({
+        novel_id: novelId,
+        skip,
+        limit: CHARACTER_PAGE_SIZE,
+      })
+      const page = Array.isArray(result) ? result : (result?.items || [])
+      characters.push(...page)
+      const total = Number(result?.total)
+      if (
+        !Number.isFinite(total)
+        || characters.length >= total
+        || page.length < CHARACTER_PAGE_SIZE
+      ) {
+        return characters
+      }
+      skip += page.length
+    }
   },
 
   _applyStatus(data = {}) {
@@ -142,16 +163,36 @@ const ragView = {
     }
   },
 
+  _renderHeaderActions(subView) {
+    if (subView === "search") {
+      return ""
+    }
+    return `
+      <button class="btn btn-sm" data-action="rebuild-index">重建索引</button>
+      <button class="btn btn-sm" data-action="prewarm-rag">预热检索引擎</button>
+      ${this._retryableEmbeddingCount > 0 ? `<button class="btn btn-sm" data-action="retry-embeddings">重试失败向量</button>` : ""}
+    `
+  },
+
+  _renderHeader(subView = state.currentSubView || "search") {
+    return `
+      <div class="view-header view-header--with-tabs">
+        <div class="subnav">
+          <span class="subnav-item ${subView === "search" ? "active" : ""}" data-action="nav-search">检索</span>
+          <span class="subnav-item ${subView === "status" ? "active" : ""}" data-action="nav-status">索引维护</span>
+        </div>
+        <div class="view-header__actions">
+          ${this._renderHeaderActions(subView)}
+        </div>
+      </div>
+    `
+  },
+
   async render() {
     const subView = state.currentSubView || "search"
     let html = ""
 
-    html += `
-      <div class="subnav">
-        <span class="subnav-item ${subView === "search" ? "active" : ""}" data-action="nav-search">检索</span>
-        <span class="subnav-item ${subView === "status" ? "active" : ""}" data-action="nav-status">索引维护</span>
-      </div>
-    `
+    html += this._renderHeader(subView)
 
     if (subView === "search") {
       html += this._renderSearch()
@@ -220,9 +261,6 @@ const ragView = {
           <label>结束章节</label>
           <input class="form-input rag-rebuild-input" id="rag-rebuild-end" type="number" min="1" placeholder="结束" />
         </div>
-        <button class="btn" data-action="rebuild-index">重建索引</button>
-        <button class="btn" data-action="prewarm-rag">预热检索引擎</button>
-        ${this._retryableEmbeddingCount > 0 ? `<button class="btn" data-action="retry-embeddings">重试失败向量</button>` : ""}
         <button class="btn" data-action="nav-search">返回检索</button>
       </div>
     `

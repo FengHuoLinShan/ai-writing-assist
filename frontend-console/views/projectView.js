@@ -33,6 +33,7 @@ const projectView = {
   /** @type {object|null} 项目导入上传进度 */
   _uploadProgress: null,
   _bulkSelections: {},
+  _recycleBinSkip: 0,
 
   async render() {
     const projects = [...state.projects].sort((a, b) => this._projectActivityMs(b) - this._projectActivityMs(a))
@@ -53,18 +54,18 @@ const projectView = {
     } else {
       const currentProjectId = state.currentProjectId || null
       html += `
-        <div class="project-toolbar">
-          <div class="project-toolbar__title">
+        <div class="view-header project-toolbar">
+          <div class="view-header__title">
             全部项目
-            <span class="project-toolbar__count">${projects.length} 个项目</span>
+            <span class="view-header__count">${projects.length} 个项目</span>
           </div>
-          <div class="project-toolbar__actions">
+          <div class="view-header__actions">
             <button class="btn btn-sm btn-ghost" data-action="recycle-bin">回收站</button>
             <button class="btn btn-sm btn-ghost" data-action="toggle-import">${this._importSectionOpen ? "收起导入" : "导入小说"}</button>
             <button class="btn btn-sm btn-primary" data-action="new">新建项目</button>
+            ${this._renderProjectBulkToolbar(projects)}
           </div>
         </div>
-        ${this._renderProjectBulkToolbar(projects)}
       `
       if (this._importSectionOpen) {
         html += `<div class="project-import-drawer">${this._renderImportSection()}</div>`
@@ -135,14 +136,10 @@ const projectView = {
     const ids = projects.map((project) => project.id).filter(Boolean)
     reconcileBulkSelection(this, "project-cards", ids)
     return `
-      <div class="project-bulk-bar">
-        <div class="row-actions project-bulk-toolbar__select">
-          <button class="btn btn-sm" data-action="select-visible-projects" ${ids.length === 0 ? "disabled" : ""}>全选当前项目</button>
-        </div>
-        ${renderBulkToolbar(this, "project-cards", [
-          { action: "delete-projects", label: "批量移入回收站", className: "btn-danger" },
-        ], { noun: "项目", hint: "只处理当前可见项目" })}
-      </div>
+      <button class="btn btn-sm" data-action="select-visible-projects" ${ids.length === 0 ? "disabled" : ""}>全选当前项目</button>
+      ${renderBulkToolbar(this, "project-cards", [
+        { action: "delete-projects", label: "批量移入回收站", className: "btn-danger" },
+      ], { noun: "项目", hint: "只处理当前可见项目" })}
     `
   },
 
@@ -410,24 +407,37 @@ const projectView = {
     )
   },
 
-  async showRecycleBin() {
+  async showRecycleBin(skip = this._recycleBinSkip) {
     try {
-      const data = await api.projects.listDeleted()
+      const limit = 20
+      const data = await api.projects.listDeleted(skip, limit)
       const items = data.items || data || []
-      if (items.length === 0) {
-        showModalHtml("回收站", "<p>回收站为空。</p>")
+      const total = Number(data.total ?? items.length) || 0
+      if (total > 0 && skip >= total) {
+        const lastPageSkip = Math.floor((total - 1) / limit) * limit
+        return this.showRecycleBin(lastPageSkip)
+      }
+      this._recycleBinSkip = skip
+      if (total === 0) {
+        this._recycleBinSkip = 0
+        showModalHtml("回收站", "<div class=\"recycle-bin\"><p>回收站为空。</p></div>", [], { size: "large" })
         return
       }
+      const currentPage = Math.floor(skip / limit) + 1
+      const totalPages = Math.ceil(total / limit)
+      const previousDisabled = skip <= 0 ? "disabled" : ""
+      const nextDisabled = skip + limit >= total ? "disabled" : ""
       let listHtml = `
-        <div class="bulk-toolbar">
-          <div class="bulk-toolbar__status"><span>回收站项目</span></div>
-          <div class="bulk-toolbar__actions">
-            <button class="btn btn-sm" id="recycle-select-all">全选当前列表</button>
-            <button class="btn btn-sm btn-primary" id="recycle-bulk-restore">批量恢复</button>
-            <button class="btn btn-sm btn-danger" id="recycle-bulk-delete">批量永久删除</button>
+        <div class="recycle-bin">
+          <div class="bulk-toolbar recycle-bin__toolbar">
+            <div class="bulk-toolbar__status"><span>回收站项目 · 共 ${esc(total)} 个</span></div>
+            <div class="bulk-toolbar__actions">
+              <button class="btn btn-sm" id="recycle-select-all">全选当前页</button>
+              <button class="btn btn-sm btn-primary" id="recycle-bulk-restore">批量恢复</button>
+              <button class="btn btn-sm btn-danger" id="recycle-bulk-delete">批量永久删除</button>
+            </div>
           </div>
-        </div>
-        <div class="recycle-bin__list">
+          <div class="recycle-bin__list">
       `
       for (const p of items) {
         const name = p.title || p.name || "未命名"
@@ -451,18 +461,28 @@ const projectView = {
           </div>
         `
       }
-      listHtml += "</div>"
-      showModalHtml("回收站", listHtml)
+      listHtml += `
+          </div>
+          <div class="recycle-bin__pagination" aria-label="回收站分页">
+            <button class="btn btn-sm" id="recycle-prev-page" ${previousDisabled}>上一页</button>
+            <span>第 ${currentPage} / ${totalPages} 页，共 ${esc(total)} 条</span>
+            <button class="btn btn-sm" id="recycle-next-page" ${nextDisabled}>下一页</button>
+          </div>
+        </div>
+      `
+      showModalHtml("回收站", listHtml, [], { size: "large" })
 
-      setTimeout(() => {
+      const bindRecycleBinEvents = () => {
         const selectedRecycleProjects = () => {
           const ids = new Set(Array.from(document.querySelectorAll(".recycle-project-checkbox:checked")).map((input) => input.dataset.id))
           return items.filter((item) => ids.has(item.id))
         }
-        document.getElementById("recycle-select-all")?.addEventListener("click", () => {
+        const selectAllButton = document.getElementById("recycle-select-all")
+        if (selectAllButton) selectAllButton.onclick = () => {
           document.querySelectorAll(".recycle-project-checkbox").forEach((input) => { input.checked = true })
-        })
-        document.getElementById("recycle-bulk-restore")?.addEventListener("click", async () => {
+        }
+        const bulkRestoreButton = document.getElementById("recycle-bulk-restore")
+        if (bulkRestoreButton) bulkRestoreButton.onclick = async () => {
           const selected = selectedRecycleProjects()
           if (!selected.length) { toast("请先选择项目", "warning"); return }
           try {
@@ -473,37 +493,36 @@ const projectView = {
               toast(bulkResultMessage(result, "批量恢复项目", (item) => item.title || item.name || item.id), result.failed.length ? "warning" : "success")
             }
             router.refresh()
-            this.showRecycleBin()
+            this.showRecycleBin(this._recycleBinSkip)
           } catch (err) {
             toast(`批量恢复失败：${err.message || "未知错误"}`, "error")
           }
-        })
-        document.getElementById("recycle-bulk-delete")?.addEventListener("click", () => {
+        }
+        const bulkDeleteButton = document.getElementById("recycle-bulk-delete")
+        if (bulkDeleteButton) bulkDeleteButton.onclick = () => {
           const selected = selectedRecycleProjects()
           if (!selected.length) { toast("请先选择项目", "warning"); return }
           confirmAction(`确定永久删除选中的 ${selected.length} 个项目？此操作不可恢复。`, async () => {
             try {
-              const result = await runBulkAction(selected, async (project) => api.projects.permanentDelete(project.id))
-              if (result.failed.length && result.success.length === 0) {
-                toast(`批量永久删除失败：${result.failed[0]?.error?.message || "未知错误"}`, "error")
-              } else {
-                toast(bulkResultMessage(result, "批量永久删除项目", (item) => item.title || item.name || item.id), result.failed.length ? "warning" : "success")
-              }
-              if (!result.failed.length) this.showRecycleBin()
-              return result.failed.length ? false : true
+              const result = await api.projects.permanentDeleteMany(
+                selected.map((project) => project.id),
+              )
+              toast(`已永久删除 ${result.deleted_count} 个项目`, "success")
+              setTimeout(() => this.showRecycleBin(this._recycleBinSkip), 0)
+              return true
             } catch (err) {
               toast(`批量永久删除失败：${err.message || "未知错误"}`, "error")
               return false
             }
           }, "永久删除")
-        })
+        }
         document.querySelectorAll(".restore-project-btn").forEach((btn) => {
           btn.onclick = async () => {
             try {
               await api.projects.restore(btn.dataset.id)
               toast("项目已恢复", "success")
               router.refresh()
-              this.showRecycleBin()
+              this.showRecycleBin(this._recycleBinSkip)
             } catch (err) {
               toast(`恢复失败：${err.message}`, "error")
             }
@@ -518,7 +537,7 @@ const projectView = {
                 try {
                   await api.projects.permanentDelete(pid)
                   toast("项目已永久删除", "success")
-                  this.showRecycleBin()
+                  setTimeout(() => this.showRecycleBin(this._recycleBinSkip), 0)
                   return true
                 } catch (err) {
                   toast(`永久删除失败：${err.message || "未知错误"}`, "error")
@@ -529,7 +548,17 @@ const projectView = {
             )
           }
         })
-      }, 100)
+        const previousButton = document.getElementById("recycle-prev-page")
+        if (previousButton) previousButton.onclick = () => {
+          return this.showRecycleBin(Math.max(0, skip - limit))
+        }
+        const nextButton = document.getElementById("recycle-next-page")
+        if (nextButton) nextButton.onclick = () => {
+          return this.showRecycleBin(skip + limit)
+        }
+      }
+      bindRecycleBinEvents()
+      setTimeout(bindRecycleBinEvents, 100)
     } catch (err) {
       toast(`加载回收站失败：${err.message}`, "error")
     }

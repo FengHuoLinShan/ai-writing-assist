@@ -301,19 +301,80 @@ const outlineView = {
     this._bindEvents()
   },
 
+  _renderOutlineHeaderTitle(subView) {
+    if (subView === "threads") return `剧情线 <span class="view-header__count">共 ${esc(this._structureTotals.threads)} 个</span>${this._renderProjectChip()}`
+    if (subView === "arcs") return `篇章纲 <span class="view-header__count">共 ${esc(this._structureTotals.arcs)} 个</span>${this._renderProjectChip()}`
+    if (subView === "foreshadowing") return `伏笔 <span class="view-header__count">共 ${esc(this._structureTotals.foreshadowing)} 个</span>${this._renderProjectChip()}`
+    if (subView === "reveals") return `揭示 <span class="view-header__count">共 ${esc(this._structureTotals.reveals)} 个</span>${this._renderProjectChip()}`
+    return ""
+  },
+
+  _renderOutlineHeaderActions(subView) {
+    const plotAutoExtract = this._renderPlotAutoExtractAction()
+    if (subView === "threads") {
+      return `
+        <button class="btn btn-sm btn-primary" data-action="create-thread">新建剧情线</button>
+        ${plotAutoExtract}
+      `
+    }
+    if (subView === "arcs") {
+      return `
+        <button class="btn btn-sm btn-primary" data-action="create-arc">新建篇章纲</button>
+        ${plotAutoExtract}
+      `
+    }
+    if (subView === "foreshadowing") {
+      return `
+        <button class="btn btn-sm btn-primary" data-action="create-foreshadowing">新建伏笔</button>
+        ${plotAutoExtract}
+      `
+    }
+    if (subView === "reveals") {
+      return `
+        <button class="btn btn-sm btn-primary" data-action="create-reveal">新建揭示</button>
+        ${plotAutoExtract}
+      `
+    }
+    return ""
+  },
+
+  _renderOutlineHeader(subView = state.currentSubView || "threads") {
+    if (subView === "scenes") {
+      return `
+        <div class="subnav">
+          <span class="subnav-item ${subView === "scenes" ? "active" : ""}" data-action="nav-scenes">场景工作台</span>
+          <span class="subnav-item ${subView === "threads" ? "active" : ""}" data-action="nav-threads">剧情线</span>
+          <span class="subnav-item ${subView === "arcs" ? "active" : ""}" data-action="nav-arcs">篇章纲</span>
+          <span class="subnav-item ${subView === "foreshadowing" ? "active" : ""}" data-action="nav-foreshadowing">伏笔</span>
+          <span class="subnav-item ${subView === "reveals" ? "active" : ""}" data-action="nav-reveals">揭示</span>
+          ${sceneWorkbenchView.renderHeaderActions()}
+        </div>
+      `
+    }
+    return `
+      <div class="view-header view-header--with-tabs outline-toolbar">
+        <div class="subnav">
+          <span class="subnav-item ${subView === "scenes" ? "active" : ""}" data-action="nav-scenes">场景工作台</span>
+          <span class="subnav-item ${subView === "threads" ? "active" : ""}" data-action="nav-threads">剧情线</span>
+          <span class="subnav-item ${subView === "arcs" ? "active" : ""}" data-action="nav-arcs">篇章纲</span>
+          <span class="subnav-item ${subView === "foreshadowing" ? "active" : ""}" data-action="nav-foreshadowing">伏笔</span>
+          <span class="subnav-item ${subView === "reveals" ? "active" : ""}" data-action="nav-reveals">揭示</span>
+        </div>
+        <div class="view-header__tail">
+          <span class="view-header__title">${this._renderOutlineHeaderTitle(subView)}</span>
+          <div class="view-header__actions">
+            ${this._renderOutlineHeaderActions(subView)}
+          </div>
+        </div>
+      </div>
+    `
+  },
+
   async render() {
     const subView = state.currentSubView || "threads"
     let html = ""
 
-    html += `
-      <div class="subnav">
-        <span class="subnav-item ${subView === "scenes" ? "active" : ""}" data-action="nav-scenes">场景工作台</span>
-        <span class="subnav-item ${subView === "threads" ? "active" : ""}" data-action="nav-threads">剧情线</span>
-        <span class="subnav-item ${subView === "arcs" ? "active" : ""}" data-action="nav-arcs">篇章纲</span>
-        <span class="subnav-item ${subView === "foreshadowing" ? "active" : ""}" data-action="nav-foreshadowing">伏笔</span>
-        <span class="subnav-item ${subView === "reveals" ? "active" : ""}" data-action="nav-reveals">揭示</span>
-      </div>
-    `
+    html += this._renderOutlineHeader(subView)
 
     if (subView === "scenes") {
       html += await sceneWorkbenchView.render()
@@ -708,22 +769,9 @@ const outlineView = {
     return parts.join("")
   },
 
-  _renderOutlineToolbar({ title, count, createAction, createLabel }) {
+  _renderOutlineToolbar() {
     const status = this._renderOutlineProgressStatus()
-    return `
-      <div class="view-toolbar outline-toolbar">
-        <div class="view-toolbar__title">
-          ${esc(title)}
-          ${count > 0 ? `<span class="view-toolbar__count">共 ${esc(count)} 个</span>` : ""}
-          ${this._renderProjectChip()}
-        </div>
-        <div class="view-toolbar__actions">
-          ${createAction ? `<button class="btn btn-sm btn-primary" data-action="${esc(createAction)}">${esc(createLabel)}</button>` : ""}
-          ${this._renderPlotAutoExtractAction()}
-        </div>
-        ${status ? `<div class="view-toolbar__status">${status}</div>` : ""}
-      </div>
-    `
+    return status ? `<div class="outline-toolbar-status">${status}</div>` : ""
   },
 
   _threadDescription(thread) {
@@ -739,12 +787,7 @@ const outlineView = {
       return '<div class="empty-state"><p>请先从左侧选择一个项目，或创建一个新项目开始。</p></div>'
     }
 
-    let html = this._renderOutlineToolbar({
-      title: "剧情线",
-      count: this._structureTotals.threads,
-      createAction: "create-thread",
-      createLabel: "新建剧情线",
-    }) + this._renderStructureFilters("threads")
+    let html = this._renderOutlineToolbar() + this._renderStructureFilters("threads")
 
     if (this._threads.length === 0) {
       return html + this._renderStructureEmptyState("剧情线", "threads")
@@ -807,12 +850,7 @@ const outlineView = {
       return '<div class="empty-state"><p>请先从左侧选择一个项目，或创建一个新项目开始。</p></div>'
     }
 
-    let html = this._renderOutlineToolbar({
-      title: "篇章纲",
-      count: this._structureTotals.arcs,
-      createAction: "create-arc",
-      createLabel: "新建篇章纲",
-    }) + this._renderStructureFilters("arcs")
+    let html = this._renderOutlineToolbar() + this._renderStructureFilters("arcs")
 
     if (this._arcs.length === 0) {
       return html + this._renderStructureEmptyState("篇章纲", "arcs")
@@ -876,12 +914,7 @@ const outlineView = {
       return '<div class="empty-state"><p>请先从左侧选择一个项目，或创建一个新项目开始。</p></div>'
     }
 
-    let html = this._renderOutlineToolbar({
-      title: "伏笔",
-      count: this._structureTotals.foreshadowing,
-      createAction: "create-foreshadowing",
-      createLabel: "新建伏笔",
-    }) + this._renderStructureFilters("foreshadowing")
+    let html = this._renderOutlineToolbar() + this._renderStructureFilters("foreshadowing")
 
     if (this._foreshadowing.length === 0) {
       return html + this._renderStructureEmptyState("伏笔", "foreshadowing")
@@ -924,12 +957,7 @@ const outlineView = {
       return '<div class="empty-state"><p>请先从左侧选择一个项目，或创建一个新项目开始。</p></div>'
     }
 
-    let html = this._renderOutlineToolbar({
-      title: "揭示",
-      count: this._structureTotals.reveals,
-      createAction: "create-reveal",
-      createLabel: "新建揭示",
-    }) + this._renderStructureFilters("reveals")
+    let html = this._renderOutlineToolbar() + this._renderStructureFilters("reveals")
 
     if (this._reveals.length === 0) {
       return html + this._renderStructureEmptyState("揭示", "reveals")

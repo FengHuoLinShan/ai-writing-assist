@@ -64,13 +64,13 @@ const globalSettingsView = {
     const hasProject = !!state.currentProjectId
     return `
       <div class="global-settings-view">
-        <div class="section-header">
-          <div>
-            <h2>全局设置</h2>
-            <p class="section-subtitle">owner: local（demo 占位）</p>
-          </div>
-          <div class="llm-global-actions">
-            <button class="btn btn-link" id="goto-recent-project-btn" ${hasProject ? "" : "disabled"}>进入当前项目 →</button>
+        <div class="view-header section-header">
+          <h2 class="view-header__title">
+            全局设置
+            <span class="view-header__project">owner: local（demo 占位）</span>
+          </h2>
+          <div class="view-header__actions llm-global-actions">
+            <button class="btn btn-sm btn-link" id="goto-recent-project-btn" ${hasProject ? "" : "disabled"}>进入当前项目 →</button>
           </div>
         </div>
 

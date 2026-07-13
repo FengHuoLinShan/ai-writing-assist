@@ -453,28 +453,22 @@ const worldView = {
     this._lastRenderedSubView = subView
     let html = ''
 
-    html += `
-      <div class="subnav">
-        <span class="subnav-item ${subView === "objects" ? "active" : ""}" data-subview="objects" data-action="nav-objects">对象库</span>
-        <span class="subnav-item ${reviewSubView ? "active" : ""}" data-subview="review-objects" data-action="nav-review">待处理</span>
-        <span class="subnav-item ${subView === "relations" ? "active" : ""}" data-subview="relations" data-action="nav-relations">关系</span>
-        <span class="subnav-item ${subView === "aliases" ? "active" : ""}" data-subview="aliases" data-action="nav-aliases">别名</span>
-        <span class="subnav-item ${subView === "bible" ? "active" : ""}" data-subview="bible" data-action="nav-bible">世界书</span>
-        <span class="subnav-item ${subView === "map" ? "active" : ""}" data-subview="map" data-action="nav-map">地图</span>
-      </div>
-    `
-
+    // 先加载/生成子视图内容，确保标题计数在渲染 header 前已就绪
+    let subViewHtml = ''
     if (subView === "objects") {
-      html += this._renderEntityList()
+      subViewHtml = this._renderEntityList()
     } else if (reviewSubView) {
-      html += await this._renderReviewQueue(reviewSubView)
+      subViewHtml = await this._renderReviewQueue(reviewSubView)
     } else if (subView === "relations") {
-      html += await this._renderRelations()
+      subViewHtml = await this._renderRelations()
     } else if (subView === "aliases") {
-      html += await this._renderAliases()
+      subViewHtml = await this._renderAliases()
     } else if (subView === "bible") {
-      html += await worldBibleView.render()
+      subViewHtml = await worldBibleView.render()
     }
+
+    html += this._renderHeader(subView, reviewSubView)
+    html += subViewHtml
 
     setTimeout(() => this._bindEvents(), 0)
     return html
@@ -486,6 +480,69 @@ const worldView = {
       return subView
     }
     return ""
+  },
+
+  _renderHeaderTitle(subView, reviewSubView) {
+    if (subView === "objects") {
+      return `<span class="view-header__title">世界对象 <span class="view-header__count">共 ${esc(this._total)} 个</span>${this._renderProjectChip()}</span>`
+    }
+    if (reviewSubView) {
+      let title = "待处理对象"
+      let count = this._candidateTotal
+      if (reviewSubView === "review-aliases") {
+        title = "待处理别名"
+        count = this._aliasTotal
+      } else if (reviewSubView === "review-relations") {
+        title = "待处理关系"
+        count = this._relationTotal
+      }
+      return `<span class="view-header__title">${esc(title)} <span class="view-header__count">共 ${esc(count)} 个</span>${this._renderProjectChip()}</span>`
+    }
+    if (subView === "relations") {
+      return `<span class="view-header__title">关系 <span class="view-header__count">共 ${esc(this._relationTotal)} 个</span>${this._renderProjectChip()}</span>`
+    }
+    if (subView === "aliases") {
+      return `<span class="view-header__title">别名 <span class="view-header__count">共 ${esc(this._aliasTotal)} 个</span>${this._renderProjectChip()}</span>`
+    }
+    return ""
+  },
+
+  _renderHeaderActions(subView, reviewSubView) {
+    if (subView === "objects") {
+      return `
+        <button class="btn btn-sm btn-primary" data-action="new" id="btn-new-entity">新建对象</button>
+        <button class="btn btn-sm" data-action="toggle-extract">${this._autoExtractOpen ? "▾" : "▸"} 自动提取</button>
+        ${this._renderObjectViewToggle()}
+      `
+    }
+    if (subView === "relations") {
+      return `<button class="btn btn-sm btn-primary" data-action="create-relation">新建关系</button>`
+    }
+    if (subView === "aliases") {
+      return `<button class="btn btn-sm btn-primary" data-action="create-alias">新建别名</button>`
+    }
+    return ""
+  },
+
+  _renderHeader(subView = state.currentSubView || "objects", reviewSubView = this._normalizeReviewSubView(subView)) {
+    return `
+      <div class="view-header view-header--with-tabs world-toolbar">
+        <div class="subnav">
+          <span class="subnav-item ${subView === "objects" ? "active" : ""}" data-subview="objects" data-action="nav-objects">对象库</span>
+          <span class="subnav-item ${reviewSubView ? "active" : ""}" data-subview="review-objects" data-action="nav-review">待处理</span>
+          <span class="subnav-item ${subView === "relations" ? "active" : ""}" data-subview="relations" data-action="nav-relations">关系</span>
+          <span class="subnav-item ${subView === "aliases" ? "active" : ""}" data-subview="aliases" data-action="nav-aliases">别名</span>
+          <span class="subnav-item ${subView === "bible" ? "active" : ""}" data-subview="bible" data-action="nav-bible">世界书</span>
+          <span class="subnav-item ${subView === "map" ? "active" : ""}" data-subview="map" data-action="nav-map">地图</span>
+        </div>
+        <div class="view-header__tail">
+          ${this._renderHeaderTitle(subView, reviewSubView)}
+          <div class="view-header__actions">
+            ${this._renderHeaderActions(subView, reviewSubView)}
+          </div>
+        </div>
+      </div>
+    `
   },
 
   async _renderReviewQueue(reviewSubView) {
@@ -808,26 +865,12 @@ const worldView = {
 
   _renderEntityList() {
     const extractLabel = "世界对象与别名/关系自动提取"
-    const toolbar = `
-      <div class="view-toolbar world-toolbar">
-        <div class="view-toolbar__title">
-          世界对象
-          <span class="view-toolbar__count">共 ${esc(this._total)} 个</span>
-          ${this._renderProjectChip()}
-        </div>
-        <div class="view-toolbar__actions">
-          <button class="btn btn-sm btn-primary" data-action="new" id="btn-new-entity">新建对象</button>
-          <button class="btn btn-sm" data-action="toggle-extract">${this._autoExtractOpen ? "▾" : "▸"} 自动提取</button>
-          ${this._renderObjectViewToggle()}
-        </div>
-      </div>
-    `
     const extractDrawer = this._autoExtractOpen
       ? `<div class="world-extract-drawer">${this._renderAutoExtractPanel("world_object_auto_extraction", extractLabel)}</div>`
       : ""
 
     if (this._entities.length === 0) {
-      return `${toolbar}${extractDrawer}${this._renderFilters()}
+      return `${extractDrawer}${this._renderFilters()}
         ${this._entitiesLoadError ? `
           <div class="empty-state" role="alert">
             <div class="empty-icon" style="color:var(--warning);">&#9888;</div>
@@ -847,7 +890,7 @@ const worldView = {
       `
     }
 
-    let html = `${toolbar}${extractDrawer}`
+    let html = `${extractDrawer}`
 
     html += this._renderFilters()
 
@@ -1287,18 +1330,8 @@ const worldView = {
   },
 
   _renderCandidatesList({ reviewOnly = false } = {}) {
-    const toolbar = `
-      <div class="view-toolbar world-toolbar">
-        <div class="view-toolbar__title">
-          待处理对象
-          <span class="view-toolbar__count">共 ${esc(this._candidateTotal)} 个</span>
-          ${this._renderProjectChip()}
-        </div>
-        <div class="view-toolbar__actions"></div>
-      </div>
-    `
     if (this._candidates.length === 0) {
-      return `${toolbar}${reviewOnly ? this._renderCandidateReviewFilters() : ""}
+      return `${reviewOnly ? this._renderCandidateReviewFilters() : ""}
         <div class="empty-state">
           <div class="empty-icon">&#128269;</div>
           <p>没有待处理对象。</p>
@@ -1310,7 +1343,7 @@ const worldView = {
     const ids = this._candidates.map((candidate) => this._entityId(candidate))
     reconcileBulkSelection(this, scope, ids)
 
-    let html = `${toolbar}${reviewOnly ? this._renderCandidateReviewFilters() : ""}
+    let html = `${reviewOnly ? this._renderCandidateReviewFilters() : ""}
       <p class="world-list-description">
         以下内容尚未进入当前有效设定。请结合来源和证据决定采用、合并、设为别名或忽略。
       </p>
@@ -1412,26 +1445,14 @@ const worldView = {
   },
 
   async _renderRelations({ reviewOnly = false } = {}) {
-    const renderToolbar = (total) => `
-      <div class="view-toolbar world-toolbar">
-        <div class="view-toolbar__title">
-          ${reviewOnly ? "待处理关系" : "关系网"}
-          ${total > 0 ? `<span class="view-toolbar__count">共 ${esc(total)} 个</span>` : ""}
-          ${this._renderProjectChip()}
-        </div>
-        <div class="view-toolbar__actions">
-          ${reviewOnly ? "" : `<button class="btn btn-sm btn-primary" data-action="create-relation">新建关系</button>`}
-        </div>
-      </div>
-    `
     const description = `
       <p class="world-list-description">
         ${reviewOnly ? "处理 AI 抽取或导入提出、尚未采用的关系。" : "管理世界对象与人物之间的关系。"}
       </p>
     `
-    if (!state.currentProjectId) return renderToolbar(0) + description + '<div class="empty-state"><p>请先选择项目。</p></div>'
+    if (!state.currentProjectId) return description + '<div class="empty-state"><p>请先选择项目。</p></div>'
 
-    let html = renderToolbar(this._relationTotal || 0) + description
+    let html = description
     try {
       const params = {
         novel_id: state.currentProjectId,
@@ -1448,7 +1469,7 @@ const worldView = {
       const rels = data.items || data || []
       this._relations = rels
       this._relationTotal = Number(data.total ?? rels.length) || 0
-      html = renderToolbar(this._relationTotal) + description
+      html = description
       if (rels.length === 0) {
         return html + `<div class="empty-state"><p>${reviewOnly ? "没有待处理关系。" : "还没有建立人物关系。"}</p><p class="world-text-dim">关系网可以帮助你梳理角色之间的恩怨情仇。</p></div>`
       }
@@ -1678,26 +1699,14 @@ const worldView = {
   },
 
   async _renderAliases({ reviewOnly = false } = {}) {
-    const renderToolbar = (total) => `
-      <div class="view-toolbar world-toolbar">
-        <div class="view-toolbar__title">
-          ${reviewOnly ? "待处理别名" : "别名"}
-          ${total > 0 ? `<span class="view-toolbar__count">共 ${esc(total)} 个</span>` : ""}
-          ${this._renderProjectChip()}
-        </div>
-        <div class="view-toolbar__actions">
-          ${reviewOnly ? "" : `<button class="btn btn-sm btn-primary" data-action="create-alias">新建别名</button>`}
-        </div>
-      </div>
-    `
     const description = `
       <p class="world-list-description">
         ${reviewOnly ? "处理尚未采用的别名。别名不独立创建对象。" : "管理世界对象的别名、称号和化名。别名不独立创建对象。"}
       </p>
     `
-    if (!state.currentProjectId) return renderToolbar(0) + description + '<div class="empty-state"><p>请先选择项目。</p></div>'
+    if (!state.currentProjectId) return description + '<div class="empty-state"><p>请先选择项目。</p></div>'
 
-    let html = renderToolbar(this._aliasTotal || 0) + description
+    let html = description
     try {
       const params = {
         novel_id: state.currentProjectId,
@@ -1716,7 +1725,7 @@ const worldView = {
       const aliases = data.items || data || []
       this._aliases = aliases
       this._aliasTotal = Number(data.total ?? aliases.length) || 0
-      html = renderToolbar(this._aliasTotal) + description
+      html = description
       if (aliases.length === 0) {
         return html + `<div class="empty-state"><p>${reviewOnly ? "没有待处理别名。" : "还没有设置别名。"}</p><p class="world-text-dim">别名可以帮助你管理角色的化名、称号和绰号。</p></div>`
       }

@@ -27,6 +27,7 @@ class DeepImportPhaseRequest:
 @dataclass(frozen=True, kw_only=True)
 class SceneFullPipelineRequest(DeepImportPhaseRequest):
     stop_after: DeepImportStep | None = None
+    replace_existing: bool = False
 
 
 @dataclass(frozen=True, kw_only=True)

@@ -86,6 +86,8 @@ const REVEAL_OPTIONS = [
 ]
 
 const POV_CHARACTER_PAGE_SIZE = 50
+const AI_MESSAGE_LIMIT = 40
+const AI_SELECTED_CHAPTER_LIMIT = 20
 
 const generateView = {
   _selectedTemplateId: "builtin:none",
@@ -164,7 +166,7 @@ const generateView = {
       this._syncTaskFormInputs()
     }, 0)
     return `
-      ${this._renderGenerateSubTabs()}
+      ${this._renderHeader()}
       ${this._renderGenerateSubView()}
       ${this._renderStyles()}
     `
@@ -178,11 +180,49 @@ const generateView = {
 
   _renderGenerateSubTabs() {
     return `
-      <div class="generate-subtabs" role="tablist" aria-label="生成模式">
-        <button class="generate-subtab ${this._generateSubTab === "chat" ? "active" : ""}" data-action="switch-generate-subtab" data-subtab="chat">自由对话</button>
-        <button class="generate-subtab ${this._generateSubTab === "pov_prose" ? "active" : ""}" data-action="switch-generate-subtab" data-subtab="pov_prose">角色视角正文</button>
-        <button class="generate-subtab ${this._generateSubTab === "task" ? "active" : ""}" data-action="switch-generate-subtab" data-subtab="task">任务</button>
-        <button class="generate-subtab ${this._generateSubTab === "preview" ? "active" : ""}" data-action="switch-generate-subtab" data-subtab="preview">上下文预览</button>
+      <button class="generate-subtab ${this._generateSubTab === "chat" ? "active" : ""}" data-action="switch-generate-subtab" data-subtab="chat">自由对话</button>
+      <button class="generate-subtab ${this._generateSubTab === "pov_prose" ? "active" : ""}" data-action="switch-generate-subtab" data-subtab="pov_prose">角色视角正文</button>
+      <button class="generate-subtab ${this._generateSubTab === "task" ? "active" : ""}" data-action="switch-generate-subtab" data-subtab="task">任务</button>
+      <button class="generate-subtab ${this._generateSubTab === "preview" ? "active" : ""}" data-action="switch-generate-subtab" data-subtab="preview">上下文预览</button>
+    `
+  },
+
+  _renderHeaderActions() {
+    const projectChip = this._renderProjectChip()
+    if (this._generateSubTab === "chat") {
+      return `
+        ${projectChip}
+        <button class="btn btn-sm" data-action="send-chat-message">发送</button>
+        <button class="btn btn-sm btn-primary" data-action="generate-object-draft">生成世界对象建议</button>
+      `
+    }
+    if (this._generateSubTab === "pov_prose") {
+      return `
+        ${projectChip}
+        <button class="btn btn-sm btn-primary" data-action="generate-pov-prose">生成角色视角正文</button>
+      `
+    }
+    if (this._generateSubTab === "task") {
+      return `
+        ${projectChip}
+        <button class="btn btn-sm btn-primary" data-action="run-task">执行任务</button>
+        <button class="btn btn-sm" data-action="preview-task-context">预览上下文</button>
+        <button class="btn btn-sm" data-action="render-task-md">渲染 Markdown</button>
+        <button class="btn btn-sm" data-action="apply-to-chat">应用到聊天</button>
+      `
+    }
+    return projectChip
+  },
+
+  _renderHeader() {
+    return `
+      <div class="view-header view-header--with-tabs generate-toolbar">
+        <div class="subnav generate-subtabs" role="tablist" aria-label="生成模式">
+          ${this._renderGenerateSubTabs()}
+        </div>
+        <div class="view-header__actions">
+          ${this._renderHeaderActions()}
+        </div>
       </div>
     `
   },
@@ -196,16 +236,6 @@ const generateView = {
 
   _renderChatTab() {
     return `
-      <div class="view-toolbar generate-toolbar">
-        <div class="view-toolbar__title">
-          自由对话
-          ${this._renderProjectChip()}
-        </div>
-        <div class="view-toolbar__actions">
-          <button class="btn btn-sm" data-action="send-chat-message">发送</button>
-          <button class="btn btn-sm btn-primary" data-action="generate-object-draft">生成世界对象建议</button>
-        </div>
-      </div>
       <div id="generate-template-row" class="generate-template-row generate-template-row--toolbar">
         ${this._renderTemplateButtons()}
       </div>
@@ -242,6 +272,7 @@ const generateView = {
               </label>
               <button class="btn btn-sm" data-action="select-source-chapters">附带正文</button>
             </div>
+            <p class="generate-empty-copy">单次最多附带 20 章；长对话只发送最近 40 条消息。</p>
             <div id="generate-selected-chapters" class="generate-attachment-summary"></div>
           </div>
           <div class="card">
@@ -267,15 +298,6 @@ const generateView = {
     const hasManualRole = Boolean(form.viewpointCharacterId && scenePovId && form.viewpointCharacterId !== scenePovId)
     const hasSceneWithoutPov = Boolean(scene && !scenePovId)
     return `
-      <div class="view-toolbar generate-toolbar">
-        <div class="view-toolbar__title">
-          角色视角正文
-          ${this._renderProjectChip()}
-        </div>
-        <div class="view-toolbar__actions">
-          <button class="btn btn-sm btn-primary" data-action="generate-pov-prose">生成角色视角正文</button>
-        </div>
-      </div>
       <div class="generate-pov-workspace">
         <div class="card generate-pov-form">
           ${this._povLoadWarning ? `<div class="generate-template-warning">${esc(this._povLoadWarning)}</div>` : ""}
@@ -369,7 +391,6 @@ const generateView = {
         .generate-composer { flex:0 0 auto; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--panel); padding:8px; }
         .generate-chat-input { width:100%; min-height:72px; resize:vertical; border:0; outline:0; background:transparent; color:var(--text); font:inherit; line-height:1.5; }
         .generate-chat-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:8px; flex-wrap:wrap; }
-        .generate-toolbar { margin-bottom:var(--space-2); }
         .generate-template-row--toolbar { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:var(--space-2); }
         .generate-empty-copy { color:var(--text-dim); font-size:13px; line-height:1.6; margin:0; }
         .generate-result-card { border:1px solid var(--accent); border-radius:var(--radius-sm); padding:12px; background:var(--panel); }
@@ -395,7 +416,6 @@ const generateView = {
           .generate-chat-side { max-height:none; overflow:visible; padding-right:0; }
           .generate-chat-messages { min-height:260px; max-height:60vh; }
         }
-        .generate-subtabs { display:flex; gap:6px; margin-bottom:8px; overflow-x:auto; white-space:nowrap; }
         .generate-subtab { flex-shrink:0; border:1px solid var(--border); background:var(--panel); color:var(--text); border-radius:var(--radius-sm); padding:5px 12px; cursor:pointer; font-size:13px; }
         .generate-subtab.active { border-color:var(--accent); background:var(--selected); color:var(--accent); }
         .generate-task-workspace { display:grid; grid-template-columns:minmax(190px,22fr) minmax(0,78fr); gap:12px; align-items:start; }
@@ -856,23 +876,35 @@ const generateView = {
         toast("当前项目还没有正文，可直接聊天或粘贴外部对话生成建议", "info")
         return
       }
-      const chapters = await this._runInBatches(summaries.slice(0, 60), 5, async (item) => {
-        try {
-          const draft = item.id
-            ? await api.writing.get(item.id, state.currentProjectId)
-            : await api.writing.getDraft(item.chapter_index, state.currentProjectId)
-          return {
-            chapter_index: item.chapter_index,
-            title: draft.title || item.title || `第${item.chapter_index}章`,
-            excerpt: this._excerpt(draft.content || ""),
+      const previewChapters = await this._runInBatches(
+        summaries.slice(0, AI_SELECTED_CHAPTER_LIMIT),
+        5,
+        async (item) => {
+          try {
+            const draft = item.id
+              ? await api.writing.get(item.id, state.currentProjectId)
+              : await api.writing.getDraft(item.chapter_index, state.currentProjectId)
+            return {
+              chapter_index: item.chapter_index,
+              title: draft.title || item.title || `第${item.chapter_index}章`,
+              excerpt: this._excerpt(draft.content || ""),
+            }
+          } catch {
+            return {
+              chapter_index: item.chapter_index,
+              title: item.title || `第${item.chapter_index}章`,
+              excerpt: "",
+            }
           }
-        } catch {
-          return {
-            chapter_index: item.chapter_index,
-            title: item.title || `第${item.chapter_index}章`,
-            excerpt: "",
-          }
-        }
+        },
+      )
+      const previewByIndex = new Map(
+        previewChapters.map((item) => [item.chapter_index, item]),
+      )
+      const chapters = summaries.map((item) => previewByIndex.get(item.chapter_index) || {
+        chapter_index: item.chapter_index,
+        title: item.title || `第${item.chapter_index}章`,
+        excerpt: "",
       })
       showModalHtml("选择附带正文", this._renderChapterPicker(chapters), [
         { text: "取消", class: "btn-ghost", handler: closeModal },
@@ -880,10 +912,15 @@ const generateView = {
           text: "确认选择",
           class: "btn-primary",
           handler: () => {
-            this._selectedChapters = chapters.filter((item) => {
+            const selectedChapters = chapters.filter((item) => {
               const el = document.getElementById(`generate-chapter-${item.chapter_index}`)
               return Boolean(el?.checked)
             })
+            if (selectedChapters.length > AI_SELECTED_CHAPTER_LIMIT) {
+              toast(`每次最多附带 ${AI_SELECTED_CHAPTER_LIMIT} 章正文`, "warning")
+              return false
+            }
+            this._selectedChapters = selectedChapters
             this._renderAttachments()
             this._persistState()
             closeModal()
@@ -1010,6 +1047,12 @@ const generateView = {
 
   _buildPayload() {
     const templatePayload = this._selectedTemplatePayload()
+    const messages = this._messages
+      .filter((item) => !item.pending && !item.error && (item.role === "user" || item.role === "assistant"))
+      .map((item) => ({
+        role: item.role,
+        content: item.content,
+      }))
     return {
       novel_id: state.currentProjectId,
       template_id: templatePayload.template_id,
@@ -1017,13 +1060,10 @@ const generateView = {
       template: templatePayload.template,
       template_name: templatePayload.template_name,
       template_prompt: templatePayload.template_prompt,
-      messages: this._messages
-        .filter((item) => !item.pending && !item.error && (item.role === "user" || item.role === "assistant"))
-        .map((item) => ({
-          role: item.role,
-          content: item.content,
-        })),
-      selected_chapter_indices: this._selectedChapters.map((item) => item.chapter_index),
+      messages: messages.slice(-AI_MESSAGE_LIMIT),
+      selected_chapter_indices: this._selectedChapters
+        .slice(0, AI_SELECTED_CHAPTER_LIMIT)
+        .map((item) => item.chapter_index),
       quality_mode: this._qualityMode,
     }
   },
@@ -1152,7 +1192,9 @@ const generateView = {
       const parsed = JSON.parse(raw)
       this._selectedTemplateId = parsed.selectedTemplateId || this._selectedTemplateId
       this._messages = Array.isArray(parsed.messages) ? parsed.messages : []
-      this._selectedChapters = Array.isArray(parsed.selectedChapters) ? parsed.selectedChapters : []
+      this._selectedChapters = Array.isArray(parsed.selectedChapters)
+        ? parsed.selectedChapters.slice(0, AI_SELECTED_CHAPTER_LIMIT)
+        : []
       this._povForm = parsed.povForm || this._povForm
       this._lastPovSubmission = parsed.lastPovSubmission || null
       this._qualityMode = parsed.qualityMode || "fast"
@@ -1623,18 +1665,6 @@ const generateView = {
     const preset = TASK_PRESETS[this._taskPreset] || TASK_PRESETS.custom
     const form = this._taskForm
     return `
-      <div class="view-toolbar generate-toolbar">
-        <div class="view-toolbar__title">
-          任务
-          ${this._renderProjectChip()}
-        </div>
-        <div class="view-toolbar__actions">
-          <button class="btn btn-sm btn-primary" data-action="run-task">执行任务</button>
-          <button class="btn btn-sm" data-action="preview-task-context">预览上下文</button>
-          <button class="btn btn-sm" data-action="render-task-md">渲染 Markdown</button>
-          <button class="btn btn-sm" data-action="apply-to-chat">应用到聊天</button>
-        </div>
-      </div>
       <div class="generate-task-workspace">
         <div class="generate-task-cards">
           ${Object.entries(TASK_PRESETS).map(([key, p]) => `
@@ -1720,14 +1750,6 @@ const generateView = {
   _renderContextPreviewTab() {
     const sourceText = this._lastContextSource === "chat" ? "自由对话" : this._lastContextSource === "task" ? `任务：${TASK_PRESETS[this._taskPreset]?.label || "自定义任务"}` : ""
     return `
-      <div class="view-toolbar generate-toolbar">
-        <div class="view-toolbar__title">
-          上下文预览
-          ${sourceText ? `<span class="view-toolbar__count">来自：${esc(sourceText)}</span>` : ""}
-          ${this._renderProjectChip()}
-        </div>
-        <div class="view-toolbar__actions"></div>
-      </div>
       <div class="card">
         <div class="card-title">上下文预览</div>
         ${sourceText ? `<div class="generate-context-preview-source">来自：${esc(sourceText)}</div>` : ""}

@@ -34,6 +34,30 @@ async def persist_deep_import_fusion_suggestions(
     )
 
 
+async def commit_deep_import_scene_candidates(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    workflow_id: str,
+    start_chapter: int,
+    end_chapter: int,
+    candidates: list[dict[str, Any]],
+    fusion_suggestions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Atomically replace unreviewed imports and queue protected overlaps."""
+    from modules.outline.scene_replacement import DeepImportSceneCommitService
+
+    return await DeepImportSceneCommitService().commit(
+        db,
+        novel_id=novel_id,
+        workflow_id=workflow_id,
+        start_chapter=start_chapter,
+        end_chapter=end_chapter,
+        candidates=candidates,
+        fusion_suggestions=fusion_suggestions,
+    )
+
+
 async def get_scene(db: AsyncSession, scene_id: str) -> dict[str, Any] | None:
     """按 ID 获取 Scene，返回 dict 或 None。"""
     from modules.outline.repositories import SceneRepository

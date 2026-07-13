@@ -116,6 +116,7 @@ globalThis.api = {
     updateLlmSettings: vi.fn(),
     restore: vi.fn(),
     permanentDelete: vi.fn(),
+    permanentDeleteMany: vi.fn(),
     startSmartDedupScan: vi.fn(),
     applySmartDedup: vi.fn(),
   },

@@ -63,6 +63,7 @@ const SCENE_FILTER_DEFAULTS = {
   skip: 0,
   limit: 20,
 }
+const FUSION_SUGGESTION_DISMISS_BATCH_SIZE = 100
 
 const TAG_OPTIONS = [
   ["draft", "未标注"],
@@ -75,12 +76,26 @@ const TAG_OPTIONS = [
   ["payoff", "爽点"],
 ]
 
+const DRAFT_REVIEW_FIELDS = [
+  ["title", "标题"],
+  ["goal", "目标"],
+  ["core_conflict", "核心冲突"],
+  ["emotional_beat", "情感节奏"],
+  ["must_happen", "必须发生"],
+  ["must_not_happen", "禁止发生"],
+  ["narrative_tag", "叙事标签"],
+  ["pov_character_id", "POV"],
+  ["chapter_ids", "章节映射"],
+]
+
 const sceneWorkbenchView = {
   _loading: true,
   _workbench: null,
   _fusionPreviewPending: false,
   _fusionPreviewProjectId: null,
   _fusionPreviewRequestSeq: 0,
+  _fusionSavePending: false,
+  _fusionSaveControls: [],
   _total: 0,
   _activeHealth: null,
   _filters: { ...SCENE_FILTER_DEFAULTS },
@@ -150,9 +165,6 @@ const sceneWorkbenchView = {
     const detail = this._renderDetail(selected, narrow)
     const html = `
       <div class="scene-workbench-shell">
-        <div class="scene-workbench-actions">
-          <button class="btn btn-primary" data-action="scene-auto-extract">场景（scene）自动提取</button>
-        </div>
         <div data-role="scene-auto-extract-progress">${this._renderAutoExtractProgress()}</div>
         ${this._renderFusionSuggestionQueue()}
         <div class="scene-workbench ${narrow ? "is-narrow" : ""}">
@@ -178,13 +190,38 @@ const sceneWorkbenchView = {
     return html
   },
 
+  renderHeaderActions() {
+    return `
+      <div class="scene-workbench-actions" aria-label="Scene 工作台操作">
+        <button class="btn btn-sm btn-primary" data-action="scene-auto-extract">场景（scene）自动提取</button>
+        <span data-role="scene-smart-dedup-action">${this._renderSmartDedupButton()}</span>
+      </div>
+    `
+  },
+
   async _loadWorkbench() {
     if (!state.currentProjectId) return
-    this._workbench = await api.outline.getSceneWorkbench(
-      state.currentProjectId,
-      this._routeSceneId(),
-      this._sceneWorkbenchParams(),
-    )
+    const selectedSceneId = this._routeSceneId()
+    try {
+      this._workbench = await api.outline.getSceneWorkbench(
+        state.currentProjectId,
+        selectedSceneId,
+        this._sceneWorkbenchParams(),
+      )
+    } catch (err) {
+      const canRecoverMissingSelection = selectedSceneId
+        && state.currentView === "outline"
+        && state.currentSubView === "scenes"
+        && err?.status === 404
+        && err?.detail === "Scene not found"
+      if (!canRecoverMissingSelection) throw err
+      this._clearEmbeddedSceneHistory()
+      this._workbench = await api.outline.getSceneWorkbench(
+        state.currentProjectId,
+        null,
+        this._sceneWorkbenchParams(),
+      )
+    }
     this._total = Number(this._workbench?.total ?? this._workbench?.items?.length ?? 0) || 0
     const effectiveSkip = Number(this._workbench?.skip)
     if (Number.isInteger(effectiveSkip) && effectiveSkip >= 0) {
@@ -194,11 +231,22 @@ const sceneWorkbenchView = {
       this._workbench?.fusion_suggestions?.pending_count || 0,
     )
     if (pendingSuggestions > 0 && api.outline.listFusionSuggestions) {
-      const result = await api.outline.listFusionSuggestions(
-        state.currentProjectId,
-        { skip: 0, limit: 100 },
-      )
-      this._fusionSuggestions = Array.isArray(result?.items) ? result.items : []
+      const suggestions = []
+      const pageSize = 50
+      let skip = 0
+      let total = pendingSuggestions
+      while (skip < total) {
+        const result = await api.outline.listFusionSuggestions(
+          state.currentProjectId,
+          { skip, limit: pageSize },
+        )
+        const items = Array.isArray(result?.items) ? result.items : []
+        suggestions.push(...items)
+        total = Number(result?.total ?? total) || 0
+        if (!items.length) break
+        skip += items.length
+      }
+      this._fusionSuggestions = suggestions
     } else {
       this._fusionSuggestions = []
     }
@@ -445,7 +493,7 @@ const sceneWorkbenchView = {
           <button class="scene-workbench-row__main" data-action="select-workbench-scene" data-id="${esc(scene.id)}">
             <div class="scene-workbench-row__meta">
               <span>#${esc(scene.scene_index ?? "-")}</span>
-              <span>${esc(this._statusLabel(scene.status))}</span>
+              <span>${esc(this._sceneStatusLabel(scene))}</span>
               <span>${esc(this._sourceLabel(scene.source))}</span>
               <span>${esc(item.chapter_range || "未关联章节")}</span>
             </div>
@@ -543,6 +591,9 @@ const sceneWorkbenchView = {
       : (reviewState.needsReview ? "需要人工检查" : "无注意项")
     const attentionLabels = this._healthReasons(item).map((reason) => reason.label)
     const contextAction = this._contextAction(item)
+    const replacementLinks = (scene.structure_meta?.replaced_by_scene_ids || [])
+      .map((id, index) => `<button class="btn btn-sm" data-action="open-replacement-scene" data-id="${esc(id)}">替代 Scene ${esc(index + 1)}</button>`)
+      .join("")
     return `
       <div class="scene-detail-panel">
         <div class="scene-detail-panel__head">
@@ -567,7 +618,8 @@ const sceneWorkbenchView = {
         <section class="scene-detail-summary">
           <div><strong>章节映射</strong><span>${esc(item.chapter_range || "未关联章节")}</span></div>
           <div><strong>关联资产预览</strong><span>剧情线 / 伏笔 / 揭示 / 地图摘要将在整理预览中展示</span></div>
-          <div><strong>来源与注意</strong><span>${esc(this._sourceLabel(scene.source))} · ${esc(this._statusLabel(scene.status))} · ${esc(reviewLabel)}</span></div>
+          <div><strong>来源与注意</strong><span>${esc(this._sourceLabel(scene.source))} · ${esc(this._sceneStatusLabel(scene))} · ${esc(reviewLabel)}</span></div>
+          ${replacementLinks ? `<div><strong>替代结果</strong><span>${replacementLinks}</span></div>` : ""}
           ${attentionLabels.length ? `<div><strong>待处理</strong><span>${esc(attentionLabels.join(" · "))}</span></div>` : ""}
         </section>
         <div class="scene-detail-actions">
@@ -1415,77 +1467,276 @@ const sceneWorkbenchView = {
 
   _showFusionPreview(preview, fallbackSourceIds) {
     const sourceSceneIds = preview?.source_scene_ids?.length
-      ? preview.source_scene_ids
-      : fallbackSourceIds
-    this._activeDraftReview = preview || null
-    showModalHtml("Scene AI 建议预览", this._renderDraftReview(preview), [
+      ? [...preview.source_scene_ids]
+      : [...(fallbackSourceIds || [])]
+    const normalizedPreview = {
+      ...(preview || {}),
+      source_scene_ids: sourceSceneIds,
+    }
+    this._fusionSavePending = false
+    this._fusionSaveControls = []
+    this._activeDraftReview = normalizedPreview
+    showModalHtml("Scene AI 建议预览", this._renderDraftReview(normalizedPreview), [
       {
-        text: "保留原 Scene + 保存融合 Scene",
-        class: "btn-primary",
-        handler: () => this._saveFusionResult("keep_originals", sourceSceneIds),
+        text: "关闭",
+        class: "btn-ghost",
+        handler: () => closeModal(),
       },
       {
-        text: "保存融合 Scene，并废弃原 Scene",
-        class: "btn-primary",
-        handler: () => this._saveFusionResult("deprecate_originals", sourceSceneIds),
-      },
-      {
-        text: "放弃融合结果",
+        text: "放弃融合结果（标记不采用）",
         class: "btn-ghost",
         handler: () => this._saveFusionResult("discard", sourceSceneIds),
       },
       {
         text: "继续编辑融合结果后再保存",
-        class: "btn-primary",
+        class: "btn-secondary",
         handler: () => this._saveFusionResult("edit_then_save", sourceSceneIds),
       },
-    ])
+      {
+        text: `废弃 ${sourceSceneIds.length} 个原 Scene 并保存`,
+        class: "btn-danger",
+        handler: () => {
+          this._showFusionDeprecationConfirmation()
+          return false
+        },
+      },
+      {
+        text: "保留原 Scene + 保存融合 Scene",
+        class: "btn-primary",
+        handler: () => this._saveFusionResult("keep_originals", sourceSceneIds),
+      },
+    ], { size: "large" })
+    this._bindDraftReviewModal({ sourceSceneIds })
   },
 
   _renderDraftReview(preview) {
     const fused = preview?.draft_scene || preview?.fused_scene || preview?.preview_scene || {}
-    const sourceIds = preview?.source_scene_ids || []
-    const warnings = (preview?.warnings || []).map((item) => `<li>${esc(item)}</li>`).join("")
-    const conflicts = (preview?.conflicts || []).map((item) => `<li>${esc(item.message || item.field || "")}</li>`).join("")
     const refs = preview?.field_references || {}
-    const row = (field, label, editorHtml) => {
+    const conflicts = new Set((preview?.conflicts || []).map((item) => item.field).filter(Boolean))
+    let differenceCount = 0
+    const rows = DRAFT_REVIEW_FIELDS.map(([field, label]) => {
       const fieldRefs = refs[field] || []
       const primaryRefs = fieldRefs.filter((item) => item.role === "primary")
       const otherRefs = fieldRefs.filter((item) => item.role !== "primary")
-      const renderRef = (item) => `<div class="scene-draft-ref"><strong>${esc(item.title || item.scene_id)}</strong><p>${esc(this._formatDraftRefValue(item.value))}</p></div>`
+      const state = this._draftReviewDifferenceState(
+        [fused[field]],
+        fieldRefs,
+        conflicts.has(field),
+        field,
+      )
+      if (state.different) differenceCount += 1
       return `
-        <div class="scene-draft-review-row">
-          <div class="scene-draft-review-row__label">${esc(label)}</div>
-          <div>${editorHtml}</div>
-          <div>${primaryRefs.map(renderRef).join("") || '<span class="muted">无</span>'}</div>
-          <div>${otherRefs.map(renderRef).join("") || '<span class="muted">无</span>'}</div>
-        </div>
+        <tr class="scene-draft-review-row" data-difference="${state.different}" data-no-evidence="${state.noEvidence}">
+          <th scope="row" class="scene-draft-review-row__label">
+            <span>${esc(label)}</span>
+            ${state.noEvidence ? '<span class="scene-draft-review-badge">无来源证据</span>' : ""}
+            ${conflicts.has(field) ? '<span class="scene-draft-review-badge scene-draft-review-badge--warning">有冲突</span>' : ""}
+          </th>
+          <td data-label="AI 建议">${this._renderFusionDraftEditor(field, label, fused[field])}</td>
+          <td data-label="主 Scene 原值">${this._renderDraftReviewReferences(primaryRefs)}</td>
+          <td data-label="其他 Scene 原值">${this._renderDraftReviewReferences(otherRefs)}</td>
+        </tr>
       `
-    }
+    }).join("")
     return `
       <div class="scene-fusion-preview">
-        <section class="scene-fusion-preview__meta">
-          <div><strong>来源 Scene</strong><span>${esc(sourceIds.join(", "))}</span></div>
-          ${preview?.primary_scene_id ? `<div><strong>主 Scene</strong><span>${esc(preview.primary_scene_id)}</span></div>` : ""}
-          ${preview?.reason ? `<p>${esc(preview.reason)}</p>` : ""}
-          ${warnings ? `<ul>${warnings}</ul>` : ""}
-          ${conflicts ? `<ul>${conflicts}</ul>` : ""}
-        </section>
-        <div class="scene-draft-review-grid">
-          <div class="scene-draft-review-head">字段</div>
-          <div class="scene-draft-review-head">AI 建议</div>
-          <div class="scene-draft-review-head">主 Scene 原值</div>
-          <div class="scene-draft-review-head">其他 Scene 原值</div>
-          ${row("title", "标题", `<input class="form-input" id="scene-fusion-title" value="${esc(fused.title || "")}" />`)}
-          ${row("goal", "目标", `<textarea class="form-textarea" id="scene-fusion-goal" rows="3">${esc(fused.goal || "")}</textarea>`)}
-          ${row("core_conflict", "核心冲突", `<textarea class="form-textarea" id="scene-fusion-conflict" rows="3">${esc(fused.core_conflict || "")}</textarea>`)}
-          ${row("emotional_beat", "情感节奏", `<textarea class="form-textarea" id="scene-fusion-emotion" rows="3">${esc(fused.emotional_beat || "")}</textarea>`)}
-          ${row("must_happen", "必须发生", `<textarea class="form-textarea" id="scene-fusion-must" rows="3">${esc(fused.must_happen || "")}</textarea>`)}
-          ${row("must_not_happen", "禁止发生", `<textarea class="form-textarea" id="scene-fusion-must-not" rows="3">${esc(fused.must_not_happen || "")}</textarea>`)}
-          ${row("chapter_ids", "章节 IDs", `<input class="form-input" id="scene-fusion-chapters" value="${esc((fused.chapter_ids || []).join(", "))}" />`)}
-        </div>
+        ${this._renderDraftReviewMeta(preview, "AI 融合建议")}
+        ${this._renderDraftReviewTable(
+          ["字段", "AI 建议", "主 Scene 原值", "其他 Scene 原值"],
+          rows,
+          differenceCount,
+        )}
+        ${this._renderFusionDeprecationConfirmation(preview)}
       </div>
     `
+  },
+
+  _renderFusionDraftEditor(field, label, value) {
+    const ids = {
+      title: "scene-fusion-title",
+      goal: "scene-fusion-goal",
+      core_conflict: "scene-fusion-conflict",
+      emotional_beat: "scene-fusion-emotion",
+      must_happen: "scene-fusion-must",
+      must_not_happen: "scene-fusion-must-not",
+      narrative_tag: "scene-fusion-narrative-tag",
+      pov_character_id: "scene-fusion-pov",
+      chapter_ids: "scene-fusion-chapters",
+    }
+    const id = ids[field]
+    const labelHtml = `<label class="sr-only" for="${esc(id)}">${esc(label)} AI 建议</label>`
+    if (field === "narrative_tag") {
+      const tagValue = value || "draft"
+      return `${labelHtml}<select class="form-select" id="${esc(id)}" data-initial-draft-value="${esc(tagValue)}">
+        ${TAG_OPTIONS.map(([optionValue, optionLabel]) => `
+          <option value="${esc(optionValue)}" ${optionValue === tagValue ? "selected" : ""}>${esc(optionLabel)}</option>
+        `).join("")}
+      </select>`
+    }
+    if (field === "chapter_ids") {
+      const chapters = Array.isArray(value) ? value.join(", ") : this._formatDraftRefValue(value)
+      return `${labelHtml}<input class="form-input" id="${esc(id)}" value="${esc(chapters)}" />`
+    }
+    if (field === "title" || field === "pov_character_id") {
+      return `${labelHtml}<input class="form-input" id="${esc(id)}" value="${esc(value || "")}" />`
+    }
+    return `${labelHtml}<textarea class="form-textarea" id="${esc(id)}" rows="4">${esc(value || "")}</textarea>`
+  },
+
+  _renderDraftReviewTable(headers, rows, differenceCount) {
+    return `
+      <section class="scene-draft-review-shell" aria-label="Scene 字段对比">
+        <div class="scene-draft-review-toolbar">
+          <label class="scene-draft-review-filter">
+            <input type="checkbox" data-action="filter-draft-review-differences" />
+            <span>仅看差异</span>
+          </label>
+          <span class="scene-draft-review-count" data-role="draft-review-count" data-difference-count="${differenceCount}">
+            有变化 ${differenceCount} / 全部 ${DRAFT_REVIEW_FIELDS.length}
+          </span>
+        </div>
+        <p class="scene-draft-review-filter-note" data-role="draft-review-filter-note" hidden></p>
+        <table class="scene-draft-review-grid">
+          <thead>
+            <tr>${headers.map((header) => `<th scope="col">${esc(header)}</th>`).join("")}</tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </section>
+    `
+  },
+
+  _renderDraftReviewMeta(preview, operationLabel) {
+    const summaries = preview?.source_scene_summaries || []
+    const sourceIds = preview?.source_scene_ids || []
+    const summaryById = new Map(summaries.map((item) => [String(item.id), item]))
+    const sourceHtml = sourceIds.map((id) => {
+      const item = summaryById.get(String(id)) || { id, title: id, chapter_range: "未关联章节" }
+      const role = String(id) === String(preview?.primary_scene_id) ? "主 Scene" : "来源 Scene"
+      return `<span class="scene-draft-review-source"><strong>${esc(role)}</strong> ${esc(item.title || item.id)} · ${esc(item.chapter_range || "未关联章节")}</span>`
+    }).join("")
+    const warnings = (preview?.warnings || []).map((item) => `<li>${esc(item)}</li>`).join("")
+    const conflicts = (preview?.conflicts || []).map((item) => `<li>${esc(item.message || item.field || "")}</li>`).join("")
+    return `
+      <section class="scene-fusion-preview__meta">
+        <div><strong>操作</strong><span>${esc(operationLabel)}</span></div>
+        ${sourceHtml ? `<div class="scene-draft-review-sources">${sourceHtml}</div>` : ""}
+        ${preview?.reason ? `<p>${esc(preview.reason)}</p>` : ""}
+        ${warnings ? `<div class="scene-draft-review-notice"><strong>注意</strong><ul>${warnings}</ul></div>` : ""}
+        ${conflicts ? `<div class="scene-draft-review-notice"><strong>字段冲突</strong><ul>${conflicts}</ul></div>` : ""}
+      </section>
+    `
+  },
+
+  _renderDraftReviewReferences(references) {
+    if (!references.length) return '<span class="scene-draft-review-empty">无来源证据</span>'
+    return references.map((item) => {
+      const title = item.title || item.scene_id || "未命名 Scene"
+      const value = this._formatDraftRefValue(item.value)
+      if (value.length > 120) {
+        const excerpt = `${value.slice(0, 80)}…`
+        return `
+          <details class="scene-draft-ref scene-draft-ref--long">
+            <summary><strong>${esc(title)}</strong><span>${esc(excerpt)}</span></summary>
+            <p>${esc(value)}</p>
+          </details>
+        `
+      }
+      return `<div class="scene-draft-ref"><strong>${esc(title)}</strong><p>${esc(value || "无")}</p></div>`
+    }).join("")
+  },
+
+  _draftReviewDifferenceState(suggestedValues, references, hasConflict = false, field = "") {
+    if (!references.length) return { different: false, noEvidence: true }
+    const values = [
+      ...suggestedValues,
+      ...references.map((item) => item.value),
+    ].map((value) => this._normalizeDraftReviewValue(value, field))
+    return {
+      different: hasConflict || new Set(values).size > 1,
+      noEvidence: false,
+    }
+  },
+
+  _normalizeDraftReviewValue(value, field = "") {
+    if (field === "narrative_tag" && !this._formatDraftRefValue(value).trim()) return "draft"
+    return this._formatDraftRefValue(value).trim()
+  },
+
+  _renderFusionDeprecationConfirmation(preview) {
+    const summaries = preview?.source_scene_summaries || []
+    const sourceIds = preview?.source_scene_ids || []
+    const summaryById = new Map(summaries.map((item) => [String(item.id), item]))
+    const sources = sourceIds.map((id) => summaryById.get(String(id)) || { id, title: id })
+    return `
+      <section class="scene-draft-deprecation-confirm" data-role="fusion-deprecation-confirm" role="alert" hidden>
+        <strong>确认废弃 ${sources.length} 个原 Scene？</strong>
+        <p>融合 Scene 保存后，下列原 Scene 将进入历史；当前表格中的编辑内容会保留。</p>
+        <ul>${sources.map((item) => `<li>${esc(item.title || item.id)}</li>`).join("")}</ul>
+        <div class="scene-draft-deprecation-actions">
+          <button class="btn btn-ghost" type="button" data-action="cancel-fusion-deprecation">返回预览</button>
+          <button class="btn btn-danger" type="button" data-action="confirm-fusion-deprecation">确认废弃 ${sources.length} 个原 Scene 并保存</button>
+        </div>
+      </section>
+    `
+  },
+
+  _showFusionDeprecationConfirmation() {
+    const section = document.querySelector('[data-role="fusion-deprecation-confirm"]')
+    if (!section) return
+    section.hidden = false
+    section.scrollIntoView?.({ block: "nearest" })
+    section.querySelector('[data-action="confirm-fusion-deprecation"]')?.focus()
+  },
+
+  _bindDraftReviewModal({ sourceSceneIds = [] } = {}) {
+    const body = document.getElementById("modal-body")
+    if (!body) return
+    body.querySelectorAll("select[data-initial-draft-value]").forEach((select) => {
+      select.value = select.dataset.initialDraftValue || ""
+    })
+    const filter = body.querySelector('[data-action="filter-draft-review-differences"]')
+    const rows = Array.from(body.querySelectorAll(".scene-draft-review-row"))
+    const note = body.querySelector('[data-role="draft-review-filter-note"]')
+    const applyFilter = () => {
+      const differenceOnly = Boolean(filter?.checked)
+      let hiddenCount = 0
+      rows.forEach((row) => {
+        const keepVisible = row.dataset.difference === "true" || row.dataset.noEvidence === "true"
+        row.hidden = differenceOnly && !keepVisible
+        if (row.hidden) hiddenCount += 1
+      })
+      if (note) {
+        note.hidden = !differenceOnly || hiddenCount === 0
+        note.textContent = hiddenCount
+          ? `已隐藏 ${hiddenCount} 个无差异字段；这些字段仍会随草稿保存。`
+          : ""
+      }
+    }
+    filter?.addEventListener("change", applyFilter)
+    applyFilter()
+
+    body.querySelector('[data-action="cancel-fusion-deprecation"]')?.addEventListener("click", () => {
+      const section = body.querySelector('[data-role="fusion-deprecation-confirm"]')
+      if (section) section.hidden = true
+    })
+    body.querySelector('[data-action="confirm-fusion-deprecation"]')?.addEventListener("click", async () => {
+      await this._saveFusionResult("deprecate_originals", sourceSceneIds)
+    })
+  },
+
+  _setFusionSavePending(pending) {
+    this._fusionSavePending = pending
+    if (pending) {
+      this._fusionSaveControls = Array.from(document.querySelectorAll(
+        "#modal-footer button, #modal-body [data-action='confirm-fusion-deprecation']",
+      ))
+    }
+    this._fusionSaveControls.forEach((button) => {
+      button.disabled = pending
+      button.setAttribute("aria-disabled", String(pending))
+    })
+    if (!pending) this._fusionSaveControls = []
   },
 
   _formatDraftRefValue(value) {
@@ -1519,6 +1770,8 @@ const sceneWorkbenchView = {
       emotional_beat: value("scene-fusion-emotion", draft.emotional_beat || null),
       must_happen: value("scene-fusion-must", draft.must_happen || null),
       must_not_happen: value("scene-fusion-must-not", draft.must_not_happen || null),
+      narrative_tag: value("scene-fusion-narrative-tag", draft.narrative_tag || "draft") || "draft",
+      pov_character_id: value("scene-fusion-pov", draft.pov_character_id || null),
       chapter_ids: chapters,
       structure_meta: {
         draft_review_mode: this._activeDraftReview?.mode || "fusion",
@@ -1531,14 +1784,16 @@ const sceneWorkbenchView = {
   },
 
   async _saveFusionResult(mode, sourceSceneIds) {
+    if (this._fusionSavePending) return false
     if (
       this._activeDraftReview?.request_project_id
       && this._activeDraftReview.request_project_id !== state.currentProjectId
     ) {
       closeModal()
       toast("项目已切换，请在当前项目重新生成融合建议", "warning")
-      return
+      return false
     }
+    this._setFusionSavePending(true)
     const payload = {
       source_scene_ids: sourceSceneIds,
       primary_scene_id: this._activeDraftReview?.primary_scene_id || null,
@@ -1556,8 +1811,12 @@ const sceneWorkbenchView = {
       toast(result?.status === "discarded" ? "融合结果已放弃" : "融合 Scene 已保存", "success")
       closeModal()
       await this._refreshWorkbenchInPlace()
+      return true
     } catch (err) {
       toast(err.message || "Scene 融合保存失败", "error")
+      return false
+    } finally {
+      this._setFusionSavePending(false)
     }
   },
 
@@ -1596,65 +1855,126 @@ const sceneWorkbenchView = {
           }
         },
       },
-    ])
+    ], { size: "large" })
+    this._bindDraftReviewModal()
   },
 
   _renderSplitDraftReview(preview) {
     const drafts = preview?.draft_scenes || []
     const sourceRefs = preview?.field_references || {}
-    const warnings = (preview?.warnings || []).map((item) => `<li>${esc(item)}</li>`).join("")
-    const fields = [
-      ["title", "标题"],
-      ["goal", "目标"],
-      ["core_conflict", "核心冲突"],
-      ["emotional_beat", "情感节奏"],
-      ["must_happen", "必须发生"],
-      ["must_not_happen", "禁止发生"],
-      ["chapter_ids", "章节 IDs"],
-    ]
-    const refValue = (field) => (sourceRefs[field] || [])
-      .map((item) => `${item.title || item.scene_id}: ${this._formatDraftRefValue(item.value)}`)
-      .join("；") || "无"
-    const splitEditor = (draftIndex, field, value) => {
-      const id = `scene-split-${draftIndex}-${field}`
-      if (field === "chapter_ids") {
-        return `<input class="form-input" id="${esc(id)}" value="${esc(this._formatDraftRefValue(value))}" readonly />`
-      }
-      return `<textarea class="form-textarea" id="${esc(id)}" rows="2">${esc(value || "")}</textarea>`
-    }
-    const rows = fields.map(([field, label]) => `
-      <div class="scene-draft-review-row">
-        <div class="scene-draft-review-row__label">${esc(label)}</div>
-        <div>${esc(refValue(field))}</div>
-        <div>${splitEditor(0, field, drafts[0]?.[field])}</div>
-        <div>${splitEditor(1, field, drafts[1]?.[field])}</div>
-      </div>
-    `).join("")
+    let differenceCount = 0
+    const rows = DRAFT_REVIEW_FIELDS.map(([field, label]) => {
+      const fieldRefs = sourceRefs[field] || []
+      const state = this._draftReviewDifferenceState(
+        [drafts[0]?.[field], drafts[1]?.[field]],
+        fieldRefs,
+        false,
+        field,
+      )
+      if (state.different) differenceCount += 1
+      return `
+        <tr class="scene-draft-review-row" data-difference="${state.different}" data-no-evidence="${state.noEvidence}">
+          <th scope="row" class="scene-draft-review-row__label">
+            <span>${esc(label)}</span>
+            ${state.noEvidence ? '<span class="scene-draft-review-badge">无来源证据</span>' : ""}
+          </th>
+          <td data-label="原 Scene">${this._renderDraftReviewReferences(fieldRefs)}</td>
+          <td data-label="建议 A">${this._renderSplitDraftEditor(0, field, label, drafts[0]?.[field])}</td>
+          <td data-label="建议 B">${this._renderSplitDraftEditor(1, field, label, drafts[1]?.[field])}</td>
+        </tr>
+      `
+    }).join("")
     return `
       <div class="scene-fusion-preview">
-        <section class="scene-fusion-preview__meta">
-          <div><strong>操作</strong><span>AI 拆分建议</span></div>
-          ${warnings ? `<ul>${warnings}</ul>` : ""}
-        </section>
-        <div class="scene-draft-review-grid">
-          <div class="scene-draft-review-head">字段</div>
-          <div class="scene-draft-review-head">原 Scene</div>
-          <div class="scene-draft-review-head">建议 A</div>
-          <div class="scene-draft-review-head">建议 B</div>
-          ${rows}
-        </div>
-        ${this._renderPreview(preview)}
+        ${this._renderDraftReviewMeta(preview, "AI 拆分建议")}
+        ${this._renderDraftReviewTable(
+          ["字段", "原 Scene", "建议 A", "建议 B"],
+          rows,
+          differenceCount,
+        )}
+        ${this._renderSplitImpactSummary(preview)}
       </div>
     `
   },
 
+  _renderSplitDraftEditor(draftIndex, field, label, value) {
+    const id = `scene-split-${draftIndex}-${field}`
+    const suffix = draftIndex === 0 ? "建议 A" : "建议 B"
+    const labelHtml = `<label class="sr-only" for="${esc(id)}">${esc(label)} ${suffix}</label>`
+    if (field === "narrative_tag") {
+      const tagValue = value || "draft"
+      return `${labelHtml}<select class="form-select" id="${esc(id)}" data-initial-draft-value="${esc(tagValue)}">
+        ${TAG_OPTIONS.map(([optionValue, optionLabel]) => `
+          <option value="${esc(optionValue)}" ${optionValue === tagValue ? "selected" : ""}>${esc(optionLabel)}</option>
+        `).join("")}
+      </select>`
+    }
+    if (field === "chapter_ids") {
+      return `${labelHtml}<input class="form-input" id="${esc(id)}" value="${esc(this._formatDraftRefValue(value))}" readonly />`
+    }
+    if (field === "title" || field === "pov_character_id") {
+      return `${labelHtml}<input class="form-input" id="${esc(id)}" value="${esc(value || "")}" data-initial-draft-value="${esc(value || "")}" />`
+    }
+    return `${labelHtml}<textarea class="form-textarea" id="${esc(id)}" rows="4" data-initial-draft-value="${esc(value || "")}">${esc(value || "")}</textarea>`
+  },
+
+  _renderSplitImpactSummary(preview) {
+    const mapping = preview?.chapter_mapping_change || {}
+    const fieldChanges = preview?.field_changes || {}
+    const drafts = preview?.draft_scenes || []
+    const mappingAfter = mapping.after || {}
+    const mappingSummary = Object.entries(mappingAfter).map(([sceneId, chapterIds]) => {
+      const chapters = Array.isArray(chapterIds) ? chapterIds : []
+      return `${sceneId}: ${chapters.length ? chapters.map((id) => `第 ${id} 章`).join("、") : "无章节"}`
+    }).join("；") || "以表格中的只读章节映射为准"
+    const chunkCounts = drafts.map((draft) => Array.isArray(draft?.scene_chunks) ? draft.scene_chunks.length : 0)
+    const technical = {
+      chapter_mapping_change: mapping,
+      field_changes: fieldChanges,
+      scene_chunks: drafts.map((draft) => draft?.scene_chunks || []),
+    }
+    return `
+      <section class="scene-split-impact-summary" aria-label="拆分影响摘要">
+        <h3>影响摘要</h3>
+        <dl>
+          <div><dt>章节映射</dt><dd>${esc(mappingSummary)}</dd></div>
+          <div><dt>字段变化</dt><dd>${esc(Object.keys(fieldChanges).length)} 项</dd></div>
+          <div><dt>Scene 正文片段</dt><dd>建议 A ${esc(chunkCounts[0] || 0)} 段 · 建议 B ${esc(chunkCounts[1] || 0)} 段</dd></div>
+          <div><dt>关联剧情线</dt><dd>${esc(preview?.related_threads?.count ?? 0)} 条</dd></div>
+          <div><dt>关联伏笔 / 揭示</dt><dd>${esc(preview?.related_foreshadowing?.count ?? 0)} / ${esc(preview?.related_reveals?.count ?? 0)}</dd></div>
+          <div><dt>地图摘要影响</dt><dd>${esc(preview?.map_summary_impact?.message || "无")}</dd></div>
+        </dl>
+        <details>
+          <summary>技术详情</summary>
+          <pre>${esc(JSON.stringify(technical, null, 2))}</pre>
+        </details>
+      </section>
+    `
+  },
+
   _readSplitDraftScenes() {
-    const fields = ["title", "goal", "core_conflict", "emotional_beat", "must_happen", "must_not_happen", "narrative_tag"]
+    const fields = [
+      "title",
+      "goal",
+      "core_conflict",
+      "emotional_beat",
+      "must_happen",
+      "must_not_happen",
+      "narrative_tag",
+      "pov_character_id",
+    ]
     return [0, 1].map((index) => {
       const draft = {}
       for (const field of fields) {
-        const value = document.getElementById(`scene-split-${index}-${field}`)?.value?.trim()
-        if (value) draft[field] = value
+        const input = document.getElementById(`scene-split-${index}-${field}`)
+        if (!input) continue
+        const value = input.value?.trim() || ""
+        const initialValue = input.dataset.initialDraftValue?.trim() || ""
+        if (field === "narrative_tag") {
+          draft[field] = value || "draft"
+        } else if (value || initialValue) {
+          draft[field] = value || null
+        }
       }
       return draft
     })
@@ -1696,6 +2016,14 @@ const sceneWorkbenchView = {
 
   _statusLabel(status) {
     return structureAssetDisplay({ status }).label
+  },
+
+  _sceneStatusLabel(scene) {
+    if (scene?.status !== "deprecated") return this._statusLabel(scene?.status)
+    const meta = scene.structure_meta || {}
+    if (meta.deprecated_reason !== "scene_replacement") return "历史"
+    const previous = meta.previous_status === "canonical" ? "原已采用" : "原工作稿"
+    return `${previous} · 重复提取替换`
   },
 
   _sourceLabel(source) {
@@ -1783,6 +2111,13 @@ const sceneWorkbenchView = {
     })}${dismissHtml}</div>`
   },
 
+  _renderSmartDedupButton() {
+    if (typeof window !== "undefined" && window.App?._smartDedup) {
+      return window.App._smartDedup.renderActionButton()
+    }
+    return `<button class="btn btn-sm" data-action="start-smart-dedup">智能去重</button>`
+  },
+
   _updateProgressMount(role, html) {
     if (typeof document === "undefined") return
     const mount = document.querySelector(`[data-role="${role}"]`)
@@ -1805,14 +2140,16 @@ const sceneWorkbenchView = {
       || 0,
     )
     if (!count) return ""
+    const dismissibleCount = this._fusionSuggestions
+      .filter((item) => item.suggestion_kind !== "replacement").length
     return `
       <div class="scene-fusion-queue" role="status">
         <div>
-          <strong>${esc(count)} 条 Scene 融合建议待处理</strong>
-          <span>高质量导入产生的低置信或冲突结果，刷新后仍可继续。</span>
+          <strong>${esc(count)} 条 Scene 建议待处理</strong>
+          <span>包含融合决定或受保护 Scene 的替换审查，刷新后仍可继续。</span>
         </div>
         <button class="btn btn-sm btn-primary" data-action="show-fusion-suggestions">逐条处理</button>
-        <button class="btn btn-sm" data-action="dismiss-fusion-suggestions">全部忽略</button>
+        ${dismissibleCount ? '<button class="btn btn-sm" data-action="dismiss-fusion-suggestions">忽略融合建议</button>' : ""}
       </div>
     `
   },
@@ -2005,11 +2342,19 @@ const sceneWorkbenchView = {
     }
     const rows = suggestions.map((item, index) => {
       const span = Array.isArray(item.chapter_span) ? item.chapter_span.join("-") : "-"
-      const trace = (item.scan_trace || []).map((step) => `${step.action}: ${step.reason || ""}`).join(" / ")
+      const trace = (item.scan_trace || []).map((step) => (
+        item.suggestion_kind === "replacement"
+          ? `第 ${step.chapter_index || "-"} 章：${step.mode || "重叠"}`
+          : `${step.action}: ${step.reason || ""}`
+      )).join(" / ")
+      const replacementDrafts = item.proposed_scene?.draft_scenes || []
+      const title = item.suggestion_kind === "replacement"
+        ? `${replacementDrafts.length} 个新候选等待替换审查`
+        : item.proposed_scene?.title || "Scene 融合建议"
       return `
         <label class="scene-fusion-suggestion">
           <input type="radio" name="fusion-suggestion" value="${esc(index)}" ${index === 0 ? "checked" : ""} />
-          <strong>${esc(item.proposed_scene?.title || "Scene 融合建议")}</strong>
+          <strong>${esc(title)}</strong>
           <div class="scene-fusion-suggestion__meta">${esc(item.suggestion_kind || "-")} · 章节 ${esc(span)} · 置信度 ${esc(item.confidence ?? "-")} · ${esc(item.proposed_action || "")}</div>
           <p class="scene-fusion-suggestion__summary">${esc(item.reason || "无说明")}</p>
           <details class="scene-fusion-suggestion__trace"><summary>扫描轨迹</summary><p>${esc(trace || "无")}</p></details>
@@ -2024,6 +2369,10 @@ const sceneWorkbenchView = {
         const suggestion = suggestions[Number(selected || 0)]
         if (!suggestion) return
         closeModal()
+        if (suggestion.suggestion_kind === "replacement") {
+          this._showReplacementSuggestion(suggestion)
+          return
+        }
         if (suggestion.proposed_action === "keep_separate") {
           this._confirmKeepSeparateSuggestion(suggestion)
           return
@@ -2069,6 +2418,10 @@ const sceneWorkbenchView = {
       toast("该建议已变化，请刷新后重试", "warning")
       return
     }
+    if (suggestion.suggestion_kind === "replacement") {
+      this._showReplacementSuggestion(suggestion)
+      return
+    }
     if (suggestion.proposed_action === "keep_separate") {
       this._confirmKeepSeparateSuggestion(suggestion)
       return
@@ -2080,10 +2433,17 @@ const sceneWorkbenchView = {
   },
 
   _dismissAllFusionSuggestions() {
-    const ids = this._fusionSuggestions.map((item) => item.id).filter(Boolean)
+    const ids = this._fusionSuggestions
+      .filter((item) => item.suggestion_kind !== "replacement")
+      .map((item) => item.id)
+      .filter(Boolean)
     if (!ids.length) return
+    const batchIds = ids.slice(0, FUSION_SUGGESTION_DISMISS_BATCH_SIZE)
+    const batchNote = ids.length > batchIds.length
+      ? `本次先忽略 ${esc(batchIds.length)} 条，完成后可继续处理剩余 ${esc(ids.length - batchIds.length)} 条。`
+      : `将忽略 ${esc(batchIds.length)} 条建议。`
     showModalHtml("忽略 Scene 融合建议", `
-      <p>将忽略 ${esc(ids.length)} 条建议。这不会修改任何 Scene。</p>
+      <p>${batchNote}这不会修改任何 Scene。</p>
     `, [
       { text: "取消", class: "", handler: () => closeModal() },
       {
@@ -2092,11 +2452,11 @@ const sceneWorkbenchView = {
         handler: async () => {
           try {
             await api.outline.dismissFusionSuggestions(state.currentProjectId, {
-              suggestion_ids: ids,
+              suggestion_ids: batchIds,
               confirmed: true,
             })
             closeModal()
-            toast(`已忽略 ${ids.length} 条建议`, "success")
+            toast(`已忽略 ${batchIds.length} 条建议`, "success")
             await this._refreshWorkbenchInPlace()
             return true
           } catch (err) {
@@ -2108,6 +2468,132 @@ const sceneWorkbenchView = {
     ])
   },
 
+  _showReplacementSuggestion(suggestion) {
+    if (!suggestion?.id) return
+    const drafts = suggestion.proposed_scene?.draft_scenes || []
+    const evidence = suggestion.proposed_scene?.overlap_evidence || suggestion.scan_trace || []
+    const visibleSources = (suggestion.source_scene_ids || [])
+      .map((id) => this._findScene(id))
+      .filter(Boolean)
+    const sources = visibleSources.length
+      ? visibleSources
+      : suggestion.proposed_scene?.source_scenes || []
+    const sourceHtml = sources.map((scene) => `
+      <article class="scene-draft-ref">
+        <strong>${esc(scene.title || "未命名 Scene")}</strong>
+        <p>${esc(this._sceneStatusLabel(scene))} · ${esc(this._sceneChapterLabel(scene))}</p>
+      </article>
+    `).join("") || '<p class="text-muted">原 Scene 已不在当前分页，采用时会重新校验。</p>'
+    const fields = [
+      ["title", "标题"],
+      ["goal", "目标"],
+      ["core_conflict", "冲突"],
+      ["emotional_beat", "情绪"],
+      ["must_happen", "必须发生"],
+      ["must_not_happen", "不得发生"],
+      ["narrative_tag", "叙事标签"],
+    ]
+    const draftHtml = drafts.map((draft, index) => `
+      <article class="scene-replacement-draft" data-index="${esc(index)}">
+        <h4>新候选 ${esc(index + 1)} · 章节 ${esc((draft.chapter_ids || []).join("、") || "-")}</h4>
+        ${fields.map(([key, label]) => `
+          <label class="scene-detail-field scene-detail-field--wide">
+            <span>${esc(label)}</span>
+            <textarea class="form-textarea" data-replacement-field="${esc(key)}" rows="${key === "title" || key === "narrative_tag" ? 1 : 2}">${esc(draft[key] || "")}</textarea>
+          </label>
+        `).join("")}
+      </article>
+    `).join("")
+    const evidenceHtml = evidence.map((item) => (
+      `<li>第 ${esc(item.chapter_index || "-")} 章 · ${esc(item.mode || "重叠")}</li>`
+    )).join("")
+    showModalHtml("Scene 替换审查", `
+      <p>原 Scene 会继续作为有效资产，只有明确采用后才会进入历史。</p>
+      <section><h4>受保护的原 Scene</h4>${sourceHtml}</section>
+      <section><h4>新提取候选</h4>${draftHtml}</section>
+      <details><summary>重叠依据</summary><ul>${evidenceHtml || "<li>章节范围重叠</li>"}</ul></details>
+    `, [
+      {
+        text: "保留原 Scene",
+        class: "",
+        handler: async () => this._dismissReplacementSuggestion(suggestion),
+      },
+      {
+        text: "直接替换",
+        class: "btn-primary",
+        handler: async () => this._applyReplacementSuggestion(suggestion, false),
+      },
+      {
+        text: "编辑后替换",
+        class: "btn-primary",
+        handler: async () => this._applyReplacementSuggestion(suggestion, true),
+      },
+    ])
+  },
+
+  _readReplacementDrafts() {
+    return Array.from(document.querySelectorAll(".scene-replacement-draft")).map((card) => {
+      const values = {}
+      card.querySelectorAll("[data-replacement-field]").forEach((input) => {
+        values[input.getAttribute("data-replacement-field")] = input.value
+      })
+      return values
+    })
+  },
+
+  async _dismissReplacementSuggestion(suggestion) {
+    try {
+      await api.outline.dismissFusionSuggestions(state.currentProjectId, {
+        suggestion_ids: [suggestion.id],
+        confirmed: true,
+      })
+      closeModal()
+      toast("已保留原 Scene", "success")
+      await this._refreshWorkbenchInPlace()
+      return true
+    } catch (err) {
+      toast(err.message || "处理替换建议失败", "error")
+      return false
+    }
+  },
+
+  async _applyReplacementSuggestion(suggestion, edited) {
+    const confirmed = await confirmAsync(
+      "采用后，原 Scene 将进入历史；世界对象和剧情结构不会自动重写。",
+      edited ? "确认编辑后替换" : "确认直接替换",
+    )
+    if (!confirmed) return false
+    try {
+      const result = await api.outline.applySceneReplacement(state.currentProjectId, {
+        suggestion_id: suggestion.id,
+        decision: edited ? "edit_then_replace" : "replace",
+        confirmed: true,
+        ...(edited ? { draft_scenes: this._readReplacementDrafts() } : {}),
+      })
+      closeModal()
+      const refresh = result?.downstream_refresh_required || []
+      toast(
+        refresh.length
+          ? `Scene 已替换；建议按需重跑：${refresh.join("、")}`
+          : "Scene 已替换",
+        "success",
+      )
+      await this._refreshWorkbenchInPlace()
+      return true
+    } catch (err) {
+      toast(err.message || "替换 Scene 失败", "error")
+      return false
+    }
+  },
+
+  async _openReplacementScene(sceneId) {
+    if (!sceneId) return
+    this._filters.status = ""
+    this._filters.skip = 0
+    this._pushSceneHistory(sceneId)
+    await router.refresh()
+  },
+
   _bindEvents() {
     bindWorkspaceClick(this, {
       "nav-scenes": () => router.navigate("outline", "scenes"),
@@ -2116,10 +2602,13 @@ const sceneWorkbenchView = {
       "nav-foreshadowing": () => router.navigate("outline", "foreshadowing"),
       "nav-reveals": () => router.navigate("outline", "reveals"),
       "scene-auto-extract": () => this._showSceneAutoExtractForm(),
+      "start-smart-dedup": () => window.App?._smartDedup?.handleAction("start-smart-dedup"),
+      "show-smart-dedup-progress": () => window.App?._smartDedup?.handleAction("show-smart-dedup-progress"),
       "cancel-scene-auto-extract": () => this._cancelAutoExtractTask(),
       "dismiss-scene-auto-extract": () => this._dismissAutoExtractProgress(),
       "show-fusion-suggestions": () => this._showFusionSuggestions(),
       "dismiss-fusion-suggestions": () => this._dismissAllFusionSuggestions(),
+      "open-replacement-scene": (_e, _t, ctx) => this._openReplacementScene(ctx.id),
       "handle-scene-health": (e, t, ctx) => {
         e.stopPropagation()
         return this._handleSceneHealth(ctx.id, t.getAttribute("data-health"))

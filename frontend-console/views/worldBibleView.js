@@ -6,6 +6,8 @@ import { displayStateBadgeClass, worldAssetDisplay } from "../shared/assetDispla
 import { renderWorkspaceRail, workspaceRailKey } from "../shared/workspaceRail.js"
 
 const PROJECTION_TYPE = "context_brief"
+const BIBLE_AI_MESSAGE_LIMIT = 40
+const BIBLE_AI_SELECTED_CHAPTER_LIMIT = 20
 const BIBLE_AI_TEMPLATES = [
   { id: "builtin:none", label: "不带模板" },
   { id: "builtin:character", label: "人物" },
@@ -161,18 +163,18 @@ const worldBibleView = {
   _renderToolbar() {
     const modeLabels = { editor: "编辑", gallery: "图鉴", filter: "筛选" }
     return `
-      <div class="world-bible-toolbar">
-        <div class="world-bible-toolbar__title">
-          <h3>World Bible</h3>
-          <span>${esc(this._pages.length)} 个页面</span>
+      <div class="view-header world-bible-toolbar">
+        <div class="view-header__title">
+          世界书
+          <span class="view-header__count">${esc(this._pages.length)} 个页面</span>
         </div>
-        <div class="world-bible-toolbar__modes" aria-label="世界书展示模式">
-          ${Object.entries(modeLabels).map(([mode, label]) => `
-            <button class="btn btn-sm ${this._displayMode === mode ? "btn-primary" : ""}"
-              data-action="bible-set-display-mode" data-mode="${esc(mode)}">${esc(label)}</button>
-          `).join("")}
-        </div>
-        <div class="world-bible-toolbar__actions">
+        <div class="view-header__actions">
+          <span class="world-bible-toolbar__modes" aria-label="世界书展示模式">
+            ${Object.entries(modeLabels).map(([mode, label]) => `
+              <button class="btn btn-sm ${this._displayMode === mode ? "btn-primary" : ""}"
+                data-action="bible-set-display-mode" data-mode="${esc(mode)}">${esc(label)}</button>
+            `).join("")}
+          </span>
           <button class="btn btn-sm btn-primary" data-action="bible-new-page">新建页面</button>
           <button class="btn btn-sm" data-action="bible-open-suggestions">创设建议</button>
           <button class="btn btn-sm" data-action="bible-open-conflicts">冲突检查</button>
@@ -474,9 +476,10 @@ const worldBibleView = {
             `).join("")}
           </select>
         </label>
-        <label class="bible-ai-field">附带正文（章节序号，用逗号分隔）
+        <label class="bible-ai-field">附带正文（章节序号，用逗号分隔，最多 20 章）
           <input id="bible-ai-chapters" class="form-input" value="${esc(this._aiSelectedChapters)}" placeholder="例如：1,2,5" />
         </label>
+        <div class="bible-ai-sidebar__hint">长对话会保留在页面中，每次请求只发送最近 40 条消息。</div>
         <label class="bible-ai-toggle">
           <input id="bible-ai-quality-pro" type="checkbox" ${this._aiQualityMode === "pro" ? "checked" : ""} />
           高质量
@@ -651,6 +654,11 @@ const worldBibleView = {
   async _runAi(forcedTarget = null) {
     const page = this._activePage
     if (!page) return
+    const selectedChapterIndices = this._selectedChapterIndices()
+    if (selectedChapterIndices.length > BIBLE_AI_SELECTED_CHAPTER_LIMIT) {
+      toast(`每次最多附带 ${BIBLE_AI_SELECTED_CHAPTER_LIMIT} 章正文`, "warning")
+      return false
+    }
     const input = document.getElementById("bible-ai-input")
     const text = input?.value?.trim() || ""
     if (text) {
@@ -669,8 +677,8 @@ const worldBibleView = {
         page.id,
         {
           output_target: outputTarget,
-          messages: this._aiMessages,
-          selected_chapter_indices: this._selectedChapterIndices(),
+          messages: this._aiMessages.slice(-BIBLE_AI_MESSAGE_LIMIT),
+          selected_chapter_indices: selectedChapterIndices,
           quality_mode: this._aiQualityMode,
           template_id: this._aiTemplateId,
           template_version: 1,
@@ -691,10 +699,11 @@ const worldBibleView = {
   },
 
   _selectedChapterIndices() {
-    return String(this._aiSelectedChapters || "")
+    const values = String(this._aiSelectedChapters || "")
       .split(/[,\s，]+/)
       .map((item) => Number(item.trim()))
       .filter((value) => Number.isInteger(value) && value > 0)
+    return [...new Set(values)]
   },
 
   async _refreshProjection(force) {

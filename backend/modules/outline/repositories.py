@@ -1497,6 +1497,22 @@ class SceneFusionSuggestionRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_for_novel_for_update(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        suggestion_id: uuid.UUID,
+    ) -> SceneFusionSuggestion | None:
+        result = await db.execute(
+            select(SceneFusionSuggestion)
+            .where(
+                SceneFusionSuggestion.novel_id == novel_id,
+                SceneFusionSuggestion.id == suggestion_id,
+            )
+            .with_for_update()
+        )
+        return result.scalar_one_or_none()
+
     async def mark_status(
         self,
         db: AsyncSession,
@@ -1504,8 +1520,11 @@ class SceneFusionSuggestionRepository:
         *,
         status: str,
         result_scene_id: uuid.UUID | None = None,
+        result_scene_ids: list[uuid.UUID] | None = None,
     ) -> None:
         item.status = status
         item.result_scene_id = result_scene_id
+        if result_scene_ids is not None:
+            item.result_scene_ids = [str(scene_id) for scene_id in result_scene_ids]
         db.add(item)
         await db.flush()

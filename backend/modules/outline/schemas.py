@@ -482,13 +482,19 @@ class SceneFusionSuggestionResponse(BaseModel):
     id: str
     novel_id: str
     source_workflow_id: str
-    suggestion_kind: Literal["intra_chapter", "cross_chapter", "duplicate_window"]
+    suggestion_kind: Literal[
+        "intra_chapter",
+        "cross_chapter",
+        "duplicate_window",
+        "replacement",
+    ]
     proposed_action: Literal[
         "merge",
         "absorb_left",
         "absorb_right",
         "keep_separate",
         "needs_review",
+        "replace",
     ]
     source_scene_ids: list[str] = []
     chapter_span: list[int] = []
@@ -498,6 +504,7 @@ class SceneFusionSuggestionResponse(BaseModel):
     reason: str | None = None
     status: Literal["pending", "adopted", "dismissed", "stale"]
     result_scene_id: str | None = None
+    result_scene_ids: list[str] = []
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -526,6 +533,21 @@ class SceneFusionSuggestionDismissRequest(BaseModel):
 
 class SceneFusionSuggestionDismissResponse(BaseModel):
     dismissed: int = 0
+
+
+class SceneReplacementApplyRequest(BaseModel):
+    suggestion_id: str
+    decision: Literal["replace", "edit_then_replace"]
+    confirmed: bool = False
+    draft_scenes: list[dict[str, Any]] | None = None
+
+
+class SceneReplacementApplyResponse(BaseModel):
+    status: Literal["adopted"] = "adopted"
+    deprecated_scene_ids: list[str] = []
+    result_scene_ids: list[str] = []
+    rag_reindex_task_id: str | None = None
+    downstream_refresh_required: list[str] = ["world_objects", "plot_structure"]
 
 
 class PlotStructureGenerateResponse(BaseModel):

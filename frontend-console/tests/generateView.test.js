@@ -447,6 +447,45 @@ describe("generateView chatbox", () => {
     expect(document.getElementById("generate-selected-chapters")?.textContent).toContain("第1章")
   })
 
+  it("章节选择不会因预览回读上限隐藏后续章节", async () => {
+    const chapters = Array.from({ length: 21 }, (_, index) => ({
+      id: `draft-${index + 1}`,
+      chapter_index: index + 1,
+      title: `第 ${index + 1} 章`,
+    }))
+    api.writing.listChapters.mockResolvedValue({ chapters })
+    api.writing.get.mockImplementation(async (id) => ({
+      id,
+      title: id,
+      content: `content-${id}`,
+    }))
+
+    await generateView._openChapterPicker()
+
+    const html = showModal.mock.calls[0][1].html
+    expect(html).toContain('id="generate-chapter-21"')
+    expect(api.writing.get).toHaveBeenCalledTimes(20)
+    expect(api.writing.get).not.toHaveBeenCalledWith("draft-21", "p1")
+  })
+
+  it("生成请求符合聊天和章节的服务上限", () => {
+    generateView._messages = Array.from({ length: 41 }, (_, index) => ({
+      role: index % 2 ? "assistant" : "user",
+      content: `message-${index + 1}`,
+    }))
+    generateView._selectedChapters = Array.from({ length: 21 }, (_, index) => ({
+      chapter_index: index + 1,
+    }))
+
+    const payload = generateView._buildPayload()
+
+    expect(payload.messages).toHaveLength(40)
+    expect(payload.messages[0].content).toBe("message-2")
+    expect(payload.selected_chapter_indices).toEqual(
+      Array.from({ length: 20 }, (_, index) => index + 1),
+    )
+  })
+
   it("无聊天和粘贴内容时不会生成数据库草稿", async () => {
     document.body.innerHTML = await generateView.render()
 

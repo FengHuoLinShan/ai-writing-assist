@@ -244,6 +244,10 @@ describe("outlineView render", () => {
     expect(html).not.toContain(">场景卡<")
     expect(html).toContain("scene-workbench-shell")
     expect(html).toContain('aria-label="Scene 管理筛选"')
+    expect(html).toContain('aria-label="Scene 工作台操作"')
+    expect(html).toContain('data-action="scene-auto-extract"')
+    expect(html.match(/data-action="start-smart-dedup"/g)).toHaveLength(1)
+    expect(html.indexOf('data-action="scene-auto-extract"')).toBeLessThan(html.indexOf("scene-workbench-shell"))
   })
 
   it.each([

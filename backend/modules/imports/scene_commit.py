@@ -29,6 +29,11 @@ class SceneCommitResult(BaseModel):
     conflict_provenance_keys: list[str] = Field(default_factory=list)
     scene_ids_by_candidate_id: dict[str, str] = Field(default_factory=dict)
     suggestion_ids: list[str] = Field(default_factory=list)
+    replacement_suggestion_count: int = 0
+    effective_scene_ids: list[str] = Field(default_factory=list)
+    effective_scene_count: int = 0
+    effective_coverage: dict[str, Any] = Field(default_factory=dict)
+    active_scene_changed: bool = False
 
 
 def build_scene_provenance_key(
@@ -63,7 +68,62 @@ class SceneCommitter:
         candidates: Sequence[FinalSceneCandidate],
         workflow_id: str,
         fusion_suggestions: Sequence[Any] = (),
+        start_chapter: int | None = None,
+        end_chapter: int | None = None,
+        replace_existing: bool = False,
     ) -> SceneCommitResult:
+        if replace_existing:
+            chapter_indices = sorted(
+                {
+                    int(chapter)
+                    for candidate in candidates
+                    for chapter in candidate.source_chapter_indices
+                }
+            )
+            effective_start = start_chapter or (
+                chapter_indices[0] if chapter_indices else 1
+            )
+            effective_end = end_chapter or (
+                chapter_indices[-1] if chapter_indices else effective_start
+            )
+            replacement_candidates = []
+            for candidate in candidates:
+                provenance_key = build_scene_provenance_key(
+                    workflow_id,
+                    candidate.source_candidate_ids,
+                    candidate.operation,
+                    candidate.source_chapter_indices,
+                    candidate.candidate_id,
+                )
+                replacement_candidates.append(
+                    {
+                        "candidate_id": candidate.candidate_id,
+                        "provenance_key": provenance_key,
+                        "scene_data": _build_scene_data(
+                            candidate,
+                            workflow_id=workflow_id,
+                            provenance_key=provenance_key,
+                            scene_index=0,
+                        ),
+                    }
+                )
+            raw_suggestions = [
+                item.model_dump(mode="json")
+                if hasattr(item, "model_dump")
+                else dict(item)
+                for item in fusion_suggestions
+            ]
+            committed = await outline_facade.commit_deep_import_scene_candidates(
+                db,
+                novel_id=novel_id,
+                workflow_id=workflow_id,
+                start_chapter=effective_start,
+                end_chapter=effective_end,
+                candidates=replacement_candidates,
+                fusion_suggestions=raw_suggestions,
+            )
+            return SceneCommitResult.model_validate(committed)
+
         result = SceneCommitResult()
         next_scene_index: int | None = None
         keyed_candidates = [

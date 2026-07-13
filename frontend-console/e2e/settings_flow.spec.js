@@ -139,10 +139,10 @@ test.describe("设置流程", () => {
     await expect(page).toHaveURL(/project-settings/)
   })
 
-  test("#/llm 别名：无项目时跳转全局 + toast", async ({ page }) => {
+  test("#/llm 别名：无项目时跳转全局", async ({ page }) => {
     await page.goto("/#llm")
     await page.waitForURL(/#settings/, { timeout: 5000 })
     await expect(page).toHaveURL(/#settings/)
-    await expect(page.getByText("请先选择项目").first()).toBeVisible({ timeout: 5000 })
+    await expect(page.locator("#workspace-content").getByRole("heading", { name: "全局设置" })).toBeVisible({ timeout: 5000 })
   })
 })

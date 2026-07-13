@@ -133,6 +133,23 @@ class ProjectListResponse(BaseModel):
     total: int
 
 
+class ProjectBulkPermanentDeleteRequest(BaseModel):
+    """批量永久删除回收站项目请求。"""
+
+    project_ids: list[str] = Field(..., min_length=1, max_length=100)
+    confirmed: bool = Field(
+        default=False,
+        description="用户已完成不可恢复操作的二次确认",
+    )
+
+
+class ProjectBulkPermanentDeleteResponse(BaseModel):
+    """批量永久删除结果。"""
+
+    deleted_ids: list[str]
+    deleted_count: int
+
+
 class ProjectContext(BaseModel):
     """项目上下文 — 供其他模块读取的项目信息"""
 

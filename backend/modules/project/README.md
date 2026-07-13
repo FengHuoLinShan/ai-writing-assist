@@ -92,6 +92,9 @@ def create_project_snapshot_llm_client(
 metadata 和成功/异常/取消时的 client 关闭；调用方不能传 provider/Key 绕过设置。
 普通业务请求不填写 `LLMCallRequest.max_tokens` 时，由 client 物化项目有效默认值；
 当前系统默认是 `12000`。只有深度导入阶段预算和健康检查可以显式覆盖该值。
+新增业务 LLM 服务必须复用此 seam，不得直接构造 `LLMClient` 或调用
+`from_project_settings()`；`backend/tests/unit/test_novel_scoped_llm_usage.py` 对生产模块执行
+静态门禁，并显式限制独立 embedding 等窄例外。
 深度导入 worker 消费已持久化的 effective profile snapshot 时，通过
 `create_project_snapshot_llm_client()` 执行相同的 Key/Base URL/model/timeout
 fail-closed 校验；传入 `novel_id` 时同时绑定脱敏的
@@ -124,6 +127,10 @@ deep-import 快照在提交时已将项目值、环境覆盖和代码默认
 | POST | `/api/projects/{project_id}/smart-dedup/apply` | 应用用户确认的智能去重建议 |
 | POST | `/api/projects/{project_id}/restore` | 恢复项目 |
 | DELETE | `/api/projects/{project_id}/permanent` | 永久删除（级联清理） |
+| POST | `/api/projects/recycle-bin/permanent-delete` | 批量永久删除回收站项目（最多 100 个，原子操作） |
+
+单个和批量永久删除都必须显式提交 `confirmed=true`，且只能删除已在回收站的
+项目。批量请求会去重 ID；任一项目不在回收站时整批拒绝，不会部分删除。
 
 ## 智能去重
 

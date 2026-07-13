@@ -8,8 +8,10 @@ from datetime import UTC, datetime
 from itertools import combinations
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.tasks.enqueuer import enqueue_task
 from modules.outline.models import Scene, SceneFusionSuggestion, SceneSpan
 from modules.outline.repositories import (
     SceneFusionSuggestionRepository,
@@ -34,6 +36,8 @@ from modules.outline.schemas import (
     SceneImpactPreview,
     SceneMappingUpdate,
     SceneMergeRequest,
+    SceneReplacementApplyRequest,
+    SceneReplacementApplyResponse,
     SceneResponse,
     SceneReviewRequest,
     SceneReviewResponse,
@@ -45,7 +49,7 @@ from modules.outline.schemas import (
     SceneWorkbenchResponse,
 )
 from modules.outline.services import SceneService
-from modules.writing.facade import list_chapter_indices
+from modules.writing.facade import get_draft, list_chapter_indices
 from shared.utils import parse_uuid
 
 HEALTH_DEFS = {
@@ -77,6 +81,14 @@ HEALTH_REASON_GROUPS = {
 
 CONFIDENCE_BANDS = {"low", "medium", "high"}
 _FUSION_DECISION_STATUSES = ("pending", "dismissed", "adopted")
+
+
+class SceneSuggestionConflictError(RuntimeError):
+    """A durable suggestion changed or was already processed."""
+
+    def __init__(self, message: str, *, persist_stale: bool = False) -> None:
+        super().__init__(message)
+        self.persist_stale = persist_stale
 
 
 class SceneWorkbenchService:
@@ -206,6 +218,13 @@ class SceneWorkbenchService:
             skip=0,
             limit=None,
         )
+        if health:
+            # Health buckets are actionable work queues. Historical Scenes remain
+            # available through the explicit status=deprecated management filter,
+            # but must not re-enter those queues when both filters are combined.
+            all_matching_scenes = [
+                scene for scene in all_matching_scenes if scene.status != "deprecated"
+            ]
         all_active_scenes = await self.repo.get_by_novel_ordered(
             db,
             nid,
@@ -565,6 +584,232 @@ class SceneWorkbenchService:
         for item in items:
             await self._suggestion_repo.mark_status(db, item, status="dismissed")
         return SceneFusionSuggestionDismissResponse(dismissed=len(items))
+
+    async def apply_replacement_suggestion(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        data: SceneReplacementApplyRequest,
+    ) -> SceneReplacementApplyResponse:
+        if not data.confirmed:
+            raise PermissionError("replacement apply requires confirmed=true")
+        nid = parse_uuid(novel_id, "novel_id")
+        item = await self._suggestion_repo.get_for_novel_for_update(
+            db,
+            nid,
+            parse_uuid(data.suggestion_id, "suggestion_id"),
+        )
+        if item is None:
+            raise LookupError("Scene replacement suggestion not found")
+        if item.suggestion_kind != "replacement":
+            raise ValueError("suggestion is not a Scene replacement")
+        if item.status != "pending":
+            raise SceneSuggestionConflictError("Scene replacement is already processed")
+
+        source_ids = self._parse_suggestion_source_ids(item)
+        if source_ids is None:
+            raise SceneSuggestionConflictError("Scene replacement sources are invalid")
+        source_scenes = await self._lock_replacement_sources(db, nid, source_ids)
+        if not self._replacement_suggestion_is_current(item, source_scenes):
+            await self._suggestion_repo.mark_status(db, item, status="stale")
+            raise SceneSuggestionConflictError(
+                "Scene replacement suggestion is stale",
+                persist_stale=True,
+            )
+
+        proposed = dict(item.proposed_scene or {})
+        stored_drafts = list(proposed.get("draft_scenes") or [])
+        drafts = self._replacement_drafts(data, stored_drafts)
+        try:
+            await self._validate_replacement_source_hashes(db, novel_id, drafts)
+        except SceneSuggestionConflictError as exc:
+            await self._suggestion_repo.mark_status(db, item, status="stale")
+            raise SceneSuggestionConflictError(
+                str(exc),
+                persist_stale=True,
+            ) from exc
+
+        active = list(
+            (
+                await db.execute(
+                    select(Scene)
+                    .where(
+                        Scene.novel_id == nid,
+                        Scene.status.in_(("candidate", "draft", "canonical")),
+                    )
+                    .order_by(Scene.scene_index, Scene.id)
+                    .with_for_update()
+                )
+            )
+            .scalars()
+            .all()
+        )
+        next_index = max((scene.scene_index for scene in active), default=-1) + 1
+        now = datetime.now(UTC).isoformat()
+        created: list[Scene] = []
+        for replacement_order, draft in enumerate(drafts):
+            meta = {
+                **dict(draft.get("structure_meta") or {}),
+                "needs_review": False,
+                "needs_organize": False,
+                "reviewed_at": now,
+                "reviewed_by": "manual",
+                "reviewed_from": "scene_replacement",
+                "adopted_at": now,
+                "replaces_scene_ids": [str(scene.id) for scene in source_scenes],
+                "source_workflow_id": item.source_workflow_id,
+                "replacement_suggestion_id": str(item.id),
+                "replacement_order": replacement_order,
+            }
+            payload = SceneCreate(
+                scene_index=next_index,
+                title=draft.get("title"),
+                goal=draft.get("goal"),
+                core_conflict=draft.get("core_conflict"),
+                emotional_beat=draft.get("emotional_beat"),
+                must_happen=draft.get("must_happen"),
+                must_not_happen=draft.get("must_not_happen"),
+                narrative_tag=draft.get("narrative_tag") or "imported",
+                source="deep_import",
+                scene_chunks=list(draft.get("scene_chunks") or []),
+                chapter_ids=list(draft.get("chapter_ids") or []),
+                structure_meta=meta,
+                status="canonical",
+            )
+            created.append(await self.repo.create(db, nid, payload))
+            next_index += 1
+
+        created_ids = [scene.id for scene in created]
+        for scene in source_scenes:
+            meta = {
+                **dict(scene.structure_meta or {}),
+                "previous_status": scene.status,
+                "deprecated_reason": "scene_replacement",
+                "deprecated_at": now,
+                "replaced_by_scene_ids": [str(scene_id) for scene_id in created_ids],
+            }
+            await self.repo.update(
+                db,
+                scene.id,
+                SceneUpdate(status="deprecated", structure_meta=meta),
+            )
+
+        remaining = [scene for scene in active if scene.id not in set(source_ids)]
+        ordered = sorted([*remaining, *created], key=self._replacement_sort_key)
+        await self.repo.reorder(db, nid, [scene.id for scene in ordered])
+        await self._suggestion_repo.mark_status(
+            db,
+            item,
+            status="adopted",
+            result_scene_id=created_ids[0] if created_ids else None,
+            result_scene_ids=created_ids,
+        )
+        chapter_indices = sorted(
+            {
+                int(chapter)
+                for draft in drafts
+                for chapter in draft.get("chapter_ids") or []
+            }
+        )
+        rag_task_id = enqueue_task(
+            db,
+            "rag_reindex_novel",
+            meta={
+                "novel_id": novel_id,
+                "start_chapter": chapter_indices[0] if chapter_indices else None,
+                "end_chapter": chapter_indices[-1] if chapter_indices else None,
+                "source": "scene_replacement_apply",
+            },
+        )
+        return SceneReplacementApplyResponse(
+            deprecated_scene_ids=[str(scene.id) for scene in source_scenes],
+            result_scene_ids=[str(scene_id) for scene_id in created_ids],
+            rag_reindex_task_id=str(rag_task_id),
+        )
+
+    async def _lock_replacement_sources(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        source_ids: list[uuid.UUID],
+    ) -> list[Scene]:
+        result = await db.execute(
+            select(Scene)
+            .where(Scene.novel_id == novel_id, Scene.id.in_(source_ids))
+            .with_for_update()
+        )
+        by_id = {scene.id: scene for scene in result.scalars().all()}
+        if any(scene_id not in by_id for scene_id in source_ids):
+            raise SceneSuggestionConflictError("Scene replacement source is missing")
+        return [by_id[scene_id] for scene_id in source_ids]
+
+    def _replacement_drafts(
+        self,
+        data: SceneReplacementApplyRequest,
+        stored: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not stored:
+            raise SceneSuggestionConflictError("Scene replacement has no candidates")
+        if data.decision == "replace":
+            if data.draft_scenes is not None:
+                raise ValueError("draft_scenes is only valid for edit_then_replace")
+            return [dict(item) for item in stored]
+        if data.draft_scenes is None or len(data.draft_scenes) != len(stored):
+            raise ValueError("edited draft_scenes must preserve candidate count")
+        allowed = {
+            "title",
+            "goal",
+            "core_conflict",
+            "emotional_beat",
+            "must_happen",
+            "must_not_happen",
+            "narrative_tag",
+        }
+        merged: list[dict[str, Any]] = []
+        for original, edited in zip(stored, data.draft_scenes, strict=True):
+            unexpected = set(edited) - allowed
+            if unexpected:
+                raise ValueError(
+                    "edited replacement contains protected fields: "
+                    f"{sorted(unexpected)}"
+                )
+            merged.append({**dict(original), **{key: edited[key] for key in edited}})
+        return merged
+
+    async def _validate_replacement_source_hashes(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        drafts: list[dict[str, Any]],
+    ) -> None:
+        for draft in drafts:
+            for chunk in draft.get("scene_chunks") or []:
+                draft_id = chunk.get("source_draft_id")
+                expected_hash = chunk.get("source_content_hash")
+                if not draft_id or not expected_hash:
+                    continue
+                current = await get_draft(db, novel_id, str(draft_id))
+                if current is None or current.content_hash != expected_hash:
+                    raise SceneSuggestionConflictError(
+                        "Scene replacement source content has changed"
+                    )
+
+    @staticmethod
+    def _replacement_sort_key(scene: Scene) -> tuple[Any, ...]:
+        chapters = SceneRepository().chapter_indices_for_scene(scene)
+        offsets = [
+            int(chunk["start_offset"])
+            for chunk in scene.scene_chunks or []
+            if isinstance(chunk, dict) and chunk.get("start_offset") is not None
+        ]
+        meta = dict(scene.structure_meta or {})
+        return (
+            chapters[0] if chapters else 10**12,
+            min(offsets) if offsets else 10**12,
+            scene.scene_index,
+            int(meta.get("replacement_order", 10**12)),
+            str(scene.id),
+        )
 
     def _validate_filters(
         self,
@@ -1541,7 +1786,8 @@ class SceneWorkbenchService:
             parsed_ids = [uuid.UUID(str(value)) for value in item.source_scene_ids or []]
         except (TypeError, ValueError):
             return None
-        if len(parsed_ids) < 2 or len(set(parsed_ids)) != len(parsed_ids):
+        minimum = 1 if item.suggestion_kind == "replacement" else 2
+        if len(parsed_ids) < minimum or len(set(parsed_ids)) != len(parsed_ids):
             return None
         return parsed_ids
 
@@ -1556,7 +1802,30 @@ class SceneWorkbenchService:
         ordered = [scene_by_id[scene_id] for scene_id in source_ids]
         if any(scene.status == "deprecated" for scene in ordered):
             return False
+        if item.suggestion_kind == "replacement":
+            return self._replacement_suggestion_is_current(item, ordered)
         return self._suggestion_source_fingerprint(ordered) == item.source_fingerprint
+
+    @staticmethod
+    def _replacement_suggestion_is_current(
+        item: SceneFusionSuggestion,
+        scenes: list[Scene],
+    ) -> bool:
+        from modules.outline.scene_replacement import (
+            replacement_source_fingerprint,
+            replacement_source_scene_fingerprint,
+        )
+
+        if any(scene.status == "deprecated" for scene in scenes):
+            return False
+        proposed = dict(item.proposed_scene or {})
+        expected_scene_fingerprint = proposed.get("source_scene_fingerprint")
+        if expected_scene_fingerprint != replacement_source_scene_fingerprint(scenes):
+            return False
+        return item.source_fingerprint == replacement_source_fingerprint(
+            scenes,
+            proposed,
+        )
 
     def _suggestion_source_fingerprint(self, scenes: list[Scene]) -> str:
         payload = [

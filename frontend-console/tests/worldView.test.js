@@ -719,12 +719,14 @@ describe("候选清洗", () => {
 
 describe("对象库", () => {
   describe("_renderEntityList", () => {
-    it("空列表显示空状态", () => {
+    it("空列表显示空状态", async () => {
       const html = worldView._renderEntityList()
       const container = renderHtml(html)
       expect(html).toContain("还没有世界对象")
       expect(html).toContain('data-action="new"')
-      expect(container.querySelector("[data-action='toggle-extract']")).toBeTruthy()
+      const fullHtml = await worldView.render()
+      const fullContainer = renderHtml(fullHtml)
+      expect(fullContainer.querySelector("[data-action='toggle-extract']")).toBeTruthy()
       expect(container.querySelector(".empty-state [data-action='toggle-extract']")).toBeNull()
     })
 
@@ -777,7 +779,7 @@ describe("对象库", () => {
       expect(container.textContent).not.toContain('onclick="alert(1)')
     })
 
-    it("卡片视图复用现有编辑和地图操作", () => {
+    it("卡片视图复用现有编辑和地图操作", async () => {
       worldView._objectViewMode = "card"
       worldView._entities = [{ id: "e1", name: "王都", entity_type: "location", status: "canonical", summary: "首都" }]
 
@@ -785,7 +787,8 @@ describe("对象库", () => {
       const container = renderHtml(html)
       const card = container.querySelector(".world-object-card")
 
-      expect(html).toContain('data-action="set-object-view"')
+      const fullHtml = await worldView.render()
+      expect(fullHtml).toContain('data-action="set-object-view"')
       expect(card?.textContent).toContain("王都")
       expect(card?.textContent).toContain("地点")
       expect(card?.textContent).toContain("首都")

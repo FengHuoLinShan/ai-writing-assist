@@ -9,6 +9,7 @@ import { authorFacingStateText, mapAssetDisplay } from "../shared/assetDisplaySt
 import { renderWorkspaceRail, workspaceRailKey } from "../shared/workspaceRail.js"
 
 const RECENT_PREFIX = "novel_map_recent:"
+const MAP_BATCH_ID_LIMIT = 100
 
 const DEFAULT_LAYERS = {
   terrain: true,
@@ -405,13 +406,17 @@ const mapWorkspaceView = {
       : ""
     return `
       <div class="map-workspace">
-        <div class="map-toolbar">
-          <button class="btn btn-primary" data-action="map-open-recent">
-            打开最近地图
-          </button>
-          <button class="btn btn-primary" data-action="map-quick-create">快速创建</button>
-          <button class="btn" data-action="map-create-world">创建世界地图</button>
-          <input class="form-input map-overview-search" id="map-workspace-search" placeholder="搜索地图或地点" />
+        <div class="view-header map-toolbar">
+          <div class="view-header__title">
+            地图
+            <span class="view-header__count">${esc(this._maps.length)} 张 · ${esc(this._locations.length)} 个地点</span>
+          </div>
+          <div class="view-header__actions">
+            <button class="btn btn-sm btn-primary" data-action="map-open-recent">打开最近地图</button>
+            <button class="btn btn-sm btn-primary" data-action="map-quick-create">快速创建</button>
+            <button class="btn btn-sm" data-action="map-create-world">创建世界地图</button>
+            <input class="form-input map-overview-search" id="map-workspace-search" placeholder="搜索地图或地点" />
+          </div>
         </div>
         ${message}
         <div class="map-overview-grid">
@@ -475,13 +480,19 @@ const mapWorkspaceView = {
   },
 
   _renderMapWorkspace() {
+    const map = this._mapById.get(this._activeMapId) || {}
     return `
       <div class="map-workspace map-workspace-active">
-        <div class="map-toolbar">
-          <button class="btn" data-action="map-overview">返回总览</button>
-          <button class="btn btn-sm btn-primary" data-action="map-quick-create">快速创建</button>
-          ${this._renderViewModeControls()}
-          ${this._renderLayerToggles()}
+        <div class="view-header map-toolbar">
+          <div class="view-header__title">
+            <button class="btn btn-sm" data-action="map-overview">← 返回总览</button>
+            <span>${esc(map.name || "地图")}</span>
+          </div>
+          <div class="view-header__actions">
+            <button class="btn btn-sm btn-primary" data-action="map-quick-create">快速创建</button>
+            ${this._renderViewModeControls()}
+            ${this._renderLayerToggles()}
+          </div>
         </div>
         <div class="map-workspace-body">
           <main class="map-workspace-main">
@@ -1524,8 +1535,12 @@ const mapWorkspaceView = {
       toast("该分组暂无待处理项", "info")
       return
     }
+    const batchIds = ids.slice(0, MAP_BATCH_ID_LIMIT)
     const label = { confirm: "采用", ignore: "忽略", conflict: "标记冲突" }[action] || "处理"
-    return confirmAction(`${label}该分组的 ${ids.length} 条地图待处理项？`, async () => {
+    const batchNote = ids.length > batchIds.length
+      ? `本次先${label} ${batchIds.length} 条（该分组共 ${ids.length} 条）`
+      : `${label}该分组的 ${batchIds.length} 条地图待处理项`
+    return confirmAction(`${batchNote}？`, async () => {
       try {
         const apiAction = {
           confirm: "confirm_observations",
@@ -1534,7 +1549,7 @@ const mapWorkspaceView = {
         }[action]
         await api.world.runMapBatchAction(this._activeMapId, state.currentProjectId, {
           action: apiAction,
-          observation_ids: ids,
+          observation_ids: batchIds,
         })
         toast("批量修改已完成", "success")
         await this._loadDynamicSummary({ force: true })

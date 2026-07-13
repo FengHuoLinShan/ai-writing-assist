@@ -106,6 +106,19 @@ const App = {
   _renderGlobalActions() {
     const actions = document.getElementById("view-actions")
     if (!actions) return
+    const sceneWorkbenchActive = state.currentView === "outline" && state.currentSubView === "scenes"
+    const workspaceHeader = actions.closest("#workspace-header")
+    workspaceHeader?.classList.toggle("hidden", sceneWorkbenchActive)
+    if (sceneWorkbenchActive) {
+      actions.innerHTML = ""
+      const localDedupAction = document.querySelector('[data-role="scene-smart-dedup-action"]')
+      if (localDedupAction && this._smartDedup) {
+        localDedupAction.innerHTML = this._smartDedup.renderActionButton(
+          this._smartDedup.getState().progress,
+        )
+      }
+      return
+    }
     if (!state.currentProjectId || state.currentView === "project") {
       actions.innerHTML = ""
       return

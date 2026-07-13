@@ -46,6 +46,29 @@ test.describe("Scene 工作台", () => {
     await expect(page.locator(`.scene-workbench-row[data-id="${scene.id}"]`)).toHaveClass(/is-selected/)
   })
 
+  test("自动提取与智能去重和子标签同行且不重复", async ({ page }) => {
+    const project = await createProject({ title: "Scene 顶部操作布局", genre: "fantasy", language: "zh" })
+    testProjectId = project.id
+
+    await openWorkbench(page, project, "outline", "scenes")
+
+    await expect(page.locator('[data-action="scene-auto-extract"]')).toHaveCount(1)
+    await expect(page.locator('[data-action="start-smart-dedup"], [data-action="show-smart-dedup-progress"]')).toHaveCount(1)
+    await expect(page.locator("#workspace-header")).toBeHidden()
+
+    const positions = await page.locator(".outline-scene-layout > .subnav").evaluate((subnav) => {
+      const activeTab = subnav.querySelector('.subnav-item[data-action="nav-scenes"]')
+      const actions = subnav.querySelector(".scene-workbench-actions")
+      return {
+        activeTabTop: activeTab?.getBoundingClientRect().top,
+        actionsTop: actions?.getBoundingClientRect().top,
+        actionsInsideSubnav: Boolean(actions),
+      }
+    })
+    expect(positions.actionsInsideSubnav).toBe(true)
+    expect(Math.abs(positions.activeTabTop - positions.actionsTop)).toBeLessThan(8)
+  })
+
   test("选择 Scene 写入 URL，浏览器后退恢复默认 Scene", async ({ page }) => {
     const project = await createProject({ title: "Scene 历史恢复", genre: "fantasy", language: "zh" })
     testProjectId = project.id
@@ -145,6 +168,9 @@ test.describe("Scene 工作台", () => {
     await page.locator('.scene-workbench__detail [data-action="start-split-scene"]').click()
 
     await expect(page.locator("#modal-title")).toHaveText("Scene AI 建议预览")
+    await expect(page.locator(".scene-draft-review-grid")).toBeVisible()
+    await expect(page.locator(".scene-split-impact-summary")).toContainText("影响摘要")
+    await expect(page.locator("#modal-content")).toHaveAttribute("data-modal-size", "large")
     let scenes = await listScenesOrdered(project.id)
     expect(scenes).toHaveLength(1)
 
@@ -239,19 +265,33 @@ test.describe("Scene 工作台", () => {
         })
       return {
         footerWrap: footer ? getComputedStyle(footer).flexWrap : "",
+        modalSize: content?.dataset.modalSize || "",
+        tableDisplay: getComputedStyle(document.querySelector(".scene-draft-review-grid")).display,
+        bodyHasHorizontalOverflow: (() => {
+          const body = document.querySelector("#modal-body")
+          return body ? body.scrollWidth > body.clientWidth + 1 : true
+        })(),
         buttonsWithinContent: Boolean(contentRect) && buttons.every((button) => (
           button.left >= contentRect.left - 1 && button.right <= contentRect.right + 1
         )),
       }
     })
     expect(footerLayout.footerWrap).toBe("wrap")
+    expect(footerLayout.modalSize).toBe("large")
+    expect(footerLayout.tableDisplay).toBe("table")
+    expect(footerLayout.bodyHasHorizontalOverflow).toBe(false)
     expect(footerLayout.buttonsWithinContent).toBe(true)
     await page.locator("#scene-fusion-title").fill("旧港与仓库调查")
     await page.evaluate(() => {
       const button = Array.from(document.querySelectorAll("#modal-footer button"))
-        .find((item) => item.textContent?.includes("保存融合 Scene，并废弃原 Scene"))
+        .find((item) => item.textContent?.includes("废弃 2 个原 Scene 并保存"))
       button?.click()
     })
+    await expect(page.locator('[data-role="fusion-deprecation-confirm"]')).toBeVisible()
+    const scenesBeforeConfirm = await listScenesOrdered(project.id)
+    expect(scenesBeforeConfirm.filter((scene) => scene.id === first.id || scene.id === second.id)
+      .every((scene) => scene.status === "draft")).toBe(true)
+    await page.locator('[data-action="confirm-fusion-deprecation"]').click()
     await expect(page.locator("#toast-container")).toContainText("融合 Scene 已保存", { timeout: 10000 })
 
     const deprecatedScenes = await listScenes(project.id, { status: "deprecated" })
@@ -262,6 +302,56 @@ test.describe("Scene 工作台", () => {
     const scenes = await listScenesOrdered(project.id)
     const fused = scenes.find((scene) => scene.id !== first.id && scene.id !== second.id)
     expect(fused?.source).toBe("manual_fusion")
+  })
+
+  test("Scene AI 建议表在中窄屏纵向重排且不横向溢出", async ({ page }) => {
+    const project = await createProject({ title: "Scene 预览响应式", genre: "fantasy", language: "zh" })
+    testProjectId = project.id
+    const first = await createScene(project.id, {
+      scene_index: 0,
+      title: "长文本来源一",
+      goal: "第一条需要比较的长目标。".repeat(12),
+      chapter_ids: ["1"],
+    })
+    const second = await createScene(project.id, {
+      scene_index: 1,
+      title: "长文本来源二",
+      goal: "第二条需要比较的长目标。".repeat(12),
+      chapter_ids: ["2"],
+    })
+
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await openWorkbench(page, project, "scene")
+    await page.locator(`.scene-workbench-row[data-id="${first.id}"] input[data-action="toggle-fusion-selection"]`).check()
+    await page.locator(`.scene-workbench-row[data-id="${second.id}"] input[data-action="toggle-fusion-selection"]`).check()
+    await page.locator('[data-action="start-ai-fusion-draft"]').click()
+    await page.getByRole("button", { name: "生成 AI 融合建议" }).click()
+    await expect(page.locator("#modal-title")).toHaveText("Scene AI 建议预览")
+
+    for (const width of [820, 390]) {
+      await page.setViewportSize({ width, height: 800 })
+      const layout = await page.evaluate(() => {
+        const body = document.querySelector("#modal-body")
+        const table = document.querySelector(".scene-draft-review-grid")
+        const firstCell = table?.querySelector("td")
+        const content = document.querySelector("#modal-content")
+        const contentRect = content?.getBoundingClientRect()
+        const footerButtons = Array.from(document.querySelectorAll("#modal-footer button"))
+          .map((button) => button.getBoundingClientRect())
+        return {
+          tableDisplay: table ? getComputedStyle(table).display : "",
+          cellDisplay: firstCell ? getComputedStyle(firstCell).display : "",
+          bodyHasHorizontalOverflow: body ? body.scrollWidth > body.clientWidth + 1 : true,
+          buttonsWithinContent: Boolean(contentRect) && footerButtons.every((rect) => (
+            rect.left >= contentRect.left - 1 && rect.right <= contentRect.right + 1
+          )),
+        }
+      })
+      expect(layout.tableDisplay).toBe("block")
+      expect(layout.cellDisplay).toBe("block")
+      expect(layout.bodyHasHorizontalOverflow).toBe(false)
+      expect(layout.buttonsWithinContent).toBe(true)
+    }
   })
 
   test("手动融合可放弃后继续编辑结果再保存", async ({ page }) => {
@@ -450,6 +540,7 @@ test.describe("Scene 工作台", () => {
       const pager = document.querySelector(".scene-workbench-pagination")
       const listRect = list?.getBoundingClientRect()
       const pagerRect = pager?.getBoundingClientRect()
+      const geometryTolerance = 1
       const style = pager ? getComputedStyle(pager) : null
       const rows = Array.from(document.querySelectorAll(".scene-workbench-row"))
       const overlaps = rows.filter((row) => {
@@ -471,7 +562,8 @@ test.describe("Scene 工作台", () => {
           && pagerRect.left >= listRect.left
           && pagerRect.right <= listRect.right
           && pagerRect.top >= listRect.top
-          && pagerRect.bottom <= listRect.bottom,
+          // scrollTop/clientHeight use integer CSS pixels while DOMRect may be fractional.
+          && pagerRect.bottom <= listRect.bottom + geometryTolerance,
         overlappingRows: overlaps.length,
         nextHitTarget: (() => {
           const nextButton = document.querySelector('[data-action="next-scene-page"]')
@@ -515,5 +607,40 @@ test.describe("Scene 工作台", () => {
     await expectNoPageOverflow(page)
     await expectWithinViewport(page.locator(".scene-workbench-drawer"))
     await expectWithinViewport(page.locator('[data-action="close-scene-detail"]'))
+  })
+
+  test("右侧 Scene 详情栏内容溢出时可滚动", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 620 })
+    const project = await createProject({ title: "Scene 详情栏滚动", genre: "fantasy", language: "zh" })
+    testProjectId = project.id
+    const longText = "需要滚动才能查看的示例内容。".repeat(80)
+    const scene = await createScene(project.id, {
+      scene_index: 0,
+      title: "长内容 Scene",
+      goal: longText,
+      core_conflict: longText,
+      must_happen: longText,
+      must_not_happen: longText,
+      chapter_ids: ["1"],
+    })
+
+    await openWorkbench(page, project, "scene", scene.id)
+
+    const body = page.locator(".scene-detail-rail > .workspace-rail__body")
+    await expect(body).toBeVisible()
+    const canScroll = await body.evaluate((el) => el.scrollHeight > el.clientHeight + 2)
+    expect(canScroll).toBe(true)
+
+    const saveButton = page.locator('.scene-detail-rail [data-action="save-scene-detail"]')
+    await body.evaluate((el) => { el.scrollTop = el.scrollHeight })
+    await expect(saveButton).toBeInViewport()
+
+    const scrollState = await body.evaluate((el) => ({
+      scrollTop: el.scrollTop,
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+    }))
+    expect(scrollState.scrollTop).toBeGreaterThan(50)
+    expect(scrollState.scrollTop + scrollState.clientHeight).toBeGreaterThan(scrollState.scrollHeight - 10)
   })
 })

@@ -38,6 +38,21 @@ describe("App smart dedup integration", () => {
     expect(document.getElementById("view-actions").innerHTML).toBe("")
   })
 
+  it("moves the smart dedup button into the Scene subnav and hides the empty header", () => {
+    state.currentView = "outline"
+    state.currentSubView = "scenes"
+    document.body.innerHTML = `
+      <header id="workspace-header"><div id="view-actions"></div></header>
+      <span data-role="scene-smart-dedup-action"></span>
+    `
+
+    App._renderGlobalActions()
+
+    expect(document.getElementById("view-actions").innerHTML).toBe("")
+    expect(document.getElementById("workspace-header").classList.contains("hidden")).toBe(true)
+    expect(document.querySelectorAll('[data-action="start-smart-dedup"]')).toHaveLength(1)
+  })
+
   it("delegates start-smart-dedup action to the manager", () => {
     const startScan = vi.spyOn(App._smartDedup, "startScan").mockImplementation(() => {})
 

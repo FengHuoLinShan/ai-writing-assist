@@ -9,7 +9,7 @@ from collections.abc import Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import NotFoundError, ValidationError
+from core.errors import ConflictError, NotFoundError, ValidationError
 from infrastructure.llm.profiles import (
     LLM_API_KEY_FIELD,
     LLM_API_KEYS_BY_PROVIDER_FIELD,
@@ -23,6 +23,7 @@ from modules.project.repositories import ProjectRepository
 from modules.project.schemas import (
     LLMFieldResetResponse,
     LLMProviderTemplateListResponse,
+    ProjectBulkPermanentDeleteResponse,
     ProjectContext,
     ProjectCreate,
     ProjectListResponse,
@@ -312,6 +313,39 @@ class ProjectService:
         if not deleted:
             raise NotFoundError(f"Project {project_id} not found in recycle bin")
         await self._repo.delete_async_tasks_for_project(db, pid)
+
+    async def permanent_delete_projects(
+        self,
+        db: AsyncSession,
+        project_ids: list[str],
+        *,
+        confirmed: bool = False,
+    ) -> ProjectBulkPermanentDeleteResponse:
+        """原子地批量永久删除回收站项目。"""
+        if not confirmed:
+            raise ValidationError("bulk permanent delete requires confirmed=true")
+
+        parsed_ids = [_parse_uuid(project_id, "project_id") for project_id in project_ids]
+        unique_ids = list(dict.fromkeys(parsed_ids))
+        deleted_ids = await self._repo.list_deleted_ids(db, unique_ids)
+        missing_ids = [
+            project_id for project_id in unique_ids if project_id not in deleted_ids
+        ]
+        if missing_ids:
+            missing = ", ".join(str(project_id) for project_id in missing_ids)
+            raise NotFoundError(f"Projects not found in recycle bin: {missing}")
+
+        deleted_count = await self._repo.permanent_delete_many(db, unique_ids)
+        if deleted_count != len(unique_ids):
+            raise ConflictError(
+                "Recycle bin changed during bulk permanent delete; "
+                "no projects were deleted"
+            )
+        await self._repo.delete_async_tasks_for_projects(db, unique_ids)
+        return ProjectBulkPermanentDeleteResponse(
+            deleted_ids=[str(project_id) for project_id in unique_ids],
+            deleted_count=deleted_count,
+        )
 
     async def list_deleted_projects(
         self,

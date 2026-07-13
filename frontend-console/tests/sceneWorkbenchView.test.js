@@ -89,11 +89,18 @@ beforeEach(() => {
   api.outline.splitScene = vi.fn()
   api.outline.listFusionSuggestions = vi.fn().mockResolvedValue({ items: [], total: 0 })
   api.outline.dismissFusionSuggestions = vi.fn().mockResolvedValue({ dismissed: 0 })
+  api.outline.applySceneReplacement = vi.fn().mockResolvedValue({
+    status: "adopted",
+    result_scene_ids: ["new-scene"],
+    downstream_refresh_required: ["world_objects", "plot_structure"],
+  })
   api.outline.updateScene.mockResolvedValue({ id: "s1" })
   sceneWorkbenchView._loading = false
   sceneWorkbenchView._fusionPreviewPending = false
   sceneWorkbenchView._fusionPreviewProjectId = null
   sceneWorkbenchView._fusionPreviewRequestSeq = 0
+  sceneWorkbenchView._fusionSavePending = false
+  sceneWorkbenchView._fusionSaveControls = []
   sceneWorkbenchView._activeDraftReview = null
   sceneWorkbenchView._workbench = null
   sceneWorkbenchView._total = 0
@@ -132,10 +139,11 @@ describe("sceneWorkbenchView", () => {
 
     const html = await sceneWorkbenchView.render()
 
-    expect(html).toContain("场景（scene）自动提取")
     expect(html).toContain("scene-workbench-shell")
-    expect(html).toContain("scene-workbench-actions")
-    expect(html).toContain('data-action="scene-auto-extract"')
+    expect(html).not.toContain("scene-workbench-actions")
+    const headerActions = sceneWorkbenchView.renderHeaderActions()
+    expect(headerActions).toContain("场景（scene）自动提取")
+    expect(headerActions).toContain('data-action="scene-auto-extract"')
     expect(html).toContain("再选 2 个即可融合")
     expect(html).toContain('data-action="toggle-visible-fusion-selection"')
     expect(html).toContain('aria-label="选择用于批量操作"')
@@ -971,10 +979,35 @@ describe("sceneWorkbenchView", () => {
 
     expect(api.outline.listFusionSuggestions).toHaveBeenCalledWith(
       "p1",
-      { skip: 0, limit: 100 },
+      { skip: 0, limit: 50 },
     )
-    expect(html).toContain("1 条 Scene 融合建议待处理")
+    expect(html).toContain("1 条 Scene 建议待处理")
     expect(html).toContain('data-action="dismiss-fusion-suggestions"')
+  })
+
+  it("loads persisted fusion suggestions through the bounded API pages", async () => {
+    api.outline.getSceneWorkbench.mockResolvedValue({
+      ...workbenchPayload,
+      fusion_suggestions: { pending_count: 51 },
+    })
+    const firstPage = Array.from({ length: 50 }, (_, index) => ({
+      id: `suggestion-${index + 1}`,
+      suggestion_kind: "fusion",
+    }))
+    api.outline.listFusionSuggestions
+      .mockResolvedValueOnce({ total: 51, items: firstPage })
+      .mockResolvedValueOnce({
+        total: 51,
+        items: [{ id: "suggestion-51", suggestion_kind: "replacement" }],
+      })
+
+    await sceneWorkbenchView._loadWorkbench()
+
+    expect(api.outline.listFusionSuggestions.mock.calls).toEqual([
+      ["p1", { skip: 0, limit: 50 }],
+      ["p1", { skip: 50, limit: 50 }],
+    ])
+    expect(sceneWorkbenchView._fusionSuggestions).toHaveLength(51)
   })
 
   it("saves editable scene fields through outline updateScene", async () => {
@@ -1007,6 +1040,54 @@ describe("sceneWorkbenchView", () => {
       pov_character_id: "char-2",
     })
     expect(router.refresh).toHaveBeenCalled()
+  })
+
+  it("clears a stale embedded selection when a saved scene leaves the active filter", async () => {
+    state.currentView = "outline"
+    state.currentSubView = "scenes"
+    window.history.replaceState(
+      { view: "outline", subView: "scenes", projectId: "p1" },
+      "",
+      "#workbench/p1/outline/scenes?scene_id=s1",
+    )
+    sceneWorkbenchView._filters.health = "unreviewed"
+    sceneWorkbenchView._workbench = workbenchPayload
+    const missingSelection = new Error("请求的资源不存在：Scene not found")
+    missingSelection.status = 404
+    missingSelection.detail = "Scene not found"
+    api.outline.getSceneWorkbench
+      .mockRejectedValueOnce(missingSelection)
+      .mockResolvedValueOnce({
+        ...workbenchPayload,
+        total: 1,
+        selected_scene_id: "s2",
+        items: [workbenchPayload.items[1]],
+      })
+    document.body.innerHTML = `
+      <input id="scene-detail-title" value="新标题" />
+      <select id="scene-detail-tag"><option value="climax" selected>climax</option></select>
+      <select id="scene-detail-status"><option value="canonical" selected>canonical</option></select>
+      <select id="scene-detail-source"><option value="manual" selected>manual</option></select>
+      <textarea id="scene-detail-goal">目标</textarea>
+      <textarea id="scene-detail-conflict">冲突</textarea>
+      <textarea id="scene-detail-emotion">情感</textarea>
+      <textarea id="scene-detail-must">必须</textarea>
+      <textarea id="scene-detail-must-not">禁止</textarea>
+      <input id="scene-detail-pov" value="char-2" />
+    `
+
+    await sceneWorkbenchView._saveSceneDetails("s1")
+
+    expect(api.outline.getSceneWorkbench.mock.calls.slice(-2)).toEqual([
+      ["p1", "s1", { health: "unreviewed", skip: 0, limit: 20 }],
+      ["p1", null, { health: "unreviewed", skip: 0, limit: 20 }],
+    ])
+    expect(window.location.hash).toBe("#workbench/p1/outline/scenes")
+    expect(toast).toHaveBeenCalledWith("Scene 已保存", "success")
+    expect(toast).not.toHaveBeenCalledWith(
+      "请求的资源不存在：Scene not found",
+      "error",
+    )
   })
 
   it("marks a scene as reviewed and organized while preserving structure meta", async () => {
@@ -1207,12 +1288,17 @@ describe("sceneWorkbenchView", () => {
     expect(body).toContain("主 Scene 原值")
     expect(body).toContain("潜入王宫")
     expect(body).toContain("scene-fusion-title")
+    expect(body).toContain("scene-fusion-narrative-tag")
+    expect(body).toContain("scene-fusion-pov")
+    expect(body).toContain("<table")
     expect(buttons.map((button) => button.text)).toEqual([
-      "保留原 Scene + 保存融合 Scene",
-      "保存融合 Scene，并废弃原 Scene",
-      "放弃融合结果",
+      "关闭",
+      "放弃融合结果（标记不采用）",
       "继续编辑融合结果后再保存",
+      "废弃 2 个原 Scene 并保存",
+      "保留原 Scene + 保存融合 Scene",
     ])
+    expect(call[3]).toEqual({ size: "large" })
   })
 
   it("prevents duplicate AI fusion previews while the synchronous call is pending", async () => {
@@ -1277,8 +1363,7 @@ describe("sceneWorkbenchView", () => {
 
   it.each([
     ["保留原 Scene + 保存融合 Scene", "keep_originals"],
-    ["保存融合 Scene，并废弃原 Scene", "deprecate_originals"],
-    ["放弃融合结果", "discard"],
+    ["放弃融合结果（标记不采用）", "discard"],
   ])("calls fusion save mode %s and refreshes", async (buttonText, mode) => {
     const preview = {
       mode: "fusion",
@@ -1308,6 +1393,8 @@ describe("sceneWorkbenchView", () => {
         emotional_beat: null,
         must_happen: null,
         must_not_happen: null,
+        narrative_tag: "draft",
+        pov_character_id: null,
         chapter_ids: ["1", "2", "3"],
         structure_meta: {
           draft_review_mode: "fusion",
@@ -1321,6 +1408,239 @@ describe("sceneWorkbenchView", () => {
     expect(api.outline.saveSceneFusion).toHaveBeenCalledWith("p1", expectedPayload)
     expect(closeModal).toHaveBeenCalled()
     expect(router.refresh).toHaveBeenCalled()
+  })
+
+  it("requires an inline second confirmation before deprecating fusion sources", async () => {
+    const preview = {
+      mode: "fusion",
+      source_scene_ids: ["s1", "s2"],
+      primary_scene_id: "s1",
+      draft_scene: { title: "融合草稿", chapter_ids: ["1", "2"] },
+      source_scene_summaries: [
+        { id: "s1", title: "潜入", chapter_range: "第 1 章" },
+        { id: "s2", title: "撤离", chapter_range: "第 2 章" },
+      ],
+      field_references: {},
+      warnings: [],
+    }
+    api.outline.saveSceneFusion.mockResolvedValue({ status: "saved" })
+    vi.spyOn(sceneWorkbenchView, "_refreshWorkbenchInPlace").mockResolvedValue()
+
+    sceneWorkbenchView._showFusionPreview(preview, ["s1", "s2"])
+    const call = showModal.mock.calls[0]
+    document.body.innerHTML = `<div id="modal-body">${modalHtmlFromCall(call)}</div>`
+    sceneWorkbenchView._bindDraftReviewModal({ sourceSceneIds: ["s1", "s2"] })
+
+    const firstResult = await call[2]
+      .find((button) => button.text === "废弃 2 个原 Scene 并保存")
+      .handler()
+
+    expect(firstResult).toBe(false)
+    expect(api.outline.saveSceneFusion).not.toHaveBeenCalled()
+    const confirmation = document.querySelector('[data-role="fusion-deprecation-confirm"]')
+    expect(confirmation.hidden).toBe(false)
+    expect(confirmation.textContent).toContain("潜入")
+    expect(confirmation.textContent).toContain("撤离")
+
+    document.querySelector('[data-action="confirm-fusion-deprecation"]').click()
+    await vi.waitFor(() => expect(api.outline.saveSceneFusion).toHaveBeenCalledTimes(1))
+    expect(api.outline.saveSceneFusion).toHaveBeenCalledWith("p1", expect.objectContaining({
+      mode: "deprecate_originals",
+      source_scene_ids: ["s1", "s2"],
+    }))
+  })
+
+  it("normalizes fallback source ids into the preview and deprecation confirmation", () => {
+    const preview = {
+      mode: "fusion",
+      primary_scene_id: "s1",
+      draft_scene: { title: "融合草稿", narrative_tag: null },
+      source_scene_summaries: [
+        { id: "s1", title: "潜入", chapter_range: "第 1 章" },
+        { id: "s2", title: "撤离", chapter_range: "第 2 章" },
+      ],
+      field_references: {
+        narrative_tag: [{ scene_id: "s1", title: "潜入", value: "draft", role: "primary" }],
+      },
+    }
+
+    sceneWorkbenchView._showFusionPreview(preview, ["s1", "s2"])
+
+    const body = modalHtmlFromCall(showModal.mock.calls[0])
+    document.body.innerHTML = `<div id="modal-body">${body}</div>`
+    const tagRow = document.getElementById("scene-fusion-narrative-tag").closest("tr")
+    expect(body).toContain("确认废弃 2 个原 Scene")
+    expect(body).toContain("潜入")
+    expect(body).toContain("撤离")
+    expect(body).not.toContain('<option value=""')
+    expect(tagRow.dataset.difference).toBe("false")
+    expect(sceneWorkbenchView._activeDraftReview.source_scene_ids).toEqual(["s1", "s2"])
+  })
+
+  it("allows only one fusion save request while the first request is pending", async () => {
+    let resolveSave
+    api.outline.saveSceneFusion.mockReturnValue(new Promise((resolve) => {
+      resolveSave = resolve
+    }))
+    vi.spyOn(sceneWorkbenchView, "_refreshWorkbenchInPlace").mockResolvedValue()
+    const preview = {
+      mode: "fusion",
+      source_scene_ids: ["s1", "s2"],
+      primary_scene_id: "s1",
+      draft_scene: { title: "融合草稿", chapter_ids: ["1", "2"] },
+      field_references: {},
+    }
+
+    sceneWorkbenchView._showFusionPreview(preview, ["s1", "s2"])
+    const call = showModal.mock.calls[0]
+    const buttons = call[2]
+    document.body.innerHTML = `
+      <div id="modal-body">${modalHtmlFromCall(call)}</div>
+      <div id="modal-footer">${buttons.map((button) => `<button>${button.text}</button>`).join("")}</div>
+    `
+    sceneWorkbenchView._bindDraftReviewModal({ sourceSceneIds: ["s1", "s2"] })
+    buttons.find((button) => button.text.startsWith("废弃 2 个")).handler()
+    const confirm = document.querySelector('[data-action="confirm-fusion-deprecation"]')
+
+    confirm.click()
+    confirm.click()
+    const competingResult = await buttons
+      .find((button) => button.text === "保留原 Scene + 保存融合 Scene")
+      .handler()
+
+    expect(competingResult).toBe(false)
+    expect(api.outline.saveSceneFusion).toHaveBeenCalledTimes(1)
+    expect(confirm.disabled).toBe(true)
+    expect(Array.from(document.querySelectorAll("#modal-footer button")).every((button) => button.disabled)).toBe(true)
+
+    resolveSave({ status: "saved" })
+    await vi.waitFor(() => expect(sceneWorkbenchView._fusionSavePending).toBe(false))
+    expect(confirm.disabled).toBe(false)
+  })
+
+  it("filters only initial differences while keeping no-evidence rows visible", () => {
+    const preview = {
+      mode: "fusion",
+      source_scene_ids: ["s1", "s2"],
+      primary_scene_id: "s1",
+      draft_scene: {
+        title: "同名",
+        goal: "融合目标",
+        core_conflict: "相同冲突",
+        narrative_tag: "draft",
+        chapter_ids: ["1"],
+      },
+      field_references: {
+        title: [
+          { scene_id: "s1", title: "主", value: "同名", role: "primary" },
+          { scene_id: "s2", title: "其他", value: "同名", role: "source" },
+        ],
+        goal: [{ scene_id: "s1", title: "主", value: "原目标", role: "primary" }],
+        core_conflict: [{ scene_id: "s1", title: "主", value: "相同冲突", role: "primary" }],
+      },
+      conflicts: [{ field: "core_conflict", message: "冲突字段需复核" }],
+    }
+    const body = sceneWorkbenchView._renderDraftReview(preview)
+    document.body.innerHTML = `<div id="modal-body">${body}</div>`
+    sceneWorkbenchView._bindDraftReviewModal()
+
+    const checkbox = document.querySelector('[data-action="filter-draft-review-differences"]')
+    checkbox.checked = true
+    checkbox.dispatchEvent(new Event("change"))
+    const rows = Array.from(document.querySelectorAll(".scene-draft-review-row"))
+    const rowFor = (label) => rows.find((row) => row.querySelector("th")?.textContent.includes(label))
+
+    expect(rowFor("标题").hidden).toBe(true)
+    expect(rowFor("目标").hidden).toBe(false)
+    expect(rowFor("核心冲突").hidden).toBe(false)
+    expect(rowFor("叙事标签").hidden).toBe(false)
+    expect(rowFor("叙事标签").dataset.noEvidence).toBe("true")
+    expect(document.querySelector('[data-role="draft-review-filter-note"]').textContent).toContain("仍会随草稿保存")
+  })
+
+  it("uses source summaries and collapses only long source evidence", () => {
+    const longEvidence = "长来源证据。".repeat(30)
+    const body = sceneWorkbenchView._renderDraftReview({
+      mode: "fusion",
+      source_scene_ids: ["s1", "s2"],
+      primary_scene_id: "s1",
+      source_scene_summaries: [
+        { id: "s1", title: "主场景标题", chapter_range: "第 1 章" },
+        { id: "s2", title: "来源场景标题", chapter_range: "第 2 章" },
+      ],
+      draft_scene: { must_happen: "AI 建议全文", chapter_ids: ["1", "2"] },
+      field_references: {
+        must_happen: [{ scene_id: "s1", title: "主场景标题", value: longEvidence, role: "primary" }],
+      },
+    })
+
+    expect(body).toContain("主场景标题 · 第 1 章")
+    expect(body).toContain("来源场景标题 · 第 2 章")
+    expect(body).toContain('class="scene-draft-ref scene-draft-ref--long"')
+    expect(body).toContain('id="scene-fusion-must"')
+    expect(body).toContain("AI 建议全文")
+  })
+
+  it("escapes dynamic draft review summaries, warnings, conflicts, and references", () => {
+    const attack = '<img src=x onerror="alert(1)">'
+    const body = sceneWorkbenchView._renderDraftReview({
+      mode: "fusion",
+      source_scene_ids: ["s1"],
+      primary_scene_id: "s1",
+      source_scene_summaries: [{ id: "s1", title: attack, chapter_range: attack }],
+      draft_scene: { title: attack, chapter_ids: ["1"] },
+      field_references: {
+        title: [{ scene_id: "s1", title: attack, value: attack, role: "primary" }],
+      },
+      warnings: [attack],
+      conflicts: [{ field: "title", message: attack }],
+    })
+
+    expect(body).not.toContain(attack)
+    expect(body).toContain("&lt;img")
+    expect(body).not.toContain("onerror=\"alert(1)\"")
+  })
+
+  it("keeps the real modal wrapper open and restores controls when saving fails", async () => {
+    const previousModalGlobals = {
+      showModal: globalThis.showModal,
+      showModalHtml: globalThis.showModalHtml,
+      closeModal: globalThis.closeModal,
+      confirmAction: globalThis.confirmAction,
+    }
+    try {
+      vi.resetModules()
+      await import("../ui/modal.js")
+      api.outline.saveSceneFusion.mockRejectedValue(new Error("save failed"))
+      document.body.innerHTML = `
+        <div id="modal-overlay" class="hidden">
+          <div id="modal-content">
+            <h2 id="modal-title"></h2>
+            <div id="modal-body"></div>
+            <div id="modal-footer"></div>
+          </div>
+        </div>
+      `
+      sceneWorkbenchView._showFusionPreview({
+        mode: "fusion",
+        source_scene_ids: ["s1", "s2"],
+        primary_scene_id: "s1",
+        draft_scene: { title: "初始标题", chapter_ids: ["1"] },
+        field_references: {},
+      }, ["s1", "s2"])
+      document.getElementById("scene-fusion-title").value = "保留的编辑"
+      const saveButton = Array.from(document.querySelectorAll("#modal-footer button"))
+        .find((button) => button.textContent === "保留原 Scene + 保存融合 Scene")
+
+      saveButton.click()
+
+      await vi.waitFor(() => expect(toast).toHaveBeenCalledWith("save failed", "error"))
+      expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(false)
+      expect(document.getElementById("scene-fusion-title").value).toBe("保留的编辑")
+      expect(saveButton.disabled).toBe(false)
+    } finally {
+      Object.assign(globalThis, previousModalGlobals)
+    }
   })
 
   it("carries the durable suggestion id into fusion save", async () => {
@@ -1353,6 +1673,8 @@ describe("sceneWorkbenchView", () => {
         emotional_beat: "旧情绪",
         must_happen: "旧必须",
         must_not_happen: "旧禁止",
+        narrative_tag: "transition",
+        pov_character_id: "char-old",
         chapter_ids: ["1", "2"],
       },
       field_references: {},
@@ -1372,6 +1694,8 @@ describe("sceneWorkbenchView", () => {
     document.getElementById("scene-fusion-emotion").value = "用户改情绪"
     document.getElementById("scene-fusion-must").value = "用户改必须"
     document.getElementById("scene-fusion-must-not").value = "用户改禁止"
+    document.getElementById("scene-fusion-narrative-tag").value = "climax"
+    document.getElementById("scene-fusion-pov").value = "char-new"
     document.getElementById("scene-fusion-chapters").value = "5, 6"
 
     await buttons
@@ -1389,6 +1713,8 @@ describe("sceneWorkbenchView", () => {
         emotional_beat: "用户改情绪",
         must_happen: "用户改必须",
         must_not_happen: "用户改禁止",
+        narrative_tag: "climax",
+        pov_character_id: "char-new",
         chapter_ids: ["5", "6"],
         structure_meta: {
           draft_review_mode: "fusion",
@@ -1477,8 +1803,8 @@ describe("sceneWorkbenchView", () => {
       field_changes: {},
       warnings: ["拆分不会修改正文内容。"],
       draft_scenes: [
-        { title: "前半", goal: "前半目标", chapter_ids: ["1"] },
-        { title: "后半", goal: "后半目标", chapter_ids: ["2"] },
+        { title: "前半", goal: "前半目标", narrative_tag: "hook", pov_character_id: "char-a", chapter_ids: ["1"], scene_chunks: [{ chapter_id: "1" }] },
+        { title: "后半", goal: "后半目标", narrative_tag: "transition", pov_character_id: "char-b", chapter_ids: ["2"] },
       ],
       field_references: {
         title: [{ scene_id: "s1", title: "潜入", value: "潜入", role: "primary" }],
@@ -1494,9 +1820,20 @@ describe("sceneWorkbenchView", () => {
     expect(title).toBe("Scene AI 建议预览")
     expect(body).toContain("AI 拆分建议")
     expect(body).toContain("scene-split-0-title")
-    document.body.innerHTML = body
+    expect(body).toContain("scene-split-0-narrative_tag")
+    expect(body).toContain("scene-split-0-pov_character_id")
+    expect(body).toContain('<option value="hook" selected>')
+    expect(body).not.toContain('<option value=""')
+    expect(body).toContain("影响摘要")
+    expect(body).toContain("建议 A 1 段")
+    expect(call[3]).toEqual({ size: "large" })
+    document.body.innerHTML = `<div id="modal-body">${body}</div>`
+    sceneWorkbenchView._bindDraftReviewModal()
     document.getElementById("scene-split-0-title").value = "用户前半"
     document.getElementById("scene-split-1-title").value = "用户后半"
+    document.getElementById("scene-split-0-narrative_tag").value = "draft"
+    document.getElementById("scene-split-0-pov_character_id").value = ""
+    expect(document.getElementById("scene-split-0-narrative_tag").value).toBe("draft")
 
     await buttons[1].handler()
 
@@ -1504,8 +1841,8 @@ describe("sceneWorkbenchView", () => {
       source_scene_id: "s1",
       split_chapter_index: 2,
       draft_scenes: [
-        { title: "用户前半", goal: "前半目标" },
-        { title: "用户后半", goal: "后半目标" },
+        { title: "用户前半", goal: "前半目标", narrative_tag: "draft", pov_character_id: null },
+        { title: "用户后半", goal: "后半目标", narrative_tag: "transition", pov_character_id: "char-b" },
       ],
       confirmed: true,
     })
@@ -1587,6 +1924,81 @@ describe("sceneWorkbenchView", () => {
       confirmed: true,
     })
     expect(refresh).toHaveBeenCalled()
+  })
+
+  it("dismisses at most the service batch limit at a time", async () => {
+    showModal.mockReset()
+    showModal.mockImplementation(() => {})
+    api.outline.dismissFusionSuggestions.mockResolvedValue({ dismissed: 100 })
+    vi.spyOn(sceneWorkbenchView, "_refreshWorkbenchInPlace").mockResolvedValue()
+    sceneWorkbenchView._fusionSuggestions = Array.from({ length: 101 }, (_, index) => ({
+      id: `suggestion-${index + 1}`,
+      suggestion_kind: "fusion",
+    }))
+
+    sceneWorkbenchView._dismissAllFusionSuggestions()
+    const html = modalHtmlFromCall(showModal.mock.calls[0])
+    expect(html).toContain("本次先忽略 100 条")
+    await showModal.mock.calls[0][2][1].handler()
+
+    expect(api.outline.dismissFusionSuggestions).toHaveBeenCalledWith("p1", {
+      suggestion_ids: Array.from({ length: 100 }, (_, index) => `suggestion-${index + 1}`),
+      confirmed: true,
+    })
+  })
+
+  it("opens replacement suggestions in a dedicated comparison flow", async () => {
+    showModal.mockReset()
+    showModal.mockImplementation(() => {})
+    sceneWorkbenchView._workbench = workbenchPayload
+    sceneWorkbenchView._fusionSuggestions = [{
+      id: "sg-replace",
+      source_scene_ids: ["s1"],
+      chapter_span: [1, 2],
+      proposed_action: "replace",
+      suggestion_kind: "replacement",
+      proposed_scene: {
+        draft_scenes: [{
+          title: "新版潜入",
+          goal: "新版目标",
+          chapter_ids: ["1", "2"],
+        }],
+        overlap_evidence: [{ chapter_index: 1, mode: "conservative_chapter" }],
+      },
+    }]
+
+    sceneWorkbenchView._showFusionSuggestions()
+    await showModal.mock.calls[0][2][0].handler()
+
+    expect(showModal.mock.calls[1][0]).toBe("Scene 替换审查")
+    const html = modalHtmlFromCall(showModal.mock.calls[1])
+    expect(html).toContain("受保护的原 Scene")
+    expect(html).toContain("新版潜入")
+    expect(api.outline.previewSceneFusion).not.toHaveBeenCalled()
+  })
+
+  it("applies a replacement only after explicit confirmation", async () => {
+    autoConfirm()
+    const refresh = vi.spyOn(sceneWorkbenchView, "_refreshWorkbenchInPlace")
+      .mockResolvedValue()
+    const suggestion = { id: "sg-replace" }
+
+    const applied = await sceneWorkbenchView._applyReplacementSuggestion(
+      suggestion,
+      false,
+    )
+
+    expect(applied).toBe(true)
+    expect(api.outline.applySceneReplacement).toHaveBeenCalledWith("p1", {
+      suggestion_id: "sg-replace",
+      decision: "replace",
+      confirmed: true,
+    })
+    expect(refresh).toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith(
+      "Scene 已替换；建议按需重跑：world_objects、plot_structure",
+      "success",
+    )
   })
 
   it("opens writing at the first mapped chapter", () => {

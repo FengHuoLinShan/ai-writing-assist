@@ -67,6 +67,7 @@ test.describe("Outline View — 伏笔与揭示", () => {
     await expect(page.locator(SEL.dataTable)).toContainText("5")
 
     // When: 删除伏笔并确认
+    await page.locator('.action-menu-btn').first().click()
     await page.locator('[data-action="delete-foreshadowing"]').first().click()
     await expect(page.locator(SEL.modalOverlay)).not.toHaveClass(/hidden/)
     await page.locator(SEL.modalFooter).locator(SEL.btnDanger).click()
@@ -125,6 +126,7 @@ test.describe("Outline View — 伏笔与揭示", () => {
     await expect(page.locator(SEL.dataTable)).toContainText("8")
 
     // When: 删除揭示并确认
+    await page.locator('.action-menu-btn').first().click()
     await page.locator('[data-action="delete-reveal"]').first().click()
     await expect(page.locator(SEL.modalOverlay)).not.toHaveClass(/hidden/)
     await page.locator(SEL.modalFooter).locator(SEL.btnDanger).click()

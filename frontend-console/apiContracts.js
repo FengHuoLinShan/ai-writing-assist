@@ -10,6 +10,7 @@
   const RAG_SEARCH_TIMEOUT = 60000
   const RAG_PREWARM_TIMEOUT = 75000
   const CONTEXT_CONFIRM_TIMEOUT = 90000
+  const LLM_GENERATE_TIMEOUT = 90000
 
   function queryString(query = {}) {
     const parts = []
@@ -218,6 +219,12 @@
     "outline.applyChapterScenePreview": define("POST", () => "/outline/chapter-scenes/apply", {
       hasBody: true,
       requiredBody: ["novel_id", "context_confirmation_id", "source_task_id", "draft_scenes", "confirmed"],
+    }),
+    "outline.previewSceneFusion": define("POST", () => "/outline/scene-workbench/fusion/preview", {
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+      timeout: LLM_GENERATE_TIMEOUT,
+      timeoutKind: "llmGenerate",
     }),
 
     "rag.search": define("POST", () => "/rag/retrieve", {

@@ -272,6 +272,35 @@ describe("worldBibleView", () => {
     expect(toast).toHaveBeenCalledWith("建议已生成，采用后才会写入", "success")
   })
 
+  it("世界书 AI 拒绝超过服务上限的章节附件", async () => {
+    worldBibleView._activePage = page
+    worldBibleView._aiSelectedChapters = Array.from(
+      { length: 21 },
+      (_, index) => String(index + 1),
+    ).join(",")
+
+    const result = await worldBibleView._runAi("page_patch")
+
+    expect(result).toBe(false)
+    expect(api.world.generateBiblePageAi).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("每次最多附带 20 章正文", "warning")
+  })
+
+  it("世界书 AI 只发送最近 40 条聊天记录", async () => {
+    worldBibleView._activePage = page
+    worldBibleView._aiMessages = Array.from({ length: 41 }, (_, index) => ({
+      role: index % 2 ? "assistant" : "user",
+      content: `message-${index + 1}`,
+    }))
+    api.world.generateBiblePageAi.mockResolvedValue({ reply: "ok" })
+
+    await worldBibleView._runAi("page_patch")
+
+    const payload = api.world.generateBiblePageAi.mock.calls[0][1]
+    expect(payload.messages).toHaveLength(40)
+    expect(payload.messages[0].content).toBe("message-2")
+  })
+
   it("创设建议弹窗用可读卡片展示而不是 raw JSON", async () => {
     api.world.listSuggestions.mockResolvedValue({
       items: [{

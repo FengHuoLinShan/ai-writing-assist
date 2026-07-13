@@ -109,6 +109,39 @@ describe("api.js cache behavior", () => {
     expect(new URL(urls[1]).searchParams.has("_ts")).toBe(true)
   })
 
+  it("Scene fusion preview keeps the LLM request open beyond the default timeout", async () => {
+    vi.useFakeTimers()
+    try {
+      let resolveFetch
+      let requestSignal
+      globalThis.fetch = vi.fn((url, init) => {
+        requestSignal = init.signal
+        return new Promise((resolve) => {
+          resolveFetch = resolve
+        })
+      })
+
+      const pending = window.api.outline.previewSceneFusion("p1", {
+        source_scene_ids: ["s1", "s2"],
+        primary_scene_id: "s1",
+      })
+      await vi.advanceTimersByTimeAsync(15_001)
+
+      expect(requestSignal.aborted).toBe(false)
+      expect(globalThis.fetch.mock.calls[0][0]).toContain(
+        "/api/outline/scene-workbench/fusion/preview?novel_id=p1",
+      )
+      resolveFetch({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ mode: "fusion" }),
+      })
+      await expect(pending).resolves.toEqual({ mode: "fusion" })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("failed POST does not clear existing GET cache", async () => {
     globalThis.fetch = vi.fn(() => Promise.resolve({
       ok: true,
@@ -166,6 +199,35 @@ describe("api.js cache behavior", () => {
     const second = await window.api.projects.list()
     expect(second).toEqual([{ id: "p1", title: "Fresh" }])
     expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("永久删除请求显式携带二次确认", async () => {
+    globalThis.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 204 }))
+
+    await window.api.projects.permanentDelete("p1")
+
+    const [url, init] = globalThis.fetch.mock.calls[0]
+    expect(url).toContain("/api/projects/p1/permanent?confirmed=true")
+    expect(init.method).toBe("DELETE")
+  })
+
+  it("批量永久删除使用单次已确认请求", async () => {
+    globalThis.fetch = vi.fn(() => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ deleted_ids: ["p1", "p2"], deleted_count: 2 }),
+    }))
+
+    await window.api.projects.permanentDeleteMany(["p1", "p2"])
+
+    expect(globalThis.fetch).toHaveBeenCalledOnce()
+    const [url, init] = globalThis.fetch.mock.calls[0]
+    expect(url).toContain("/api/projects/recycle-bin/permanent-delete")
+    expect(init.method).toBe("POST")
+    expect(JSON.parse(init.body)).toEqual({
+      project_ids: ["p1", "p2"],
+      confirmed: true,
+    })
   })
 
   it("concurrent GET callers share the parsed JSON result, not raw Response", async () => {

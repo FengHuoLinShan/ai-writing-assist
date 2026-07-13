@@ -1,10 +1,17 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
 import { openProjectList, reloadProjectList } from "./helpers/workbench.js"
-import { API_BASE, createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
+import {
+  API_BASE,
+  createProject,
+  cleanupProject,
+  deleteProject,
+  waitForBackend,
+} from "./helpers/api-client.js"
 
 test.describe("项目回收站", () => {
   let testProjectId = null
+  let testProjectIds = []
 
   test.beforeAll(async () => {
     await waitForBackend(60000)
@@ -19,6 +26,10 @@ test.describe("项目回收站", () => {
       try { await cleanupProject(testProjectId) } catch {}
       testProjectId = null
     }
+    for (const projectId of testProjectIds) {
+      try { await cleanupProject(projectId) } catch {}
+    }
+    testProjectIds = []
   })
 
   test("软删除后项目进入回收站并可恢复", async ({ page }) => {
@@ -105,5 +116,31 @@ test.describe("项目回收站", () => {
     // 验证项目确实已不存在（通过API）
     const resp = await fetch(`${API_BASE}/projects/${project.id}`)
     expect(resp.status).toBe(404)
+  })
+
+  test("批量永久删除回收站项目", async ({ page }) => {
+    const projects = await Promise.all([
+      createProject({ title: "批量永久删除测试 A", language: "zh" }),
+      createProject({ title: "批量永久删除测试 B", language: "zh" }),
+    ])
+    testProjectIds = projects.map((project) => project.id)
+    await Promise.all(testProjectIds.map((projectId) => deleteProject(projectId)))
+
+    await reloadProjectList(page)
+    await page.locator('[data-action="recycle-bin"]').click()
+    for (const project of projects) {
+      await page.locator(`.recycle-project-checkbox[data-id="${project.id}"]`).check()
+    }
+
+    await page.locator("#recycle-bulk-delete").click()
+    await expect(page.locator(SEL.modalBody)).toContainText("不可恢复")
+    await page.locator(SEL.modalFooter).locator(SEL.btnDanger).click()
+
+    await expect(page.locator(SEL.toastContainer)).toContainText("已永久删除 2 个项目")
+    for (const project of projects) {
+      await expect(page.locator(SEL.modalBody)).not.toContainText(project.title)
+      const response = await fetch(`${API_BASE}/projects/${project.id}`)
+      expect(response.status).toBe(404)
+    }
   })
 })

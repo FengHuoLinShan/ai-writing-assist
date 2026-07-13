@@ -1,4 +1,9 @@
-"""Guard novel-scoped business LLM calls against default client drift."""
+"""Guard novel-scoped business LLM calls against effective-profile drift.
+
+New DB-backed business services must enter through the project runtime seam so
+their profile resolves project overrides, then global defaults, then system
+defaults. Direct clients remain limited to the explicit adapters below.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +16,9 @@ MODULES_ROOT = BACKEND_ROOT / "modules"
 # These are deliberately narrow legacy/project-snapshot/embedding adapters.
 # Any new entry requires a reason and a migration decision.
 ALLOWED_DIRECT_CLIENT_CALLS: dict[tuple[str, str], str] = {
+    ("modules/project/llm_runtime.py", "resolved_profile"): (
+        "the project-owned runtime seam constructs the already-resolved profile"
+    ),
     ("modules/rag/embedding_writer.py", "constructor"): (
         "embedding-only adapter governed by EMBEDDING_* settings"
     ),
@@ -27,16 +35,55 @@ ALLOWED_DIRECT_CLIENT_CALLS: dict[tuple[str, str], str] = {
 }
 
 
-def _call_kind(node: ast.Call) -> str | None:
-    if isinstance(node.func, ast.Name) and node.func.id == "LLMClient":
+def _llm_client_import_aliases(tree: ast.AST) -> tuple[set[str], set[str]]:
+    client_aliases: set[str] = set()
+    module_aliases: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module in {
+            "infrastructure.llm",
+            "infrastructure.llm.client",
+        }:
+            for item in node.names:
+                if item.name == "LLMClient":
+                    client_aliases.add(item.asname or item.name)
+        elif isinstance(node, ast.Import):
+            for item in node.names:
+                if item.name in {"infrastructure.llm", "infrastructure.llm.client"}:
+                    module_aliases.add(item.asname or item.name)
+    return client_aliases, module_aliases
+
+
+def _is_llm_client_reference(
+    node: ast.expr,
+    client_aliases: set[str],
+    module_aliases: set[str],
+) -> bool:
+    if isinstance(node, ast.Name):
+        return node.id in client_aliases
+    if not isinstance(node, ast.Attribute) or node.attr != "LLMClient":
+        return False
+    return ast.unparse(node.value) in module_aliases
+
+
+def _call_kind(
+    node: ast.Call,
+    client_aliases: set[str],
+    module_aliases: set[str],
+) -> str | None:
+    if _is_llm_client_reference(node.func, client_aliases, module_aliases):
         return "constructor"
     if (
         isinstance(node.func, ast.Attribute)
-        and isinstance(node.func.value, ast.Name)
-        and node.func.value.id == "LLMClient"
-        and node.func.attr == "from_project_settings"
+        and _is_llm_client_reference(
+            node.func.value,
+            client_aliases,
+            module_aliases,
+        )
     ):
-        return "project_settings"
+        return {
+            "from_project_settings": "project_settings",
+            "from_resolved_profile": "resolved_profile",
+        }.get(node.func.attr)
     return None
 
 
@@ -46,14 +93,19 @@ def test_business_modules_have_no_unclassified_direct_llm_clients() -> None:
         if "tests" in path.relative_to(MODULES_ROOT).parts:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        client_aliases, module_aliases = _llm_client_import_aliases(tree)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
-            kind = _call_kind(node)
+            kind = _call_kind(node, client_aliases, module_aliases)
             if kind is not None:
                 discovered.add((str(path.relative_to(BACKEND_ROOT)), kind))
 
-    assert discovered == set(ALLOWED_DIRECT_CLIENT_CALLS)
+    assert discovered == set(ALLOWED_DIRECT_CLIENT_CALLS), (
+        "Novel-scoped business LLM services must use "
+        "modules.project.facade.open_project_llm_client() so project fields "
+        "inherit global LLM defaults before system defaults."
+    )
 
 
 def test_novel_scoped_generation_modules_use_project_runtime_seam() -> None:
@@ -62,6 +114,7 @@ def test_novel_scoped_generation_modules_use_project_runtime_seam() -> None:
         "modules/writing/conflict_ai.py",
         "modules/outline/ai_workflow_service.py",
         "modules/outline/generator.py",
+        "modules/outline/scene_fusion_draft.py",
         "modules/outline/structure_dedup.py",
         "modules/world/entity_fusion.py",
         "modules/world/services/core/extraction_service.py",
@@ -81,6 +134,7 @@ def test_every_db_backed_workflow_passes_its_novel_id_to_runtime_seam() -> None:
         "modules/writing/conflict_ai.py": 2,
         "modules/outline/ai_workflow_service.py": 1,
         "modules/outline/generator.py": 1,
+        "modules/outline/scene_fusion_draft.py": 1,
         "modules/outline/structure_dedup.py": 1,
         "modules/world/entity_fusion.py": 1,
         "modules/world/services/core/extraction_service.py": 1,

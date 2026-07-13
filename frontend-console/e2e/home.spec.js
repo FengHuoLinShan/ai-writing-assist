@@ -26,7 +26,6 @@ test.describe("首页与导航", () => {
       "writing",
       "rag",
       "outline",
-      "scene",
       "generate",
       "settings",
       "project-settings",
@@ -34,6 +33,7 @@ test.describe("首页与导航", () => {
     for (const item of navItems) {
       await expect(page.locator(SEL.navItem(item))).toBeVisible()
     }
+    await expect(page.locator(SEL.navItem("scene"))).toHaveCount(0)
     await expect(page.locator(SEL.navItem("context"))).toHaveCount(0)
   })
 

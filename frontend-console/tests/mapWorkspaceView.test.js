@@ -781,6 +781,27 @@ describe("mapWorkspaceView overview", () => {
     )
   })
 
+  it("processes oversized map groups one service-sized batch at a time", async () => {
+    mapWorkspaceView._dynamicIndexes.candidateIdsByGroup.set(
+      "large-group",
+      new Set(Array.from({ length: 101 }, (_, index) => `obs-${index + 1}`)),
+    )
+    confirmAction.mockImplementation((_message, onConfirm) => onConfirm())
+    api.world.runMapBatchAction.mockResolvedValue({ updated_count: 100 })
+
+    await mapWorkspaceView._batchReviewGroup("large-group", "confirm")
+
+    expect(confirmAction.mock.calls[0][0]).toContain("本次先采用 100 条")
+    expect(api.world.runMapBatchAction).toHaveBeenCalledWith(
+      mapWorkspaceView._activeMapId,
+      "p1",
+      {
+        action: "confirm_observations",
+        observation_ids: Array.from({ length: 100 }, (_, index) => `obs-${index + 1}`),
+      },
+    )
+  })
+
   it("uses cached dynamic indexes instead of repeated linear item lookup", async () => {
     const observation = {
       item_id: "obs1",

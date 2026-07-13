@@ -147,3 +147,47 @@ async def test_permanent_delete_only_after_soft_delete(
     resp = await async_client.get("/api/projects/recycle-bin")
     assert resp.status_code == 200
     assert not any(p["id"] == pid for p in resp.json()["items"])
+
+
+@pytest.mark.asyncio
+async def test_bulk_permanent_delete_is_confirmed_and_atomic(
+    async_client: AsyncClient,
+) -> None:
+    deleted_ids = []
+    for title in ("批量删除 A", "批量删除 B"):
+        created = await async_client.post("/api/projects", json={"title": title})
+        project_id = created.json()["id"]
+        deleted_ids.append(project_id)
+        await async_client.delete(f"/api/projects/{project_id}")
+
+    active = await async_client.post("/api/projects", json={"title": "未进回收站"})
+    active_id = active.json()["id"]
+
+    resp = await async_client.post(
+        "/api/projects/recycle-bin/permanent-delete",
+        json={"project_ids": deleted_ids, "confirmed": False},
+    )
+    assert resp.status_code == 400
+
+    resp = await async_client.post(
+        "/api/projects/recycle-bin/permanent-delete",
+        json={"project_ids": [deleted_ids[0], active_id], "confirmed": True},
+    )
+    assert resp.status_code == 404
+    recycle_bin = await async_client.get("/api/projects/recycle-bin")
+    recycled_ids = {item["id"] for item in recycle_bin.json()["items"]}
+    assert set(deleted_ids) <= recycled_ids
+
+    resp = await async_client.post(
+        "/api/projects/recycle-bin/permanent-delete",
+        json={"project_ids": [*deleted_ids, deleted_ids[0]], "confirmed": True},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "deleted_ids": deleted_ids,
+        "deleted_count": 2,
+    }
+
+    recycle_bin = await async_client.get("/api/projects/recycle-bin")
+    recycled_ids = {item["id"] for item in recycle_bin.json()["items"]}
+    assert not set(deleted_ids) & recycled_ids

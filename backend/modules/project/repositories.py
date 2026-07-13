@@ -167,6 +167,37 @@ class ProjectRepository:
         await db.flush()
         return result.rowcount > 0
 
+    async def list_deleted_ids(
+        self,
+        db: AsyncSession,
+        project_ids: list[uuid.UUID],
+    ) -> set[uuid.UUID]:
+        """返回指定 ID 中当前确实在回收站的项目。"""
+        if not project_ids:
+            return set()
+        stmt = select(Project.id).where(
+            Project.id.in_(project_ids),
+            Project.deleted_at.isnot(None),
+        )
+        result = await db.execute(stmt)
+        return set(result.scalars().all())
+
+    async def permanent_delete_many(
+        self,
+        db: AsyncSession,
+        project_ids: list[uuid.UUID],
+    ) -> int:
+        """批量硬删除回收站项目，由数据库 CASCADE 清理关联数据。"""
+        if not project_ids:
+            return 0
+        stmt = delete(Project).where(
+            Project.id.in_(project_ids),
+            Project.deleted_at.isnot(None),
+        )
+        result = await db.execute(stmt)
+        await db.flush()
+        return result.rowcount or 0
+
     async def delete_async_tasks_for_project(
         self,
         db: AsyncSession,
@@ -175,6 +206,23 @@ class ProjectRepository:
         """删除以 JSON meta.novel_id 关联到项目的异步任务。"""
         stmt = delete(AsyncTask).where(
             AsyncTask.meta["novel_id"].as_string() == str(project_id),
+        )
+        result = await db.execute(stmt)
+        await db.flush()
+        return result.rowcount or 0
+
+    async def delete_async_tasks_for_projects(
+        self,
+        db: AsyncSession,
+        project_ids: list[uuid.UUID],
+    ) -> int:
+        """批量删除以 JSON meta.novel_id 关联到项目的异步任务。"""
+        if not project_ids:
+            return 0
+        stmt = delete(AsyncTask).where(
+            AsyncTask.meta["novel_id"].as_string().in_(
+                [str(project_id) for project_id in project_ids]
+            ),
         )
         result = await db.execute(stmt)
         await db.flush()

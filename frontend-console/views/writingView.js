@@ -196,10 +196,19 @@ const writingView = {
       return this._mobileQuickNote.render()
     }
 
+    const chapterCount = this._chapterList.length
     const html = `
-      <p class="writing-view-hint">
-        手动工作台 — 选择章节，撰写正文。
-      </p>
+      <div class="view-header writing-toolbar">
+        <div class="view-header__title">
+          手动工作台
+          <span class="view-header__count">共 ${esc(chapterCount)} 章</span>
+        </div>
+        <div class="view-header__actions">
+          <button class="btn btn-sm btn-primary" data-action="new-chapter">新建章节</button>
+          <button class="btn btn-sm" data-action="toggle-focus-mode">聚焦模式</button>
+          <button class="btn btn-sm" data-action="toggle-outline-float">打开大纲浮窗</button>
+        </div>
+      </div>
       <div class="writing-workspace-layout">
         ${renderWorkspaceRail({
           key: workspaceRailKey("writing", state.currentProjectId, "chapters"),
@@ -256,6 +265,10 @@ const writingView = {
       "checkpoint-version": () => this._editor?.checkpoint?.(),
       "discard-writing-changes": () => this._editor?.discardChanges?.(),
       "publish": () => this._handlePublish(),
+      "new-chapter": (e) => {
+        if (e.target.closest("#writing-tree-container")) return
+        this._chapterTree?.newChapter?.()
+      },
       "toggle-focus-mode": () => this._toggleFocusMode(),
       "toggle-outline-float": () => this._toggleOutlineFloat(),
       "close-outline-float": () => this._closeOutlineFloat(),

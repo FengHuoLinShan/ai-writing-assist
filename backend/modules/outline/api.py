@@ -7,7 +7,10 @@ from core.api_params import NovelIdQuery
 from core.dependencies import DbSession
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.context.facade import attach_result_ref, require_fresh_confirmation
-from modules.outline.scene_workbench import SceneWorkbenchService
+from modules.outline.scene_workbench import (
+    SceneSuggestionConflictError,
+    SceneWorkbenchService,
+)
 from modules.outline.schemas import (
     ForeshadowingPlanCreate,
     ForeshadowingPlanListResponse,
@@ -45,6 +48,8 @@ from modules.outline.schemas import (
     SceneMergeRequest,
     SceneReorderRequest,
     SceneReorderResponse,
+    SceneReplacementApplyRequest,
+    SceneReplacementApplyResponse,
     SceneResponse,
     SceneReviewRequest,
     SceneReviewResponse,
@@ -76,6 +81,8 @@ _reveal_service = RevealPlanService()
 
 
 def _workbench_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, SceneSuggestionConflictError):
+        return HTTPException(status_code=409, detail=str(exc))
     if isinstance(exc, LookupError):
         return HTTPException(status_code=404, detail=str(exc) or "Not found")
     if isinstance(exc, PermissionError):
@@ -497,6 +504,30 @@ async def api_dismiss_fusion_suggestions(
             novel_id,
             data,
         )
+    except Exception as exc:
+        raise _workbench_error(exc) from exc
+
+
+@router.post(
+    "/scene-workbench/replacement-suggestions/apply",
+    response_model=SceneReplacementApplyResponse,
+)
+async def api_apply_replacement_suggestion(
+    data: SceneReplacementApplyRequest,
+    db: DbSession,
+    *,
+    novel_id: NovelIdQuery,
+):
+    try:
+        return await _scene_workbench_service.apply_replacement_suggestion(
+            db,
+            novel_id,
+            data,
+        )
+    except SceneSuggestionConflictError as exc:
+        if exc.persist_stale:
+            await db.commit()
+        raise _workbench_error(exc) from exc
     except Exception as exc:
         raise _workbench_error(exc) from exc
 

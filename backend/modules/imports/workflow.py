@@ -247,6 +247,7 @@ class DeepImportWorkflow:
         context_mode: str = "working",
         include_pending_objects: bool = True,
         high_quality: bool = False,
+        replace_existing: bool = False,
         project_settings: dict[str, Any] | None = None,
         on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None = None,
         stop_after: DeepImportStep | None = None,
@@ -293,6 +294,7 @@ class DeepImportWorkflow:
                     workflow_id=workflow_id,
                     on_progress=on_progress,
                     stop_after=stop_after,
+                    replace_existing=replace_existing,
                 )
             )
             if scene_outcome.stopped:
@@ -549,6 +551,9 @@ class DeepImportWorkflow:
         *,
         workflow_id: str,
         fusion_suggestions=None,
+        start_chapter: int | None = None,
+        end_chapter: int | None = None,
+        replace_existing: bool = False,
     ):
         from modules.imports.scene_commit import SceneCommitter
 
@@ -558,6 +563,9 @@ class DeepImportWorkflow:
             candidates,
             workflow_id=workflow_id,
             fusion_suggestions=fusion_suggestions or [],
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            replace_existing=replace_existing,
         )
 
     @staticmethod

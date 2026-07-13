@@ -4,7 +4,7 @@ import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
 import {
   API_BASE,
   createProject, cleanupProject, waitForBackend,
-  createDraft, createScene, getLatestDraft,
+  createAutosavedDraft, createDraft, createScene, deleteDraft, getLatestDraft,
 } from "./helpers/api-client.js"
 
 async function confirmPublishIfPrompted(page) {
@@ -372,9 +372,9 @@ test.describe("写作台模块", () => {
 
   test("新 Scene 创建和断章更新左侧树", async ({ page }) => {
     // 创建 3 个章节
-    await createDraft(testProjectId, 1, "ch1", "第一章内容")
-    await createDraft(testProjectId, 2, "ch2", "第二章内容")
-    await createDraft(testProjectId, 3, "ch3", "第三章内容")
+    await createAutosavedDraft(testProjectId, 1, "ch1", "第一章内容")
+    await createAutosavedDraft(testProjectId, 2, "ch2", "第二章内容")
+    await createAutosavedDraft(testProjectId, 3, "ch3", "第三章内容")
 
     // 创建 Scene 包含 1-3 章（split 依赖 scene_chunks）
     const scene = await createScene(testProjectId, {
@@ -1020,17 +1020,16 @@ test.describe("写作台模块", () => {
 
     await expect(page.locator("#writing-editor")).toHaveValue("原始内容", { timeout: 5000 })
 
-    // 模拟另一个会话删除了当前编辑的 v1 版本
-    await fetch(
-      `${API_BASE}/writing/drafts/${d1.draft.id}?novel_id=${encodeURIComponent(testProjectId)}`,
-      { method: "DELETE" },
-    )
+    // 模拟另一个会话删除（软废弃）了当前编辑的 v1 版本
+    await deleteDraft(testProjectId, d1.draft.id)
 
-    // 尝试暂存 — v1 草稿已不存在，应返回 404
+    // 尝试暂存 — v1 已不是最新工作版本，应返回 409 并给出可操作的冲突文案
     await page.locator("#writing-editor").fill("冲突内容")
     await page.locator('[data-action="autosave"]').click()
 
-    // 应显示错误（草稿已被删除，404 not found）
-    await expect(page.locator(SEL.toastContainer)).toContainText("不存在", { timeout: 10000 })
+    await expect(page.locator(SEL.toastContainer)).toContainText(
+      "该章节已被其他会话更新，请刷新后重新编辑",
+      { timeout: 10000 },
+    )
   })
 })

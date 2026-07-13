@@ -621,6 +621,48 @@ class TestProjectService:
         )
 
     @pytest.mark.asyncio
+    async def test_permanent_delete_projects_deduplicates_ids(self) -> None:
+        """批量永久删除应去重并一次清理异步任务。"""
+        project_ids = [uuid.uuid4(), uuid.uuid4()]
+        repo = MagicMock()
+        repo.list_deleted_ids = AsyncMock(return_value=set(project_ids))
+        repo.permanent_delete_many = AsyncMock(return_value=2)
+        repo.delete_async_tasks_for_projects = AsyncMock(return_value=3)
+        service = ProjectService(repo=repo)
+        db = MagicMock()
+
+        result = await service.permanent_delete_projects(
+            db,
+            [str(project_ids[0]), str(project_ids[1]), str(project_ids[0])],
+            confirmed=True,
+        )
+
+        assert result.deleted_count == 2
+        assert result.deleted_ids == [str(project_id) for project_id in project_ids]
+        repo.permanent_delete_many.assert_awaited_once_with(db, project_ids)
+        repo.delete_async_tasks_for_projects.assert_awaited_once_with(db, project_ids)
+
+    @pytest.mark.asyncio
+    async def test_permanent_delete_projects_rejects_partial_match(self) -> None:
+        """选中项目不全在回收站时不应执行任何删除。"""
+        project_ids = [uuid.uuid4(), uuid.uuid4()]
+        repo = MagicMock()
+        repo.list_deleted_ids = AsyncMock(return_value={project_ids[0]})
+        repo.permanent_delete_many = AsyncMock()
+        repo.delete_async_tasks_for_projects = AsyncMock()
+        service = ProjectService(repo=repo)
+
+        with pytest.raises(NotFoundError):
+            await service.permanent_delete_projects(
+                MagicMock(),
+                [str(project_id) for project_id in project_ids],
+                confirmed=True,
+            )
+
+        repo.permanent_delete_many.assert_not_awaited()
+        repo.delete_async_tasks_for_projects.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_get_project_context(self) -> None:
         """测试获取项目上下文"""
         project_id = str(uuid.uuid4())

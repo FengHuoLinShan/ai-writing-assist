@@ -21,7 +21,7 @@ make help                        # List all targets
 # Backend
 cd backend
 pip install -e ".[dev]"          # Install dependencies
-python scripts/dev_server.py     # Dev server with auto-reload (port 8000)
+python scripts/dev_server.py     # Process-level auto-reload (port 8000)
 python run_worker.py --reload    # Task worker with auto-reload
 python scripts/check_llm.py      # Sanitized LLM connectivity check
 
@@ -63,6 +63,12 @@ make format-fix                  # ruff format
 ```
 
 Frontend currently has no build script and no independent lint/format dependency in `frontend-console/package.json`; frontend validation remains the Vitest/Playwright scripts above plus `git diff --check`.
+
+Backend reload watches `app/`, `core/`, `shared/`, `infrastructure/`, `modules/`,
+and `prompts/`. Each Python or prompt Markdown change stops the complete Uvicorn
+process before starting a new one. During that short restart window port 8000 is
+closed instead of being held by a stale reload parent; wait for `/api/health` to
+return before judging the frontend/backend connection.
 
 ## Three-Layer Architecture
 

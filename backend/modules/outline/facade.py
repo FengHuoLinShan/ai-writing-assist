@@ -28,6 +28,7 @@ from modules.outline.reveal_facade import get_reader_reveal_decision  # noqa: F4
 from modules.outline.scene_facade import (  # noqa: F401
     batch_create_scenes,
     bind_scene_spans_to_source,
+    commit_deep_import_scene_candidates,
     count_scenes_by_novel,
     create_scene,
     get_next_scene_index,
@@ -60,6 +61,7 @@ __all__ = [
     "batch_create_scenes",
     "count_scenes_by_novel",
     "create_scene",
+    "commit_deep_import_scene_candidates",
     "deprecate_deep_import_scenes_by_workflow",
     "deprecate_deep_import_structure_assets_by_workflow",
     "ensure_deep_import_structure_outputs",

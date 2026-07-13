@@ -491,3 +491,121 @@ async def test_scene_commit_persists_phase1c_suggestions_with_formal_scene_ids(
     )
     assert listed.total == 1
     assert listed.items[0].source_scene_ids == result.created_scene_ids
+
+
+@pytest.mark.asyncio
+async def test_reextract_protects_canonical_and_queues_replacement(
+    db_session: AsyncSession,
+    sample_novel_id: str,
+) -> None:
+    from modules.imports.scene_commit import SceneCommitter
+    from modules.outline.facade import create_scene, get_scene
+    from modules.outline.scene_workbench import SceneWorkbenchService
+
+    protected = await create_scene(
+        db_session,
+        sample_novel_id,
+        {
+            "scene_index": 0,
+            "title": "Author approved",
+            "source": "deep_import",
+            "scene_chunks": [{"chapter_index": 1}],
+            "chapter_ids": ["1"],
+            "structure_meta": {"auto_ingested": True, "workflow_id": "old"},
+            "status": "canonical",
+        },
+    )
+    disposable = await create_scene(
+        db_session,
+        sample_novel_id,
+        {
+            "scene_index": 1,
+            "title": "Unreviewed",
+            "source": "deep_import",
+            "scene_chunks": [{"chapter_index": 1}],
+            "chapter_ids": ["1"],
+            "structure_meta": {"auto_ingested": True, "workflow_id": "old"},
+            "status": "draft",
+        },
+    )
+
+    result = await SceneCommitter().commit(
+        db_session,
+        sample_novel_id,
+        [make_final_scene_candidate(source_chapter_indices=[1])],
+        workflow_id="new-workflow",
+        start_chapter=1,
+        end_chapter=1,
+        replace_existing=True,
+    )
+
+    assert result.created_count == 0
+    assert result.replacement_suggestion_count == 1
+    assert result.effective_scene_ids == [protected["id"]]
+    assert result.effective_coverage["coverage_complete"] is True
+    assert (await get_scene(db_session, protected["id"]))["status"] == "canonical"
+    assert (await get_scene(db_session, disposable["id"]))["status"] == "deprecated"
+    suggestions = await SceneWorkbenchService().list_fusion_suggestions(
+        db_session,
+        sample_novel_id,
+    )
+    assert suggestions.total == 1
+    assert suggestions.items[0].suggestion_kind == "replacement"
+    assert suggestions.items[0].source_scene_ids == [protected["id"]]
+
+
+@pytest.mark.asyncio
+async def test_reextract_allows_same_chapter_non_overlapping_exact_spans(
+    db_session: AsyncSession,
+    sample_novel_id: str,
+) -> None:
+    from modules.imports.scene_commit import SceneCommitter
+    from modules.outline.facade import create_scene
+    from modules.writing.facade import create_published_draft_only
+
+    draft = await create_published_draft_only(
+        db_session,
+        sample_novel_id,
+        1,
+        content="x" * 100,
+    )
+    await create_scene(
+        db_session,
+        sample_novel_id,
+        {
+            "scene_index": 0,
+            "title": "Protected first half",
+            "source": "manual",
+            "scene_chunks": [{
+                "chapter_index": 1,
+                "start_offset": 0,
+                "end_offset": 40,
+                "source_draft_id": draft.id,
+                "source_content_hash": draft.content_hash,
+            }],
+            "chapter_ids": ["1"],
+            "status": "canonical",
+        },
+    )
+    candidate = make_final_scene_candidate(source_chapter_indices=[1])
+    candidate.scene_chunks = [SceneChunk(
+        chapter_index=1,
+        start_offset=40,
+        end_offset=100,
+        source_draft_id=draft.id,
+        source_content_hash=draft.content_hash,
+    )]
+
+    result = await SceneCommitter().commit(
+        db_session,
+        sample_novel_id,
+        [candidate],
+        workflow_id="new-workflow",
+        start_chapter=1,
+        end_chapter=1,
+        replace_existing=True,
+    )
+
+    assert result.created_count == 1
+    assert result.replacement_suggestion_count == 0
+    assert result.effective_scene_count == 2

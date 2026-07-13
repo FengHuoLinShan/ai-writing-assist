@@ -74,6 +74,8 @@ const LEAFLET_CSS_URL = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leafl
 const LEAFLET_JS_URL = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.js`
 const LEAFLET_CSS_INTEGRITY = "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
 const LEAFLET_JS_INTEGRITY = "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+const MAP_TILE_BATCH_LIMIT = 10000
+const MAP_LOCATION_BINDING_HEX_LIMIT = 5000
 
 let leafletLoadPromise = null
 
@@ -508,8 +510,11 @@ const mapView = {
 
   _renderEmpty() {
     return `
-      <div class="map-toolbar">
-        <button class="btn btn-primary" data-action="map-create-world">+ 创建世界地图</button>
+      <div class="view-header map-toolbar">
+        <div class="view-header__title">地图</div>
+        <div class="view-header__actions">
+          <button class="btn btn-sm btn-primary" data-action="map-create-world">+ 创建世界地图</button>
+        </div>
       </div>
       ${this._mapsLoadError ? `
         <div class="empty-state" role="alert">
@@ -544,8 +549,14 @@ const mapView = {
       </tr>
     `).join("")
     return `
-      <div class="map-toolbar">
-        <button class="btn btn-primary" data-action="map-create-world">+ 创建世界地图</button>
+      <div class="view-header map-toolbar">
+        <div class="view-header__title">
+          地图
+          <span class="view-header__count">${esc(this._maps.length)} 张</span>
+        </div>
+        <div class="view-header__actions">
+          <button class="btn btn-sm btn-primary" data-action="map-create-world">+ 创建世界地图</button>
+        </div>
       </div>
       ${renderBulkToolbar(this, scope, [
         { action: "delete-maps", label: "批量删除地图", className: "btn-danger" },
@@ -594,9 +605,9 @@ const mapView = {
       : ""
 
     return `
-      <div class="map-toolbar">
-        <div class="map-breadcrumb">${breadcrumbs}</div>
-        <div class="map-toolbar-right">
+      <div class="view-header map-toolbar">
+        <div class="view-header__title map-breadcrumb">${breadcrumbs}</div>
+        <div class="view-header__actions">
           <button class="btn btn-sm" data-action="map-back-list">地图列表</button>
           <button class="btn btn-sm" data-action="map-settings">地图设置</button>
           ${editBtn}
@@ -1500,6 +1511,10 @@ const mapView = {
   },
 
   async _applyTerrainChanges() {
+    const pendingCount = Object.keys(mapState.pendingTerrainChanges).length
+    if (pendingCount > MAP_TILE_BATCH_LIMIT) {
+      throw new Error(`单次最多应用 ${MAP_TILE_BATCH_LIMIT} 个地形变更，请撤销部分变更后分批保存`)
+    }
     const changes = consumePendingChanges()
     if (changes.length === 0) return
     try {
@@ -1520,6 +1535,11 @@ const mapView = {
     for (const b of bindings) {
       if (!byEntity[b.location_entity_id]) byEntity[b.location_entity_id] = []
       byEntity[b.location_entity_id].push({ hex_q: b.hex_q, hex_r: b.hex_r, is_center: b.is_center })
+    }
+    const oversized = Object.values(byEntity)
+      .find((hexes) => hexes.length > MAP_LOCATION_BINDING_HEX_LIMIT)
+    if (oversized) {
+      throw new Error(`单个地点单次最多绑定 ${MAP_LOCATION_BINDING_HEX_LIMIT} 个地图格，请减少选中范围`)
     }
     try {
       for (const [entityId, hexes] of Object.entries(byEntity)) {

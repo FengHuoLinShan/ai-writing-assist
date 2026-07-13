@@ -387,7 +387,13 @@ const api = {
       return post(`/projects/${id}/restore`)
     },
     async permanentDelete(id) {
-      return deleteRequest(`/projects/${id}/permanent`)
+      return deleteRequest(withQuery(`/projects/${id}/permanent`, { confirmed: true }))
+    },
+    async permanentDeleteMany(projectIds) {
+      return post("/projects/recycle-bin/permanent-delete", {
+        project_ids: projectIds,
+        confirmed: true,
+      })
     },
     async listLlmProviderTemplates() {
       return request("/projects/llm/provider-templates")
@@ -1193,7 +1199,12 @@ const api = {
       return post(withQuery("/outline/scene-workbench/merge", { novel_id: novelId }), data)
     },
     async previewSceneFusion(novelId, data) {
-      return post(withQuery("/outline/scene-workbench/fusion/preview", { novel_id: novelId }), data)
+      return contractJson(
+        "outline.previewSceneFusion",
+        {},
+        { novel_id: novelId },
+        data,
+      )
     },
     async saveSceneFusion(novelId, data) {
       return post(withQuery("/outline/scene-workbench/fusion/save", { novel_id: novelId }), data)
@@ -1203,6 +1214,9 @@ const api = {
     },
     async dismissFusionSuggestions(novelId, data) {
       return post(withQuery("/outline/scene-workbench/fusion-suggestions/dismiss", { novel_id: novelId }), data)
+    },
+    async applySceneReplacement(novelId, data) {
+      return post(withQuery("/outline/scene-workbench/replacement-suggestions/apply", { novel_id: novelId }), data)
     },
     async previewSceneSplit(novelId, data) {
       return post(withQuery("/outline/scene-workbench/split/preview", { novel_id: novelId }), data)

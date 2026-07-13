@@ -18,6 +18,11 @@ Skill、自动化和编码工具的内部能力不构成仓库契约，不能覆
 
 - 本项目不实现自治或多 Agent 运行时。LLM step 必须由确定性业务工作流编排，带 schema
   校验、预算、超时、日志和明确权限；不得自主选工具、跨模块编排或绕过确认。
+- 新增任何带 `novel_id` 的业务 LLM 服务必须通过
+  `modules.project.facade.open_project_llm_client()` 获取有效配置，固定按“项目覆盖 →
+  全局默认 → 系统默认”继承；可恢复任务使用 project snapshot seam。业务模块不得直接
+  `LLMClient()`、`LLMClient.from_project_settings()` 或自行拼装 provider/profile。独立
+  embedding 适配器仅可保留静态门禁中已有的窄例外，新增例外必须说明配置边界和迁移决定。
 - Prompt 清单与调用契约见 `docs/prompts/Prompt体系设计.md`，不要在此复制易变文件清单。
 - 普通 LLM 输出只进入待处理建议或临时预览。仅经持久化用户授权的自动流水线可写入允许的
   派生/已采用资产，且必须保存授权范围、来源、workflow、可编辑/可回滚标记与测试；冲突、

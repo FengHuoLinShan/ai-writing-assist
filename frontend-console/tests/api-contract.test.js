@@ -213,6 +213,13 @@ describe("前后端 API 契约", () => {
       .toBe("/outline/chapter-scenes/apply")
     expect(getApiContract("outline.applyChapterScenePreview").requiredBody)
       .toEqual(["novel_id", "context_confirmation_id", "source_task_id", "draft_scenes", "confirmed"])
+    expect(contractPath("outline.previewSceneFusion", {}, { novel_id: "novel-1" }))
+      .toBe("/outline/scene-workbench/fusion/preview?novel_id=novel-1")
+    expect(getApiContract("outline.previewSceneFusion")).toMatchObject({
+      method: "POST",
+      timeoutKind: "llmGenerate",
+      timeout: 90000,
+    })
 
     expect(getApiContract("context.confirm")).toMatchObject({
       method: "POST",

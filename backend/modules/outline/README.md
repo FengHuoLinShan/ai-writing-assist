@@ -82,6 +82,7 @@ POST  /api/outline/scene-workbench/fusion/preview
 POST  /api/outline/scene-workbench/fusion/save
 GET   /api/outline/scene-workbench/fusion-suggestions
 POST  /api/outline/scene-workbench/fusion-suggestions/dismiss
+POST  /api/outline/scene-workbench/replacement-suggestions/apply
 ```
 
 `scenes.structure_meta` 保存结构整理元信息，例如：
@@ -106,7 +107,9 @@ Scene 结构、正文定位和待处理跨章融合建议；`health.needs_organi
 `skip` 和 `limit` query 参数；`confidence_band` 固定为 `low`、`medium`、
 `high` 三档，分别表示 `<0.5`、`0.5-0.8` 和 `>=0.8`。健康筛选在服务端
 应用，返回的 `total` 与分页都基于筛选后结果；健康统计仍按其他管理筛选后的
-全集计算，不被当前健康桶二次缩窄。显式 `selected_scene_id` 不在请求页时，服务端
+全集计算，不被当前健康桶二次缩窄。健康桶是活跃 Scene 的可操作队列，
+即使同时指定 `status=deprecated` 也不会返回历史 Scene；历史产物仍可通过状态筛选
+单独查看。显式 `selected_scene_id` 不在请求页时，服务端
 把窗口对齐到目标 Scene 所在页，并在响应 `skip` 返回实际窗口起点；目标不属于当前
 novel 或筛选结果时返回 404。
 
@@ -161,6 +164,12 @@ Scene 草稿审稿界面，由用户选择主 Scene 并确认编辑后再复用
 建议来源对，以及 adopted 融合结果与其来源的组合，由工作台独占处理，
 `OutlineStructureDedupService` 的项目级 Scene 扫描会跳过它们；
 来源 Scene 变更或废弃后建议失效，才恢复全局扫描资格。
+
+重复提取还复用该队列保存 `suggestion_kind=replacement` 的替换审查。已采用、人工、
+已编辑或无合法 deep-import ownership 的 active Scene 不会被自动覆盖；与它们重叠的新
+候选保存在 `proposed_scene.draft_scenes`，不参与正文、上下文、RAG 或后续提取。作者可
+保留原 Scene、直接替换或只编辑语义字段后替换。替换采用在同一事务内创建 canonical
+Scene、软废弃来源、稳定重排、同步 span 和 suggestion 生命周期，并入队 RAG 重建。
 
 ### SceneSpan 派生读模型
 
@@ -224,7 +233,8 @@ preview/needs_review，不扩大自动 apply 权限。
 跨模块调用优先走 `modules.outline.facade`。`facade.py` 是兼容 re-export hub，
 内部按 seam 拆到子 facade：
 
-- `scene_facade.py`：Scene 读取、创建、更新、章节拆分、Phase 1c 融合建议持久化和 `SceneContract`
+- `scene_facade.py`：Scene 读取、创建、更新、章节拆分、深度导入 Scene 原子提交、
+  Phase 1c/替换建议持久化和 `SceneContract`
 - `structure_dedup_facade.py`：outline 结构资产智能去重建议与应用
 - `deep_import_repair_facade.py`：deep import 修复、最小结构补齐和清理
 - `foreshadowing_facade.py`：伏笔计划只读上下文

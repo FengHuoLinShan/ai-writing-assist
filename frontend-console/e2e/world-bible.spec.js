@@ -165,7 +165,7 @@ test.describe("世界书工作台", () => {
 
     await page.locator("[data-action='bible-open-suggestions']").click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("创设建议")
-    await expect(page.locator(SEL.modalBody)).toContainText("暂无待审核建议")
+    await expect(page.locator(SEL.modalBody)).toContainText("暂无待处理建议")
     await page.locator(SEL.modalClose).click()
     await expectNoAppErrors(page, "建议弹窗后")
 
