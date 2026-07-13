@@ -19,6 +19,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
+from core.container import override
+
+
+@pytest.fixture
+def active_project_guard():
+    """Keep direct endpoint unit tests focused below the project boundary."""
+    guard = AsyncMock()
+    with override("project.require_active", guard):
+        yield guard
+
 
 def _compiled_execute_statement(db: AsyncMock) -> str:
     statement = db.execute.call_args[0][0]
@@ -172,7 +182,7 @@ class TestGetTaskStatus:
     """get_task_status API endpoint 单元测试"""
 
     @pytest.mark.asyncio
-    async def test_task_exists(self) -> None:
+    async def test_task_exists(self, active_project_guard: AsyncMock) -> None:
         """GREEN: 查询存在的任务返回完整状态"""
         from infrastructure.tasks.api import get_task_status
 
@@ -205,12 +215,16 @@ class TestGetTaskStatus:
         assert response.meta == {"novel_id": "abc"}
         assert response.result == {"output": "ok"}
         assert response.error_message is None
+        active_project_guard.assert_awaited_once_with(db, "abc")
         sql = _compiled_execute_statement(db)
         assert "async_tasks.id" in sql
         assert "novel_id" in sql
 
     @pytest.mark.asyncio
-    async def test_task_not_found_raises_404(self) -> None:
+    async def test_task_not_found_raises_404(
+        self,
+        active_project_guard: AsyncMock,
+    ) -> None:
         """RED: 任务不存在时抛出 404"""
         from infrastructure.tasks.api import get_task_status
 
@@ -225,9 +239,13 @@ class TestGetTaskStatus:
             await get_task_status(task_id, db=db, novel_id="abc")
 
         assert exc_info.value.status_code == 404
+        active_project_guard.assert_awaited_once_with(db, "abc")
 
     @pytest.mark.asyncio
-    async def test_status_fallback_when_none(self) -> None:
+    async def test_status_fallback_when_none(
+        self,
+        active_project_guard: AsyncMock,
+    ) -> None:
         """GREEN: status 为 None 时回退到 'pending'"""
         from infrastructure.tasks.api import get_task_status
 
@@ -256,13 +274,17 @@ class TestGetTaskStatus:
         assert response.meta == {"novel_id": "abc"}
         assert response.result == {}
         assert response.created_at is None
+        active_project_guard.assert_awaited_once_with(db, "abc")
 
 
 class TestCancelTask:
     """cancel_task API endpoint 单元测试"""
 
     @pytest.mark.asyncio
-    async def test_cancel_pending_task(self) -> None:
+    async def test_cancel_pending_task(
+        self,
+        active_project_guard: AsyncMock,
+    ) -> None:
         """GREEN: 取消 pending 状态的任务"""
         from infrastructure.tasks.api import cancel_task
 
@@ -285,12 +307,16 @@ class TestCancelTask:
         assert response.task_id == str(task_id)
         assert response.cancelled is True
         task_mock.mark_cancelled.assert_called_once()
+        active_project_guard.assert_awaited_once_with(db, "abc")
         sql = _compiled_execute_statement(db)
         assert "async_tasks.id" in sql
         assert "novel_id" in sql
 
     @pytest.mark.asyncio
-    async def test_cancel_running_task(self) -> None:
+    async def test_cancel_running_task(
+        self,
+        active_project_guard: AsyncMock,
+    ) -> None:
         """GREEN: 取消 running 状态的任务"""
         from infrastructure.tasks.api import cancel_task
 
@@ -311,9 +337,13 @@ class TestCancelTask:
         response = await cancel_task(task_id, db=db, novel_id="abc")
         assert response.cancelled is True
         task_mock.mark_cancelled.assert_called_once()
+        active_project_guard.assert_awaited_once_with(db, "abc")
 
     @pytest.mark.asyncio
-    async def test_cancel_done_task_raises_400(self) -> None:
+    async def test_cancel_done_task_raises_400(
+        self,
+        active_project_guard: AsyncMock,
+    ) -> None:
         """RED: 取消已完成的任务抛出 400"""
         from infrastructure.tasks.api import cancel_task
 
@@ -334,9 +364,13 @@ class TestCancelTask:
 
         assert exc_info.value.status_code == 400
         assert "done" in exc_info.value.detail
+        active_project_guard.assert_awaited_once_with(db, "abc")
 
     @pytest.mark.asyncio
-    async def test_cancel_failed_task_raises_400(self) -> None:
+    async def test_cancel_failed_task_raises_400(
+        self,
+        active_project_guard: AsyncMock,
+    ) -> None:
         """RED: 取消已失败的任务抛出 400"""
         from infrastructure.tasks.api import cancel_task
 
@@ -356,9 +390,13 @@ class TestCancelTask:
             await cancel_task(task_id, db=db, novel_id="abc")
 
         assert exc_info.value.status_code == 400
+        active_project_guard.assert_awaited_once_with(db, "abc")
 
     @pytest.mark.asyncio
-    async def test_cancel_nonexistent_task_raises_404(self) -> None:
+    async def test_cancel_nonexistent_task_raises_404(
+        self,
+        active_project_guard: AsyncMock,
+    ) -> None:
         """RED: 取消不存在的任务抛出 404"""
         from infrastructure.tasks.api import cancel_task
 
@@ -373,6 +411,7 @@ class TestCancelTask:
             await cancel_task(task_id, db=db, novel_id="abc")
 
         assert exc_info.value.status_code == 404
+        active_project_guard.assert_awaited_once_with(db, "abc")
 
 
 # ============================================================
