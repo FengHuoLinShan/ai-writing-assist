@@ -126,8 +126,13 @@ test.describe("Outline View — 伏笔与揭示", () => {
     await expect(page.locator(SEL.dataTable)).toContainText("8")
 
     // When: 删除揭示并确认
-    await page.locator('.action-menu-btn').first().click()
-    await page.locator('[data-action="delete-reveal"]').first().click()
+    const revealRow = page.locator(".outline-structure-row").filter({ hasText: "符文揭示古城入口" })
+    const revealMenu = revealRow.locator(".action-menu")
+    await revealMenu.locator(".action-menu-btn").click()
+    await expect(revealMenu).toHaveClass(/open/)
+    const deleteReveal = revealMenu.locator('[data-action="delete-reveal"]')
+    await expect(deleteReveal).toBeVisible()
+    await deleteReveal.click()
     await expect(page.locator(SEL.modalOverlay)).not.toHaveClass(/hidden/)
     await page.locator(SEL.modalFooter).locator(SEL.btnDanger).click()
     await expect(page.locator(SEL.toastContainer)).toContainText("已删除", { timeout: 10000 })
