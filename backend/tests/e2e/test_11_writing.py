@@ -205,9 +205,23 @@ class TestWritingMissingFlows:
         assert deleted.json()["deleted_versions"] == before.json()["total"]
         after = await client.get(f"/api/writing/chapters/3/versions?novel_id={pid}")
         assert after.status_code == 200, after.text
-        assert after.json()["total"] == 0
+        after_history = after.json()
+        assert after_history["total"] == before.json()["total"]
+        assert len(after_history["versions"]) == deleted.json()["deleted_versions"]
+        assert {version["status"] for version in after_history["versions"]} == {
+            "deprecated"
+        }
+        assert {version["display_state"] for version in after_history["versions"]} == {
+            "archived"
+        }
+        assert not any(
+            version["display_state"] == "active" for version in after_history["versions"]
+        )
         latest = await client.get(f"/api/writing/chapters/3/draft?novel_id={pid}")
         assert latest.status_code == 404
+        chapter_list = await client.get(f"/api/writing/chapters?novel_id={pid}")
+        assert chapter_list.status_code == 200, chapter_list.text
+        assert 3 not in chapter_list.json()["chapter_indices"]
         stored_versions = list(
             (
                 await db_session.execute(
