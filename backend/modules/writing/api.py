@@ -20,6 +20,7 @@ from modules.context.facade import (
     bind_confirmed_action_result,
     prepare_confirmed_ai_action,
 )
+from modules.project.facade import require_active_project
 from modules.writing.facade import (
     create_draft_only as _create_draft_only,
 )
@@ -85,6 +86,7 @@ async def create_conflict_check(
     data: WritingConflictCheckCreate,
 ) -> WritingConflictCheckResponse:
     """创建一次 Scene 写作冲突检查。"""
+    await require_active_project(db, data.novel_id)
     return await _conflict_service.create_check(db, data)
 
 
@@ -101,6 +103,7 @@ async def list_conflict_checks(
     limit: int = Query(10, ge=1, le=50, description="返回条数"),
 ) -> WritingConflictCheckListResponse:
     """获取章节/Scene 的冲突检查历史，最近记录优先。"""
+    await require_active_project(db, novel_id)
     return await _conflict_service.list_checks(
         db,
         novel_id=novel_id,
@@ -121,6 +124,7 @@ async def get_conflict_check(
     novel_id: NovelIdQuery,
 ) -> WritingConflictCheckResponse:
     """获取单次冲突检查详情。"""
+    await require_active_project(db, novel_id)
     return await _conflict_service.get_check(
         db,
         novel_id=novel_id,
@@ -138,6 +142,7 @@ async def run_conflict_check_ai_review(
     check_id: str = Path(..., description="检查记录 ID"),
 ) -> WritingConflictCheckResponse:
     """为一次冲突检查追加 AI 软冲突判断。"""
+    await require_active_project(db, data.novel_id)
     return await _conflict_service.run_ai_review(
         db,
         check_id=check_id,
@@ -156,6 +161,7 @@ async def enqueue_conflict_check_ai_review(
     check_id: str = Path(..., description="检查记录 ID"),
 ) -> WritingConflictAiReviewTaskResponse:
     """提交 AI 软冲突判断任务，避免前端等待真实 LLM 调用超时。"""
+    await require_active_project(db, data.novel_id)
     check = await _conflict_service.start_ai_review_task(
         db,
         check_id=check_id,
@@ -197,6 +203,7 @@ async def update_conflict_item(
     novel_id: NovelIdQuery,
 ) -> WritingConflictItemResponse:
     """更新单条问题处理状态。"""
+    await require_active_project(db, novel_id)
     return await _conflict_service.update_item(
         db,
         novel_id=novel_id,
@@ -215,6 +222,7 @@ async def create_conflict_item_ai_suggestion(
     item_id: str = Path(..., description="问题项 ID"),
 ) -> WritingConflictItemResponse:
     """为单条冲突问题生成 AI 修复建议。"""
+    await require_active_project(db, data.novel_id)
     return await _conflict_service.generate_ai_suggestion(
         db,
         item_id=item_id,
@@ -232,6 +240,7 @@ async def create_autosaved_draft(
     data: WritingDraftAutosaveCreate,
 ) -> WritingDraftResponse:
     """创建纯草稿版本；不发布，但会合并标脏 working 索引。"""
+    await require_active_project(db, data.novel_id)
     draft = await _create_draft_only(
         db,
         novel_id=data.novel_id,
@@ -260,6 +269,7 @@ async def generate_writing_candidate(
     data: WritingGenerateRequest,
 ) -> WritingGenerateResponse:
     """提交 AI 正文建议生成任务；采用前不进入工作稿。"""
+    await require_active_project(db, data.novel_id)
     try:
         await prepare_confirmed_ai_action(
             db,
@@ -300,6 +310,7 @@ async def create_draft(
     data: WritingPublishRequest,
 ) -> PublishResponse:
     """发布当前工作版本；无实质变化时复用已发布版本。"""
+    await require_active_project(db, data.novel_id)
     snapshot = None
     try:
         snapshot = await _conflict_service.latest_snapshot(
@@ -357,6 +368,7 @@ async def get_draft(
     novel_id: NovelIdQuery,
 ) -> WritingDraftResponse:
     """获取指定草稿"""
+    await require_active_project(db, novel_id)
     return await _service.get_draft(db, draft_id, novel_id)
 
 
@@ -368,6 +380,7 @@ async def adopt_candidate_to_working(
     novel_id: NovelIdQuery,
 ) -> WritingDraftResponse:
     """将 AI 正文建议显式采用到普通工作稿。"""
+    await require_active_project(db, novel_id)
     from modules.rag.facade import request_chapter_index
 
     result = await _service.adopt_candidate_to_working(
@@ -394,6 +407,7 @@ async def update_draft(
     novel_id: NovelIdQuery,
 ) -> WritingDraftResponse:
     """暂存草稿；published 会 copy-on-write，并合并请求 working 索引。"""
+    await require_active_project(db, novel_id)
     from modules.rag.facade import request_chapter_index
 
     result = await _service.update_draft(db, draft_id, data, novel_id)
@@ -418,6 +432,7 @@ async def checkpoint_draft(
     novel_id: NovelIdQuery,
 ) -> WritingDraftResponse:
     """显式保存一个未发布版本。"""
+    await require_active_project(db, novel_id)
     from modules.rag.facade import request_chapter_index
 
     result = await _service.checkpoint_draft(db, draft_id, data, novel_id)
@@ -443,6 +458,7 @@ async def discard_draft(
     expected_updated_at: datetime | None = Query(None),
 ) -> WritingDraftResponse:
     """放弃当前未发布版本并返回其基线。"""
+    await require_active_project(db, novel_id)
     from modules.rag.facade import request_chapter_index
     result = await _service.discard_draft(
         db,
@@ -468,6 +484,7 @@ async def delete_draft(
     novel_id: NovelIdQuery,
 ) -> None:
     """删除单个版本（至少保留 1 个版本）"""
+    await require_active_project(db, novel_id)
     from modules.rag.facade import request_chapter_index
 
     draft = await _service.get_draft(db, draft_id, novel_id)
@@ -489,6 +506,7 @@ async def delete_chapter(
     novel_id: NovelIdQuery,
 ) -> DeleteChapterResponse:
     """软废弃整章所有版本。"""
+    await require_active_project(db, novel_id)
     from modules.rag.facade import request_chapter_index
 
     count = await _service.delete_chapter(db, novel_id, chapter_index)
@@ -516,6 +534,7 @@ async def get_latest_chapter_draft(
     novel_id: NovelIdQuery,
 ) -> WritingDraftResponse:
     """获取指定章节的最新草稿"""
+    await require_active_project(db, novel_id)
     return await _service.get_latest_draft(db, novel_id, chapter_index)
 
 
@@ -530,6 +549,7 @@ async def get_chapter_version_history(
     novel_id: NovelIdQuery,
 ) -> VersionHistoryResponse:
     """获取指定章节的版本历史"""
+    await require_active_project(db, novel_id)
     return await _service.get_version_history(db, novel_id, chapter_index)
 
 
@@ -543,6 +563,7 @@ async def list_chapters(
     novel_id: NovelIdQuery,
 ) -> ChapterIndicesResponse:
     """列出该小说所有有草稿的章节索引（去重、升序）"""
+    await require_active_project(db, novel_id)
     chapters = await _service.list_chapter_summaries(db, novel_id)
     return ChapterIndicesResponse(
         chapter_indices=[item.chapter_index for item in chapters],
@@ -561,6 +582,7 @@ async def split_chapter(
     *,
     novel_id: NovelIdQuery,
 ) -> ChapterSplitResponse:
+    await require_active_project(db, novel_id)
     return await _service.split_chapter_at_offset(
         db,
         novel_id=novel_id,

@@ -9,14 +9,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.outline.schemas import OutlineArcCreate, PlotThreadCreate
 
 
-@pytest.fixture
-def sample_novel_id() -> str:
-    return str(uuid.uuid4())
+@pytest_asyncio.fixture
+async def sample_novel_id(db_session: AsyncSession) -> str:
+    from modules.project.models import Project
+
+    novel_id = uuid.uuid4()
+    db_session.add(Project(id=novel_id, title="Outline sample project"))
+    await db_session.flush()
+    return str(novel_id)
 
 
-@pytest.fixture
-def other_novel_id() -> str:
-    return str(uuid.uuid4())
+@pytest_asyncio.fixture
+async def other_novel_id(db_session: AsyncSession) -> str:
+    from modules.project.models import Project
+
+    novel_id = uuid.uuid4()
+    db_session.add(Project(id=novel_id, title="Outline other project"))
+    await db_session.flush()
+    return str(novel_id)
 
 
 @pytest.fixture

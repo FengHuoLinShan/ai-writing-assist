@@ -68,6 +68,7 @@ from modules.outline.services import (
     RevealPlanService,
     SceneService,
 )
+from modules.project.facade import require_active_project
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 router = APIRouter(prefix="/api/outline", tags=["outline"])
@@ -138,6 +139,7 @@ async def api_create_thread(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     return await _thread_service.create(db, novel_id, data)
 
 
@@ -153,6 +155,7 @@ async def api_list_threads(
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
+    await require_active_project(db, novel_id)
     return await _thread_service.list_with_response(
         db,
         novel_id,
@@ -172,6 +175,7 @@ async def api_get_thread(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     return await _thread_service.get(db, thread_id, novel_id=novel_id)
 
 
@@ -183,6 +187,7 @@ async def api_update_thread(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     return await _thread_service.update(db, thread_id, data, novel_id=novel_id)
 
 
@@ -193,6 +198,7 @@ async def api_delete_thread(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     await _thread_service.delete(db, thread_id, novel_id=novel_id)
 
 
@@ -210,6 +216,7 @@ async def api_create_arc(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     return await _arc_service.create(db, novel_id, data)
 
 
@@ -225,6 +232,7 @@ async def api_list_arcs(
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
+    await require_active_project(db, novel_id)
     return await _arc_service.list_with_response(
         db,
         novel_id,
@@ -244,6 +252,7 @@ async def api_get_arc(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     return await _arc_service.get(db, arc_id, novel_id=novel_id)
 
 
@@ -255,6 +264,7 @@ async def api_update_arc(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     return await _arc_service.update(db, arc_id, data, novel_id=novel_id)
 
 
@@ -265,6 +275,7 @@ async def api_delete_arc(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     await _arc_service.delete(db, arc_id, novel_id=novel_id)
 
 
@@ -294,6 +305,7 @@ async def api_get_scene_workbench(
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
+    await require_active_project(db, novel_id)
     try:
         return await _scene_workbench_service.get_workbench(
             db,
@@ -328,6 +340,7 @@ async def api_review_scene_workbench_items(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     try:
         return await _scene_workbench_service.review_scenes(db, novel_id, data)
     except Exception as exc:
@@ -344,6 +357,7 @@ async def api_review_scene_source_mappings(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     try:
         return await _scene_workbench_service.review_source_mappings(
             db,
@@ -365,6 +379,7 @@ async def api_update_scene_workbench_mapping(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     try:
         return await _scene_workbench_service.update_mapping(
             db,
@@ -386,6 +401,7 @@ async def api_preview_scene_merge(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     try:
         return await _scene_workbench_service.preview_merge(db, novel_id, data)
     except Exception as exc:
@@ -399,6 +415,7 @@ async def api_merge_scene(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     try:
         return await _scene_workbench_service.merge(db, novel_id, data)
     except Exception as exc:
@@ -415,6 +432,7 @@ async def api_preview_scene_split(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     try:
         return await _scene_workbench_service.preview_split(db, novel_id, data)
     except Exception as exc:
@@ -428,6 +446,7 @@ async def api_split_scene(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     try:
         return await _scene_workbench_service.split(db, novel_id, data)
     except Exception as exc:
@@ -444,6 +463,7 @@ async def api_preview_scene_fusion(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     try:
         return await _scene_workbench_service.preview_llm_fusion(db, novel_id, data)
     except Exception as exc:
@@ -460,6 +480,7 @@ async def api_save_scene_fusion(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     try:
         return await _scene_workbench_service.save_llm_fusion(db, novel_id, data)
     except Exception as exc:
@@ -477,6 +498,7 @@ async def api_list_fusion_suggestions(
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
+    await require_active_project(db, novel_id)
     try:
         return await _scene_workbench_service.list_fusion_suggestions(
             db,
@@ -498,6 +520,7 @@ async def api_dismiss_fusion_suggestions(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     try:
         return await _scene_workbench_service.dismiss_fusion_suggestions(
             db,
@@ -518,6 +541,7 @@ async def api_apply_replacement_suggestion(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     try:
         return await _scene_workbench_service.apply_replacement_suggestion(
             db,
@@ -541,6 +565,7 @@ async def api_create_scene(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     return await _scene_workbench_service.create_scene(db, novel_id, data)
 
 
@@ -552,6 +577,7 @@ async def api_list_scenes(
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
+    await require_active_project(db, novel_id)
     return await _scene_service.list_with_response(db, novel_id, skip=skip, limit=limit)
 
 
@@ -561,6 +587,7 @@ async def api_list_scenes_ordered(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     contracts = await _scene_service.get_ordered(db, novel_id)
     return [SceneResponse.model_validate(c.__dict__) for c in contracts]
 
@@ -572,6 +599,7 @@ async def api_list_scenes_by_chapter(
     novel_id: NovelIdQuery,
     chapter_index: int = Query(..., ge=1, description="章节索引"),
 ):
+    await require_active_project(db, novel_id)
     contracts = await _scene_service.get_by_chapter(db, novel_id, chapter_index)
     return [SceneResponse.model_validate(c.__dict__) for c in contracts]
 
@@ -583,6 +611,7 @@ async def api_get_scene(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     return await _scene_service.get(db, scene_id, novel_id=novel_id)
 
 
@@ -594,6 +623,7 @@ async def api_update_scene(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     return await _scene_workbench_service.update_scene(db, novel_id, scene_id, data)
 
 
@@ -604,6 +634,7 @@ async def api_delete_scene(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     await _scene_workbench_service.delete_scene(db, novel_id, scene_id)
 
 
@@ -615,6 +646,7 @@ async def api_reorder_scenes(
     novel_id: NovelIdQuery,
 ):
     """批量重排 Scene 顺序，按 scene_ids 列表顺序从 0 重新编号"""
+    await require_active_project(db, novel_id)
     return await _scene_workbench_service.reorder_scenes(db, novel_id, data.scene_ids)
 
 
@@ -626,6 +658,7 @@ async def api_split_chapters(
     novel_id: NovelIdQuery,
 ):
     """断章：从 chapter_index 开始将章节从当前 Scene 移到目标 Scene"""
+    await require_active_project(db, novel_id)
     return await _scene_workbench_service.split_chapters_from_api(
         db,
         novel_id,
@@ -648,6 +681,7 @@ async def api_analyze_outline(
     data: OutlineAiTaskRequest,
     db: DbSession,
 ) -> OutlineAiTaskResponse:
+    await require_active_project(db, data.novel_id)
     return await _enqueue_confirmed_outline_task(
         db,
         data,
@@ -665,6 +699,7 @@ async def api_generate_plot_structure(
     db: DbSession,
     data: OutlineAiTaskRequest,
 ) -> OutlineAiTaskResponse:
+    await require_active_project(db, data.novel_id)
     return await _enqueue_confirmed_outline_task(
         db,
         data,
@@ -682,6 +717,7 @@ async def api_apply_structure_preview(
     data: OutlineStructurePreviewApplyRequest,
     db: DbSession,
 ) -> OutlineStructurePreviewApplyResponse:
+    await require_active_project(db, data.novel_id)
     from modules.outline.ai_workflow_service import OutlineAIWorkflowService
 
     try:
@@ -707,6 +743,7 @@ async def api_extract_chapter_scenes(
     data: OutlineAiTaskRequest,
     db: DbSession,
 ) -> OutlineAiTaskResponse:
+    await require_active_project(db, data.novel_id)
     return await _enqueue_confirmed_outline_task(
         db,
         data,
@@ -724,6 +761,7 @@ async def api_apply_chapter_scene_preview(
     data: OutlineScenePreviewApplyRequest,
     db: DbSession,
 ) -> OutlineScenePreviewApplyResponse:
+    await require_active_project(db, data.novel_id)
     from modules.outline.ai_workflow_service import OutlineAIWorkflowService
 
     try:
@@ -756,6 +794,7 @@ async def api_create_foreshadowing(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     return await _foreshadowing_service.create(db, novel_id, data)
 
 
@@ -771,6 +810,7 @@ async def api_list_foreshadowing(
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
+    await require_active_project(db, novel_id)
     return await _foreshadowing_service.list_with_response(
         db,
         novel_id,
@@ -790,6 +830,7 @@ async def api_get_foreshadowing(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     return await _foreshadowing_service.get_foreshadowing_plan(db, plan_id, novel_id)
 
 
@@ -801,6 +842,7 @@ async def api_update_foreshadowing(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     return await _foreshadowing_service.update(db, plan_id, data, novel_id=novel_id)
 
 
@@ -814,6 +856,7 @@ async def api_delete_foreshadowing(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     await _foreshadowing_service.delete(db, plan_id, novel_id=novel_id)
 
 
@@ -833,6 +876,7 @@ async def api_create_reveal(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     return await _reveal_service.create(db, novel_id, data)
 
 
@@ -848,6 +892,7 @@ async def api_list_reveals(
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
+    await require_active_project(db, novel_id)
     return await _reveal_service.list_with_response(
         db,
         novel_id,
@@ -867,6 +912,7 @@ async def api_get_reveal(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     return await _reveal_service.get_reveal_plan(db, plan_id, novel_id)
 
 
@@ -878,6 +924,7 @@ async def api_update_reveal(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     return await _reveal_service.update(db, plan_id, data, novel_id=novel_id)
 
 
@@ -891,4 +938,5 @@ async def api_delete_reveal(
     *,
     novel_id: NovelIdQuery,
 ):
+    await require_active_project(db, novel_id)
     await _reveal_service.delete(db, plan_id, novel_id=novel_id)

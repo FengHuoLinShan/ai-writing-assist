@@ -111,6 +111,10 @@ Writing 服务需要同步 outline 结构时通过可注入 port 调用：断章
 
 ## API
 
+所有带 `novel_id` 的 writing API（正文、版本、冲突检查及 AI 入队）
+都在任何业务读写前通过 project facade 校验活跃项目。项目不存在或已进入
+回收站时统一返回 404，不暴露草稿、冲突检查或任务结果。
+
 ```http
 POST /api/writing/drafts                          → 发布当前工作版本；无实质变化时复用
 GET  /api/writing/drafts/{id}                     → 获取草稿

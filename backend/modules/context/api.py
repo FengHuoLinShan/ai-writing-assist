@@ -55,6 +55,7 @@ from modules.context.schemas import (
     EvidenceTraceResponse,
 )
 from modules.context.services.review_projection import build_tier_compile_response
+from modules.project.facade import require_active_project
 from modules.writing.contracts import SourceRangeRefContract
 
 _VALID_SCOPES: frozenset[str] = frozenset(
@@ -115,6 +116,7 @@ async def compile_context(
 
     根据 scope 从各模块按需加载数据，返回 Tier 化的编译 IR。
     """
+    await require_active_project(db, request.novel_id)
     _validate_scope(request)
     _validate_character_reveal_mode(request)
 
@@ -158,6 +160,7 @@ async def render_context(
     一次调用完成 Tier IR 编译和 Markdown 渲染，返回可直接放入 LLM Prompt 的文本
     以及编译元信息。
     """
+    await require_active_project(db, request.novel_id)
     _validate_scope(request)
     _validate_character_reveal_mode(request)
 
@@ -207,6 +210,7 @@ async def confirm_context(
     request: ContextConfirmRequest,
 ) -> ContextConfirmationResponse:
     """确认一次手动 AI 操作使用的参考资料摘要。"""
+    await require_active_project(db, request.novel_id)
     _validate_scope(request)
     _validate_character_reveal_mode(request)
 
@@ -248,6 +252,7 @@ async def get_evidence_health(
     content_mode: str = Query("canonical", pattern="^(canonical|working)$"),
     window_hours: int = Query(24, ge=1, le=24 * 30),
 ) -> EvidenceHealthResponse:
+    await require_active_project(db, novel_id)
     result = await _get_evidence_health(
         db,
         novel_id=str(novel_id),
@@ -269,6 +274,7 @@ async def list_retrieval_traces(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ) -> ContextRetrievalTraceListResponse:
+    await require_active_project(db, novel_id)
     records = await _list_retrieval_traces(
         db,
         novel_id=str(novel_id),
@@ -289,6 +295,7 @@ async def grep_evidence(
     db: DbSession,
     request: EvidenceGrepRequest,
 ) -> EvidenceSearchResponse:
+    await require_active_project(db, request.novel_id)
     result = await _grep_novel_evidence(
         db,
         novel_id=request.novel_id,
@@ -310,6 +317,7 @@ async def search_evidence(
     db: DbSession,
     request: EvidenceSearchRequest,
 ) -> EvidenceSearchResponse:
+    await require_active_project(db, request.novel_id)
     result = await _search_novel_evidence(
         db,
         novel_id=request.novel_id,
@@ -330,6 +338,7 @@ async def read_evidence(
     db: DbSession,
     request: EvidenceReadRequest,
 ) -> EvidenceReadResponse:
+    await require_active_project(db, request.novel_id)
     if request.source_ref.content_mode != request.content_mode:
         raise HTTPException(status_code=400, detail="source_ref content_mode mismatch")
     try:
@@ -351,6 +360,7 @@ async def inspect_evidence(
     db: DbSession,
     request: EvidenceInspectRequest,
 ) -> EvidenceInspectResponse:
+    await require_active_project(db, request.novel_id)
     try:
         result = await _inspect_novel_target(
             db,
@@ -369,6 +379,7 @@ async def trace_evidence(
     db: DbSession,
     request: EvidenceTraceRequest,
 ) -> EvidenceTraceResponse:
+    await require_active_project(db, request.novel_id)
     try:
         result = await _trace_novel_evidence(
             db,
@@ -395,6 +406,7 @@ async def activation_preview(
     top_k: int = Query(64, ge=1, le=256),
     depth: int = Query(2, ge=0, le=2),
 ) -> ContextActivationPreviewResponse:
+    await require_active_project(db, novel_id)
     request = ContextActivationPreviewRequest(
         novel_id=novel_id,
         entity_ids=entity_ids or [],
@@ -419,6 +431,7 @@ async def list_context_snapshots(
     offset: int = Query(0, ge=0),
 ) -> ContextSnapshotListResponse:
     """按项目和任务/工作流查询自动上下文快照。"""
+    await require_active_project(db, novel_id)
     snapshots = await _list_context_snapshots(
         db,
         novel_id=novel_id,
@@ -448,6 +461,7 @@ async def maintain_context_snapshots(
     request: ContextSnapshotMaintenanceRequest,
 ) -> ContextSnapshotMaintenanceResponse:
     """显式运行上下文快照生命周期维护；默认 dry-run。"""
+    await require_active_project(db, request.novel_id)
     result = await _run_snapshot_maintenance(
         db,
         novel_id=request.novel_id,
@@ -473,6 +487,7 @@ async def get_context_snapshot(
     novel_id: NovelIdQuery,
 ) -> ContextSnapshotResponse:
     """读取单条上下文快照；必须匹配 novel_id。"""
+    await require_active_project(db, novel_id)
     try:
         snapshot = await _get_context_snapshot(
             db,

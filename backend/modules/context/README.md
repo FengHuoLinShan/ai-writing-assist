@@ -27,6 +27,11 @@ RAG 负责“找”，context 负责“选、裁、确认、追踪”。
 
 ## 核心 facade
 
+所有项目级 context API（编译、渲染、确认、证据检索/回读、trace、
+快照查询与维护）都在业务操作前通过 project facade 校验活跃项目。
+不存在和已进入回收站的项目统一返回 404，不返回 confirmation、trace
+或 snapshot 元数据。
+
 ```python
 async def compile_structure_context(...) -> StructureContextBundle
 async def compile_with_tiers(...) -> CompiledContext

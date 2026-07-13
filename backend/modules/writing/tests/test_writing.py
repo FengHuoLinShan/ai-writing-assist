@@ -1762,6 +1762,15 @@ class TestWritingFacade:
 # ============================================================
 
 
+async def _create_api_project(async_client: AsyncClient) -> str:
+    response = await async_client.post(
+        "/api/projects",
+        json={"title": "Writing API test project"},
+    )
+    assert response.status_code == 201, response.text
+    return response.json()["id"]
+
+
 class TestWritingSplitApi:
     @pytest.mark.asyncio
     async def test_split_chapter_endpoint(
@@ -1770,7 +1779,7 @@ class TestWritingSplitApi:
         db_session: AsyncSession,
     ) -> None:
         """POST /api/writing/chapters/{chapter_index}/split 返回切分结果"""
-        novel_id = str(uuid.uuid4())
+        novel_id = await _create_api_project(async_client)
         service = WritingDraftService()
         await service.create_draft(
             db_session,
@@ -1818,7 +1827,7 @@ class TestWritingPublishApi:
         self,
         async_client: AsyncClient,
     ) -> None:
-        novel_id = str(uuid.uuid4())
+        novel_id = await _create_api_project(async_client)
         published = (
             await async_client.post(
                 "/api/writing/drafts",
@@ -1859,7 +1868,7 @@ class TestWritingPublishApi:
         self,
         async_client: AsyncClient,
     ) -> None:
-        novel_id = str(uuid.uuid4())
+        novel_id = await _create_api_project(async_client)
 
         autosave = await async_client.post(
             "/api/writing/drafts/autosave",
@@ -1910,7 +1919,7 @@ class TestWritingPublishApi:
         db_session: AsyncSession,
     ) -> None:
         """POST /api/writing/drafts 发布时递增版本并入队任务"""
-        novel_id = str(uuid.uuid4())
+        novel_id = await _create_api_project(async_client)
 
         response1 = await async_client.post(
             "/api/writing/drafts",
@@ -1977,7 +1986,7 @@ class TestWritingPublishApi:
         self,
         async_client: AsyncClient,
     ) -> None:
-        novel_id = str(uuid.uuid4())
+        novel_id = await _create_api_project(async_client)
         published = (
             await async_client.post(
                 "/api/writing/drafts",
@@ -2012,7 +2021,7 @@ class TestWritingPublishApi:
         self,
         async_client: AsyncClient,
     ) -> None:
-        novel_id = str(uuid.uuid4())
+        novel_id = await _create_api_project(async_client)
         published = (
             await async_client.post(
                 "/api/writing/drafts",
@@ -2054,7 +2063,7 @@ class TestWritingPublishApi:
         self,
         async_client: AsyncClient,
     ) -> None:
-        novel_id = str(uuid.uuid4())
+        novel_id = await _create_api_project(async_client)
         published = (
             await async_client.post(
                 "/api/writing/drafts",
@@ -2097,7 +2106,7 @@ class TestWritingPublishApi:
         async_client: AsyncClient,
         db_session: AsyncSession,
     ) -> None:
-        novel_id = str(uuid.uuid4())
+        novel_id = await _create_api_project(async_client)
         published = (
             await async_client.post(
                 "/api/writing/drafts",
@@ -2165,7 +2174,7 @@ class TestWritingPublishApi:
         async_client: AsyncClient,
         db_session: AsyncSession,
     ) -> None:
-        novel_id = str(uuid.uuid4())
+        novel_id = await _create_api_project(async_client)
         v1_response = await async_client.post(
             "/api/writing/drafts",
             json={"novel_id": novel_id, "chapter_index": 1, "content": "v1"},
@@ -2229,7 +2238,7 @@ class TestWritingPublishApi:
         self,
         async_client: AsyncClient,
     ) -> None:
-        novel_id = str(uuid.uuid4())
+        novel_id = await _create_api_project(async_client)
         v1 = (
             await async_client.post(
                 "/api/writing/drafts",
@@ -2274,7 +2283,7 @@ class TestWritingPublishApi:
         self,
         async_client: AsyncClient,
     ) -> None:
-        novel_id = str(uuid.uuid4())
+        novel_id = await _create_api_project(async_client)
         published = (
             await async_client.post(
                 "/api/writing/drafts",
@@ -2302,8 +2311,8 @@ class TestWritingPublishApi:
         self,
         async_client: AsyncClient,
     ) -> None:
-        novel_id = str(uuid.uuid4())
-        other_novel_id = str(uuid.uuid4())
+        novel_id = await _create_api_project(async_client)
+        other_novel_id = await _create_api_project(async_client)
         published = (
             await async_client.post(
                 "/api/writing/drafts",
@@ -2336,7 +2345,7 @@ class TestWritingPublishApi:
         db_session: AsyncSession,
     ) -> None:
         """PUT /api/writing/drafts 无条件拒绝旧 working 版本。"""
-        novel_id = str(uuid.uuid4())
+        novel_id = await _create_api_project(async_client)
         service = WritingDraftService()
 
         v1 = await service.create_draft(
@@ -2374,7 +2383,7 @@ class TestWritingPublishApi:
         db_session: AsyncSession,
         historical_status: str,
     ) -> None:
-        novel_id = str(uuid.uuid4())
+        novel_id = await _create_api_project(async_client)
         repo = WritingDraftRepository()
         historical = await repo.create_with_status(
             db_session,
@@ -2408,7 +2417,7 @@ class TestWritingPublishApi:
         async_client: AsyncClient,
         db_session: AsyncSession,
     ) -> None:
-        novel_id = str(uuid.uuid4())
+        novel_id = await _create_api_project(async_client)
         repo = WritingDraftRepository()
         archived = await repo.create_with_status(
             db_session,

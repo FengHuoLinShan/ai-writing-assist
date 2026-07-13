@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid
 from types import SimpleNamespace
 from unittest import mock
 
@@ -222,12 +221,6 @@ async def test_plot_threads_loaded_in_arc_scope(
     sample_novel_id: str,
 ) -> None:
     """compile_structure_context(scope='arc') 应包含活跃剧情线"""
-    nid = uuid.UUID(hex=sample_novel_id)
-    from modules.project.models import Project
-
-    db_session.add(Project(id=nid, title="测试"))
-    await db_session.flush()
-
     thread_svc = PlotThreadService()
     await thread_svc.create(
         db_session,
@@ -267,12 +260,6 @@ async def test_outline_arc_loaded_in_chapter_scope(
     sample_novel_id: str,
 ) -> None:
     """compile_structure_context(scope='chapter') 应包含当前章节所属篇章"""
-    nid = uuid.UUID(hex=sample_novel_id)
-    from modules.project.models import Project
-
-    db_session.add(Project(id=nid, title="测试"))
-    await db_session.flush()
-
     arc_svc = OutlineArcService()
     await arc_svc.create(
         db_session,
@@ -312,12 +299,6 @@ async def test_outline_not_loaded_in_world_scope(
     sample_novel_id: str,
 ) -> None:
     """scope='world' 不应加载大纲数据"""
-    nid = uuid.UUID(hex=sample_novel_id)
-    from modules.project.models import Project
-
-    db_session.add(Project(id=nid, title="测试"))
-    await db_session.flush()
-
     from modules.context.facade import compile_structure_context
 
     bundle = await compile_structure_context(

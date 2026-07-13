@@ -30,6 +30,10 @@ outline 模块把事实层资产组织成剧情结构资产，服务写作、地
 
 ## API
 
+所有带 `novel_id` 的 outline API（包括查询、写入、preview/apply 和 AI
+任务入队）都在领域操作前通过 project facade 校验项目仍处于活跃状态。
+不存在和已进入回收站的项目统一返回 404，不读取结构资产或创建任务。
+
 ```http
 POST/GET/PATCH/DELETE /api/outline/threads...
 POST/GET/PATCH/DELETE /api/outline/arcs...

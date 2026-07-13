@@ -69,6 +69,13 @@ async def _open_snapshot(
     )
 
 
+async def _add_active_project(db_session: AsyncSession, novel_id: str) -> None:
+    from modules.project.models import Project
+
+    db_session.add(Project(id=uuid.UUID(novel_id), title=f"Project {novel_id[-4:]}"))
+    await db_session.flush()
+
+
 # ============================================================
 # Context Confirmation 测试
 # ============================================================
@@ -643,8 +650,10 @@ class TestContextSceneIsolation:
     ) -> None:
         """只读 API 必须按 novel_id 隔离。"""
 
-        owner_novel = "00000000-0000-0000-0000-000000000204"
-        other_novel = "00000000-0000-0000-0000-000000000205"
+        owner_novel = "00000000-0000-0000-0000-00000000a204"
+        other_novel = "00000000-0000-0000-0000-00000000a205"
+        await _add_active_project(db_session, owner_novel)
+        await _add_active_project(db_session, other_novel)
         created = await _open_snapshot(
             db_session,
             owner_novel,
@@ -690,7 +699,8 @@ class TestContextSceneIsolation:
     ) -> None:
         """列表 API 不返回完整 rendered_context，并支持分页限制。"""
 
-        novel_id = "00000000-0000-0000-0000-000000000206"
+        novel_id = "00000000-0000-0000-0000-00000000a206"
+        await _add_active_project(db_session, novel_id)
         first = await _open_snapshot(
             db_session,
             novel_id,
@@ -994,8 +1004,10 @@ class TestContextSceneIsolation:
         """maintenance API 只统计和修改请求 novel_id 下的快照。"""
         from modules.context.models import ContextSnapshot
 
-        owner_novel = "00000000-0000-0000-0000-000000000210"
-        other_novel = "00000000-0000-0000-0000-000000000211"
+        owner_novel = "00000000-0000-0000-0000-00000000a210"
+        other_novel = "00000000-0000-0000-0000-00000000a211"
+        await _add_active_project(db_session, owner_novel)
+        await _add_active_project(db_session, other_novel)
         owner = await _open_snapshot(
             db_session,
             owner_novel,
@@ -1152,9 +1164,11 @@ class TestContextConfirmation:
     async def test_compile_response_includes_section_metadata(
         self,
         async_client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         """编译响应应返回可审查的参考资料 section 元数据。"""
-        novel_id = "00000000-0000-0000-0000-000000000091"
+        novel_id = "00000000-0000-0000-0000-00000000a091"
+        await _add_active_project(db_session, novel_id)
 
         response = await async_client.post(
             "/api/context/compile",
@@ -1193,9 +1207,11 @@ class TestContextConfirmation:
     async def test_confirm_response_includes_review_sections(
         self,
         async_client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         """确认响应应返回审查 sections 和预算事件，但不返回 raw prompt。"""
-        novel_id = "00000000-0000-0000-0000-000000000092"
+        novel_id = "00000000-0000-0000-0000-00000000a092"
+        await _add_active_project(db_session, novel_id)
 
         response = await async_client.post(
             "/api/context/confirm",
@@ -1223,6 +1239,7 @@ class TestContextConfirmation:
     async def test_excluding_context_section_removes_non_p0_section(
         self,
         async_client: AsyncClient,
+        db_session: AsyncSession,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """context_sections 排除项应移除可排除 section。"""
@@ -1246,7 +1263,8 @@ class TestContextConfirmation:
             )
 
         monkeypatch.setattr("modules.rag.facade.retrieve", _fake_retrieve)
-        novel_id = "00000000-0000-0000-0000-000000000093"
+        novel_id = "00000000-0000-0000-0000-00000000a093"
+        await _add_active_project(db_session, novel_id)
 
         response = await async_client.post(
             "/api/context/confirm",
@@ -1275,9 +1293,11 @@ class TestContextConfirmation:
     async def test_excluding_p0_section_is_ignored_with_warning(
         self,
         async_client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         """P0 核心 section 不可排除，并应返回可见 warning。"""
-        novel_id = "00000000-0000-0000-0000-000000000094"
+        novel_id = "00000000-0000-0000-0000-00000000a094"
+        await _add_active_project(db_session, novel_id)
 
         response = await async_client.post(
             "/api/context/compile",
@@ -1362,9 +1382,11 @@ class TestContextConfirmation:
     async def test_confirm_context_api_creates_summary_without_rendered_context(
         self,
         async_client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         """POST /api/context/confirm 应重新编译并保存确认摘要。"""
-        novel_id = "00000000-0000-0000-0000-000000000101"
+        novel_id = "00000000-0000-0000-0000-00000000a101"
+        await _add_active_project(db_session, novel_id)
 
         response = await async_client.post(
             "/api/context/confirm",
