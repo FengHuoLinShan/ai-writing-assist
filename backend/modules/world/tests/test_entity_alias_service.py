@@ -237,8 +237,20 @@ async def test_alias_page_hides_archived_alias_or_owner_before_pagination(
             "aliases": [{"alias": "old-owner", "status": "canonical"}],
         },
     )
+    archived_alias_on_review_owner = _make_entity(
+        name="review-owner",
+        status="candidate",
+        content_json={
+            "aliases": [{"alias": "ignored-on-review", "status": "ignored"}]
+        },
+    )
     alias_service.repo.list_by_novel = AsyncMock(
-        return_value=[active, archived_alias, archived_owner]
+        return_value=[
+            active,
+            archived_alias,
+            archived_owner,
+            archived_alias_on_review_owner,
+        ]
     )
 
     default_page = await alias_service.list_aliases_page(
@@ -250,15 +262,19 @@ async def test_alias_page_hides_archived_alias_or_owner_before_pagination(
     raw_status_page = await alias_service.list_aliases_page(
         MagicMock(), novel_id, status="canonical", skip=0, limit=10
     )
+    ignored_status_page = await alias_service.list_aliases_page(
+        MagicMock(), novel_id, status="ignored", skip=0, limit=10
+    )
 
     assert default_page["total"] == 1
     assert len(default_page["items"]) == 1
     assert default_page["items"][0]["alias"] == "current"
     assert {item["alias"] for item in history_page["items"]} == {
+        "ignored-on-review",
         "old-alias",
         "old-owner",
     }
-    assert history_page["total"] == 2
+    assert history_page["total"] == 3
     old_owner = next(
         item for item in history_page["items"] if item["alias"] == "old-owner"
     )
@@ -267,6 +283,11 @@ async def test_alias_page_hides_archived_alias_or_owner_before_pagination(
         "current",
         "old-owner",
     }
+    assert {item["alias"] for item in ignored_status_page["items"]} == {
+        "ignored-on-review",
+        "old-alias",
+    }
+    assert ignored_status_page["total"] == 2
     for call in alias_service.repo.list_by_novel.await_args_list:
         assert call.kwargs["include_archived"] is True
 

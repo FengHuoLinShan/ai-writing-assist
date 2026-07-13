@@ -98,9 +98,13 @@ def project_alias_state(
     normalized_status = status or "canonical"
     display_state = display_state_for_status(normalized_status)
     owner_display_state = display_state_for_status(owner_status)
-    if owner_status is not None and owner_display_state == "archived":
+    if display_state == "archived" or (
+        owner_status is not None and owner_display_state == "archived"
+    ):
         display_state = "archived"
-    elif owner_status is not None and owner_display_state == "review":
+    elif display_state == "review" or (
+        owner_status is not None and owner_display_state == "review"
+    ):
         display_state = "review"
     return {
         "display_state": display_state,
