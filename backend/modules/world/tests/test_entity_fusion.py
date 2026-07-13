@@ -264,6 +264,88 @@ async def test_entity_fusion_canonical_merge_requires_explicit_confirmation(
     assert "二次确认" in result["warnings"][0]
 
 
+async def test_entity_fusion_canonical_alias_requires_explicit_confirmation(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
+    source_id = await _create_entity(
+        db_session,
+        project_novel_id,
+        name="周明瑞",
+        status="canonical",
+    )
+    target_id = await _create_entity(
+        db_session,
+        project_novel_id,
+        name="克莱恩",
+        status="canonical",
+    )
+
+    result = await WorldEntityFusionService().apply(
+        db_session,
+        novel_id=project_novel_id,
+        confirmed=True,
+        suggestions=[
+            EntityFusionApplyItem(
+                action="alias_only",
+                source_entity_id=source_id,
+                target_entity_id=target_id,
+            )
+        ],
+    )
+
+    assert result["applied"] == 0
+    assert result["skipped"] == 1
+    assert "二次确认" in result["warnings"][0]
+
+
+async def test_entity_fusion_canonical_alias_archives_source_without_content_merge(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
+    source_id = await _create_entity(
+        db_session,
+        project_novel_id,
+        name="周明瑞",
+        status="canonical",
+        summary="来源对象摘要不应合入",
+    )
+    target_id = await _create_entity(
+        db_session,
+        project_novel_id,
+        name="克莱恩",
+        status="canonical",
+        summary="保留对象摘要",
+    )
+
+    result = await WorldEntityFusionService().apply(
+        db_session,
+        novel_id=project_novel_id,
+        confirmed=True,
+        suggestions=[
+            EntityFusionApplyItem(
+                action="alias_only",
+                source_entity_id=source_id,
+                target_entity_id=target_id,
+                alias="周明瑞",
+                allow_canonical_alias=True,
+            )
+        ],
+    )
+
+    repo = CoreEntityRepository()
+    source = await repo.get(db_session, uuid.UUID(hex=source_id))
+    target = await repo.get(db_session, uuid.UUID(hex=target_id))
+    assert result["applied"] == 1
+    assert source is not None and source.status == "merged"
+    assert (source.content_json or {})["merged_into"] == target_id
+    assert target is not None and target.summary == "保留对象摘要"
+    assert any(
+        alias.get("alias") == "周明瑞"
+        for alias in (target.content_json or {}).get("aliases", [])
+    )
+
+
 async def test_entity_fusion_apply_prefetches_suggestion_entities(
     db_session: AsyncSession,
     project_novel_id: str,

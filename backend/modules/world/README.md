@@ -93,7 +93,9 @@ Prompt 校验外，`/api/world` 与
 - `POST /api/world/entities/fusion-suggestions` 只创建异步建议任务，建议结果保存在
   `AsyncTask.result`；`POST /api/world/entities/fusion-suggestions/apply` 必须
   `confirmed=true` 才会写库。`canonical -> canonical` 合并还必须逐条显式
-  `allow_canonical_merge=true`。
+  `allow_canonical_merge=true`；将已采用来源对象改为目标对象别名则必须逐条显式
+  `allow_canonical_alias=true`。后者只迁移关系和登记别名，不融合正文内容，并把来源对象
+  标记为历史态。
 - 项目级“智能去重”按钮复用同一套 world 实体融合逻辑；它只改变入口和结果聚合，
   不放宽用户确认、正史二次确认或 novel_id 隔离规则。
 - 候选合并/清洗完成后，响应会尽量返回 `affected_ids` / `merged_ids`；前端只能按精确 ID 更新本地候选列表，缺少这些字段时刷新当前 tab，不按名称或候选组猜测删除。
@@ -450,7 +452,7 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 | GET | `/api/world/entities/{entity_id}` | 对象详情 |
 | PUT | `/api/world/entities/{entity_id}` | 更新对象 |
 | DELETE | `/api/world/entities/{entity_id}` | 删除对象 |
-| POST | `/api/world/entities/{entity_id}/promote` | 将草稿/候选实体提升为正史 |
+| POST | `/api/world/entities/{entity_id}/promote` | 将草稿/候选实体提升为正史；可选携带名称、类型和概要，在同一事务中编辑后采用 |
 | POST | `/api/world/entities/{candidate_id}/resolve-as-alias` | 将候选确认为目标对象别名 |
 | GET | `/api/world/entities/{entity_id}/relations` | 实体关系列表 |
 | DELETE | `/api/world/entities/{entity_id}/aliases` | 删除别名 |

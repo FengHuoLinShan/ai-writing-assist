@@ -76,6 +76,34 @@ describe("createEditor", () => {
     expect(editor.saveStatusText()).toBe("已保存")
   })
 
+  it("并发切换章节时只采用最后一次选择的响应", async () => {
+    state.currentProjectId = "p1"
+    api.writing.getVersionHistory.mockImplementation((chapterIndex) => Promise.resolve({
+      versions: [{ id: `d${chapterIndex}`, version_number: 1 }],
+    }))
+    let resolveFirst
+    let resolveSecond
+    api.writing.get.mockImplementation((draftId) => new Promise((resolve) => {
+      if (draftId === "d1") resolveFirst = resolve
+      else resolveSecond = resolve
+    }))
+
+    const editor = createTestEditor()
+    const firstLoad = editor.loadChapter(1)
+    await vi.waitFor(() => expect(resolveFirst).toBeTypeOf("function"))
+    const secondLoad = editor.loadChapter(2)
+    await vi.waitFor(() => expect(resolveSecond).toBeTypeOf("function"))
+
+    resolveSecond({ id: "d2", title: "第二章", content: "第二章正文", version_number: 1 })
+    await secondLoad
+    resolveFirst({ id: "d1", title: "第一章", content: "第一章正文", version_number: 1 })
+
+    expect(await firstLoad).toBe(false)
+    expect(editor.getTitle()).toBe("第二章")
+    expect(editor.getContent()).toBe("第二章正文")
+    expect(editor.getDraftId()).toBe("d2")
+  })
+
   it("默认加载到 candidate 时只作为待处理建议预览且不会自动保存", async () => {
     state.currentProjectId = "p1"
     api.writing.getVersionHistory.mockResolvedValue({

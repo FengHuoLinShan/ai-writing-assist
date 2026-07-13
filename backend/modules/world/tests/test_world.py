@@ -37,6 +37,7 @@ from modules.world.schemas import (
     CharacterCreate,
     CharacterKnowledgeCreate,
     CoreEntityUpdate,
+    EntityPromoteRequest,
     EntityRelationCreate,
     EntityRelationReviewEditRequest,
     EntityRelationUpdate,
@@ -623,6 +624,51 @@ class TestWorldNovelIsolation:
             )
 
         assert exc.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_promote_entity_applies_author_edits_atomically(
+        self,
+        db_session: AsyncSession,
+        entity_service: WorldEntityService,
+        novel_id: str,
+        sample_entity_data: WorldEntityCreate,
+    ) -> None:
+        created = await entity_service.create(
+            db_session,
+            novel_id,
+            sample_entity_data.model_copy(
+                update={
+                    "status": "candidate",
+                    "name": "旧星门",
+                    "content_json": {
+                        "_meta": {
+                            "source": "deep_import",
+                            "needs_review": True,
+                        }
+                    },
+                }
+            ),
+        )
+
+        result = await entity_service.promote(
+            db_session,
+            created.id,
+            EntityPromoteRequest(
+                name="新星门",
+                entity_type="location",
+                summary="作者微调后的概要",
+            ),
+            novel_id=novel_id,
+        )
+        stored = await entity_service.get(db_session, created.id, novel_id=novel_id)
+
+        assert result.status == "canonical"
+        assert stored.name == "新星门"
+        assert stored.entity_type == "location"
+        assert stored.summary == "作者微调后的概要"
+        assert stored.content_json["_meta"]["needs_review"] is False
+        assert stored.content_json["_meta"]["user_edited"] is True
+        assert stored.content_json["_meta"]["reviewed_from"] == "entity_edit_promote"
 
     @pytest.mark.asyncio
     async def test_update_auto_ingested_entity_marks_user_edited(

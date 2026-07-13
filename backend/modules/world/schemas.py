@@ -633,13 +633,26 @@ class CoreEntityListResponse(BaseModel):
 
 
 class EntityPromoteRequest(BaseModel):
-    """采用兼容 draft/candidate 实体的请求。"""
+    """采用兼容 draft/candidate 实体的请求。
+
+    可选编辑字段与采用在同一事务中完成，供作者在采用前微调待处理对象。
+    """
 
     approved_by: str | None = Field(
         default="manual",
         max_length=64,
         description="确认者标识",
     )
+    entity_type: str | None = Field(default=None, min_length=1, max_length=64)
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    summary: str | None = Field(default=None, max_length=5000)
+
+    @field_validator("entity_type")
+    @classmethod
+    def normalize_optional_entity_type(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _normalize_entity_type(value)
 
 
 class EntityPromoteResponse(BaseModel):
@@ -980,6 +993,7 @@ class EntityFusionApplyItem(BaseModel):
     target_entity_id: str
     alias: str | None = Field(None, max_length=255)
     allow_canonical_merge: bool = False
+    allow_canonical_alias: bool = False
 
 
 class EntityFusionApplyRequest(BaseModel):

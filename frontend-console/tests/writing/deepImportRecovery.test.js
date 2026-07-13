@@ -281,6 +281,35 @@ describe("createDeepImportRecovery", () => {
     m.dispose()
   })
 
+  it("离开写作台后不会执行已完成任务的延迟刷新回调", async () => {
+    vi.useFakeTimers()
+    try {
+      const api = createMockApi()
+      api.tasks.get.mockResolvedValue({
+        task_id: "done-task",
+        task_type: "scene_auto_extraction",
+        status: "done",
+        progress: 1,
+        result: { phase: "done" },
+      })
+      const onDone = vi.fn()
+      const manager = createTestManager({ api, onDone })
+
+      manager.startTask({
+        taskId: "done-task",
+        workflowType: "scene_auto_extraction",
+        stage: "scenes",
+      })
+      await vi.waitFor(() => expect(api.tasks.get).toHaveBeenCalled())
+      manager.dispose()
+      await vi.advanceTimersByTimeAsync(1500)
+
+      expect(onDone).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("falls back to phase-based percent when task.progress is missing", async () => {
     const api = createMockApi()
     api.tasks.get.mockResolvedValue({
@@ -452,7 +481,7 @@ describe("createDeepImportRecovery", () => {
     persistActiveWorkflow({
       taskId: "scene-preview-task",
       workflowType: "outline_chapter_scenes_extract",
-      label: "章节/Scene 卡建议",
+      label: "从正文整理 Scene",
       projectId: "p1",
       view: "writing",
       meta: { confirmationId: "confirm-1", stage: "chapter_cards" },

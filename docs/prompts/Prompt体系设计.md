@@ -101,6 +101,9 @@ Scene 卡字段和完整 JSON payload 均有确定性输入预算。输出 schem
 narrative_tag / confidence / reason`；章节映射、Scene chunk、POV、状态和
 provenance 由 outline 确定性逻辑保持。调用失败时只返回带 warning 的
 确定性草稿，不写入任何 Scene；保存仍需用户在 Workbench 显式选择。
+融合语义会综合全部选中 Scene 的兼容信息并去重；`primary_scene_id`
+只在多个方案同样有证据支持或冲突无法兼容时作为意图、叙事重心和
+表达取向的偏好信号，不是融合骨架，也不得导致其他 Scene 的有证据信息被忽略。
 
 ## 6. `shared_rules.md` 的权威地位
 

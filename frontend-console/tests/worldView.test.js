@@ -25,6 +25,12 @@ beforeEach(() => {
   worldView._filters = { entity_type: "", display_state: "active", q: "", skip: 0, limit: 20 }
   worldView._objectViewMode = "table"
   worldView._advancedFiltersOpen = false
+  worldView._filterPanelsOpen = {
+    objects: true,
+    "review-objects": true,
+    "review-aliases": true,
+    "review-relations": true,
+  }
   worldView._autoExtractOpen = false
   if (worldView._autoExtractPoller?.stop) worldView._autoExtractPoller.stop()
   worldView._autoExtractTaskId = null
@@ -463,6 +469,7 @@ describe("候选清洗", () => {
         content_json: {
           _meta: {
             suggested_action: "link_to_existing",
+            suggested_existing_entity_id: "e-target",
             suggested_existing_entity_name: "林岚",
           },
         },
@@ -474,8 +481,68 @@ describe("候选清洗", () => {
       expect(html).toContain("candidate-action-badge")
       expect(html).toContain('data-action="resolve-candidate-alias"')
       expect(html).toContain("设为别名")
+      expect(html).toContain("编辑后采用")
       expect(html).not.toContain('data-action="merge-entity"')
       expect(html).toContain('data-target-name="林岚"')
+      expect(html).toContain("全选当前待处理项")
+      expect(html).toContain('class="world-candidate-alias-group"')
+      expect(html).toContain('data-target-id="e-target"')
+      expect(html).toContain("已有对象")
+      expect(html).not.toContain('<tr data-id="c1"')
+    })
+
+    it("按建议目标把多个别名候选合并到同一展示组", () => {
+      worldView._candidates = [
+        {
+          id: "c1",
+          name: "岚姐",
+          entity_type: "character",
+          status: "candidate",
+          content_json: { _meta: {
+            suggested_action: "link_to_existing",
+            suggested_existing_entity_id: "e1",
+            suggested_existing_entity_name: "林岚",
+          } },
+        },
+        {
+          id: "c2",
+          name: "小岚",
+          entity_type: "character",
+          status: "candidate",
+          content_json: { _meta: {
+            suggested_action: "alias_of_existing",
+            suggested_existing_entity_id: "e1",
+            suggested_existing_entity_name: "林岚",
+          } },
+        },
+      ]
+
+      const html = worldView._renderCandidatesList()
+
+      expect(html.match(/data-target-id="e1"/g)).toHaveLength(1)
+      expect(html).toContain("岚姐")
+      expect(html).toContain("小岚")
+      expect(html).toContain("以下 2 个候选建议作为林岚别名")
+    })
+
+    it("同类型的高相似名称直接合并展示但不自动裁决", () => {
+      worldView._candidates = [
+        { id: "c1", name: "克莱恩", entity_type: "character", status: "candidate" },
+        { id: "c2", name: "克莱恩·莫雷蒂", entity_type: "character", status: "candidate" },
+        { id: "c3", name: "克莱恩的穿越秘密", entity_type: "secret", status: "candidate" },
+      ]
+
+      const html = worldView._renderCandidatesList()
+      const similarGroup = html.match(
+        /<section class="world-candidate-alias-group world-candidate-similar-group">([\s\S]*?)<\/section>/,
+      )?.[1] || ""
+
+      expect(similarGroup).toContain("克莱恩")
+      expect(similarGroup).toContain("克莱恩·莫雷蒂")
+      expect(similarGroup).not.toContain("克莱恩的穿越秘密")
+      expect(similarGroup).toContain('data-action="resolve-candidate-alias"')
+      expect(similarGroup).toContain('data-action="merge-entity"')
+      expect(html).toContain("合并展示，请逐条决定")
     })
 
     it("temporary_only 候选显示设为临时且不显示提升按钮", () => {
@@ -873,8 +940,35 @@ describe("对象库", () => {
       expect(html).toContain("filter-q")
       expect(html).toContain("apply-filters")
       expect(html).toContain("reset-filters")
+      expect(html).toContain("收起筛选")
       expect(html).toContain("prev-page")
       expect(html).toContain("next-page")
+    })
+
+    it("卡片视图在批量工具条提供全选当前页", () => {
+      worldView._objectViewMode = "card"
+      worldView._entities = [
+        { id: "e1", name: "王都", entity_type: "location", status: "canonical" },
+        { id: "e2", name: "旧城", entity_type: "location", status: "canonical" },
+      ]
+
+      const html = worldView._renderEntityList()
+
+      expect(html).toContain("全选当前页对象")
+      expect(html).toContain('data-action="bulk-toggle-all"')
+    })
+
+    it("筛选区可折叠并同步可访问状态", () => {
+      document.body.innerHTML = worldView._renderFilters()
+      const button = document.querySelector('[data-action="toggle-filter-panel"]')
+      const panel = document.getElementById(button.getAttribute("aria-controls"))
+
+      worldView._toggleFilterPanel("objects", button)
+
+      expect(button.getAttribute("aria-expanded")).toBe("false")
+      expect(button.textContent).toContain("展开筛选")
+      expect(panel.hidden).toBe(true)
+      expect(worldView._filterPanelsOpen.objects).toBe(false)
     })
   })
 
@@ -998,6 +1092,36 @@ describe("对象库", () => {
       expect(api.world.updateEntity).not.toHaveBeenCalled()
       expect(toast).toHaveBeenCalledWith("已编辑并采用", "success")
     })
+
+    it("普通待处理对象通过 promote 在采用时携带微调", async () => {
+      state.currentProjectId = "p1"
+      worldView._candidates = [{
+        id: "candidate-1",
+        name: "旧星门",
+        entity_type: "location",
+        status: "candidate",
+        summary: "旧概要",
+      }]
+      api.world.promoteEntity.mockResolvedValue({})
+
+      worldView.editEntity("candidate-1")
+      const handler = captureModalHandler()
+      document.body.innerHTML = `
+        <input id="edit-entity-name" value="新星门" />
+        <select id="edit-entity-type"><option value="location" selected>地点</option></select>
+        <textarea id="edit-entity-summary">作者微调后的概要</textarea>
+      `
+
+      await handler()
+
+      expect(api.world.promoteEntity).toHaveBeenCalledWith("candidate-1", "p1", {
+        name: "新星门",
+        entity_type: "location",
+        summary: "作者微调后的概要",
+      })
+      expect(api.world.updateEntity).not.toHaveBeenCalled()
+      expect(toast).toHaveBeenCalledWith("已编辑并采用", "success")
+    })
   })
 
   describe("deleteEntity", () => {
@@ -1094,6 +1218,8 @@ describe("关系", () => {
       expect(html).toContain("待处理")
       expect(html).toContain('data-action="mark-relation-reviewed"')
       expect(html).toContain("采用")
+      expect(html).toContain("全选当前关系")
+      expect(html).toContain("收起筛选")
     })
 
     it("待处理关系队列保留 candidate wire filter 并显示编辑后采用", async () => {
@@ -1150,7 +1276,7 @@ describe("关系", () => {
       worldView._relationFilters = { skip: 0, limit: 20, q: "克莱恩", relation_type: "member_of", source_chapter_id: "ch1", strength_min: "0.7", strength_max: "" }
       api.world.listRelationships.mockResolvedValue({ items: [], total: 0 })
 
-      await worldView._renderRelations({ reviewOnly: true })
+      const html = await worldView._renderRelations({ reviewOnly: true })
 
       expect(api.world.listRelationships).toHaveBeenCalledWith({
         novel_id: "p1",
@@ -1162,6 +1288,8 @@ describe("关系", () => {
         source_chapter_id: "ch1",
         strength_min: 0.7,
       })
+      expect(html).toContain('data-filter-panel="review-relations"')
+      expect(html).toContain("已筛选")
     })
 
     it("关系超过一页时显示分页并支持翻页", async () => {
@@ -1321,6 +1449,8 @@ describe("别名", () => {
       expect(html).toContain('data-action="edit-alias-review"')
       expect(html).toContain("编辑后采用")
       expect(html).toContain('data-action="mark-alias-reviewed"')
+      expect(html).toContain("全选当前别名")
+      expect(html).toContain("收起筛选")
     })
 
     it("待处理别名队列按展示态并传递筛选", async () => {
@@ -1328,7 +1458,7 @@ describe("别名", () => {
       worldView._aliasFilters = { skip: 0, limit: 20, q: "黑荆棘", source: "deep_import", workflow_id: "wf1", scene_index: "3", confidence_min: "0.8", confidence_max: "", source_chapter_index: "" }
       api.world.listAliases.mockResolvedValue({ items: [], total: 0 })
 
-      await worldView._renderAliases({ reviewOnly: true })
+      const html = await worldView._renderAliases({ reviewOnly: true })
 
       expect(api.world.listAliases).toHaveBeenCalledWith({
         novel_id: "p1",
@@ -1341,6 +1471,8 @@ describe("别名", () => {
         scene_index: 3,
         confidence_min: 0.8,
       })
+      expect(html).toContain('data-filter-panel="review-aliases"')
+      expect(html).toContain("已筛选")
     })
 
     it("信任后端派生展示态，旧形状影子别名仍显示待处理", async () => {
@@ -1916,6 +2048,7 @@ describe("合并、回滚与知识边界", () => {
         target_entity_id: "target-1",
         alias: "黑荆棘",
         allow_canonical_merge: true,
+        allow_canonical_alias: false,
       }],
     })
   })
@@ -2013,6 +2146,68 @@ describe("批量操作", () => {
   beforeEach(() => {
     state.currentProjectId = "p1"
     worldView._bulkSelections = {}
+  })
+
+  it("已采用对象库多选工具条只提供融合、标记为别名和删除", () => {
+    worldView._entities = [
+      { id: "e1", name: "克莱恩", entity_type: "character", status: "canonical" },
+      { id: "e2", name: "周明瑞", entity_type: "character", status: "canonical" },
+    ]
+
+    const html = worldView._renderEntityTable(worldView._entities, { showNewBadge: false })
+
+    expect(html).toContain('data-bulk-action="fuse-entities"')
+    expect(html).toContain('data-bulk-action="alias-entities"')
+    expect(html).toContain('data-bulk-action="delete-entities"')
+    expect(html).not.toContain('data-bulk-action="review-entities"')
+    expect(html).not.toContain('data-bulk-action="promote-entities"')
+  })
+
+  it("标记为别名要求选择保留对象并提交 canonical 二次授权", async () => {
+    const items = [
+      { id: "e1", name: "克莱恩", entity_type: "character", status: "canonical" },
+      { id: "e2", name: "周明瑞", entity_type: "character", status: "canonical" },
+      { id: "e3", name: "愚者先生", entity_type: "character", status: "canonical" },
+    ]
+    api.world.applyEntityFusionSuggestions.mockResolvedValue({ applied: 2, skipped: 0 })
+    const refresh = vi.spyOn(worldView, "_refreshCurrentSubViewInPlace").mockResolvedValue()
+
+    worldView._showBulkEntityResolution("alias-entities", items)
+    const modal = showModal.mock.calls.at(-1)
+    document.body.innerHTML = modal[1].html
+    document.querySelector('input[value="e2"]').checked = true
+    await modal[2][0].handler()
+
+    expect(confirmAction).toHaveBeenCalledWith(
+      expect.stringContaining("周明瑞"),
+      expect.any(Function),
+      "确认执行",
+    )
+    await confirmAction.mock.calls.at(-1)[1]()
+
+    expect(api.world.applyEntityFusionSuggestions).toHaveBeenCalledWith({
+      novel_id: "p1",
+      confirmed: true,
+      suggestions: [
+        {
+          action: "alias_only",
+          source_entity_id: "e1",
+          target_entity_id: "e2",
+          alias: "克莱恩",
+          allow_canonical_merge: false,
+          allow_canonical_alias: true,
+        },
+        {
+          action: "alias_only",
+          source_entity_id: "e3",
+          target_entity_id: "e2",
+          alias: "愚者先生",
+          allow_canonical_merge: false,
+          allow_canonical_alias: true,
+        },
+      ],
+    })
+    refresh.mockRestore()
   })
 
   it("对象库批量删除调用现有单项 API", async () => {

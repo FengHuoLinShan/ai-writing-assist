@@ -21,6 +21,7 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - Phase 1a 切分并锁定 Scene 语义字段，同时要求从正文逐字复制起止 anchor；本地 materializer 负责唯一命中、offset、draft/hash 绑定和邻接/整章覆盖推断。Scene 按独立主要叙事目标、冲突或关键状态转变切分，不使用字数或每章数量阈值。锚点修复与缺章恢复同样使用统一 reasoning 策略。
 - Phase 1b 每个 Scene 一个并发 enrichment 请求，只解析补充字段；不得改写 Phase 1a 已确定的 `scene_chunks`。章节级 fallback 的语义状态仍为 fallback，但其整章 offset 和 source hash 是可确定的精确来源，两者分开记录。Phase 1b enrichment 的默认 `max_tokens` 已与其他结构化阶段统一为 32768，不再由旧的 4096 上限导致补充字段截断；实际 payload 从 effective `deep_import.phase1b.enrich_max_tokens` 生成，不再用 env/default 覆盖项目值，且该值在任务提交时进入冻结 deep-import settings。
 - Phase 1c 审核 `intra_chapter` / `cross_chapter` / `duplicate_window` 相邻候选；高置信且来源精确的结果自动融合，其余写入 outline 融合建议队列。来源指纹仍有效的 pending、dismissed、adopted 决定由该队列独占处理，项目级 Scene 去重不会重复提出来源对，或 adopted 融合结果与其来源的组合；来源变化后才恢复全局扫描资格。旧独立跨章检测链已删除。
+- Phase 1c 未显式配置 `decision_max_tokens` 时继承有效项目/全局/系统 LLM `max_tokens`，并在任务提交时冻结；单对结构化决策默认超时为 360 秒。
 - 深度导入保持自动流水线，不对每个 LLM step 重复弹出“AI 参考资料”确认；但首次提交必须显式传 `authorization_confirmed=true`，一次授权 `user_authorized_pipeline` 采用策略。Phase 3 结构分析显式使用 `context_mode="working"` 并包含待确认对象
 - 分阶段世界对象自动提取执行 Phase 2a / 2b：先基于已提交 Scene 抽取世界对象与 Delta，再补抽别名 / 关系
 - Phase 2a 对已持久化 Scene 以 Scene 为并发单元；每个请求只消费当前 Scene 的版本绑定精确 span 和前序 brief，写入仍按 `scene_index` 串行归并

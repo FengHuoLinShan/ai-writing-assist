@@ -928,22 +928,22 @@ test.describe("写作台模块", () => {
   })
 
   // ============================================================
-  // AI 提取章节卡
+  // 从正文整理 Scene
   // ============================================================
 
-  test("AI 提取章节卡按钮和对话框", async ({ page }) => {
+  test("从正文整理 Scene 按钮和对话框", async ({ page }) => {
     await createDraft(testProjectId, 1, "ch1", "测试正文")
     await reloadWorkbench(page, "writing")
     await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
 
-    // 验证"AI 提取章节卡"按钮存在
+    // 验证“从正文整理 Scene”按钮存在
     await page.locator(".writing-tools-menu summary").click()
     await expect(page.locator('[data-action="extract-cards"]')).toBeVisible()
 
     // 点击按钮打开对话框
     await page.locator('[data-action="extract-cards"]').click()
     await expect(page.locator("#modal-overlay")).toBeVisible()
-    await expect(page.locator("#modal-overlay")).toContainText("AI 提取章节卡")
+    await expect(page.locator("#modal-overlay")).toContainText("从正文整理 Scene")
     await expect(page.locator("#modal-overlay")).toContainText("起始章节")
     await expect(page.locator("#modal-overlay")).toContainText("结束章节")
 

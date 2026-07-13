@@ -60,6 +60,7 @@ from modules.imports.workflow_llm_adapters import (
     _materialize_phase1b_decision_output,
     _Phase1bDecisionOutput,
     _Phase1bSceneFusionLLM,
+    _Phase1cSceneFusionLLM,
     _run_deep_import_structured_call,
 )
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
@@ -1117,6 +1118,69 @@ async def test_phase1b_llm_uses_compact_budget_for_regular_window(monkeypatch):
     assert "candidates=" in request.messages[1].content
     assert "payload=" not in request.messages[1].content
     assert kwargs["timeout_seconds"] == 45
+
+
+@pytest.mark.asyncio
+async def test_phase1c_llm_inherits_effective_token_budget_and_uses_360_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_structured_call(client, request, schema, **kwargs):
+        del client, schema
+        captured["request"] = request
+        captured["kwargs"] = kwargs
+        return {
+            "decision": "keep_separate",
+            "confidence": 0.9,
+            "reason": "independent scenes",
+        }
+
+    monkeypatch.delenv("PHASE1C_DECISION_MAX_TOKENS", raising=False)
+    monkeypatch.delenv("PHASE1C_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.setattr(
+        "modules.imports.workflow_llm_adapters._run_deep_import_structured_call",
+        fake_structured_call,
+    )
+
+    await _Phase1cSceneFusionLLM(
+        {
+            "llm": {
+                "api_key": "sk-test-only",
+                "base_url": "https://llm.test/v1",
+                "model": "test-model",
+                "max_tokens": 12_000,
+            }
+        }
+    )({"left": {}, "right": {}, "suggestion_kind": "cross_chapter"})
+
+    request = captured["request"]
+    kwargs = captured["kwargs"]
+    assert request.max_tokens == 12_000
+    assert kwargs["timeout_seconds"] == 360
+
+    captured.clear()
+    await _Phase1cSceneFusionLLM(
+        {
+            "llm": {
+                "api_key": "sk-test-only",
+                "base_url": "https://llm.test/v1",
+                "model": "test-model",
+                "max_tokens": 12_000,
+            },
+            "deep_import": {
+                "phase1c": {
+                    "decision_max_tokens": 4096,
+                    "timeout_seconds": 444,
+                }
+            },
+        }
+    )({"left": {}, "right": {}, "suggestion_kind": "cross_chapter"})
+
+    request = captured["request"]
+    kwargs = captured["kwargs"]
+    assert request.max_tokens == 4096
+    assert kwargs["timeout_seconds"] == 444
 
 
 def test_phase1b_decision_materializer_distributes_missing_chunks() -> None:

@@ -361,17 +361,51 @@ class WorldEntityService(
         if meta.get("compatibility_shadow") is True and not _from_suggestion_queue:
             raise ValidationError("该实体由待处理建议管理，请通过对应建议执行采用")
 
+        changes = {
+            key: value
+            for key, value in data.model_dump(
+                exclude_unset=True,
+                exclude={"approved_by"},
+            ).items()
+            if value is not None
+        }
+        if changes:
+            from modules.world.services.core.entity_revision_service import (
+                EntityRevisionService,
+            )
+
+            try:
+                async with db.begin_nested():
+                    await EntityRevisionService().create_snapshot(
+                        db,
+                        entity_id=entity_id,
+                        novel_id=novel_id,
+                        revision_reason="manual_update",
+                    )
+            except Exception:
+                logger.warning(
+                    "实体 %s 编辑后采用前快照失败",
+                    entity_id,
+                    exc_info=True,
+                )
+
         approved_by = data.approved_by or "manual"
         if _from_suggestion_queue:
             meta["compatibility_shadow"] = False
             meta["compatibility_shadow_adopted"] = True
             meta["suggestion_disposition"] = "accepted"
         meta["needs_review"] = False
+        if changes:
+            meta["user_edited"] = True
+            meta["edited_at"] = datetime.now(UTC).isoformat()
         meta["reviewed_at"] = datetime.now(UTC).isoformat()
         meta["reviewed_by"] = approved_by
-        meta["reviewed_from"] = "entity_promote"
+        meta["reviewed_from"] = (
+            "entity_edit_promote" if changes else "entity_promote"
+        )
         content_json["_meta"] = meta
         update_data = CoreEntityUpdate(
+            **changes,
             status="canonical",
             approved_by=approved_by,
             content_json=content_json,

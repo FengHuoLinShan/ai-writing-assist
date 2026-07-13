@@ -262,6 +262,9 @@ test.describe("深度导入流水线", () => {
     await page.waitForFunction(() => !state.loading)
 
     const bar = page.locator("#writing-deep-import-bar-container")
+    const progressSummary = bar.locator(".workflow-progress__compact")
+    await expect(progressSummary).toBeVisible()
+    await progressSummary.click()
     await expect(bar.locator('[data-action="cancel-deep-import"]')).toBeVisible()
     await bar.locator('[data-action="cancel-deep-import"]').click()
     await expect(page.locator(SEL.modalTitle)).toContainText("确认")

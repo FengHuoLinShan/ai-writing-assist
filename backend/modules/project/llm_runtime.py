@@ -115,7 +115,10 @@ async def build_project_llm_execution_snapshot(
         "novel_id": str(novel_id),
         "profile": public_profile,
         "sources": dict(sources),
-        "deep_import": materialize_effective_deep_import_settings(materialized),
+        "deep_import": materialize_effective_deep_import_settings(
+            materialized,
+            inherited_llm_max_tokens=profile.max_tokens,
+        ),
     }
     payload["profile_hash"] = _stable_hash(payload)
     return payload

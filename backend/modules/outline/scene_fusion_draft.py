@@ -304,9 +304,19 @@ class SceneFusionDraftGenerator:
                             LLMMessage(
                                 role="system",
                                 content=(
-                                    "你是长篇小说 Scene 结构融合助手。以主 Scene 为骨架，"
-                                    "保留其他 Scene 中不冲突的重要事件，"
-                                    "显式处理语义冲突。"
+                                    "你是长篇小说 Scene 结构融合助手。"
+                                    "你的任务是综合所有选中 Scene 的结构卡"
+                                    "和可用正文证据，"
+                                    "生成一个连贯、完整、去重的融合版 Scene。"
+                                    "必须公平考虑每个选中 Scene，不得因 role=source "
+                                    "而忽略或弱化其有证据支持的重要事件、目标、冲突和约束。"
+                                    "primary Scene 只是偏好信号，"
+                                    "不是骨架或必须保留的模板："
+                                    "仅当多个方案同样有证据支持，或冲突无法同时保留时，"
+                                    "才优先延续 primary Scene 的意图、"
+                                    "叙事重心和表达取向。"
+                                    "合并可兼容信息，消除重复，显式解决矛盾，"
+                                    "并在 reason 中说明取舍。"
                                     "不得新增无来源的重大设定，不改写正文，只输出 JSON。"
                                 ),
                             ),
@@ -319,6 +329,8 @@ class SceneFusionDraftGenerator:
                                     "emotional_beat、must_happen、must_not_happen、"
                                     "narrative_tag、confidence、reason。"
                                     "confidence 必须在 0 到 1 之间。"
+                                    "reason 必须概括如何兼顾所有 Scene，"
+                                    "以及遇到冲突时如何使用 primary 偏好做决定。"
                                 ),
                             ),
                         ],

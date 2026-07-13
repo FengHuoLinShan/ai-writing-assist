@@ -208,13 +208,29 @@ class WorldEntityFusionService:
                     warnings.append(f"跳过空别名：{source.name}")
                     continue
                 try:
-                    result = await self._alias_service.create_alias(
-                        db,
-                        novel_id,
-                        str(target.id),
-                        alias,
-                        "alias",
-                    )
+                    if source.status == "canonical":
+                        if not item.allow_canonical_alias:
+                            skipped += 1
+                            warnings.append(
+                                f"需要二次确认才能将已采用对象设为别名：{source.name}"
+                            )
+                            continue
+                        result = await self._alias_service.resolve_candidate_as_alias(
+                            db,
+                            novel_id,
+                            str(source.id),
+                            target_entity_id=str(target.id),
+                            alias=alias,
+                            allow_canonical_source=True,
+                        )
+                    else:
+                        result = await self._alias_service.create_alias(
+                            db,
+                            novel_id,
+                            str(target.id),
+                            alias,
+                            "alias",
+                        )
                     applied += 1
                     results.append({"action": "alias_only", **result})
                 except Exception as exc:

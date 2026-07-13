@@ -96,6 +96,7 @@ export function createDeepImportRecovery({
   let taskId = null
   let progress = null
   let timer = null
+  let completionTimer = null
   let pollFailures = 0
   let pollingGeneration = 0
   let pollingActive = false
@@ -410,6 +411,7 @@ export function createDeepImportRecovery({
     confirmationId = null,
   }) {
     if (!newTaskId) return
+    clearCompletionTimer()
     const config = stageConfig(stage || "scenes")
     taskId = newTaskId
     taskProjectId = currentProjectId()
@@ -547,7 +549,8 @@ export function createDeepImportRecovery({
             toast?.(`${currentLabel}完成！`, "success")
           }
           api.clearCache?.()
-          setTimeout(() => {
+          completionTimer = setTimeout(() => {
+            completionTimer = null
             progress = null
             onDone?.()
           }, 1500)
@@ -608,6 +611,13 @@ export function createDeepImportRecovery({
     if (timer) {
       clearTimeout(timer)
       timer = null
+    }
+  }
+
+  function clearCompletionTimer() {
+    if (completionTimer) {
+      clearTimeout(completionTimer)
+      completionTimer = null
     }
   }
 
@@ -1055,6 +1065,7 @@ export function createDeepImportRecovery({
 
   function dismiss() {
     pausePolling()
+    clearCompletionTimer()
     const capturedTaskId = taskId
     progress = null
     taskId = null
@@ -1124,6 +1135,7 @@ export function createDeepImportRecovery({
 
   function dispose() {
     pausePolling()
+    clearCompletionTimer()
   }
 
   return {

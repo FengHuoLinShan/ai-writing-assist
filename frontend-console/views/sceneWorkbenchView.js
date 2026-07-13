@@ -2340,7 +2340,7 @@ const sceneWorkbenchView = {
       toast("暂无 Scene 融合建议", "info")
       return
     }
-    const rows = suggestions.map((item, index) => {
+    const renderSuggestion = (item, input) => {
       const span = Array.isArray(item.chapter_span) ? item.chapter_span.join("-") : "-"
       const trace = (item.scan_trace || []).map((step) => (
         item.suggestion_kind === "replacement"
@@ -2350,65 +2350,185 @@ const sceneWorkbenchView = {
       const replacementDrafts = item.proposed_scene?.draft_scenes || []
       const title = item.suggestion_kind === "replacement"
         ? `${replacementDrafts.length} 个新候选等待替换审查`
-        : item.proposed_scene?.title || "Scene 融合建议"
+        : item.proposed_action === "keep_separate"
+          ? "Scene 切分建议"
+          : item.proposed_scene?.title || "Scene 融合建议"
       return `
         <label class="scene-fusion-suggestion">
-          <input type="radio" name="fusion-suggestion" value="${esc(index)}" ${index === 0 ? "checked" : ""} />
+          ${input}
           <strong>${esc(title)}</strong>
           <div class="scene-fusion-suggestion__meta">${esc(item.suggestion_kind || "-")} · 章节 ${esc(span)} · 置信度 ${esc(item.confidence ?? "-")} · ${esc(item.proposed_action || "")}</div>
           <p class="scene-fusion-suggestion__summary">${esc(item.reason || "无说明")}</p>
           <details class="scene-fusion-suggestion__trace"><summary>扫描轨迹</summary><p>${esc(trace || "无")}</p></details>
         </label>
       `
-    }).join("")
-    showModalHtml("Scene 融合建议", rows, [{
-      text: "处理所选建议",
-      class: "btn-primary",
-      handler: async () => {
-        const selected = document.querySelector('input[name="fusion-suggestion"]:checked')?.value
-        const suggestion = suggestions[Number(selected || 0)]
-        if (!suggestion) return
-        closeModal()
-        if (suggestion.suggestion_kind === "replacement") {
-          this._showReplacementSuggestion(suggestion)
-          return
-        }
-        if (suggestion.proposed_action === "keep_separate") {
-          this._confirmKeepSeparateSuggestion(suggestion)
-          return
-        }
-        await this._showPrimaryScenePicker(
-          suggestion.source_scene_ids || [],
-          suggestion.id || null,
-        )
-      },
-    }])
+    }
+    const keepSeparate = suggestions.filter((item) => (
+      item.proposed_action === "keep_separate" && item.suggestion_kind !== "replacement"
+    ))
+    const reviewRequired = suggestions.filter((item) => !keepSeparate.includes(item))
+    const keepRows = keepSeparate.map((item) => renderSuggestion(
+      item,
+      `<input type="checkbox" name="keep-separate-suggestion" value="${esc(item.id || "")}" />`,
+    )).join("")
+    const reviewRows = reviewRequired.map((item) => renderSuggestion(
+      item,
+      `<input type="radio" name="review-suggestion" value="${esc(item.id || "")}" />`,
+    )).join("")
+    const batchLimit = FUSION_SUGGESTION_DISMISS_BATCH_SIZE
+    const body = `
+      ${keepRows ? `
+        <section class="scene-fusion-suggestion-group" aria-label="可批量确认保持分开">
+          <div class="scene-fusion-suggestion-group__header">
+            <div><strong>可批量确认保持分开</strong><p>只更新建议状态，不修改 Scene 内容。</p></div>
+            <button type="button" class="btn btn-sm" id="select-all-keep-separate">全选本批</button>
+          </div>
+          ${keepSeparate.length > batchLimit ? `<p class="text-muted">每批最多确认 ${esc(batchLimit)} 条，完成后可继续处理余下建议。</p>` : ""}
+          ${keepRows}
+        </section>
+      ` : ""}
+      ${reviewRows ? `
+        <section class="scene-fusion-suggestion-group" aria-label="需逐条审查">
+          <div class="scene-fusion-suggestion-group__header"><div><strong>需逐条审查</strong><p>合并、替换和失败复核仍需逐条确认。</p></div></div>
+          ${reviewRows}
+        </section>
+      ` : ""}
+    `
+    const buttons = []
+    if (keepRows) {
+      buttons.push({
+        text: "确认所选保持分开",
+        class: "",
+        handler: () => this._prepareKeepSeparateBatch(keepSeparate),
+      })
+    }
+    if (reviewRows) {
+      buttons.push({
+        text: "处理所选审查",
+        class: "btn-primary",
+        handler: async () => {
+          const selectedId = document.querySelector('input[name="review-suggestion"]:checked')?.value
+          const suggestion = reviewRequired.find((item) => item.id === selectedId)
+          if (!suggestion) {
+            toast("请先选择一条需逐条审查的建议", "warning")
+            return false
+          }
+          if (suggestion.suggestion_kind === "replacement") {
+            this._showReplacementSuggestion(suggestion)
+            return false
+          }
+          await this._showPrimaryScenePicker(
+            suggestion.source_scene_ids || [],
+            suggestion.id || null,
+          )
+          return false
+        },
+      })
+    }
+    showModalHtml("Scene 融合建议", body, buttons)
+    this._bindKeepSeparateSelectionLimit()
   },
 
-  _confirmKeepSeparateSuggestion(suggestion) {
-    if (!suggestion?.id) return
+  _bindKeepSeparateSelectionLimit() {
+    if (typeof document === "undefined") return
+    const selector = 'input[name="keep-separate-suggestion"]'
+    const checkboxes = Array.from(document.querySelectorAll(selector))
+    const selectedCount = () => checkboxes.filter((input) => input.checked).length
+    checkboxes.forEach((input) => input.addEventListener("change", () => {
+      if (input.checked && selectedCount() > FUSION_SUGGESTION_DISMISS_BATCH_SIZE) {
+        input.checked = false
+        toast(`每批最多确认 ${FUSION_SUGGESTION_DISMISS_BATCH_SIZE} 条建议`, "warning")
+      }
+    }))
+    document.getElementById("select-all-keep-separate")?.addEventListener("click", () => {
+      checkboxes.forEach((input, index) => {
+        input.checked = index < FUSION_SUGGESTION_DISMISS_BATCH_SIZE
+      })
+    })
+  },
+
+  _prepareKeepSeparateBatch(keepSeparate) {
+    const selectedIds = Array.from(
+      document.querySelectorAll('input[name="keep-separate-suggestion"]:checked'),
+    ).map((input) => input.value).filter(Boolean)
+    const uniqueIds = [...new Set(selectedIds)]
+    if (!uniqueIds.length) {
+      toast("请先选择要确认保持分开的建议", "warning")
+      return false
+    }
+    if (uniqueIds.length > FUSION_SUGGESTION_DISMISS_BATCH_SIZE) {
+      toast(`每批最多确认 ${FUSION_SUGGESTION_DISMISS_BATCH_SIZE} 条建议`, "warning")
+      return false
+    }
+    const knownIds = new Set(keepSeparate.map((item) => item.id).filter(Boolean))
+    const validIds = uniqueIds.filter((id) => knownIds.has(id))
+    if (validIds.length !== uniqueIds.length) {
+      toast("建议列表已变化，请刷新后重试", "warning")
+      return false
+    }
+    this._confirmKeepSeparateSuggestions(validIds)
+    return false
+  },
+
+  _confirmKeepSeparateSuggestions(suggestionIds) {
+    const ids = [...new Set(suggestionIds)].filter(Boolean)
+    if (!ids.length) return false
+    const confirmText = `确认 ${ids.length} 条保持分开`
+    let pending = false
     showModalHtml("保持 Scene 分开", `
-      <p>将确认这些 Scene 保持独立，并将该建议标记为已处理。这不会修改 Scene 内容。</p>
+      <p>将确认 ${esc(ids.length)} 条建议中的 Scene 保持独立，并将这些建议标记为已处理。这不会修改 Scene 内容。</p>
     `, [
       { text: "取消", class: "", handler: () => closeModal() },
       {
-        text: "确认保持分开",
+        text: confirmText,
         class: "btn-primary",
         handler: async () => {
+          if (pending) return false
+          pending = true
+          const confirmButton = Array.from(
+            document.querySelectorAll("#modal-footer button"),
+          ).find((button) => button.textContent === confirmText)
+          if (confirmButton) {
+            confirmButton.disabled = true
+            confirmButton.textContent = "确认中..."
+          }
+          let result
           try {
-            await api.outline.dismissFusionSuggestions(state.currentProjectId, {
-              suggestion_ids: [suggestion.id],
+            result = await api.outline.dismissFusionSuggestions(state.currentProjectId, {
+              suggestion_ids: ids,
               confirmed: true,
             })
-            closeModal()
-            toast("已确认 Scene 保持分开", "success")
+          } catch (err) {
+            pending = false
+            if (confirmButton) {
+              confirmButton.disabled = false
+              confirmButton.textContent = confirmText
+            }
+            toast(err.message || "处理建议失败", "error")
+            return false
+          }
+          const rawDismissed = Number(result?.dismissed)
+          const dismissed = Number.isFinite(rawDismissed) ? rawDismissed : ids.length
+          try {
             await this._refreshWorkbenchInPlace()
           } catch (err) {
-            toast(err.message || "处理建议失败", "error")
+            toast(
+              `已确认 ${dismissed} 条建议，但工作台刷新失败，请手动刷新`,
+              "warning",
+            )
+            return true
           }
+          toast(`已确认 ${dismissed} 条建议保持分开`, "success")
+          return true
         },
       },
     ])
+    return false
+  },
+
+  _confirmKeepSeparateSuggestion(suggestion) {
+    if (!suggestion?.id) return false
+    return this._confirmKeepSeparateSuggestions([suggestion.id])
   },
 
   async _openFusionSuggestion(suggestionId) {

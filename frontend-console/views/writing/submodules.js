@@ -84,7 +84,7 @@ export function createWritingSubModules(orchestrator, deps) {
     esc,
     onPrompt: () => orchestrator._rerender(),
     onStatusChange: () => orchestrator._rerender(),
-    onDone: () => router.refresh?.(),
+    onDone: () => orchestrator._onDeepImportDone?.(),
   })
 
   const autoExtraction = createAutoExtraction({

@@ -1878,6 +1878,7 @@ describe("sceneWorkbenchView", () => {
     showModal.mockImplementation(() => {})
     sceneWorkbenchView._workbench = workbenchPayload
     sceneWorkbenchView._fusionSuggestions = [{
+      id: "sg-merge",
       source_scene_ids: ["s1", "s2"],
       chapter_span: [1, 3],
       confidence: 0.8,
@@ -1889,11 +1890,14 @@ describe("sceneWorkbenchView", () => {
     }]
 
     sceneWorkbenchView._showFusionSuggestions()
+    document.body.innerHTML = modalHtmlFromCall(showModal.mock.calls[0])
+    document.querySelector('input[name="review-suggestion"]').checked = true
     const buttons = showModal.mock.calls[0][2]
-    await buttons[0].handler()
+    const result = await buttons.find((button) => button.text === "处理所选审查").handler()
 
     expect(api.outline.saveSceneFusion).not.toHaveBeenCalled()
     expect(showModal.mock.calls[1][0]).toBe("选择主 Scene")
+    expect(result).toBe(false)
   })
 
   it("handles keep-separate suggestions without opening fusion", async () => {
@@ -1914,7 +1918,10 @@ describe("sceneWorkbenchView", () => {
     }]
 
     sceneWorkbenchView._showFusionSuggestions()
-    await showModal.mock.calls[0][2][0].handler()
+    document.body.innerHTML = modalHtmlFromCall(showModal.mock.calls[0])
+    document.querySelector('input[name="keep-separate-suggestion"]').checked = true
+    const result = await showModal.mock.calls[0][2]
+      .find((button) => button.text === "确认所选保持分开").handler()
 
     expect(showModal.mock.calls[1][0]).toBe("保持 Scene 分开")
     expect(api.outline.previewSceneFusion).not.toHaveBeenCalled()
@@ -1924,6 +1931,301 @@ describe("sceneWorkbenchView", () => {
       confirmed: true,
     })
     expect(refresh).toHaveBeenCalled()
+    expect(result).toBe(false)
+  })
+
+  it("separates batch-safe suggestions from suggestions requiring review", () => {
+    showModal.mockReset()
+    showModal.mockImplementation(() => {})
+    const attack = '<img src=x onerror="alert(1)">'
+    sceneWorkbenchView._fusionSuggestions = [
+      {
+        id: "sg-keep",
+        proposed_action: "keep_separate",
+        suggestion_kind: "cross_chapter",
+        chapter_span: [1, 2],
+        reason: attack,
+      },
+      {
+        id: "sg-merge",
+        proposed_action: "merge",
+        suggestion_kind: "cross_chapter",
+        chapter_span: [2, 3],
+        reason: "连续场景",
+      },
+      {
+        id: "sg-review",
+        proposed_action: "needs_review",
+        suggestion_kind: "duplicate_window",
+        chapter_span: [3, 4],
+        reason: "LLMInvalidResponseError",
+      },
+    ]
+
+    sceneWorkbenchView._showFusionSuggestions()
+
+    const html = modalHtmlFromCall(showModal.mock.calls[0])
+    expect(html).toContain("可批量确认保持分开")
+    expect(html).toContain("需逐条审查")
+    expect(html).toContain("Scene 切分建议")
+    expect(html).toContain("Scene 融合建议")
+    expect(html).toContain('type="checkbox" name="keep-separate-suggestion"')
+    expect(html).toContain('type="radio" name="review-suggestion"')
+    document.body.innerHTML = html
+    expect(document.querySelectorAll('input[name="review-suggestion"]')).toHaveLength(2)
+    expect(html).not.toContain(attack)
+    expect(html).toContain("&lt;img")
+  })
+
+  it("keeps the queue open when neither batch nor review selection is made", async () => {
+    showModal.mockReset()
+    showModal.mockImplementation(() => {})
+    sceneWorkbenchView._fusionSuggestions = [
+      {
+        id: "sg-keep",
+        proposed_action: "keep_separate",
+        suggestion_kind: "cross_chapter",
+      },
+      {
+        id: "sg-merge",
+        proposed_action: "merge",
+        suggestion_kind: "cross_chapter",
+      },
+    ]
+
+    sceneWorkbenchView._showFusionSuggestions()
+    document.body.innerHTML = modalHtmlFromCall(showModal.mock.calls[0])
+    const [confirmBatch, processReview] = showModal.mock.calls[0][2]
+
+    expect(await confirmBatch.handler()).toBe(false)
+    expect(await processReview.handler()).toBe(false)
+    expect(showModal).toHaveBeenCalledTimes(1)
+    expect(toast).toHaveBeenCalledWith("请先选择要确认保持分开的建议", "warning")
+    expect(toast).toHaveBeenCalledWith("请先选择一条需逐条审查的建议", "warning")
+  })
+
+  it("deduplicates selected keep-separate ids and refreshes once", async () => {
+    showModal.mockReset()
+    showModal.mockImplementation(() => {})
+    api.outline.dismissFusionSuggestions.mockResolvedValue({ dismissed: 2 })
+    const refresh = vi.spyOn(sceneWorkbenchView, "_refreshWorkbenchInPlace")
+      .mockResolvedValue()
+    sceneWorkbenchView._fusionSuggestions = [
+      { id: "sg-1", proposed_action: "keep_separate", suggestion_kind: "cross_chapter" },
+      { id: "sg-2", proposed_action: "keep_separate", suggestion_kind: "intra_chapter" },
+    ]
+
+    sceneWorkbenchView._showFusionSuggestions()
+    document.body.innerHTML = `${modalHtmlFromCall(showModal.mock.calls[0])}
+      <input type="checkbox" name="keep-separate-suggestion" value="sg-1" checked />`
+    document.querySelectorAll('input[name="keep-separate-suggestion"]').forEach((input) => {
+      input.checked = true
+    })
+    await showModal.mock.calls[0][2]
+      .find((button) => button.text === "确认所选保持分开").handler()
+    const result = await showModal.mock.calls[1][2][1].handler()
+
+    expect(api.outline.dismissFusionSuggestions).toHaveBeenCalledWith("p1", {
+      suggestion_ids: ["sg-1", "sg-2"],
+      confirmed: true,
+    })
+    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(toast).toHaveBeenCalledWith("已确认 2 条建议保持分开", "success")
+    expect(result).toBe(true)
+  })
+
+  it("selects at most 100 keep-separate suggestions per batch", () => {
+    showModal.mockReset()
+    showModal.mockImplementation(() => {})
+    sceneWorkbenchView._fusionSuggestions = Array.from({ length: 101 }, (_, index) => ({
+      id: `sg-${index + 1}`,
+      proposed_action: "keep_separate",
+      suggestion_kind: "cross_chapter",
+    }))
+
+    sceneWorkbenchView._showFusionSuggestions()
+    document.body.innerHTML = modalHtmlFromCall(showModal.mock.calls[0])
+    sceneWorkbenchView._bindKeepSeparateSelectionLimit()
+    document.getElementById("select-all-keep-separate").click()
+
+    const selected = document.querySelectorAll('input[name="keep-separate-suggestion"]:checked')
+    expect(selected).toHaveLength(100)
+    expect(modalHtmlFromCall(showModal.mock.calls[0])).toContain("每批最多确认 100 条")
+
+    const checkboxes = Array.from(
+      document.querySelectorAll('input[name="keep-separate-suggestion"]'),
+    )
+    checkboxes.forEach((input) => { input.checked = false })
+    checkboxes.slice(0, 100).forEach((input) => {
+      input.checked = true
+      input.dispatchEvent(new Event("change"))
+    })
+    checkboxes[100].checked = true
+    checkboxes[100].dispatchEvent(new Event("change"))
+    expect(checkboxes[100].checked).toBe(false)
+    expect(toast).toHaveBeenCalledWith("每批最多确认 100 条建议", "warning")
+
+    checkboxes.forEach((input) => { input.checked = true })
+    const result = showModal.mock.calls[0][2]
+      .find((button) => button.text === "确认所选保持分开").handler()
+    expect(result).toBe(false)
+    expect(showModal).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps the real confirmation visible after failure and retries the same ids once", async () => {
+    const previousModalGlobals = {
+      showModal: globalThis.showModal,
+      showModalHtml: globalThis.showModalHtml,
+      closeModal: globalThis.closeModal,
+      confirmAction: globalThis.confirmAction,
+    }
+    let resolveRetry
+    try {
+      vi.resetModules()
+      await import("../ui/modal.js")
+      vi.spyOn(sceneWorkbenchView, "_refreshWorkbenchInPlace").mockResolvedValue()
+      api.outline.dismissFusionSuggestions
+        .mockRejectedValueOnce(new Error("dismiss failed"))
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveRetry = resolve }))
+      document.body.innerHTML = `
+        <div id="modal-overlay" class="hidden">
+          <div id="modal-content">
+            <h2 id="modal-title"></h2>
+            <div id="modal-body"></div>
+            <div id="modal-footer"></div>
+          </div>
+        </div>
+      `
+      sceneWorkbenchView._fusionSuggestions = [{
+        id: "sg-keep",
+        proposed_action: "keep_separate",
+        suggestion_kind: "cross_chapter",
+      }]
+      sceneWorkbenchView._showFusionSuggestions()
+      document.querySelector('input[name="keep-separate-suggestion"]').checked = true
+      Array.from(document.querySelectorAll("#modal-footer button"))
+        .find((button) => button.textContent === "确认所选保持分开").click()
+      const confirmButton = Array.from(document.querySelectorAll("#modal-footer button"))
+        .find((button) => button.textContent === "确认 1 条保持分开")
+
+      confirmButton.click()
+      await vi.waitFor(() => expect(toast).toHaveBeenCalledWith("dismiss failed", "error"))
+      expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(false)
+      expect(confirmButton.disabled).toBe(false)
+      expect(confirmButton.textContent).toBe("确认 1 条保持分开")
+
+      confirmButton.click()
+      confirmButton.click()
+      expect(api.outline.dismissFusionSuggestions).toHaveBeenCalledTimes(2)
+      expect(confirmButton.disabled).toBe(true)
+      expect(confirmButton.textContent).toBe("确认中...")
+      resolveRetry({ dismissed: 1 })
+
+      await vi.waitFor(() => (
+        expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(true)
+      ))
+      expect(api.outline.dismissFusionSuggestions).toHaveBeenNthCalledWith(1, "p1", {
+        suggestion_ids: ["sg-keep"],
+        confirmed: true,
+      })
+      expect(api.outline.dismissFusionSuggestions).toHaveBeenNthCalledWith(2, "p1", {
+        suggestion_ids: ["sg-keep"],
+        confirmed: true,
+      })
+    } finally {
+      Object.assign(globalThis, previousModalGlobals)
+    }
+  })
+
+  it("treats refresh failure after dismiss as a completed mutation", async () => {
+    showModal.mockReset()
+    showModal.mockImplementation(() => {})
+    api.outline.dismissFusionSuggestions.mockResolvedValue({ dismissed: 2 })
+    vi.spyOn(sceneWorkbenchView, "_refreshWorkbenchInPlace")
+      .mockRejectedValue(new Error("refresh failed"))
+
+    sceneWorkbenchView._confirmKeepSeparateSuggestions(["sg-1", "sg-2"])
+    const result = await showModal.mock.calls[0][2][1].handler()
+
+    expect(result).toBe(true)
+    expect(api.outline.dismissFusionSuggestions).toHaveBeenCalledTimes(1)
+    expect(toast).toHaveBeenCalledWith(
+      "已确认 2 条建议，但工作台刷新失败，请手动刷新",
+      "warning",
+    )
+    expect(toast).not.toHaveBeenCalledWith("refresh failed", "error")
+  })
+
+  it("keeps follow-up modals visible for keep, merge, and replacement suggestions", async () => {
+    const previousModalGlobals = {
+      showModal: globalThis.showModal,
+      showModalHtml: globalThis.showModalHtml,
+      closeModal: globalThis.closeModal,
+      confirmAction: globalThis.confirmAction,
+    }
+    try {
+      vi.resetModules()
+      await import("../ui/modal.js")
+      sceneWorkbenchView._workbench = workbenchPayload
+      const cases = [
+        {
+          suggestion: {
+            id: "sg-keep",
+            proposed_action: "keep_separate",
+            suggestion_kind: "cross_chapter",
+          },
+          selector: 'input[name="keep-separate-suggestion"]',
+          buttonText: "确认所选保持分开",
+          nextTitle: "保持 Scene 分开",
+        },
+        {
+          suggestion: {
+            id: "sg-merge",
+            source_scene_ids: ["s1", "s2"],
+            proposed_action: "merge",
+            suggestion_kind: "cross_chapter",
+          },
+          selector: 'input[name="review-suggestion"]',
+          buttonText: "处理所选审查",
+          nextTitle: "选择主 Scene",
+        },
+        {
+          suggestion: {
+            id: "sg-replace",
+            source_scene_ids: ["s1"],
+            proposed_action: "replace",
+            suggestion_kind: "replacement",
+            proposed_scene: { draft_scenes: [] },
+          },
+          selector: 'input[name="review-suggestion"]',
+          buttonText: "处理所选审查",
+          nextTitle: "Scene 替换审查",
+        },
+      ]
+
+      for (const item of cases) {
+        document.body.innerHTML = `
+          <div id="modal-overlay" class="hidden">
+            <div id="modal-content">
+              <h2 id="modal-title"></h2>
+              <div id="modal-body"></div>
+              <div id="modal-footer"></div>
+            </div>
+          </div>
+        `
+        sceneWorkbenchView._fusionSuggestions = [item.suggestion]
+        sceneWorkbenchView._showFusionSuggestions()
+        document.querySelector(item.selector).checked = true
+        const action = Array.from(document.querySelectorAll("#modal-footer button"))
+          .find((button) => button.textContent === item.buttonText)
+        action.click()
+
+        await vi.waitFor(() => expect(document.getElementById("modal-title").textContent).toBe(item.nextTitle))
+        expect(document.getElementById("modal-overlay").classList.contains("hidden")).toBe(false)
+      }
+    } finally {
+      Object.assign(globalThis, previousModalGlobals)
+    }
   })
 
   it("dismisses at most the service batch limit at a time", async () => {
@@ -1968,13 +2270,17 @@ describe("sceneWorkbenchView", () => {
     }]
 
     sceneWorkbenchView._showFusionSuggestions()
-    await showModal.mock.calls[0][2][0].handler()
+    document.body.innerHTML = modalHtmlFromCall(showModal.mock.calls[0])
+    document.querySelector('input[name="review-suggestion"]').checked = true
+    const result = await showModal.mock.calls[0][2]
+      .find((button) => button.text === "处理所选审查").handler()
 
     expect(showModal.mock.calls[1][0]).toBe("Scene 替换审查")
     const html = modalHtmlFromCall(showModal.mock.calls[1])
     expect(html).toContain("受保护的原 Scene")
     expect(html).toContain("新版潜入")
     expect(api.outline.previewSceneFusion).not.toHaveBeenCalled()
+    expect(result).toBe(false)
   })
 
   it("applies a replacement only after explicit confirmation", async () => {

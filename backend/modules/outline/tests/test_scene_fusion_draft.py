@@ -114,9 +114,15 @@ async def test_generator_uses_structured_project_client_and_manuscript(
     assert client.request.temperature == 0.2
     assert client.request.max_tokens == 2500
     assert client.request.response_format == {"type": "json_object"}
+    system_prompt = client.request.messages[0].content
+    assert "公平考虑每个选中 Scene" in system_prompt
+    assert "primary Scene 只是偏好信号，不是骨架" in system_prompt
+    assert "以主 Scene 为骨架" not in system_prompt
     prompt = client.request.messages[1].content
     assert "正文:潜入" in prompt
     assert '"role": "primary"' in prompt
+    assert "如何兼顾所有 Scene" in prompt
+    assert "如何使用 primary 偏好做决定" in prompt
     assert "pov_character_id" not in prompt
 
 

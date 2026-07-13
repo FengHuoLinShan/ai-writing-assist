@@ -48,8 +48,8 @@ const DEEP_IMPORT_GROUPS = [
       { key: "auto_merge_confidence", label: "自动融合置信度", type: "float", min: 0, max: 1, step: "0.01", value: 0.92 },
       { key: "boundary_context_chars", label: "边界上下文字数", type: "int", min: 100, max: 100000, value: 2000 },
       { key: "concurrency", label: "边界审核并发", type: "int", min: 1, max: 100, value: 20 },
-      { key: "decision_max_tokens", label: "决策 max tokens", type: "int", min: 1, max: 200000, value: 1024 },
-      { key: "timeout_seconds", label: "Phase 1C 超时（秒）", type: "int", min: 1, max: 7200, value: 180 },
+      { key: "decision_max_tokens", label: "决策 max tokens（留空继承全局）", type: "int", min: 1, max: 200000, value: null },
+      { key: "timeout_seconds", label: "Phase 1C 超时（秒）", type: "int", min: 1, max: 7200, value: 360 },
     ],
   },
   {
@@ -93,13 +93,20 @@ const DEEP_IMPORT_GROUPS = [
 export { DEEP_IMPORT_GROUPS }
 
 export function renderDeepImportFields(settings) {
+  const configured = settings || {}
   return `
     <div class="llm-deep-import-grid">
       ${DEEP_IMPORT_GROUPS.map((group) => `
         <div class="deep-import-group">
           <h4>${group.label}</h4>
           <div class="form-row">
-            ${group.fields.map((field) => renderDeepImportField(group.id, field, settings[group.id]?.[field.key])).join("")}
+            ${group.fields.map((field) => {
+              const groupSettings = configured[group.id]
+              const value = groupSettings && Object.hasOwn(groupSettings, field.key)
+                ? groupSettings[field.key]
+                : field.value
+              return renderDeepImportField(group.id, field, value)
+            }).join("")}
           </div>
         </div>
       `).join("")}

@@ -271,6 +271,30 @@ describe("writingView chapter selection", () => {
     expect(api.writing.getVersionHistory).toHaveBeenCalledWith(1, "p1")
   })
 
+  it("切换章节后保留章节树和页面滚动位置", async () => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    mockEditorLoad()
+    await writingView.onEnter()
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+
+    const tree = document.getElementById("writing-tree-container")
+    tree.scrollTop = 180
+    document.documentElement.scrollTop = 420
+
+    await writingView._selectChapter(1)
+
+    expect(document.getElementById("writing-tree-container").scrollTop).toBe(180)
+    expect(document.documentElement.scrollTop).toBe(420)
+
+    document.getElementById("writing-tree-container").scrollTop = 260
+    document.documentElement.scrollTop = 640
+    await writingView._selectChapter(3)
+
+    expect(document.getElementById("writing-tree-container").scrollTop).toBe(260)
+    expect(document.documentElement.scrollTop).toBe(640)
+  })
+
   it("切换章节后使用新章节 Scene 刷新冲突检查", async () => {
     state.currentProjectId = "p1"
     api.writing.listChapters.mockResolvedValue({
@@ -610,6 +634,61 @@ describe("writingView deep import / auto extraction", () => {
     )
     expect(startTaskSpy).toHaveBeenCalledWith(expect.objectContaining({ taskId: "task-1" }))
     startTaskSpy.mockRestore()
+  })
+
+  it("任务完成后只局部刷新章节与 Scene 数据，不刷新整页", async () => {
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+    api.writing.listChapters.mockResolvedValue({
+      chapters: [
+        { chapter_index: 1, title: "第一章", word_count: 120, version_number: 1, status: "draft" },
+        { chapter_index: 3, title: "第三章 归潮尽头", word_count: 1095, version_number: 1, status: "draft" },
+      ],
+    })
+    api.outline.listScenesOrdered.mockResolvedValue([
+      { id: "scene-1", title: "新提取 Scene", chapter_ids: ["1"] },
+    ])
+
+    await writingView._onDeepImportDone()
+
+    expect(router.refresh).not.toHaveBeenCalled()
+    expect(writingView._currentChapter).toBe(1)
+    expect(writingView._editor.getContent()).toBe("第一章正文")
+    expect(writingView._scenes).toEqual([
+      expect.objectContaining({ id: "scene-1", title: "新提取 Scene" }),
+    ])
+  })
+})
+
+describe("writingView chapter selection consistency", () => {
+  it("编辑器 DOM 仍显示上一章时不会把旧标题写入新章节树", async () => {
+    state.currentProjectId = "p1"
+    api.writing.listChapters.mockResolvedValue({
+      chapters: [
+        { chapter_index: 1, title: "第一章", word_count: 4, version_number: 1 },
+        { chapter_index: 2, title: "第二章", word_count: 4, version_number: 1 },
+      ],
+    })
+    api.outline.listScenesOrdered.mockResolvedValue([])
+    api.writing.getVersionHistory.mockImplementation((chapterIndex) => Promise.resolve({
+      versions: [{ id: `draft-${chapterIndex}`, version_number: 1 }],
+    }))
+    api.writing.get.mockImplementation((draftId) => Promise.resolve({
+      id: draftId,
+      title: draftId === "draft-1" ? "第一章" : "第二章",
+      content: draftId === "draft-1" ? "正文一" : "正文二",
+      version_number: 1,
+    }))
+    api.writing.listConflictChecks.mockResolvedValue({ items: [], total: 0 })
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+
+    writingView._currentChapter = 2
+    writingView._editor.setState({ chapter: 2, title: "第二章", content: "正文二" })
+
+    expect(writingView._chapters[1].title).toBe("第一章")
+    expect(writingView._chapters[2].title).toBe("第二章")
   })
 })
 
@@ -1212,10 +1291,19 @@ describe("writingView AI extract chapter cards", () => {
     await writingView._selectChapter(1)
   })
 
-  it("AI工具菜单包含提取章节卡按钮", async () => {
+  it("AI 工具菜单在专注模式同一行并显示正文整理入口", async () => {
     const html = await writingView.render()
-    expect(html).toContain('data-action="extract-cards"')
-    expect(html).toContain("AI 提取章节卡")
+    document.body.innerHTML = `<div id="workspace-content">${html}</div>`
+    const toolsMenu = document.querySelector(".writing-tools-menu")
+    const focusButton = document.querySelector(
+      '.writing-editor-buttons [data-action="toggle-focus-mode"]',
+    )
+    expect(toolsMenu?.closest(".writing-editor-buttons")).not.toBeNull()
+    expect(focusButton?.closest(".writing-editor-buttons")).toBe(
+      toolsMenu?.closest(".writing-editor-buttons"),
+    )
+    expect(toolsMenu?.textContent).toContain("从正文整理 Scene")
+    expect(toolsMenu?.querySelector('[data-action="extract-cards"]')).not.toBeNull()
   })
 
   it("点击提取章节卡打开弹窗", async () => {
@@ -1226,7 +1314,7 @@ describe("writingView AI extract chapter cards", () => {
       expect(showModal).toHaveBeenCalled()
     })
     const modal = latestModal()
-    expect(modal.title).toContain("AI 提取章节卡")
+    expect(modal.title).toContain("从正文整理 Scene")
   })
 })
 

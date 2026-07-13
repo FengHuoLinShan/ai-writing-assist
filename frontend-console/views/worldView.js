@@ -137,6 +137,12 @@ const worldView = {
   _filters: { ...WORLD_FILTER_DEFAULTS },
 
   _advancedFiltersOpen: false,
+  _filterPanelsOpen: {
+    objects: true,
+    "review-objects": true,
+    "review-aliases": true,
+    "review-relations": true,
+  },
   _objectViewMode: "table",
 
   _entityTypes: [
@@ -980,7 +986,7 @@ const worldView = {
         <option value="false" ${this._filters.auto_ingested === "false" ? "selected" : ""}>非自动入库</option>
       </select>
     ` : ""
-    return `
+    const content = `
       <div class="world-object-filters">
         <select class="form-select" id="filter-entity-type" aria-label="对象类型筛选">${typeOptions}</select>
         <select class="form-select" id="filter-display-state" aria-label="对象状态筛选">${statusOptions}</select>
@@ -990,6 +996,36 @@ const worldView = {
         <button class="btn btn-sm" data-action="reset-filters">重置</button>
         ${advancedFilters}
       </div>
+    `
+    return this._renderFilterPanel(
+      "objects",
+      content,
+      this._filters.display_state !== "active"
+        || WORLD_OBJECT_QUERY_KEYS.some((key) => key !== "display_state" && Boolean(this._filters[key])),
+    )
+  },
+
+  _renderFilterPanel(key, content, hasActiveFilters = false) {
+    const open = this._filterPanelsOpen?.[key] !== false
+    const panelId = `world-filter-panel-${key}`
+    return `
+      <section class="world-filter-panel" data-filter-panel="${esc(key)}">
+        <button
+          type="button"
+          class="btn btn-sm world-filter-panel__toggle"
+          data-action="toggle-filter-panel"
+          data-filter-key="${esc(key)}"
+          aria-expanded="${open ? "true" : "false"}"
+          aria-controls="${esc(panelId)}"
+        >
+          <span aria-hidden="true">${open ? "▾" : "▸"}</span>
+          <span data-filter-toggle-label>${open ? "收起筛选" : "展开筛选"}</span>
+          ${hasActiveFilters ? '<span class="world-filter-panel__active">已筛选</span>' : ""}
+        </button>
+        <div id="${esc(panelId)}" class="world-filter-panel__body" ${open ? "" : "hidden"}>
+          ${content}
+        </div>
+      </section>
     `
   },
 
@@ -1095,12 +1131,12 @@ const worldView = {
 
   _renderEntityTable(entities, { showNewBadge }) {
     const scope = "world-objects"
-    const ids = entities.map((entity) => this._entityId(entity))
-    reconcileBulkSelection(this, scope, ids)
+    const visibleIds = this._visibleIdsForBulkScope(scope)
+    reconcileBulkSelection(this, scope, visibleIds)
     let html = `<table class="data-table table-card-list world-table--no-top-border">
       <thead>
         <tr>
-          <th class="selection-cell">${renderSelectionHeader(this, scope, ids, "全选当前页对象")}</th>
+          <th class="selection-cell">${renderSelectionHeader(this, scope, visibleIds, "全选当前页对象")}</th>
           <th>状态</th>
           <th>类型</th>
           <th>名称</th>
@@ -1140,7 +1176,7 @@ const worldView = {
           <td data-label="操作">
             <div class="row-actions">
               ${reviewAction}
-              ${isSuggestionShadow ? "" : `<button class="btn btn-sm btn-primary" data-action="edit-entity" data-id="${esc(id)}">编辑</button>`}
+              <button class="btn btn-sm btn-primary" data-action="edit-entity" data-id="${esc(id)}">${canPromote ? "编辑后采用" : "编辑"}</button>
               ${canMerge ? `<button class="btn btn-sm" data-action="merge-entity" data-id="${esc(id)}">合并</button>` : ""}
               ${renderActionMenu(`entity-actions-${esc(id)}`, [
                 { action: "open-entity-map", label: "打开地图", data: { id } },
@@ -1157,23 +1193,37 @@ const worldView = {
 
     html += '</tbody></table>'
     html = renderBulkToolbar(this, scope, [
-      { action: "review-entities", label: "批量标记已检查", className: "btn-primary" },
-      { action: "promote-entities", label: "批量采用", className: "btn-primary" },
+      ...(this._filters.display_state === "active" ? [
+        { action: "fuse-entities", label: "融合", className: "btn-primary" },
+        { action: "alias-entities", label: "标记为别名", className: "btn-primary" },
+      ] : []),
       { action: "delete-entities", label: "批量删除", className: "btn-danger" },
-    ], { noun: "对象", hint: "仅作用于当前页选中对象" }) + html
+    ], {
+      noun: "对象",
+      hint: "仅作用于当前页选中对象",
+      selectAllIds: visibleIds,
+      selectAllLabel: "全选当前页对象",
+    }) + html
     return html
   },
 
   _renderEntityCards(entities, { showNewBadge }) {
     const scope = "world-objects"
-    const ids = entities.map((entity) => this._entityId(entity))
-    reconcileBulkSelection(this, scope, ids)
+    const visibleIds = this._visibleIdsForBulkScope(scope)
+    reconcileBulkSelection(this, scope, visibleIds)
     const cards = entities.map((entity) => this._renderEntityCard(entity, { showNewBadge })).join("")
     return renderBulkToolbar(this, scope, [
-      { action: "review-entities", label: "批量标记已检查", className: "btn-primary" },
-      { action: "promote-entities", label: "批量采用", className: "btn-primary" },
+      ...(this._filters.display_state === "active" ? [
+        { action: "fuse-entities", label: "融合", className: "btn-primary" },
+        { action: "alias-entities", label: "标记为别名", className: "btn-primary" },
+      ] : []),
       { action: "delete-entities", label: "批量删除", className: "btn-danger" },
-    ], { noun: "对象", hint: "仅作用于当前页选中对象" }) + `
+    ], {
+      noun: "对象",
+      hint: "仅作用于当前页选中对象",
+      selectAllIds: visibleIds,
+      selectAllLabel: "全选当前页对象",
+    }) + `
       <div class="world-object-card-grid">
         ${cards}
       </div>
@@ -1217,7 +1267,7 @@ const worldView = {
         </div>
         <div class="world-object-card__actions">
           ${reviewAction}
-          ${isSuggestionShadow ? "" : `<button class="btn btn-sm btn-primary" data-action="edit-entity" data-id="${esc(id)}">编辑</button>`}
+          <button class="btn btn-sm btn-primary" data-action="edit-entity" data-id="${esc(id)}">${canPromote ? "编辑后采用" : "编辑"}</button>
           <button class="btn btn-sm" data-action="open-entity-map" data-id="${esc(id)}">地图</button>
           ${canMerge ? `<button class="btn btn-sm" data-action="merge-entity" data-id="${esc(id)}">合并</button>` : ""}
           ${renderActionMenu(`entity-card-actions-${esc(id)}`, [
@@ -1329,6 +1379,186 @@ const worldView = {
       || ""
   },
 
+  _isTargetedAliasCandidate(candidate) {
+    return ["link_to_existing", "alias_of_existing"].includes(
+      this._candidateAction(candidate),
+    ) && Boolean(this._candidateTargetId(candidate) || this._candidateTargetName(candidate))
+  },
+
+  _candidateActionsHtml(candidate, { allowAlias = false, allowMerge = false } = {}) {
+    const id = this._entityId(candidate)
+    const action = this._candidateAction(candidate)
+    const targetName = this._candidateTargetName(candidate)
+    const isTemporary = action === "temporary_only"
+    const isSuggestionShadow = this._isSuggestionShadow(candidate)
+    const canAccept = isSuggestionShadow || ![
+      "temporary_only",
+      "ignore",
+      "link_to_existing",
+      "alias_of_existing",
+      "merge_with_existing",
+    ].includes(action)
+    const canAlias = allowAlias || isSuggestionShadow
+      || ["link_to_existing", "alias_of_existing"].includes(action)
+    const canMerge = allowMerge || isSuggestionShadow || action === "merge_with_existing"
+    return `
+      ${canAccept ? `<button class="btn btn-sm btn-primary" data-action="accept-candidate" data-id="${esc(id)}">采用</button>` : ""}
+      <button class="btn btn-sm" data-action="edit-entity" data-id="${esc(id)}">编辑后采用</button>
+      ${canAlias ? `<button class="btn btn-sm btn-primary" data-action="resolve-candidate-alias" data-id="${esc(id)}" data-target-name="${esc(targetName)}">设为别名</button>` : ""}
+      ${canMerge ? `<button class="btn btn-sm" data-action="merge-entity" data-id="${esc(id)}" data-target-name="${esc(targetName)}">合并到</button>` : ""}
+      <button class="btn btn-sm ${isTemporary ? "" : "btn-danger"}" data-action="ignore-candidate" data-id="${esc(id)}">${isTemporary ? "设为临时" : "忽略"}</button>
+    `
+  },
+
+  _normalizedCandidateName(candidate) {
+    return String(candidate?.name || "")
+      .normalize("NFKC")
+      .toLocaleLowerCase("zh-CN")
+      .replace(/[\s·•・._\-—–:：'’"“”()（）[\]【】]/g, "")
+  },
+
+  _candidateNamesAreSimilar(left, right) {
+    if ((left?.entity_type || "") !== (right?.entity_type || "")) return false
+    const a = this._normalizedCandidateName(left)
+    const b = this._normalizedCandidateName(right)
+    if (!a || !b) return false
+    if (a === b) return true
+    const shorter = a.length <= b.length ? a : b
+    const longer = a.length > b.length ? a : b
+    if (shorter.length >= 3 && longer.includes(shorter)) return true
+    if (shorter.length < 3) return false
+    const aPairs = new Set(Array.from({ length: a.length - 1 }, (_, index) => (
+      a.slice(index, index + 2)
+    )))
+    const bPairs = new Set(Array.from({ length: b.length - 1 }, (_, index) => (
+      b.slice(index, index + 2)
+    )))
+    const overlap = Array.from(aPairs).filter((pair) => bPairs.has(pair)).length
+    return (2 * overlap) / (aPairs.size + bPairs.size) >= 0.72
+  },
+
+  _groupSimilarNameCandidates(candidates) {
+    const groups = []
+    const assigned = new Set()
+    for (let index = 0; index < candidates.length; index += 1) {
+      if (assigned.has(index)) continue
+      const group = [candidates[index]]
+      assigned.add(index)
+      for (let other = index + 1; other < candidates.length; other += 1) {
+        if (assigned.has(other)) continue
+        if (group.some((item) => this._candidateNamesAreSimilar(item, candidates[other]))) {
+          group.push(candidates[other])
+          assigned.add(other)
+        }
+      }
+      if (group.length > 1) groups.push(group)
+    }
+    return groups
+  },
+
+  _renderCandidateGroupItem(candidate, scope, badgeLabel, actionOptions = {}) {
+    const id = this._entityId(candidate)
+    return `
+      <article class="world-candidate-alias-item" data-id="${esc(id)}">
+        <div class="world-candidate-alias-item__identity">
+          ${renderSelectionCell(this, scope, id, `选择 ${candidate.name || "待处理对象"}`)}
+          <div>
+            <strong>${esc(candidate.name || "未命名候选")}</strong>
+            <span>${esc(candidate.entity_type || "-")}</span>
+          </div>
+          <span class="candidate-action-badge candidate-action-badge--alias_of_existing">${esc(badgeLabel)}</span>
+        </div>
+        <div class="world-candidate-alias-item__evidence">
+          ${this._inlineEvidenceHtml(this._candidateMeta(candidate))}
+        </div>
+        <div class="row-actions">${this._candidateActionsHtml(candidate, actionOptions)}</div>
+      </article>
+    `
+  },
+
+  _renderTargetedAliasCandidateGroups(candidates, scope) {
+    const groups = new Map()
+    for (const candidate of candidates) {
+      const targetId = this._candidateTargetId(candidate)
+      const targetName = this._candidateTargetName(candidate)
+      const key = targetId || `name:${targetName}`
+      if (!groups.has(key)) groups.set(key, { targetId, targetName, candidates: [] })
+      groups.get(key).candidates.push(candidate)
+    }
+    return `
+      <div class="world-candidate-alias-groups" aria-label="建议设为别名的待处理对象">
+        ${Array.from(groups.values()).map((group) => {
+          const targetLabel = group.targetName
+            || (group.targetId ? `${String(group.targetId).slice(0, 8)}...` : "未知对象")
+          const groupIds = group.candidates.map((item) => this._entityId(item))
+          return `
+            <section class="world-candidate-alias-group" data-target-id="${esc(group.targetId)}">
+              <header class="world-candidate-alias-group__header">
+                <div>
+                  <div class="world-candidate-alias-group__target">
+                    <span class="badge badge-canonical">已有对象</span>
+                    <strong>${esc(targetLabel)}</strong>
+                  </div>
+                  <p>以下 ${group.candidates.length} 个候选建议作为${esc(targetLabel)}别名</p>
+                </div>
+                <span class="world-candidate-alias-group__select-all">
+                  ${renderSelectionHeader(this, scope, groupIds, `全选建议并入 ${targetLabel} 的条目`)}
+                  <span>全选本组</span>
+                </span>
+              </header>
+              <div class="world-candidate-alias-group__items">
+                ${group.candidates.map((candidate) => (
+                  this._renderCandidateGroupItem(candidate, scope, "建议别名")
+                )).join("")}
+              </div>
+            </section>
+          `
+        }).join("")}
+      </div>
+    `
+  },
+
+  _renderSimilarNameCandidateGroups(groups, scope) {
+    if (!groups.length) return ""
+    return `
+      <div class="world-candidate-alias-groups" aria-label="名称相似的待处理对象">
+        ${groups.map((group) => {
+          const groupIds = group.map((item) => this._entityId(item))
+          const typeLabel = this._entityTypes.find((item) => (
+            item.value === group[0]?.entity_type
+          ))?.label || group[0]?.entity_type || "对象"
+          return `
+            <section class="world-candidate-alias-group world-candidate-similar-group">
+              <header class="world-candidate-alias-group__header">
+                <div>
+                  <div class="world-candidate-alias-group__target">
+                    <span class="badge badge-draft">名称相似</span>
+                    <strong>${esc(typeLabel)}</strong>
+                  </div>
+                  <p>以下 ${group.length} 个待处理对象合并展示，请逐条决定采用、设为别名、合并或忽略</p>
+                </div>
+                <span class="world-candidate-alias-group__select-all">
+                  ${renderSelectionHeader(this, scope, groupIds, "全选本组相似名称条目")}
+                  <span>全选本组</span>
+                </span>
+              </header>
+              <div class="world-candidate-alias-group__items">
+                ${group.map((candidate) => (
+                  this._renderCandidateGroupItem(
+                    candidate,
+                    scope,
+                    "相似名称",
+                    { allowAlias: true, allowMerge: true },
+                  )
+                )).join("")}
+              </div>
+            </section>
+          `
+        }).join("")}
+      </div>
+    `
+  },
+
   _renderCandidatesList({ reviewOnly = false } = {}) {
     if (this._candidates.length === 0) {
       return `${reviewOnly ? this._renderCandidateReviewFilters() : ""}
@@ -1342,15 +1572,32 @@ const worldView = {
     const scope = "world-candidates"
     const ids = this._candidates.map((candidate) => this._entityId(candidate))
     reconcileBulkSelection(this, scope, ids)
+    const targetedAliasCandidates = this._candidates.filter((candidate) => (
+      this._isTargetedAliasCandidate(candidate)
+    ))
+    const aliasUngroupedCandidates = this._candidates.filter((candidate) => (
+      !this._isTargetedAliasCandidate(candidate)
+    ))
+    const similarNameGroups = this._groupSimilarNameCandidates(aliasUngroupedCandidates)
+    const similarNameIds = new Set(similarNameGroups.flat().map((item) => this._entityId(item)))
+    const regularCandidates = aliasUngroupedCandidates.filter((candidate) => (
+      !similarNameIds.has(this._entityId(candidate))
+    ))
+    const regularIds = regularCandidates.map((candidate) => this._entityId(candidate))
 
     let html = `${reviewOnly ? this._renderCandidateReviewFilters() : ""}
       <p class="world-list-description">
         以下内容尚未进入当前有效设定。请结合来源和证据决定采用、合并、设为别名或忽略。
       </p>
+      ${targetedAliasCandidates.length
+        ? this._renderTargetedAliasCandidateGroups(targetedAliasCandidates, scope)
+        : ""}
+      ${this._renderSimilarNameCandidateGroups(similarNameGroups, scope)}
+      ${regularCandidates.length ? `
       <table class="data-table table-card-list">
         <thead>
           <tr>
-            <th class="selection-cell">${renderSelectionHeader(this, scope, ids, "全选当前待处理项")}</th>
+            <th class="selection-cell">${renderSelectionHeader(this, scope, regularIds, "全选普通待处理项")}</th>
             <th>名称</th>
             <th>类型</th>
             <th>重要度</th>
@@ -1360,9 +1607,10 @@ const worldView = {
           </tr>
         </thead>
         <tbody>
+      ` : ""}
     `
 
-    for (const c of this._candidates) {
+    for (const c of regularCandidates) {
       const id = c.id || c.entity_id
       const action = this._candidateAction(c)
       const targetName = this._candidateTargetName(c)
@@ -1372,11 +1620,6 @@ const worldView = {
       } else if (targetName && action === "merge_with_existing") {
         actionLabel = `合并到${targetName}`
       }
-      const isTemporary = action === "temporary_only"
-      const isSuggestionShadow = this._isSuggestionShadow(c)
-      const canAccept = isSuggestionShadow || !["temporary_only", "ignore", "link_to_existing", "alias_of_existing", "merge_with_existing"].includes(action)
-      const canAlias = isSuggestionShadow || ["link_to_existing", "alias_of_existing"].includes(action)
-      const canMerge = isSuggestionShadow || action === "merge_with_existing"
       const meta = this._candidateMeta(c)
       html += `
         <tr data-id="${esc(id)}">
@@ -1386,22 +1629,21 @@ const worldView = {
           <td data-label="重要度">${esc(c.importance || c.importance_score || "-")}</td>
           <td data-label="建议动作"><span class="candidate-action-badge candidate-action-badge--${esc(action)}">${esc(actionLabel)}</span></td>
           <td data-label="证据" style="max-width:220px;color:var(--text-dim);font-size:12px;">${this._inlineEvidenceHtml(meta)}</td>
-          <td data-label="操作"><div class="row-actions">
-            ${canAccept ? `<button class="btn btn-sm btn-primary" data-action="accept-candidate" data-id="${esc(id)}">采用</button>` : ""}
-            ${isSuggestionShadow ? `<button class="btn btn-sm" data-action="edit-entity" data-id="${esc(id)}">编辑后采用</button>` : ""}
-            ${canAlias ? `<button class="btn btn-sm btn-primary" data-action="resolve-candidate-alias" data-id="${esc(id)}" data-target-name="${esc(targetName)}">设为别名</button>` : ""}
-            ${canMerge ? `<button class="btn btn-sm" data-action="merge-entity" data-id="${esc(id)}" data-target-name="${esc(targetName)}">合并到</button>` : ""}
-            <button class="btn btn-sm ${isTemporary ? "" : "btn-danger"}" data-action="ignore-candidate" data-id="${esc(id)}">${isTemporary ? "设为临时" : "忽略"}</button>
-          </div></td>
+          <td data-label="操作"><div class="row-actions">${this._candidateActionsHtml(c)}</div></td>
         </tr>
       `
     }
 
-    html += '</tbody></table>'
+    if (regularCandidates.length) html += '</tbody></table>'
     html = renderBulkToolbar(this, scope, [
       { action: "accept-candidates", label: "批量采用", className: "btn-primary" },
       { action: "ignore-candidates", label: "批量忽略/设为临时", className: "btn-danger" },
-    ], { noun: "待处理项", hint: "合并项仍需逐条选择目标对象" }) + html
+    ], {
+      noun: "待处理项",
+      hint: "合并项仍需逐条选择目标对象",
+      selectAllIds: ids,
+      selectAllLabel: "全选当前待处理项",
+    }) + html
     html += this._renderPager({
       total: this._candidateTotal,
       skip: this._candidateFilters.skip,
@@ -1413,7 +1655,7 @@ const worldView = {
   },
 
   _renderCandidateReviewFilters() {
-    return `
+    const content = `
       <div class="filter-bar" style="margin-bottom:12px;">
         <select class="form-select" id="review-candidate-action" aria-label="建议动作筛选">
           <option value="">全部动作</option>
@@ -1429,6 +1671,11 @@ const worldView = {
         <button class="btn btn-sm" data-action="reset-candidate-review-filters">清空</button>
       </div>
     `
+    return this._renderFilterPanel(
+      "review-objects",
+      content,
+      WORLD_CANDIDATE_QUERY_KEYS.some((key) => Boolean(this._candidateFilters[key])),
+    )
   },
 
   _inlineEvidenceHtml(item = {}) {
@@ -1469,18 +1716,21 @@ const worldView = {
       const rels = data.items || data || []
       this._relations = rels
       this._relationTotal = Number(data.total ?? rels.length) || 0
-      html = description
+      html = description + (reviewOnly ? this._renderRelationReviewFilters() : "")
       if (rels.length === 0) {
         return html + `<div class="empty-state"><p>${reviewOnly ? "没有待处理关系。" : "还没有建立人物关系。"}</p><p class="world-text-dim">关系网可以帮助你梳理角色之间的恩怨情仇。</p></div>`
       }
-      html += reviewOnly ? this._renderRelationReviewFilters() : ""
       const scope = "world-relations"
       const ids = rels.map((rel) => rel.id || rel.relationship_id).filter(Boolean)
       reconcileBulkSelection(this, scope, ids)
       html += renderBulkToolbar(this, scope, [
         { action: "review-relations", label: "批量采用", className: "btn-primary" },
         { action: "delete-relations", label: "批量删除", className: "btn-danger" },
-      ], { noun: "关系" })
+      ], {
+        noun: "关系",
+        selectAllIds: ids,
+        selectAllLabel: "全选当前关系",
+      })
       html += `
       <table class="data-table">
         <thead><tr><th class="selection-cell">${renderSelectionHeader(this, scope, ids, "全选当前关系")}</th><th>源对象</th><th>关系类型</th><th>目标对象</th><th>状态</th><th>描述</th><th>证据</th><th>操作</th></tr></thead>
@@ -1525,7 +1775,7 @@ const worldView = {
   },
 
   _renderRelationReviewFilters() {
-    return `
+    const content = `
       <div class="filter-bar" style="margin-bottom:12px;">
         <input class="form-input" id="review-relation-q" value="${esc(this._relationFilters.q)}" placeholder="搜索关系/对象" />
         <input class="form-input" id="review-relation-type" value="${esc(this._relationFilters.relation_type)}" placeholder="关系类型" />
@@ -1535,6 +1785,12 @@ const worldView = {
         <button class="btn btn-sm" data-action="reset-relation-review-filters">清空</button>
       </div>
     `
+    return this._renderFilterPanel(
+      "review-relations",
+      content,
+      ["q", "relation_type", "source_chapter_id", "strength_min", "strength_max"]
+        .some((key) => Boolean(this._relationFilters[key])),
+    )
   },
 
   _inlineRelationEvidenceHtml(relation = {}) {
@@ -1725,11 +1981,10 @@ const worldView = {
       const aliases = data.items || data || []
       this._aliases = aliases
       this._aliasTotal = Number(data.total ?? aliases.length) || 0
-      html = description
+      html = description + (reviewOnly ? this._renderAliasReviewFilters() : "")
       if (aliases.length === 0) {
         return html + `<div class="empty-state"><p>${reviewOnly ? "没有待处理别名。" : "还没有设置别名。"}</p><p class="world-text-dim">别名可以帮助你管理角色的化名、称号和绰号。</p></div>`
       }
-      html += reviewOnly ? this._renderAliasReviewFilters() : ""
       const typeMap = { name: "名称", title: "称号", nickname: "昵称", alias: "化名", translation: "译名" }
       const scope = "world-aliases"
       const ids = aliases.map((alias) => this._aliasKey(alias)).filter(Boolean)
@@ -1737,7 +1992,11 @@ const worldView = {
       html += renderBulkToolbar(this, scope, [
         { action: "review-aliases", label: "批量采用", className: "btn-primary" },
         { action: "delete-aliases", label: "批量删除", className: "btn-danger" },
-      ], { noun: "别名" })
+      ], {
+        noun: "别名",
+        selectAllIds: ids,
+        selectAllLabel: "全选当前别名",
+      })
       const aliasGroups = this._groupAliasesByEntity(aliases)
       html += `
       <table class="data-table">
@@ -1792,7 +2051,7 @@ const worldView = {
   },
 
   _renderAliasReviewFilters() {
-    return `
+    const content = `
       <div class="filter-bar" style="margin-bottom:12px;">
         <input class="form-input" id="review-alias-q" value="${esc(this._aliasFilters.q)}" placeholder="搜索别名/对象" />
         <input class="form-input" id="review-alias-source" value="${esc(this._aliasFilters.source)}" placeholder="来源" />
@@ -1803,6 +2062,12 @@ const worldView = {
         <button class="btn btn-sm" data-action="reset-alias-review-filters">清空</button>
       </div>
     `
+    return this._renderFilterPanel(
+      "review-aliases",
+      content,
+      ["q", "source", "workflow_id", "scene_index", "source_chapter_index", "confidence_min", "confidence_max"]
+        .some((key) => Boolean(this._aliasFilters[key])),
+    )
   },
 
   _aliasKey(alias) {
@@ -2228,6 +2493,7 @@ const worldView = {
     const entity = this._findEntity(id)
     if (!entity) return
     const suggestionId = this._suggestionId(entity)
+    const isPending = ["draft", "candidate"].includes(entity.status)
 
     const formHtml = `
       <div class="form-group">
@@ -2246,9 +2512,9 @@ const worldView = {
       </div>
     `
 
-    showModalHtml(suggestionId ? "编辑后采用世界对象" : "编辑世界对象", formHtml, [
+    showModalHtml(isPending ? "编辑后采用世界对象" : "编辑世界对象", formHtml, [
       {
-        text: suggestionId ? "编辑后采用" : "保存",
+        text: isPending ? "编辑后采用" : "保存",
         class: "btn-primary",
         handler: async () => {
           try {
@@ -2263,10 +2529,12 @@ const worldView = {
                 payload,
                 state.currentProjectId,
               )
+            } else if (isPending) {
+              await api.world.promoteEntity(id, state.currentProjectId, payload)
             } else {
               await api.world.updateEntity(id, payload, state.currentProjectId)
             }
-            toast(suggestionId ? "已编辑并采用" : "已保存", "success")
+            toast(isPending ? "已编辑并采用" : "已保存", "success")
             router.refresh()
           } catch (err) {
             toast(`保存失败：${err.message}`, "error")
@@ -2561,6 +2829,7 @@ const worldView = {
       "set-object-view": (_e, t) => this._setObjectViewMode(t.getAttribute("data-view-mode")),
       "toggle-extract": () => this._toggleAutoExtract(),
       "toggle-advanced-filters": () => this._toggleAdvancedFilters(),
+      "toggle-filter-panel": (_e, t) => this._toggleFilterPanel(t.getAttribute("data-filter-key"), t),
       "submit-extract": (_e, t) => this._submitAutoExtract(t.getAttribute("data-type")),
       "edit-entity": (_e, _t, ctx) => ctx.id && this.editEntity(ctx.id),
       "mark-entity-reviewed": (_e, _t, ctx) => ctx.id && this._markEntityReviewed(ctx.id),
@@ -2660,6 +2929,20 @@ const worldView = {
     this._rerenderBulkSelection()
   },
 
+  _toggleFilterPanel(key, button) {
+    if (!key || !button) return
+    if (!this._filterPanelsOpen) this._filterPanelsOpen = {}
+    const open = button.getAttribute("aria-expanded") !== "true"
+    this._filterPanelsOpen[key] = open
+    button.setAttribute("aria-expanded", String(open))
+    const panel = document.getElementById(button.getAttribute("aria-controls"))
+    if (panel) panel.hidden = !open
+    const icon = button.querySelector('[aria-hidden="true"]')
+    if (icon) icon.textContent = open ? "▾" : "▸"
+    const label = button.querySelector("[data-filter-toggle-label]")
+    if (label) label.textContent = open ? "收起筛选" : "展开筛选"
+  },
+
   _clearBulkScope(scope) {
     clearBulkSelection(this, scope)
     this._rerenderBulkSelection()
@@ -2673,6 +2956,11 @@ const worldView = {
     const items = this._itemsForBulkScope(scope)
     if (items.length === 0) {
       toast("请先选择要处理的项目", "warning")
+      return
+    }
+
+    if (scope === "world-objects" && ["fuse-entities", "alias-entities"].includes(action)) {
+      this._showBulkEntityResolution(action, items)
       return
     }
 
@@ -2695,6 +2983,88 @@ const worldView = {
       },
       danger ? "确认执行" : "确认",
     )
+  },
+
+  _showBulkEntityResolution(action, items) {
+    if (items.length < 2) {
+      toast("请至少选择两个已采用对象", "warning")
+      return
+    }
+    if (items.some((item) => item.status && item.status !== "canonical")) {
+      toast("融合和标记为别名仅适用于已采用对象", "warning")
+      return
+    }
+    const entityTypes = new Set(items.map((item) => item.entity_type).filter(Boolean))
+    if (entityTypes.size > 1) {
+      toast("请选择相同类型的对象", "warning")
+      return
+    }
+
+    const operationLabel = action === "fuse-entities" ? "融合" : "标记为别名"
+    const rows = items.map((item, index) => {
+      const id = this._entityId(item)
+      return `
+        <label class="world-bulk-resolution-option">
+          <input type="radio" name="world-bulk-target" value="${esc(id)}" ${index === 0 ? "checked" : ""} />
+          <span><strong>${esc(item.name || id)}</strong><small>${esc(item.entity_type || "未分类")}</small></span>
+        </label>
+      `
+    }).join("")
+    const explanation = action === "fuse-entities"
+      ? "其余对象的内容、别名和关系会融合到保留对象，来源对象进入历史态。"
+      : "其余对象的名称会成为保留对象的别名，关系会迁移，但不会融合摘要等内容；来源对象进入历史态。"
+
+    showModalHtml(`批量${operationLabel}`, `
+      <p>${esc(explanation)}</p>
+      <p class="form-help">请选择要保留的主对象：</p>
+      <div class="world-bulk-resolution-list">${rows}</div>
+    `, [{
+      text: `确认${operationLabel}`,
+      class: "btn-primary",
+      handler: async () => {
+        const targetId = document.querySelector('input[name="world-bulk-target"]:checked')?.value
+        const target = items.find((item) => this._entityId(item) === targetId)
+        if (!target) {
+          toast("请选择要保留的主对象", "warning")
+          return
+        }
+        const sources = items.filter((item) => this._entityId(item) !== targetId)
+        const confirmationMessage = action === "fuse-entities"
+          ? `确定将 ${sources.length} 个已采用对象融合到「${target.name || targetId}」吗？此操作会让来源对象进入历史态。`
+          : `确定将 ${sources.length} 个已采用对象标记为「${target.name || targetId}」的别名吗？此操作会让来源对象进入历史态。`
+        confirmAction(
+          confirmationMessage,
+          async () => {
+            try {
+              const result = await api.world.applyEntityFusionSuggestions({
+                novel_id: state.currentProjectId,
+                confirmed: true,
+                suggestions: sources.map((source) => ({
+                  action: action === "fuse-entities" ? "merge" : "alias_only",
+                  source_entity_id: this._entityId(source),
+                  target_entity_id: targetId,
+                  alias: source.name || undefined,
+                  allow_canonical_merge: action === "fuse-entities",
+                  allow_canonical_alias: action === "alias-entities",
+                })),
+              })
+              closeModal()
+              const warningCount = Number(result.skipped || 0)
+              toast(
+                `已${operationLabel} ${result.applied || 0} 个对象${warningCount ? `，跳过 ${warningCount} 个` : ""}`,
+                warningCount ? "warning" : "success",
+              )
+              clearBulkSelection(this, "world-objects")
+              await this._refreshCurrentSubViewInPlace()
+            } catch (err) {
+              toast(err.message || `${operationLabel}失败`, "error")
+            }
+          },
+          "确认执行",
+        )
+        return false
+      },
+    }], { size: "large" })
   },
 
   async _executeBulkAction(scope, action, items) {
@@ -3041,7 +3411,9 @@ const worldView = {
       const canonical = item.requires_canonical_confirmation ? `
         <label style="display:block;margin-top:6px;color:var(--warning);font-size:12px;">
           <input type="checkbox" data-canonical-merge />
-          我理解这会合并两个已采用对象
+          ${item.action === "alias_only"
+            ? "我理解这会将已采用来源对象转为目标对象的别名"
+            : "我理解这会合并两个已采用对象"}
         </label>
       ` : ""
       return `
@@ -3078,13 +3450,17 @@ const worldView = {
           toast("请选择可应用的建议", "warning")
           return
         }
-        const payload = selected.map(({ item, card }) => ({
-          action: item.action,
-          source_entity_id: item.source_entity_id,
-          target_entity_id: item.target_entity_id,
-          alias: item.alias || item.source_entity_name,
-          allow_canonical_merge: Boolean(card?.querySelector("[data-canonical-merge]")?.checked),
-        }))
+        const payload = selected.map(({ item, card }) => {
+          const allowCanonical = Boolean(card?.querySelector("[data-canonical-merge]")?.checked)
+          return {
+            action: item.action,
+            source_entity_id: item.source_entity_id,
+            target_entity_id: item.target_entity_id,
+            alias: item.alias || item.source_entity_name,
+            allow_canonical_merge: item.action === "merge" && allowCanonical,
+            allow_canonical_alias: item.action === "alias_only" && allowCanonical,
+          }
+        })
         try {
           const applied = await api.world.applyEntityFusionSuggestions({
             novel_id: state.currentProjectId,

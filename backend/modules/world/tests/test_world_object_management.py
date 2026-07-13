@@ -952,6 +952,48 @@ class TestWorldObjectManagementAPI:
         assert data["approved_by"] == "manual"
 
     @pytest.mark.asyncio
+    async def test_api_promote_candidate_accepts_author_edits(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        await _create_project(db_session, novel_id)
+        service = WorldEntityService()
+        entity = await service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(
+                entity_type="item",
+                name="旧规则",
+                summary="待处理概要",
+                status="candidate",
+                content_json={"_meta": {"source": "deep_import"}},
+            ),
+        )
+
+        response = await async_client.post(
+            f"/api/world/entities/{entity.id}/promote",
+            params={"novel_id": novel_id},
+            json={
+                "name": "新规则",
+                "entity_type": "rule",
+                "summary": "作者微调后的概要",
+            },
+        )
+        detail = await async_client.get(
+            f"/api/world/entities/{entity.id}",
+            params={"novel_id": novel_id},
+        )
+
+        assert response.status_code == 200
+        assert detail.status_code == 200
+        assert detail.json()["status"] == "canonical"
+        assert detail.json()["name"] == "新规则"
+        assert detail.json()["entity_type"] == "rule"
+        assert detail.json()["summary"] == "作者微调后的概要"
+
+    @pytest.mark.asyncio
     async def test_api_promote_canonical_entity_returns_400(
         self,
         async_client: AsyncClient,

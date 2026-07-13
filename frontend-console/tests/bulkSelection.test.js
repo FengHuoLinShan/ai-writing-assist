@@ -44,6 +44,20 @@ describe("bulkSelection helper", () => {
     expect(toolbar).toContain("对象已选")
   })
 
+  it("optionally renders select-all for visible toolbar items", () => {
+    const view = { _bulkSelections: {} }
+
+    const toolbar = renderBulkToolbar(view, "world-objects", [], {
+      noun: "对象",
+      selectAllIds: ["e1", "e2"],
+      selectAllLabel: "全选当前页对象",
+    })
+
+    expect(toolbar).toContain('data-action="bulk-toggle-all"')
+    expect(toolbar).toContain('data-scope="world-objects"')
+    expect(toolbar).toContain("全选当前页对象")
+  })
+
   it("renders indeterminate header checkbox with indeterminate attribute", () => {
     const view = {}
     toggleBulkSelection(view, "world", "e1", true)
@@ -83,4 +97,3 @@ describe("bulkSelection helper", () => {
     expect(getBulkSelection(view, "world").size).toBe(0)
   })
 })
-

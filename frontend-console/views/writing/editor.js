@@ -54,6 +54,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     _cursorOffset: 0,
     _boundSelectionChange: null,
     _lastSceneId: null,
+    _loadGeneration: 0,
   }
 
   // ============================================================
@@ -72,21 +73,24 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
    * @param {string} [options.restoreExpectedUpdatedAt]
    */
   async function loadChapter(chapterIndex, options = {}) {
+    const loadGeneration = ++editor._loadGeneration
     editor._currentChapter = chapterIndex
     editor._cursorOffset = 0
     editor._lastSceneId = null
 
     if (options.draftId) {
-      await _loadDraft(options.draftId, options)
+      await _loadDraft(options.draftId, options, loadGeneration)
     } else {
-      await _loadLatestDraft(chapterIndex)
+      await _loadLatestDraft(chapterIndex, loadGeneration)
     }
 
+    if (loadGeneration !== editor._loadGeneration) return false
     _notifyWordcountUpdate()
+    return true
   }
 
-  function render() {
-    return _renderEditor()
+  function render(toolbarActionsHtml = "") {
+    return _renderEditor(toolbarActionsHtml)
   }
 
   function bindEvents(container) {
@@ -310,6 +314,14 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
   function getTitle() {
     const titleInput = typeof document !== "undefined" ? document.getElementById("writing-title-input") : null
     return titleInput ? titleInput.value.trim() : (editor._currentTitle || "")
+  }
+
+  function getLoadedContent() {
+    return editor._currentContent || ""
+  }
+
+  function getLoadedTitle() {
+    return editor._currentTitle || ""
   }
 
   function getCurrentSceneId() {
@@ -550,6 +562,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
   }
 
   function dispose() {
+    editor._loadGeneration += 1
     _clearAutoSaveTimer()
     _clearCursorDebounceTimer()
     if (editor._boundSelectionChange) {
@@ -562,7 +575,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
   // 渲染
   // ============================================================
 
-  function _renderEditor() {
+  function _renderEditor(toolbarActionsHtml = "") {
     const hasSelection = editor._currentChapter !== null
     const versionInfo = editor._currentVersionNumber ? `v${editor._currentVersionNumber}` : ""
     const readOnlyLabel = editor._isReadonly ? "（只读）" : ""
@@ -596,6 +609,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
             <button class="btn btn-sm btn-ghost" data-action="ai-continue" title="AI 续写：基于当前上下文生成后续内容">AI 续写</button>
             <button class="btn btn-sm btn-ghost" data-action="export-chapter" title="导出当前章节为 .txt">导出</button>
             <button class="btn btn-sm btn-ghost" data-action="toggle-outline-float" ${hasSelection ? "" : "disabled"} title="大纲浮窗 (Ctrl+Shift+O)">大纲</button>
+            ${toolbarActionsHtml}
             <button class="btn btn-sm" data-action="toggle-focus-mode" ${hasSelection ? "" : "disabled"} title="专注模式（隐藏两侧面板）">${focusMode ? "退出专注" : "专注模式"}</button>
           </div>
         </div>
@@ -783,7 +797,8 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
   // 加载与保存
   // ============================================================
 
-  async function _loadLatestDraft(chapterIndex) {
+  async function _loadLatestDraft(chapterIndex, loadGeneration) {
+    const isCurrentLoad = () => loadGeneration === editor._loadGeneration
     editor._currentDraftId = null
     editor._currentContent = ""
     editor._currentTitle = ""
@@ -799,33 +814,39 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
 
     try {
       const history = await api.writing.getVersionHistory(chapterIndex, state.currentProjectId)
+      if (!isCurrentLoad()) return
       const versions = history.versions || []
       const latest = versions.find((version) => version.display_state
         ? version.display_state === "active"
         : !["candidate", "deprecated"].includes(version.status))
       if (latest) {
         const draftData = await api.writing.get(latest.id, state.currentProjectId)
+        if (!isCurrentLoad()) return
         _applyDraft(draftData, { isReadonly: false })
-        await _maybeRestoreBackup(chapterIndex)
+        await _maybeRestoreBackup(chapterIndex, isCurrentLoad)
         return
       }
     } catch {
+      if (!isCurrentLoad()) return
       // 失败时退回到空草稿，并尝试本地备份恢复
     }
 
     // 无历史版本时尝试恢复本地备份
-    const restored = await _maybeRestoreBackup(chapterIndex)
+    const restored = await _maybeRestoreBackup(chapterIndex, isCurrentLoad)
+    if (!isCurrentLoad()) return
     if (!restored) {
       editor._currentContent = ""
       editor._currentTitle = ""
     }
   }
 
-  async function _loadDraft(draftId, options = {}) {
+  async function _loadDraft(draftId, options = {}, loadGeneration) {
     try {
       const draftData = await api.writing.get(draftId, state.currentProjectId)
+      if (loadGeneration !== editor._loadGeneration) return
       _applyDraft(draftData, options)
     } catch (err) {
+      if (loadGeneration !== editor._loadGeneration) return
       toast("加载工作稿失败：" + (err.message || "未知错误"), "error")
       editor._currentContent = ""
       editor._currentTitle = ""
@@ -859,7 +880,8 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     editor._currentProvenanceJson = draftData.provenance_json || null
   }
 
-  async function _maybeRestoreBackup(chapterIndex) {
+  async function _maybeRestoreBackup(chapterIndex, isCurrentLoad = () => true) {
+    if (!isCurrentLoad()) return false
     const backup = _loadBackup(chapterIndex)
     if (!backup || (backup.content === undefined && backup.title === undefined)) return false
     if (backup.content === editor._currentContent && (backup.title || "") === editor._currentTitle) return false
@@ -878,6 +900,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     })
 
     if (!confirmed) return false
+    if (!isCurrentLoad()) return false
     editor._currentContent = backup.content
     editor._currentTitle = backup.title || ""
     editor._editRevision += 1
@@ -952,7 +975,9 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     if (typeof onWordcountUpdate !== "function") return
     const chars = (editor._currentContent || "").length
     onWordcountUpdate({
+      chapterIndex: editor._currentChapter,
       chapterWords: chars,
+      title: editor._currentTitle || "",
       todayWords: _getDailyWordcount() + chars,
       saveState: _saveStateForDashboard(),
     })
@@ -1047,6 +1072,8 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     discardChanges,
     getContent,
     getTitle,
+    getLoadedContent,
+    getLoadedTitle,
     getCurrentSceneId,
     getCursorOffset,
     getDraftId,

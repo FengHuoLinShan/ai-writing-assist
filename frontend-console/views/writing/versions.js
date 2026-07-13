@@ -12,6 +12,7 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
   let _currentChapter = null
   let _currentDraftId = null
   let _currentVersionNumber = null
+  let _loadGeneration = 0
 
   function isActiveVersion(version) {
     if (version?.display_state) return version.display_state === "active"
@@ -49,20 +50,25 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
   }
 
   async function load(chapterIndex) {
+    const loadGeneration = ++_loadGeneration
     _currentChapter = chapterIndex
     _currentDraftId = null
     _currentVersionNumber = null
     try {
       const history = await api.writing.getVersionHistory(chapterIndex, state.currentProjectId)
+      if (loadGeneration !== _loadGeneration) return false
       _versions = history.versions || []
       const latest = latestActiveVersion()
       if (latest) {
         _currentDraftId = latest.id
         _currentVersionNumber = latest.version_number
       }
+      return true
     } catch (err) {
+      if (loadGeneration !== _loadGeneration) return false
       _versions = []
       toast("版本历史加载失败：" + (err.message || "未知错误"), "error")
+      return false
     }
   }
 
@@ -281,6 +287,7 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
   }
 
   function dispose() {
+    _loadGeneration += 1
     _versions = []
     _currentChapter = null
     _currentDraftId = null

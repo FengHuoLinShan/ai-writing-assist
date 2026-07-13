@@ -1,8 +1,8 @@
 /**
  * 深度导入 Tab — 40+ 字段（Phase 0/1A/1B/2/3）项目覆盖值。
  *
- * 纯渲染 + 读取组件。deep_import 整体覆盖语义（D6）：source=project 时展开字段；
- * source=global/system 时不展开字段值，UI 仅显示来源标签。重置按钮只在 source=project 时显示。
+ * 纯渲染 + 读取组件。deep_import 整体覆盖语义（D6）：source=project 时显示项目值；
+ * source=global/system 时显示当前系统默认值。重置按钮只在 source=project 时显示。
  * 依赖全局：document、toast、confirm。
  */
 import { renderDeepImportFields, readDeepImportFields } from "../shared/deepImportFields.js"

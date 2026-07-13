@@ -6,6 +6,8 @@ import os
 from copy import deepcopy
 from typing import Any
 
+from shared.constants import DEFAULT_LLM_MAX_TOKENS
+
 DEEP_IMPORT_SETTINGS_KEY = "deep_import"
 DEEP_IMPORT_FROZEN_SETTINGS_KEY = "_deep_import_settings_frozen"
 
@@ -45,8 +47,9 @@ DEEP_IMPORT_DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
         "auto_merge_confidence": 0.92,
         "boundary_context_chars": 2000,
         "concurrency": 20,
-        "decision_max_tokens": 1024,
-        "timeout_seconds": 180,
+        # None means inherit the effective project/global/system LLM budget.
+        "decision_max_tokens": None,
+        "timeout_seconds": 360,
     },
     "phase2": {
         "world_timeout_seconds": 900,
@@ -135,6 +138,10 @@ _BOOL_SETTINGS = {
     ("phase2", "alias_relation_supplement_enabled"),
 }
 
+_NULLABLE_INT_SETTINGS = {
+    ("phase1c", "decision_max_tokens"),
+}
+
 _FLOAT_SETTINGS = {
     ("phase0", "max_tokens_per_input_char"),
     ("phase1c", "auto_merge_confidence"),
@@ -178,6 +185,8 @@ def deep_import_settings_for_response(
 
 def materialize_effective_deep_import_settings(
     project_settings: dict[str, Any] | None,
+    *,
+    inherited_llm_max_tokens: int = DEFAULT_LLM_MAX_TOKENS,
 ) -> dict[str, dict[str, Any]]:
     """Freeze project/default/env precedence into explicit task settings."""
 
@@ -187,7 +196,15 @@ def materialize_effective_deep_import_settings(
     for phase, phase_defaults in DEEP_IMPORT_DEFAULT_SETTINGS.items():
         for key, default in phase_defaults.items():
             env_name = _deep_import_env_name(phase, key)
-            if (phase, key) in _BOOL_SETTINGS:
+            if (phase, key) in _NULLABLE_INT_SETTINGS:
+                value = deep_import_int_setting(
+                    project_view,
+                    phase,
+                    key,
+                    env_name=env_name,
+                    default=inherited_llm_max_tokens,
+                )
+            elif (phase, key) in _BOOL_SETTINGS:
                 value = deep_import_bool_setting(
                     project_view,
                     phase,
@@ -306,6 +323,8 @@ _INVALID = _Invalid()
 
 
 def _coerce_value(phase: str, key: str, value: Any, default: Any) -> Any:
+    if (phase, key) in _NULLABLE_INT_SETTINGS and value is None:
+        return None
     if (phase, key) in _BOOL_SETTINGS:
         if value is None and default is None:
             return None

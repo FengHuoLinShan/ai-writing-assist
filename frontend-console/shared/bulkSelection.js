@@ -97,6 +97,17 @@ export function renderBulkToolbar(view, scope, actions, options = {}) {
   const count = getBulkSelection(view, scope).size
   const noun = options.noun || "项"
   const title = options.title || `已选择 ${count} ${noun}`
+  const selectAllHtml = Array.isArray(options.selectAllIds) ? `
+    <span class="bulk-toolbar__select-all">
+      ${renderSelectionHeader(
+        view,
+        scope,
+        options.selectAllIds,
+        options.selectAllLabel || `全选当前可见${noun}`,
+      )}
+      <span>${escHtml(options.selectAllLabel || `全选当前可见${noun}`)}</span>
+    </span>
+  ` : ""
   const actionHtml = actions.map((action) => `
     <button
       class="btn btn-sm ${escHtml(action.className || "")}"
@@ -110,6 +121,7 @@ export function renderBulkToolbar(view, scope, actions, options = {}) {
   return `
     <div class="bulk-toolbar" data-scope="${escHtml(scope)}">
       <div class="bulk-toolbar__status">
+        ${selectAllHtml}
         <strong>${escHtml(count)}</strong>
         <span>${escHtml(noun)}已选</span>
         ${options.hint ? `<span class="bulk-toolbar__hint">${escHtml(options.hint)}</span>` : ""}

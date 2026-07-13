@@ -29,7 +29,8 @@ demo 阶段使用 `LOCAL_OWNER_ID`（nil UUID）代表本地 owner。后续加�
   `project`、`global`、`system` 或 `unset`。
 - 项目覆盖的单字段删除只接受白名单字段，用于恢复继承；不得拼接列名或 JSON path。
 - `global_llm_defaults.deep_import` 是预留列，当前全局设置流程不写入它。
-- 项目 `deep_import.phase1c` 提供自动融合阈值（默认 `0.92`）、边界上下文、并发、token 和超时设置。
+- 项目 `deep_import.phase1c` 提供自动融合阈值（默认 `0.92`）、边界上下文、并发、token 和超时设置。`decision_max_tokens` 留空时继承有效 LLM `max_tokens`（当前系统默认 `12000`），Phase 1c 默认超时为 360 秒。
+- 项目设置页会在没有 `deep_import` 项目覆盖时直接显示当前系统默认值；显式 `null` 的可空字段仍保持留空/继承语义。
 - `high_quality` 表示 DeepSeek `max` reasoning 和 Phase 1c，不会自动切换项目手动选择的 model。
 
 ## 对外接口

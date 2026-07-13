@@ -19,7 +19,7 @@ const WORKFLOW_LABELS = {
   world_entity_extraction: "补抽世界对象",
   plot_structure_generate: "生成剧情结构",
   outline_generate: "生成剧情结构",
-  outline_chapter_scenes_extract: "章节/Scene 卡建议",
+  outline_chapter_scenes_extract: "从正文整理 Scene",
   chapter_card_generation: "生成章节卡",
   chapter_scene_generate: "生成章节与场景结构",
   writing_generate: "生成正文",
@@ -164,7 +164,7 @@ function inferMessage({ status, workflowType, result, meta, percent }) {
     || workflowType === "chapter_scene_generate"
     || workflowType === "outline_chapter_scenes_extract"
   ) return workflowType === "outline_chapter_scenes_extract"
-    ? "正在生成章节/Scene 卡建议"
+    ? "正在从正文整理 Scene"
     : "正在生成章节与场景结构"
   if (workflowType === "writing_generate") return "正在生成正文"
   if (workflowType === "plot_analysis") return "正在分析剧情"

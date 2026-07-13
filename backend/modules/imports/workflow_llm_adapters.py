@@ -36,8 +36,7 @@ PHASE1A_SCENE_SLICING_TIMEOUT_SECONDS = 900
 PHASE1A_CHAPTER_RECOVERY_MAX_TOKENS = 8192
 PHASE1B_ENRICH_MAX_TOKENS = 32_768
 PHASE1B_ENRICH_TIMEOUT_SECONDS = 300
-PHASE1C_DECISION_MAX_TOKENS = 1024
-PHASE1C_TIMEOUT_SECONDS = 180
+PHASE1C_TIMEOUT_SECONDS = 360
 PHASE2_WORLD_TIMEOUT_SECONDS = 900
 PHASE2_WORLD_MIN_MAX_TOKENS = 32_768
 
@@ -999,12 +998,13 @@ class _Phase1cSceneFusionLLM:
 
         profile = resolve_llm_profile(self.project_settings)
         model = _phase_model(profile, high_quality=self.high_quality)
+        request_defaults = _profile_request_defaults(profile)
         max_tokens = deep_import_int_setting(
             self.project_settings,
             "phase1c",
             "decision_max_tokens",
             env_name="PHASE1C_DECISION_MAX_TOKENS",
-            default=PHASE1C_DECISION_MAX_TOKENS,
+            default=request_defaults["max_tokens"],
         )
         request = LLMCallRequest(
             model=model,

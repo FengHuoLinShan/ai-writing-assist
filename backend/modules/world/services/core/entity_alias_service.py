@@ -598,8 +598,9 @@ class EntityAliasService:
         target_entity_id: str,
         alias: str,
         alias_type: str = "alias",
+        allow_canonical_source: bool = False,
     ) -> dict:
-        """Resolve a candidate entity as an alias of another entity."""
+        """Resolve an entity as an alias, with an explicit canonical-source gate."""
         nid = parse_uuid(novel_id, "novel_id")
         cid = parse_uuid(candidate_id, "candidate_id")
         tid = parse_uuid(target_entity_id, "target_entity_id")
@@ -611,11 +612,16 @@ class EntityAliasService:
             raise NotFoundError("Target entity not found")
         if candidate.id == target.id:
             raise DomainValidationError("Cannot resolve an entity as its own alias")
-        if candidate.status not in {"draft", "candidate"}:
+        allowed_statuses = {"draft", "candidate"}
+        if allow_canonical_source:
+            allowed_statuses.add("canonical")
+        if candidate.status not in allowed_statuses:
             raise DomainValidationError(
-                f"Alias candidate must be draft or candidate, got {candidate.status}",
+                "Alias source must be draft or candidate unless canonical "
+                f"conversion is explicitly allowed, got {candidate.status}",
                 status_code=422,
             )
+        source_was_canonical = candidate.status == "canonical"
         candidate_meta = dict((candidate.content_json or {}).get("_meta") or {})
         if candidate_meta.get("compatibility_shadow") is True and candidate_meta.get(
             "suggestion_id"
@@ -644,7 +650,11 @@ class EntityAliasService:
             "needs_review": False,
             "reviewed_at": datetime.now(UTC).isoformat(),
             "reviewed_by": "manual",
-            "reviewed_from": "world_candidate_alias_resolution",
+            "reviewed_from": (
+                "world_canonical_alias_resolution"
+                if source_was_canonical
+                else "world_candidate_alias_resolution"
+            ),
         }
         for key in (
             "source",
@@ -701,7 +711,11 @@ class EntityAliasService:
             db,
             novel_id=novel_id,
             entity_id=str(candidate.id),
-            reason="candidate_resolved_as_alias",
+            reason=(
+                "canonical_resolved_as_alias"
+                if source_was_canonical
+                else "candidate_resolved_as_alias"
+            ),
         )
         affected_ids = [str(candidate.id), str(target.id)]
         return {

@@ -97,6 +97,75 @@ test.describe("世界对象模块", () => {
     await expect(page.locator(SEL.dataTable)).toContainText("faction")
   })
 
+  test("待处理对象可微调后采用", async ({ page }) => {
+    const candidate = await createEntity(testProjectId, {
+      name: "待微调星门",
+      entity_type: "location",
+      status: "candidate",
+      summary: "原始概要",
+      content_json: { _meta: { source: "deep_import", needs_review: true } },
+    })
+    await reloadWorkbench(page, "world", "review-objects")
+
+    const row = page.locator(`tr[data-id="${candidate.id}"]`)
+    await expect(row).toContainText("待微调星门")
+    await row.locator('[data-action="edit-entity"]').click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("编辑后采用世界对象")
+
+    await page.locator("#edit-entity-name").fill("已微调星门")
+    await page.locator("#edit-entity-summary").fill("作者微调后的概要")
+    await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("已编辑并采用", {
+      timeout: 10000,
+    })
+
+    await reloadWorkbench(page, "world", "objects")
+    await expect(page.locator(SEL.dataTable)).toContainText("已微调星门")
+    await expect(page.locator(SEL.dataTable)).toContainText("作者微调后的概要")
+  })
+
+  test("别名建议和高相似名称在待处理中合并展示", async ({ page }) => {
+    const target = await createEntity(testProjectId, {
+      name: "林岚",
+      entity_type: "character",
+      status: "canonical",
+    })
+    await createEntity(testProjectId, {
+      name: "岚姐",
+      entity_type: "character",
+      status: "candidate",
+      content_json: { _meta: {
+        suggested_action: "link_to_existing",
+        suggested_existing_entity_id: target.id,
+        suggested_existing_entity_name: target.name,
+      } },
+    })
+    await createEntity(testProjectId, {
+      name: "克莱恩",
+      entity_type: "character",
+      status: "candidate",
+    })
+    await createEntity(testProjectId, {
+      name: "克莱恩·莫雷蒂",
+      entity_type: "character",
+      status: "candidate",
+    })
+
+    await reloadWorkbench(page, "world", "review-objects")
+
+    const aliasGroup = page.locator(
+      `.world-candidate-alias-group[data-target-id="${target.id}"]`,
+    )
+    await expect(aliasGroup).toContainText("已有对象")
+    await expect(aliasGroup).toContainText("林岚")
+    await expect(aliasGroup).toContainText("岚姐")
+
+    const similarGroup = page.locator(".world-candidate-similar-group")
+    await expect(similarGroup).toContainText("克莱恩")
+    await expect(similarGroup).toContainText("克莱恩·莫雷蒂")
+    await expect(similarGroup.locator('[data-action="merge-entity"]')).toHaveCount(2)
+  })
+
   test("删除世界对象", async ({ page }) => {
     // Given: 已存在一个世界对象
     await page.locator("#btn-new-entity").click()

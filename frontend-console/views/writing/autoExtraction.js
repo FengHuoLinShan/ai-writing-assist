@@ -1,7 +1,7 @@
 /**
  * 自动提取 / 深度导入表单模块
  *
- * 负责分阶段自动提取、深度导入表单与章节卡提取的弹窗提交。
+ * 负责分阶段自动提取、深度导入表单与“从正文整理 Scene”的弹窗提交。
  * 任务提交成功后通过 onTaskStarted 回调交给 deepImportRecovery 轮询。
  */
 
@@ -155,7 +155,7 @@ export function createAutoExtraction({
         调用 AI 分析章节内容，生成待处理 Scene 卡建议（场景目标、冲突、情感节奏等）。完成后需检查并采用，才会进入工作 Scene。
       </p>
     `
-    modalApi.showModalHtml("AI 提取章节卡", formHtml, [{
+    modalApi.showModalHtml("从正文整理 Scene", formHtml, [{
       text: "生成待处理建议",
       class: "btn-primary",
       handler: async () => {
@@ -167,12 +167,12 @@ export function createAutoExtraction({
           const confirmation = await confirmAiReference({
             novel_id: projectId,
             action: "outline.chapter_scenes.extract",
-            task: "章节/Scene 卡提取",
+            task: "从正文整理 Scene",
             scope: "chapter",
             chapter_index: start,
             include_pending_objects: false,
           })
-          toast?.("章节/Scene 卡建议生成任务已提交", "info")
+          toast?.("从正文整理 Scene 任务已提交", "info")
           const result = await api.outline.extractChapterScenes({
             novel_id: projectId,
             context_confirmation_id: confirmation.id,
@@ -184,12 +184,12 @@ export function createAutoExtraction({
             taskId: result.task_id || result.id,
             workflowType: "outline_chapter_scenes_extract",
             stage: "chapter_cards",
-            label: "章节/Scene 卡建议",
+            label: "从正文整理 Scene",
             startChapter: start,
             endChapter: end,
             confirmationId: confirmation.id,
           })
-          toast?.("章节/Scene 卡建议已进入后台，完成后需采用", "success")
+          toast?.("从正文整理 Scene 已进入后台，完成后需采用", "success")
         } catch (err) {
           toast?.(err.message || "提取失败", "error")
         }

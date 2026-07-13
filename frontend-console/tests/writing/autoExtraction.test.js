@@ -166,13 +166,13 @@ describe("createAutoExtraction", () => {
       taskId: "c1",
       workflowType: "outline_chapter_scenes_extract",
       stage: "chapter_cards",
-      label: "章节/Scene 卡建议",
+      label: "从正文整理 Scene",
       startChapter: 1,
       endChapter: 2,
       confirmationId: "conf-1",
     }))
     expect(api.outline.listScenesOrdered).not.toHaveBeenCalled()
-    expect(toast).toHaveBeenCalledWith("章节/Scene 卡建议已进入后台，完成后需采用", "success")
+    expect(toast).toHaveBeenCalledWith("从正文整理 Scene 已进入后台，完成后需采用", "success")
   })
 
   it("warns when there are no chapters to extract cards from", () => {

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   DEEP_IMPORT_GROUPS,
   deepImportFieldId,
+  renderDeepImportFields,
   readDeepImportFields,
 } from "../../../views/settings/shared/deepImportFields.js"
 
@@ -16,6 +17,8 @@ describe("deepImportFields schema", () => {
     expect(p1c.fields.find((f) => f.key === "auto_merge_confidence").value).toBe(0.92)
     expect(p1c.fields.find((f) => f.key === "boundary_context_chars").value).toBe(2000)
     expect(p1c.fields.find((f) => f.key === "concurrency").value).toBe(20)
+    expect(p1c.fields.find((f) => f.key === "decision_max_tokens").value).toBe(null)
+    expect(p1c.fields.find((f) => f.key === "timeout_seconds").value).toBe(360)
   })
   it("phase2 contains boundary_supplement_enabled bool", () => {
     const p2 = DEEP_IMPORT_GROUPS.find((g) => g.id === "phase2")
@@ -49,6 +52,22 @@ describe("deepImportFields schema", () => {
   })
   it("id encoding swaps underscores to dashes", () => {
     expect(deepImportFieldId("phase2", "boundary_scenes")).toBe("deep-import-phase2-boundary-scenes")
+  })
+  it("renders schema defaults when the project has no deep-import override", () => {
+    document.body.innerHTML = renderDeepImportFields({})
+
+    expect(document.getElementById(deepImportFieldId("phase0", "target_input_chars")).value).toBe("72000")
+    expect(document.getElementById(deepImportFieldId("phase1c", "timeout_seconds")).value).toBe("360")
+    expect(document.getElementById(deepImportFieldId("phase1c", "decision_max_tokens")).value).toBe("")
+  })
+  it("preserves explicit project values instead of replacing them with defaults", () => {
+    document.body.innerHTML = renderDeepImportFields({
+      phase0: { target_input_chars: 88000 },
+      phase1c: { timeout_seconds: null },
+    })
+
+    expect(document.getElementById(deepImportFieldId("phase0", "target_input_chars")).value).toBe("88000")
+    expect(document.getElementById(deepImportFieldId("phase1c", "timeout_seconds")).value).toBe("")
   })
 })
 

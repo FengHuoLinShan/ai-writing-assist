@@ -24,6 +24,7 @@ const writingView = {
   _forceDesktopMode: false,
   _bulkSelections: {},
   _showBulkActions: false,
+  _chapterSelectionGeneration: 0,
 
   // 子模块实例
   _chapterTree: null,
@@ -218,9 +219,10 @@ const writingView = {
           content: `<div id="writing-tree-container">${this._chapterTree?.render?.() ?? ""}</div>`,
         })}
         <div id="writing-editor-container">
-          ${this._editor?.render?.() ?? ""}
+          ${this._editor?.render?.(
+            this._tools?.renderToolsMenu?.(this._currentChapter !== null) ?? "",
+          ) ?? ""}
           <div id="writing-versions-container">${this._versions?.render?.() ?? ""}</div>
-          ${this._tools?.renderToolsMenu?.(this._currentChapter !== null) ?? ""}
           <div id="writing-publish-bar-container">${this._publish?.renderBar?.() ?? ""}</div>
           <div id="writing-deep-import-bar-container">${this._deepImportRecovery?.renderBar?.() ?? ""}</div>
           ${this._conflictCheck?.renderStrip?.() ?? ""}
@@ -382,6 +384,7 @@ const writingView = {
   },
 
   _resetSharedState() {
+    this._chapterSelectionGeneration += 1
     this._currentChapter = null
     this._chapterList = []
     this._chapters = {}
@@ -430,8 +433,12 @@ const writingView = {
 
   _syncChapterMetaToTree(chapterIndex) {
     if (chapterIndex == null || !this._chapters[chapterIndex]) return
-    const content = this._editor?.getContent?.() || ""
-    const title = this._editor?.getTitle?.() || ""
+    const content = this._editor?.getLoadedContent?.()
+      ?? this._editor?.getContent?.()
+      ?? ""
+    const title = this._editor?.getLoadedTitle?.()
+      ?? this._editor?.getTitle?.()
+      ?? ""
     this._chapters[chapterIndex] = {
       ...this._chapters[chapterIndex],
       title,
@@ -447,6 +454,10 @@ const writingView = {
   // ============================================================
 
   async _selectChapter(chapterIndex, options = {}) {
+    const selectionGeneration = ++this._chapterSelectionGeneration
+    const isCurrentSelection = () => (
+      selectionGeneration === this._chapterSelectionGeneration
+    )
     // 从章节树同步最新列表（例如新建章节后）
     if (this._chapterTree) {
       this._chapterList = this._chapterTree._getChapterList()
@@ -455,8 +466,10 @@ const writingView = {
     }
 
     if (chapterIndex !== null && this._currentChapter === chapterIndex && !options.draftId) {
-      await this._editor?.loadChapter?.(chapterIndex)
+      const loaded = await this._editor?.loadChapter?.(chapterIndex)
+      if (!isCurrentSelection() || loaded === false) return
       await this._versions?.load?.(chapterIndex)
+      if (!isCurrentSelection()) return
       this._syncChapterMetaToTree(chapterIndex)
       this._syncSharedStateToSubModules()
       await this._rerender()
@@ -465,6 +478,7 @@ const writingView = {
 
     if (this._currentChapter !== null && chapterIndex !== null && this._editor) {
       await this._editor.autosave()
+      if (!isCurrentSelection()) return
     }
 
     this._currentChapter = chapterIndex
@@ -478,8 +492,10 @@ const writingView = {
 
     delete state.viewStates.writing
     try {
-      await this._editor?.loadChapter?.(chapterIndex, options)
+      const loaded = await this._editor?.loadChapter?.(chapterIndex, options)
+      if (!isCurrentSelection() || loaded === false) return
       await this._versions?.load?.(chapterIndex)
+      if (!isCurrentSelection()) return
       this._syncChapterMetaToTree(chapterIndex)
       this._scenePanel?.update?.(this._editor?.getCurrentSceneId?.(), chapterIndex)
       this._syncSharedStateToSubModules()
@@ -487,7 +503,7 @@ const writingView = {
       this._editor?.updateWordcount?.()
       await this._rerender()
     } catch (err) {
-      toast(err?.message || "加载章节失败", "error")
+      if (isCurrentSelection()) toast(err?.message || "加载章节失败", "error")
     }
   },
 
@@ -517,7 +533,7 @@ const writingView = {
   // ============================================================
 
   _onWordcountUpdate(stats) {
-    this._syncChapterMetaToTree(this._currentChapter)
+    this._syncChapterMetaToTree(stats.chapterIndex ?? this._currentChapter)
     this._syncSharedStateToSubModules()
     globalThis.App?.updateWordcountDashboard?.({
       chapterIndex: this._currentChapter,
@@ -558,6 +574,24 @@ const writingView = {
 
   _onTaskStarted(taskInfo) {
     this._deepImportRecovery?.startTask?.(taskInfo)
+  },
+
+  async _onDeepImportDone() {
+    const selectedChapter = this._currentChapter
+    await this._chapterTree?.load?.()
+    this._chapterList = this._chapterTree?._getChapterList?.() || []
+    this._chapters = this._chapterTree?._getChapterMap?.() || {}
+    this._scenes = this._chapterTree?._getScenes?.() || []
+    this._chapterListLoadError = this._chapterTree?._getLoadError?.() || null
+    if (selectedChapter !== null && this._chapterList.includes(selectedChapter)) {
+      this._currentChapter = selectedChapter
+      this._syncChapterMetaToTree(selectedChapter)
+      this._scenePanel?.update?.(this._editor?.getCurrentSceneId?.(), selectedChapter)
+    } else if (selectedChapter !== null) {
+      this._currentChapter = null
+    }
+    this._syncSharedStateToSubModules()
+    await this._rerender()
   },
 
   async _onToolsRefresh(result) {
@@ -726,15 +760,24 @@ const writingView = {
     this._syncInjectedStateToSubModules()
 
     const treeEl = document.getElementById("writing-tree-container")
+    const treeScrollTop = treeEl?.scrollTop || 0
+    const pageScroller = document.scrollingElement || document.documentElement
+    const pageScrollTop = pageScroller?.scrollTop || 0
     const editorEl = document.getElementById("writing-editor")
     const hasSelection = this._currentChapter !== null
     const needsFullRender = !treeEl || (hasSelection && !editorEl) || (!hasSelection && editorEl)
     if (needsFullRender) {
       container.innerHTML = await this.render()
+      const nextTreeEl = document.getElementById("writing-tree-container")
+      if (nextTreeEl) nextTreeEl.scrollTop = treeScrollTop
+      if (pageScroller) pageScroller.scrollTop = pageScrollTop
       return
     }
 
-    if (treeEl && this._chapterTree?.render) treeEl.innerHTML = this._chapterTree.render()
+    if (treeEl && this._chapterTree?.render) {
+      treeEl.innerHTML = this._chapterTree.render()
+      treeEl.scrollTop = treeScrollTop
+    }
 
     const panelEl = document.getElementById("writing-panel-container")
     if (panelEl && this._scenePanel?.render) panelEl.innerHTML = this._scenePanel.render()
@@ -753,6 +796,7 @@ const writingView = {
 
     if (this._editor?.updateMeta) this._editor.updateMeta(this._focusMode)
     this._bindEvents()
+    if (pageScroller) pageScroller.scrollTop = pageScrollTop
   },
 
   async _refreshVersions(chapterIndex) {
