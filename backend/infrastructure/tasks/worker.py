@@ -252,7 +252,9 @@ class TaskWorker:
             await self._execute_task(task, session)
         finally:
             await session.close()
-        return task
+        async with self._db_manager.session_factory() as reload_session:
+            current = await reload_session.get(AsyncTask, task.id)
+        return current or task
 
     async def _checkpoint_handler_commit(
         self,

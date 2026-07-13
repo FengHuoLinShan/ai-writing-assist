@@ -213,7 +213,10 @@ async def test_delete_rejects_later_handler_commit_and_preserves_checkpoint() ->
 
         allow_task_cancel.set()
         await asyncio.wait_for(delete_task, timeout=2.0)
-        await asyncio.wait_for(worker_task, timeout=2.0)
+        returned_task = await asyncio.wait_for(worker_task, timeout=2.0)
+        assert returned_task is not None
+        assert returned_task.status == "cancelled"
+        assert returned_task.transition_reason == "project_soft_deleted"
 
         async with sessions() as verify_db:
             original_task = await verify_db.get(AsyncTask, task_id)
