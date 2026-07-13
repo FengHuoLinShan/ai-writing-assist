@@ -73,6 +73,83 @@ describe("createVersionManager", () => {
     expect(html).toContain("publish-status-dot")
   })
 
+  it("keeps review and archived versions out of the main selector", async () => {
+    state.currentProjectId = "p1"
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [
+        { id: "candidate-4", version_number: 4, status: "candidate", display_state: "review" },
+        { id: "archived-3", version_number: 3, status: "deprecated", display_state: "archived" },
+        { id: "working-2", version_number: 2, status: "draft", display_state: "active" },
+      ],
+    })
+
+    const manager = createTestManager()
+    await manager.load(1)
+    const html = manager.render()
+
+    expect(html).toContain('value="working-2"')
+    expect(html).toContain("v2 (latest)".replace("latest", "最新"))
+    expect(html).not.toContain('value="candidate-4"')
+    expect(html).not.toContain('value="archived-3"')
+  })
+
+  it("shows all history but only active history has restore actions", async () => {
+    state.currentProjectId = "p1"
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [
+        { id: "candidate-4", version_number: 4, status: "candidate", display_state: "review" },
+        { id: "archived-3", version_number: 3, status: "deprecated", display_state: "archived" },
+        { id: "working-2", version_number: 2, status: "draft", display_state: "active" },
+        { id: "published-1", version_number: 1, status: "published", display_state: "active" },
+      ],
+    })
+
+    const manager = createTestManager()
+    await manager.load(1)
+    document.body.innerHTML = manager.render()
+    manager.bindEvents(document.body)
+    document.querySelector('[data-action="version-history"]').click()
+    const body = showModalHtml.mock.calls.at(-1)[1]
+
+    expect(body).toContain("v4")
+    expect(body).toContain("v3")
+    expect(body).toContain("v2")
+    expect(body).toContain("v1")
+    expect(body).not.toContain('version-restore-btn" data-draft-id="candidate-4"')
+    expect(body).not.toContain('version-restore-btn" data-draft-id="archived-3"')
+    expect(body).toContain('version-restore-btn" data-draft-id="published-1"')
+  })
+
+  it("previews archived history read-only using the latest active snapshot", async () => {
+    state.currentProjectId = "p1"
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [
+        { id: "archived-3", version_number: 3, status: "deprecated", display_state: "archived" },
+        { id: "working-2", version_number: 2, status: "draft", display_state: "active", updated_at: "2026-07-06T00:02:00Z" },
+      ],
+    })
+    api.writing.get.mockResolvedValue({
+      id: "archived-3",
+      status: "deprecated",
+      content: "已归档",
+      version_number: 3,
+    })
+    const onSwitch = vi.fn()
+    const manager = createTestManager({ onSwitch })
+    await manager.load(1)
+
+    await manager.switchVersion("archived-3", 3, false)
+
+    expect(onSwitch).toHaveBeenCalledWith(expect.objectContaining({
+      draftId: "archived-3",
+      isReadonly: true,
+      restoreSourceVersion: null,
+      restoreExpectedVersion: null,
+      restoreExpectedUpdatedAt: null,
+    }))
+    expect(manager.render()).not.toContain('data-action="delete-version"')
+  })
+
   it("switches version through selector and notifies orchestrator", async () => {
     state.currentProjectId = "p1"
     api.writing.getVersionHistory.mockResolvedValue({

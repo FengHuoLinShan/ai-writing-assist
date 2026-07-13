@@ -521,6 +521,22 @@ class TestWritingDraftRepository:
         assert next(v for v in versions if v.id == v2.id).status == "deprecated"
 
     @pytest.mark.asyncio
+    async def test_repeated_delete_preserves_original_status_provenance(
+        self,
+        repo: WritingDraftRepository,
+        db_session: AsyncSession,
+        sample_draft_data: WritingDraftCreate,
+    ) -> None:
+        created = await repo.create(db_session, sample_draft_data)
+
+        await repo.delete(db_session, created.id)
+        deleted_again = await repo.delete(db_session, created.id)
+
+        assert deleted_again is not None
+        assert deleted_again.status == "deprecated"
+        assert deleted_again.provenance_json["deprecated_from_status"] == "draft"
+
+    @pytest.mark.asyncio
     async def test_delete_all_versions(
         self,
         repo: WritingDraftRepository,
@@ -906,7 +922,7 @@ class TestWritingDraftService:
         assert resp.version_number == 1
 
     @pytest.mark.asyncio
-    async def test_update_draft_no_conflict_when_no_expected_version(
+    async def test_update_old_draft_conflicts_without_expected_version(
         self,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
@@ -918,24 +934,20 @@ class TestWritingDraftService:
             novel_id=uuid.UUID(sample_draft_data.novel_id),
             version_number=2,
         )
-        updated = _make_draft(
-            id=v1.id,
-            novel_id=v1.novel_id,
-            title="no check",
-        )
         repo = MagicMock()
         repo.get = AsyncMock(return_value=v1)
         repo.get_latest_by_chapter = AsyncMock(return_value=v2)
-        repo.update = AsyncMock(return_value=updated)
         service = WritingDraftService(repo=repo)
         db = MagicMock()
 
         no_check_update = WritingDraftUpdate(title="no check")
-        resp = await service.update_draft(
-            db, str(v1.id), no_check_update, sample_draft_data.novel_id
-        )
+        with pytest.raises(ConflictError) as exc_info:
+            await service.update_draft(
+                db, str(v1.id), no_check_update, sample_draft_data.novel_id
+            )
 
-        assert resp.title == "no check"
+        assert exc_info.value.status_code == 409
+        repo.update.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_delete_draft(
@@ -1004,7 +1016,7 @@ class TestWritingDraftService:
         repo.delete.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_delete_candidate_does_not_require_a_working_version(
+    async def test_delete_candidate_is_rejected_as_read_only_history(
         self,
         sample_draft_data: WritingDraftCreate,
     ) -> None:
@@ -1018,14 +1030,15 @@ class TestWritingDraftService:
         service = WritingDraftService(repo=repo)
         db = AsyncMock()
 
-        await service.delete_draft(
-            db,
-            str(candidate.id),
-            sample_draft_data.novel_id,
-        )
+        with pytest.raises(ConflictError, match="仅供预览"):
+            await service.delete_draft(
+                db,
+                str(candidate.id),
+                sample_draft_data.novel_id,
+            )
 
         repo.count_working_versions.assert_not_called()
-        repo.delete.assert_awaited_once_with(db, candidate.id)
+        repo.delete.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_get_latest_draft(
@@ -1084,6 +1097,44 @@ class TestWritingDraftService:
         history = await service.get_version_history(db, str(uuid.uuid4()), 1)
 
         assert history.total == 0
+
+    @pytest.mark.asyncio
+    async def test_get_version_history_includes_review_and_archived_states(
+        self,
+        sample_draft_data: WritingDraftCreate,
+    ) -> None:
+        candidate = _make_draft(
+            novel_id=uuid.UUID(sample_draft_data.novel_id),
+            version_number=3,
+            status="candidate",
+        )
+        deprecated = _make_draft(
+            novel_id=uuid.UUID(sample_draft_data.novel_id),
+            version_number=2,
+            status="deprecated",
+            provenance_json={"deprecated_from_status": "published"},
+        )
+        active = _make_draft(
+            novel_id=uuid.UUID(sample_draft_data.novel_id),
+            version_number=1,
+            status="published",
+        )
+        repo = MagicMock()
+        repo.get_version_history = AsyncMock(
+            return_value=[candidate, deprecated, active]
+        )
+
+        history = await WritingDraftService(repo=repo).get_version_history(
+            MagicMock(), sample_draft_data.novel_id, 1
+        )
+
+        assert history.total == 3
+        assert [item.display_state for item in history.versions] == [
+            "review",
+            "archived",
+            "active",
+        ]
+        assert history.versions[1].deprecated_from_status == "published"
 
     @pytest.mark.asyncio
     async def test_invalid_uuid(
@@ -1763,6 +1814,47 @@ class TestWritingSplitApi:
 
 class TestWritingPublishApi:
     @pytest.mark.asyncio
+    async def test_repeated_delete_is_204_and_keeps_original_provenance(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        published = (
+            await async_client.post(
+                "/api/writing/drafts",
+                json={"novel_id": novel_id, "chapter_index": 1, "content": "v1"},
+            )
+        ).json()["draft"]
+        working = (
+            await async_client.put(
+                f"/api/writing/drafts/{published['id']}?novel_id={novel_id}",
+                json={"content": "v2"},
+            )
+        ).json()
+
+        first = await async_client.delete(
+            f"/api/writing/drafts/{published['id']}?novel_id={novel_id}"
+        )
+        second = await async_client.delete(
+            f"/api/writing/drafts/{published['id']}?novel_id={novel_id}"
+        )
+
+        assert first.status_code == 204
+        assert second.status_code == 204
+        history = (
+            await async_client.get(
+                f"/api/writing/chapters/1/versions?novel_id={novel_id}"
+            )
+        ).json()
+        assert history["total"] == 2
+        archived = next(
+            item for item in history["versions"] if item["id"] == published["id"]
+        )
+        assert archived["deprecated_from_status"] == "published"
+        assert archived["display_state"] == "archived"
+        assert history["versions"][0]["id"] == working["id"]
+
+    @pytest.mark.asyncio
     async def test_autosave_update_and_publish_sanitize_html(
         self,
         async_client: AsyncClient,
@@ -1953,7 +2045,9 @@ class TestWritingPublishApi:
         history = await async_client.get(
             f"/api/writing/chapters/1/versions?novel_id={novel_id}"
         )
-        assert [item["version_number"] for item in history.json()["versions"]] == [1]
+        assert [item["version_number"] for item in history.json()["versions"]] == [2, 1]
+        assert history.json()["versions"][0]["display_state"] == "archived"
+        assert history.json()["versions"][0]["deprecated_from_status"] == "draft"
 
     @pytest.mark.asyncio
     async def test_checkpoint_and_publish_promote_without_extra_version(
@@ -2060,7 +2154,10 @@ class TestWritingPublishApi:
         history = await async_client.get(
             f"/api/writing/chapters/1/versions?novel_id={novel_id}"
         )
-        assert [item["version_number"] for item in history.json()["versions"]] == [2, 1]
+        assert [
+            item["version_number"] for item in history.json()["versions"]
+        ] == [3, 2, 1]
+        assert history.json()["versions"][0]["display_state"] == "archived"
 
     @pytest.mark.asyncio
     async def test_restore_version_validates_latest_snapshot(
@@ -2233,12 +2330,12 @@ class TestWritingPublishApi:
         assert denied_discard.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_update_draft_conflict_returns_409(
+    async def test_update_old_draft_conflict_returns_409_without_expectation(
         self,
         async_client: AsyncClient,
         db_session: AsyncSession,
     ) -> None:
-        """PUT /api/writing/drafts 在 expected_version 不匹配时返回 409"""
+        """PUT /api/writing/drafts 无条件拒绝旧 working 版本。"""
         novel_id = str(uuid.uuid4())
         service = WritingDraftService()
 
@@ -2263,11 +2360,88 @@ class TestWritingPublishApi:
 
         response = await async_client.put(
             f"/api/writing/drafts/{v1.id}?novel_id={novel_id}",
-            json={"title": "conflict", "expected_version": 1},
+            json={"title": "conflict"},
         )
         assert response.status_code == 409
         detail = response.json()["detail"]
         assert "v2" in detail or "2" in detail
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("historical_status", ["candidate", "deprecated"])
+    async def test_update_read_only_history_returns_409_without_expectation(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+        historical_status: str,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        repo = WritingDraftRepository()
+        historical = await repo.create_with_status(
+            db_session,
+            WritingDraftCreate(
+                novel_id=novel_id,
+                chapter_index=1,
+                content="只读历史",
+            ),
+            status=historical_status,
+        )
+        await repo.create_with_status(
+            db_session,
+            WritingDraftCreate(
+                novel_id=novel_id,
+                chapter_index=1,
+                content="当前工作稿",
+            ),
+            status="draft",
+        )
+
+        response = await async_client.put(
+            f"/api/writing/drafts/{historical.id}?novel_id={novel_id}",
+            json={"content": "不应写入"},
+        )
+
+        assert response.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_restore_rejects_archived_source(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        repo = WritingDraftRepository()
+        archived = await repo.create_with_status(
+            db_session,
+            WritingDraftCreate(
+                novel_id=novel_id,
+                chapter_index=1,
+                content="已归档",
+            ),
+            status="deprecated",
+        )
+        latest = await repo.create_with_status(
+            db_session,
+            WritingDraftCreate(
+                novel_id=novel_id,
+                chapter_index=1,
+                content="当前稿",
+            ),
+            status="draft",
+        )
+
+        response = await async_client.post(
+            "/api/writing/drafts",
+            json={
+                "novel_id": novel_id,
+                "chapter_index": 1,
+                "content": archived.content,
+                "draft_id": str(archived.id),
+                "restore_source_version": archived.version_number,
+                "expected_version": latest.version_number,
+            },
+        )
+
+        assert response.status_code == 409
 
 
 @pytest.mark.asyncio

@@ -484,13 +484,13 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     const buttonsContainer = document.getElementById("writing-editor-buttons")
     if (buttonsContainer) {
       const existingRestore = buttonsContainer.querySelector('[data-action="restore-from-version"]')
-      if (editor._isReadonly && editor._draftStatus !== "candidate" && !existingRestore) {
+      if (editor._isReadonly && !["candidate", "deprecated"].includes(editor._draftStatus) && !existingRestore) {
         const restoreBtn = document.createElement("button")
         restoreBtn.className = "btn btn-primary"
         restoreBtn.setAttribute("data-action", "restore-from-version")
         restoreBtn.textContent = "基于此版本创建"
         buttonsContainer.insertBefore(restoreBtn, buttonsContainer.firstChild)
-      } else if ((!editor._isReadonly || editor._draftStatus === "candidate") && existingRestore) {
+      } else if ((!editor._isReadonly || ["candidate", "deprecated"].includes(editor._draftStatus)) && existingRestore) {
         existingRestore.remove()
       }
 
@@ -587,7 +587,7 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
             <span id="writing-save-status" class="writing-save-badge ${esc(saveBadgeClass)}">${esc(saveStatus)}</span>
           </div>
           <div class="writing-editor-buttons" id="writing-editor-buttons">
-            ${editor._isReadonly && editor._draftStatus !== "candidate" ? `<button class="btn btn-primary" data-action="restore-from-version">基于此版本创建</button>` : ""}
+            ${editor._isReadonly && !["candidate", "deprecated"].includes(editor._draftStatus) ? `<button class="btn btn-primary" data-action="restore-from-version">基于此版本创建</button>` : ""}
             <button class="btn" data-action="autosave" id="btn-autosave" ${hasSelection && !editor._isReadonly ? "" : "disabled"} title="${hasSelection && !editor._isReadonly ? "暂存实质性正文修改" : esc(disabledReason)}">暂存</button>
             <button class="btn" data-action="checkpoint-version" id="btn-checkpoint-version" ${hasSelection && !editor._isReadonly ? "" : "disabled"} title="显式保存一个未发布版本">保存为新版本</button>
             ${editor._draftStatus === "draft" && editor._currentVersionNumber > 1 ? '<button class="btn btn-ghost" data-action="discard-writing-changes">放弃未发布更改</button>' : ""}
@@ -800,8 +800,10 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     try {
       const history = await api.writing.getVersionHistory(chapterIndex, state.currentProjectId)
       const versions = history.versions || []
-      if (versions.length > 0) {
-        const latest = versions[0]
+      const latest = versions.find((version) => version.display_state
+        ? version.display_state === "active"
+        : !["candidate", "deprecated"].includes(version.status))
+      if (latest) {
         const draftData = await api.writing.get(latest.id, state.currentProjectId)
         _applyDraft(draftData, { isReadonly: false })
         await _maybeRestoreBackup(chapterIndex)

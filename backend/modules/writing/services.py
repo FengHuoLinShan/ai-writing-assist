@@ -215,6 +215,8 @@ class WritingDraftService:
             if data.restore_source_version is not None:
                 if current.version_number != data.restore_source_version:
                     raise ConflictError("历史版本已变化，请重新选择。")
+                if current.status not in WORKING_DRAFT_STATUSES:
+                    raise ConflictError("待审核或已归档版本仅供预览。")
                 self._ensure_expected_snapshot(latest, data)
                 restored = await self.create_published_draft(
                     db,
@@ -537,10 +539,11 @@ class WritingDraftService:
     def _ensure_latest_and_expected(self, draft, latest, data) -> None:
         self._ensure_expected_snapshot(latest or draft, data)
         latest_version = latest.version_number if latest else draft.version_number
-        has_expectation = (
-            data.expected_version is not None or data.expected_updated_at is not None
-        )
-        if has_expectation and latest is not None and latest.id != draft.id:
+        if (
+            draft.status not in WORKING_DRAFT_STATUSES
+            or latest is None
+            or latest.id != draft.id
+        ):
             raise ConflictError(
                 f"当前版本不是该章节最新版本 v{latest_version}，"
                 "请刷新后重新编辑。"
@@ -624,6 +627,9 @@ class WritingDraftService:
         if draft is None or str(draft.novel_id) != str(nid):
             raise NotFoundError(f"Draft {draft_id} not found")
 
+        if draft.status == "candidate":
+            raise ConflictError("待审核版本仅供预览，不能删除。")
+
         # 待处理建议不能充当章节工作稿。只有删除工作/已发布版本时，
         # 才需要保证仍有至少一个可用的章节来源。
         if draft.status in WORKING_DRAFT_STATUSES:
@@ -677,8 +683,6 @@ class WritingDraftService:
         versions = await self._repo.get_version_history(db, nid, chapter_index)
         items = []
         for v in versions:
-            if v.status not in WORKING_DRAFT_STATUSES:
-                continue
             item = DraftListItem.model_validate(v)
             item.word_count = len(v.content) if v.content else 0
             items.append(item)

@@ -232,6 +232,8 @@ class DraftListItem(BaseModel):
     version_number: int
     title: str | None = None
     status: str = "draft"
+    display_state: Literal["active", "review", "archived"] = "active"
+    deprecated_from_status: str | None = None
     version_origin: Literal["auto", "manual", "legacy"] = "legacy"
     word_count: int = 0
     created_at: datetime | None = None
@@ -249,10 +251,17 @@ class DraftListItem(BaseModel):
                 "version_number": getattr(value, "version_number", 1),
                 "title": getattr(value, "title", None),
                 "status": getattr(value, "status", "draft"),
+                "provenance_json": getattr(value, "provenance_json", None),
                 "created_at": getattr(value, "created_at", None),
                 "updated_at": getattr(value, "updated_at", None),
             }
             provenance = getattr(value, "provenance_json", None)
+        projection = project_writing_draft_state(data.get("status"), provenance)
+        data["display_state"] = projection["display_state"]
+        if not data.get("deprecated_from_status") and isinstance(provenance, dict):
+            data["deprecated_from_status"] = provenance.get(
+                "deprecated_from_status"
+            )
         if not data.get("version_origin"):
             raw_origin = (
                 (provenance or {}).get("version_origin")

@@ -13,6 +13,15 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
   let _currentDraftId = null
   let _currentVersionNumber = null
 
+  function isActiveVersion(version) {
+    if (version?.display_state) return version.display_state === "active"
+    return !["candidate", "deprecated"].includes(version?.status)
+  }
+
+  function latestActiveVersion() {
+    return _versions.find(isActiveVersion) || null
+  }
+
   async function load(chapterIndex) {
     _currentChapter = chapterIndex
     _currentDraftId = null
@@ -20,8 +29,10 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
     try {
       const history = await api.writing.getVersionHistory(chapterIndex, state.currentProjectId)
       _versions = history.versions || []
-      if (_versions.length > 0) {
-        _currentVersionNumber = _versions[0].version_number
+      const latest = latestActiveVersion()
+      if (latest) {
+        _currentDraftId = latest.id
+        _currentVersionNumber = latest.version_number
       }
     } catch (err) {
       _versions = []
@@ -31,6 +42,8 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
 
   function render() {
     if (!_currentChapter || _versions.length === 0) return ""
+    const current = _versions.find((version) => version.id === _currentDraftId)
+    const canManageCurrent = isActiveVersion(current)
 
     let html = `
       <div class="writing-version-bar">
@@ -39,9 +52,11 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
           <select id="version-selector" class="writing-version-select" aria-label="选择章节版本">
     `
 
-    for (const v of _versions) {
+    const activeVersions = _versions.filter(isActiveVersion)
+    const latest = latestActiveVersion()
+    for (const v of activeVersions) {
       const selected = v.version_number === _currentVersionNumber
-      const isCurLatest = v.version_number === _versions[0]?.version_number
+      const isCurLatest = v.id === latest?.id
       const stateLabel = v.status === "published"
         ? "已发布"
         : (v.version_origin === "manual" ? "手动保存" : "未发布")
@@ -52,7 +67,7 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
           </select>
         </span>
         <button class="btn btn-sm writing-btn-compact" data-action="version-history" title="版本历史">历史</button>
-        <button class="btn btn-sm writing-version-delete" id="btn-delete-version" data-action="delete-version" title="删除当前版本" aria-label="删除当前版本">🗑</button>
+        ${canManageCurrent ? '<button class="btn btn-sm writing-version-delete" id="btn-delete-version" data-action="delete-version" title="删除当前版本" aria-label="删除当前版本">🗑</button>' : ""}
         <span id="publish-status-dot" class="publish-status-dot" title="发布任务进行中"></span>
       </div>
     `
@@ -87,14 +102,20 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
       const draftData = await api.writing.get(draftId, state.currentProjectId)
       _currentDraftId = draftData.id
       _currentVersionNumber = versionNumber
-      const latest = _versions[0] || null
+      const latest = latestActiveVersion()
+      const selectedVersion = _versions.find((version) => version.id === draftData.id)
+      const canRestore = isActiveVersion(selectedVersion || draftData)
       onSwitch({
         draftId: draftData.id,
         versionNumber,
-        isReadonly: options.isReadonly !== undefined ? options.isReadonly : !isLatest,
-        restoreSourceVersion: options.restoreSourceVersion !== undefined ? options.restoreSourceVersion : (isLatest ? null : versionNumber),
-        restoreExpectedVersion: isLatest ? null : (latest?.version_number || null),
-        restoreExpectedUpdatedAt: isLatest ? null : (latest?.updated_at || null),
+        isReadonly: canRestore
+          ? (options.isReadonly !== undefined ? options.isReadonly : !isLatest)
+          : true,
+        restoreSourceVersion: canRestore
+          ? (options.restoreSourceVersion !== undefined ? options.restoreSourceVersion : (isLatest ? null : versionNumber))
+          : null,
+        restoreExpectedVersion: canRestore && !isLatest ? (latest?.version_number || null) : null,
+        restoreExpectedUpdatedAt: canRestore && !isLatest ? (latest?.updated_at || null) : null,
         title: draftData.title || "",
         content: draftData.content || "",
         updatedAt: draftData.updated_at || null,
@@ -109,25 +130,34 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
 
   async function restoreFromVersion() {
     if (!_currentVersionNumber) return
+    const selected = _versions.find((version) => version.id === _currentDraftId)
+    if (!isActiveVersion(selected)) return
+    const latest = latestActiveVersion()
     onSwitch({
       draftId: _currentDraftId,
       versionNumber: _currentVersionNumber,
       isReadonly: false,
       restoreSourceVersion: _currentVersionNumber,
-      restoreExpectedVersion: _versions[0]?.version_number || null,
-      restoreExpectedUpdatedAt: _versions[0]?.updated_at || null,
+      restoreExpectedVersion: latest?.version_number || null,
+      restoreExpectedUpdatedAt: latest?.updated_at || null,
     })
     toast("已创建新版本，可继续编辑", "success")
   }
 
   async function deleteVersion() {
     if (!_currentDraftId || !_currentChapter) return
-    if (_versions.length <= 1) {
+    const activeVersions = _versions.filter(isActiveVersion)
+    const selected = _versions.find((version) => version.id === _currentDraftId)
+    if (!isActiveVersion(selected)) {
+      toast("待审核或已归档版本仅供预览", "warning")
+      return
+    }
+    if (activeVersions.length <= 1) {
       toast("不能删除唯一版本", "warning")
       return
     }
 
-    const latestVer = _versions[0]?.version_number
+    const latestVer = latestActiveVersion()?.version_number
     if (_currentVersionNumber === latestVer) {
       toast("不能删除最新版本", "warning")
       return
@@ -143,8 +173,8 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
       await api.writing.deleteDraft(_currentDraftId, state.currentProjectId)
       toast("版本已删除", "success")
       await load(_currentChapter)
-      if (_versions.length > 0) {
-        const latest = _versions[0]
+      const latest = latestActiveVersion()
+      if (latest) {
         await switchVersion(latest.id, latest.version_number, true)
       }
     } catch (err) {
@@ -157,10 +187,11 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
       toast("该章节暂无历史版本", "info")
       return
     }
-    const latestVersion = _versions[0]?.version_number
+    const latest = latestActiveVersion()
     let listHtml = '<div class="writing-version-history-list">'
     for (const v of _versions) {
-      const isLatest = v.version_number === latestVersion
+      const isLatest = v.id === latest?.id
+      const canRestore = isActiveVersion(v)
       const wordCount = v.word_count || 0
       const created = v.created_at ? new Date(v.created_at).toLocaleDateString("zh-CN") : ""
       const isCurrent = v.version_number === _currentVersionNumber
@@ -178,7 +209,7 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
           </div>
           <div class="writing-version-item__actions">
             <button class="btn btn-sm writing-btn-compact version-preview-btn" data-draft-id="${esc(v.id)}" data-version="${esc(v.version_number)}" data-is-latest="${isLatest ? 1 : 0}">预览</button>
-            ${!isCurrent ? `<button class="btn btn-sm writing-btn-compact version-restore-btn" data-draft-id="${esc(v.id)}" data-version="${esc(v.version_number)}" data-is-latest="${isLatest ? 1 : 0}">恢复</button>` : ""}
+            ${canRestore && !isCurrent ? `<button class="btn btn-sm writing-btn-compact version-restore-btn" data-draft-id="${esc(v.id)}" data-version="${esc(v.version_number)}" data-is-latest="${isLatest ? 1 : 0}">恢复</button>` : ""}
           </div>
         </div>
       `
@@ -222,8 +253,9 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
   function setVersions(versions, chapterIndex) {
     _versions = Array.isArray(versions) ? versions : []
     _currentChapter = chapterIndex ?? _currentChapter
-    _currentDraftId = _versions[0]?.id || null
-    _currentVersionNumber = _versions[0]?.version_number || null
+    const latest = latestActiveVersion()
+    _currentDraftId = latest?.id || null
+    _currentVersionNumber = latest?.version_number || null
   }
 
   function dispose() {

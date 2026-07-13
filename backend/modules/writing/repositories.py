@@ -218,10 +218,9 @@ class WritingDraftRepository:
             return None
 
         previous_status = draft.status
-        draft.provenance_json = {
-            **(draft.provenance_json or {}),
-            "deprecated_from_status": previous_status,
-        }
+        provenance = dict(draft.provenance_json or {})
+        provenance.setdefault("deprecated_from_status", previous_status)
+        draft.provenance_json = provenance
         draft.status = "deprecated"
         db.add(draft)
         await db.flush()

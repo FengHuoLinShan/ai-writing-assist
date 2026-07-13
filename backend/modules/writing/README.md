@@ -134,6 +134,18 @@ POST /api/writing/conflict-check-items/{id}/ai-suggestion → 生成单条问题
 POST /api/writing/generate                        → 从已确认 context 生成正文 candidate
 ```
 
+版本历史是审计视图：按 `version_number` 倒序返回 active、review 和
+archived 全部记录，`total` 与返回集合一致。列表项的 `display_state`
+为 `active / review / archived`；`deprecated_from_status` 保留首次软废弃前的
+原始状态，重复 DELETE 仍幂等返回 204，不覆盖该 provenance。
+
+只有当前最新 working 版本可通过 `PUT /drafts/{id}` 更新；旧 working、
+candidate 和 deprecated 均返回 409，无论请求是否提供乐观并发快照。
+`expected_version / expected_updated_at` 仍用于校验多 Tab 看到的最新
+working 快照；编辑最新 published 仍使用 copy-on-write。candidate 和
+deprecated 仅可在历史视图预览，不允许普通编辑、删除或恢复；
+candidate 采用仍只能经过专用 adopt 状态迁移。
+
 `POST /api/writing/chapters/{chapter_index}/split` 仅允许未发布的 working 章节拓扑变更；
 从切分位置起存在 published 版本时拒绝，避免修改已发布源的章号。通过注入的
 split provider 同步 Scene chunk；该操作不入队 `publish_chapter`。
