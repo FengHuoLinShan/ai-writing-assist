@@ -99,7 +99,88 @@ describe("对象库搜索", () => {
         expect.any(URLSearchParams),
       )
     })
-    expect(worldView._filters.q).toBe("值夜着")
+    expect(router.getCurrentQuery().get("q")).toBe("值夜着")
+  })
+
+  it("应用筛选时由路由 query 触发数据重载", async () => {
+    state.currentProjectId = "p1"
+    state.currentSubView = "objects"
+    document.body.innerHTML = `
+      <select id="filter-entity-type"><option value="location" selected>location</option></select>
+      <select id="filter-display-state"><option value="active" selected>active</option></select>
+      <input id="filter-q" value="王都">
+    `
+    api.world.listEntities.mockResolvedValue({ items: [], total: 0 })
+
+    await worldView._applyFilters()
+
+    expect(worldView._filters).toMatchObject({ entity_type: "", q: "", skip: 0 })
+    expect(router.getCurrentQuery().get("entity_type")).toBe("location")
+    expect(router.getCurrentQuery().get("q")).toBe("王都")
+
+    await worldView.render()
+
+    expect(api.world.listEntities).toHaveBeenCalledWith(expect.objectContaining({
+      novel_id: "p1",
+      entity_type: "location",
+      display_state: "active",
+      q: "王都",
+      skip: 0,
+      limit: 20,
+    }))
+  })
+
+  it("重置筛选时在路由同步前保留已加载状态", async () => {
+    state.currentProjectId = "p1"
+    state.currentSubView = "objects"
+    worldView._filters = {
+      entity_type: "location",
+      display_state: "review",
+      q: "王都",
+      skip: 20,
+      limit: 20,
+    }
+    worldView._objectViewMode = "card"
+    api.world.listEntities.mockResolvedValue({ items: [], total: 0 })
+
+    await worldView._resetFilters()
+
+    expect(worldView._filters).toMatchObject({ entity_type: "location", q: "王都", skip: 20 })
+    expect(worldView._advancedFiltersOpen).toBe(false)
+    expect(router.getCurrentQuery().toString()).toBe("display_state=active")
+
+    await worldView.render()
+
+    expect(worldView._filters).toMatchObject({ entity_type: "", display_state: "active", q: "", skip: 0 })
+    expect(worldView._objectViewMode).toBe("table")
+    expect(api.world.listEntities).toHaveBeenCalledWith({
+      novel_id: "p1",
+      display_state: "active",
+      skip: 0,
+      limit: 20,
+    })
+  })
+
+  it("翻页时在路由同步后使用新的 skip 重载", async () => {
+    state.currentProjectId = "p1"
+    state.currentSubView = "objects"
+    worldView._total = 22
+    api.world.listEntities.mockResolvedValue({ items: [], total: 22 })
+
+    await worldView._changePage(1)
+
+    expect(worldView._filters.skip).toBe(0)
+    expect(router.getCurrentQuery().get("page")).toBe("2")
+
+    await worldView.render()
+
+    expect(worldView._filters.skip).toBe(20)
+    expect(api.world.listEntities).toHaveBeenCalledWith(expect.objectContaining({
+      novel_id: "p1",
+      display_state: "active",
+      skip: 20,
+      limit: 20,
+    }))
   })
 })
 
@@ -806,9 +887,9 @@ describe("对象库", () => {
 
       await worldView._applyFilters()
 
-      expect(worldView._filters.entity_type).toBe("location")
+      expect(worldView._filters.entity_type).toBe("")
       expect(worldView._filters.display_state).toBe("active")
-      expect(worldView._filters.q).toBe("王都")
+      expect(worldView._filters.q).toBe("")
       expect(worldView._filters.skip).toBe(0)
       expect(api.world.listEntities).not.toHaveBeenCalled()
       expect(router.navigate).toHaveBeenCalledWith("world", "objects", true, expect.any(URLSearchParams))
@@ -852,7 +933,7 @@ describe("对象库", () => {
 
       await worldView._changePage(1)
 
-      expect(worldView._filters.skip).toBe(20)
+      expect(worldView._filters.skip).toBe(0)
       expect(api.world.listEntities).not.toHaveBeenCalled()
       const query = router.navigate.mock.calls.at(-1)[3]
       expect(query.get("page")).toBe("2")

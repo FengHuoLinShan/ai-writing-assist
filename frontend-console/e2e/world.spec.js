@@ -138,7 +138,7 @@ test.describe("世界对象模块", () => {
   })
 
   test("合并实体到目标实体", async ({ page }) => {
-    // Given: 通过 API 创建目标正史实体与候选草稿实体
+    // Given: 通过 API 创建目标正史实体与待处理候选实体
     const target = await createEntity(testProjectId, {
       name: "目标实体",
       entity_type: "location",
@@ -147,18 +147,22 @@ test.describe("世界对象模块", () => {
     const candidate = await createEntity(testProjectId, {
       name: "候选实体",
       entity_type: "location",
-      status: "draft",
+      status: "candidate",
+      content_json: {
+        _meta: {
+          suggested_action: "merge_with_existing",
+          suggested_existing_entity_name: target.name,
+        },
+      },
     })
 
-    await reloadWorkbench(page, "world", "objects")
-    await expect(page.locator(SEL.dataTable)).toContainText("目标实体")
+    await reloadWorkbench(page, "world", "candidates")
     await expect(page.locator(SEL.dataTable)).toContainText("候选实体")
 
-    // When: 在候选实体行打开更多菜单并点击合并，输入目标 ID
-    await page.locator('tr:has-text("候选实体") .action-menu-btn').click()
+    // When: 在待处理列表中点击合并，输入目标 ID
     await page.locator('tr:has-text("候选实体") [data-action="merge-entity"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("合并对象")
-    await page.locator("#merge-target-id").fill(target.id)
+    await page.locator("#merge-target-id").selectOption(target.id)
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
 
     // Then: 提示合并完成

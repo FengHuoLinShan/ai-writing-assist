@@ -78,6 +78,9 @@ const TAG_OPTIONS = [
 const sceneWorkbenchView = {
   _loading: true,
   _workbench: null,
+  _fusionPreviewPending: false,
+  _fusionPreviewProjectId: null,
+  _fusionPreviewRequestSeq: 0,
   _total: 0,
   _activeHealth: null,
   _filters: { ...SCENE_FILTER_DEFAULTS },
@@ -1376,17 +1379,37 @@ const sceneWorkbenchView = {
   },
 
   async _previewFusionWithPrimary(sourceSceneIds, primarySceneId, suggestionId = null) {
+    const projectId = state.currentProjectId
+    if (this._fusionPreviewPending && this._fusionPreviewProjectId === projectId) return
+    const requestSeq = this._fusionPreviewRequestSeq + 1
+    this._fusionPreviewRequestSeq = requestSeq
+    this._fusionPreviewPending = true
+    this._fusionPreviewProjectId = projectId
+    showModalHtml("AI 融合建议生成中", `
+      <div class="loading" role="status">正在读取精确正文证据并生成结构化融合草稿…</div>
+    `, [])
     try {
-      const preview = await api.outline.previewSceneFusion(state.currentProjectId, {
+      const preview = await api.outline.previewSceneFusion(projectId, {
         source_scene_ids: sourceSceneIds,
         primary_scene_id: primarySceneId,
       })
+      if (requestSeq !== this._fusionPreviewRequestSeq || state.currentProjectId !== projectId) {
+        return
+      }
       this._showFusionPreview(
-        { ...preview, suggestion_id: suggestionId },
+        { ...preview, suggestion_id: suggestionId, request_project_id: projectId },
         sourceSceneIds,
       )
     } catch (err) {
-      toast(err.message || "Scene 融合预览失败", "error")
+      if (requestSeq === this._fusionPreviewRequestSeq && state.currentProjectId === projectId) {
+        closeModal()
+        toast(err.message || "Scene 融合预览失败", "error")
+      }
+    } finally {
+      if (requestSeq === this._fusionPreviewRequestSeq) {
+        this._fusionPreviewPending = false
+        this._fusionPreviewProjectId = null
+      }
     }
   },
 
@@ -1508,6 +1531,14 @@ const sceneWorkbenchView = {
   },
 
   async _saveFusionResult(mode, sourceSceneIds) {
+    if (
+      this._activeDraftReview?.request_project_id
+      && this._activeDraftReview.request_project_id !== state.currentProjectId
+    ) {
+      closeModal()
+      toast("项目已切换，请在当前项目重新生成融合建议", "warning")
+      return
+    }
     const payload = {
       source_scene_ids: sourceSceneIds,
       primary_scene_id: this._activeDraftReview?.primary_scene_id || null,

@@ -91,6 +91,10 @@ beforeEach(() => {
   api.outline.dismissFusionSuggestions = vi.fn().mockResolvedValue({ dismissed: 0 })
   api.outline.updateScene.mockResolvedValue({ id: "s1" })
   sceneWorkbenchView._loading = false
+  sceneWorkbenchView._fusionPreviewPending = false
+  sceneWorkbenchView._fusionPreviewProjectId = null
+  sceneWorkbenchView._fusionPreviewRequestSeq = 0
+  sceneWorkbenchView._activeDraftReview = null
   sceneWorkbenchView._workbench = null
   sceneWorkbenchView._total = 0
   sceneWorkbenchView._activeHealth = null
@@ -1171,7 +1175,10 @@ describe("sceneWorkbenchView", () => {
         ],
       },
       conflicts: [],
-      warnings: ["章节跨度较大"],
+      warnings: [
+        "章节跨度较大",
+        "AI 融合调用失败，已返回确定性融合草稿，请人工复核。",
+      ],
     })
     sceneWorkbenchView._workbench = workbenchPayload
     sceneWorkbenchView._selectedFusionSceneIds = new Set(["s1", "s2"])
@@ -1187,13 +1194,16 @@ describe("sceneWorkbenchView", () => {
     })
     expect(keepPreviewOpen).toBe(false)
     expect(showModal).toHaveBeenCalled()
-    const call = showModal.mock.calls[1]
+    expect(showModal.mock.calls[1][0]).toBe("AI 融合建议生成中")
+    expect(modalHtmlFromCall(showModal.mock.calls[1])).toContain("正在读取精确正文证据")
+    const call = showModal.mock.calls[2]
     const [title, , buttons] = call
     const body = modalHtmlFromCall(call)
     expect(title).toBe("Scene AI 建议预览")
     expect(body).toContain("潜入与撤离")
     expect(body).toContain("取得密信并撤离")
     expect(body).toContain("章节跨度较大")
+    expect(body).toContain("AI 融合调用失败")
     expect(body).toContain("主 Scene 原值")
     expect(body).toContain("潜入王宫")
     expect(body).toContain("scene-fusion-title")
@@ -1203,6 +1213,66 @@ describe("sceneWorkbenchView", () => {
       "放弃融合结果",
       "继续编辑融合结果后再保存",
     ])
+  })
+
+  it("prevents duplicate AI fusion previews while the synchronous call is pending", async () => {
+    let resolvePreview
+    api.outline.previewSceneFusion.mockReturnValue(new Promise((resolve) => {
+      resolvePreview = resolve
+    }))
+
+    const pending = sceneWorkbenchView._previewFusionWithPrimary(["s1", "s2"], "s1")
+    await sceneWorkbenchView._previewFusionWithPrimary(["s1", "s2"], "s1")
+
+    expect(api.outline.previewSceneFusion).toHaveBeenCalledTimes(1)
+    expect(showModal.mock.calls[0][0]).toBe("AI 融合建议生成中")
+    resolvePreview({
+      mode: "fusion",
+      source_scene_ids: ["s1", "s2"],
+      primary_scene_id: "s1",
+      draft_scene: { title: "融合草稿" },
+      warnings: [],
+    })
+    await pending
+    expect(sceneWorkbenchView._fusionPreviewPending).toBe(false)
+  })
+
+  it("discards an AI fusion response after the active project changes", async () => {
+    let resolvePreview
+    api.outline.previewSceneFusion.mockReturnValue(new Promise((resolve) => {
+      resolvePreview = resolve
+    }))
+
+    const pending = sceneWorkbenchView._previewFusionWithPrimary(["s1", "s2"], "s1")
+    resetState({ currentProjectId: "p2", currentView: "scene", currentSubView: "s1" })
+    resolvePreview({
+      mode: "fusion",
+      source_scene_ids: ["s1", "s2"],
+      primary_scene_id: "s1",
+      draft_scene: { title: "旧项目融合草稿" },
+      warnings: [],
+    })
+    await pending
+
+    expect(showModal).toHaveBeenCalledTimes(1)
+    expect(sceneWorkbenchView._activeDraftReview).toBeNull()
+    expect(sceneWorkbenchView._fusionPreviewPending).toBe(false)
+  })
+
+  it("does not save an existing fusion preview after the active project changes", async () => {
+    sceneWorkbenchView._activeDraftReview = {
+      request_project_id: "p1",
+      primary_scene_id: "s1",
+    }
+    resetState({ currentProjectId: "p2", currentView: "scene", currentSubView: "s1" })
+
+    await sceneWorkbenchView._saveFusionResult("keep_originals", ["s1", "s2"])
+
+    expect(api.outline.saveSceneFusion).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith(
+      "项目已切换，请在当前项目重新生成融合建议",
+      "warning",
+    )
   })
 
   it.each([

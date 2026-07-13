@@ -449,7 +449,7 @@ class SceneDraftReviewResponse(BaseModel):
 
 
 class SceneFusionPreviewRequest(BaseModel):
-    source_scene_ids: list[str] = Field(..., min_length=2)
+    source_scene_ids: list[str] = Field(..., min_length=2, max_length=20)
     primary_scene_id: str | None = None
 
 

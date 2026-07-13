@@ -115,15 +115,25 @@ preview 只展示章节映射、字段、剧情线、伏笔 / 揭示和地图摘
 也不因存在关联资产自动阻断。合并不硬删除来源 Scene，只把来源 Scene 标记为
 `deprecated` 并保留可追踪 meta。拆分不修改正文内容，只调整 Scene 映射并创建新 Scene。
 
-AI Scene 草稿统一由 `SceneDraftReviewService` 生成。`fusion/preview` 要求传入
+AI Scene 审稿响应统一由 `SceneDraftReviewService` 生成。`fusion/preview` 要求传入
 `primary_scene_id`，返回统一审稿形状：`draft_scene` / `draft_scenes`、
 `field_references`、`field_sources`、`source_scene_summaries`、`conflicts`、
 `warnings`、`confidence` 和 `reason`。preview 不修改来源 Scene；章节映射和
 `scene_chunks` 由系统确定性合并或拆分，LLM 不拥有这些事实字段。
+Scene 融合语义草稿通过 project runtime seam 调用受管结构化 LLM step；
+只有 `exact/reanchored` 且 draft / source hash / range 重新校验成功的
+SceneSpan 正文才会进入 prompt，且 span 必须指向该章当前的
+working / canonical 源版本。证据按 working 优先、canonical 回退，
+全部来源 Scene 正文合计不超过 24000 字符；完整 prompt 还会按
+结构卡和 JSON 开销二次限制。单次最多融合 20 个 Scene，不精确映射只使用 Scene 卡。
+LLM 或结构校验失败时返回明确 warning 的确定性草稿，不暴露
+provider 原始错误，也不扩大保存权限。
 `fusion/save` 支持 `keep_originals`、`deprecate_originals`、`discard` 和
 `edit_then_save`。只有 `deprecate_originals` 会把来源 Scene 标记为
 `deprecated`，新 Scene 记录 `source="manual_fusion"` 与
 `structure_meta.fused_from_scene_ids`，来源 Scene 记录 `fused_into_scene_id`。确认保存会将新 Scene 的 `structure_meta.needs_review` 明确清为 false，并记录 `adopted_at` 和 `source`；preview 中的旧 review 标记不会残留到已采用 Scene。
+保存后的 `fusion_strategy="author_reviewed_preview"` 只表示作者已审阅预览，
+不把可编辑结果伪装成纯 LLM 或纯确定性产物。
 
 `generate` 只把 AI 结构生成为 `draft_structure` review preview，任务结果标记
 `requires_apply=true` 且不写入剧情线、篇章纲、Scene、伏笔或揭示表。作者编辑后

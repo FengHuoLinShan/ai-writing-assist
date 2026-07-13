@@ -25,6 +25,7 @@
 | `alias_relation_extraction.md` | 深度导入 Phase 2b，基于工作对象索引提取别名/关系 | imports |
 | `extract_chapter_scene.md` | 从正文提取章节卡信息 | 写作/大纲辅助 |
 | `extract_character.md` | 从正文片段提取人物档案字段 | 人物信息补全 |
+| `scene_fusion_draft.py` | 内联 step `outline.scene_fusion.draft.structured`：基于选中 Scene 卡和精确正文生成融合语义草稿 | Scene 工作台 |
 
 ## 3. Prompt Contract System
 
@@ -88,6 +89,18 @@ shell、表达式或动态代码执行。默认只有 P0/P1 阻断；文档漂�
 `scene_segmentation.md` 单独代表，而是在 imports 的 `workflow_llm_adapters.py`
 中按阶段组装，并通过 adapter、token budget 和 schema guard 输出中间候选或融合候选。
 `scene_segmentation.md` 仍用于正式 Scene 字段切分、小样本检测和单章恢复等受控路径。
+
+### Scene 工作台融合类
+
+`outline.scene_fusion.draft.structured` 是同步、只读的结构化 step。输入仅包含
+用户当前选中的 Scene 卡与通过 writing 稳定 range ref 重新校验的精确
+SceneSpan 正文，并且 range ref 必须与该章当前 working / canonical 源版本
+一致；不扩展到整章、RAG 或项目级上下文。单次最多 20 个 Scene，
+Scene 卡字段和完整 JSON payload 均有确定性输入预算。输出 schema 只允许
+`title / goal / core_conflict / emotional_beat / must_happen / must_not_happen /
+narrative_tag / confidence / reason`；章节映射、Scene chunk、POV、状态和
+provenance 由 outline 确定性逻辑保持。调用失败时只返回带 warning 的
+确定性草稿，不写入任何 Scene；保存仍需用户在 Workbench 显式选择。
 
 ## 6. `shared_rules.md` 的权威地位
 

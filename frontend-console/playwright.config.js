@@ -5,8 +5,7 @@ const frontendPort = process.env.FRONTEND_PORT || "8080"
 const rawApiHost = process.env.API_HOST || `http://localhost:${backendPort}`
 const apiBase = rawApiHost.endsWith("/api") ? rawApiHost : `${rawApiHost}/api`
 const frontendBase = `http://localhost:${frontendPort}`
-const reuseExistingServer =
-  process.env.PW_REUSE_EXISTING_SERVER !== "0" && !process.env.CI
+const reuseExistingServer = process.env.PW_REUSE_EXISTING_SERVER === "1"
 
 export default defineConfig({
   testDir: "./e2e",

@@ -284,14 +284,14 @@ const worldView = {
     if (normalized) query.set(key, normalized)
   },
 
-  _objectQueryFromState() {
+  _objectQueryFromState(filters = this._filters, viewMode = this._objectViewMode) {
     const query = new URLSearchParams()
     for (const key of WORLD_OBJECT_QUERY_KEYS) {
-      this._setQueryValue(query, key, this._filters[key])
+      this._setQueryValue(query, key, filters[key])
     }
-    const page = Math.floor((this._filters.skip || 0) / this._filters.limit) + 1
+    const page = Math.floor((filters.skip || 0) / filters.limit) + 1
     if (page > 1) query.set("page", String(page))
-    if (this._objectViewMode === "card") query.set("view", "card")
+    if (viewMode === "card") query.set("view", "card")
     return query
   },
 
@@ -2415,7 +2415,7 @@ const worldView = {
     const workflowId = document.getElementById("filter-workflow-id")?.value?.trim() || ""
     const needsReview = document.getElementById("filter-needs-review")?.value || ""
     const autoIngested = document.getElementById("filter-auto-ingested")?.value || ""
-    this._filters = {
+    const nextFilters = {
       ...WORLD_FILTER_DEFAULTS,
       entity_type: entityType,
       display_state: displayState,
@@ -2426,14 +2426,15 @@ const worldView = {
       auto_ingested: autoIngested,
       skip: 0,
     }
-    await this._navigateWithQuery("objects", this._objectQueryFromState())
+    await this._navigateWithQuery("objects", this._objectQueryFromState(nextFilters))
   },
 
   async _resetFilters() {
-    this._filters = { ...WORLD_FILTER_DEFAULTS }
-    this._objectViewMode = "table"
     this._advancedFiltersOpen = false
-    await this._navigateWithQuery("objects", this._objectQueryFromState())
+    await this._navigateWithQuery(
+      "objects",
+      this._objectQueryFromState({ ...WORLD_FILTER_DEFAULTS }, "table"),
+    )
   },
 
   async _applyCandidateReviewFilters() {
@@ -2492,8 +2493,8 @@ const worldView = {
     const newSkip = this._filters.skip + delta * this._filters.limit
     if (newSkip < 0) return
     if (newSkip >= this._total) return
-    this._filters.skip = newSkip
-    await this._navigateWithQuery("objects", this._objectQueryFromState())
+    const nextFilters = { ...this._filters, skip: newSkip }
+    await this._navigateWithQuery("objects", this._objectQueryFromState(nextFilters))
   },
 
   async _changeListPage(filters, total, loader, delta) {

@@ -16,6 +16,7 @@ from modules.outline.repositories import (
     SceneRepository,
 )
 from modules.outline.scene_draft_review import SceneDraftReviewService
+from modules.outline.scene_fusion_draft import SceneFusionDraftGenerator
 from modules.outline.schemas import (
     SceneCreate,
     SceneFusionDraft,
@@ -79,11 +80,18 @@ _FUSION_DECISION_STATUSES = ("pending", "dismissed", "adopted")
 
 
 class SceneWorkbenchService:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        fusion_draft_generator: SceneFusionDraftGenerator | None = None,
+    ) -> None:
         self.repo = SceneRepository()
         self._suggestion_repo = SceneFusionSuggestionRepository()
         self._scene_service = SceneService()
         self._draft_review_service = SceneDraftReviewService()
+        self._fusion_draft_generator = (
+            fusion_draft_generator or SceneFusionDraftGenerator()
+        )
 
     async def create_scene(
         self,
@@ -888,17 +896,39 @@ class SceneWorkbenchService:
         if not data.primary_scene_id:
             raise ValueError("primary_scene_id is required for AI Scene fusion preview")
         sources = await self._load_fusion_scenes(db, novel_id, data.source_scene_ids)
-        fused_scene = await self._fusion_scene_payload(
+        deterministic_draft = await self._fusion_scene_payload(
             db,
             novel_id,
             sources,
             primary_scene_id=data.primary_scene_id,
         )
+        generated = await self._fusion_draft_generator.generate(
+            db,
+            novel_id=novel_id,
+            sources=sources,
+            primary_scene_id=data.primary_scene_id,
+            deterministic_draft=deterministic_draft,
+        )
+        fused_scene = {
+            **deterministic_draft,
+            **generated.semantic_fields,
+        }
+        fused_scene["structure_meta"] = {
+            **dict(deterministic_draft.get("structure_meta") or {}),
+            "fusion_strategy": (
+                "local_deterministic_fallback"
+                if generated.degraded
+                else "project_llm_structured"
+            ),
+        }
         review = self._draft_review_service.build_fusion_review(
             sources=sources,
             primary_scene_id=data.primary_scene_id,
             draft_scene=fused_scene,
             mode="fusion",
+            confidence=generated.confidence,
+            reason=generated.reason,
+            warnings=generated.warnings,
         )
         draft = (
             review.draft_scene.model_dump(mode="json", exclude_none=True)
@@ -1112,7 +1142,7 @@ class SceneWorkbenchService:
             "structure_meta": {
                 "fused_from_scene_ids": source_ids,
                 "fusion_kind": "llm_scene_workbench",
-                "fusion_strategy": "local_deterministic_preview",
+                "fusion_strategy": "author_reviewed_preview",
                 "needs_review": True,
             },
             "status": "draft",

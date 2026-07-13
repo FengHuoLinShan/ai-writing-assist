@@ -70,9 +70,6 @@ class SceneDraftReviewService:
         field_references = self._field_references(sources, primary_scene_id)
         field_sources = self._field_sources(normalized_draft, field_references)
         review_warnings = list(warnings or [])
-        review_warnings.append(
-            "当前草稿由确定性融合规则生成；AI 草稿接口已统一，真实 LLM 可在后续接入。"
-        )
         return SceneDraftReviewResponse(
             mode=mode,
             source_scene_ids=source_ids,

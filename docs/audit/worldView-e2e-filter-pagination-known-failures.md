@@ -2,7 +2,7 @@
 
 > 创建时间：2026-07-13
 > 关联改动：项目页 / 世界页 / 大纲页 / 生成页 排版紧凑化
-> 状态：已确认与本次排版改动无关，属既有缺陷，待后续修复
+> 状态：已修复（2026-07-13）
 
 ## 背景
 
@@ -77,15 +77,25 @@ npx playwright test e2e/world.spec.js --reporter=line
 
 对象库默认 `display_state=active`，后端可能把 `canonical` 视为 active，而 `draft` 不在 active 列表中，因此「候选实体」不会出现在对象库表格里。测试假设两者都会显示，可能需要调整测试数据或在测试前切换到「待处理」子标签。
 
-### 回滚实体测试端点缺失
+### 回滚实体测试环境错误
 
-`seedEntityArchive` 依赖 `/world/_test/entities/{id}/text-archive`，该端点返回 404。需要确认：
+`seedEntityArchive` 依赖的 `/world/_test/entities/{id}/text-archive` 已在后端注册，
+且有独立测试覆盖。该端点仅在 `APP_ENV=test` 时开放；原 404 是
+Playwright 默认复用了 8000 端口上的 development 后端，没有启动配置中的
+test 后端。
 
-- 该端点是否仅在特定测试配置下启用；
-- 是否应改用正式 API 写入归档；
-- 或测试辅助函数需要更新。
+## 实际修复
 
-## 修复建议
+1. `_applyFilters()`、`_resetFilters()` 和 `_changePage()` 只构造下一份 URL
+   query，不再于导航前改写已加载的 `_filters`。
+2. `_syncRouteQueryState()` 继续作为 query 到视图状态的唯一同步边界，并在
+   检测到变化时重新请求对象列表。
+3. 合并 E2E 改为在“待处理”入口中操作 `candidate`，不再假设
+   review 对象会出现在默认 active 对象库。
+4. Playwright 仅在显式设置 `PW_REUSE_EXISTING_SERVER=1` 时复用已有服务；
+   默认启动 `APP_ENV=test` 后端。
+
+## 历史修复方案评估
 
 ### 方案 A：让 `_applyFilters()` 后强制刷新数据
 
@@ -109,9 +119,8 @@ npx playwright test e2e/world.spec.js --reporter=line
 
 ### 方案 D：回滚实体测试修复
 
-- 确认 `/world/_test/entities/{id}/text-archive` 是否应存在；
-- 若已废弃，更新 `e2e/helpers/api-client.js` 中的 `seedEntityArchive` 使用新的归档写入方式；
-- 或在后端补充该测试端点。
+- 经确认端点已存在，不需要增加正式 API。
+- 实际修复为隔离 Playwright 服务环境，保留测试端点的 404 安全门禁。
 
 ## 相关文件
 
@@ -134,4 +143,30 @@ git checkout HEAD -- frontend-console/views/worldView.js
 npx playwright test e2e/world.spec.js --reporter=line
 ```
 
-结论：这些失败是 worldView 既有逻辑/测试数据/后端测试端点问题，与本次排版改动无关。
+原结论：这些失败与本次排版改动无关。修复时进一步确认，
+问题分别来自 worldView 状态同步、过时的测试数据语义和 Playwright 复用了
+错误环境的后端，而非后端端点缺失。
+
+### 修复后验证
+
+```bash
+cd frontend-console
+npm test -- --run tests/worldView.test.js
+# 109 passed
+
+npm test
+# 992 passed
+
+BACKEND_PORT=18113 FRONTEND_PORT=18114 PW_REUSE_EXISTING_SERVER=0 \
+  npx playwright test e2e/world.spec.js --reporter=line
+# 13 passed
+
+cd ../backend
+pytest tests/test_world_testonly_route.py -q
+# 3 passed
+
+pytest modules/world/tests/test_world.py tests/test_world_testonly_route.py -q
+# 70 passed
+```
+
+修复后，合并、回滚、类型过滤、名称搜索和对象库分页场景均通过。
