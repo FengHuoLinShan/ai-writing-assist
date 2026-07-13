@@ -105,11 +105,7 @@ def _body_declares_project_id(route: APIRoute) -> bool:
 
 def _is_declared_project_scoped(route: APIRoute) -> bool:
     signature_names = set(inspect.signature(route.endpoint).parameters)
-    path_names = {
-        name
-        for name in PROJECT_ID_NAMES
-        if f"{{{name}}}" in route.path
-    }
+    path_names = {name for name in PROJECT_ID_NAMES if f"{{{name}}}" in route.path}
     return bool(
         PROJECT_ID_NAMES & signature_names
         or path_names
@@ -119,9 +115,7 @@ def _is_declared_project_scoped(route: APIRoute) -> bool:
 
 def _all_api_routes() -> dict[str, APIRoute]:
     return {
-        _route_key(route): route
-        for route in app.routes
-        if isinstance(route, APIRoute)
+        _route_key(route): route for route in app.routes if isinstance(route, APIRoute)
     }
 
 
@@ -197,9 +191,7 @@ def _summarize_function(
         # expose data. Harmless argument normalization on the guard's own line
         # sorts after the outer guard call and therefore remains allowed.
         candidate = (*position, name or "<call>")
-        first_business = (
-            min(first_business, candidate) if first_business else candidate
-        )
+        first_business = min(first_business, candidate) if first_business else candidate
 
     return FunctionSummary(
         has_guard=first_guard is not None,
@@ -306,9 +298,7 @@ def test_active_project_guard_inventory_is_closed() -> None:
     declared = {
         key for key, route in routes.items() if _is_declared_project_scoped(route)
     }
-    scoped = (
-        declared | DERIVED_SCOPED_ROUTES.keys()
-    ) - PROJECT_LIFECYCLE_EXEMPTIONS
+    scoped = (declared | DERIVED_SCOPED_ROUTES.keys()) - PROJECT_LIFECYCLE_EXEMPTIONS
 
     # This is a lower-bound drift alarm, not a frozen route count.
     assert len(declared) >= 229

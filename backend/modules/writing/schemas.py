@@ -259,9 +259,7 @@ class DraftListItem(BaseModel):
         projection = project_writing_draft_state(data.get("status"), provenance)
         data["display_state"] = projection["display_state"]
         if not data.get("deprecated_from_status") and isinstance(provenance, dict):
-            data["deprecated_from_status"] = provenance.get(
-                "deprecated_from_status"
-            )
+            data["deprecated_from_status"] = provenance.get("deprecated_from_status")
         if not data.get("version_origin"):
             raw_origin = (
                 (provenance or {}).get("version_origin")

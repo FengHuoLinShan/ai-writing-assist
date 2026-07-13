@@ -105,8 +105,7 @@ async def test_guarded_enqueue_is_cancelled_by_waiting_soft_delete() -> None:
         await engine.dispose()
 
 
-async def test_delete_rejects_later_handler_commit_and_preserves_checkpoint(
-) -> None:
+async def test_delete_rejects_later_handler_commit_and_preserves_checkpoint() -> None:
     """Only commits linearized before project deletion remain durable."""
     engine = create_async_engine(DATABASE_URL, pool_size=5, max_overflow=0)
     sessions = async_sessionmaker(engine, expire_on_commit=False)

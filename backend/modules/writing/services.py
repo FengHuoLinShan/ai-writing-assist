@@ -465,9 +465,7 @@ class WritingDraftService:
                 and base is not None
                 and not has_substantive_change(base.content, content)
             ):
-                raise ValidationError(
-                    "正文无实质变化；确认后可强制保存新版本"
-                )
+                raise ValidationError("正文无实质变化；确认后可强制保存新版本")
             updated = await self._repo.update(
                 db,
                 draft,
@@ -480,9 +478,7 @@ class WritingDraftService:
             return WritingDraftResponse.model_validate(updated)
 
         if not data.force and not has_substantive_change(draft.content, content):
-            raise ValidationError(
-                "正文无实质变化；确认后可强制保存新版本"
-            )
+            raise ValidationError("正文无实质变化；确认后可强制保存新版本")
 
         checkpoint = await self._repo.create(
             db,
@@ -545,8 +541,7 @@ class WritingDraftService:
             or latest.id != draft.id
         ):
             raise ConflictError(
-                f"当前版本不是该章节最新版本 v{latest_version}，"
-                "请刷新后重新编辑。"
+                f"当前版本不是该章节最新版本 v{latest_version}，请刷新后重新编辑。"
             )
 
     def _ensure_expected_snapshot(self, latest, data) -> None:

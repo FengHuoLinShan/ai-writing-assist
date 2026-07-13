@@ -240,9 +240,7 @@ async def test_alias_page_hides_archived_alias_or_owner_before_pagination(
     archived_alias_on_review_owner = _make_entity(
         name="review-owner",
         status="candidate",
-        content_json={
-            "aliases": [{"alias": "ignored-on-review", "status": "ignored"}]
-        },
+        content_json={"aliases": [{"alias": "ignored-on-review", "status": "ignored"}]},
     )
     alias_service.repo.list_by_novel = AsyncMock(
         return_value=[

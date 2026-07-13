@@ -1120,9 +1120,7 @@ class TestWritingDraftService:
             status="published",
         )
         repo = MagicMock()
-        repo.get_version_history = AsyncMock(
-            return_value=[candidate, deprecated, active]
-        )
+        repo.get_version_history = AsyncMock(return_value=[candidate, deprecated, active])
 
         history = await WritingDraftService(repo=repo).get_version_history(
             MagicMock(), sample_draft_data.novel_id, 1
@@ -2163,9 +2161,11 @@ class TestWritingPublishApi:
         history = await async_client.get(
             f"/api/writing/chapters/1/versions?novel_id={novel_id}"
         )
-        assert [
-            item["version_number"] for item in history.json()["versions"]
-        ] == [3, 2, 1]
+        assert [item["version_number"] for item in history.json()["versions"]] == [
+            3,
+            2,
+            1,
+        ]
         assert history.json()["versions"][0]["display_state"] == "archived"
 
     @pytest.mark.asyncio

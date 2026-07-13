@@ -111,13 +111,9 @@ class TaskWorker:
         poll_interval: float = TASK_POLL_INTERVAL,
         heartbeat_interval: float = TASK_HEARTBEAT_INTERVAL,
         max_heartbeat_gap: float = TASK_MAX_HEARTBEAT_GAP,
-        task_preflight: Callable[
-            [AsyncSession, AsyncTask], Awaitable[None]
-        ]
+        task_preflight: Callable[[AsyncSession, AsyncTask], Awaitable[None]]
         | None = None,
-        task_commit_guard: Callable[
-            [AsyncSession, AsyncTask], Awaitable[bool]
-        ]
+        task_commit_guard: Callable[[AsyncSession, AsyncTask], Awaitable[bool]]
         | None = None,
     ) -> None:
         self._db_manager = db_manager or get_manager()

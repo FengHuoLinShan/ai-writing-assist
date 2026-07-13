@@ -34,6 +34,7 @@ async def _require_active_project(db: DbSession, novel_id: str) -> None:
     guard = get_container_service("project.require_active")
     await guard(db, novel_id)
 
+
 _MODULE_API_ONLY_TASK_TYPES = {
     "deep_import",
     "deep_import_resume",

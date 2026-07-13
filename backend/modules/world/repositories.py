@@ -272,9 +272,7 @@ class CoreEntityRepository:
         elif display_state is None and not include_archived:
             from modules.world.asset_state import ARCHIVED_DISPLAY_STATUSES
 
-            conditions.append(
-                CoreEntity.status.not_in(tuple(ARCHIVED_DISPLAY_STATUSES))
-            )
+            conditions.append(CoreEntity.status.not_in(tuple(ARCHIVED_DISPLAY_STATUSES)))
         if display_state is not None:
             from modules.world.asset_state import statuses_for_display_state
 

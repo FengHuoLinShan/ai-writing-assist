@@ -460,6 +460,7 @@ async def discard_draft(
     """放弃当前未发布版本并返回其基线。"""
     await require_active_project(db, novel_id)
     from modules.rag.facade import request_chapter_index
+
     result = await _service.discard_draft(
         db,
         draft_id,

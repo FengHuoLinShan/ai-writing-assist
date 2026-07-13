@@ -737,12 +737,16 @@ class TestWorldNovelIsolation:
         )
         assert deleted.status == "deprecated"
         revisions = (
-            await db_session.execute(
-                select(EntityRevision).where(
-                    EntityRevision.entity_id == uuid.UUID(created.id)
+            (
+                await db_session.execute(
+                    select(EntityRevision).where(
+                        EntityRevision.entity_id == uuid.UUID(created.id)
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert [revision.revision_reason for revision in revisions] == ["manual_delete"]
         context_marker.assert_awaited_once_with(
             db_session,
@@ -791,9 +795,7 @@ class TestWorldNovelIsolation:
             novel_id=novel_id,
         )
         assert deleted.status == "deprecated"
-        assert (
-            await db_session.execute(select(EntityRevision.id))
-        ).scalars().all() == []
+        assert (await db_session.execute(select(EntityRevision.id))).scalars().all() == []
 
 
 class TestEntityDedupService:
