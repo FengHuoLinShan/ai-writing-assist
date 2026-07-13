@@ -403,6 +403,17 @@ class ProjectService:
             settings=dict(project.settings or {}),
         )
 
+    async def require_active_project(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> None:
+        """Hold a shared project row lock for the caller's transaction."""
+        pid = _parse_uuid(novel_id, "novel_id")
+        project = await self._repo.get_active_for_share(db, pid)
+        if project is None:
+            raise NotFoundError(f"Project {novel_id} not found")
+
     async def _get_existing_project(self, db: AsyncSession, project_id: str):
         pid = _parse_uuid(project_id, "project_id")
         project = await self._repo.get(db, pid)

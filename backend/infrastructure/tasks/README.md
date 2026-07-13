@@ -73,11 +73,21 @@ await worker.run_once()      # 单次执行
 lease 不匹配而失败，worker 取消 runner，handler session 回滚，旧 runner 的 finalize 不能
 覆盖已持久化的 `cancelled` 状态。
 即使 handler 在下一次心跳前返回，finalize 发现 lease 已失效时也会回滚当前
-session，不会提交该 attempt 的业务写入。
+session，不会提交删除线性化之后的业务写入。
+
+已 claim 任务使用 worker 专用 handler session。每次 handler `db.commit()` 前均在同一
+事务内按 `project FOR SHARE -> task running+lease` 的顺序执行 fence，并把与 session
+分离的 task 对象上 `progress/result/meta` 合并回 lifecycle row。fence 通过时，业务
+写入与 checkpoint 一次提交；项目删除或 lease 丢失已先线性化时，当前事务回滚并
+取消 runner。删除前已成功提交的 deep-import checkpoint 保留，删除后不会产生新写入。
 
 `TaskWorker(task_preflight=...)` 支持组合根注入执行前门禁。worker 本身不依赖任何
 业务模块；`run_worker.py` 统一注册业务 handler / DI，并仅对带 `meta.novel_id`
 的任务调用 project 活跃性门禁，无 `novel_id` 的全局任务直接放行。
+worker 的 handler 前检查是非锁定活跃性读取，不在长时间 attempt 中持有
+project 行锁，因此软删除可立即清除 lease 并通过 heartbeat 取消 runner。
+仅最终状态写入前的短临界区使用 `FOR SHARE` 项目 fence，将成功 finalize
+线性化在项目删除之前或之后。
 
 handler 注册时声明四种冻结策略：
 

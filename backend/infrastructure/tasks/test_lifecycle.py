@@ -234,3 +234,56 @@ async def test_cancel_unfinished_for_novel_is_scoped_and_preserves_terminal_task
     assert refreshed["done-task"].status == "done"
     assert refreshed["other-task"].status == "running"
     assert refreshed["other-task"].lease_id is not None
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_running_attempt_merges_detached_progress_result_and_meta(
+    db_session: AsyncSession,
+) -> None:
+    service = TaskLifecycleService()
+    lease_id = str(uuid.uuid4())
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="deep_import",
+        status="running",
+        progress=0.1,
+        result={"phase": "start"},
+        meta={"novel_id": str(uuid.uuid4()), "stage": "start"},
+        lease_id=lease_id,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    db_session.expunge(task)
+
+    task.progress = 0.6
+    task.result = {"phase": "world_objects", "completed": ["scenes"]}
+    task.meta = {**task.meta, "stage": "world_objects"}
+
+    accepted = await service.checkpoint_running_attempt(
+        db_session,
+        task=task,
+        lease_id=lease_id,
+    )
+    await db_session.commit()
+
+    assert accepted is True
+    persisted = await db_session.get(AsyncTask, task.id)
+    assert persisted is not None
+    assert persisted.progress == 0.6
+    assert persisted.result == task.result
+    assert persisted.meta == task.meta
+    assert persisted.heartbeat_at is not None
+
+    db_session.expunge(persisted)
+    task.progress = 0.9
+    rejected = await service.checkpoint_running_attempt(
+        db_session,
+        task=task,
+        lease_id=str(uuid.uuid4()),
+    )
+    await db_session.rollback()
+
+    assert rejected is False
+    unchanged = await db_session.get(AsyncTask, task.id)
+    assert unchanged is not None
+    assert unchanged.progress == 0.6

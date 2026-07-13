@@ -45,6 +45,29 @@ logger = logging.getLogger(__name__)
 _TASK_DB_ERROR_MESSAGE = "后台任务遇到数据库临时错误，请稍后重试。"
 
 
+class _TaskHandlerSession(AsyncSession):
+    """AsyncSession that fences each handler commit before it becomes durable."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._task_commit_hook: Callable[[], Awaitable[bool]] | None = None
+
+    def set_task_commit_hook(
+        self,
+        hook: Callable[[], Awaitable[bool]],
+    ) -> None:
+        self._task_commit_hook = hook
+
+    def disable_task_commit_hook(self) -> None:
+        self._task_commit_hook = None
+
+    async def commit(self) -> None:
+        if self._task_commit_hook is not None and not await self._task_commit_hook():
+            await super().rollback()
+            raise asyncio.CancelledError
+        await super().commit()
+
+
 def _public_task_error_message(exc: Exception) -> str:
     """Return a task error safe to expose through the task status API."""
     raw = f"{type(exc).__name__}: {exc}"
@@ -92,6 +115,10 @@ class TaskWorker:
             [AsyncSession, AsyncTask], Awaitable[None]
         ]
         | None = None,
+        task_commit_guard: Callable[
+            [AsyncSession, AsyncTask], Awaitable[bool]
+        ]
+        | None = None,
     ) -> None:
         self._db_manager = db_manager or get_manager()
         self._registry = TaskRegistry()
@@ -100,6 +127,7 @@ class TaskWorker:
         self._heartbeat_interval = heartbeat_interval
         self._max_heartbeat_gap = max_heartbeat_gap
         self._task_preflight = task_preflight
+        self._task_commit_guard = task_commit_guard
         self._max_concurrent_tasks = max(
             1,
             int(get_settings().task_worker_max_concurrent_tasks),
@@ -131,8 +159,7 @@ class TaskWorker:
             task = await self._claim_task(session)
             if task is None:
                 return None
-            await self._execute_task(task, session)
-            return task
+        return await self._execute_claimed_task(task)
 
     async def run_forever(self) -> None:
         """常驻循环：持续领取并执行任务"""
@@ -203,25 +230,51 @@ class TaskWorker:
         self._running = False
 
     async def _claim_task_runner(self) -> asyncio.Task[None] | None:
-        """Claim one task and return a runner that owns its DB session."""
-        session_context = self._db_manager.session_factory()
-        session = await session_context.__aenter__()
-        try:
+        """Claim one task and return a runner with an atomic attempt transaction."""
+        async with self._db_manager.session_factory() as session:
             task = await self._claim_task(session)
             if task is None:
-                await session_context.__aexit__(None, None, None)
                 return None
-        except BaseException as exc:
-            await session_context.__aexit__(type(exc), exc, exc.__traceback__)
-            raise
 
         async def runner() -> None:
-            try:
-                await self._execute_task(task, session)
-            finally:
-                await session_context.__aexit__(None, None, None)
+            await self._execute_claimed_task(task)
 
         return asyncio.create_task(runner())
+
+    async def _execute_claimed_task(self, task: AsyncTask) -> AsyncTask:
+        """Run a claimed task with fenced handler commits and detached progress."""
+        lease_id = str(task.lease_id or "")
+        session = _TaskHandlerSession(
+            bind=self._db_manager.engine,
+            expire_on_commit=False,
+            autoflush=False,
+        )
+        session.set_task_commit_hook(
+            lambda: self._checkpoint_handler_commit(session, task, lease_id)
+        )
+        try:
+            await self._execute_task(task, session)
+        finally:
+            await session.close()
+        return task
+
+    async def _checkpoint_handler_commit(
+        self,
+        session: AsyncSession,
+        task: AsyncTask,
+        lease_id: str,
+    ) -> bool:
+        """Fence and merge detached progress in the handler's transaction."""
+        if self._task_commit_guard is not None and not await self._task_commit_guard(
+            session,
+            task,
+        ):
+            return False
+        return await self._lifecycle.checkpoint_running_attempt(
+            session,
+            task=task,
+            lease_id=lease_id,
+        )
 
     def _log_finished_task_runners(self, done: set[asyncio.Task[None]]) -> None:
         for runner in done:
@@ -243,9 +296,14 @@ class TaskWorker:
             logger.info("Task claimed: %s (type=%s)", task.id, task.task_type)
         return task
 
-    async def _execute_task(self, task: AsyncTask, session: AsyncSession) -> None:
+    async def _execute_task(
+        self,
+        task: AsyncTask,
+        session: AsyncSession,
+    ) -> bool:
         """执行任务的完整生命周期"""
         self._stats["processed"] += 1
+        attempt_accepted = False
         lease_id = str(task.lease_id or "")
         current_runner = asyncio.current_task()
         if current_runner is not None:
@@ -289,19 +347,20 @@ class TaskWorker:
                         result_data,
                         managed_llm_steps,
                     )
-                accepted = await self._lifecycle.finalize(
+                accepted = await self._finalize_task(
                     session,
+                    task=task,
                     task_id=task.id,
                     lease_id=lease_id,
                     status="done",
                     result_data=result_data,
                 )
                 if accepted:
-                    await session.refresh(task)
                     self._stats["succeeded"] += 1
                     logger.info("Task completed: %s (type=%s)", task.id, task.task_type)
                 else:
                     logger.warning("Discarded completion from stale lease: %s", task.id)
+                attempt_accepted = accepted
 
             except asyncio.CancelledError:
                 failure_result = (
@@ -313,16 +372,17 @@ class TaskWorker:
                     else None
                 )
                 await session.rollback()
-                accepted = await self._lifecycle.finalize(
+                accepted = await self._finalize_task(
                     session,
+                    task=task,
                     task_id=task.id,
                     lease_id=lease_id,
                     status="cancelled",
                     result_data=failure_result,
                 )
                 if accepted:
-                    await session.refresh(task)
                     self._stats["cancelled"] += 1
+                attempt_accepted = accepted
                 logger.info(
                     "Task cancelled: %s (type=%s, accepted=%s)",
                     task.id,
@@ -349,13 +409,14 @@ class TaskWorker:
                 }
                 if terminal_recovery_policy is not None:
                     finalize_kwargs["recovery_policy"] = terminal_recovery_policy
-                accepted = await self._lifecycle.finalize(
+                accepted = await self._finalize_task(
                     session,
+                    task=task,
                     **finalize_kwargs,
                 )
                 if accepted:
-                    await session.refresh(task)
                     self._stats["failed"] += 1
+                attempt_accepted = accepted
                 logger.error(
                     "Task failed: %s (type=%s, accepted=%s) — %s",
                     task.id,
@@ -374,6 +435,25 @@ class TaskWorker:
                         await heartbeat_task
                     except asyncio.CancelledError:
                         pass
+        return attempt_accepted
+
+    async def _finalize_task(
+        self,
+        session: AsyncSession,
+        *,
+        task: AsyncTask,
+        **finalize_kwargs: Any,
+    ) -> bool:
+        """Fence finalization against project deletion and the current lease."""
+        if isinstance(session, _TaskHandlerSession):
+            session.disable_task_commit_hook()
+        if self._task_commit_guard is not None and not await self._task_commit_guard(
+            session,
+            task,
+        ):
+            await session.rollback()
+            return False
+        return await self._lifecycle.finalize(session, **finalize_kwargs)
 
     async def _heartbeat_loop(self, task_id: Any, lease_id: str = "") -> None:
         """定期更新心跳（使用独立 session，避免与主执行共享）"""

@@ -127,6 +127,23 @@ class TestProjectCrud:
         assert fetched.id == created.id
         assert fetched.title == "测试小说"
 
+    @pytest.mark.asyncio
+    async def test_get_active_for_share_uses_shared_row_lock(self) -> None:
+        project_id = uuid.uuid4()
+        project = _make_project(id=project_id)
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = project
+        db = AsyncMock()
+        db.execute.return_value = result
+
+        found = await _repo.get_active_for_share(db, project_id)
+
+        assert found is project
+        statement = db.execute.await_args.args[0]
+        assert statement._for_update_arg is not None
+        assert statement._for_update_arg.read is True
+        assert statement._for_update_arg.key_share is False
+
     @pytest.mark.parametrize(
         "operation,expected",
         [

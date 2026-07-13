@@ -42,14 +42,32 @@ def setup_logging() -> None:
 
 
 async def _require_active_task_project(db, task) -> None:
-    """Composition-root adapter from generic task metadata to project guard."""
+    """Non-locking worker start check; lease fencing handles later deletion."""
     novel_id = str((task.meta or {}).get("novel_id") or "").strip()
     if not novel_id:
         return
 
+    from core.errors import NotFoundError
+    from modules.project.facade import get_project_context
+
+    if await get_project_context(db, novel_id) is None:
+        raise NotFoundError(f"Project {novel_id} not found")
+
+
+async def _guard_active_task_project_finalize(db, task) -> bool:
+    """Linearize terminal task status before or after project deletion."""
+    novel_id = str((task.meta or {}).get("novel_id") or "").strip()
+    if not novel_id:
+        return True
+
+    from core.errors import NotFoundError
     from modules.project.facade import require_active_project
 
-    await require_active_project(db, novel_id)
+    try:
+        await require_active_project(db, novel_id)
+    except NotFoundError:
+        return False
+    return True
 
 
 def _configure_worker_process() -> None:
@@ -65,7 +83,10 @@ async def main() -> None:
     from infrastructure.tasks.worker import TaskWorker
 
     _configure_worker_process()
-    worker = TaskWorker(task_preflight=_require_active_task_project)
+    worker = TaskWorker(
+        task_preflight=_require_active_task_project,
+        task_commit_guard=_guard_active_task_project_finalize,
+    )
     await worker.run_forever()
 
 

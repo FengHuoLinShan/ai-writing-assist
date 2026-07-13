@@ -37,6 +37,32 @@ class TaskLifecycleService:
             return None
         return TaskOwnerContract(novel_id=str(novel_id))
 
+    async def checkpoint_running_attempt(
+        self,
+        db: AsyncSession,
+        *,
+        task: AsyncTask,
+        lease_id: str,
+    ) -> bool:
+        """Merge detached handler progress while fencing the running lease."""
+        result = await db.execute(
+            update(AsyncTask)
+            .where(
+                AsyncTask.id == task.id,
+                AsyncTask.status == "running",
+                AsyncTask.lease_id == lease_id,
+            )
+            .values(
+                progress=task.progress,
+                result=dict(task.result or {}),
+                meta=dict(task.meta or {}),
+                heartbeat_at=datetime.now(UTC),
+            )
+            .execution_options(synchronize_session=False)
+        )
+        await db.flush()
+        return bool(result.rowcount)
+
     async def cancel_unfinished_for_novel(
         self,
         db: AsyncSession,

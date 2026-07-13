@@ -25,6 +25,28 @@ class ProjectRepository:
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_active_for_share(
+        self,
+        db: AsyncSession,
+        project_id: uuid.UUID,
+    ) -> Project | None:
+        """Lock an active project against deletion for the caller transaction.
+
+        PostgreSQL renders ``read=True`` as ``FOR SHARE``. Concurrent readers
+        remain compatible, while updates to ``deleted_at`` wait until the
+        guarded business transaction commits or rolls back.
+        """
+        stmt = (
+            select(Project)
+            .where(
+                Project.id == project_id,
+                Project.deleted_at.is_(None),
+            )
+            .with_for_update(read=True)
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def list(
         self,
         db: AsyncSession,

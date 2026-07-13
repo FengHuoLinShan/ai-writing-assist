@@ -90,6 +90,10 @@ def create_project_snapshot_llm_client(
 供其他模块获取项目上下文信息，包含项目基本元信息和策略配置。
 `require_active_project()` 是所有项目级业务入口的稳定门禁：项目不存在或已软删除
 均返回同样的 404，调用方不得绕过该 seam 自行读取 project 内部实现。
+该门禁在 PostgreSQL 上对活跃项目持有 `FOR SHARE` 行锁直到调用方事务结束：
+并发读取互不阻塞，但 `deleted_at` 更新必须等待已通过门禁的业务写入/入队先提交或回滚。
+软删除随后在自己的同一事务中取消刚提交的未完成任务，避免 guard 与业务
+操作之间的 TOCTOU。调用方不得在 guard 和受保护写入之间提前提交。
 所有带 `novel_id` 的业务文本/结构化 LLM 调用通过
 `open_project_llm_client()` 获取 effective project profile。该 seam 统一执行
 项目存在性、Key/Base URL/模型 fail-closed 校验、字段来源物化、脱敏 runtime

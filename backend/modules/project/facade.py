@@ -13,7 +13,6 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
-from core.errors import NotFoundError
 from modules.project.contracts import ProjectSummary
 from modules.project.models import Project
 from modules.project.repositories import ProjectRepository
@@ -54,9 +53,7 @@ async def require_active_project(
     novel_id: str,
 ) -> None:
     """Require an active project, hiding missing and recycled projects as 404."""
-    context = await _service.get_project_context(db, novel_id)
-    if context is None:
-        raise NotFoundError(f"Project {novel_id} not found")
+    await _service.require_active_project(db, novel_id)
 
 
 async def get_project_by_id(

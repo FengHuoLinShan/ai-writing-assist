@@ -468,10 +468,15 @@ class TestTaskWorkerInitAndProps:
         from infrastructure.tasks.worker import TaskWorker
 
         preflight = AsyncMock()
+        finalize_guard = AsyncMock(return_value=True)
         with patch("infrastructure.tasks.worker.get_manager", autospec=True):
-            worker = TaskWorker(task_preflight=preflight)
+            worker = TaskWorker(
+                task_preflight=preflight,
+                task_commit_guard=finalize_guard,
+            )
 
         assert worker._task_preflight is preflight
+        assert worker._task_commit_guard is finalize_guard
 
     def test_stats_property(self) -> None:
         """GREEN: stats 返回副本而非引用"""
@@ -1385,8 +1390,6 @@ class TestTaskWorkerRunOnce:
         db_session.execute = AsyncMock(return_value=result_mock)
         db_session.commit = AsyncMock()
 
-        handler = AsyncMock(return_value={"ok": True})
-
         db_manager = MagicMock()
         db_manager.session_factory = MagicMock(return_value=AsyncMock())
         db_manager.session_factory.return_value.__aenter__ = AsyncMock(
@@ -1394,14 +1397,13 @@ class TestTaskWorkerRunOnce:
         )
         db_manager.session_factory.return_value.__aexit__ = AsyncMock()
 
-        with patch.object(TaskWorker, "_heartbeat_loop", return_value=None):
-            worker = TaskWorker(db_manager=db_manager)
-            worker._registry.get_handler = MagicMock(return_value=handler)
+        worker = TaskWorker(db_manager=db_manager)
+        worker._execute_claimed_task = AsyncMock(return_value=task_mock)
 
-            result = await worker.run_once()
+        result = await worker.run_once()
 
         assert result is task_mock
-        handler.assert_awaited_once()
+        worker._execute_claimed_task.assert_awaited_once_with(task_mock)
 
     @pytest.mark.asyncio
     async def test_run_once_no_task(self) -> None:
