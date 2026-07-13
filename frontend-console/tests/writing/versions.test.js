@@ -98,7 +98,7 @@ describe("createVersionManager", () => {
     api.writing.getVersionHistory.mockResolvedValue({
       versions: [
         { id: "candidate-4", version_number: 4, status: "candidate", display_state: "review" },
-        { id: "archived-3", version_number: 3, status: "deprecated", display_state: "archived" },
+        { id: "archived-3", version_number: 3, status: "deprecated", display_state: "archived", deprecated_from_status: "published" },
         { id: "working-2", version_number: 2, status: "draft", display_state: "active" },
         { id: "published-1", version_number: 1, status: "published", display_state: "active" },
       ],
@@ -115,9 +115,34 @@ describe("createVersionManager", () => {
     expect(body).toContain("v3")
     expect(body).toContain("v2")
     expect(body).toContain("v1")
+    expect(body).toContain("待审核")
+    expect(body).toContain("历史 · 原已发布")
     expect(body).not.toContain('version-restore-btn" data-draft-id="candidate-4"')
     expect(body).not.toContain('version-restore-btn" data-draft-id="archived-3"')
     expect(body).toContain('version-restore-btn" data-draft-id="published-1"')
+  })
+
+  it("labels archived working history without rendering unknown provenance", async () => {
+    state.currentProjectId = "p1"
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [
+        { id: "archived-3", version_number: 3, status: "deprecated", display_state: "archived", deprecated_from_status: "draft" },
+        { id: "archived-2", version_number: 2, status: "deprecated", display_state: "archived", deprecated_from_status: '<img src=x onerror="alert(1)">' },
+        { id: "working-1", version_number: 1, status: "draft", display_state: "active" },
+      ],
+    })
+
+    const manager = createTestManager()
+    await manager.load(1)
+    document.body.innerHTML = manager.render()
+    manager.bindEvents(document.body)
+    document.querySelector('[data-action="version-history"]').click()
+    const body = showModalHtml.mock.calls.at(-1)[1]
+
+    expect(body).toContain("历史 · 原工作稿")
+    expect(body).toContain('<span class="pill">历史</span>')
+    expect(body).not.toContain("<img")
+    expect(body).not.toContain("onerror")
   })
 
   it("previews archived history read-only using the latest active snapshot", async () => {

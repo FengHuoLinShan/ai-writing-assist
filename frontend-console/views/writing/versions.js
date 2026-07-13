@@ -22,6 +22,32 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
     return _versions.find(isActiveVersion) || null
   }
 
+  function activeVersionLabel(version) {
+    if (version.status === "published" || version.status === "canonical") {
+      return "已发布"
+    }
+    return version.version_origin === "manual" ? "手动保存" : "未发布"
+  }
+
+  function historyVersionLabel(version) {
+    const displayState = version.display_state
+      || (version.status === "candidate"
+        ? "review"
+        : (version.status === "deprecated" ? "archived" : "active"))
+    if (displayState === "review") return "待审核"
+    if (displayState !== "archived") return activeVersionLabel(version)
+
+    let originalLabel = null
+    if (["published", "canonical"].includes(version.deprecated_from_status)) {
+      originalLabel = "原已发布"
+    } else if (version.deprecated_from_status === "draft") {
+      originalLabel = "原工作稿"
+    } else if (version.deprecated_from_status === "candidate") {
+      originalLabel = "原待审核"
+    }
+    return originalLabel ? `历史 · ${originalLabel}` : "历史"
+  }
+
   async function load(chapterIndex) {
     _currentChapter = chapterIndex
     _currentDraftId = null
@@ -57,10 +83,8 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
     for (const v of activeVersions) {
       const selected = v.version_number === _currentVersionNumber
       const isCurLatest = v.id === latest?.id
-      const stateLabel = v.status === "published"
-        ? "已发布"
-        : (v.version_origin === "manual" ? "手动保存" : "未发布")
-      html += `<option value="${esc(v.id)}" data-version="${esc(v.version_number)}" data-latest="${isCurLatest ? 1 : 0}" ${selected ? "selected" : ""}>v${esc(v.version_number)}${isCurLatest ? " (最新)" : ""} · ${stateLabel}</option>`
+      const stateLabel = activeVersionLabel(v)
+      html += `<option value="${esc(v.id)}" data-version="${esc(v.version_number)}" data-latest="${isCurLatest ? 1 : 0}" ${selected ? "selected" : ""}>v${esc(v.version_number)}${isCurLatest ? " (最新)" : ""} · ${esc(stateLabel)}</option>`
     }
 
     html += `
@@ -195,14 +219,12 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
       const wordCount = v.word_count || 0
       const created = v.created_at ? new Date(v.created_at).toLocaleDateString("zh-CN") : ""
       const isCurrent = v.version_number === _currentVersionNumber
-      const stateLabel = v.status === "published"
-        ? "已发布"
-        : (v.version_origin === "manual" ? "手动保存" : "未发布")
+      const stateLabel = historyVersionLabel(v)
       listHtml += `
         <div class="writing-version-item ${isCurrent ? "writing-version-item--current" : ""}">
           <div class="writing-version-item__main">
             <span class="writing-version-item__number">v${esc(v.version_number)}</span>
-            <span class="pill">${stateLabel}</span>
+            <span class="pill">${esc(stateLabel)}</span>
             ${isLatest ? " <span class=\"badge badge-canonical\">最新</span>" : ""}
             ${isCurrent ? " <span class=\"pill pill-accent\">当前</span>" : ""}
             <div class="writing-version-item__meta">${esc(created)} · ${esc(wordCount)} 字</div>
