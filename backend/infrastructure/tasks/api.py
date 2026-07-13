@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from core.api_params import NovelIdQuery
+from core.container import get as get_container_service
 from core.dependencies import DbSession
 from infrastructure.tasks.contracts import TaskAction
 from infrastructure.tasks.lifecycle import TaskLifecycleService, lifecycle_contract
@@ -27,6 +28,11 @@ from shared.enums import TaskStatus as TaskStatusEnum
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 _lifecycle = TaskLifecycleService()
+
+
+async def _require_active_project(db: DbSession, novel_id: str) -> None:
+    guard = get_container_service("project.require_active")
+    await guard(db, novel_id)
 
 _MODULE_API_ONLY_TASK_TYPES = {
     "deep_import",
@@ -128,6 +134,10 @@ async def submit_task(
             f"Registered types: {registered}",
         )
 
+    novel_id = (request.meta or {}).get("novel_id")
+    if novel_id is not None:
+        await _require_active_project(db, str(novel_id))
+
     definition = registry.get_definition(request.task_type)
     task = AsyncTask(
         id=uuid.uuid4(),
@@ -159,6 +169,7 @@ async def get_task_status(
 
     （Bug L3: task_id 改为原生 UUID 类型，由 FastAPI 自动校验）
     """
+    await _require_active_project(db, novel_id)
     stmt = select(AsyncTask).where(
         AsyncTask.id == task_id,
         AsyncTask.meta["novel_id"].as_string() == str(novel_id),
@@ -209,6 +220,7 @@ async def cancel_task(
 
     （Bug L3: task_id 改为原生 UUID 类型）
     """
+    await _require_active_project(db, novel_id)
     stmt = select(AsyncTask).where(
         AsyncTask.id == task_id,
         AsyncTask.meta["novel_id"].as_string() == str(novel_id),
@@ -242,6 +254,7 @@ async def retry_task(
     *,
     novel_id: NovelIdQuery,
 ) -> TaskRetryResponse:
+    await _require_active_project(db, novel_id)
     stmt = select(AsyncTask).where(
         AsyncTask.id == task_id,
         AsyncTask.meta["novel_id"].as_string() == str(novel_id),

@@ -226,6 +226,9 @@ async def start_deep_import_stage(db, novel_id, start_chapter, end_chapter, *, s
 
 async def run_submitted_deep_import_stage(db, task_id, *, stage) -> dict:
     """在隔离评测/手动 harness 内执行已提交且已授权的 stage task"""
+
+async def get_deep_import_task_novel_id(db, task_id) -> str:
+    """只读解析恢复任务 owner；任务不存在时保留 TaskNotFoundError"""
 ```
 
 `run_submitted_deep_import_stage()` 只是评测/手动 harness seam，不新增
@@ -249,6 +252,12 @@ POST /api/imports/deep/abandon — 放弃恢复并清理同 workflow 自动派�
 ```
 
 ## 安全约束
+
+- upload、导入记录读取、deep-import/stage 入队以及 resume/abandon 都在
+  业务操作前通过 project facade 确认项目仍活跃；不存在与已进入回收站的
+  项目统一返回 404。
+- resume/abandon 先按 `task_id` 确认任务存在，再校验任务归属项目；
+  因此不存在任务仍保持原有 task 404，回收站项目不会触发恢复或清理。
 
 - 文件类型白名单：txt, epub, html, htm, mobi, azw3
 - 文件大小上限：50MB

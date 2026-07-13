@@ -25,6 +25,7 @@ from modules.rag.facade import (
     get_ordered_chapter_chunks as _rag_get_chunks,
     index_chapter_with_report as _rag_index,
 )
+from modules.project.facade import require_active_project as _project_require_active
 from modules.writing.facade import (
     get_latest_draft_for_chapter as _writing_get_draft,
     list_chapter_indices as _writing_list_indices,
@@ -78,6 +79,7 @@ def _container_services() -> Iterable[tuple[str, Any]]:
         ("context.compile", _ctx_compile),
         ("memory.service", memory),
         ("memory.capture_snapshot", memory.capture_snapshot),
+        ("project.require_active", _project_require_active),
     )
 
 

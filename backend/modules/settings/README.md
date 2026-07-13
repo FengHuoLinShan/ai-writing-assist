@@ -47,6 +47,10 @@
 - `GET/PUT /api/settings/projects/{project_id}/author-preferences` — 项目覆盖
 - `DELETE /api/settings/projects/{project_id}/author-preferences/field/{field_name}` — 单字段恢复继承
 
+三个项目级作者偏好入口都在读写前校验 active project；项目不存在或已进入
+回收站时统一返回 404。全局 LLM 默认、全局作者偏好、默认继承聚合和
+refresh 不绑定单个项目，不使用该门禁。
+
 项目级 effective 接口仍走 `/api/projects/<id>/...`（位于 `modules/project/`）：
 
 - `GET /api/projects/{id}/effective-llm-settings` — 合并视图

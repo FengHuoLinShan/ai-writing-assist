@@ -34,6 +34,12 @@ from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 router = APIRouter(prefix="/api/rag", tags=["rag"])
 
 
+async def _require_active_project(db: DbSession, novel_id: str) -> None:
+    from modules.project.facade import require_active_project
+
+    await require_active_project(db, novel_id)
+
+
 @router.post("/chunks", response_model=RagChunkResponse, status_code=201)
 async def create_rag_chunk(
     db: DbSession,
@@ -45,6 +51,7 @@ async def create_rag_chunk(
 
     将文本片段及其元信息存入 rag_chunks 表。
     """
+    await _require_active_project(db, novel_id)
     return await create_chunk(db, novel_id, data)
 
 
@@ -62,6 +69,7 @@ async def list_rag_chunks(
     ),
 ) -> dict:
     """获取 RAG 片段列表"""
+    await _require_active_project(db, novel_id)
     items, total = await list_chunks(db, novel_id, skip=skip, limit=limit)
     status = await get_index_status(db, novel_id)
     return {
@@ -82,6 +90,7 @@ async def retrieve_chunks(
 
     组合关键词匹配 + 关系匹配 + 重要性评分进行混合检索排序。
     """
+    await _require_active_project(db, novel_id)
     result = await retrieve(
         db,
         novel_id,
@@ -167,6 +176,7 @@ async def rebuild_rag_index(
 
     入队异步任务 `rag_reindex_novel`，由 worker 逐章重建。
     """
+    await _require_active_project(db, request.novel_id)
     task_id = enqueue_task(
         db,
         "rag_reindex_novel",
@@ -186,6 +196,7 @@ async def retry_embeddings(
     request: RagRetryEmbeddingsRequest,
 ) -> dict:
     """提交失败 embedding 重试任务。"""
+    await _require_active_project(db, request.novel_id)
     task_id = enqueue_task(
         db,
         "rag_retry_embeddings",

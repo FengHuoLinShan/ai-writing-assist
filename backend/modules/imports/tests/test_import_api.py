@@ -8,6 +8,7 @@ Import API 层测试
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -656,3 +657,130 @@ async def test_upload_same_file_name_in_different_projects_succeeds(
 
     assert first.status_code == 201
     assert second.status_code == 201
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "path", "kwargs"),
+    [
+        (
+            "POST",
+            "/api/imports/upload",
+            {"data": {}, "files": {"file": ("secret.txt", b"secret", "text/plain")}},
+        ),
+        ("GET", "/api/imports", {}),
+        ("GET", "/api/imports/00000000-0000-0000-0000-000000000001", {}),
+        (
+            "POST",
+            "/api/imports/deep",
+            {
+                "json": {
+                    "start_chapter": 1,
+                    "end_chapter": 1,
+                    "authorization_confirmed": True,
+                }
+            },
+        ),
+        (
+            "POST",
+            "/api/imports/stages/scenes",
+            {
+                "json": {
+                    "start_chapter": 1,
+                    "end_chapter": 1,
+                    "authorization_confirmed": True,
+                }
+            },
+        ),
+        (
+            "POST",
+            "/api/imports/stages/world-objects",
+            {
+                "json": {
+                    "start_chapter": 1,
+                    "end_chapter": 1,
+                    "authorization_confirmed": True,
+                }
+            },
+        ),
+        (
+            "POST",
+            "/api/imports/stages/plot-structure",
+            {
+                "json": {
+                    "start_chapter": 1,
+                    "end_chapter": 1,
+                    "authorization_confirmed": True,
+                }
+            },
+        ),
+    ],
+)
+async def test_import_project_routes_hide_recycled_project(
+    async_client: AsyncClient,
+    db_session,
+    sample_project: dict,
+    method: str,
+    path: str,
+    kwargs: dict,
+) -> None:
+    novel_id = sample_project["id"]
+    project = await db_session.get(Project, uuid.UUID(novel_id))
+    project.deleted_at = datetime.now(UTC)
+    await db_session.flush()
+    request_kwargs = dict(kwargs)
+    if "data" in request_kwargs:
+        request_kwargs["data"] = {"novel_id": novel_id}
+    if "json" in request_kwargs:
+        request_kwargs["json"] = {
+            **request_kwargs["json"],
+            "novel_id": novel_id,
+        }
+
+    response = await async_client.request(
+        method,
+        path,
+        params={"novel_id": novel_id} if method == "GET" else None,
+        **request_kwargs,
+    )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["resume", "abandon"])
+async def test_deep_import_recovery_checks_task_existence_then_project_gate(
+    async_client: AsyncClient,
+    db_session,
+    sample_project: dict,
+    action: str,
+) -> None:
+    missing_task_id = str(uuid.uuid4())
+    missing = await async_client.post(
+        f"/api/imports/deep/{action}",
+        json={"task_id": missing_task_id},
+    )
+    assert missing.status_code == 404
+    assert missing_task_id in missing.text
+
+    novel_id = sample_project["id"]
+    project = await db_session.get(Project, uuid.UUID(novel_id))
+    project.deleted_at = datetime.now(UTC)
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="deep_import",
+        status="failed",
+        meta={"novel_id": novel_id},
+        result={"secret": "must-not-leak"},
+    )
+    db_session.add(task)
+    await db_session.flush()
+
+    recycled = await async_client.post(
+        f"/api/imports/deep/{action}",
+        json={"task_id": str(task.id)},
+    )
+
+    assert recycled.status_code == 404
+    assert "must-not-leak" not in recycled.text
+    assert task.status == "failed"

@@ -130,6 +130,10 @@ POST /api/rag/retry-embeddings          — 重试失败/待重向量化 chunk �
 POST /api/rag/chunks/split               — 文本分割工具
 ```
 
+chunks CRUD/list、retrieve、rebuild 和 retry-embeddings 都在读写或入队前校验
+active project；不存在与回收站项目统一返回 404。`metrics`、`prewarm`
+与不入库的纯文本 `chunks/split` 是全局工具，明确豁免项目门禁。
+
 `/api/rag/rebuild` 接收 `novel_id`、`start_chapter`、`end_chapter`（后两者可选），
 以及 `content_mode`，入队 `rag_reindex_novel` 异步任务，返回 `{task_id, status}`。
 

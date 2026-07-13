@@ -4571,11 +4571,23 @@ class TestDeepImportRecoveryApi:
             "status": "pending",
         }
 
-        with patch(
-            "modules.imports.facade.resume_deep_import",
-            new_callable=AsyncMock,
-            return_value=expected,
-        ) as resume:
+        novel_id = str(uuid.uuid4())
+        with (
+            patch(
+                "modules.imports.facade.get_deep_import_task_novel_id",
+                autospec=True,
+                return_value=novel_id,
+            ) as resolve_owner,
+            patch(
+                "modules.imports.api._require_active_project",
+                autospec=True,
+            ) as guard,
+            patch(
+                "modules.imports.facade.resume_deep_import",
+                autospec=True,
+                return_value=expected,
+            ) as resume,
+        ):
             response = await async_client.post(
                 "/api/imports/deep/resume",
                 json={"task_id": task_id},
@@ -4583,6 +4595,8 @@ class TestDeepImportRecoveryApi:
 
         assert response.status_code == 201
         assert response.json() == expected
+        resolve_owner.assert_awaited_once()
+        guard.assert_awaited_once()
         resume.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -4603,11 +4617,23 @@ class TestDeepImportRecoveryApi:
             "message": "深度导入恢复已放弃",
         }
 
-        with patch(
-            "modules.imports.facade.abandon_deep_import",
-            new_callable=AsyncMock,
-            return_value=expected,
-        ) as abandon:
+        novel_id = str(uuid.uuid4())
+        with (
+            patch(
+                "modules.imports.facade.get_deep_import_task_novel_id",
+                autospec=True,
+                return_value=novel_id,
+            ) as resolve_owner,
+            patch(
+                "modules.imports.api._require_active_project",
+                autospec=True,
+            ) as guard,
+            patch(
+                "modules.imports.facade.abandon_deep_import",
+                autospec=True,
+                return_value=expected,
+            ) as abandon,
+        ):
             response = await async_client.post(
                 "/api/imports/deep/abandon",
                 json={"task_id": task_id},
@@ -4632,6 +4658,8 @@ class TestDeepImportRecoveryApi:
             "skipped_map_observations": 0,
             "cleanup_todo": None,
         }
+        resolve_owner.assert_awaited_once()
+        guard.assert_awaited_once()
         abandon.assert_awaited_once()
 
 

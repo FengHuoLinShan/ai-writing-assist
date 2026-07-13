@@ -36,6 +36,9 @@ POST /api/novels/{novel_id}/memories/rebuild
 GET  /api/novels/{novel_id}/memories/status
 ```
 
+以上全部入口都在读取、快照写入或重建前通过 project facade 校验 active
+project。不存在与回收站项目统一返回 404，不暴露其 memory 记录。
+
 ## Facade
 
 ```python

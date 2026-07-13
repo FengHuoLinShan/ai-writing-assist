@@ -640,6 +640,18 @@ class DeepImportOrchestrator:
             "message": "深度导入恢复任务已重新入队",
         }
 
+    async def get_task_novel_id(
+        self,
+        db: AsyncSession,
+        task_id: str,
+    ) -> str:
+        """Return the task owner after preserving the existing task 404 boundary."""
+        stmt = select(AsyncTask).where(AsyncTask.id == _parse_uuid(task_id))
+        task = (await db.execute(stmt)).scalar_one_or_none()
+        if task is None:
+            raise TaskNotFoundError(task_id)
+        return str((task.meta or {}).get("novel_id") or "")
+
     async def abandon_recovery(
         self,
         db: AsyncSession,

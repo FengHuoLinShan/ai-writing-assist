@@ -21,6 +21,7 @@ from modules.imports.scene_fusion import FinalSceneCandidate
 from modules.imports.scene_planning import ScenePlanResult, SceneWindowPlan
 from modules.imports.scene_slicing import SceneSliceCandidate, SceneSlicingResult
 from modules.imports.workflow_schemas import DeepImportProgress, DeepImportStep
+from modules.project.models import Project
 from tests.utils import (
     _mock_analyze,
     _mock_extract,
@@ -157,8 +158,13 @@ class TestDeepImportApiValidation:
     async def test_deep_import_force_string_false_is_not_truthy(
         self,
         async_client: AsyncClient,
+        db_session: AsyncSession,
     ) -> None:
         from modules.imports import facade as imports_facade
+
+        novel_id = uuid.uuid4()
+        db_session.add(Project(id=novel_id, title="Deep import API validation"))
+        await db_session.flush()
 
         async def fake_start(
             db,
@@ -184,12 +190,13 @@ class TestDeepImportApiValidation:
         with mock.patch.object(
             imports_facade,
             "start_deep_import",
+            autospec=True,
             side_effect=fake_start,
         ):
             resp = await async_client.post(
                 "/api/imports/deep",
                 json={
-                    "novel_id": "00000000-0000-0000-0000-000000000501",
+                    "novel_id": str(novel_id),
                     "start_chapter": 1,
                     "end_chapter": 2,
                     "force": "false",

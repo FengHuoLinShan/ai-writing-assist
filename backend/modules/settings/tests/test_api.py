@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from httpx import AsyncClient
 
@@ -147,3 +149,36 @@ async def test_refresh_endpoint(async_client: AsyncClient):
     r = await async_client.post("/api/settings/refresh", headers=XHR_HEADERS)
     assert r.status_code == 200
     assert r.json() == {"ok": True}
+
+
+@pytest.mark.asyncio
+async def test_project_preferences_hide_recycled_project(
+    async_client: AsyncClient,
+    factory,
+):
+    pid = await factory.create_project(deleted_at=datetime.now(UTC))
+
+    get_response = await async_client.get(
+        f"/api/settings/projects/{pid}/author-preferences"
+    )
+    put_response = await async_client.put(
+        f"/api/settings/projects/{pid}/author-preferences",
+        headers=XHR_HEADERS,
+        json={"daily_goal": 800},
+    )
+    delete_response = await async_client.delete(
+        f"/api/settings/projects/{pid}/author-preferences/field/daily_goal",
+        headers=XHR_HEADERS,
+    )
+
+    assert get_response.status_code == 404
+    assert put_response.status_code == 404
+    assert delete_response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_global_settings_endpoints_remain_project_guard_exempt(
+    async_client: AsyncClient,
+):
+    response = await async_client.get("/api/settings/llm-defaults")
+    assert response.status_code == 200

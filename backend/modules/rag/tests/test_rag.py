@@ -1444,22 +1444,33 @@ async def test_retry_embeddings_endpoint_enqueues_task() -> None:
     from modules.rag.schemas import RagRetryEmbeddingsRequest
 
     request = RagRetryEmbeddingsRequest(
-        novel_id="novel-1",
+        novel_id=str(uuid.uuid4()),
         start_chapter=1,
         end_chapter=3,
         statuses=["failed"],
     )
     db = object()
     assert inspect.iscoroutinefunction(retry_embeddings)
-    with patch("modules.rag.api.enqueue_task", return_value="task-rag-retry") as mocked:
+    with (
+        patch(
+            "modules.rag.api._require_active_project",
+            autospec=True,
+        ) as guard,
+        patch(
+            "modules.rag.api.enqueue_task",
+            autospec=True,
+            return_value="task-rag-retry",
+        ) as mocked,
+    ):
         result = await retry_embeddings(db, request)
 
+    guard.assert_awaited_once_with(db, request.novel_id)
     assert result == {"task_id": "task-rag-retry", "status": "pending"}
     mocked.assert_called_once_with(
         db,
         "rag_retry_embeddings",
         meta={
-            "novel_id": "novel-1",
+            "novel_id": request.novel_id,
             "start_chapter": 1,
             "end_chapter": 3,
             "statuses": ["failed"],

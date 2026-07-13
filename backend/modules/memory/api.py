@@ -23,6 +23,12 @@ router = APIRouter(prefix="/api/novels/{novel_id}/memories", tags=["memory"])
 _service = MemoryService()
 
 
+async def _require_active_project(db: DbSession, novel_id: str) -> None:
+    from modules.project.facade import require_active_project
+
+    await require_active_project(db, novel_id)
+
+
 # ============================================================
 # 全景
 # ============================================================
@@ -35,6 +41,7 @@ async def get_panorama(
     chapter_index: int = Query(..., ge=1, description="章节号"),
 ) -> ChapterPanorama:
     """获取指定章节的世界全景"""
+    await _require_active_project(db, novel_id)
     return await _service.get_panorama(db, novel_id, chapter_index)
 
 
@@ -51,6 +58,7 @@ async def list_events(
     to_chapter: int = Query(default=999999, ge=1, description="结束章"),
 ) -> EventListResponse:
     """查询事件列表"""
+    await _require_active_project(db, novel_id)
     return await _service.list_events(db, novel_id, from_chapter, to_chapter)
 
 
@@ -63,6 +71,7 @@ async def get_entity_timeline(
     limit: int = Query(default=50, ge=1, le=500),
 ) -> EventListResponse:
     """获取单个实体的变化时间线"""
+    await _require_active_project(db, novel_id)
     return await _service.get_entity_timeline(
         db,
         novel_id,
@@ -84,6 +93,7 @@ async def trigger_capture(
     chapter_index: int = Query(..., ge=1, description="章节号"),
 ) -> SnapshotResponse:
     """手动生成快照"""
+    await _require_active_project(db, novel_id)
     return await _service.capture_snapshot(db, novel_id, chapter_index)
 
 
@@ -93,6 +103,7 @@ async def list_snapshots(
     novel_id: NovelIdPath,
 ) -> SnapshotListResponse:
     """列出所有快照"""
+    await _require_active_project(db, novel_id)
     return await _service.list_snapshots(db, novel_id)
 
 
@@ -108,6 +119,7 @@ async def trigger_rebuild(
     from_chapter: int = Query(..., ge=1, description="从哪一章开始重建"),
 ) -> dict:
     """从前文修正点全量重建后续事件和快照"""
+    await _require_active_project(db, novel_id)
     return await _service.full_rebuild(db, novel_id, from_chapter)
 
 
@@ -122,4 +134,5 @@ async def get_status(
     novel_id: NovelIdPath,
 ) -> MemoryStatusResponse:
     """获取 memory 模块当前状态"""
+    await _require_active_project(db, novel_id)
     return await _service.get_status(db, novel_id)

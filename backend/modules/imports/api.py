@@ -30,6 +30,12 @@ _service = ImportService()
 UPLOAD_READ_CHUNK_SIZE = 1024 * 1024
 
 
+async def _require_active_project(db: DbSession, novel_id: str) -> None:
+    from modules.project.facade import require_active_project
+
+    await require_active_project(db, novel_id)
+
+
 class DeepImportRequest(BaseModel):
     """Deep Import request shared by async, staged, and sync entrypoints."""
 
@@ -140,6 +146,7 @@ async def upload_file(
     file: UploadFile = File(..., description="小说文件（txt/epub/html/mobi）"),
 ) -> ImportResponse:
     """上传小说文件并自动导入"""
+    await _require_active_project(db, novel_id)
     content = await _read_upload_file_in_chunks(file)
     try:
         return await _service.upload_and_import(
@@ -172,6 +179,7 @@ async def list_imports(
     limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ) -> ImportListResponse:
     """获取导入记录列表"""
+    await _require_active_project(db, novel_id)
     return await _service.list_import_records(db, novel_id, skip=skip, limit=limit)
 
 
@@ -183,6 +191,7 @@ async def get_import(
     novel_id: NovelIdQuery,
 ) -> ImportResponse:
     """获取单条导入记录详情"""
+    await _require_active_project(db, novel_id)
     return await _service.get_import_record(db, novel_id, record_id)
 
 
@@ -209,6 +218,7 @@ async def submit_deep_import(
     """
     from modules.imports.facade import start_deep_import as _start
 
+    await _require_active_project(db, body.novel_id)
     end_chapter = await _resolve_end_chapter(db, body)
     _validate_chapter_count_limit(body.start_chapter, end_chapter)
     result = await _start(
@@ -232,6 +242,7 @@ async def _submit_stage(
 ) -> dict:
     from modules.imports.facade import start_deep_import_stage as _start_stage
 
+    await _require_active_project(db, body.novel_id)
     end_chapter = await _resolve_end_chapter(db, body)
     _validate_chapter_count_limit(body.start_chapter, end_chapter)
 
@@ -285,7 +296,7 @@ async def resume_deep_import(
     请求体：
     - task_id: 被中断的 deep_import 任务 ID（必填）
     """
-    from modules.imports.facade import resume_deep_import as _resume
+    from modules.imports import facade as imports_facade
 
     task_id = body.get("task_id", "")
     if not task_id:
@@ -294,7 +305,9 @@ async def resume_deep_import(
     from modules.imports.contracts import TaskNotFoundError
 
     try:
-        result = await _resume(db, task_id)
+        novel_id = await imports_facade.get_deep_import_task_novel_id(db, task_id)
+        await _require_active_project(db, novel_id)
+        result = await imports_facade.resume_deep_import(db, task_id)
     except TaskNotFoundError as exc:
         raise HTTPException(404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -312,7 +325,7 @@ async def abandon_deep_import(
     请求体：
     - task_id: 被中断的 deep_import 任务 ID（必填）
     """
-    from modules.imports.facade import abandon_deep_import as _abandon
+    from modules.imports import facade as imports_facade
 
     task_id = body.get("task_id", "")
     if not task_id:
@@ -321,7 +334,9 @@ async def abandon_deep_import(
     from modules.imports.contracts import TaskNotFoundError
 
     try:
-        result = await _abandon(db, task_id)
+        novel_id = await imports_facade.get_deep_import_task_novel_id(db, task_id)
+        await _require_active_project(db, novel_id)
+        result = await imports_facade.abandon_deep_import(db, task_id)
     except TaskNotFoundError as exc:
         raise HTTPException(404, detail=str(exc)) from exc
     except ValueError as exc:

@@ -89,5 +89,11 @@ handler 注册时声明四种冻结策略：
 available_actions`。前端只渲染后端返回的固定 action，不根据 heartbeat 或 task type
 自行推测恢复方式。
 
+task status/cancel/retry 在查询 task 前通过组合根注入的
+`project.require_active` 检查 query `novel_id`，回收站项目统一返回 404，
+不暴露 task meta/result。通用 submit 保留“模块专属类型/未知类型”的原有
+校验顺序；只在合法任务的 `meta.novel_id` 存在时执行项目门禁。
+infrastructure 仅依赖 DI 容器键，不 import project 模块。
+
 其他业务模块只通过 `contracts.py` 和 `facade.py` 读取 lifecycle 投影，不跨模块
 import `models.py` 或 `lifecycle.py`。

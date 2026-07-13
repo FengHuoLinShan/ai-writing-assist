@@ -21,6 +21,12 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 _service = SettingsService()
 
 
+async def _require_active_project(db: DbSession, project_id: str) -> None:
+    from modules.project.facade import require_active_project
+
+    await require_active_project(db, project_id)
+
+
 @router.get("/llm-defaults", response_model=GlobalLLMDefaultsResponse | None)
 async def api_get_global_llm_defaults(db: DbSession) -> GlobalLLMDefaultsResponse | None:
     return await _service.get_global_llm_defaults(db)
@@ -87,6 +93,7 @@ async def api_get_project_author_prefs(
     db: DbSession,
     project_id: str,
 ) -> ProjectAuthorPrefsResponse:
+    await _require_active_project(db, project_id)
     return await _service.get_project_author_prefs(db, project_id)
 
 
@@ -100,6 +107,7 @@ async def api_put_project_author_prefs(
     project_id: str,
     data: ProjectAuthorPrefsUpdate,
 ) -> ProjectAuthorPrefsResponse:
+    await _require_active_project(db, project_id)
     return await _service.upsert_project_author_prefs(db, project_id, data.model_dump())
 
 
@@ -112,6 +120,7 @@ async def api_reset_project_author_prefs_field(
     project_id: str,
     field_name: str,
 ):
+    await _require_active_project(db, project_id)
     try:
         return await _service.reset_project_author_prefs_field(db, project_id, field_name)
     except ValueError as e:
