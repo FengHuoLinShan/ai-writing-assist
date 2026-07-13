@@ -212,6 +212,66 @@ async def test_list_aliases_page_filters_legacy_shadow_alias_by_display_state(
 
 
 @pytest.mark.asyncio
+async def test_alias_page_hides_archived_alias_or_owner_before_pagination(
+    novel_id: str,
+    alias_service: EntityAliasService,
+) -> None:
+    active = _make_entity(
+        name="active",
+        status="canonical",
+        content_json={"aliases": [{"alias": "current", "status": "canonical"}]},
+    )
+    archived_alias = _make_entity(
+        name="archived-alias",
+        status="canonical",
+        content_json={"aliases": [{"alias": "old-alias", "status": "ignored"}]},
+    )
+    archived_owner = _make_entity(
+        name="archived-owner",
+        status="merged",
+        content_json={
+            "_meta": {
+                "compatibility_shadow": True,
+                "suggestion_id": str(uuid.uuid4()),
+            },
+            "aliases": [{"alias": "old-owner", "status": "canonical"}],
+        },
+    )
+    alias_service.repo.list_by_novel = AsyncMock(
+        return_value=[active, archived_alias, archived_owner]
+    )
+
+    default_page = await alias_service.list_aliases_page(
+        MagicMock(), novel_id, skip=0, limit=1
+    )
+    history_page = await alias_service.list_aliases_page(
+        MagicMock(), novel_id, display_state="archived", skip=0, limit=10
+    )
+    raw_status_page = await alias_service.list_aliases_page(
+        MagicMock(), novel_id, status="canonical", skip=0, limit=10
+    )
+
+    assert default_page["total"] == 1
+    assert len(default_page["items"]) == 1
+    assert default_page["items"][0]["alias"] == "current"
+    assert {item["alias"] for item in history_page["items"]} == {
+        "old-alias",
+        "old-owner",
+    }
+    assert history_page["total"] == 2
+    old_owner = next(
+        item for item in history_page["items"] if item["alias"] == "old-owner"
+    )
+    assert old_owner["managed_by_suggestion"] is True
+    assert {item["alias"] for item in raw_status_page["items"]} == {
+        "current",
+        "old-owner",
+    }
+    for call in alias_service.repo.list_by_novel.await_args_list:
+        assert call.kwargs["include_archived"] is True
+
+
+@pytest.mark.asyncio
 async def test_create_alias_adds_to_content_json(
     novel_id: str,
     alias_service: EntityAliasService,

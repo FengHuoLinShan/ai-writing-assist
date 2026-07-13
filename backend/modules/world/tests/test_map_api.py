@@ -25,11 +25,8 @@ class TestMapHTTPAPI:
         # 通过 client 无法直接建 project（无 fixture），用 db_session fixture 不可达
         # 改用 world API 间接验证：此处仅验证 404/422 行为
         resp = await async_client.get("/api/world/maps", params={"novel_id": nid})
-        # project 不存在但 list 不校验 FK，应返回空列表
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["total"] == 0
-        assert data["items"] == []
+        # 不存在与已软删项目统一为 404，不泄漏地图资源。
+        assert resp.status_code == 404
 
     @pytest.mark.asyncio
     async def test_api_map_state_404_for_unknown(self, async_client: AsyncClient):

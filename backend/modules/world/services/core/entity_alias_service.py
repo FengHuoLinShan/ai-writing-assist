@@ -251,8 +251,11 @@ class EntityAliasService:
         confidence_max: float | None = None,
     ) -> list[dict]:
         query = (q or "").strip().lower()
+        default_active_view = display_state is None and status is None
 
         def _matches(item: dict) -> bool:
+            if default_active_view and item.get("display_state") == "archived":
+                return False
             if query:
                 haystack = " ".join(
                     str(item.get(key) or "")
@@ -294,7 +297,12 @@ class EntityAliasService:
 
     async def _collect_aliases(self, db: AsyncSession, novel_id: str) -> list[dict]:
         nid = parse_uuid(novel_id, "novel_id")
-        entities = await self.repo.list_by_novel(db, nid, limit=MAX_LIST_ALIAS_ENTITIES)
+        entities = await self.repo.list_by_novel(
+            db,
+            nid,
+            include_archived=True,
+            limit=MAX_LIST_ALIAS_ENTITIES,
+        )
         result: list[dict] = []
         for entity in entities:
             aliases = (entity.content_json or {}).get("aliases", [])

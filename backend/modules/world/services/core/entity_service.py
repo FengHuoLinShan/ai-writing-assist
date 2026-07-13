@@ -279,6 +279,10 @@ class WorldEntityService(
         *,
         novel_id: str,
     ) -> None:
+        from modules.world.services.core.entity_revision_service import (
+            EntityRevisionService,
+        )
+
         rid = parse_uuid(id, "entity_id")
         nid = parse_uuid(novel_id, "novel_id")
         existing = await self.repo.get(db, rid)
@@ -286,7 +290,40 @@ class WorldEntityService(
         assert existing is not None
         if self._is_suggestion_compatibility_shadow(existing):
             raise ValidationError("该实体由待处理建议管理，请通过对应建议执行忽略")
-        await super().delete(db, id, novel_id=novel_id)
+        if existing.status == "deprecated":
+            return
+
+        try:
+            async with db.begin_nested():
+                await EntityRevisionService().create_snapshot(
+                    db,
+                    entity_id=id,
+                    novel_id=novel_id,
+                    revision_reason="manual_delete",
+                )
+        except Exception:
+            logger.warning("实体 %s 手动废弃前快照失败", id, exc_info=True)
+
+        existing.status = "deprecated"
+        await db.flush()
+
+        try:
+            async with db.begin_nested():
+                from modules.context.facade import mark_asset_context_changed
+
+                await mark_asset_context_changed(
+                    db,
+                    novel_id=novel_id,
+                    asset_type="world_entity",
+                    asset_id=id,
+                    reason="entity_deprecated",
+                )
+        except Exception:
+            logger.warning(
+                "实体 %s 手动废弃后标记上下文确认失效失败",
+                id,
+                exc_info=True,
+            )
 
     # ============================================================
     # Promote: 将草稿/候选实体提升为正史

@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 
-from tests.utils import _create_entity
+from tests.utils import _create_entity, _create_project
 
 pytestmark = pytest.mark.asyncio
 
@@ -49,6 +49,7 @@ async def test_seed_text_archive_requires_matching_novel_id(
 ):
     monkeypatch.setenv("APP_ENV", "test")
     nid = uuid4()
+    await _create_project(db_session, nid)
     entity = await _create_entity(db_session, nid, "item", "seed-target")
     wrong_novel_id = uuid4().hex
     resp = await async_client.post(
@@ -68,6 +69,7 @@ async def test_seed_text_archive_creates_row(
 ):
     monkeypatch.setenv("APP_ENV", "test")
     nid = uuid4()
+    await _create_project(db_session, nid)
     entity = await _create_entity(db_session, nid, "item", "seed-target")
     resp = await async_client.post(
         f"/api/world/_test/entities/{entity.id.hex}/text-archive",

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import AsyncClient
@@ -27,6 +27,7 @@ from modules.world.facade import (
     get_world_context,
     list_entity_terms,
 )
+from modules.world.models import EntityRevision
 from modules.world.repositories import (
     CoreEntityRepository,
     EntityRelationRepository,
@@ -715,8 +716,17 @@ class TestWorldNovelIsolation:
         entity_service: WorldEntityService,
         novel_id: str,
         sample_entity_data: WorldEntityCreate,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """测试删除世界对象"""
+        from modules.context import facade as context_facade
+
+        context_marker = AsyncMock(return_value=0)
+        monkeypatch.setattr(
+            context_facade,
+            "mark_asset_context_changed",
+            context_marker,
+        )
         created = await entity_service.create(db_session, novel_id, sample_entity_data)
         await entity_service.delete(db_session, created.id, novel_id=novel_id)
 
@@ -726,6 +736,64 @@ class TestWorldNovelIsolation:
             novel_id=novel_id,
         )
         assert deleted.status == "deprecated"
+        revisions = (
+            await db_session.execute(
+                select(EntityRevision).where(
+                    EntityRevision.entity_id == uuid.UUID(created.id)
+                )
+            )
+        ).scalars().all()
+        assert [revision.revision_reason for revision in revisions] == ["manual_delete"]
+        context_marker.assert_awaited_once_with(
+            db_session,
+            novel_id=novel_id,
+            asset_type="world_entity",
+            asset_id=created.id,
+            reason="entity_deprecated",
+        )
+
+    @pytest.mark.asyncio
+    async def test_delete_entity_keeps_main_delete_when_auxiliary_markers_fail(
+        self,
+        db_session: AsyncSession,
+        entity_service: WorldEntityService,
+        novel_id: str,
+        sample_entity_data: WorldEntityCreate,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from modules.context import facade as context_facade
+        from modules.world.services.core import entity_revision_service
+
+        created = await entity_service.create(db_session, novel_id, sample_entity_data)
+
+        async def fail_snapshot(*_args, **_kwargs):
+            raise RuntimeError("revision unavailable")
+
+        async def fail_context_marker(*_args, **_kwargs):
+            raise RuntimeError("context marker unavailable")
+
+        monkeypatch.setattr(
+            entity_revision_service.EntityRevisionService,
+            "create_snapshot",
+            fail_snapshot,
+        )
+        monkeypatch.setattr(
+            context_facade,
+            "mark_asset_context_changed",
+            fail_context_marker,
+        )
+
+        await entity_service.delete(db_session, created.id, novel_id=novel_id)
+
+        deleted = await entity_service.get(
+            db_session,
+            created.id,
+            novel_id=novel_id,
+        )
+        assert deleted.status == "deprecated"
+        assert (
+            await db_session.execute(select(EntityRevision.id))
+        ).scalars().all() == []
 
 
 class TestEntityDedupService:
@@ -1264,6 +1332,89 @@ async def test_entity_list_filters_by_author_display_state(
     assert [
         (item["status"], item["display_state"]) for item in archived.json()["items"]
     ] == [("ignored", "archived")]
+
+
+@pytest.mark.asyncio
+async def test_entity_default_list_hides_every_archived_status(
+    async_client: AsyncClient,
+) -> None:
+    project = await async_client.post(
+        "/api/projects",
+        json={"title": "归档全集", "language": "zh"},
+    )
+    novel_id = project.json()["id"]
+    archived_statuses = {
+        "accepted",
+        "deprecated",
+        "ignored",
+        "merged",
+        "rejected",
+        "rolled_back",
+    }
+    for status in ("canonical", "candidate", *sorted(archived_statuses)):
+        created = await async_client.post(
+            "/api/world/entities",
+            params={"novel_id": novel_id},
+            json={
+                "entity_type": "location",
+                "name": f"entity-{status}",
+                "status": status,
+                "force_create": True,
+            },
+        )
+        assert created.status_code == 201, created.text
+
+    default = await async_client.get(
+        "/api/world/entities", params={"novel_id": novel_id, "limit": 50}
+    )
+    explicit_history = await async_client.get(
+        "/api/world/entities",
+        params={"novel_id": novel_id, "display_state": "archived", "limit": 50},
+    )
+
+    assert {item["status"] for item in default.json()["items"]} == {
+        "canonical",
+        "candidate",
+    }
+    assert {item["status"] for item in explicit_history.json()["items"]} == (
+        archived_statuses
+    )
+    assert explicit_history.json()["total"] == len(archived_statuses)
+
+
+@pytest.mark.asyncio
+async def test_alias_list_keeps_novel_isolation(
+    async_client: AsyncClient,
+) -> None:
+    project_ids: list[str] = []
+    for title in ("alias-one", "alias-two"):
+        project = await async_client.post(
+            "/api/projects",
+            json={"title": title, "language": "zh"},
+        )
+        project_ids.append(project.json()["id"])
+
+    for index, novel_id in enumerate(project_ids, start=1):
+        created = await async_client.post(
+            "/api/world/entities",
+            params={"novel_id": novel_id},
+            json={
+                "entity_type": "location",
+                "name": f"owner-{index}",
+                "content_json": {"aliases": [f"alias-{index}"]},
+                "force_create": True,
+            },
+        )
+        assert created.status_code == 201, created.text
+
+    response = await async_client.get(
+        "/api/world/aliases",
+        params={"novel_id": project_ids[0]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    assert response.json()["items"][0]["alias"] == "alias-1"
 
 
 @pytest.mark.asyncio

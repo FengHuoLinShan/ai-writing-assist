@@ -39,6 +39,25 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 统一表达为“待处理”，confirmed 表达为“已采用”；冲突仍作为
 `attention_reasons=["conflict"]` 保留，不丢失原始审查态。
 
+未显式传入 `status` / `display_state` 时，实体列表默认排除
+`accepted / deprecated / ignored / merged / rejected / rolled_back` 全部历史态，
+仍保留 active 与 review。别名列表会先综合别名自身与 owner 实体的投影态，
+再做默认历史排除和分页，因此 `items` / `total` 使用同一条件；
+显式 `display_state=archived` 或原始 `status` 筛选仍可审计历史。
+
+手动 `DELETE /api/world/entities/{entity_id}` 是专用软废弃流程：主状态
+转为 `deprecated` 前写入 `manual_delete` 修订快照，之后以
+`entity_deprecated` 标记 context 失效。修订和 context 标记均是带独立
+savepoint 的 best-effort 辅助审计；其失败会记日志，不回滚主删除。
+
+### 项目活跃门禁
+
+除不带项目语义的全局世界书模板目录，以及未提供 `novel_id` 的纯
+Prompt 校验外，`/api/world` 与
+`/api/world/maps` 的项目级读、写、预览和入队入口都在业务操作前通过
+`modules.project.facade.require_active_project()` 校验项目。不存在和已进入
+回收站的项目统一返回 404，不暴露该项目的实体、别名、关系、地图或任务存在性。
+
 ## 职责
 
 - 世界对象 CRUD（CoreEntity / `WorldEntityService`）

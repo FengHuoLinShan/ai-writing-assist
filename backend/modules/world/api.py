@@ -6,15 +6,16 @@ World API 路由 — v3 因果时空网
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from core.api_params import NovelIdQuery
 from core.config import get_settings
 from core.dependencies import DbSession
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.context.facade import attach_result_ref, require_fresh_confirmation
+from modules.project.facade import require_active_project
 from modules.world.entity_fusion import WorldEntityFusionService
 from modules.world.schemas import (
     CharacterCreate,
@@ -146,6 +147,17 @@ _world_bible_ai_service = WorldBibleAiGenerationService()
 _generation_template_service = GenerationPromptTemplateService()
 
 
+async def _require_active_novel_id(
+    db: DbSession,
+    novel_id: NovelIdQuery,
+) -> str:
+    await require_active_project(db, novel_id)
+    return novel_id
+
+
+ActiveNovelIdQuery = Annotated[str, Depends(_require_active_novel_id)]
+
+
 def _template_version_conflict(exc: TemplateVersionConflictError) -> HTTPException:
     return HTTPException(
         status_code=409,
@@ -168,6 +180,7 @@ async def chat_object_draft(
     data: ObjectDraftChatRequest,
 ) -> ObjectDraftChatResponse:
     """自由共创聊天；不创建数据库对象。"""
+    await require_active_project(db, data.novel_id)
     try:
         return await _object_draft_service.chat(db, data)
     except TemplateVersionConflictError as exc:
@@ -184,6 +197,7 @@ async def generate_object_draft(
     data: ObjectDraftGenerateRequest,
 ) -> ObjectDraftGenerateResponse:
     """将 Chatbox 上下文收束为待处理建议，并返回兼容草稿视图。"""
+    await require_active_project(db, data.novel_id)
     try:
         return await _object_draft_service.generate(db, data)
     except TemplateVersionConflictError as exc:
@@ -197,7 +211,7 @@ async def generate_object_draft(
 async def list_generation_prompt_templates(
     db: DbSession,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
     target_kind: str = Query(default="world_object"),
     include_archived: bool = Query(default=False),
 ) -> GenerationPromptTemplateListResponse:
@@ -218,6 +232,7 @@ async def create_generation_prompt_template(
     db: DbSession,
     data: GenerationPromptTemplateCreate,
 ) -> GenerationPromptTemplateResponse:
+    await require_active_project(db, data.novel_id)
     return await _generation_template_service.create(db, data)
 
 
@@ -226,8 +241,11 @@ async def create_generation_prompt_template(
     response_model=PromptTemplateValidateResponse,
 )
 async def validate_generation_prompt_template(
+    db: DbSession,
     data: PromptTemplateValidateRequest,
 ) -> PromptTemplateValidateResponse:
+    if data.novel_id is not None:
+        await require_active_project(db, data.novel_id)
     return _generation_template_service.validate(data)
 
 
@@ -239,6 +257,7 @@ async def preview_generation_prompt_template(
     db: DbSession,
     data: PromptTemplatePreviewRequest,
 ) -> PromptTemplatePreviewResponse:
+    await require_active_project(db, data.novel_id)
     try:
         return await _generation_template_service.preview(db, data)
     except TemplateVersionConflictError as exc:
@@ -253,7 +272,7 @@ async def get_generation_prompt_template(
     db: DbSession,
     template_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> GenerationPromptTemplateResponse:
     return await _generation_template_service.get(db, novel_id, template_id)
 
@@ -267,7 +286,7 @@ async def update_generation_prompt_template(
     template_id: str,
     data: GenerationPromptTemplateUpdate,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> GenerationPromptTemplateResponse:
     try:
         return await _generation_template_service.update(db, novel_id, template_id, data)
@@ -280,7 +299,7 @@ async def archive_generation_prompt_template(
     db: DbSession,
     template_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> None:
     await _generation_template_service.archive(db, novel_id, template_id)
 
@@ -293,7 +312,7 @@ async def list_generation_prompt_template_revisions(
     db: DbSession,
     template_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> list[GenerationPromptTemplateRevisionResponse]:
     return await _generation_template_service.revisions(db, novel_id, template_id)
 
@@ -308,6 +327,7 @@ async def copy_builtin_generation_prompt_template(
     template_id: str,
     data: PromptTemplateCopyRequest,
 ) -> GenerationPromptTemplateResponse:
+    await require_active_project(db, data.novel_id)
     return await _generation_template_service.copy_builtin(db, template_id, data)
 
 
@@ -320,7 +340,7 @@ async def copy_builtin_generation_prompt_template(
 async def list_world_profiles(
     db: DbSession,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
     entity_type: str | None = Query(None, description="实体类型"),
     status: str | None = Query(None, description="实体状态"),
     skip: int = Query(default=0, ge=0),
@@ -342,7 +362,7 @@ async def get_world_profile(
     db: DbSession,
     entity_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> WorldProfileResponse:
     return await _profile_service.get_profile(db, novel_id, entity_id)
 
@@ -353,7 +373,7 @@ async def upsert_world_profile(
     entity_id: str,
     data: WorldProfileUpsertRequest,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> WorldProfileResponse:
     return await _profile_service.upsert_profile(db, novel_id, entity_id, data)
 
@@ -366,7 +386,7 @@ async def migrate_generic_profile(
     db: DbSession,
     entity_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> WorldProfileMigrateResponse:
     profile = await _profile_service.migrate_generic_to_strong(db, novel_id, entity_id)
     return WorldProfileMigrateResponse(
@@ -380,7 +400,7 @@ async def migrate_generic_profile(
 async def list_bible_pages(
     db: DbSession,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
     page_type: str | None = Query(None, description="页面类型"),
 ) -> WorldBiblePageListResponse:
     items, total = await _bible_service.list_pages(db, novel_id, page_type=page_type)
@@ -392,6 +412,7 @@ async def create_bible_page(
     db: DbSession,
     data: WorldBiblePageCreate,
 ) -> WorldBiblePageResponse:
+    await require_active_project(db, data.novel_id)
     return await _bible_service.create_page(db, data)
 
 
@@ -400,7 +421,7 @@ async def get_bible_page(
     db: DbSession,
     page_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> WorldBiblePageResponse:
     return await _bible_service.get_page(db, novel_id, page_id)
 
@@ -411,7 +432,7 @@ async def update_bible_page(
     page_id: str,
     data: WorldBiblePageUpdate,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> WorldBiblePageResponse:
     return await _bible_service.update_page(db, novel_id, page_id, data)
 
@@ -429,7 +450,7 @@ async def refresh_bible_projection(
     db: DbSession,
     page_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
     projection_type: str = Query(default="context_brief"),
     force: bool = Query(default=False),
 ) -> ProjectionRefreshResponse:
@@ -463,7 +484,7 @@ async def refresh_bible_projection(
 async def organize_bible_page(
     page_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> dict:
     return {
         "page_id": page_id,
@@ -483,7 +504,7 @@ async def generate_bible_page_ai(
     page_id: str,
     data: WorldBibleAiGenerateRequest,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> WorldBibleAiGenerateResponse:
     try:
         return await _world_bible_ai_service.generate(db, novel_id, page_id, data)
@@ -495,7 +516,7 @@ async def generate_bible_page_ai(
 async def list_world_suggestions(
     db: DbSession,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
     source_module: str | None = Query(None),
     review_group: str | None = Query(None),
     risk_level: str | None = Query(None),
@@ -524,7 +545,7 @@ async def confirm_world_suggestion(
     db: DbSession,
     suggestion_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> SuggestionDecisionResponse:
     try:
         suggestion = await _suggestion_service.confirm(db, novel_id, suggestion_id)
@@ -552,7 +573,7 @@ async def edit_and_confirm_world_suggestion(
     suggestion_id: str,
     data: CoreEntitySuggestionEditConfirmRequest,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> SuggestionDecisionResponse:
     try:
         suggestion = await _suggestion_service.edit_and_confirm_core_entity(
@@ -585,7 +606,7 @@ async def merge_world_suggestion(
     suggestion_id: str,
     data: EntityMergeRequest,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> SuggestionDecisionResponse:
     try:
         suggestion = await _suggestion_service.merge_core_entity(
@@ -618,7 +639,7 @@ async def resolve_world_suggestion_as_alias(
     suggestion_id: str,
     data: EntityResolveAsAliasRequest,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> SuggestionDecisionResponse:
     try:
         suggestion = await _suggestion_service.resolve_core_entity_as_alias(
@@ -650,7 +671,7 @@ async def reject_world_suggestion(
     db: DbSession,
     suggestion_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> SuggestionDecisionResponse:
     try:
         suggestion = await _suggestion_service.reject(db, novel_id, suggestion_id)
@@ -673,7 +694,7 @@ async def reject_world_suggestion(
 async def list_world_conflicts(
     db: DbSession,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
     status: str | None = Query(None),
     conflict_type: str | None = Query(None),
 ) -> ConflictQueueListResponse:
@@ -692,7 +713,7 @@ async def resolve_world_conflict(
     conflict_id: str,
     data: ConflictResolveRequest,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> dict:
     item = await _conflict_queue_service.resolve(
         db,
@@ -714,6 +735,7 @@ async def exclude_character_knowledge_tag(
     tag_id: str,
     data: KnowledgeTagExclusionRequest,
 ) -> KnowledgeTagExclusionResponse:
+    await require_active_project(db, data.novel_id)
     return await _knowledge_tag_service.create_exclusion(
         db,
         data.novel_id,
@@ -732,7 +754,7 @@ async def delete_character_knowledge_tag_exclusion(
     character_id: str,
     tag_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> KnowledgeTagExclusionResponse:
     return await _knowledge_tag_service.delete_exclusion(
         db,
@@ -748,7 +770,7 @@ async def lock_character_knowledge_tag(
     character_id: str,
     tag_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> dict:
     return await _knowledge_tag_service.lock_tag(db, novel_id, character_id, tag_id)
 
@@ -762,7 +784,7 @@ async def lock_character_knowledge_tag(
 async def list_entities(
     db: DbSession,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
     entity_type: str | None = Query(None, description="实体类型过滤"),
     status: str | None = Query(None, description="状态过滤"),
     display_state: Literal["active", "review", "archived"] | None = Query(
@@ -814,7 +836,7 @@ async def list_entities(
 async def create_entity(
     db: DbSession,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
     data: CoreEntityCreate = ...,
 ) -> CoreEntityResponse:
     return await _entity_service.create(db, novel_id, data)
@@ -830,6 +852,7 @@ async def extract_entities(
     data: WorldEntityExtractRequest,
 ) -> WorldEntityExtractResponse:
     """提交确认后的手动世界对象补抽任务。"""
+    await require_active_project(db, data.novel_id)
     try:
         await require_fresh_confirmation(
             db,
@@ -866,6 +889,7 @@ async def extract_alias_relations(
     data: WorldAliasRelationExtractRequest,
 ) -> WorldAliasRelationExtractResponse:
     """提交手动别名/关系补抽任务。"""
+    await require_active_project(db, data.novel_id)
     if not data.context_confirmation_id:
         raise HTTPException(
             status_code=400,
@@ -902,7 +926,7 @@ async def get_entity(
     db: DbSession,
     entity_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> CoreEntityResponse:
     return await _entity_service.get(db, entity_id, novel_id=novel_id)
 
@@ -913,7 +937,7 @@ async def update_entity(
     entity_id: str,
     data: CoreEntityUpdate,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> CoreEntityResponse:
     return await _entity_service.update(db, entity_id, data, novel_id=novel_id)
 
@@ -923,7 +947,7 @@ async def delete_entity(
     db: DbSession,
     entity_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> None:
     await _entity_service.delete(db, entity_id, novel_id=novel_id)
 
@@ -934,7 +958,7 @@ async def merge_entity(
     candidate_id: str,
     data: EntityMergeRequest,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> EntityMergeResponse:
     result = await _dedup_service.merge_candidate_into_entity(
         db,
@@ -957,7 +981,7 @@ async def resolve_entity_as_alias(
     candidate_id: str,
     data: EntityResolveAsAliasRequest,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> dict:
     return await _alias_service.resolve_candidate_as_alias(
         db,
@@ -978,6 +1002,7 @@ async def create_entity_fusion_suggestions(
     db: DbSession,
     data: EntityFusionSuggestionRequest,
 ) -> EntityFusionSuggestionResponse:
+    await require_active_project(db, data.novel_id)
     task_id = enqueue_task(
         db,
         "world_entity_fusion_suggestions",
@@ -995,6 +1020,7 @@ async def apply_entity_fusion_suggestions(
     db: DbSession,
     data: EntityFusionApplyRequest,
 ) -> EntityFusionApplyResponse:
+    await require_active_project(db, data.novel_id)
     result = await _fusion_service.apply(
         db,
         novel_id=data.novel_id,
@@ -1013,7 +1039,7 @@ async def promote_entity(
     entity_id: str,
     data: EntityPromoteRequest = EntityPromoteRequest(),
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> EntityPromoteResponse:
     """采用待处理实体；原始状态字段保持兼容。"""
     return await _entity_service.promote(
@@ -1029,7 +1055,7 @@ async def get_entity_relations(
     db: DbSession,
     entity_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> EntityRelationListResponse:
     """获取实体的关联关系"""
     return await _relation_service.get_by_entity(db, novel_id, entity_id)
@@ -1044,7 +1070,7 @@ async def get_entity_relations(
 async def list_events(
     db: DbSession,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(
         default=DEFAULT_PAGE_SIZE,
@@ -1061,7 +1087,7 @@ async def list_events(
 async def create_event(
     db: DbSession,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
     data: EventCreate = ...,
 ) -> EventResponse:
     return await _event_service.create(db, novel_id, data)
@@ -1072,7 +1098,7 @@ async def get_event(
     db: DbSession,
     entity_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> EventResponse:
     return await _event_service.get(db, entity_id, novel_id=novel_id)
 
@@ -1083,7 +1109,7 @@ async def update_event(
     entity_id: str,
     data: EventUpdate,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> EventResponse:
     return await _event_service.update(db, entity_id, data, novel_id=novel_id)
 
@@ -1093,7 +1119,7 @@ async def delete_event(
     db: DbSession,
     entity_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> None:
     await _event_service.delete(db, entity_id, novel_id=novel_id)
 
@@ -1107,7 +1133,7 @@ async def delete_event(
 async def list_relations(
     db: DbSession,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
     status: str | None = Query(None, description="状态过滤"),
     relation_type: str | None = Query(None, description="关系类型过滤"),
     q: str | None = Query(None, description="关系/端点名称搜索"),
@@ -1140,7 +1166,7 @@ async def list_relations(
 async def create_relation(
     db: DbSession,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
     data: EntityRelationCreate = ...,
 ) -> EntityRelationResponse:
     return await _relation_service.create(db, novel_id, data)
@@ -1152,7 +1178,7 @@ async def update_relation(
     rel_id: str,
     data: EntityRelationUpdate,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> EntityRelationResponse:
     return await _relation_service.update(db, rel_id, data, novel_id=novel_id)
 
@@ -1163,7 +1189,7 @@ async def review_edit_relation(
     rel_id: str,
     data: EntityRelationReviewEditRequest,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> dict[str, object]:
     return await _relation_service.review_edit(db, novel_id, rel_id, data)
 
@@ -1173,7 +1199,7 @@ async def delete_relation(
     db: DbSession,
     rel_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> None:
     await _relation_service.delete(db, rel_id, novel_id=novel_id)
 
@@ -1191,7 +1217,7 @@ async def list_revisions(
     db: DbSession,
     entity_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(default=20, ge=1, le=100, description="每页条数"),
 ) -> EntityRevisionListResponse:
@@ -1211,7 +1237,7 @@ async def rollback_entity(
     entity_id: str,
     data: EntityRollbackRequest,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> EntityRollbackResponse:
     result = await _revision_service.rollback_to_scene_index(
         db,
@@ -1236,7 +1262,7 @@ async def rollback_entity_by_revision(
     entity_id: str,
     revision_id: str = Query(..., description="目标版本 ID"),
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> CoreEntityResponse:
     return await _revision_service.rollback_to_revision(
         db,
@@ -1260,6 +1286,8 @@ async def seed_entity_text_archive(
     settings = get_settings()
     if settings.app_env != "test":
         raise HTTPException(status_code=404, detail="Not found")
+
+    await require_active_project(db, data.novel_id)
 
     archive = await _revision_service.seed_text_archive(
         db,
@@ -1286,7 +1314,7 @@ async def seed_entity_text_archive(
 async def list_characters(
     db: DbSession,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(
         default=DEFAULT_PAGE_SIZE,
@@ -1308,7 +1336,7 @@ async def list_characters(
 async def create_character(
     db: DbSession,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
     data: CharacterCreate = ...,
 ) -> CharacterResponse:
     return await _character_service.create(db, novel_id, data)
@@ -1319,7 +1347,7 @@ async def get_character(
     db: DbSession,
     character_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> CharacterResponse:
     return await _character_service.get(
         db,
@@ -1334,7 +1362,7 @@ async def update_character(
     character_id: str,
     data: CharacterUpdate,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> CharacterResponse:
     return await _character_service.update(
         db,
@@ -1349,7 +1377,7 @@ async def delete_character(
     db: DbSession,
     character_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> None:
     await _character_service.delete(db, character_id, novel_id=novel_id)
 
@@ -1367,7 +1395,7 @@ async def list_knowledge(
     db: DbSession,
     character_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(
         default=DEFAULT_PAGE_SIZE,
@@ -1395,7 +1423,7 @@ async def create_knowledge(
     character_id: str,
     data: CharacterKnowledgeCreate,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> CharacterKnowledgeResponse:
     if data.character_id != character_id:
         raise HTTPException(
@@ -1414,7 +1442,7 @@ async def update_knowledge(
     knowledge_id: str,
     data: CharacterKnowledgeUpdate,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> CharacterKnowledgeResponse:
     return await _knowledge_service.update(
         db,
@@ -1429,7 +1457,7 @@ async def delete_knowledge(
     db: DbSession,
     knowledge_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
 ) -> None:
     await _knowledge_service.delete(
         db,
@@ -1442,7 +1470,7 @@ async def delete_knowledge(
 async def list_entity_batches(
     db: DbSession,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
     limit: int = Query(default=10, ge=1, le=50, description="最多返回的批次数量"),
 ) -> list[dict]:
     """获取自动入库实体的批次分组列表
@@ -1466,7 +1494,7 @@ async def list_entity_batches(
 async def list_aliases(
     db: DbSession,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
     q: str | None = Query(None, description="别名/对象/引用搜索"),
     display_state: Literal["active", "review", "archived"] | None = Query(
         None,
@@ -1508,7 +1536,7 @@ async def list_aliases(
 async def create_alias(
     db: DbSession,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
     data: EntityAliasCreate = ...,
 ) -> dict:
     """为实体添加别名"""
@@ -1531,7 +1559,7 @@ async def update_alias(
     entity_id: str,
     data: EntityAliasUpdate,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
     alias: str = Query(..., description="要更新的别名文本"),
 ) -> dict:
     """更新实体的指定别名元数据。"""
@@ -1550,7 +1578,7 @@ async def edit_alias(
     entity_id: str,
     data: EntityAliasEditRequest,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
     alias: str = Query(..., description="要编辑的原别名文本"),
 ) -> dict:
     return await _alias_service.edit_alias(
@@ -1570,7 +1598,7 @@ async def delete_alias(
     db: DbSession,
     entity_id: str,
     *,
-    novel_id: NovelIdQuery,
+    novel_id: ActiveNovelIdQuery,
     alias: str = Query(..., description="要删除的别名文本"),
 ) -> dict:
     """删除实体的指定别名"""

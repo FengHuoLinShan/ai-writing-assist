@@ -262,14 +262,19 @@ class CoreEntityRepository:
         source_chapter_index: int | None = None,
         confidence_min: float | None = None,
         confidence_max: float | None = None,
+        include_archived: bool = False,
     ) -> list[Any]:
         conditions = [CoreEntity.novel_id == novel_id]
         if entity_type:
             conditions.append(CoreEntity.entity_type == entity_type)
         if status:
             conditions.append(CoreEntity.status == status)
-        elif display_state is None:
-            conditions.append(CoreEntity.status != "deprecated")
+        elif display_state is None and not include_archived:
+            from modules.world.asset_state import ARCHIVED_DISPLAY_STATUSES
+
+            conditions.append(
+                CoreEntity.status.not_in(tuple(ARCHIVED_DISPLAY_STATUSES))
+            )
         if display_state is not None:
             from modules.world.asset_state import statuses_for_display_state
 
@@ -358,6 +363,7 @@ class CoreEntityRepository:
         source_chapter_index: int | None = None,
         confidence_min: float | None = None,
         confidence_max: float | None = None,
+        include_archived: bool = False,
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> list[CoreEntity]:
@@ -377,6 +383,7 @@ class CoreEntityRepository:
             source_chapter_index=source_chapter_index,
             confidence_min=confidence_min,
             confidence_max=confidence_max,
+            include_archived=include_archived,
         )
         stmt = select(CoreEntity).where(*conditions).offset(skip).limit(limit)
         rank = self._entity_search_rank(q)
