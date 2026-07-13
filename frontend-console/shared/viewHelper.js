@@ -95,6 +95,8 @@ export function bindActionMenus(container = document.getElementById("workspace-c
   if (!container || typeof container.querySelectorAll !== "function") return
 
   container.querySelectorAll(".action-menu-btn").forEach((btn) => {
+    if (btn.dataset.actionMenuBound === "true") return
+    btn.dataset.actionMenuBound = "true"
     btn.addEventListener("click", (e) => {
       e.stopPropagation()
       const menu = btn.closest(".action-menu")
