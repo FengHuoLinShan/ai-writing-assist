@@ -337,9 +337,16 @@ test.describe("写作台模块", () => {
       const response = await fetch(`${apiBase}/writing/chapters/1/versions?novel_id=${projectId}`)
       return response.json()
     }, { apiBase: API_BASE, projectId: testProjectId })
-    expect(String(history.versions[0].version_number)).toBe(manualVersion)
-    expect(history.versions[0].status).toBe("published")
-    expect(history.versions.map((item) => item.version_number)).not.toContain(Number(manualVersion) + 1)
+    const latestActive = history.versions.find((item) => item.display_state === "active")
+    expect(String(latestActive.version_number)).toBe(manualVersion)
+    expect(latestActive.status).toBe("published")
+    const discardedAuto = history.versions.find(
+      (item) => item.version_number === Number(manualVersion) + 1,
+    )
+    expect(discardedAuto).toMatchObject({
+      display_state: "archived",
+      status: "deprecated",
+    })
   })
 
   test("历史恢复在最新版本变化后返回并发冲突", async ({ page }) => {
