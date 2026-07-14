@@ -27,14 +27,14 @@ const routes = {
 /**
  * 视图渲染器映射
  * 每个视图模块提供 render() 函数
- * @type {Object<string, {render: function, onEnter?: function, onLeave?: function}>}
+ * @type {Object<string, {render: function, onEnter?: function, onRendered?: function, onActivate?: function, onDeactivate?: function, onLeave?: function}>}
  */
 const viewRenderers = {}
 
 /**
  * 注册视图渲染器
  * @param {string} name - 视图名称
- * @param {Object} renderer - { render(), onEnter?(), onLeave?() }
+ * @param {Object} renderer - { render(), onEnter?(), onRendered?(), onActivate?(), onDeactivate?(), onLeave?() }
  */
 function registerView(name, renderer) {
   viewRenderers[name] = renderer
@@ -107,6 +107,10 @@ const _keepAliveViews = new Set(["writing", "outline"])
 
 /** @type {URLSearchParams} 当前 hash 的 query 参数 */
 let _currentQuery = new URLSearchParams()
+
+/** 当前项目元数据同步的取消与代次边界，防止快速切换时旧响应回写。 */
+let _projectSyncController = null
+let _projectSyncGeneration = 0
 
 function _viewCacheKey(viewName, subView = null, projectId = state.currentProjectId) {
   return `${projectId || "global"}:${viewName}:${subView || ""}`
@@ -248,10 +252,12 @@ function _hashForRoute(routeState) {
 }
 
 async function _applyRoute(routeState) {
-  await _syncCurrentProject(routeState.projectId)
+  const isCurrent = await _syncCurrentProject(routeState.projectId)
+  if (!isCurrent) return false
   state.currentView = routeState.viewName
   state.currentSubView = routeState.subView
   _currentQuery = routeState.query || new URLSearchParams()
+  return true
 }
 
 /**
@@ -274,9 +280,15 @@ function _rememberSubView(viewName, subView) {
  * 避免面包屑/标题显示旧项目名或为空。
  */
 async function _syncCurrentProject(projectId, force) {
+  const generation = ++_projectSyncGeneration
+  if (_projectSyncController) {
+    _projectSyncController.abort()
+    _projectSyncController = null
+  }
+
   // 无 projectId 时保留当前选择（例如项目列表视图），不要清空 localStorage 恢复的状态
   if (!projectId) {
-    return
+    return true
   }
 
   const changed = state.currentProjectId !== projectId
@@ -292,16 +304,29 @@ async function _syncCurrentProject(projectId, force) {
 
   // 当前项目对象已存在且 ID 一致时避免重复请求，refresh() 可通过 force 强制刷新
   if (!changed && hasCompleteProject && !force) {
-    return
+    return true
   }
 
+  const controller = new AbortController()
+  _projectSyncController = controller
   try {
-    const project = await api.projects.get(projectId)
+    const project = await api.projects.get(projectId, {
+      signal: controller.signal,
+      cache: "no-store",
+    })
+    if (generation !== _projectSyncGeneration || state.currentProjectId !== projectId) return false
     state.currentProject = project
+    return true
   } catch (err) {
+    if (controller.signal.aborted || generation !== _projectSyncGeneration) return false
     console.warn("加载项目信息失败:", err)
     state.currentProject = null
     toast("项目信息加载失败，可稍后重试", "warning")
+    return true
+  } finally {
+    if (_projectSyncController === controller) {
+      _projectSyncController = null
+    }
   }
 }
 
@@ -367,6 +392,9 @@ async function renderCurrentView() {
         }
         const html = await renderer.render()
         content.innerHTML = html
+        if (renderer.onRendered) {
+          await renderer.onRendered()
+        }
       }
     } else {
       const route = routes[viewName]
@@ -427,7 +455,8 @@ async function navigate(viewName, subView = null, pushHistory = true, query = nu
   }
 
   const isSameView = state.currentView === routeState.viewName
-  await _applyRoute(routeState)
+  const isCurrent = await _applyRoute(routeState)
+  if (!isCurrent) return false
 
   if (!isSameView) {
     state.selectedItem = null
@@ -444,6 +473,7 @@ async function navigate(viewName, subView = null, pushHistory = true, query = nu
 
   // 渲染
   await renderCurrentView()
+  return true
 }
 
 /**
@@ -452,17 +482,46 @@ async function navigate(viewName, subView = null, pushHistory = true, query = nu
  * 导致界面显示旧数据，refresh 绕过该优化。
  */
 async function refresh() {
+  const isCurrent = await _syncCurrentProject(state.currentProjectId, true)
+  if (!isCurrent) return false
   _forceRefresh = true
   const cacheKey = _viewCacheKey(state.currentView, state.currentSubView)
   delete _viewDomCache[cacheKey]
-  await _syncCurrentProject(state.currentProjectId, true)
   await renderCurrentView()
+  return true
+}
+
+let _popstateBound = false
+
+async function _handlePopState() {
+  try {
+    const hash = window.location.hash.slice(1) || "project"
+    const parsed = _parseHash(hash)
+    const routeState = _normalizeRoute(parsed)
+    const canonicalHash = _hashForRoute(routeState)
+    if (window.location.hash !== canonicalHash) {
+      window.history.replaceState({ view: routeState.viewName, subView: routeState.subView, projectId: routeState.projectId }, "", canonicalHash)
+    }
+    const isCurrent = await _applyRoute(routeState)
+    if (!isCurrent) return
+    await renderCurrentView()
+  } catch (err) {
+    console.warn("路由切换失败", err)
+    if (typeof toast === "function") toast(`路由切换失败：${err.message || "未知错误"}`, "error")
+  }
 }
 
 /**
  * 根据当前 hash 初始化路由
  */
 async function initRouter() {
+  // Bind before the initial metadata await so an immediate browser back/forward
+  // invalidates the initializing route instead of being missed.
+  if (!_popstateBound) {
+    window.addEventListener("popstate", _handlePopState)
+    _popstateBound = true
+  }
+
   let hash = window.location.hash.slice(1) || "project"
   let parsed = _parseHash(hash)
   let routeState = _normalizeRoute(parsed)
@@ -470,27 +529,11 @@ async function initRouter() {
   if (window.location.hash !== canonicalHash) {
     window.history.replaceState({ view: routeState.viewName, subView: routeState.subView, projectId: routeState.projectId }, "", canonicalHash)
   }
-  await _applyRoute(routeState)
-
-  // 监听浏览器前进/后退
-  window.addEventListener("popstate", async (e) => {
-    try {
-      const hash = window.location.hash.slice(1) || "project"
-      const parsed = _parseHash(hash)
-      const routeState = _normalizeRoute(parsed)
-      const canonicalHash = _hashForRoute(routeState)
-      if (window.location.hash !== canonicalHash) {
-        window.history.replaceState({ view: routeState.viewName, subView: routeState.subView, projectId: routeState.projectId }, "", canonicalHash)
-      }
-      await _applyRoute(routeState)
-      await renderCurrentView()
-    } catch (err) {
-      console.warn("路由切换失败", err)
-      if (typeof toast === "function") toast(`路由切换失败：${err.message || "未知错误"}`, "error")
-    }
-  })
+  const isCurrent = await _applyRoute(routeState)
+  if (!isCurrent) return false
 
   await renderCurrentView()
+  return true
 }
 
 // 导出

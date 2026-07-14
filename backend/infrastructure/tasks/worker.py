@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import Awaitable, Callable, Mapping
 from time import monotonic
 from typing import Any
@@ -26,6 +27,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
 from core.database import DatabaseManager, get_manager
+from core.errors import DomainError
+from core.logging_context import (
+    current_novel_id_for_log,
+    novel_log_scope,
+)
 from infrastructure.llm.agent_step_harness import (
     managed_llm_provenance_scope,
     merge_managed_llm_provenance,
@@ -43,6 +49,7 @@ from shared.constants import (
 logger = logging.getLogger(__name__)
 
 _TASK_DB_ERROR_MESSAGE = "后台任务遇到数据库临时错误，请稍后重试。"
+_TASK_TYPE_LOG_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 
 
 class _TaskHandlerSession(AsyncSession):
@@ -89,6 +96,29 @@ def _public_task_error_message(exc: Exception) -> str:
 def _task_result_snapshot(task: AsyncTask) -> dict[str, Any]:
     result = task.result
     return dict(result) if isinstance(result, Mapping) else {}
+
+
+def _task_type_for_log(value: Any) -> str:
+    return (
+        value
+        if isinstance(value, str) and _TASK_TYPE_LOG_RE.fullmatch(value)
+        else "<invalid>"
+    )
+
+
+def _task_error_for_log(exc: Exception) -> str:
+    """Keep user-controlled domain details and control characters out of logs."""
+    if isinstance(exc, DomainError):
+        return _task_type_for_log(type(exc).__name__)
+    public_message = _public_task_error_message(exc)
+    return "".join(
+        character if character.isprintable() else " " for character in public_message
+    )
+
+
+def _task_novel_id(task: AsyncTask) -> Any:
+    meta = task.meta
+    return meta.get("novel_id") if isinstance(meta, Mapping) else None
 
 
 class TaskWorker:
@@ -283,7 +313,7 @@ class TaskWorker:
             except Exception as exc:
                 logger.error(
                     "Task runner failed unexpectedly: %s",
-                    _public_task_error_message(exc),
+                    _task_error_for_log(exc),
                 )
 
     async def _claim_task(self, session: AsyncSession) -> AsyncTask | None:
@@ -291,10 +321,27 @@ class TaskWorker:
         task = await self._lifecycle.claim_next(session)
         if task is not None:
             self._running_task_ids.add(task.id)
-            logger.info("Task claimed: %s (type=%s)", task.id, task.task_type)
+            novel_id_state = "<none>" if _task_novel_id(task) is None else "<unverified>"
+            logger.info(
+                "Task claimed: %s (type=%s, novel_id=%s)",
+                task.id,
+                _task_type_for_log(task.task_type),
+                novel_id_state,
+            )
         return task
 
     async def _execute_task(
+        self,
+        task: AsyncTask,
+        session: AsyncSession,
+    ) -> bool:
+        # Do not trust task.meta merely because it contains a UUID-shaped value.
+        # The composition-root preflight uses a project facade lookup, which binds
+        # the canonical ID only after the active-project check succeeds.
+        with novel_log_scope():
+            return await self._execute_task_in_scope(task, session)
+
+    async def _execute_task_in_scope(
         self,
         task: AsyncTask,
         session: AsyncSession,
@@ -327,9 +374,10 @@ class TaskWorker:
                     await self._task_preflight(session, task)
 
                 logger.info(
-                    "Executing task %s (type=%s) with handler %s",
+                    "Executing task %s (type=%s, novel_id=%s) with handler %s",
                     task.id,
-                    task.task_type,
+                    _task_type_for_log(task.task_type),
+                    current_novel_id_for_log(),
                     handler.__name__,
                 )
 
@@ -355,9 +403,18 @@ class TaskWorker:
                 )
                 if accepted:
                     self._stats["succeeded"] += 1
-                    logger.info("Task completed: %s (type=%s)", task.id, task.task_type)
+                    logger.info(
+                        "Task completed: %s (type=%s, novel_id=%s)",
+                        task.id,
+                        _task_type_for_log(task.task_type),
+                        current_novel_id_for_log(),
+                    )
                 else:
-                    logger.warning("Discarded completion from stale lease: %s", task.id)
+                    logger.warning(
+                        "Discarded completion from stale lease: %s (novel_id=%s)",
+                        task.id,
+                        current_novel_id_for_log(),
+                    )
                 attempt_accepted = accepted
 
             except asyncio.CancelledError:
@@ -382,10 +439,11 @@ class TaskWorker:
                     self._stats["cancelled"] += 1
                 attempt_accepted = accepted
                 logger.info(
-                    "Task cancelled: %s (type=%s, accepted=%s)",
+                    "Task cancelled: %s (type=%s, accepted=%s, novel_id=%s)",
                     task.id,
-                    task.task_type,
+                    _task_type_for_log(task.task_type),
                     accepted,
+                    current_novel_id_for_log(),
                 )
 
             except Exception as e:
@@ -416,11 +474,12 @@ class TaskWorker:
                     self._stats["failed"] += 1
                 attempt_accepted = accepted
                 logger.error(
-                    "Task failed: %s (type=%s, accepted=%s) — %s",
+                    "Task failed: %s (type=%s, accepted=%s, novel_id=%s) — %s",
                     task.id,
-                    task.task_type,
+                    _task_type_for_log(task.task_type),
                     accepted,
-                    _public_task_error_message(e),
+                    current_novel_id_for_log(),
+                    _task_error_for_log(e),
                 )
 
             finally:

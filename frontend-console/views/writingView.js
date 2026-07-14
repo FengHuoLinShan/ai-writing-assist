@@ -5,7 +5,7 @@
  * 自身不实现具体业务逻辑。
  */
 /* global state, api, toast, esc, showModal, showModalHtml, confirmAction, closeModal, router, App */
-import { bindWorkspaceClick } from "../shared/viewHelper.js"
+import { bindWorkspaceClick, renderLoadingSkeleton } from "../shared/viewHelper.js"
 import { confirmAsync } from "../shared/confirmAsync.js"
 import { applyToolsResult } from "../shared/writingToolsResult.js"
 import { renderWorkspaceRail, workspaceRailKey } from "../shared/workspaceRail.js"
@@ -160,11 +160,10 @@ const writingView = {
 
   async render() {
     if (this._loading) {
-      return '<div class="empty-state"><p>章节数据加载中...</p></div>'
+      return renderLoadingSkeleton("章节数据加载中...")
     }
 
     if (this._chapterListLoadError) {
-      setTimeout(() => this._bindEvents(), 0)
       return `
         <div class="empty-state" role="alert">
           <div class="empty-icon writing-empty-icon--warning">&#9888;</div>
@@ -176,7 +175,6 @@ const writingView = {
     }
 
     if (this._chapterList.length === 0) {
-      setTimeout(() => this._bindEvents(), 0)
       return `
         <div class="empty-state">
           <div class="empty-icon">&#128221;</div>
@@ -193,7 +191,6 @@ const writingView = {
     }
 
     if (this._mobileQuickNote?.shouldRender?.()) {
-      setTimeout(() => this._bindEvents(), 0)
       return this._mobileQuickNote.render()
     }
 
@@ -237,8 +234,11 @@ const writingView = {
       </div>
       ${this._outlineFloat?.render?.() ?? ""}
     `
-    setTimeout(() => this._bindEvents(), 0)
     return html
+  },
+
+  onRendered() {
+    this._bindEvents()
   },
 
   // ============================================================

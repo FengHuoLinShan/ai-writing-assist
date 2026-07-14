@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +19,158 @@ from modules.world.repositories import CharacterRepository, CoreEntityRepository
 @pytest.fixture
 def repo() -> CoreEntityRepository:
     return CoreEntityRepository()
+
+
+class _PostgresDialectSessionProxy:
+    """Run the PostgreSQL branch against SQLite's real transaction machinery."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+        self.execute_count = 0
+        self.nested_count = 0
+
+    def get_bind(self):
+        return SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+
+    async def connection(self):
+        connection = await self._session.connection()
+        owner = self
+
+        class _ConnectionProxy:
+            def begin_nested(self):
+                owner.nested_count += 1
+                return connection.begin_nested()
+
+        return _ConnectionProxy()
+
+    async def execute(self, statement):
+        self.execute_count += 1
+        return await self._session.execute(statement)
+
+
+@pytest.mark.asyncio
+async def test_fuzzy_entity_fallback_uses_savepoint_before_python_query(
+    repo: CoreEntityRepository,
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4()
+    other_novel_id = uuid.uuid4()
+    db_session.add_all(
+        [
+            Project(id=novel_id, title="target"),
+            Project(id=other_novel_id, title="other"),
+            CoreEntity(
+                novel_id=novel_id,
+                entity_type="organization",
+                name="塔罗会",
+                importance=0.9,
+                status="canonical",
+            ),
+            CoreEntity(
+                novel_id=novel_id,
+                entity_type="organization",
+                name="塔罗会",
+                importance=0.5,
+                status="canonical",
+            ),
+            CoreEntity(
+                novel_id=other_novel_id,
+                entity_type="organization",
+                name="塔罗会",
+                importance=1.0,
+                status="canonical",
+            ),
+        ]
+    )
+    await db_session.flush()
+    pending_project = Project(id=uuid.uuid4(), title="must-stay-pending")
+    db_session.add(pending_project)
+    db = _PostgresDialectSessionProxy(db_session)
+
+    with db_session.no_autoflush:
+        items, total = await repo._fuzzy_entities_by_novel(
+            db,  # type: ignore[arg-type]
+            conditions=[
+                CoreEntity.novel_id == novel_id,
+                CoreEntity.status == "canonical",
+            ],
+            query="塔罗会",
+            skip=0,
+            limit=1,
+        )
+
+    assert len(items) == 1
+    assert items[0].novel_id == novel_id
+    assert items[0].importance == 0.9
+    assert total == 2
+    assert db.nested_count == 1
+    assert db.execute_count == 2
+    assert db_session.in_transaction()
+    assert pending_project in db_session.new
+    assert (
+        await db_session.scalar(select(Project.id).where(Project.id == novel_id))
+    ) == novel_id
+
+
+@pytest.mark.asyncio
+async def test_search_text_fallback_uses_savepoint_before_ilike_query(
+    repo: CoreEntityRepository,
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4()
+    other_novel_id = uuid.uuid4()
+    entity_id = uuid.uuid4()
+    db_session.add_all(
+        [
+            Project(id=novel_id, title="target"),
+            Project(id=other_novel_id, title="other"),
+            CoreEntity(
+                id=entity_id,
+                novel_id=novel_id,
+                entity_type="organization",
+                name="塔罗会",
+                importance=0.8,
+                status="canonical",
+            ),
+            CoreEntity(
+                novel_id=novel_id,
+                entity_type="character",
+                name="塔罗会成员",
+                importance=1.0,
+                status="canonical",
+            ),
+            CoreEntity(
+                novel_id=other_novel_id,
+                entity_type="organization",
+                name="塔罗会",
+                importance=1.0,
+                status="canonical",
+            ),
+        ]
+    )
+    await db_session.flush()
+    pending_project = Project(id=uuid.uuid4(), title="must-stay-pending")
+    db_session.add(pending_project)
+    db = _PostgresDialectSessionProxy(db_session)
+
+    with db_session.no_autoflush:
+        result = await repo.find_similar_by_search_text(
+            db,  # type: ignore[arg-type]
+            novel_id,
+            "塔罗会",
+            entity_type="organization",
+            status_filter=["canonical"],
+            top_k=1,
+        )
+
+    assert [(item.id, score) for item, score in result] == [(entity_id, 0.0)]
+    assert db.nested_count == 1
+    assert db.execute_count == 2
+    assert db_session.in_transaction()
+    assert pending_project in db_session.new
+    assert (
+        await db_session.scalar(select(Project.id).where(Project.id == novel_id))
+    ) == novel_id
 
 
 @pytest.mark.asyncio

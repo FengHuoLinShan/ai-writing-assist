@@ -3,19 +3,25 @@
 from __future__ import annotations
 
 import ast
+import subprocess
 import tomllib
 from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 MODULES_ROOT = BACKEND_ROOT / "modules"
+IGNORED_TEST_SCAN_DIRECTORIES = {".venv"}
 
 
 def _python_test_files() -> list[Path]:
     return sorted(
         path
         for path in BACKEND_ROOT.rglob("*.py")
-        if path.name.startswith("test_")
-        or "tests" in path.relative_to(BACKEND_ROOT).parts
+        if not (IGNORED_TEST_SCAN_DIRECTORIES & set(path.relative_to(BACKEND_ROOT).parts))
+        and (
+            path == BACKEND_ROOT / "conftest.py"
+            or path.name.startswith("test_")
+            or "tests" in path.relative_to(BACKEND_ROOT).parts
+        )
     )
 
 
@@ -79,6 +85,107 @@ def test_tests_do_not_import_conftest_as_python_module() -> None:
     assert violations == []
 
 
+def _async_pytest_fixture_definitions(source: str, *, filename: str) -> list[str]:
+    tree = ast.parse(source, filename=filename)
+    pytest_aliases = {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name == "pytest"
+    }
+    fixture_aliases = {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "pytest"
+        for alias in node.names
+        if alias.name == "fixture"
+    }
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.AsyncFunctionDef):
+            continue
+        for decorator in node.decorator_list:
+            fixture_ref = decorator.func if isinstance(decorator, ast.Call) else decorator
+            is_pytest_fixture = (
+                isinstance(fixture_ref, ast.Name) and fixture_ref.id in fixture_aliases
+            ) or (
+                isinstance(fixture_ref, ast.Attribute)
+                and isinstance(fixture_ref.value, ast.Name)
+                and fixture_ref.value.id in pytest_aliases
+                and fixture_ref.attr == "fixture"
+            )
+            if is_pytest_fixture:
+                violations.append(f"{node.lineno}:{node.name}")
+    return violations
+
+
+def test_async_fixture_guard_covers_root_conftest() -> None:
+    assert BACKEND_ROOT / "conftest.py" in _python_test_files()
+
+
+def test_async_fixture_guard_recognizes_aliases_calls_and_nested_classes() -> None:
+    cases = {
+        "direct": """
+import pytest
+
+@pytest.fixture
+async def direct_fixture():
+    pass
+""",
+        "module_alias_and_call": """
+import pytest as pt
+
+class TestNested:
+    @pt.fixture(scope="module")
+    async def nested_fixture(self):
+        pass
+""",
+        "import_alias": """
+from pytest import fixture as pytest_fixture
+
+@pytest_fixture()
+async def imported_fixture():
+    pass
+""",
+    }
+
+    for name, source in cases.items():
+        violations = _async_pytest_fixture_definitions(source, filename=name)
+        assert len(violations) == 1, name
+
+
+def test_async_fixture_guard_allows_explicit_async_and_sync_fixtures() -> None:
+    source = """
+import pytest
+import pytest_asyncio
+
+@pytest_asyncio.fixture
+async def explicit_async_fixture():
+    pass
+
+@pytest.fixture
+def sync_fixture():
+    pass
+"""
+
+    assert _async_pytest_fixture_definitions(source, filename="allowed") == []
+
+
+def test_async_fixtures_use_pytest_asyncio_decorator() -> None:
+    violations: list[str] = []
+
+    for path in _python_test_files():
+        relative_path = path.relative_to(BACKEND_ROOT)
+        definitions = _async_pytest_fixture_definitions(
+            path.read_text(encoding="utf-8"),
+            filename=str(path),
+        )
+        violations.extend(f"{relative_path}:{definition}" for definition in definitions)
+
+    assert violations == []
+
+
 def test_module_conftests_do_not_shadow_root_fixtures() -> None:
     root_fixture_names = _fixture_names(BACKEND_ROOT / "conftest.py")
     violations: dict[str, list[str]] = {}
@@ -130,3 +237,95 @@ def test_default_pytest_layer_keeps_strict_external_markers() -> None:
     marker_expression = addopts[addopts.index("-m") + 1]
     for marker in ("e2e", "real_llm", "external_data"):
         assert f"not {marker}" in marker_expression
+
+
+def test_fast_layer_has_timeout_parallel_and_coverage_ci_guards() -> None:
+    config = tomllib.loads((BACKEND_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    optional_dependencies = config["project"]["optional-dependencies"]
+    for extra in ("ci", "dev", "test"):
+        package_names = {
+            requirement.split(">=", maxsplit=1)[0]
+            for requirement in optional_dependencies[extra]
+        }
+        assert {"pytest-cov", "pytest-timeout", "pytest-xdist"} <= package_names
+
+    coverage_config = config["tool"]["coverage"]
+    assert set(coverage_config["run"]["source"]) == {
+        "app",
+        "core",
+        "shared",
+        "infrastructure",
+        "modules",
+    }
+    assert {
+        "*/tests/*",
+        "*/tests.py",
+        "*/*_test.py",
+        "*/test_*.py",
+        "*/conftest.py",
+    } <= set(coverage_config["run"]["omit"])
+    assert coverage_config["report"]["fail_under"] >= 85.0
+    assert coverage_config["report"]["show_missing"] is True
+
+    repo_root = BACKEND_ROOT.parent
+    makefile = (repo_root / "Makefile").read_text(encoding="utf-8")
+    workflow = (repo_root / ".github/workflows/backend-ci.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "test-fast-parallel:" in makefile
+    assert "test-fast-coverage:" in makefile
+    assert "secret-hygiene:" in makefile
+    assert "--timeout=$(FAST_TEST_TIMEOUT_SECONDS)" in makefile
+    assert "-n $(TEST_WORKERS) --dist=loadscope" in makefile
+    assert "python3 backend/tools/secret_hygiene.py" in workflow
+    assert workflow.index("Check repository secret hygiene") < workflow.index(
+        "Install uv and Python"
+    )
+    assert "make test-fast-coverage TEST_WORKERS=2" in workflow
+    assert 'ARGS="-W error::RuntimeWarning"' in workflow
+
+
+def _make_dry_run(target: str, *variables: str) -> str:
+    result = subprocess.run(
+        ["make", "-n", target, *variables],
+        cwd=BACKEND_ROOT.parent,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def test_fast_targets_expand_to_the_same_guarded_test_layer() -> None:
+    serial = _make_dry_run("test-fast")
+    default = _make_dry_run("test")
+    parallel = _make_dry_run("test-fast-parallel", "TEST_WORKERS=2")
+
+    assert default == serial
+    assert "--timeout=120" in serial
+    assert '-m "not e2e and not real_llm and not external_data"' in serial
+    assert parallel.replace(" -n 2 --dist=loadscope", "") == serial
+
+
+def test_coverage_target_reuses_parallel_fast_layer() -> None:
+    parallel = _make_dry_run("test-fast-parallel", "TEST_WORKERS=2")
+    coverage = _make_dry_run("test-fast-coverage", "TEST_WORKERS=2")
+
+    for flag in (
+        " --cov=app",
+        " --cov=core",
+        " --cov=shared",
+        " --cov=infrastructure",
+        " --cov=modules",
+        " --cov-report=term-missing:skip-covered",
+    ):
+        coverage = coverage.replace(flag, "")
+    assert coverage == parallel
+
+
+def test_timeout_is_not_forced_onto_explicit_acceptance_layers() -> None:
+    for target in ("test-e2e", "test-real-llm", "test-manual"):
+        command = _make_dry_run(target)
+        assert "--timeout" not in command
+        assert "--cov" not in command

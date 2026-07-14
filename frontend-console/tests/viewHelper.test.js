@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest"
 
-import { bindActionMenus, renderActionMenu } from "../shared/viewHelper.js"
+import {
+  bindActionMenus,
+  renderActionMenu,
+  renderLoadingSkeleton,
+} from "../shared/viewHelper.js"
 
 describe("bindActionMenus", () => {
   beforeEach(() => {
@@ -19,5 +23,24 @@ describe("bindActionMenus", () => {
     button.click()
 
     expect(menu.classList.contains("open")).toBe(true)
+  })
+})
+
+describe("renderLoadingSkeleton", () => {
+  it("renders presentational skeleton bars with an escaped accessible label", () => {
+    const html = renderLoadingSkeleton('章节 <script>alert("x")</script> 加载中')
+    document.body.innerHTML = html
+
+    const status = document.querySelector(".loading-skeleton")
+    expect(status?.getAttribute("role")).toBe("status")
+    expect(status?.getAttribute("aria-busy")).toBe("true")
+    expect(status?.querySelector(".sr-only")?.textContent).toBe(
+      '章节 <script>alert("x")</script> 加载中',
+    )
+    expect(status?.querySelector("script")).toBeNull()
+    expect(status?.querySelectorAll(".skeleton")).toHaveLength(4)
+    expect([...status.querySelectorAll(".skeleton")].every((node) => (
+      node.getAttribute("aria-hidden") === "true"
+    ))).toBe(true)
   })
 })

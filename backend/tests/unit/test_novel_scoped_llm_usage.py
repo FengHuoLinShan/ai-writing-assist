@@ -28,11 +28,41 @@ ALLOWED_DIRECT_CLIENT_CALLS: dict[tuple[str, str], str] = {
     ("modules/rag/tuning.py", "constructor"): (
         "offline embedding tuning governed by EMBEDDING_* settings"
     ),
-    (
-        "modules/world/services/core/extraction_service.py",
-        "project_settings",
-    ): "unit-test-only Mock session compatibility; production uses runtime seam",
 }
+
+
+def test_production_code_does_not_import_or_detect_mock() -> None:
+    violations: list[str] = []
+    for path in BACKEND_ROOT.rglob("*.py"):
+        relative_path = path.relative_to(BACKEND_ROOT)
+        if (
+            any(part.startswith(".") for part in relative_path.parts)
+            or "tests" in relative_path.parts
+            or path.name == "conftest.py"
+            or path.name.startswith("test_")
+        ):
+            continue
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and (
+                node.module == "unittest.mock"
+                or (
+                    node.module == "unittest"
+                    and any(item.name == "mock" for item in node.names)
+                )
+            ):
+                violations.append(f"{relative_path}:{node.lineno}:import")
+            if isinstance(node, ast.Import):
+                for item in node.names:
+                    if item.name == "unittest.mock" or item.name.startswith(
+                        "unittest.mock."
+                    ):
+                        violations.append(f"{relative_path}:{node.lineno}:import")
+        if "unittest.mock" in source:
+            violations.append(f"{relative_path}:string-or-module-detection")
+
+    assert violations == []
 
 
 def _llm_client_import_aliases(tree: ast.AST) -> tuple[set[str], set[str]]:

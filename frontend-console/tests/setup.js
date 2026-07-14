@@ -105,6 +105,9 @@ beforeEach(() => {
 globalThis.api = {
   healthCheck: vi.fn(),
   clearCache: vi.fn(),
+  setAccessToken: vi.fn(),
+  clearAccessToken: vi.fn(),
+  reportFrontendError: vi.fn(async () => null),
   projects: {
     list: vi.fn(),
     create: vi.fn(),
@@ -306,6 +309,7 @@ globalThis.api = {
   },
   imports: {
     upload: vi.fn(),
+    uploadFile: vi.fn(),
     list: vi.fn(),
     deepImport: vi.fn(),
     startStage: vi.fn(),

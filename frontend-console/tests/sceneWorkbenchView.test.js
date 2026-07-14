@@ -134,6 +134,16 @@ beforeEach(() => {
 })
 
 describe("sceneWorkbenchView", () => {
+  it("renders an accessible skeleton while the workbench is loading", async () => {
+    sceneWorkbenchView._loading = true
+
+    const html = await sceneWorkbenchView.render()
+
+    expect(html).toContain("场景工作台加载中")
+    expect(html).toContain('class="loading-skeleton"')
+    expect(html).toContain('role="status"')
+  })
+
   it("renders scene auto extraction action", async () => {
     sceneWorkbenchView._workbench = workbenchPayload
 

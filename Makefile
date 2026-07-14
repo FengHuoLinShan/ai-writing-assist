@@ -1,11 +1,15 @@
-.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-collect test-fast test-v test-integration test-e2e test-real-llm test-manual test-frontend test-all eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-context-planner lint lint-fix format format-fix prompt-contracts prompt-contracts-json generate-e2e help db migrate doctor doctor-json doctor-llm
+.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-collect test-fast test-fast-parallel test-fast-coverage test-v test-integration test-e2e test-real-llm test-manual test-frontend test-all eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-context-planner lint lint-fix format format-fix secret-hygiene prompt-contracts prompt-contracts-json generate-e2e help db migrate doctor doctor-json doctor-llm
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BACKEND_DIR := $(ROOT_DIR)backend
 FRONTEND_DIR := $(ROOT_DIR)frontend-console
 BACKEND_FAST_TESTS := modules infrastructure tests/unit tests/integration tests/modules tests/prompt_contracts tests/test_api.py tests/test_outline_api.py tests/test_world_testonly_route.py
+BACKEND_COVERAGE_PACKAGES := app core shared infrastructure modules
+BACKEND_COVERAGE_ARGS := $(addprefix --cov=,$(BACKEND_COVERAGE_PACKAGES))
 BACKEND_REAL_LLM_TESTS := modules/imports/tests/test_real_extraction.py modules/rag/tests/test_real_index.py modules/writing/tests/test_conflict_checks_real_llm.py tests/integration/test_extraction_pipeline.py
 BACKEND_MANUAL_TESTS := $(BACKEND_REAL_LLM_TESTS) tests/e2e/test_extraction_real_file.py tests/e2e/test_outline_generation.py
+FAST_TEST_TIMEOUT_SECONDS ?= 120
+TEST_WORKERS ?= auto
 
 # ─── Full Stack ─────────────────────────────────────
 
@@ -39,10 +43,16 @@ test-collect:  ## Verify all backend module tests collect in one pytest session
 	cd $(BACKEND_DIR) && pytest modules -q --collect-only
 
 test-fast:  ## Run SQLite-backed tests without external services or source data
-	cd $(BACKEND_DIR) && pytest $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" $(ARGS)
+	cd $(BACKEND_DIR) && pytest $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" --timeout=$(FAST_TEST_TIMEOUT_SECONDS) $(ARGS)
+
+test-fast-parallel:  ## Run the fast backend layer in isolated pytest-xdist workers
+	cd $(BACKEND_DIR) && pytest $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" --timeout=$(FAST_TEST_TIMEOUT_SECONDS) -n $(TEST_WORKERS) --dist=loadscope $(ARGS)
+
+test-fast-coverage:  ## Run the parallel fast layer with the configured coverage gate
+	cd $(BACKEND_DIR) && pytest $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" --timeout=$(FAST_TEST_TIMEOUT_SECONDS) -n $(TEST_WORKERS) --dist=loadscope $(BACKEND_COVERAGE_ARGS) --cov-report=term-missing:skip-covered $(ARGS)
 
 test-v:  ## Run the fast backend layer verbosely and stop on the first failure
-	cd $(BACKEND_DIR) && pytest -xvs $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" $(ARGS)
+	cd $(BACKEND_DIR) && pytest -xvs $(BACKEND_FAST_TESTS) -m "not e2e and not real_llm and not external_data" --timeout=$(FAST_TEST_TIMEOUT_SECONDS) $(ARGS)
 
 test-integration:  ## Run the SQLite cross-module integration layer
 	cd $(BACKEND_DIR) && pytest tests/integration -m "not e2e and not real_llm and not external_data" $(ARGS)
@@ -125,6 +135,9 @@ format:  ## Check formatting
 
 format-fix:  ## Auto-format
 	cd $(BACKEND_DIR) && ruff format .
+
+secret-hygiene:  ## Reject tracked env files, private keys, and high-confidence credentials
+	cd $(BACKEND_DIR) && python -m tools.secret_hygiene
 
 prompt-contracts:  ## Check prompt contracts
 	cd $(BACKEND_DIR) && python -m tools.prompt_contracts check

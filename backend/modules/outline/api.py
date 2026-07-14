@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Query
 from fastapi import status as http_status
 
@@ -72,6 +74,7 @@ from modules.project.facade import require_active_project
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 router = APIRouter(prefix="/api/outline", tags=["outline"])
+logger = logging.getLogger(__name__)
 
 _thread_service = PlotThreadService()
 _arc_service = OutlineArcService()
@@ -90,7 +93,14 @@ def _workbench_error(exc: Exception) -> HTTPException:
         return HTTPException(status_code=400, detail=str(exc))
     if isinstance(exc, ValueError):
         return HTTPException(status_code=400, detail=str(exc))
-    return HTTPException(status_code=500, detail=str(exc))
+    logger.exception(
+        "outline_scene_workbench_unexpected_error error_type=%s",
+        type(exc).__name__,
+    )
+    return HTTPException(
+        status_code=500,
+        detail="服务器内部错误，请稍后重试。",
+    )
 
 
 async def _enqueue_confirmed_outline_task(

@@ -123,6 +123,13 @@ DeepSeek：`https://api.deepseek.com` + `deepseek-v4-flash`。
 - `LLM_PROXY_URL`：显式代理地址，默认空
 - `LLM_HEALTH_REQUIRED`：深度导入启动前是否要求 LLM health 通过，默认 `true`
 - `LLM_RETRY_MAX_ATTEMPTS` / `LLM_RETRY_BASE_DELAY` / `LLM_RETRY_MAX_DELAY`：LLM 重试预算
+- `LLM_MAX_CONCURRENT_REQUESTS`：单进程共享的 LLM 并发上限
+- `LLM_RATE_LIMIT_PER_MINUTE`：单进程共享的 provider RPM；本地/测试可为 `0`
+
+`development/test/local` 可将 LLM RPM 设为 `0`；其他环境必须按实际 provider 配额
+显式配置正值，否则 API、普通 task worker 和 `worker --reload` 监督进程均拒绝启动。
+重载后的 worker 子进程会再次校验。该限制按进程执行，多个 API/worker 实例会共同放大
+总吞吐，部署时必须按实例数拆分或核算 provider 总配额；代码不写死生产 RPM。
 
 健康检查入口：
 
@@ -135,7 +142,46 @@ GET /api/health/llm
 常见 `error_kind` 包括 `dns_fake_ip`、`proxy_error`、`tls_error`、`auth_error`、
 `rate_limit`、`timeout`、`provider_error`。
 
-## 2. 异步任务系统
+## 2. HTTP 响应边界与请求可观测性
+
+应用最外层纯 ASGI middleware 为每个 HTTP 响应统一写入且只保留一份以下响应头：
+
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `X-Request-Time-Ms: <duration>`
+- `Strict-Transport-Security: max-age=31536000`（仅权威 ASGI `scheme` 为 `https` 时）
+
+边界会替换下游同名头，避免弱值或重复值绕过统一策略；HTTP 请求不会因为未经信任的
+`X-Forwarded-Proto` 获得 HSTS。正式引入反向代理时，代理必须通过受信配置传递真实 scheme，
+或由 TLS 终止层自行写入 HSTS。
+
+该边界覆盖普通响应、稳定 500、流式输出、CORS 预检以及 access-token / XHR 门禁短路，
+并保持 204/304 空响应语义。响应或流式输出结束后写一条结构化 access log；普通响应和 4xx
+使用 INFO，5xx 与未处理异常使用 ERROR。默认及生产使用的非 DEBUG 模式下，未处理异常返回
+统一 JSON 错误结构，并只记录一次异常日志和一次 access log；DEBUG 模式保留框架调试响应，
+但仍经过统一响应头边界。
+
+access log 只允许 method、FastAPI 路由模板、status、duration 和安全 `novel_id`。每个
+HTTP 请求有独立日志作用域；只有 project facade 成功验证 active/context，或带项目路径参数的
+路由成功返回后，才绑定规范化 UUID。未验证、非法或无项目请求统一使用安全占位符，不从原始
+query/body/header 推断项目。实际 path 参数、请求体、header、token、异常消息、响应内容及
+其他用户输入不得进入日志；未匹配路由或路由前短路统一记为 `<unresolved>`。畸形 method 或
+route metadata 必须安全降级，不能形成日志注入。未知 500 只记录白名单异常类型和有界 frame
+位置，不记录异常正文、cause chain 或源码行。
+
+HTTP 请求在认证、CORS 和路由之前经过进程级 token bucket。限流身份只取 ASGI direct peer
+地址，不读取 `X-Forwarded-For` 等未经信任的代理头；不同连接端口不会获得不同配额。
+`OPTIONS` 不消耗配额，其他普通、认证失败、未匹配和健康检查请求均受限。超限返回 429、
+固定 `{"detail":"Too many requests"}`、`Retry-After` 与 `Cache-Control: no-store`，并继续
+经过外层安全响应头和 access log。
+
+`development/test/local` 可用 `HTTP_RATE_LIMIT_PER_MINUTE=0` 显式关闭；其他环境启动时
+必须提供正 RPM、正 burst 和正 bucket 容量，否则应用拒绝启动。该 limiter 按进程执行：
+多 worker 会按进程数放大总配额，反向代理存在时 direct peer 也可能是代理本身，因此正式
+部署必须结合 worker 数和可信代理边界设定配置。它限制单一 direct peer 的滥用，不等同于
+多来源 DDoS 防护或全局连接池容量保证；聚合容量保护属于未来部署架构的独立决策。
+
+## 3. 异步任务系统
 
 基于 PostgreSQL 表 + 进程内 worker（FOR UPDATE SKIP LOCKED）。
 
@@ -152,6 +198,11 @@ GET /api/health/llm
 
 任务处理器由模块 `tasks.py` 在应用/worker 启动时注册；新增或移除处理器时应更新此表并保留
 `async_tasks` 的兼容状态语义。
+
+每个 worker attempt 使用独立日志作用域。claim 时即使 `meta.novel_id` 存在也只记录
+`<unverified>`；组合根 project preflight 经 facade 确认项目存在后才绑定规范化 UUID，之后的
+执行、完成、取消或失败日志共享该关联。缺少门禁、门禁失败或畸形 meta 不会产生可信项目 ID。
+该关联仅覆盖当前进程内 HTTP 请求/worker attempt，不替代跨进程 trace/span。
 
 ### API
 

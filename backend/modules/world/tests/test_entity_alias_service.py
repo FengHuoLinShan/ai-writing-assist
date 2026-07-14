@@ -24,6 +24,37 @@ def alias_service() -> EntityAliasService:
 
 
 @pytest.mark.asyncio
+async def test_context_marker_failure_logs_without_blocking_alias_write(
+    novel_id: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    marker = AsyncMock(side_effect=RuntimeError("context unavailable"))
+    service = EntityAliasService(repo=MagicMock(), context_marker=marker)
+    entity_id = str(uuid.uuid4())
+
+    with caplog.at_level(
+        "WARNING",
+        logger="modules.world.services.core.entity_alias_service",
+    ):
+        await service._mark_context_changed(
+            MagicMock(),
+            novel_id=novel_id,
+            entity_id=entity_id,
+            reason="alias_updated",
+        )
+
+    marker.assert_awaited_once()
+    record = next(
+        item
+        for item in caplog.records
+        if "world_alias_context_invalidation_failed" in item.getMessage()
+    )
+    assert novel_id in record.getMessage()
+    assert entity_id in record.getMessage()
+    assert record.exc_info is not None
+
+
+@pytest.mark.asyncio
 async def test_entity_alias_service_has_no_direct_http_exception_dependency() -> None:
     source = (
         Path(__file__).parents[1] / "services/core/entity_alias_service.py"

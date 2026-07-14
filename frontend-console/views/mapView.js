@@ -491,21 +491,21 @@ const mapView = {
     if (this._maps.length === 0 && !this._state) {
       // 空列表：显示创建入口
       root.innerHTML = this._renderEmpty()
-      this._defer(() => this._bindListEvents())
+      this._bindListEvents()
       return
     }
 
     if (!this._state) {
       // 有列表但未选地图：显示列表
       root.innerHTML = this._renderList()
-      this._defer(() => this._bindListEvents())
+      this._bindListEvents()
       return
     }
 
     // 已选地图：渲染地图视图
     root.innerHTML = this._renderMapShell()
     this._defer(() => this._initLeaflet())
-    this._defer(() => this._bindMapEvents())
+    this._bindMapEvents()
   },
 
   _renderEmpty() {
@@ -1039,7 +1039,7 @@ const mapView = {
   _updateSceneBar() {
     const bar = document.querySelector(".map-scene-bar")
     if (bar) bar.outerHTML = this._renderSceneBar()
-    this._defer(() => this._bindSceneEvents())
+    this._bindSceneEvents()
   },
 
   _bindSceneEvents() {
@@ -1574,7 +1574,7 @@ const mapView = {
     } else {
       confirmAction(
         `为该地点创建详图？`,
-        () => setTimeout(() => this._showCreateDetailForm(entityId), 0),
+        () => this._showCreateDetailForm(entityId),
         "创建详图"
       )
     }

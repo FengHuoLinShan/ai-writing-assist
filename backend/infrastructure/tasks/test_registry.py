@@ -9,7 +9,9 @@ class TestTaskRegistry:
     """测试 TaskRegistry 注册、查找、去重"""
 
     def teardown_method(self) -> None:
-        get_registry().unregister("test_type")
+        registry = get_registry()
+        for task_type in ("test_type", "dup_type", "unreg_type"):
+            registry.unregister(task_type)
 
     def test_register_and_get(self) -> None:
         registry = get_registry()

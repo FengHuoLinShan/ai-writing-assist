@@ -335,7 +335,6 @@ class SceneFusionDraftGenerator:
                             ),
                         ],
                         temperature=0.2,
-                        max_tokens=2500,
                         response_format={"type": "json_object"},
                     ),
                     SceneFusionSemanticOutput,

@@ -255,12 +255,10 @@ export function createPublishManager({ state, api, toast, modal, esc, onStatusCh
         <button class="btn btn-primary" id="btn-retry-failed">手动重试</button>
       </div>
     `)
-    setTimeout(() => {
-      const retryBtn = document.getElementById("btn-retry-failed")
-      if (retryBtn) retryBtn.onclick = () => { modal.close(); retry() }
-      const dismissBtn = document.getElementById("btn-dismiss-publish-modal")
-      if (dismissBtn) dismissBtn.onclick = () => { modal.close(); dismissError() }
-    }, 100)
+    const retryBtn = document.getElementById("btn-retry-failed")
+    if (retryBtn) retryBtn.onclick = () => { modal.close(); retry() }
+    const dismissBtn = document.getElementById("btn-dismiss-publish-modal")
+    if (dismissBtn) dismissBtn.onclick = () => { modal.close(); dismissError() }
   }
 
   function dismissError() {

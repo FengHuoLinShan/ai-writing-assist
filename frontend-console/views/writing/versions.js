@@ -244,7 +244,7 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
     }
     listHtml += "</div>"
     modal.showHtml(`第 ${_currentChapter} 章 — 版本历史 (${_versions.length})`, listHtml)
-    setTimeout(() => bindVersionHistoryEvents(), 0)
+    bindVersionHistoryEvents()
   }
 
   function bindVersionHistoryEvents(container = document) {

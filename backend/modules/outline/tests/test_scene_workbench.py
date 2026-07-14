@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from types import SimpleNamespace
 
@@ -60,6 +61,76 @@ async def _create_draft(
 
 
 class TestSceneWorkbenchApi:
+    async def test_unexpected_workbench_error_is_logged_and_sanitized(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        from modules.outline import api as outline_api
+
+        internal_detail = "SELECT secret FROM private_table at /srv/app/db.py:42"
+
+        async def fail_get_workbench(*_args, **_kwargs):
+            raise RuntimeError(internal_detail)
+
+        monkeypatch.setattr(
+            outline_api._scene_workbench_service,
+            "get_workbench",
+            fail_get_workbench,
+        )
+
+        with caplog.at_level(logging.ERROR, logger="modules.outline.api"):
+            response = await async_client.get(
+                "/api/outline/scene-workbench",
+                params={"novel_id": test_project_id},
+            )
+
+        assert response.status_code == 500
+        assert response.json() == {"detail": "服务器内部错误，请稍后重试。"}
+        assert internal_detail not in response.text
+        record = next(
+            item
+            for item in caplog.records
+            if "outline_scene_workbench_unexpected_error" in item.getMessage()
+        )
+        assert "error_type=RuntimeError" in record.getMessage()
+        assert record.exc_info is not None
+        assert record.exc_info[1] is not None
+        assert str(record.exc_info[1]) == internal_detail
+
+    @pytest.mark.parametrize(
+        ("exc", "status_code", "detail"),
+        [
+            (LookupError("scene missing"), 404, "scene missing"),
+            (LookupError(""), 404, "Not found"),
+            (PermissionError("confirmation required"), 400, "confirmation required"),
+            (ValueError("invalid mapping"), 400, "invalid mapping"),
+        ],
+    )
+    async def test_workbench_known_errors_keep_status_and_detail(
+        self,
+        exc: Exception,
+        status_code: int,
+        detail: str,
+    ) -> None:
+        from modules.outline.api import _workbench_error
+
+        mapped = _workbench_error(exc)
+
+        assert mapped.status_code == status_code
+        assert mapped.detail == detail
+
+    async def test_workbench_conflict_keeps_409_and_detail(self) -> None:
+        from modules.outline.api import _workbench_error
+        from modules.outline.scene_workbench import SceneSuggestionConflictError
+
+        mapped = _workbench_error(SceneSuggestionConflictError("stale suggestion"))
+
+        assert mapped.status_code == 409
+        assert mapped.detail == "stale suggestion"
+
     async def test_merge_loader_batches_scene_lookup(self) -> None:
         novel_id = uuid.uuid4()
         target_id = uuid.uuid4()

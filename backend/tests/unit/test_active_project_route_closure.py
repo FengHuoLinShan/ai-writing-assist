@@ -114,8 +114,17 @@ def _is_declared_project_scoped(route: APIRoute) -> bool:
 
 
 def _all_api_routes() -> dict[str, APIRoute]:
+    def iter_routes(routes: list[Any]):
+        for route in routes:
+            if isinstance(route, APIRoute):
+                yield route
+                continue
+            original_router = getattr(route, "original_router", None)
+            if original_router is not None:
+                yield from iter_routes(original_router.routes)
+
     return {
-        _route_key(route): route for route in app.routes if isinstance(route, APIRoute)
+        _route_key(route): route for route in iter_routes(app.routes)
     }
 
 

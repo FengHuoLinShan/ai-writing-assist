@@ -31,6 +31,7 @@ CircuitBreakerFn = Callable[..., object]
 CircuitBreakerProviderFn = Callable[[uuid.UUID | str | None], object]
 
 _MAX_TOP_K = 50
+_MIN_MEANINGFUL_VECTOR_SCORE = 0.65
 
 
 async def _default_embedder(query: str, *, is_query: bool = False) -> list[float]:
@@ -313,7 +314,7 @@ class RetrievalOrchestrator:
                     chunk.embedding,
                     query_embedding,
                 )
-                if vector_check > 0:
+                if vector_check >= _MIN_MEANINGFUL_VECTOR_SCORE:
                     has_meaningful_match = True
                     break
 

@@ -10,13 +10,14 @@ from __future__ import annotations
 import uuid
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import NotFoundError
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_project(async_client: AsyncClient):
     resp = await async_client.post(
         "/api/projects",
@@ -26,7 +27,7 @@ async def test_project(async_client: AsyncClient):
     return resp.json()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_entity(async_client: AsyncClient, test_project: dict):
     resp = await async_client.post(
         f"/api/world/entities?novel_id={test_project['id']}",

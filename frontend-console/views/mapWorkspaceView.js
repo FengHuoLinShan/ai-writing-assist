@@ -107,13 +107,17 @@ const mapWorkspaceView = {
     }
 
     if (this._mode === "map" && this._activeMapId) {
-      const html = this._renderMapWorkspace()
-      this._defer(() => this._mountMap())
-      return html
+      return this._renderMapWorkspace()
     }
-    const html = this._renderOverview()
-    this._defer(() => this._bindEvents())
-    return html
+    return this._renderOverview()
+  },
+
+  onRendered() {
+    if (this._mode === "map" && this._activeMapId) {
+      this._mountMap()
+    } else {
+      this._bindEvents()
+    }
   },
 
   _defer(fn) {

@@ -20,7 +20,7 @@ from run_worker import (
     _guard_active_task_project_finalize,
     _require_active_task_project,
 )
-from tests.e2e.conftest import DATABASE_URL
+from tests.e2e.config import DATABASE_URL
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
 

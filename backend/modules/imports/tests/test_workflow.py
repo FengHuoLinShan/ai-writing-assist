@@ -99,6 +99,27 @@ def _authorized_task_meta(
     }
 
 
+async def _empty_llm_execution_snapshot(_db, novel_id):
+    return {"test_snapshot": True, "novel_id": novel_id}
+
+
+async def _restore_empty_llm_execution_snapshot(_db, _novel_id, _snapshot):
+    return None
+
+
+def _unit_orchestrator(
+    workflow=None,
+    *,
+    progress_observer=None,
+) -> DeepImportOrchestrator:
+    return DeepImportOrchestrator(
+        workflow=workflow,
+        progress_observer=progress_observer,
+        snapshot_builder=_empty_llm_execution_snapshot,
+        snapshot_restorer=_restore_empty_llm_execution_snapshot,
+    )
+
+
 def test_scene_item_accepts_constraint_lists_from_llm() -> None:
     output = SceneSegmentationOutput.model_validate(
         {
@@ -1347,6 +1368,12 @@ async def _create_recoverable_deep_import_task(
 
 @pytest.fixture(autouse=True)
 def _stub_resilient_scene_pipeline(monkeypatch):
+    async def _project_settings(_db, _novel_id):
+        return {}
+
+    async def _snapshot_health_summary(*_args, **_kwargs):
+        return {}
+
     async def _plan(_self, _db, _novel_id, start_chapter, end_chapter):
         return _phase0_plan_result(start_chapter=start_chapter, end_chapter=end_chapter)
 
@@ -1383,6 +1410,14 @@ def _stub_resilient_scene_pipeline(monkeypatch):
         DeepImportWorkflow,
         "_commit_fused_scenes",
         staticmethod(_commit),
+    )
+    monkeypatch.setattr(
+        "modules.imports.workflow._project_settings_for_novel",
+        _project_settings,
+    )
+    monkeypatch.setattr(
+        "modules.context.facade.build_snapshot_health_summary",
+        _snapshot_health_summary,
     )
 
 
@@ -1949,6 +1984,7 @@ class TestDeepImportWorkflowAutoRun:
     @pytest.mark.asyncio
     async def test_extract_entities_by_scene_propagates_handler_errors(self):
         workflow = DeepImportWorkflow()
+        workflow._agent_project_settings = {}
 
         async def broken_handler(*_args, **_kwargs):
             raise RuntimeError("phase2 boom")
@@ -2260,6 +2296,7 @@ class TestDeepImportWorkflowAutoRun:
     @pytest.mark.asyncio
     async def test_plot_structure_stage_allows_missing_world_objects_as_partial(self):
         workflow = DeepImportWorkflow()
+        workflow._refresh_snapshot_health_summary = AsyncMock()
         workflow._scene_chapter_coverage = AsyncMock(
             return_value=_scene_coverage({1, 2, 3, 4, 5}, 1, 5)
         )
@@ -3628,7 +3665,7 @@ class TestDeepImportOrchestrator:
 
     @pytest.mark.asyncio
     async def test_start_rejects_implicit_authorization(self):
-        orchestrator = DeepImportOrchestrator()
+        orchestrator = _unit_orchestrator()
 
         with pytest.raises(ValueError, match="authorization_confirmed must be true"):
             await orchestrator.start(
@@ -3640,7 +3677,7 @@ class TestDeepImportOrchestrator:
 
     @pytest.mark.asyncio
     async def test_start_does_not_enqueue_when_llm_preflight_fails(self):
-        orchestrator = DeepImportOrchestrator()
+        orchestrator = _unit_orchestrator()
         orchestrator._build_llm_execution_snapshot = AsyncMock(
             side_effect=ProjectLLMConfigurationError(
                 "Project LLM API key is not configured"
@@ -3664,7 +3701,7 @@ class TestDeepImportOrchestrator:
 
     @pytest.mark.asyncio
     async def test_start_returns_confirmation_without_enqueue_when_duplicates_exist(self):
-        orchestrator = DeepImportOrchestrator()
+        orchestrator = _unit_orchestrator()
         orchestrator._check_duplicate_import = AsyncMock(return_value="已有派生数据")
         orchestrator._enqueue_deep_import = AsyncMock()
 
@@ -3689,7 +3726,7 @@ class TestDeepImportOrchestrator:
 
     @pytest.mark.asyncio
     async def test_start_force_defers_replacement_then_enqueues(self):
-        orchestrator = DeepImportOrchestrator()
+        orchestrator = _unit_orchestrator()
         task_id = uuid.uuid4()
         db = AsyncMock()
         orchestrator._check_duplicate_import = AsyncMock(return_value="已有派生数据")
@@ -3736,7 +3773,7 @@ class TestDeepImportOrchestrator:
     ):
         task = await _create_recoverable_deep_import_task(db_session)
 
-        result = await DeepImportOrchestrator().resume_interrupted(
+        result = await _unit_orchestrator().resume_interrupted(
             db_session, str(task.id)
         )
 
@@ -3762,7 +3799,7 @@ class TestDeepImportOrchestrator:
         task.result["stage"] = "world_objects"
         await db_session.flush()
 
-        result = await DeepImportOrchestrator().resume_interrupted(
+        result = await _unit_orchestrator().resume_interrupted(
             db_session,
             str(task.id),
         )
@@ -3784,7 +3821,7 @@ class TestDeepImportOrchestrator:
         task_id = str(uuid.uuid4())
 
         with pytest.raises(TaskNotFoundError) as exc_info:
-            await DeepImportOrchestrator().resume_interrupted(db_session, task_id)
+            await _unit_orchestrator().resume_interrupted(db_session, task_id)
 
         assert exc_info.value.task_id == task_id
 
@@ -3799,7 +3836,7 @@ class TestDeepImportOrchestrator:
         )
 
         with pytest.raises(ValueError, match="deep_import or deep import stage"):
-            await DeepImportOrchestrator().resume_interrupted(db_session, str(task.id))
+            await _unit_orchestrator().resume_interrupted(db_session, str(task.id))
 
     @pytest.mark.asyncio
     async def test_resume_without_recovery_required_raises_value_error(
@@ -3812,7 +3849,7 @@ class TestDeepImportOrchestrator:
         )
 
         with pytest.raises(ValueError, match="does not require recovery"):
-            await DeepImportOrchestrator().resume_interrupted(db_session, str(task.id))
+            await _unit_orchestrator().resume_interrupted(db_session, str(task.id))
 
     @pytest.mark.asyncio
     async def test_abandon_recovery_marks_original_cancelled_with_cleanup_summary(
@@ -3821,7 +3858,7 @@ class TestDeepImportOrchestrator:
     ):
         task = await _create_recoverable_deep_import_task(db_session)
 
-        result = await DeepImportOrchestrator().abandon_recovery(db_session, str(task.id))
+        result = await _unit_orchestrator().abandon_recovery(db_session, str(task.id))
 
         assert result["task_id"] == str(task.id)
         assert result["workflow_id"] == str(task.id)
@@ -3849,7 +3886,7 @@ class TestDeepImportOrchestrator:
         db_session,
     ):
         task = await _create_recoverable_deep_import_task(db_session)
-        orchestrator = DeepImportOrchestrator()
+        orchestrator = _unit_orchestrator()
         orchestrator.cleanup_workflow_assets = AsyncMock(
             return_value={
                 "deprecated_scenes": 0,
@@ -4026,7 +4063,7 @@ class TestDeepImportOrchestrator:
         )
         await db_session.flush()
 
-        summary = await DeepImportOrchestrator().cleanup_workflow_assets(
+        summary = await _unit_orchestrator().cleanup_workflow_assets(
             db_session,
             str(novel_id),
             workflow_id,
@@ -4089,7 +4126,7 @@ class TestDeepImportOrchestrator:
     async def test_run_task_rejects_missing_or_unconfirmed_authorization_snapshot(
         self,
     ):
-        orchestrator = DeepImportOrchestrator()
+        orchestrator = _unit_orchestrator()
         orchestrator.workflow.run_step = AsyncMock()
         db = AsyncMock()
 
@@ -4128,7 +4165,7 @@ class TestDeepImportOrchestrator:
 
     @pytest.mark.asyncio
     async def test_run_task_returns_task_result_contract(self):
-        orchestrator = DeepImportOrchestrator()
+        orchestrator = _unit_orchestrator()
         progress = DeepImportProgress(
             phase="done",
             completed_steps=[
@@ -4251,7 +4288,7 @@ class TestDeepImportOrchestrator:
         task_type,
         method_name,
     ):
-        orchestrator = DeepImportOrchestrator()
+        orchestrator = _unit_orchestrator()
         progress = DeepImportProgress(phase="done")
         method = AsyncMock(return_value=progress)
         setattr(orchestrator.workflow, method_name, method)
@@ -4335,7 +4372,7 @@ class TestDeepImportOrchestrator:
     @pytest.mark.asyncio
     async def test_run_task_defaults_missing_chapter_range(self):
         """任务 meta 未带章节范围时，orchestrator 使用 1-5 章默认范围。"""
-        orchestrator = DeepImportOrchestrator()
+        orchestrator = _unit_orchestrator()
         progress = DeepImportProgress(phase="done", message="完成")
         orchestrator.workflow.run_step = AsyncMock(return_value=progress)
         task = Mock(id=uuid.uuid4(), meta=_authorized_task_meta("n1"))
@@ -4364,7 +4401,7 @@ class TestDeepImportOrchestrator:
                 }
             )
 
-        orchestrator = DeepImportOrchestrator(progress_observer=observer)
+        orchestrator = _unit_orchestrator(progress_observer=observer)
 
         async def run_step(*_args, on_progress=None, **_kwargs):
             progress = DeepImportProgress(
@@ -4402,7 +4439,7 @@ class TestDeepImportOrchestrator:
 
     @pytest.mark.asyncio
     async def test_run_task_keeps_progress_monotonic(self):
-        orchestrator = DeepImportOrchestrator()
+        orchestrator = _unit_orchestrator()
 
         async def run_step(*_args, on_progress=None, **_kwargs):
             progress = DeepImportProgress(phase="running")
@@ -4456,7 +4493,7 @@ class TestDeepImportOrchestrator:
     async def test_scene_stage_persists_elapsed_time_progress_instead_of_raw_ranges(
         self,
     ):
-        orchestrator = DeepImportOrchestrator()
+        orchestrator = _unit_orchestrator()
 
         async def run_step(*_args, on_progress=None, **_kwargs):
             updates = [
@@ -4504,7 +4541,7 @@ class TestDeepImportOrchestrator:
 
     @pytest.mark.asyncio
     async def test_run_task_raises_after_persisting_failed_progress(self):
-        orchestrator = DeepImportOrchestrator()
+        orchestrator = _unit_orchestrator()
         failed = DeepImportProgress(
             phase="failed",
             quality_status="failed",
@@ -4529,7 +4566,7 @@ class TestDeepImportOrchestrator:
     @pytest.mark.asyncio
     async def test_run_task_restores_progress_checkpoints_from_task_result(self):
         task_id = uuid.uuid4()
-        orchestrator = DeepImportOrchestrator()
+        orchestrator = _unit_orchestrator()
         progress = DeepImportProgress(phase="done", message="恢复完成")
         orchestrator.workflow.run_step = AsyncMock(return_value=progress)
         task = Mock(
@@ -5504,6 +5541,16 @@ class TestHandleDeepImportTaskResult:
         mock_db = AsyncMock()
 
         with (
+            patch(
+                "modules.project.facade.build_project_llm_execution_snapshot",
+                autospec=True,
+                return_value={},
+            ),
+            patch(
+                "modules.project.facade.restore_project_llm_execution_settings",
+                autospec=True,
+                return_value=None,
+            ),
             patch.object(
                 DeepImportWorkflow,
                 "_extract_entities_by_scene",
@@ -5515,6 +5562,11 @@ class TestHandleDeepImportTaskResult:
                 "_analyze_structure",
                 new_callable=AsyncMock,
                 return_value={"total_threads": 2, "total_arcs": 4},
+            ),
+            patch.object(
+                DeepImportWorkflow,
+                "_refresh_snapshot_health_summary",
+                new_callable=AsyncMock,
             ),
         ):
             result = await handle_deep_import(db=mock_db, task=task)

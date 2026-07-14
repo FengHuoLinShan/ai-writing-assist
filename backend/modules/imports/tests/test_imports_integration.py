@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from unittest import mock
 
-import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -339,7 +339,7 @@ class TestDeepImportWorkflowNewPipeline:
         assert len(result.completed_steps) == 3
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def novel_with_drafts(db_session: AsyncSession):
     """创建一个项目并在第 1、2 章写入 draft，供集成测试使用。"""
     from modules.project.models import Project

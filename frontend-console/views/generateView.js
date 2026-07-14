@@ -88,6 +88,9 @@ const REVEAL_OPTIONS = [
 const POV_CHARACTER_PAGE_SIZE = 50
 const AI_MESSAGE_LIMIT = 40
 const AI_SELECTED_CHAPTER_LIMIT = 20
+const GENERATE_STATE_STORAGE_PREFIX = "generate_chatbox_state_v1_"
+const GENERATE_STATE_MAX_PROJECTS = 5
+const GENERATE_STATE_MAX_BYTES = 512 * 1024
 
 const generateView = {
   _selectedTemplateId: "builtin:none",
@@ -110,7 +113,6 @@ const generateView = {
   _qualityMode: "fast",
   _lastEntity: null,
   _busy: false,
-  _renderTimeout: null,
   _abortControllers: null,
 
   _generateSubTab: "chat",
@@ -130,16 +132,18 @@ const generateView = {
   _lastContextSource: null,
   _lastContextMarkdown: null,
   _lastContextRequestParams: null,
+  _activeStorageKey: null,
+  _storageDirty: false,
+  _storageNotices: new Set(),
 
   onLeave() {
     this._persistState()
     this._clearTopbarNote()
-    this._clearRenderTimeout()
     this._abortAllRequests()
   },
 
   async render() {
-    this._restoreState()
+    this._activateProjectState()
 
     const query = router.getCurrentQuery ? router.getCurrentQuery() : new URLSearchParams()
     const requestedTab = query.get("tab")
@@ -157,19 +161,19 @@ const generateView = {
     if (this._generateSubTab === "pov_prose") {
       await this._loadPovBaseOptions()
     }
-    this._clearRenderTimeout()
-    this._renderTimeout = setTimeout(() => {
-      this._bindEvents()
-      this._mountTopbarNote()
-      this._renderMessages()
-      this._renderAttachments()
-      this._syncTaskFormInputs()
-    }, 0)
     return `
       ${this._renderHeader()}
       ${this._renderGenerateSubView()}
       ${this._renderStyles()}
     `
+  },
+
+  onRendered() {
+    this._bindEvents()
+    this._mountTopbarNote()
+    this._renderMessages()
+    this._renderAttachments()
+    this._syncTaskFormInputs()
   },
 
   _renderProjectChip() {
@@ -595,7 +599,7 @@ const generateView = {
       { text: "新建模板", class: "btn", handler: () => this._createTemplateFromEditor() },
       { text: "关闭", class: "btn-ghost", handler: closeModal },
     ])
-    setTimeout(() => this._bindTemplateEditor(), 0)
+    this._bindTemplateEditor()
   },
 
   _renderTemplateEditor(selectedValue) {
@@ -1112,13 +1116,6 @@ const generateView = {
     this._abortControllers.clear()
   },
 
-  _clearRenderTimeout() {
-    if (this._renderTimeout) {
-      clearTimeout(this._renderTimeout)
-      this._renderTimeout = null
-    }
-  },
-
   async _runInBatches(items, batchSize, fn) {
     const results = []
     for (let i = 0; i < items.length; i += batchSize) {
@@ -1148,7 +1145,7 @@ const generateView = {
   },
 
   _storageKey() {
-    return `generate_chatbox_state_v1_${state.currentProjectId || "none"}`
+    return `${GENERATE_STATE_STORAGE_PREFIX}${state.currentProjectId || "none"}`
   },
 
   _mountTopbarNote() {
@@ -1166,36 +1163,259 @@ const generateView = {
     document.getElementById("topbar-generate-note")?.remove()
   },
 
-  _persistState() {
-    try {
-      localStorage.setItem(this._storageKey(), JSON.stringify({
-        selectedTemplateId: this._selectedTemplateId,
-        messages: this._messages.filter((item) => !item.pending),
-        selectedChapters: this._selectedChapters,
-        povForm: this._povForm,
-        lastPovSubmission: this._lastPovSubmission,
-        qualityMode: this._qualityMode,
-        lastEntity: this._lastEntity,
-        generateSubTab: this._generateSubTab,
-        taskPreset: this._taskPreset,
-        taskForm: this._taskForm,
-        lastContextBundle: this._lastContextBundle,
-        lastContextSource: this._lastContextSource,
-      }))
-    } catch {}
+  _activateProjectState() {
+    const storageKey = this._storageKey()
+    if (this._activeStorageKey === storageKey) return
+    // The router updates the global project before rendering the next view and
+    // does not call onLeave when generate -> generate only changes project.
+    // Persist through the previous active key before resetting project state.
+    if (this._activeStorageKey) this._persistState()
+    this._activeStorageKey = storageKey
+    this._resetProjectState()
+    this._restoreState(storageKey)
   },
 
-  _restoreState() {
+  _resetProjectState() {
+    this._selectedTemplateId = "builtin:none"
+    this._templates = []
+    this._templatesLoaded = false
+    this._templateLoadError = null
+    this._messages = []
+    this._selectedChapters = []
+    this._povChapters = []
+    this._povScenes = []
+    this._povCharacters = []
+    this._povForm = {
+      chapterIndex: null,
+      sceneId: "",
+      viewpointCharacterId: "",
+      instruction: "",
+    }
+    this._lastPovSubmission = null
+    this._povLoadWarning = null
+    this._qualityMode = "fast"
+    this._lastEntity = null
+    this._generateSubTab = "chat"
+    this._taskPreset = "custom"
+    this._taskForm = {
+      task: "",
+      scope: "arc",
+      reveal_mode: "author_safe",
+      budget_tokens: 4000,
+      entity_ids: undefined,
+      character_ids: undefined,
+      viewpoint_character_id: undefined,
+      chapter_index: undefined,
+      scene_id: undefined,
+    }
+    this._lastContextBundle = null
+    this._lastContextSource = null
+    this._lastContextMarkdown = null
+    this._lastContextRequestParams = null
+    this._storageDirty = false
+  },
+
+  _persistedState() {
+    return {
+      savedAt: Date.now(),
+      selectedTemplateId: this._selectedTemplateId,
+      messages: this._messages.filter((item) => !item.pending),
+      selectedChapters: this._selectedChapters.slice(0, AI_SELECTED_CHAPTER_LIMIT),
+      povForm: this._povForm,
+      lastPovSubmission: this._lastPovSubmission,
+      qualityMode: this._qualityMode,
+      lastEntity: this._lastEntity,
+      generateSubTab: this._generateSubTab,
+      taskPreset: this._taskPreset,
+      taskForm: this._taskForm,
+      lastContextBundle: this._lastContextBundle,
+      lastContextSource: this._lastContextSource,
+    }
+  },
+
+  _serializedStateWithinLimit() {
+    const payload = this._persistedState()
+    let serialized = JSON.stringify(payload)
+    let droppedDerived = false
+    let droppedMessages = 0
+
+    if (new TextEncoder().encode(serialized).byteLength > GENERATE_STATE_MAX_BYTES) {
+      droppedDerived = Boolean(
+        payload.lastPovSubmission
+        || payload.lastEntity
+        || payload.lastContextBundle
+        || payload.lastContextSource,
+      )
+      payload.lastPovSubmission = null
+      payload.lastEntity = null
+      payload.lastContextBundle = null
+      payload.lastContextSource = null
+      serialized = JSON.stringify(payload)
+    }
+
+    if (
+      new TextEncoder().encode(serialized).byteLength > GENERATE_STATE_MAX_BYTES
+      && payload.messages.length > AI_MESSAGE_LIMIT
+    ) {
+      droppedMessages = payload.messages.length - AI_MESSAGE_LIMIT
+      payload.messages = payload.messages.slice(-AI_MESSAGE_LIMIT)
+      serialized = JSON.stringify(payload)
+    }
+
+    if (new TextEncoder().encode(serialized).byteLength > GENERATE_STATE_MAX_BYTES) {
+      return { serialized: null, droppedDerived, droppedMessages }
+    }
+    return { serialized, droppedDerived, droppedMessages }
+  },
+
+  _generateStorageEntries(excludeKey = null) {
+    const entries = []
     try {
-      const raw = localStorage.getItem(this._storageKey())
-      if (!raw) return
+      for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index)
+        if (!key?.startsWith(GENERATE_STATE_STORAGE_PREFIX) || key === excludeKey) continue
+        let savedAt = 0
+        try {
+          savedAt = Number(JSON.parse(localStorage.getItem(key))?.savedAt) || 0
+        } catch {}
+        entries.push({ key, savedAt })
+      }
+    } catch {}
+    return entries.sort((left, right) => (
+      left.savedAt - right.savedAt || left.key.localeCompare(right.key)
+    ))
+  },
+
+  _evictOldestGenerateState(currentKey) {
+    const oldest = this._generateStorageEntries(currentKey)[0]
+    if (!oldest) return false
+    try {
+      localStorage.removeItem(oldest.key)
+      return localStorage.getItem(oldest.key) === null
+    } catch {
+      return false
+    }
+  },
+
+  _pruneGenerateStates(currentKey) {
+    const entries = this._generateStorageEntries(currentKey)
+    let removed = 0
+    while (entries.length + 1 > GENERATE_STATE_MAX_PROJECTS) {
+      const oldest = entries.shift()
+      try {
+        localStorage.removeItem(oldest.key)
+        removed += 1
+      } catch {
+        break
+      }
+    }
+    return removed
+  },
+
+  _isStorageQuotaError(err) {
+    return err?.name === "QuotaExceededError"
+      || err?.name === "NS_ERROR_DOM_QUOTA_REACHED"
+      || err?.code === 22
+      || err?.code === 1014
+  },
+
+  _notifyStorageNotice(code, message) {
+    const noticeKey = `${this._activeStorageKey || this._storageKey()}:${code}`
+    if (this._storageNotices.has(noticeKey)) return
+    this._storageNotices.add(noticeKey)
+    toast(message, "warning")
+  },
+
+  _persistState() {
+    const currentKey = this._activeStorageKey || this._storageKey()
+    const bounded = this._serializedStateWithinLimit()
+    if (!bounded.serialized) {
+      this._storageDirty = true
+      this._notifyStorageNotice(
+        "too-large",
+        "生成中心本地会话超过 512 KiB 保存上限；当前页面内容仍在，请精简或复制重要内容。",
+      )
+      return false
+    }
+
+    let quotaEvictions = 0
+    while (true) {
+      try {
+        localStorage.setItem(currentKey, bounded.serialized)
+        break
+      } catch (err) {
+        if (this._isStorageQuotaError(err) && this._evictOldestGenerateState(currentKey)) {
+          quotaEvictions += 1
+          continue
+        }
+        this._storageDirty = true
+        this._notifyStorageNotice(
+          "save-failed",
+          "生成中心本地会话保存失败；当前页面内容仍在，请复制重要内容后重试。",
+        )
+        return false
+      }
+    }
+
+    const lruEvictions = this._pruneGenerateStates(currentKey)
+    this._storageDirty = false
+    if (bounded.droppedDerived || bounded.droppedMessages) {
+      const detail = bounded.droppedMessages && bounded.droppedDerived
+        ? "已省略可重新生成的预览，并仅保留最近 40 条对话。"
+        : bounded.droppedMessages
+          ? "已仅保留最近 40 条对话。"
+          : "已省略可重新生成的预览数据。"
+      this._notifyStorageNotice("compacted", `生成中心本地会话较大，${detail}`)
+    }
+    if (quotaEvictions + lruEvictions > 0) {
+      this._notifyStorageNotice(
+        "evicted",
+        "本地生成会话已达到容量边界，已清理最久未使用的项目缓存。",
+      )
+    }
+    return true
+  },
+
+  _restoreState(storageKey = this._storageKey()) {
+    let raw
+    try {
+      raw = localStorage.getItem(storageKey)
+    } catch {
+      this._notifyStorageNotice(
+        "read-failed",
+        "无法读取生成中心本地会话；当前数据库内容不受影响。",
+      )
+      return
+    }
+    if (!raw) return
+
+    try {
       const parsed = JSON.parse(raw)
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("invalid local state")
+      }
+      if (
+        ("messages" in parsed && !Array.isArray(parsed.messages))
+        || ("selectedChapters" in parsed && !Array.isArray(parsed.selectedChapters))
+        || (
+          "povForm" in parsed
+          && (!parsed.povForm || typeof parsed.povForm !== "object" || Array.isArray(parsed.povForm))
+        )
+        || (
+          "taskForm" in parsed
+          && (!parsed.taskForm || typeof parsed.taskForm !== "object" || Array.isArray(parsed.taskForm))
+        )
+      ) {
+        throw new Error("invalid local state shape")
+      }
       this._selectedTemplateId = parsed.selectedTemplateId || this._selectedTemplateId
       this._messages = Array.isArray(parsed.messages) ? parsed.messages : []
       this._selectedChapters = Array.isArray(parsed.selectedChapters)
         ? parsed.selectedChapters.slice(0, AI_SELECTED_CHAPTER_LIMIT)
         : []
-      this._povForm = parsed.povForm || this._povForm
+      this._povForm = parsed.povForm && typeof parsed.povForm === "object"
+        ? { ...this._povForm, ...parsed.povForm }
+        : this._povForm
       this._lastPovSubmission = parsed.lastPovSubmission || null
       this._qualityMode = parsed.qualityMode || "fast"
       this._lastEntity = parsed.lastEntity || null
@@ -1203,10 +1423,20 @@ const generateView = {
         ? parsed.generateSubTab
         : this._generateSubTab
       this._taskPreset = parsed.taskPreset || this._taskPreset
-      this._taskForm = parsed.taskForm || this._taskForm
+      this._taskForm = parsed.taskForm && typeof parsed.taskForm === "object"
+        ? { ...this._taskForm, ...parsed.taskForm }
+        : this._taskForm
       this._lastContextBundle = parsed.lastContextBundle || null
       this._lastContextSource = parsed.lastContextSource || null
-    } catch {}
+    } catch {
+      try {
+        localStorage.removeItem(storageKey)
+      } catch {}
+      this._notifyStorageNotice(
+        "invalid-state",
+        "生成中心本地会话已损坏，已忽略该缓存；当前数据库内容不受影响。",
+      )
+    }
   },
 
   _applyTaskPresetValues(presetKey) {

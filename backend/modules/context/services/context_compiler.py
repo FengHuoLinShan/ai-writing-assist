@@ -392,7 +392,7 @@ class ContextCompiler:
             )
 
         if bundle.project:
-            content = str(bundle.project)
+            content = self._format_project_context(bundle.project)
             sections.append(
                 ContextSection(
                     key="style_assets",
@@ -952,6 +952,19 @@ class ContextCompiler:
             if text:
                 lines.append(f"- {text}")
         return "\n".join(lines)
+
+    @staticmethod
+    def _format_project_context(project: dict) -> str:
+        fields = [
+            ("标题", project.get("title") or project.get("name")),
+            ("类型", project.get("genre")),
+            ("语言", project.get("language")),
+            ("风格", project.get("style") or project.get("tone")),
+            ("创作阶段", project.get("current_stage")),
+            ("目标规模", project.get("target_length")),
+            ("默认揭示策略", project.get("default_reveal_policy")),
+        ]
+        return "\n".join(f"- {label}: {value}" for label, value in fields if value)
 
     @staticmethod
     def _format_project_style(project: dict) -> str:

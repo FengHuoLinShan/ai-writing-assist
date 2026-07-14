@@ -5,10 +5,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { createVersionManager } from "../../views/writing/versions.js"
 import { resetState, clearDocument } from "../helpers.js"
 
-function flushTimers() {
-  return new Promise((resolve) => setTimeout(resolve, 0))
-}
-
 function createTestManager(overrides = {}) {
   return createVersionManager({
     state: globalThis.state,
@@ -19,6 +15,16 @@ function createTestManager(overrides = {}) {
     onSwitch: vi.fn(),
     ...overrides,
   })
+}
+
+function synchronousModal() {
+  return {
+    showHtml: (...args) => {
+      globalThis.showModalHtml(...args)
+      document.body.innerHTML = args[1]
+    },
+    close: globalThis.closeModal,
+  }
 }
 
 beforeEach(() => {
@@ -160,7 +166,7 @@ describe("createVersionManager", () => {
       version_number: 3,
     })
     const onSwitch = vi.fn()
-    const manager = createTestManager({ onSwitch })
+    const manager = createTestManager({ onSwitch, modal: synchronousModal() })
     await manager.load(1)
 
     await manager.switchVersion("archived-3", 3, false)
@@ -247,7 +253,7 @@ describe("createVersionManager", () => {
       version_number: 1,
     })
     const onSwitch = vi.fn()
-    const manager = createTestManager({ onSwitch })
+    const manager = createTestManager({ onSwitch, modal: synchronousModal() })
 
     try {
       await manager.load(1)
@@ -257,8 +263,7 @@ describe("createVersionManager", () => {
       const body = showModalHtml.mock.calls.at(-1)[1]
       expect(body).not.toContain("window.writingView")
       expect(body).not.toContain("onclick=")
-      document.body.innerHTML = body
-      await flushTimers()
+      expect(document.body.innerHTML).toContain("version-preview-btn")
 
       document.querySelector('.version-preview-btn[data-draft-id="d1"]').click()
 
@@ -292,15 +297,13 @@ describe("createVersionManager", () => {
     })
     globalThis.confirmAction.mockImplementation((_message, onConfirm) => onConfirm())
     const onSwitch = vi.fn()
-    const manager = createTestManager({ onSwitch })
+    const manager = createTestManager({ onSwitch, modal: synchronousModal() })
 
     try {
       await manager.load(1)
       document.body.innerHTML = manager.render()
       manager.bindEvents(document.body)
       document.querySelector('[data-action="version-history"]').click()
-      document.body.innerHTML = showModalHtml.mock.calls.at(-1)[1]
-      await flushTimers()
 
       document.querySelector('.version-restore-btn[data-draft-id="d1"]').click()
 

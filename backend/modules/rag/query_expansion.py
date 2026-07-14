@@ -7,6 +7,7 @@ RAG 查询扩展
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 import uuid
@@ -15,6 +16,8 @@ from collections.abc import Awaitable, Callable
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get as _container_get
+
+logger = logging.getLogger(__name__)
 
 _TermLoader = Callable[[AsyncSession, uuid.UUID], Awaitable[list[dict[str, str]]]]
 _PROJECT_TERMS_TTL_SECONDS = 60.0
@@ -63,8 +66,12 @@ async def _load_project_terms(
                     target_type=target_type,
                 )
     except Exception:
-        # 世界对象词典失败不应阻断章节索引。
-        pass
+        logger.warning(
+            "rag_project_terms_load_failed novel_id=%s; "
+            "continuing_without_world_terms",
+            novel_id,
+            exc_info=True,
+        )
 
     terms.sort(key=lambda x: len(x["term"]), reverse=True)
     _PROJECT_TERMS_CACHE[novel_id] = (now, [dict(item) for item in terms])

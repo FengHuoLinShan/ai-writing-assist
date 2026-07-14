@@ -8,6 +8,7 @@ import { resetState, clearDocument, captureModalHandler, autoConfirm } from "./h
 
 beforeEach(() => {
   outlineView._stopOutlineGeneratePolling?.()
+  clearDocument()
   localStorage.clear()
   resetState({ currentSubView: "scenes" })
   outlineView._threads = []
@@ -23,6 +24,8 @@ beforeEach(() => {
     foreshadowing: 0,
     reveals: 0,
   }
+  outlineView._structureLoadErrors = {}
+  outlineView._structureLoadRequestId = 0
   outlineView._plotAutoExtractTaskId = null
   outlineView._plotAutoExtractProgress = null
   outlineView._plotAutoExtractPoller = null
@@ -96,15 +99,44 @@ describe("outlineView onEnter", () => {
 
   it.each([
     { name: "threads", subView: "threads", apiName: "listThreads", store: "_threads" },
+    { name: "arcs", subView: "arcs", apiName: "listArcs", store: "_arcs" },
     { name: "foreshadowing", subView: "foreshadowing", apiName: "listForeshadowing", store: "_foreshadowing" },
-  ])("$name API 失败时降级为空列表", async ({ subView, apiName, store }) => {
+    { name: "reveals", subView: "reveals", apiName: "listReveals", store: "_reveals" },
+  ])("$name API 失败时保留可见错误状态", async ({ subView, apiName, store }) => {
     state.currentProjectId = "p1"
     state.currentSubView = subView
-    api.outline[apiName].mockRejectedValue(new Error("fail"))
+    api.outline[apiName].mockRejectedValue(new Error("加载失败 <script>"))
 
     await outlineView.onEnter()
 
     expect(outlineView[store]).toEqual([])
+    expect(outlineView._loading).toBe(false)
+    expect(outlineView._structureLoadErrors[subView]).toBe("加载失败 <script>")
+    const html = await outlineView.render()
+    expect(html).toContain("加载失败")
+    expect(html).toContain("&lt;script&gt;")
+    expect(html).not.toContain("<script>")
+    expect(html).toContain('data-action="retry-outline-load"')
+  })
+
+  it("较早的失败请求晚到时不会覆盖较新的成功结果", async () => {
+    state.currentProjectId = "p1"
+    state.currentSubView = "threads"
+    let rejectFirst
+    let resolveSecond
+    api.outline.listThreads
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectFirst = reject }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve }))
+
+    const firstLoad = outlineView.onEnter()
+    const secondLoad = outlineView.onEnter()
+    resolveSecond({ items: [{ id: "new", name: "最新结果" }] })
+    await secondLoad
+    rejectFirst(new Error("过期请求失败"))
+    await firstLoad
+
+    expect(outlineView._threads).toEqual([{ id: "new", name: "最新结果" }])
+    expect(outlineView._structureLoadErrors.threads).toBeUndefined()
     expect(outlineView._loading).toBe(false)
   })
 
@@ -251,7 +283,55 @@ describe("outlineView render", () => {
     outlineView._loading = true
     state.currentSubView = "threads"
     const html = await outlineView.render()
-    expect(html).toContain("加载中")
+    expect(html).toContain("大纲数据加载中")
+    expect(html).toContain('class="loading-skeleton"')
+    expect(html).toContain('role="status"')
+  })
+
+  it.each([
+    { subView: "threads", apiName: "listThreads", store: "_threads", item: { id: "t1", name: "剧情线" } },
+    { subView: "arcs", apiName: "listArcs", store: "_arcs", item: { id: "a1", title: "篇章纲" } },
+    { subView: "foreshadowing", apiName: "listForeshadowing", store: "_foreshadowing", item: { id: "f1", name: "伏笔" } },
+    { subView: "reveals", apiName: "listReveals", store: "_reveals", item: { id: "r1", secret_summary: "揭示" } },
+  ])("$subView 加载失败后可通过按钮真实重新请求并恢复", async ({ subView, apiName, store, item }) => {
+    state.currentProjectId = "p1"
+    state.currentSubView = subView
+    outlineView._structureLoadErrors[subView] = "网络暂时不可用"
+    api.outline[apiName].mockResolvedValue({ items: [item] })
+    let refreshPromise
+    router.refresh.mockImplementation(() => {
+      refreshPromise = outlineView.onEnter()
+      return refreshPromise
+    })
+    document.body.innerHTML = `<main id="workspace-content">${await outlineView.render()}</main>`
+    outlineView._bindEvents()
+
+    const retryButton = document.querySelector('[data-action="retry-outline-load"]')
+    retryButton.click()
+    expect(retryButton.disabled).toBe(true)
+    expect(retryButton.textContent).toBe("重新加载中...")
+    await refreshPromise
+
+    expect(router.refresh).toHaveBeenCalledOnce()
+    expect(api.outline[apiName]).toHaveBeenCalledOnce()
+    expect(outlineView[store]).toEqual([item])
+    expect(outlineView._structureLoadErrors[subView]).toBeUndefined()
+  })
+
+  it("重新加载本身失败时恢复按钮并显示操作错误", async () => {
+    state.currentProjectId = "p1"
+    state.currentSubView = "threads"
+    outlineView._structureLoadErrors.threads = "网络暂时不可用"
+    router.refresh.mockRejectedValue(new Error("路由刷新失败"))
+    document.body.innerHTML = `<main id="workspace-content">${await outlineView.render()}</main>`
+    outlineView._bindEvents()
+
+    const retryButton = document.querySelector('[data-action="retry-outline-load"]')
+    retryButton.click()
+    await vi.waitFor(() => expect(toast).toHaveBeenCalledWith("操作失败：路由刷新失败", "error"))
+
+    expect(retryButton.disabled).toBe(false)
+    expect(retryButton.textContent).toBe("重新加载")
   })
 
   it("scenes 子标签直接渲染场景工作台内容", async () => {

@@ -11,6 +11,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,7 +22,7 @@ from modules.project.models import Project
 XHR_HEADERS = {"X-Requested-With": "XMLHttpRequest"}
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def sample_project(async_client: AsyncClient) -> dict:
     resp = await async_client.post("/api/projects", json={"title": "LLM 配置测试"})
     assert resp.status_code == 201

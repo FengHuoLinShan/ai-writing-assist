@@ -9,7 +9,9 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import String
+import pytest_asyncio
+from sqlalchemy import String, select, text
+from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -29,7 +31,7 @@ class _TestModel(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
 
 
-@pytest.fixture(autouse=True)
+@pytest_asyncio.fixture(autouse=True)
 async def _engine():
     """共享 SQLite engine，每个测试前建表，测试后删表"""
     engine = create_async_engine(SQLITE_URL, echo=False)
@@ -41,7 +43,7 @@ async def _engine():
     await engine.dispose()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def db(_engine):
     """基于共享 engine 创建 session"""
     async with AsyncSession(_engine, expire_on_commit=False) as session:
@@ -50,6 +52,12 @@ async def db(_engine):
 
 class TestUUIDMixin:
     """UUIDMixin — UUID 主键自动生成"""
+
+    def test_uuid_ddl_uses_text_affinity_only_for_sqlite(self):
+        id_type = _TestModel.__table__.c.id.type
+
+        assert str(id_type.compile(dialect=sqlite.dialect())) == "CHAR(32)"
+        assert str(id_type.compile(dialect=postgresql.dialect())) == "UUID"
 
     async def test_id_auto_generated(self, db):
         obj = _TestModel(novel_id=uuid.uuid4(), name="test")
@@ -71,6 +79,36 @@ class TestUUIDMixin:
         db.add(obj)
         await db.flush()
         assert obj.id == explicit_id
+
+    async def test_scientific_notation_like_uuid_round_trips_as_text(self, db):
+        """SQLite must not coerce UUID hex such as ``1e999...`` to float infinity."""
+        explicit_id = uuid.UUID("1e" + "9" * 30)
+        novel_id = uuid.UUID("2e" + "8" * 30)
+        db.add(
+            _TestModel(
+                id=explicit_id,
+                novel_id=novel_id,
+                name="numeric-affinity-regression",
+            )
+        )
+        await db.flush()
+        db.expunge_all()
+
+        loaded = await db.scalar(select(_TestModel).where(_TestModel.id == explicit_id))
+        assert loaded is not None
+        assert loaded.id == explicit_id
+        assert loaded.novel_id == novel_id
+
+        storage_types = (
+            await db.execute(
+                text(
+                    "SELECT typeof(id), typeof(novel_id) "
+                    "FROM base_test_models WHERE name = :name"
+                ),
+                {"name": "numeric-affinity-regression"},
+            )
+        ).one()
+        assert storage_types == ("text", "text")
 
 
 class TestTimestampMixin:

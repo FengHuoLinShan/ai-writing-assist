@@ -84,10 +84,19 @@ session，不会提交删除线性化之后的业务写入。
 `TaskWorker(task_preflight=...)` 支持组合根注入执行前门禁。worker 本身不依赖任何
 业务模块；`run_worker.py` 统一注册业务 handler / DI，并仅对带 `meta.novel_id`
 的任务调用 project 活跃性门禁，无 `novel_id` 的全局任务直接放行。
+`run_worker.py` 还会在注册 handler 前校验 LLM 运行配置；非
+`development/test/local` 环境必须设置正的 `LLM_RATE_LIMIT_PER_MINUTE`。`--reload`
+模式会在启动 watchfiles 监督进程前先执行同一校验，并由每个重载后的子进程再次校验，
+避免配置错误时只退出子进程而留下空转的监督进程。
 worker 的 handler 前检查是非锁定活跃性读取，不在长时间 attempt 中持有
 project 行锁，因此软删除可立即清除 lease 并通过 heartbeat 取消 runner。
 仅最终状态写入前的短临界区使用 `FOR SHARE` 项目 fence，将成功 finalize
 线性化在项目删除之前或之后。
+
+每个 attempt 建立独立日志作用域。claim 阶段不信任 `meta.novel_id`，只记录是否存在
+未验证 owner；只有组合根 preflight 通过 project facade 成功读取活跃项目后才绑定规范化
+UUID。执行、完成、取消和失败日志复用该安全上下文，门禁失败、缺失或畸形 meta 不回显原值。
+该作用域在异常和取消时同样清理；它只提供当前进程内任务关联，不是分布式 tracing。
 
 handler 注册时声明四种冻结策略：
 

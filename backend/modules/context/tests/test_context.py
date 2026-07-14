@@ -1854,6 +1854,95 @@ class TestStructureContextBundle:
 class TestContextCompiler:
     """测试 Context Compiler 核心逻辑"""
 
+    @pytest.mark.asyncio
+    async def test_project_loader_keeps_only_prompt_safe_fields(self) -> None:
+        from modules.context.services.loaders.project_loader import ProjectLoader
+
+        project_context = SimpleNamespace(
+            model_dump=lambda: {
+                "novel_id": "novel-1",
+                "title": "安全项目",
+                "genre": "悬疑",
+                "tone": "冷峻",
+                "language": "zh",
+                "target_length": 300000,
+                "current_stage": "drafting",
+                "default_reveal_policy": "author_safe",
+                "settings": {
+                    "llm": {
+                        "api_key": "sk-must-not-enter-context",
+                        "base_url": "https://private-llm.example/v1",
+                    }
+                },
+                "internal_note": "不可进入提示的内部字段",
+            }
+        )
+
+        async def _get_project_context(_db, _novel_id):
+            return project_context
+
+        options = CompileOptions(
+            novel_id="novel-1",
+            task="续写",
+            scope="project",
+        )
+        bundle = StructureContextBundle(
+            novel_id=options.novel_id,
+            task=options.task,
+            scope=options.scope,
+        )
+
+        await ProjectLoader(_get_project_context).load(object(), options, bundle)
+
+        assert bundle.project == {
+            "novel_id": "novel-1",
+            "title": "安全项目",
+            "genre": "悬疑",
+            "tone": "冷峻",
+            "language": "zh",
+            "target_length": 300000,
+            "current_stage": "drafting",
+            "default_reveal_policy": "author_safe",
+        }
+
+    def test_author_project_section_preserves_safe_metadata_only(self) -> None:
+        from modules.context.services.context_compiler import ContextCompiler
+
+        bundle = StructureContextBundle(
+            novel_id="novel-1",
+            task="续写",
+            scope="project",
+            project={
+                "novel_id": "novel-1",
+                "title": "安全项目",
+                "genre": "悬疑",
+                "tone": "冷峻",
+                "language": "zh",
+                "target_length": 300000,
+                "current_stage": "drafting",
+                "default_reveal_policy": "author_safe",
+                "settings": {"llm": {"api_key": "sk-must-not-render"}},
+            },
+        )
+        options = CompileOptions(
+            novel_id=bundle.novel_id,
+            task=bundle.task,
+            scope=bundle.scope,
+        )
+
+        sections = ContextCompiler()._build_sections(bundle, options)
+        project_section = next(
+            section for section in sections if section.key == "style_assets"
+        )
+
+        assert "安全项目" in project_section.content
+        assert "drafting" in project_section.content
+        assert "300000" in project_section.content
+        assert "author_safe" in project_section.content
+        assert "settings" not in project_section.content
+        assert "api_key" not in project_section.content
+        assert "sk-must-not-render" not in project_section.content
+
     def test_rag_section_metadata_keeps_stable_source_ref(self) -> None:
         from modules.context.services.context_compiler import ContextCompiler
 

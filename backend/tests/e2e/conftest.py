@@ -24,13 +24,10 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from tests.e2e.config import DATABASE_URL
+
 logging.basicConfig(level=logging.WARNING)
 
-# 真实 PG 数据库 — 默认值与 Docker Compose 开发环境一致。
-DATABASE_URL = os.getenv(
-    "E2E_DATABASE_URL",
-    "postgresql+asyncpg://novelist:novel_dev_pass@localhost:5207/ai_novel_engine",
-)
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 

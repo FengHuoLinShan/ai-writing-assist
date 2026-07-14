@@ -60,7 +60,6 @@ const globalSettingsView = {
   },
 
   async render() {
-    setTimeout(() => this.bindEvents(), 0)
     const hasProject = !!state.currentProjectId
     return `
       <div class="global-settings-view">
@@ -109,6 +108,10 @@ const globalSettingsView = {
         </section>
       </div>
     `
+  },
+
+  onRendered() {
+    this.bindEvents()
   },
 
   _withSystemLLMDefaults(values) {

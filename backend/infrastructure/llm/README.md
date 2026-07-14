@@ -108,6 +108,12 @@ async with open_project_llm_client(db, novel_id) as client:
 只允许项目级配置。代理、重试和 health gate 等运行参数仍由 `core.config.Settings`
 管理。
 
+所有 `LLMClient` 实例共享进程级并发、RPM 与熔断状态。`development/test/local`
+可将 `LLM_RATE_LIMIT_PER_MINUTE` 设为 `0` 关闭 RPM 限制；其他环境必须按 provider
+配额显式配置正值，否则 API、普通 task worker 及 `worker --reload` 监督进程均拒绝
+启动。该配额按进程执行，部署多个 API/worker 实例时必须按实例数核算总吞吐；代码不
+替 provider 选择固定生产 RPM。
+
 封闭测试服可配置 `APP_ACCESS_TOKEN` 作为单一访问令牌；配置后前端请求通过
 `Authorization: Bearer ...` 访问 `/api/*`，本地 `development/test/local` 默认不启用。
 

@@ -108,6 +108,25 @@ class _TestOutput(BaseModel):
 TEST_NOVEL_ID = "00000000-0000-0000-0000-000000000001"
 
 
+@asynccontextmanager
+async def _open_test_project_llm_client(db, novel_id):
+    from infrastructure.llm.client import LLMClient
+    from modules.project.facade import get_project_context
+
+    project_context = await get_project_context(db, novel_id)
+    if project_context is None:
+        raise DomainValidationError("Project LLM settings are required for extraction")
+    client = LLMClient.from_project_settings(project_context.settings)
+    try:
+        yield client
+    finally:
+        close = getattr(client, "close", None)
+        if callable(close):
+            close_result = close()
+            if hasattr(close_result, "__await__"):
+                await close_result
+
+
 @pytest_asyncio.fixture
 def chapters():
     """Single chapter draft data."""
@@ -141,7 +160,10 @@ async def service(chapters):
     """Service with mocked dependencies (single chapter)."""
     provider = mock.AsyncMock()
     provider.load_chapters.return_value = chapters
-    svc = EntityExtractionService(draft_provider=provider)
+    svc = EntityExtractionService(
+        draft_provider=provider,
+        project_llm_opener=_open_test_project_llm_client,
+    )
     svc._dedup_service = mock.AsyncMock()
     svc._dedup_service.find_similar_entities.return_value = []
     svc._entity_repo = mock.AsyncMock()

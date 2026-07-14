@@ -139,24 +139,27 @@ class CoreEntityRepository:
             similarity = func.greatest(name_similarity, alias_similarity)
             fuzzy_conditions = [*conditions, similarity >= min_similarity]
             try:
-                count_result = await db.execute(
-                    select(func.count(CoreEntity.id)).where(*fuzzy_conditions)
-                )
-                total = count_result.scalar() or 0
-                stmt = (
-                    select(CoreEntity)
-                    .where(*fuzzy_conditions)
-                    .order_by(
-                        similarity.desc(),
-                        CoreEntity.importance.desc(),
-                        CoreEntity.name,
-                        CoreEntity.id,
+                connection = await db.connection()
+                async with connection.begin_nested():
+                    count_result = await db.execute(
+                        select(func.count(CoreEntity.id)).where(*fuzzy_conditions)
                     )
-                    .offset(skip)
-                    .limit(limit)
-                )
-                result = await db.execute(stmt)
-                return list(result.scalars().all()), total
+                    total = count_result.scalar() or 0
+                    stmt = (
+                        select(CoreEntity)
+                        .where(*fuzzy_conditions)
+                        .order_by(
+                            similarity.desc(),
+                            CoreEntity.importance.desc(),
+                            CoreEntity.name,
+                            CoreEntity.id,
+                        )
+                        .offset(skip)
+                        .limit(limit)
+                    )
+                    result = await db.execute(stmt)
+                    items = list(result.scalars().all())
+                return items, total
             except (OperationalError, ProgrammingError):
                 logger.warning(
                     "pg_trgm fuzzy entity search unavailable, falling back to Python"
@@ -715,41 +718,47 @@ class CoreEntityRepository:
         if entity_type:
             conditions.append(CoreEntity.entity_type == entity_type)
 
-        try:
-            sim_expr = func.similarity(CoreEntity.search_text, query_name)
-            conditions.append(sim_expr >= min_similarity)
-            stmt = (
-                select(CoreEntity, sim_expr.label("similarity"))
-                .where(*conditions)
-                .order_by(text("similarity DESC"), CoreEntity.id)
-                .limit(top_k)
-            )
-            result = await db.execute(stmt)
-            rows = result.all()
-            return [(row[0], float(row[1])) for row in rows]
-        except (OperationalError, ProgrammingError):
-            logger.warning("pg_trgm similarity() unavailable, falling back to ILIKE")
-            # SQLite / 缺失 pg_trgm 回退：ILIKE name + JSON alias 粗筛
-            conditions = [
-                CoreEntity.novel_id == novel_id,
-                CoreEntity.status.in_(statuses),
-                or_(
-                    CoreEntity.name.ilike(f"%{query_name}%"),
-                    # JSON 别名也做 LIKE 匹配（content_json 在 SQLite 中为 Text）
-                    CoreEntity.content_json.cast(Text).ilike(f"%{query_name}%"),
-                ),
-            ]
-            if entity_type:
-                conditions.append(CoreEntity.entity_type == entity_type)
-            stmt = (
-                select(CoreEntity)
-                .where(*conditions)
-                .limit(top_k)
-                .order_by(CoreEntity.importance.desc(), CoreEntity.id)
-            )
-            result = await db.execute(stmt)
-            items: Sequence[CoreEntity] = result.scalars().all()
-            return [(entity, 0.0) for entity in items]
+        if db.get_bind().dialect.name == "postgresql":
+            try:
+                connection = await db.connection()
+                async with connection.begin_nested():
+                    sim_expr = func.similarity(CoreEntity.search_text, query_name)
+                    pg_conditions = [*conditions, sim_expr >= min_similarity]
+                    stmt = (
+                        select(CoreEntity, sim_expr.label("similarity"))
+                        .where(*pg_conditions)
+                        .order_by(text("similarity DESC"), CoreEntity.id)
+                        .limit(top_k)
+                    )
+                    result = await db.execute(stmt)
+                    rows = result.all()
+                return [(row[0], float(row[1])) for row in rows]
+            except (OperationalError, ProgrammingError):
+                logger.warning(
+                    "pg_trgm similarity() unavailable, falling back to ILIKE"
+                )
+
+        # SQLite / 缺失 pg_trgm 回退：ILIKE name + JSON alias 粗筛
+        fallback_conditions = [
+            CoreEntity.novel_id == novel_id,
+            CoreEntity.status.in_(statuses),
+            or_(
+                CoreEntity.name.ilike(f"%{query_name}%"),
+                # JSON 别名也做 LIKE 匹配（content_json 在 SQLite 中为 Text）
+                CoreEntity.content_json.cast(Text).ilike(f"%{query_name}%"),
+            ),
+        ]
+        if entity_type:
+            fallback_conditions.append(CoreEntity.entity_type == entity_type)
+        stmt = (
+            select(CoreEntity)
+            .where(*fallback_conditions)
+            .limit(top_k)
+            .order_by(CoreEntity.importance.desc(), CoreEntity.id)
+        )
+        result = await db.execute(stmt)
+        items: Sequence[CoreEntity] = result.scalars().all()
+        return [(entity, 0.0) for entity in items]
 
     async def find_similar_by_embedding(
         self,

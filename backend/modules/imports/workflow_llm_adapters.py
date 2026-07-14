@@ -283,10 +283,6 @@ async def _project_settings_for_novel(
 ) -> dict[str, Any] | None:
     if db is None:
         return None
-    from unittest.mock import Mock
-
-    if isinstance(db, Mock):
-        return None
     from modules.project.facade import get_project_context
 
     context = await get_project_context(db, novel_id)

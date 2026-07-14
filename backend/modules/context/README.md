@@ -149,7 +149,9 @@ V1 复用 `excluded_asset_ids`，约定：
 
 `load()` 只使用 `self._...` 依赖：
 
-- `ProjectLoader(get_project_context_fn=...)`
+- `ProjectLoader(get_project_context_fn=...)`：进入 prompt bundle 前只投影标题、题材、
+  语言、风格、创作阶段、目标规模和默认揭示策略等明确安全字段；完整
+  `settings`、LLM API Key、Base URL 和其它运行时配置不得进入 section 或 prompt
 - `WorldEntitiesLoader(get_world_context_fn=...)`
 - `CharactersLoader(get_characters_context_fn=..., filter_context_by_character_knowledge_fn=..., get_scene_contract_fn=...)`
 - `EventsLoader(get_events_context_fn=...)`

@@ -7,6 +7,7 @@ import "../router.js"
 
 beforeEach(() => {
   vi.clearAllMocks()
+  api.projects.get.mockReset()
   document.body.replaceChildren()
   localStorage.clear()
   window.history.replaceState(null, "", "#")
@@ -34,6 +35,26 @@ function registerBasicView(name) {
 }
 
 describe("renderCurrentView error handling", () => {
+  it("runs onRendered only after the fresh DOM has been committed", async () => {
+    const content = addWorkspace()
+    const order = []
+    window.router.registerView("render-lifecycle-test", {
+      async render() {
+        order.push("render")
+        return '<button id="rendered-action">操作</button>'
+      },
+      onRendered() {
+        order.push(document.getElementById("rendered-action") ? "bound" : "missing")
+      },
+    })
+    state.currentView = "render-lifecycle-test"
+
+    await window.router.renderCurrentView()
+
+    expect(order).toEqual(["render", "bound"])
+    expect(content.querySelector("#rendered-action")).not.toBeNull()
+  })
+
   it("escapes renderer error messages in the fallback UI", async () => {
     const content = document.createElement("div")
     content.id = "workspace-content"
@@ -116,12 +137,14 @@ describe("renderCurrentView error handling", () => {
     const onLeave = vi.fn()
     const onActivate = vi.fn()
     const onEnter = vi.fn()
+    const onRendered = vi.fn()
 
     window.router.registerView("writing", {
       onEnter,
       onDeactivate,
       onLeave,
       onActivate,
+      onRendered,
       async render() {
         return '<p id="writing-state">章节树仍在</p>'
       },
@@ -133,6 +156,7 @@ describe("renderCurrentView error handling", () => {
     state.currentView = "writing"
     state.currentSubView = null
     await window.router.renderCurrentView()
+    expect(onRendered).toHaveBeenCalledTimes(1)
 
     await window.router.navigate("world", null, false)
     expect(onDeactivate).toHaveBeenCalledTimes(1)
@@ -141,6 +165,7 @@ describe("renderCurrentView error handling", () => {
     await window.router.navigate("writing", null, false)
     expect(onActivate).toHaveBeenCalledTimes(1)
     expect(onEnter).toHaveBeenCalledTimes(1)
+    expect(onRendered).toHaveBeenCalledTimes(1)
     expect(content.querySelector("#writing-state")?.textContent).toBe("章节树仍在")
   })
 })
@@ -317,7 +342,13 @@ describe("refresh forces project sync", () => {
 
     await window.router.refresh()
 
-    expect(api.projects.get).toHaveBeenCalledWith("p1")
+    expect(api.projects.get).toHaveBeenCalledWith(
+      "p1",
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        cache: "no-store",
+      }),
+    )
     expect(state.currentProject.title).toBe("New")
   })
 
@@ -361,13 +392,157 @@ describe("refresh forces project sync", () => {
 
     await window.router.initRouter()
 
-    expect(api.projects.get).toHaveBeenCalledWith("p1")
+    expect(api.projects.get).toHaveBeenCalledWith(
+      "p1",
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        cache: "no-store",
+      }),
+    )
     expect(state.currentProject).toEqual({
       id: "p1",
       title: "Fetched",
       genre: "fantasy",
       tone: "warm",
     })
+  })
+
+  it("keeps the newest A metadata across an A to B to A out-of-order switch", async () => {
+    addWorkspace()
+    registerBasicView("writing")
+    state.currentView = "writing"
+    state.currentSubView = null
+
+    const pending = []
+    api.projects.get.mockImplementation((projectId, options) => new Promise((resolve) => {
+      pending.push({ projectId, resolve, signal: options.signal })
+    }))
+
+    state.currentProjectId = "project-a"
+    const firstARefresh = window.router.refresh()
+    await vi.waitFor(() => expect(pending).toHaveLength(1))
+
+    state.currentProjectId = "project-b"
+    const projectBRefresh = window.router.refresh()
+    await vi.waitFor(() => expect(pending).toHaveLength(2))
+
+    state.currentProjectId = "project-a"
+    const latestARefresh = window.router.refresh()
+    await vi.waitFor(() => expect(pending).toHaveLength(3))
+
+    expect(pending.map((item) => item.projectId)).toEqual([
+      "project-a",
+      "project-b",
+      "project-a",
+    ])
+    expect(pending[0].signal.aborted).toBe(true)
+    expect(pending[1].signal.aborted).toBe(true)
+    expect(pending[2].signal.aborted).toBe(false)
+
+    pending[2].resolve({ id: "project-a", title: "最新 A" })
+    await latestARefresh
+    pending[1].resolve({ id: "project-b", title: "晚到 B" })
+    await projectBRefresh
+    pending[0].resolve({ id: "project-a", title: "最旧 A" })
+    await firstARefresh
+
+    expect(state.currentProjectId).toBe("project-a")
+    expect(state.currentProject).toEqual({ id: "project-a", title: "最新 A" })
+    expect(toast).not.toHaveBeenCalledWith(
+      "项目信息加载失败，可稍后重试",
+      "warning",
+    )
+  })
+
+  it("does not let a superseded navigation overwrite the latest route or hash", async () => {
+    addWorkspace()
+    registerBasicView("writing")
+    registerBasicView("world")
+
+    const pending = []
+    api.projects.get.mockImplementation((projectId, options) => new Promise((resolve) => {
+      pending.push({ projectId, resolve, signal: options.signal })
+    }))
+
+    state.currentProjectId = "project-b"
+    const staleNavigation = window.router.navigate("writing")
+    await vi.waitFor(() => expect(pending).toHaveLength(1))
+
+    state.currentProjectId = "project-a"
+    const latestNavigation = window.router.navigate("world", "objects")
+    await vi.waitFor(() => expect(pending).toHaveLength(2))
+
+    pending[1].resolve({ id: "project-a", title: "项目 A" })
+    await expect(latestNavigation).resolves.toBe(true)
+    pending[0].resolve({ id: "project-b", title: "项目 B" })
+    await expect(staleNavigation).resolves.toBe(false)
+
+    expect(state.currentProjectId).toBe("project-a")
+    expect(state.currentProject).toEqual({ id: "project-a", title: "项目 A" })
+    expect(state.currentView).toBe("world")
+    expect(state.currentSubView).toBe("objects")
+    expect(window.location.hash).toBe("#workbench/project-a/world/objects")
+  })
+
+  it("silently settles a request rejected because a newer sync aborted it", async () => {
+    addWorkspace()
+    registerBasicView("writing")
+    registerBasicView("project")
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+
+    api.projects.get.mockImplementation((_projectId, options) => new Promise((_resolve, reject) => {
+      options.signal.addEventListener("abort", () => {
+        const err = new Error("request cancelled")
+        err.name = "AbortError"
+        reject(err)
+      }, { once: true })
+    }))
+
+    state.currentProjectId = "project-a"
+    const staleRefresh = window.router.refresh()
+    await vi.waitFor(() => expect(api.projects.get).toHaveBeenCalledTimes(1))
+    const latestNavigation = window.router.navigate("project", null, false)
+
+    await expect(staleRefresh).resolves.toBe(false)
+    await expect(latestNavigation).resolves.toBe(true)
+    expect(warnSpy).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalledWith(
+      "项目信息加载失败，可稍后重试",
+      "warning",
+    )
+    warnSpy.mockRestore()
+  })
+
+  it("lets popstate supersede an in-flight initial route", async () => {
+    addWorkspace()
+    registerBasicView("writing")
+    registerBasicView("world")
+
+    const pending = []
+    api.projects.get.mockImplementation((projectId, options) => new Promise((resolve) => {
+      pending.push({ projectId, resolve, signal: options.signal })
+    }))
+
+    window.history.replaceState(null, "", "#workbench/project-a/writing")
+    const initializing = window.router.initRouter()
+    await vi.waitFor(() => expect(pending).toHaveLength(1))
+
+    window.history.replaceState(null, "", "#workbench/project-b/world/objects")
+    window.dispatchEvent(new PopStateEvent("popstate"))
+    await vi.waitFor(() => expect(pending).toHaveLength(2))
+    expect(pending[0].signal.aborted).toBe(true)
+
+    pending[1].resolve({ id: "project-b", title: "项目 B" })
+    await vi.waitFor(() => {
+      expect(state.currentProject).toEqual({ id: "project-b", title: "项目 B" })
+      expect(state.currentView).toBe("world")
+    })
+    pending[0].resolve({ id: "project-a", title: "项目 A" })
+    await expect(initializing).resolves.toBe(false)
+
+    expect(state.currentProjectId).toBe("project-b")
+    expect(state.currentSubView).toBe("objects")
+    expect(window.location.hash).toBe("#workbench/project-b/world/objects")
   })
 })
 

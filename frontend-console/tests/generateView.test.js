@@ -26,7 +26,6 @@ beforeEach(() => {
   generateView._qualityMode = "fast"
   generateView._lastEntity = null
   generateView._busy = false
-  generateView._renderTimeout = null
   generateView._abortControllers = null
   generateView._generateSubTab = "chat"
   generateView._taskPreset = "custom"
@@ -45,6 +44,9 @@ beforeEach(() => {
   generateView._lastContextSource = null
   generateView._lastContextMarkdown = null
   generateView._lastContextRequestParams = null
+  generateView._activeStorageKey = generateView._storageKey()
+  generateView._storageDirty = false
+  generateView._storageNotices = new Set()
   api.generate.listPromptTemplates.mockResolvedValue({
     items: [
       {
@@ -120,6 +122,287 @@ function mountAiReferenceModalShell() {
     </div>
   `)
 }
+
+describe("generateView bounded local state", () => {
+  it("measures the 512 KiB limit in UTF-8 bytes instead of JavaScript characters", () => {
+    const storageKey = generateView._storageKey()
+    const previous = JSON.stringify({ savedAt: 1, messages: [{ role: "user", content: "旧快照" }] })
+    localStorage.setItem(storageKey, previous)
+    generateView._messages = [{ role: "user", content: "界".repeat(180_000) }]
+
+    expect(JSON.stringify(generateView._persistedState()).length).toBeLessThan(512 * 1024)
+    expect(generateView._persistState()).toBe(false)
+    expect(localStorage.getItem(storageKey)).toBe(previous)
+  })
+
+  it("oversized history keeps the latest 40 messages and reports compaction", () => {
+    generateView._messages = Array.from({ length: 80 }, (_, index) => ({
+      role: index % 2 ? "assistant" : "user",
+      content: `${index}:` + "x".repeat(10_000),
+    }))
+
+    expect(generateView._persistState()).toBe(true)
+
+    const stored = JSON.parse(localStorage.getItem(generateView._storageKey()))
+    expect(stored.messages).toHaveLength(40)
+    expect(stored.messages[0].content.startsWith("40:")).toBe(true)
+    expect(stored.messages.at(-1).content.startsWith("79:")).toBe(true)
+    expect(toast).toHaveBeenCalledWith(
+      expect.stringContaining("最近 40 条对话"),
+      "warning",
+    )
+  })
+
+  it("drops reproducible previews before dropping conversation messages", () => {
+    generateView._messages = Array.from({ length: 30 }, (_, index) => ({
+      role: "user",
+      content: `${index}:` + "x".repeat(10_000),
+    }))
+    generateView._lastContextBundle = { markdown: "y".repeat(300_000) }
+
+    expect(generateView._persistState()).toBe(true)
+
+    const stored = JSON.parse(localStorage.getItem(generateView._storageKey()))
+    expect(stored.lastContextBundle).toBeNull()
+    expect(stored.messages).toHaveLength(30)
+    expect(stored.messages[0].content.startsWith("0:")).toBe(true)
+    expect(toast).toHaveBeenCalledWith(
+      expect.stringContaining("省略可重新生成的预览数据"),
+      "warning",
+    )
+  })
+
+  it("single oversized message does not overwrite the previous snapshot", () => {
+    const storageKey = generateView._storageKey()
+    const previous = JSON.stringify({ savedAt: 1, messages: [{ role: "user", content: "旧快照" }] })
+    localStorage.setItem(storageKey, previous)
+    generateView._messages = [{ role: "user", content: "x".repeat(600 * 1024) }]
+
+    expect(generateView._persistState()).toBe(false)
+
+    expect(localStorage.getItem(storageKey)).toBe(previous)
+    expect(generateView._storageDirty).toBe(true)
+    expect(toast).toHaveBeenCalledWith(
+      expect.stringContaining("超过 512 KiB 保存上限"),
+      "warning",
+    )
+  })
+
+  it("keeps at most five project snapshots and evicts the oldest", () => {
+    for (let index = 1; index <= 5; index += 1) {
+      localStorage.setItem(
+        `generate_chatbox_state_v1_old-${index}`,
+        JSON.stringify({ savedAt: index, messages: [] }),
+      )
+    }
+    state.currentProjectId = "new-project"
+    generateView._activeStorageKey = generateView._storageKey()
+
+    expect(generateView._persistState()).toBe(true)
+
+    const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))
+      .filter((key) => key.startsWith("generate_chatbox_state_v1_"))
+    expect(keys).toHaveLength(5)
+    expect(keys).toContain("generate_chatbox_state_v1_new-project")
+    expect(keys).not.toContain("generate_chatbox_state_v1_old-1")
+    expect(toast).toHaveBeenCalledWith(
+      expect.stringContaining("最久未使用的项目缓存"),
+      "warning",
+    )
+  })
+
+  it("quota failure is visible and leaves current in-memory state dirty", () => {
+    const quotaError = new Error("quota")
+    quotaError.name = "QuotaExceededError"
+    const setItem = vi.spyOn(localStorage, "setItem").mockImplementation(() => {
+      throw quotaError
+    })
+    generateView._messages = [{ role: "user", content: "尚未保存" }]
+
+    expect(generateView._persistState()).toBe(false)
+
+    expect(generateView._storageDirty).toBe(true)
+    expect(toast).toHaveBeenCalledWith(
+      expect.stringContaining("本地会话保存失败"),
+      "warning",
+    )
+    setItem.mockRestore()
+  })
+
+  it("quota failure evicts only the oldest generate snapshot and retries the write", () => {
+    localStorage.setItem("unrelated-module-state", "keep")
+    localStorage.setItem(
+      "generate_chatbox_state_v1_oldest",
+      JSON.stringify({ savedAt: 1, messages: [{ role: "user", content: "oldest" }] }),
+    )
+    localStorage.setItem(
+      "generate_chatbox_state_v1_recent",
+      JSON.stringify({ savedAt: 2, messages: [{ role: "user", content: "recent" }] }),
+    )
+    const originalSetItem = localStorage.setItem.bind(localStorage)
+    let currentWriteAttempts = 0
+    const setItem = vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
+      if (key === generateView._storageKey() && currentWriteAttempts++ === 0) {
+        const quotaError = new Error("quota")
+        quotaError.name = "QuotaExceededError"
+        throw quotaError
+      }
+      originalSetItem(key, value)
+    })
+    generateView._messages = [{ role: "user", content: "current" }]
+
+    expect(generateView._persistState()).toBe(true)
+
+    expect(currentWriteAttempts).toBe(2)
+    expect(localStorage.getItem("generate_chatbox_state_v1_oldest")).toBeNull()
+    expect(localStorage.getItem("generate_chatbox_state_v1_recent")).toContain("recent")
+    expect(localStorage.getItem("unrelated-module-state")).toBe("keep")
+    expect(localStorage.getItem(generateView._storageKey())).toContain("current")
+    setItem.mockRestore()
+  })
+
+  it("does not loop forever when a storage implementation refuses to remove an eviction candidate", () => {
+    localStorage.setItem(
+      "generate_chatbox_state_v1_oldest",
+      JSON.stringify({ savedAt: 1, messages: [] }),
+    )
+    const quotaError = new Error("quota")
+    quotaError.name = "QuotaExceededError"
+    const setItem = vi.spyOn(localStorage, "setItem").mockImplementation(() => {
+      throw quotaError
+    })
+    const removeItem = vi.spyOn(localStorage, "removeItem").mockImplementation(() => {})
+
+    expect(generateView._persistState()).toBe(false)
+
+    expect(setItem).toHaveBeenCalledTimes(1)
+    expect(removeItem).toHaveBeenCalledTimes(1)
+    setItem.mockRestore()
+    removeItem.mockRestore()
+  })
+
+  it("corrupted snapshot is removed with a visible warning", () => {
+    const storageKey = generateView._storageKey()
+    localStorage.setItem(storageKey, "{broken")
+
+    generateView._restoreState(storageKey)
+
+    expect(localStorage.getItem(storageKey)).toBeNull()
+    expect(toast).toHaveBeenCalledWith(
+      expect.stringContaining("本地会话已损坏"),
+      "warning",
+    )
+  })
+
+  it("treats valid JSON with an invalid state shape as corrupted", () => {
+    const storageKey = generateView._storageKey()
+    localStorage.setItem(storageKey, JSON.stringify({ messages: "not-an-array" }))
+
+    generateView._restoreState(storageKey)
+
+    expect(localStorage.getItem(storageKey)).toBeNull()
+    expect(generateView._messages).toEqual([])
+    expect(toast).toHaveBeenCalledWith(
+      expect.stringContaining("本地会话已损坏"),
+      "warning",
+    )
+  })
+
+  it("reports disabled storage once per project without a toast storm", () => {
+    const getItem = vi.spyOn(localStorage, "getItem").mockImplementation(() => {
+      throw new DOMException("disabled", "SecurityError")
+    })
+
+    generateView._restoreState(generateView._storageKey())
+    generateView._restoreState(generateView._storageKey())
+
+    expect(toast).toHaveBeenCalledTimes(1)
+    expect(toast).toHaveBeenCalledWith(
+      expect.stringContaining("无法读取生成中心本地会话"),
+      "warning",
+    )
+    getItem.mockRestore()
+  })
+
+  it("restores legacy v1 snapshots and fills fields added after the snapshot", () => {
+    const storageKey = generateView._storageKey()
+    localStorage.setItem(storageKey, JSON.stringify({
+      selectedTemplateId: "builtin:character",
+      messages: [{ role: "user", content: "旧版会话" }],
+      povForm: { chapterIndex: 3 },
+      taskForm: { task: "旧版任务" },
+    }))
+
+    generateView._resetProjectState()
+    generateView._restoreState(storageKey)
+
+    expect(generateView._selectedTemplateId).toBe("builtin:character")
+    expect(generateView._messages).toEqual([{ role: "user", content: "旧版会话" }])
+    expect(generateView._povForm).toEqual(expect.objectContaining({
+      chapterIndex: 3,
+      sceneId: "",
+      viewpointCharacterId: "",
+      instruction: "",
+    }))
+    expect(generateView._taskForm).toEqual(expect.objectContaining({
+      task: "旧版任务",
+      scope: "arc",
+      reveal_mode: "author_safe",
+      budget_tokens: 4000,
+    }))
+  })
+
+  it("switching projects resets unsaved project-scoped state before restore", () => {
+    generateView._messages = [{ role: "user", content: "项目一私有内容" }]
+    generateView._lastContextBundle = { project: "p1" }
+    state.currentProjectId = "p2"
+
+    generateView._activateProjectState()
+
+    expect(generateView._activeStorageKey).toBe("generate_chatbox_state_v1_p2")
+    expect(generateView._messages).toEqual([])
+    expect(generateView._lastContextBundle).toBeNull()
+    expect(generateView._selectedTemplateId).toBe("builtin:none")
+    expect(localStorage.getItem("generate_chatbox_state_v1_p1")).toContain("项目一私有内容")
+    expect(localStorage.getItem("generate_chatbox_state_v1_p2")).toBeNull()
+  })
+
+  it("restores only the destination project after saving the previous project", () => {
+    localStorage.setItem("generate_chatbox_state_v1_p2", JSON.stringify({
+      savedAt: 2,
+      messages: [{ role: "user", content: "项目二快照" }],
+    }))
+    generateView._messages = [{ role: "user", content: "项目一当前内容" }]
+    state.currentProjectId = "p2"
+
+    generateView._activateProjectState()
+
+    expect(localStorage.getItem("generate_chatbox_state_v1_p1")).toContain("项目一当前内容")
+    expect(generateView._messages).toEqual([{ role: "user", content: "项目二快照" }])
+  })
+
+  it("persists to the active project when global selection changes before teardown", () => {
+    generateView._messages = [{ role: "user", content: "项目一私有内容" }]
+    state.currentProjectId = "p2"
+
+    expect(generateView._persistState()).toBe(true)
+
+    expect(localStorage.getItem("generate_chatbox_state_v1_p1")).toContain("项目一私有内容")
+    expect(localStorage.getItem("generate_chatbox_state_v1_p2")).toBeNull()
+  })
+
+  it("does not overwrite newer in-memory state with an older snapshot for the active project", () => {
+    localStorage.setItem(generateView._storageKey(), JSON.stringify({
+      savedAt: 1,
+      messages: [{ role: "user", content: "旧快照" }],
+    }))
+    generateView._messages = [{ role: "user", content: "当前未保存内容" }]
+
+    generateView._activateProjectState()
+
+    expect(generateView._messages).toEqual([{ role: "user", content: "当前未保存内容" }])
+  })
+})
 
 describe("generateView chatbox", () => {
   it("初始页面显示 Chatbox、模板、高质量和生成按钮", async () => {
@@ -538,17 +821,14 @@ describe("generateView chatbox", () => {
     deferreds.forEach((d) => d.resolve({}))
   })
 
-  it("离开视图时取消 render 的 setTimeout，避免回调操作新视图 DOM", async () => {
-    vi.useFakeTimers()
+  it("在 DOM 提交后通过 onRendered 同步绑定当前视图", async () => {
     const spy = vi.spyOn(generateView, "_bindEvents")
-    await generateView.render()
+    document.body.innerHTML = await generateView.render()
 
-    generateView.onLeave()
-    vi.runAllTimers()
+    generateView.onRendered()
 
-    expect(spy).not.toHaveBeenCalled()
+    expect(spy).toHaveBeenCalledTimes(1)
     spy.mockRestore()
-    vi.useRealTimers()
   })
 
   it("章节选择器分批拉取章节，每次最多 5 个并行", async () => {

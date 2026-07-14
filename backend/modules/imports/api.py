@@ -75,6 +75,15 @@ class DeepImportRequest(BaseModel):
         return self
 
 
+class DeepImportRecoveryRequest(BaseModel):
+    """Resume/abandon payload; defaults preserve the existing 400 response."""
+
+    task_id: str = Field(
+        default="",
+        description="待继续或放弃的深度导入任务 ID",
+    )
+
+
 class DeepImportCleanupSummaryResponse(BaseModel):
     """Workflow cleanup result with legacy aliases kept for wire compatibility."""
 
@@ -305,7 +314,7 @@ async def submit_plot_structure_auto_extraction(
 @router.post("/deep/resume", status_code=201)
 async def resume_deep_import(
     db: DbSession,
-    body: dict = Body(..., description="继续深度导入参数"),
+    body: DeepImportRecoveryRequest = Body(..., description="继续深度导入参数"),
 ) -> dict:
     """恢复被中断的深度导入流程
 
@@ -314,7 +323,7 @@ async def resume_deep_import(
     """
     from modules.imports import facade as imports_facade
 
-    task_id = body.get("task_id", "")
+    task_id = body.task_id
     if not task_id:
         raise HTTPException(400, detail="task_id is required")
 
@@ -333,7 +342,7 @@ async def resume_deep_import(
 @router.post("/deep/abandon", response_model=DeepImportAbandonResponse)
 async def abandon_deep_import(
     db: DbSession,
-    body: dict = Body(..., description="放弃深度导入恢复参数"),
+    body: DeepImportRecoveryRequest = Body(..., description="放弃深度导入恢复参数"),
 ) -> DeepImportAbandonResponse:
     """放弃被中断的深度导入流程并返回清理摘要
 
@@ -342,7 +351,7 @@ async def abandon_deep_import(
     """
     from modules.imports import facade as imports_facade
 
-    task_id = body.get("task_id", "")
+    task_id = body.task_id
     if not task_id:
         raise HTTPException(400, detail="task_id is required")
 

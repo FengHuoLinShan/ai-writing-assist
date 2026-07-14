@@ -200,8 +200,11 @@ const ragView = {
       html += this._renderStatus()
     }
 
-    setTimeout(() => this._bindEvents(), 0)
     return html
+  },
+
+  onRendered() {
+    this._bindEvents()
   },
 
   _renderStatus() {

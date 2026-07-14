@@ -418,9 +418,8 @@ describe("projectView", () => {
       expect(html).toContain('aria-valuenow="42"')
     })
 
-    it("adds CSRF and closed-test auth headers to raw XHR uploads", async () => {
+    it("delegates uploads to the authenticated API transport and preserves progress", async () => {
       state.currentProjectId = "p1"
-      sessionStorage.setItem("novel_app_access_token", "closed-token")
       document.body.innerHTML = `
         <input id="pv-import-file" type="file" />
         <button data-action="upload-file"></button>
@@ -429,47 +428,20 @@ describe("projectView", () => {
       Object.defineProperty(fileInput, "files", {
         value: [new File(["chapter"], "novel.txt", { type: "text/plain" })],
       })
+      api.imports.uploadFile.mockImplementation(async (_file, _novelId, onProgress) => {
+        onProgress(42)
+        return { total_chapters: 1, imported_chapters: 0 }
+      })
+      api.imports.list.mockResolvedValue({ items: [] })
 
-      const instances = []
-      const OriginalXMLHttpRequest = globalThis.XMLHttpRequest
-      class FakeXMLHttpRequest {
-        constructor() {
-          this.headers = {}
-          this.upload = {}
-          this.status = 200
-          this.responseText = JSON.stringify({
-            total_chapters: 1,
-            imported_chapters: 0,
-          })
-          instances.push(this)
-        }
+      await projectView._uploadFile()
 
-        open(method, url) {
-          this.method = method
-          this.url = url
-        }
-
-        setRequestHeader(name, value) {
-          this.headers[name] = value
-        }
-
-        send(body) {
-          this.body = body
-          this.onload()
-        }
-      }
-      globalThis.XMLHttpRequest = FakeXMLHttpRequest
-
-      try {
-        await projectView._uploadFile()
-      } finally {
-        globalThis.XMLHttpRequest = OriginalXMLHttpRequest
-      }
-
-      expect(instances).toHaveLength(1)
-      expect(instances[0].method).toBe("POST")
-      expect(instances[0].headers["X-Requested-With"]).toBe("XMLHttpRequest")
-      expect(instances[0].headers.Authorization).toBe("Bearer closed-token")
+      expect(api.imports.uploadFile).toHaveBeenCalledWith(
+        fileInput.files[0],
+        "p1",
+        expect.any(Function),
+      )
+      expect(router.navigate).toHaveBeenCalledWith("writing")
     })
   })
 
@@ -514,8 +486,15 @@ describe("projectView", () => {
 
   describe("回收站失败反馈", () => {
     beforeEach(() => {
-      vi.useFakeTimers()
       confirmAction.mockImplementation(() => {})
+      showModalHtml.mockImplementation((title, htmlString, buttons, options) => {
+        if (options === undefined) {
+          showModal(title, { html: htmlString }, buttons)
+        } else {
+          showModal(title, { html: htmlString }, buttons, options)
+        }
+        document.body.innerHTML = htmlString
+      })
       api.projects.listDeleted = vi.fn().mockResolvedValue({
         items: [
           { id: "p1", title: "项目A", deleted_at: "2026-07-08T00:00:00Z" },
@@ -525,13 +504,17 @@ describe("projectView", () => {
     })
 
     afterEach(() => {
-      vi.useRealTimers()
+      showModalHtml.mockImplementation((title, htmlString, buttons, options) => {
+        if (options === undefined) {
+          showModal(title, { html: htmlString }, buttons)
+          return
+        }
+        showModal(title, { html: htmlString }, buttons, options)
+      })
     })
 
     async function openRecycleBinDom() {
       await projectView.showRecycleBin()
-      document.body.innerHTML = latestModalHtml()
-      await vi.advanceTimersByTimeAsync(100)
     }
 
     it("批量恢复 API reject 时显示反馈", async () => {
@@ -566,8 +549,6 @@ describe("projectView", () => {
         { size: "large" },
       )
 
-      document.body.innerHTML = latestModalHtml()
-      await vi.advanceTimersByTimeAsync(100)
       await document.getElementById("recycle-next-page").onclick()
       expect(api.projects.listDeleted).toHaveBeenLastCalledWith(40, 20)
     })

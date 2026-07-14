@@ -7,6 +7,7 @@ RAG 检索与分块 E2E 测试
 from __future__ import annotations
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,7 +19,7 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
 class TestRagCRUD:
     """RAG 基础操作 E2E 测试 — 覆盖检索、过滤、文本分块"""
 
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def ctx(self, async_client: AsyncClient, db_session: AsyncSession):
         meta = await create_base_scene(db_session)
         await db_session.flush()
@@ -78,7 +79,7 @@ class TestRagRebuildIndex:
         "「值夜者有新的任务给你，」他说道，语气一如既往地沉稳。"
     )
 
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def ctx(
         self,
         async_client: AsyncClient,

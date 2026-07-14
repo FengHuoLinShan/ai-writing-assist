@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -25,6 +29,55 @@ def test_configure_worker_registers_domain_dependencies_and_handlers() -> None:
         assert "smart_dedup_scan" in TaskRegistry().registered_types
     finally:
         reset()
+
+
+def test_configure_worker_validates_llm_rate_limit_before_registration() -> None:
+    settings = MagicMock(app_env="production", llm_rate_limit_per_minute=0)
+
+    with (
+        patch("run_worker.get_settings", autospec=True, return_value=settings),
+        patch(
+            "run_worker.validate_llm_rate_limit_config",
+            autospec=True,
+            side_effect=RuntimeError("invalid LLM rate limit"),
+        ) as validate,
+        patch(
+            "app.bootstrap.register_container_services",
+            autospec=True,
+        ) as register_services,
+        pytest.raises(RuntimeError, match="invalid LLM rate limit"),
+    ):
+        _configure_worker_process()
+
+    validate.assert_called_once_with("production", 0)
+    register_services.assert_not_called()
+
+
+@pytest.mark.parametrize("args", [[], ["--reload"]], ids=["worker", "reload-supervisor"])
+def test_non_local_worker_process_rejects_disabled_llm_limiter(
+    args: list[str],
+) -> None:
+    backend_root = Path(__file__).resolve().parents[2]
+    env = os.environ.copy()
+    env.update(
+        {
+            "APP_ENV": "production",
+            "LLM_RATE_LIMIT_PER_MINUTE": "0",
+        }
+    )
+
+    result = subprocess.run(
+        [sys.executable, "run_worker.py", *args],
+        cwd=backend_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+
+    assert result.returncode != 0
+    assert "LLM_RATE_LIMIT_PER_MINUTE must be positive" in result.stderr
 
 
 @pytest.mark.asyncio

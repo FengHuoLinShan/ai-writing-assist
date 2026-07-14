@@ -12,7 +12,10 @@
 - IMPORT_MAX_CHAPTERS: 单次导入/深度导入最大章节数（默认 1000）
 - POOL_SIZE: 数据库连接池大小（默认 10）
 - MAX_OVERFLOW: 数据库连接池最大溢出（默认 20）
+- DEBUG: 应用调试模式（默认 false）
 - LOG_LEVEL: 日志级别（默认 INFO）
+- HTTP_RATE_LIMIT_*: 进程级 HTTP direct-peer 限流配置
+- LLM_RATE_LIMIT_PER_MINUTE: 进程级 LLM provider 限流配置
 """
 
 from __future__ import annotations
@@ -92,6 +95,41 @@ def validate_app_access_token_config(app_env: str, app_access_token: str) -> Non
     if normalized_env not in _LOCAL_ENVS and not app_access_token.strip():
         raise RuntimeError(
             "APP_ACCESS_TOKEN must be configured outside development, test, or local"
+        )
+
+
+def validate_http_rate_limit_config(
+    app_env: str,
+    requests_per_minute: int,
+    burst: int,
+    max_clients: int,
+) -> None:
+    """Require a valid positive HTTP limiter outside local runtimes."""
+    if requests_per_minute < 0:
+        raise RuntimeError("HTTP_RATE_LIMIT_PER_MINUTE must be non-negative")
+    if burst < 0:
+        raise RuntimeError("HTTP_RATE_LIMIT_BURST must be non-negative")
+    if max_clients <= 0:
+        raise RuntimeError("HTTP_RATE_LIMIT_MAX_CLIENTS must be positive")
+    if requests_per_minute > 0 and burst == 0:
+        raise RuntimeError(
+            "HTTP_RATE_LIMIT_BURST must be positive when HTTP rate limiting is enabled"
+        )
+    if app_env.strip().lower() not in _LOCAL_ENVS and requests_per_minute == 0:
+        raise RuntimeError(
+            "HTTP_RATE_LIMIT_PER_MINUTE must be positive outside "
+            "development, test, or local"
+        )
+
+
+def validate_llm_rate_limit_config(app_env: str, requests_per_minute: int) -> None:
+    """Require a positive process-local LLM limiter outside local runtimes."""
+    if requests_per_minute < 0:
+        raise RuntimeError("LLM_RATE_LIMIT_PER_MINUTE must be non-negative")
+    if app_env.strip().lower() not in _LOCAL_ENVS and requests_per_minute == 0:
+        raise RuntimeError(
+            "LLM_RATE_LIMIT_PER_MINUTE must be positive outside "
+            "development, test, or local"
         )
 
 
@@ -218,6 +256,15 @@ class Settings:
 
     # --- Deployment access / secrets ---
     app_access_token: str = field(default_factory=lambda: _env("APP_ACCESS_TOKEN", ""))
+    http_rate_limit_per_minute: int = field(
+        default_factory=lambda: _env_int("HTTP_RATE_LIMIT_PER_MINUTE", 0)
+    )
+    http_rate_limit_burst: int = field(
+        default_factory=lambda: _env_int("HTTP_RATE_LIMIT_BURST", 60)
+    )
+    http_rate_limit_max_clients: int = field(
+        default_factory=lambda: _env_int("HTTP_RATE_LIMIT_MAX_CLIENTS", 10_000)
+    )
     llm_settings_encryption_key: str = field(
         default_factory=lambda: _env("LLM_SETTINGS_ENCRYPTION_KEY", "")
     )
@@ -231,7 +278,7 @@ class Settings:
     # --- 应用 ---
     app_name: str = "ai-novel-structural-engine"
     app_version: str = "2.0.0"
-    debug: bool = _env("DEBUG", "false").lower() == "true"
+    debug: bool = field(default_factory=lambda: _env_bool("DEBUG", False))
     log_level: str = field(default_factory=lambda: _env("LOG_LEVEL", "INFO"))
 
     # --- pgvector ---

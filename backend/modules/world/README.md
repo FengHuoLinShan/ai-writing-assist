@@ -482,7 +482,8 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 - `POST /api/world/entities/extract` 的确认 action 为 `world.entities.extract`。
 - entity extraction、entity fusion、对象草稿和世界书生成通过 project runtime seam 消费项目 profile；
   extraction 在成功、异常和取消路径都由 context manager 关闭 client；
-  Mock-only 测试分支同样要求显式 project settings，不回退零参数 client。
+  测试通过构造器显式注入 project LLM opener，不在生产代码中检测测试替身，
+  也不回退零参数 client。
   LLM 输出继续只形成 suggestion/draft，不直接成为 canonical。
 - 补抽结果写入 `context_confirmations.result_refs`，类型为 `world_entity`。
 - 候选提升、合并、重命名或忽略会将相关确认记录标记为 `needs_review` 或 `stale_context`，并写入 `stale_reasons`。

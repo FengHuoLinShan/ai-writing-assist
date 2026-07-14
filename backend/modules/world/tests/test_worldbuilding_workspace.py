@@ -297,6 +297,68 @@ async def test_suggestion_duplicate_confirm_returns_domain_error(
 
 
 @pytest.mark.asyncio
+async def test_suggestion_context_invalidation_failure_logs_and_keeps_acceptance(
+    db_session,
+    project_novel_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def _fail_context_invalidation(*_args, **_kwargs):
+        raise RuntimeError("context unavailable")
+
+    monkeypatch.setattr(
+        "modules.context.facade.mark_asset_context_changed",
+        _fail_context_invalidation,
+    )
+    service = SuggestionQueueService()
+    suggestion = await service.create(
+        db_session,
+        CreationSuggestionCreate(
+            novel_id=project_novel_id,
+            source_module="imports",
+            review_group="import_knowledge",
+            target_type="core_entity",
+            risk_level="high",
+            payload_json={
+                "entity_type": "concept",
+                "name": "长夜纪元",
+            },
+        ),
+    )
+
+    with caplog.at_level(
+        "WARNING",
+        logger=(
+            "modules.world.services.worldbuilding.suggestion_queue_service"
+        ),
+    ):
+        accepted = await service.confirm(
+            db_session,
+            project_novel_id,
+            suggestion.id,
+        )
+
+    assert accepted.status == "accepted"
+    asset_id = uuid.UUID(accepted.result_ref_json["id"])
+    db_session.expire_all()
+    stored = await db_session.get(CreationSuggestion, uuid.UUID(suggestion.id))
+    assert stored is not None
+    assert stored.status == "accepted"
+    assert stored.result_ref_json["id"] == str(asset_id)
+    stored_asset = await db_session.get(CoreEntity, asset_id)
+    assert stored_asset is not None
+    assert stored_asset.novel_id == uuid.UUID(project_novel_id)
+    record = next(
+        item
+        for item in caplog.records
+        if "world_suggestion_context_invalidation_failed" in item.getMessage()
+    )
+    assert project_novel_id in record.getMessage()
+    assert suggestion.id in record.getMessage()
+    assert record.exc_info is not None
+
+
+@pytest.mark.asyncio
 async def test_reject_archives_compatibility_shadow_and_blocks_repeat_decisions(
     db_session,
     project_novel_id: str,

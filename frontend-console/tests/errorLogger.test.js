@@ -41,6 +41,8 @@ describe("errorLogger scoped buckets", () => {
     state.error = null
     window.errorLog._lastApiError = null
     globalThis.fetch = vi.fn(() => Promise.resolve({ ok: true }))
+    api.reportFrontendError.mockClear()
+    api.reportFrontendError.mockResolvedValue(null)
   })
 
   it("stores project A and B errors in separate buckets with per-bucket ids", () => {
@@ -66,21 +68,20 @@ describe("errorLogger scoped buckets", () => {
     expect(window.errorLog.getById(1)?.message).toBe("B first")
     expect(window.errorLog.getById(2)).toBeNull()
 
-    const payload = JSON.parse(fetch.mock.calls.at(-1)[1].body)
+    const payload = api.reportFrontendError.mock.calls.at(-1)[0]
     expect(payload.projectId).toBeUndefined()
     expect(payload.frontendId).toBe(1)
   })
 
-  it("sends closed-test access token when mirroring errors to backend", () => {
-    sessionStorage.setItem("novel_app_access_token", "closed-token")
-
+  it("delegates backend mirroring to the authenticated API transport", () => {
     recordToastError("closed deployment error")
 
-    expect(fetch).toHaveBeenCalledOnce()
-    expect(fetch.mock.calls[0][1].headers).toEqual(expect.objectContaining({
-      "X-Requested-With": "XMLHttpRequest",
-      Authorization: "Bearer closed-token",
-    }))
+    expect(api.reportFrontendError).toHaveBeenCalledOnce()
+    expect(api.reportFrontendError.mock.calls[0][0]).toMatchObject({
+      level: "error",
+      message: "closed deployment error",
+    })
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it("clears only the current project bucket", () => {

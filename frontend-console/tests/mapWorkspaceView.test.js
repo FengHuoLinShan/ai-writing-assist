@@ -138,6 +138,23 @@ describe("mapWorkspaceView overview", () => {
     mountSpy.mockRestore()
   })
 
+  it("mounts the active map from onRendered after the route DOM is committed", async () => {
+    window.location.hash = "#workbench/p1/map?map_id=m1"
+    mapWorkspaceView._mode = "map"
+    mapWorkspaceView._activeMapId = "m1"
+    const mountSpy = vi.spyOn(mapWorkspaceView, "_mountMap").mockImplementation(() => {})
+
+    const html = await mapWorkspaceView.render()
+    expect(mountSpy).not.toHaveBeenCalled()
+    document.body.innerHTML = `<main id="workspace-content">${html}</main>`
+
+    mapWorkspaceView.onRendered()
+
+    expect(document.getElementById("map-root")).not.toBeNull()
+    expect(mountSpy).toHaveBeenCalledTimes(1)
+    mountSpy.mockRestore()
+  })
+
   it("falls back to backend open target when recent route has no recent map", async () => {
     mapWorkspaceView._activeSceneId = "s1"
     mapWorkspaceView._focusEntityId = "f1"
@@ -1142,16 +1159,15 @@ describe("mapWorkspaceView overview", () => {
     openLocationSpy.mockRestore()
   })
 
-  it("clears pending render timers on leave", async () => {
+  it("does not schedule a timer to mount an already selected map", async () => {
     vi.useFakeTimers()
-    const clearSpy = vi.spyOn(globalThis, "clearTimeout")
+    const timerSpy = vi.spyOn(globalThis, "setTimeout")
     mapWorkspaceView._mode = "map"
     mapWorkspaceView._activeMapId = "m1"
 
     await mapWorkspaceView.render()
-    mapWorkspaceView.onLeave()
 
-    expect(clearSpy).toHaveBeenCalled()
+    expect(timerSpy).not.toHaveBeenCalled()
     vi.useRealTimers()
   })
 })

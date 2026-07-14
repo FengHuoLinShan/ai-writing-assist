@@ -416,6 +416,17 @@ class TestSchemas:
 # ============================================================
 
 
+@pytest.fixture
+def _stub_rag_active_project_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+    from modules.rag import api as rag_api
+
+    async def require_active_project(_db, _novel_id):
+        return None
+
+    monkeypatch.setattr(rag_api, "_require_active_project", require_active_project)
+
+
+@pytest.mark.usefixtures("_stub_rag_active_project_guard")
 class TestApiRoutes:
     """RAG API 路由单元测试（mock facade + circuit_breaker + metrics）"""
 
@@ -991,6 +1002,125 @@ class TestTuningExtra:
         assert result.precision_at_5 == 0.0
         assert result.recall_at_5 == 0.0
         assert result.avg_latency_ms == 0.0
+
+    @pytest.mark.asyncio
+    async def test_evaluate_weights_logs_embedding_failure_and_uses_lexical_fallback(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        from modules.rag.tuning import EvalQuery, evaluate_weights
+
+        class _FailingEmbeddingClient:
+            async def generate_embedding(self, *_args, **_kwargs):
+                raise RuntimeError("embedding unavailable")
+
+        class _CapturingRetrieval:
+            query_embedding = object()
+            calls = 0
+
+            async def hybrid_search(self, *_args, **kwargs):
+                type(self).query_embedding = kwargs["query_embedding"]
+                type(self).calls += 1
+                return []
+
+        monkeypatch.setattr(
+            "infrastructure.llm.client.LLMClient",
+            _FailingEmbeddingClient,
+        )
+        monkeypatch.setattr(
+            "modules.rag.retrieval.RetrievalOrchestrator",
+            _CapturingRetrieval,
+        )
+        novel_id = uuid.UUID(hex="a" * 32)
+
+        with caplog.at_level("WARNING", logger="modules.rag.tuning"):
+            result = await evaluate_weights(
+                AsyncMock(),
+                novel_id,
+                [
+                    EvalQuery(
+                        query="测试检索正文不应进入 warning message",
+                        relevant_ids={"chunk-1"},
+                        chapter_index=7,
+                    ),
+                    EvalQuery(
+                        query="第二条测试检索正文",
+                        relevant_ids={"chunk-2"},
+                        chapter_index=8,
+                    ),
+                ],
+                (0.5, 0.2, 0.15, 0.15),
+            )
+
+        assert result.mrr == 0.0
+        assert _CapturingRetrieval.query_embedding is None
+        records = [
+            item
+            for item in caplog.records
+            if "rag_tuning_embedding_failed" in item.getMessage()
+        ]
+        assert len(records) == 1
+        record = records[0]
+        assert str(novel_id) in record.getMessage()
+        assert "chapter_index=7" in record.getMessage()
+        assert "测试检索正文" not in record.getMessage()
+        assert _CapturingRetrieval.calls == 2
+        assert record.exc_info is not None
+
+    @pytest.mark.asyncio
+    async def test_run_tuning_shares_embedding_failure_log_suppression(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        from modules.rag.tuning import EvalQuery, run_tuning
+
+        class _FailingEmbeddingClient:
+            async def generate_embedding(self, *_args, **_kwargs):
+                raise RuntimeError("embedding unavailable")
+
+        class _EmptyRetrieval:
+            async def hybrid_search(self, *_args, **_kwargs):
+                return []
+
+        async def _build_eval_set(*_args, **_kwargs):
+            return [
+                EvalQuery(
+                    query="测试检索",
+                    relevant_ids={"chunk-1"},
+                    chapter_index=7,
+                )
+            ]
+
+        monkeypatch.setattr(
+            "infrastructure.llm.client.LLMClient",
+            _FailingEmbeddingClient,
+        )
+        monkeypatch.setattr(
+            "modules.rag.retrieval.RetrievalOrchestrator",
+            _EmptyRetrieval,
+        )
+        monkeypatch.setattr("modules.rag.tuning.build_eval_set", _build_eval_set)
+        monkeypatch.setattr(
+            "modules.rag.tuning.generate_weight_combinations",
+            lambda: [
+                (0.5, 0.2, 0.15, 0.15),
+                (0.45, 0.25, 0.15, 0.15),
+            ],
+        )
+
+        with caplog.at_level("WARNING", logger="modules.rag.tuning"):
+            report = await run_tuning(AsyncMock(), novel_id="a" * 32)
+
+        assert report.total_combinations == 2
+        records = [
+            item
+            for item in caplog.records
+            if "rag_tuning_embedding_failed" in item.getMessage()
+        ]
+        assert len(records) == 1
+        assert records[0].exc_info is not None
 
     # --- run_tuning ---
 

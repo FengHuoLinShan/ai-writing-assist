@@ -6,7 +6,9 @@ Import 模块测试
 
 from __future__ import annotations
 
+import io
 import uuid
+import zipfile
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -108,6 +110,194 @@ class TestParseTxt:
         """测试不支持的类型"""
         with pytest.raises(ValueError, match="不支持的文件类型"):
             parse_file(b"test", "pdf")
+
+
+class TestParseFileContentValidation:
+    """上传解析入口必须校验扩展名对应的真实内容格式。"""
+
+    @staticmethod
+    def _epub_bytes(*, mimetype: bytes = b"application/epub+zip") -> bytes:
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            archive.writestr("mimetype", mimetype, compress_type=zipfile.ZIP_STORED)
+            archive.writestr(
+                "META-INF/container.xml",
+                """<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+                <rootfiles><rootfile full-path="OEBPS/content.opf"
+                media-type="application/oebps-package+xml" /></rootfiles>
+                </container>""",
+            )
+            archive.writestr(
+                "OEBPS/content.opf",
+                """<package xmlns="http://www.idpf.org/2007/opf" version="3.0"
+                unique-identifier="book-id">
+                <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+                <dc:identifier id="book-id">test-book</dc:identifier>
+                <dc:title>测试书籍</dc:title><dc:language>zh</dc:language>
+                </metadata>
+                <manifest><item id="chapter-1" href="chapter.xhtml"
+                media-type="application/xhtml+xml" /></manifest>
+                <spine><itemref idref="chapter-1" /></spine>
+                </package>""",
+            )
+            archive.writestr(
+                "OEBPS/chapter.xhtml",
+                """<html xmlns="http://www.w3.org/1999/xhtml"><body>
+                <h1>第一章</h1><p>正文</p></body></html>""",
+            )
+        return output.getvalue()
+
+    @staticmethod
+    def _mobi_bytes() -> bytes:
+        first_record_offset = 88
+        payload = bytearray(first_record_offset + 16 + 116)
+        payload[60:68] = b"BOOKMOBI"
+        payload[76:78] = (1).to_bytes(2, "big")
+        payload[78:82] = first_record_offset.to_bytes(4, "big")
+        payload[first_record_offset : first_record_offset + 2] = (1).to_bytes(2, "big")
+        payload[first_record_offset + 16 : first_record_offset + 20] = b"MOBI"
+        payload[first_record_offset + 20 : first_record_offset + 24] = (116).to_bytes(
+            4,
+            "big",
+        )
+        return bytes(payload)
+
+    def test_executable_renamed_to_txt_is_rejected(self):
+        payload = bytearray(132)
+        payload[:2] = b"MZ"
+        payload[60:64] = (128).to_bytes(4, "little")
+        payload[128:132] = b"PE\x00\x00"
+
+        with pytest.raises(ValueError, match="文件内容与扩展名不匹配"):
+            parse_file(bytes(payload), "txt")
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            b"\x7fELF" + b"A" * 64,
+            b"\xcf\xfa\xed\xfe" + b"A" * 64,
+            b"\xca\xfe\xba\xbe" + b"A" * 64,
+        ],
+    )
+    def test_non_pe_executable_renamed_to_txt_is_rejected(self, payload: bytes):
+        with pytest.raises(ValueError, match="文件内容与扩展名不匹配"):
+            parse_file(payload, "txt")
+
+    def test_html_requires_markup(self):
+        with pytest.raises(ValueError, match="文件内容与扩展名不匹配"):
+            parse_file(b"this is plain text, not html", "html")
+
+    def test_html_fragment_remains_supported(self):
+        payload = "<h1>第一章</h1><p>正文</p>".encode()
+
+        chapters = parse_file(payload, "html")
+
+        assert chapters == [{"title": "第一章", "content": "正文"}]
+
+    def test_ordinary_zip_renamed_to_epub_is_rejected(self):
+        payload = self._epub_bytes(mimetype=b"application/zip")
+
+        with patch(
+            "modules.imports.parsers.parse_epub",
+            autospec=True,
+            return_value=[{"title": "伪装内容", "content": "正文"}],
+        ) as parser:
+            with pytest.raises(ValueError, match="文件内容与扩展名不匹配"):
+                parse_file(payload, "epub")
+
+        parser.assert_not_called()
+
+    def test_epub_signature_routes_to_existing_parser(self):
+        payload = self._epub_bytes()
+        expected = [{"title": "第一章", "content": "正文"}]
+
+        with patch(
+            "modules.imports.parsers.parse_epub",
+            autospec=True,
+            return_value=expected,
+        ) as parser:
+            assert parse_file(payload, "epub") == expected
+
+        parser.assert_called_once_with(payload)
+
+    def test_valid_minimal_epub_remains_supported(self):
+        chapters = parse_file(self._epub_bytes(), "epub")
+
+        assert chapters == [{"title": "第一章", "content": "第一章\n\n正文"}]
+
+    def test_epub_malformed_container_is_rejected_before_parser(self):
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            archive.writestr(
+                "mimetype",
+                b"application/epub+zip",
+                compress_type=zipfile.ZIP_STORED,
+            )
+            archive.writestr("META-INF/container.xml", b"<container>")
+
+        with patch("modules.imports.parsers.parse_epub", autospec=True) as parser:
+            with pytest.raises(ValueError, match="文件内容与扩展名不匹配"):
+                parse_file(output.getvalue(), "epub")
+
+        parser.assert_not_called()
+
+    def test_epub_unsafe_member_path_is_rejected_before_parser(self):
+        payload = self._epub_bytes()
+        source = io.BytesIO(payload)
+        output = io.BytesIO()
+        with zipfile.ZipFile(source) as original, zipfile.ZipFile(output, "w") as archive:
+            for member in original.infolist():
+                archive.writestr(member, original.read(member))
+            archive.writestr("../outside.xhtml", "<p>escape</p>")
+
+        with patch("modules.imports.parsers.parse_epub", autospec=True) as parser:
+            with pytest.raises(ValueError, match="文件内容与扩展名不匹配"):
+                parse_file(output.getvalue(), "epub")
+
+        parser.assert_not_called()
+
+    @pytest.mark.parametrize("file_type", ["mobi", "azw3"])
+    def test_mobi_family_requires_bookmobi_signature(self, file_type: str):
+        with patch(
+            "modules.imports.parsers.parse_mobi",
+            autospec=True,
+            return_value=[{"title": "伪装内容", "content": "正文"}],
+        ) as parser:
+            with pytest.raises(ValueError, match="文件内容与扩展名不匹配"):
+                parse_file(b"not-a-palm-database", file_type)
+
+        parser.assert_not_called()
+
+    def test_mobi_marker_without_valid_record_table_is_rejected(self):
+        payload = bytearray(78)
+        payload[60:68] = b"BOOKMOBI"
+
+        with patch("modules.imports.parsers.parse_mobi", autospec=True) as parser:
+            with pytest.raises(ValueError, match="文件内容与扩展名不匹配"):
+                parse_file(bytes(payload), "mobi")
+
+        parser.assert_not_called()
+
+    @pytest.mark.parametrize("file_type", ["mobi", "azw3"])
+    def test_mobi_family_signature_routes_to_existing_parser(self, file_type: str):
+        payload = self._mobi_bytes()
+        expected = [{"title": "第一章", "content": "正文"}]
+
+        with patch(
+            "modules.imports.parsers.parse_mobi",
+            autospec=True,
+            return_value=expected,
+        ) as parser:
+            assert parse_file(payload, file_type) == expected
+
+        parser.assert_called_once_with(payload)
+
+    def test_utf16_txt_remains_supported(self):
+        payload = "第一章\n这是正文\n".encode("utf-16")
+
+        chapters = parse_file(payload, "txt")
+
+        assert chapters == [{"title": "第一章", "content": "这是正文"}]
 
 
 class TestFileValidation:

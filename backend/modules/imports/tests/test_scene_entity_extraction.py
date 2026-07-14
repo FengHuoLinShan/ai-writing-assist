@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+import pytest_asyncio
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -322,7 +323,7 @@ def test_phase2b_trims_scene_text_with_head_and_tail(
     assert compact.endswith("C" * 30)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def novel_with_drafts(db_session: AsyncSession):
     """创建一个项目并写入第 1、2 章 draft。"""
     from modules.project.schemas import ProjectCreate

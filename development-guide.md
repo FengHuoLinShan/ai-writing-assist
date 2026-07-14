@@ -48,6 +48,8 @@ make doctor-llm                  # Explicitly includes remote LLM provider conne
 # Testing & linting
 make test                        # Fast backend layer: no PostgreSQL, real LLM, or local corpus
 make test-fast                   # Explicit alias for the fast backend layer
+make test-fast-parallel TEST_WORKERS=2  # Same fast layer with xdist; CI uses 2 workers
+make test-fast-coverage TEST_WORKERS=2  # CI-equivalent fast layer with 85% coverage gate
 make test-v                      # Fast layer, verbose, stop on first failure
 make test ARGS="-k test_create"  # Filter by test name
 make test-integration            # SQLite cross-module integration tests
@@ -56,6 +58,7 @@ make test-real-llm               # Explicit SQLite real-model acceptance
 make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt  # Real corpus + PostgreSQL/model acceptance
 make test-frontend FRONTEND_ARGS="stateTopbarHelp.test.js"  # Frontend Vitest
 make test-all                    # Fast backend layer, then frontend tests
+make secret-hygiene              # Scan tracked/indexed files for credential regressions
 make lint                        # ruff check
 make lint-fix                    # ruff --fix
 make format                      # ruff format --check
@@ -63,6 +66,9 @@ make format-fix                  # ruff format
 ```
 
 Frontend currently has no build script and no independent lint/format dependency in `frontend-console/package.json`; frontend validation remains the Vitest/Playwright scripts above plus `git diff --check`.
+
+GitHub Actions 的后端门禁、等价本地命令和显式验收层边界见
+[`testing-guide.md`](testing-guide.md#continuous-integration)。
 
 Backend reload watches `app/`, `core/`, `shared/`, `infrastructure/`, `modules/`,
 and `prompts/`. Each Python or prompt Markdown change stops the complete Uvicorn

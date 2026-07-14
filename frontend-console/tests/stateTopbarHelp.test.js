@@ -69,6 +69,27 @@ describe("state mode styling", () => {
   })
 })
 
+describe("state loading presentation", () => {
+  beforeEach(() => {
+    resetState()
+    window.appState.loading = false
+    document.body.innerHTML = '<main id="workspace-content"></main>'
+  })
+
+  it("renders an accessible workspace skeleton for a global loading state", () => {
+    window.appState.loading = true
+
+    const status = document.querySelector(".loading-skeleton")
+    expect(status?.getAttribute("role")).toBe("status")
+    expect(status?.getAttribute("aria-busy")).toBe("true")
+    expect(status?.querySelector(".sr-only")?.textContent).toBe("工作区加载中...")
+    expect(status?.querySelectorAll(".skeleton")).toHaveLength(4)
+    expect([...status.querySelectorAll(".skeleton")].every((node) => (
+      node.getAttribute("aria-hidden") === "true"
+    ))).toBe(true)
+  })
+})
+
 describe("state project persistence", () => {
   beforeEach(() => {
     resetState()

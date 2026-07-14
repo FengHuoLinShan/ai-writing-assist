@@ -591,6 +591,17 @@ class TestWritingDraftRepository:
 # ============================================================
 
 
+@pytest.fixture
+def _stub_writing_active_project_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+    from modules.writing import api as writing_api
+
+    async def require_active_project(_db, _novel_id):
+        return None
+
+    monkeypatch.setattr(writing_api, "require_active_project", require_active_project)
+
+
+@pytest.mark.usefixtures("_stub_writing_active_project_guard")
 class TestWritingAPI:
     """Writing API 路由 — mock service 层"""
 
@@ -599,6 +610,7 @@ class TestWritingAPI:
         with patch("modules.writing.api._service") as svc:
             svc.get_draft = AsyncMock()
             svc.publish_draft = AsyncMock()
+            svc.publish_draft_result = AsyncMock()
             svc.update_draft = AsyncMock()
             svc.delete_draft = AsyncMock()
             svc.delete_chapter = AsyncMock()
@@ -724,11 +736,11 @@ class TestWritingAPI:
             title="第一章",
             version_number=1,
         )
-        mock_service.publish_draft.return_value = expected
+        mock_service.publish_draft_result.return_value = (expected, True)
 
         result = await create_draft(mock_db, data)
 
-        mock_service.publish_draft.assert_awaited_once_with(mock_db, data)
+        mock_service.publish_draft_result.assert_awaited_once_with(mock_db, data)
         mock_facade.assert_not_awaited()
         mock_enqueue.assert_called_once_with(
             mock_db,

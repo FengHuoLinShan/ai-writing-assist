@@ -123,3 +123,47 @@ class TestParseLLMJsonLogging:
 
         assert str(exc.value) == "Empty LLM is empty"
         assert "empty or whitespace-only" in caplog.text
+
+
+class TestParseLLMJsonExtraction:
+    """parse_llm_json — 常见 provider 包装与截断恢复。"""
+
+    @pytest.mark.parametrize(
+        ("content", "expected"),
+        [
+            ('{"answer": 42}', {"answer": 42}),
+            ('[{"answer": 42}]', {"items": [{"answer": 42}]}),
+            ('```json\n{"answer": 42}\n```', {"answer": 42}),
+            ('```json\n[{"answer": 42}]\n```', {"items": [{"answer": 42}]}),
+            ('prefix \ufeff{"answer": 42} suffix', {"answer": 42}),
+            ("analysis before [1, 2] after", {"items": [1, 2]}),
+        ],
+    )
+    def test_extracts_supported_response_shapes(self, content, expected):
+        assert parse_llm_json(content) == expected
+
+    def test_falls_through_malformed_fence_to_embedded_object(self):
+        content = '```json\nnot-json\n```\nfinal answer: {"ok": true}'
+
+        assert parse_llm_json(content) == {"ok": True}
+
+    def test_recovers_complete_prefix_from_truncated_object(self, caplog):
+        content = '{"kept": {"nested": {"name": "value"}}, "unfinished": '
+
+        with caplog.at_level(logging.INFO, logger="shared.utils"):
+            result = parse_llm_json(content, label="Truncated LLM")
+
+        assert result == {"kept": {"nested": {"name": "value"}}}
+        assert "recovered truncated JSON" in caplog.text
+
+    def test_valid_scalar_is_rejected_as_non_object_response(self):
+        with pytest.raises(ValueError, match="Scalar LLM is not valid JSON"):
+            parse_llm_json("42", label="Scalar LLM")
+
+    def test_code_fenced_scalar_is_rejected_as_non_object_response(self):
+        with pytest.raises(ValueError, match="Scalar LLM is not valid JSON"):
+            parse_llm_json("```json\n42\n```", label="Scalar LLM")
+
+    def test_malformed_bracketed_response_is_rejected(self):
+        with pytest.raises(ValueError, match="Bracketed LLM is not valid JSON"):
+            parse_llm_json("[not-json]", label="Bracketed LLM")

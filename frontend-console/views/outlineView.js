@@ -18,7 +18,12 @@ import {
   toggleAllBulkSelection,
   toggleBulkSelection,
 } from "../shared/bulkSelection.js"
-import { bindWorkspaceClick, renderActionMenu, bindActionMenus } from "../shared/viewHelper.js"
+import {
+  bindActionMenus,
+  bindWorkspaceClick,
+  renderActionMenu,
+  renderLoadingSkeleton,
+} from "../shared/viewHelper.js"
 import { confirmAiReference } from "../shared/aiReferenceModal.js"
 import {
   clearActiveWorkflow,
@@ -146,6 +151,8 @@ const outlineView = {
     foreshadowing: 0,
     reveals: 0,
   },
+  _structureLoadErrors: {},
+  _structureLoadRequestId: 0,
   _plotAutoExtractTaskId: null,
   _plotAutoExtractProgress: null,
   _plotAutoExtractPoller: null,
@@ -159,6 +166,8 @@ const outlineView = {
   _sceneWorkbenchActive: false,
 
   async onEnter() {
+    const loadRequestId = ++this._structureLoadRequestId
+    const isCurrentLoad = () => loadRequestId === this._structureLoadRequestId
     this._loading = true
     this._threads = []
     this._arcs = []
@@ -173,6 +182,7 @@ const outlineView = {
     clearAllBulkSelections(this)
 
     const subView = state.currentSubView || "threads"
+    delete this._structureLoadErrors[subView]
     if (subView === "scenes") {
       this._sceneWorkbenchActive = true
       this._loading = false
@@ -200,55 +210,82 @@ const outlineView = {
       promises.push(
         api.outline.listThreads(state.currentProjectId, filterParams)
           .then((data) => {
+            if (!isCurrentLoad()) return
             const items = data.items || data || []
             this._threads = items
             this._structureTotals.threads = Number(data.total ?? this._threads.length) || 0
           })
-          .catch(() => { this._threads = []; this._structureTotals.threads = 0 })
+          .catch((err) => {
+            if (!isCurrentLoad()) return
+            this._threads = []
+            this._structureTotals.threads = 0
+            this._setStructureLoadError("threads", err)
+          })
       )
     }
     if (fetchArcs) {
       promises.push(
         api.outline.listArcs(state.currentProjectId, filterParams)
           .then((data) => {
+            if (!isCurrentLoad()) return
             const items = data.items || data || []
             this._arcs = items
             this._structureTotals.arcs = Number(data.total ?? this._arcs.length) || 0
           })
-          .catch(() => { this._arcs = []; this._structureTotals.arcs = 0 })
+          .catch((err) => {
+            if (!isCurrentLoad()) return
+            this._arcs = []
+            this._structureTotals.arcs = 0
+            this._setStructureLoadError("arcs", err)
+          })
       )
     }
     if (fetchForeshadowing) {
       promises.push(
         api.outline.listForeshadowing(state.currentProjectId, filterParams)
           .then((data) => {
+            if (!isCurrentLoad()) return
             const items = data.items || data || []
             this._foreshadowing = items
             this._structureTotals.foreshadowing = Number(data.total ?? this._foreshadowing.length) || 0
           })
-          .catch(() => { this._foreshadowing = []; this._structureTotals.foreshadowing = 0 })
+          .catch((err) => {
+            if (!isCurrentLoad()) return
+            this._foreshadowing = []
+            this._structureTotals.foreshadowing = 0
+            this._setStructureLoadError("foreshadowing", err)
+          })
       )
     }
     if (fetchReveals) {
       promises.push(
         api.outline.listReveals(state.currentProjectId, filterParams)
           .then((data) => {
+            if (!isCurrentLoad()) return
             const items = data.items || data || []
             this._reveals = items
             this._structureTotals.reveals = Number(data.total ?? this._reveals.length) || 0
           })
-          .catch(() => { this._reveals = []; this._structureTotals.reveals = 0 })
+          .catch((err) => {
+            if (!isCurrentLoad()) return
+            this._reveals = []
+            this._structureTotals.reveals = 0
+            this._setStructureLoadError("reveals", err)
+          })
       )
     }
 
     if (promises.length > 0) {
       await Promise.all(promises)
     }
+    if (!isCurrentLoad()) return
     this._recoverOutlineGenerateWorkflow()
     this._loading = false
   },
 
   onLeave() {
+    // 使离开视图后才完成的结构请求失效，避免旧结果恢复轮询或污染下次进入时的状态。
+    this._structureLoadRequestId += 1
     this._stopPlotAutoExtractPolling()
     this._stopOutlineGeneratePolling()
     if (this._sceneWorkbenchActive) {
@@ -379,7 +416,9 @@ const outlineView = {
     if (subView === "scenes") {
       html += await sceneWorkbenchView.render()
     } else if (this._loading) {
-      html += '<div class="loading">加载中...</div>'
+      html += renderLoadingSkeleton("大纲数据加载中...")
+    } else if (this._structureLoadErrors[subView]) {
+      html += this._renderStructureLoadError(subView)
     } else if (subView === "threads") {
       html += this._renderThreads()
     } else if (subView === "arcs") {
@@ -390,9 +429,16 @@ const outlineView = {
       html += this._renderReveals()
     }
 
-    if (subView !== "scenes") setTimeout(() => this._bindEvents(), 0)
     if (subView === "scenes") return `<div class="outline-scene-layout">${html}</div>`
     return html
+  },
+
+  onRendered() {
+    if (state.currentSubView === "scenes") {
+      sceneWorkbenchView.onRendered()
+    } else {
+      this._bindEvents()
+    }
   },
 
   _renderOutlineGenerateProgress() {
@@ -728,6 +774,28 @@ const outlineView = {
         <div class="empty-icon">&#128204;</div>
         <p>暂无${esc(kind)}。</p>
         <p class="outline-empty-detail">${esc(detail)}</p>
+      </div>
+    `
+  },
+
+  _setStructureLoadError(subView, err) {
+    const labels = {
+      threads: "剧情线",
+      arcs: "篇章纲",
+      foreshadowing: "伏笔",
+      reveals: "揭示",
+    }
+    const message = typeof err?.message === "string" ? err.message.trim() : ""
+    this._structureLoadErrors[subView] = message || `${labels[subView] || "结构数据"}加载失败`
+  },
+
+  _renderStructureLoadError(subView) {
+    return `
+      <div class="empty-state" role="alert">
+        <div class="empty-icon">!</div>
+        <p>加载失败</p>
+        <p class="outline-empty-detail">${esc(this._structureLoadErrors[subView])}</p>
+        <button class="btn btn-sm" data-action="retry-outline-load">重新加载</button>
       </div>
     `
   },
@@ -1900,16 +1968,14 @@ const outlineView = {
       },
     }])
 
-    setTimeout(() => {
-      this._bindGenerateOverlapCheck()
-      const startEl = document.getElementById("generate-structure-start")
-      const endEl = document.getElementById("generate-structure-end")
-      const start = parseInt(startEl?.value || "1", 10)
-      const end = parseInt(endEl?.value || "10", 10)
-      if (Number.isInteger(start) && Number.isInteger(end)) {
-        this._updateGenerateOverlapWarning(start, end)
-      }
-    }, 0)
+    this._bindGenerateOverlapCheck()
+    const startEl = document.getElementById("generate-structure-start")
+    const endEl = document.getElementById("generate-structure-end")
+    const start = parseInt(startEl?.value || "1", 10)
+    const end = parseInt(endEl?.value || "10", 10)
+    if (Number.isInteger(start) && Number.isInteger(end)) {
+      this._updateGenerateOverlapWarning(start, end)
+    }
   },
 
   _bindGenerateOverlapCheck() {
@@ -2031,6 +2097,17 @@ const outlineView = {
       "nav-arcs": () => router.navigate("outline", "arcs"),
       "nav-foreshadowing": () => router.navigate("outline", "foreshadowing"),
       "nav-reveals": () => router.navigate("outline", "reveals"),
+      "retry-outline-load": async (_e, target) => {
+        target.disabled = true
+        target.textContent = "重新加载中..."
+        try {
+          await router.refresh()
+        } catch (err) {
+          target.disabled = false
+          target.textContent = "重新加载"
+          throw err
+        }
+      },
       "bulk-toggle-one": (e, t) => {
         e.stopPropagation()
         this._toggleBulkOne(t)

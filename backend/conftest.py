@@ -23,10 +23,12 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     create_async_engine,
 )
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.pool import StaticPool
 
 import infrastructure.tasks.models  # noqa: F401
@@ -50,6 +52,12 @@ from core.container import reset as reset_container
 from core.dependencies import get_db
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+
+
+@compiles(PG_UUID, "sqlite")
+def _compile_postgres_uuid_as_text_for_sqlite(_type, _compiler, **_kwargs) -> str:
+    """Keep UUID hex values in SQLite text affinity instead of NUMERIC affinity."""
+    return "CHAR(32)"
 
 
 class XhrAsyncClient(AsyncClient):

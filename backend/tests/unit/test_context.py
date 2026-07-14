@@ -416,7 +416,16 @@ class TestNineTierIR:
             memory_records=[{"event": "失忆"}],
             plot_threads=[{"name": "主线"}],
             rag_chunks=[{"text": "证据"}],
-            project={"title": "小说"},
+            project={
+                "title": "小说",
+                "tone": "克制",
+                "settings": {
+                    "llm": {
+                        "api_key": "must-not-enter-sections",
+                        "base_url": "https://private.example.test/v1",
+                    }
+                },
+            },
             warnings=["注意"],
         )
         compiler = ContextCompiler(loaders=[])
@@ -436,6 +445,10 @@ class TestNineTierIR:
         assert keys == expected_keys
         for s in sections:
             assert s.token_count > 0
+        style = next(section for section in sections if section.key == "style_assets")
+        assert style.content == "- 标题: 小说\n- 风格: 克制"
+        assert "settings" not in style.content
+        assert "must-not-enter-sections" not in style.content
 
     def test_scene_blueprint_uses_bundle_scene(self) -> None:
         """scene_blueprint 应使用 bundle.scene 而非 chapter_card"""
@@ -807,7 +820,17 @@ class TestProjectLoader:
     async def test_load_populates_project(self) -> None:
         """加载成功应设置 bundle.project"""
         mock_ctx = MagicMock()
-        mock_ctx.model_dump.return_value = {"title": "测试小说", "genre": "科幻"}
+        mock_ctx.model_dump.return_value = {
+            "novel_id": "id",
+            "title": "测试小说",
+            "genre": "科幻",
+            "settings": {
+                "llm": {
+                    "api_key": "must-not-enter-context",
+                    "base_url": "https://private.example.test/v1",
+                }
+            },
+        }
 
         get_project_context = AsyncMock(return_value=mock_ctx)
         loader = ProjectLoader(get_project_context_fn=get_project_context)
@@ -816,7 +839,11 @@ class TestProjectLoader:
         await loader.load(db=MagicMock(), options=MagicMock(novel_id="id"), bundle=bundle)
 
         get_project_context.assert_awaited_once()
-        assert bundle.project == {"title": "测试小说", "genre": "科幻"}
+        assert bundle.project == {
+            "novel_id": "id",
+            "title": "测试小说",
+            "genre": "科幻",
+        }
         assert bundle.budget_used["project"] == 1
 
     @pytest.mark.asyncio
@@ -1813,6 +1840,17 @@ class TestMarkdownRendererEdgeCases:
 # ============================================================
 
 
+@pytest.fixture
+def _stub_context_active_project_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+    from modules.context import api as context_api
+
+    async def require_active_project(_db, _novel_id):
+        return None
+
+    monkeypatch.setattr(context_api, "require_active_project", require_active_project)
+
+
+@pytest.mark.usefixtures("_stub_context_active_project_guard")
 class TestContextApi:
     """测试 API 路由"""
 

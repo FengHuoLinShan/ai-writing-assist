@@ -11,7 +11,7 @@ export function confirmAsync(
   return new Promise((resolve) => {
     let settled = false
     let observer = null
-    let cancelButtonTimer = null
+    let cancelButton = null
 
     const settle = (value) => {
       if (settled) return
@@ -36,19 +36,20 @@ export function confirmAsync(
       modalClose?.removeEventListener("click", onCloseClick)
       modalOverlay?.removeEventListener("click", onOverlayClick)
       document.removeEventListener("keydown", onKeyDown, true)
+      cancelButton?.removeEventListener("click", onCancel)
       observer?.disconnect()
-      if (cancelButtonTimer !== null) clearTimeout(cancelButtonTimer)
-      cancelButtonTimer = null
+      cancelButton = null
     }
 
     confirmAction(message, onConfirm, confirmText)
-    if (!settled) {
-      cancelButtonTimer = setTimeout(() => {
-        if (settled || typeof document === "undefined") return
-        const cancelBtn = document.querySelector(".modal-content .btn:not(.btn-primary)")
-        if (cancelBtn) cancelBtn.onclick = onCancel
-      }, 50)
-    }
+    // A test double or alternate modal implementation may confirm
+    // synchronously. In that case settle() has already run cleanup(), so do
+    // not attach listeners that can no longer be removed.
+    if (settled) return
+
+    cancelButton = Array.from(document.querySelectorAll("#modal-footer button"))
+      .find((button) => ["取消", "关闭"].includes(button.textContent?.trim())) || null
+    cancelButton?.addEventListener("click", onCancel)
 
     modalClose?.addEventListener("click", onCloseClick)
     modalOverlay?.addEventListener("click", onOverlayClick)

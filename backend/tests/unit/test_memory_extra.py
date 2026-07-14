@@ -71,6 +71,16 @@ def _make_snapshot(novel_id: str, **overrides: object) -> SimpleNamespace:
     return SimpleNamespace(**defaults)
 
 
+@pytest.fixture
+def _stub_memory_active_project_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+    from modules.memory import api as memory_api
+
+    async def require_active_project(_db, _novel_id):
+        return None
+
+    monkeypatch.setattr(memory_api, "_require_active_project", require_active_project)
+
+
 # ============================================================
 # Contracts 测试
 # ============================================================
@@ -173,6 +183,7 @@ class TestChapterPanoramaContract:
 # ============================================================
 
 
+@pytest.mark.usefixtures("_stub_memory_active_project_guard")
 class TestGetPanorama:
     """GET /api/novels/{novel_id}/memories/panorama"""
 
@@ -214,6 +225,7 @@ class TestGetPanorama:
 # ============================================================
 
 
+@pytest.mark.usefixtures("_stub_memory_active_project_guard")
 class TestListEvents:
     """GET /api/novels/{novel_id}/memories/events"""
 
@@ -293,6 +305,7 @@ class TestListEvents:
 # ============================================================
 
 
+@pytest.mark.usefixtures("_stub_memory_active_project_guard")
 class TestGetEntityTimeline:
     """GET /api/novels/{novel_id}/memories/events/{entity_id}/timeline"""
 
@@ -363,6 +376,7 @@ class TestGetEntityTimeline:
 # ============================================================
 
 
+@pytest.mark.usefixtures("_stub_memory_active_project_guard")
 class TestTriggerCapture:
     """POST /api/novels/{novel_id}/memories/snapshots/capture"""
 
@@ -405,6 +419,7 @@ class TestTriggerCapture:
 # ============================================================
 
 
+@pytest.mark.usefixtures("_stub_memory_active_project_guard")
 class TestListSnapshots:
     """GET /api/novels/{novel_id}/memories/snapshots"""
 
@@ -458,6 +473,7 @@ class TestListSnapshots:
 # ============================================================
 
 
+@pytest.mark.usefixtures("_stub_memory_active_project_guard")
 class TestTriggerRebuild:
     """POST /api/novels/{novel_id}/memories/rebuild"""
 
@@ -497,6 +513,7 @@ class TestTriggerRebuild:
 # ============================================================
 
 
+@pytest.mark.usefixtures("_stub_memory_active_project_guard")
 class TestGetStatus:
     """GET /api/novels/{novel_id}/memories/status"""
 

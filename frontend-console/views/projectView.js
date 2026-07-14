@@ -124,12 +124,14 @@ const projectView = {
 
     }
 
-    setTimeout(() => this._bindEvents(), 0)
-    if (state.projects.length > 0) {
-      setTimeout(() => this._renderImportHistory(), 0)
-    }
-
     return html
+  },
+
+  onRendered() {
+    this._bindEvents()
+    if (state.projects.length > 0) {
+      void this._renderImportHistory()
+    }
   },
 
   _renderProjectBulkToolbar(projects) {
@@ -508,7 +510,7 @@ const projectView = {
                 selected.map((project) => project.id),
               )
               toast(`已永久删除 ${result.deleted_count} 个项目`, "success")
-              setTimeout(() => this.showRecycleBin(this._recycleBinSkip), 0)
+              await this.showRecycleBin(this._recycleBinSkip)
               return true
             } catch (err) {
               toast(`批量永久删除失败：${err.message || "未知错误"}`, "error")
@@ -537,7 +539,7 @@ const projectView = {
                 try {
                   await api.projects.permanentDelete(pid)
                   toast("项目已永久删除", "success")
-                  setTimeout(() => this.showRecycleBin(this._recycleBinSkip), 0)
+                  await this.showRecycleBin(this._recycleBinSkip)
                   return true
                 } catch (err) {
                   toast(`永久删除失败：${err.message || "未知错误"}`, "error")
@@ -558,7 +560,6 @@ const projectView = {
         }
       }
       bindRecycleBinEvents()
-      setTimeout(bindRecycleBinEvents, 100)
     } catch (err) {
       toast(`加载回收站失败：${err.message}`, "error")
     }
@@ -780,45 +781,14 @@ const projectView = {
     this._setUploadProgress("上传文件", 0, "正在上传文件...")
 
     try {
-      const result = await new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest()
-        const formData = new FormData()
-        formData.append("file", file)
-        formData.append("novel_id", state.currentProjectId)
-
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) {
-            const percent = Math.round((e.loaded / e.total) * 100)
-            if (btn) btn.textContent = `上传中 ${percent}%`
-            this._setUploadProgress("上传文件", percent, `正在上传文件 ${percent}%`)
-            if (percent >= 100) {
-              this._setUploadProgress("解析章节", 100, "文件已上传，正在解析章节...")
-            }
-          }
+      const result = await api.imports.uploadFile(file, state.currentProjectId, (percent) => {
+        if (btn) btn.textContent = `上传中 ${percent}%`
+        this._setUploadProgress("上传文件", percent, `正在上传文件 ${percent}%`)
+        if (percent >= 100) {
+          this._setUploadProgress("解析章节", 100, "文件已上传，正在解析章节...")
         }
-
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            this._setUploadProgress("解析章节", 100, "章节解析完成")
-            resolve(JSON.parse(xhr.responseText))
-          } else {
-            try {
-              const err = JSON.parse(xhr.responseText)
-              reject(new Error(err.detail || "上传失败"))
-            } catch { reject(new Error("上传失败")) }
-          }
-        }
-        xhr.onerror = () => reject(new Error("网络错误"))
-        xhr.open("POST", (typeof API_HOST !== "undefined" ? API_HOST : "http://localhost:8000") + "/api/imports/upload")
-        xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest")
-        const accessToken = typeof sessionStorage !== "undefined"
-          ? sessionStorage.getItem("novel_app_access_token")
-          : null
-        if (accessToken) {
-          xhr.setRequestHeader("Authorization", `Bearer ${accessToken}`)
-        }
-        xhr.send(formData)
       })
+      this._setUploadProgress("解析章节", 100, "章节解析完成")
 
       const nextStep = result.imported_chapters > 0
         ? "，可在写作台按需启动场景自动提取"

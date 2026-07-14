@@ -3292,6 +3292,33 @@ kbd {
   animation: skeleton-shimmer 1.4s ease-in-out infinite;
 }
 
+.loading-skeleton {
+  display: grid;
+  width: min(100%, 760px);
+  gap: var(--space-4);
+  padding: var(--space-12) var(--space-6);
+  margin: 0 auto;
+}
+
+.loading-skeleton__heading {
+  width: 38%;
+  height: 24px;
+  margin-bottom: var(--space-2);
+}
+
+.loading-skeleton__line {
+  width: 100%;
+  height: 14px;
+}
+
+.loading-skeleton__line--medium {
+  width: 76%;
+}
+
+.loading-skeleton__line--short {
+  width: 52%;
+}
+
 @keyframes skeleton-shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }

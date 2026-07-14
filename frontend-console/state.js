@@ -195,7 +195,15 @@ function updateUIForState(key, value) {
       const content = document.getElementById("workspace-content")
       if (content && value) {
         if (!content.querySelector(".data-table, .card, .empty-state, .project-grid")) {
-          content.innerHTML = '<div class="loading">加载中</div>'
+          content.innerHTML = `
+            <div class="loading-skeleton" role="status" aria-live="polite" aria-busy="true">
+              <span class="sr-only">工作区加载中...</span>
+              <div class="skeleton loading-skeleton__heading" aria-hidden="true"></div>
+              <div class="skeleton loading-skeleton__line" aria-hidden="true"></div>
+              <div class="skeleton loading-skeleton__line loading-skeleton__line--medium" aria-hidden="true"></div>
+              <div class="skeleton loading-skeleton__line loading-skeleton__line--short" aria-hidden="true"></div>
+            </div>
+          `
         }
       }
       break

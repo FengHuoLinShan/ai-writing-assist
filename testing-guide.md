@@ -41,6 +41,8 @@ Three layers:
 | Command | Scope | External prerequisites |
 |---|---|---|
 | `make test` / `make test-fast` | Modules, infrastructure, unit, SQLite integration, prompt contracts | None; excludes E2E, real LLM, and external source data |
+| `make test-fast-coverage TEST_WORKERS=2` | Same fast layer with parallel production-code coverage and an 85% gate | None |
+| `make secret-hygiene` | Tracked/indexed runtime env, private-key, and high-confidence credential gate | Git working tree; no Python dependency install required |
 | `make test-integration` | SQLite cross-module flows | None |
 | `make test-e2e` | PostgreSQL/pgvector behavior | Running test database at Alembic head; fails fast if unavailable or stale |
 | `make test-real-llm` | Explicit SQLite real-model acceptance | Configured provider credentials |
@@ -49,6 +51,26 @@ Three layers:
 `pytest` uses the same fast test paths by default. Every marker is strict: use
 `real_llm` for a remote provider call and `external_data` for a user-supplied
 local corpus. Neither may enter the default fast layer.
+
+### Continuous integration
+
+GitHub Actions 在 pull request 和 `main` push 上运行 `Backend quality`：checkout 后先用
+系统 Python 执行零依赖的 repository secret hygiene gate，再通过 `backend/uv.lock` 安装
+Python 3.12 的窄 `ci` 依赖（不安装本地 embedding 运行时），然后依次执行 `make lint` 与
+`make test-fast-coverage TEST_WORKERS=2 ARGS="-W error::RuntimeWarning"`。
+secret hygiene gate 同时检查 Git index 的各 stage 和已跟踪工作区版本，拒绝运行时 `.env`、
+常见私钥文件名、私钥块与高置信服务凭据；测试/文档中的显式占位值仅在受控路径豁免。
+失败日志只包含安全化路径、规则名和不可逆短指纹，不输出凭据原文。等价本地入口是
+`make secret-hygiene`；它不替代真实凭据发生泄露后的吊销、轮换和历史处置。
+并行目标与串行 `make test-fast` 使用完全相同的测试路径、marker 排除和单测试超时，
+`loadscope` 只把独立 module/class 分配到隔离 worker。coverage 只统计
+`app/core/shared/infrastructure/modules` 中的生产 Python 文件，排除测试目录、pytest
+支持的测试文件命名和 `conftest.py`，输出缺失行并要求总覆盖率不低于 85.0%。该检查不连接 PostgreSQL、真实
+LLM 或本地语料；这些验收层仍按上表显式触发，且不继承 fast 层超时。远端启用分支保护
+后，应把 `Backend quality` 设为合并前必需状态检查。
+
+`make format` 暂未纳入 CI：当前仓库仍有历史格式债务，应先在独立机械变更中形成干净
+基线，避免新门禁因无关存量文件持续失败。
 
 ### Test setup pattern
 
@@ -63,6 +85,11 @@ files should contain only module-specific factories and mocks:
 async def world_map(db_session: AsyncSession, project_novel_id: str):
     return await _create_default_map(db_session, project_novel_id)
 ```
+
+测试 schema 中的 PostgreSQL `UUID` 类型由根 `conftest.py` 仅在 SQLite dialect 下编译为
+`CHAR(32)`。不要删除这一测试适配：SQLite 会给未知的 `UUID` 类型名 NUMERIC affinity，
+并可能把形如科学计数法的合法 UUID hex 转成浮点 `inf`；生产 PostgreSQL 仍使用原生
+`UUID` DDL。
 
 Fixture 使用者只通过测试函数参数名请求 fixture。不得使用
 `from conftest import ...`、`from tests.conftest import ...` 或其他普通 Python
@@ -134,6 +161,7 @@ This does not relax module boundaries: cross-module behavior tests still go thro
    - single-scene Phase 2b failures mark degraded diagnostics without aborting Phase 2a output
    - manual `world_alias_relation_extraction` tasks require `novel_id` and invoke the DI handler with chapter range / scene ids
    - frontend world object auto-extract panel exposes the secondary “补抽别名/关系” entry and disables it while extraction is running
+8. **Authoring lifecycle**: `test_authoring_lifecycle.py` serially verifies import → imported chapter publish/index/snapshot → confirmed generation using imported evidence → explicit adoption → publish/index/snapshot → canonical retrieval. It must also prove foreign-novel evidence and project LLM credentials never enter the generation prompt.
 
 ## Security Tests
 

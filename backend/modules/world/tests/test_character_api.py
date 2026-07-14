@@ -7,10 +7,11 @@ Character API 层测试
 from __future__ import annotations
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_project(async_client: AsyncClient):
     resp = await async_client.post(
         "/api/projects",
@@ -20,7 +21,7 @@ async def test_project(async_client: AsyncClient):
     return resp.json()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_entity(async_client: AsyncClient, test_project: dict):
     resp = await async_client.post(
         f"/api/world/entities?novel_id={test_project['id']}",

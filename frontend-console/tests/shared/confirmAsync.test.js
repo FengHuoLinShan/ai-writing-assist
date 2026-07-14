@@ -28,6 +28,20 @@ describe("confirmAsync", () => {
     expect(result).toBe(true)
   })
 
+  it("does not leave cancellation listeners after synchronous confirmation", async () => {
+    document.body.innerHTML = `
+      <div id="modal-overlay"></div>
+      <button id="modal-close"></button>
+    `
+    const closeButton = document.getElementById("modal-close")
+    const addListener = vi.spyOn(closeButton, "addEventListener")
+    globalThis.confirmAction.mockImplementation((_msg, onConfirm) => onConfirm())
+
+    await expect(confirmAsync("确定？", "确认")).resolves.toBe(true)
+
+    expect(addListener).not.toHaveBeenCalled()
+  })
+
   it("resolves false when modal-close clicked", async () => {
     document.body.innerHTML = `
       <div id="modal-overlay"></div>
@@ -40,6 +54,24 @@ describe("confirmAsync", () => {
 
     const result = await confirmAsync("确定？", "确认")
     expect(result).toBe(false)
+  })
+
+  it("binds a synchronously rendered cancel button without a timer", async () => {
+    document.body.innerHTML = `
+      <div id="modal-overlay"></div>
+      <button id="modal-close"></button>
+      <div id="modal-footer"></div>
+    `
+    globalThis.confirmAction.mockImplementation(() => {
+      const cancel = document.createElement("button")
+      cancel.textContent = "取消"
+      document.getElementById("modal-footer").appendChild(cancel)
+    })
+
+    const pending = confirmAsync("确定？", "确认")
+    document.querySelector("#modal-footer button").click()
+
+    await expect(pending).resolves.toBe(false)
   })
 
   it("resolves false on overlay click", async () => {

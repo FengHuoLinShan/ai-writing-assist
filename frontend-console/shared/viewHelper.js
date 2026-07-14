@@ -63,6 +63,23 @@ function _escapeHtml(str) {
 }
 
 /**
+ * 渲染工作区加载骨架，同时保留屏幕阅读器可感知的状态文本。
+ * @param {string} label
+ * @returns {string} HTML
+ */
+export function renderLoadingSkeleton(label = "加载中...") {
+  return `
+    <div class="loading-skeleton" role="status" aria-live="polite" aria-busy="true">
+      <span class="sr-only">${_escapeHtml(label)}</span>
+      <div class="skeleton loading-skeleton__heading" aria-hidden="true"></div>
+      <div class="skeleton loading-skeleton__line" aria-hidden="true"></div>
+      <div class="skeleton loading-skeleton__line loading-skeleton__line--medium" aria-hidden="true"></div>
+      <div class="skeleton loading-skeleton__line loading-skeleton__line--short" aria-hidden="true"></div>
+    </div>
+  `
+}
+
+/**
  * 渲染行内操作下拉菜单
  *
  * @param {string} menuId - 菜单唯一标识（用于 data-menu-id）

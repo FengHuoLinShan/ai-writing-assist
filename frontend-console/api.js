@@ -12,7 +12,30 @@ const RAG_PREWARM_TIMEOUT = 75000
 const CONTEXT_CONFIRM_TIMEOUT = 90000
 const LLM_GENERATE_TIMEOUT = 90000
 const API_CACHE_TTL = 30000
-const API_ACCESS_TOKEN_KEY = "novel_app_access_token"
+// 封闭测试服令牌只保存在当前页面的 module scope 中。刷新后重新输入，避免
+// bearer credential 暴露在可枚举、可跨页面生命周期读取的 Web Storage 中。
+let _accessToken = ""
+
+function _setAccessToken(token) {
+  _accessToken = typeof token === "string" ? token.trim() : ""
+  return Boolean(_accessToken)
+}
+
+function _clearAccessToken() {
+  _accessToken = ""
+}
+
+function _authorizationHeaders(headers = {}) {
+  const result = { ...headers }
+  // 保留 request() 原有的调用方 header 优先级；显式 Authorization
+  // 可用于窄范围的临时凭据，且不应被封闭测试令牌静默覆盖。
+  const hasExplicitAuthorization = Object.keys(result)
+    .some((name) => name.toLowerCase() === "authorization")
+  if (_accessToken && !hasExplicitAuthorization) {
+    result.Authorization = `Bearer ${_accessToken}`
+  }
+  return result
+}
 
 const _apiCache = new Map()
 const _pendingRequests = new Map()
@@ -159,9 +182,13 @@ async function request(path, options = {}) {
   }
 
   const cacheKey = _cacheKey(path, fetchOptions)
-  const shouldSharePending = method === "GET" && !externalSignal
+  // `no-store` is also honored by our in-memory cache.  Passing it only to
+  // fetch would still allow a stale application-cache hit before fetch runs,
+  // and an obsolete response could be written back after a project switch.
+  const shouldUseResponseCache = method === "GET" && fetchOptions.cache !== "no-store"
+  const shouldSharePending = shouldUseResponseCache && !externalSignal
 
-  if (method === "GET") {
+  if (shouldUseResponseCache) {
     const cached = _getCached(cacheKey)
     if (cached !== null) {
       cleanup()
@@ -180,29 +207,34 @@ async function request(path, options = {}) {
 
   const requestPromise = (async () => {
     try {
-      const storage = typeof sessionStorage !== "undefined" ? sessionStorage : null
-      const accessToken = storage?.getItem(API_ACCESS_TOKEN_KEY)
-      if (accessToken) {
-        headers["Authorization"] = `Bearer ${accessToken}`
-      }
       const resp = await fetch(url, {
         ...fetchOptions,
-        headers: { ...headers, ...fetchOptions.headers },
+        headers: _authorizationHeaders({ ...headers, ...fetchOptions.headers }),
         signal,
       })
+      // Native fetch rejects on abort, but keep the contract deterministic for
+      // test doubles/polyfills and for an abort racing with response delivery.
+      if (signal.aborted) {
+        const abortError = new Error("Aborted")
+        abortError.name = "AbortError"
+        throw abortError
+      }
 
       if (!resp.ok) {
+        if (resp.status === 401) _clearAccessToken()
         if (resp.status === 401 && !_retriedAuth && typeof window !== "undefined" && typeof window.prompt === "function") {
           const token = window.prompt("请输入封闭测试访问令牌")
-          if (token) {
-            storage?.setItem(API_ACCESS_TOKEN_KEY, token)
-            return request(path, { ...options, _retriedAuth: true })
+          if (_setAccessToken(token)) {
+            // 首次 GET 仍登记在 pending map 中；认证重试必须绕过该条目，
+            // 否则递归请求会等待尚未结束的自己。
+            return request(path, { ...options, cache: "no-store", _retriedAuth: true })
           }
         }
         const errorMap = {
           400: "请求参数错误",
           401: "未授权，请检查后端认证配置",
           404: "请求的资源不存在",
+          409: "请求冲突",
           422: "数据格式校验失败",
           500: "后端服务器错误",
           502: "后端服务不可用",
@@ -242,12 +274,12 @@ async function request(path, options = {}) {
       }
 
       if (resp.status === 204) {
-        if (method === "GET") _setCache(cacheKey, null)
+        if (shouldUseResponseCache) _setCache(cacheKey, null)
         return null
       }
 
       const data = await resp.json()
-      if (method === "GET") _setCache(cacheKey, data)
+      if (shouldUseResponseCache) _setCache(cacheKey, data)
       return data
     } catch (err) {
       if (err.name === "AbortError") {
@@ -322,6 +354,59 @@ function deleteRequest(path) {
   return request(path, { method: "DELETE" })
 }
 
+function uploadImportFile(file, novelId, onProgress = null) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    const formData = new FormData()
+    formData.append("file", file)
+    formData.append("novel_id", novelId)
+
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable || typeof onProgress !== "function") return
+      onProgress(Math.round((event.loaded / event.total) * 100))
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText))
+        } catch {
+          reject(new Error("上传响应格式错误"))
+        }
+        return
+      }
+      if (xhr.status === 401) _clearAccessToken()
+      try {
+        const error = JSON.parse(xhr.responseText)
+        reject(new Error(error.detail || "上传失败"))
+      } catch {
+        reject(new Error("上传失败"))
+      }
+    }
+    xhr.onerror = () => reject(new Error("网络错误"))
+    xhr.open("POST", `${API_BASE_URL}/imports/upload`)
+    xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest")
+    if (_accessToken) xhr.setRequestHeader("Authorization", `Bearer ${_accessToken}`)
+    xhr.send(formData)
+  })
+}
+
+function reportFrontendError(payload) {
+  if (typeof fetch !== "function") return Promise.resolve()
+  return fetch(`${API_BASE_URL}/debug/frontend-errors`, {
+    method: "POST",
+    headers: _authorizationHeaders({
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+    }),
+    body: JSON.stringify(payload),
+    keepalive: true,
+  }).then((response) => {
+    if (response.status === 401) _clearAccessToken()
+    return response
+  })
+}
+
 const apiContractHelpers = globalThis.apiContracts
 if (!apiContractHelpers) {
   throw new Error("apiContracts.js must load before api.js")
@@ -357,6 +442,10 @@ function contractJson(name, params = {}, query = {}, payload, options = {}) {
 // ============================================================
 
 const api = {
+  setAccessToken: _setAccessToken,
+  clearAccessToken: _clearAccessToken,
+  reportFrontendError,
+
   // ============================================================
   // 项目
   // ============================================================
@@ -369,8 +458,8 @@ const api = {
       return contractJson("projects.create", {}, {}, payload)
     },
 
-    async get(id) {
-      return contractFetch("projects.get", { id })
+    async get(id, options = {}) {
+      return contractFetch("projects.get", { id }, {}, options)
     },
 
     async update(id, payload) {
@@ -1037,6 +1126,10 @@ const api = {
   // 导入
   // ============================================================
   imports: {
+    async uploadFile(file, novelId, onProgress = null) {
+      return uploadImportFile(file, novelId, onProgress)
+    },
+
     async upload(novelId, file) {
       const formData = new FormData()
       formData.append("novel_id", novelId)

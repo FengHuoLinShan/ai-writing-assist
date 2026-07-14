@@ -191,10 +191,5 @@ class TestNovelIdIsolation:
         )
 
         # Assert
-        assert resp.status_code in (200, 201)
-        data = resp.json()
-        chunks = data.get("chunks") or data.get("results") or []
-        for c in chunks:
-            chunk_nid = c.get("novel_id") or c.get("novel_id", "")
-            if chunk_nid:
-                assert chunk_nid == "00000000-0000-0000-0000-000000000000"
+        assert resp.status_code == 404
+        assert "A 的机密内容" not in resp.text

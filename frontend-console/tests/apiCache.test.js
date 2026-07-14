@@ -76,11 +76,45 @@ describe("api.js cache behavior", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.api.clearCache()
+    window.api.clearAccessToken()
     sessionStorage.clear()
   })
 
   afterEach(() => {
     globalThis.fetch = originalFetch
+  })
+
+  it("409 response uses a localized conflict prefix and preserves detail", async () => {
+    globalThis.fetch = vi.fn(() => Promise.resolve({
+      ok: false,
+      status: 409,
+      json: () => Promise.resolve({ detail: "该资源已被其他会话更新" }),
+    }))
+
+    await expect(window.api.request("/projects/conflict", {
+      method: "POST",
+      body: JSON.stringify({}),
+    })).rejects.toMatchObject({
+      status: 409,
+      detail: "该资源已被其他会话更新",
+      message: "请求冲突：该资源已被其他会话更新",
+    })
+  })
+
+  it("409 response without detail still exposes status and localized message", async () => {
+    globalThis.fetch = vi.fn(() => Promise.resolve({
+      ok: false,
+      status: 409,
+      json: () => Promise.resolve({}),
+    }))
+
+    await expect(window.api.request("/projects/conflict", {
+      method: "POST",
+      body: JSON.stringify({}),
+    })).rejects.toMatchObject({
+      status: 409,
+      message: "请求冲突",
+    })
   })
 
   it("health check requests bypass cache by using unique _ts", async () => {
@@ -107,6 +141,67 @@ describe("api.js cache behavior", () => {
     expect(urls[0]).not.toBe(urls[1])
     expect(new URL(urls[0]).searchParams.has("_ts")).toBe(true)
     expect(new URL(urls[1]).searchParams.has("_ts")).toBe(true)
+  })
+
+  it("projects.get forwards cancellation and cache policy through the contract wrapper", async () => {
+    globalThis.fetch = vi.fn(() => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ id: "p-signal", title: "项目" }),
+    }))
+    const controller = new AbortController()
+
+    await expect(window.api.projects.get("p-signal", {
+      signal: controller.signal,
+      cache: "no-store",
+    })).resolves.toEqual({ id: "p-signal", title: "项目" })
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+    const [url, init] = globalThis.fetch.mock.calls[0]
+    expect(url).toContain("/api/projects/p-signal")
+    expect(init.signal).toBeInstanceOf(AbortSignal)
+    expect(init.cache).toBe("no-store")
+  })
+
+  it("no-store bypasses the application GET cache without replacing it", async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ id: "p-cache", title: "Cached" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ id: "p-cache", title: "Fresh" }),
+      })
+
+    await expect(window.api.projects.get("p-cache")).resolves.toMatchObject({ title: "Cached" })
+    await expect(window.api.projects.get("p-cache", { cache: "no-store" })).resolves.toMatchObject({ title: "Fresh" })
+    await expect(window.api.projects.get("p-cache")).resolves.toMatchObject({ title: "Cached" })
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it("honors external cancellation even when the fetch transport resolves late", async () => {
+    let resolveFetch
+    globalThis.fetch = vi.fn(() => new Promise((resolve) => {
+      resolveFetch = resolve
+    }))
+    const controller = new AbortController()
+    const pending = window.api.projects.get("p-late-abort", {
+      signal: controller.signal,
+      cache: "no-store",
+    })
+
+    controller.abort()
+    resolveFetch({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ id: "p-late-abort", title: "Too late" }),
+    })
+
+    await expect(pending).rejects.toThrow("请求已取消")
   })
 
   it("Scene fusion preview keeps the LLM request open beyond the default timeout", async () => {
@@ -384,6 +479,8 @@ describe("api.js request headers", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.api.clearCache()
+    window.api.clearAccessToken()
+    sessionStorage.clear()
   })
 
   afterEach(() => {
@@ -445,14 +542,176 @@ describe("api.js request headers", () => {
     expect(init.headers["Content-Type"]).toBeUndefined()
   })
 
-  it("adds Authorization when a closed-test token is stored in sessionStorage", async () => {
+  it("keeps the closed-test token in memory instead of sessionStorage", async () => {
     mockJsonResponse({ ok: true })
-    sessionStorage.setItem("novel_app_access_token", "test-token")
+    window.api.setAccessToken("test-token")
 
     await window.api.request("/projects")
 
     const init = globalThis.fetch.mock.calls[0][1]
     expect(init.headers.Authorization).toBe("Bearer test-token")
+    expect(sessionStorage.getItem("novel_app_access_token")).toBeNull()
+  })
+
+  it("preserves an explicit caller Authorization header when a memory token exists", async () => {
+    mockJsonResponse({ ok: true })
+    window.api.setAccessToken("closed-token")
+
+    await window.api.request("/projects", {
+      headers: { authorization: "Bearer caller-token" },
+    })
+
+    const init = globalThis.fetch.mock.calls[0][1]
+    expect(init.headers.authorization).toBe("Bearer caller-token")
+    expect(init.headers.Authorization).toBeUndefined()
+  })
+
+  it("prompts once on 401, retries from memory, and never persists the token", async () => {
+    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("closed-token")
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: () => Promise.resolve({ detail: "Missing or invalid access token" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ ok: true }),
+      })
+
+    await expect(window.api.request("/projects/auth-check")).resolves.toEqual({ ok: true })
+
+    expect(promptSpy).toHaveBeenCalledOnce()
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2)
+    expect(globalThis.fetch.mock.calls[0][1].headers.Authorization).toBeUndefined()
+    expect(globalThis.fetch.mock.calls[1][1].headers.Authorization)
+      .toBe("Bearer closed-token")
+    expect(sessionStorage.getItem("novel_app_access_token")).toBeNull()
+    promptSpy.mockRestore()
+  })
+
+  it("clears a rejected retry token after the second 401", async () => {
+    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("rejected-token")
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: () => Promise.resolve({ detail: "Missing access token" }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: () => Promise.resolve({ detail: "Invalid access token" }),
+      })
+
+    await expect(window.api.request("/projects/auth-check"))
+      .rejects.toMatchObject({ status: 401 })
+    expect(promptSpy).toHaveBeenCalledOnce()
+
+    mockJsonResponse({ ok: true })
+    await window.api.request("/projects/after-rejection", { cache: "no-store" })
+    expect(globalThis.fetch.mock.calls[0][1].headers.Authorization).toBeUndefined()
+    promptSpy.mockRestore()
+  })
+
+  it("uses the same in-memory token for upload XHR without exposing a getter", async () => {
+    window.api.setAccessToken("closed-token")
+    const instances = []
+    const OriginalXMLHttpRequest = globalThis.XMLHttpRequest
+    class FakeXMLHttpRequest {
+      constructor() {
+        this.headers = {}
+        this.upload = {}
+        this.status = 200
+        this.responseText = JSON.stringify({ imported_chapters: 1 })
+        instances.push(this)
+      }
+
+      open(method, url) {
+        this.method = method
+        this.url = url
+      }
+
+      setRequestHeader(name, value) {
+        this.headers[name] = value
+      }
+
+      send(body) {
+        this.body = body
+        this.onload()
+      }
+    }
+    globalThis.XMLHttpRequest = FakeXMLHttpRequest
+
+    try {
+      await window.api.imports.uploadFile(
+        new File(["chapter"], "novel.txt", { type: "text/plain" }),
+        "novel-1",
+      )
+    } finally {
+      globalThis.XMLHttpRequest = OriginalXMLHttpRequest
+    }
+
+    expect(instances).toHaveLength(1)
+    expect(instances[0].method).toBe("POST")
+    expect(instances[0].headers).toMatchObject({
+      "X-Requested-With": "XMLHttpRequest",
+      Authorization: "Bearer closed-token",
+    })
+  })
+
+  it("clears a token rejected by the upload transport", async () => {
+    window.api.setAccessToken("rejected-token")
+    const OriginalXMLHttpRequest = globalThis.XMLHttpRequest
+    class UnauthorizedXMLHttpRequest {
+      constructor() {
+        this.headers = {}
+        this.upload = {}
+        this.status = 401
+        this.responseText = JSON.stringify({ detail: "Invalid access token" })
+      }
+      open() {}
+      setRequestHeader(name, value) { this.headers[name] = value }
+      send() { this.onload() }
+    }
+    globalThis.XMLHttpRequest = UnauthorizedXMLHttpRequest
+
+    try {
+      await expect(window.api.imports.uploadFile(
+        new File(["chapter"], "novel.txt", { type: "text/plain" }),
+        "novel-1",
+      )).rejects.toThrow("Invalid access token")
+    } finally {
+      globalThis.XMLHttpRequest = OriginalXMLHttpRequest
+    }
+
+    mockJsonResponse({ ok: true })
+    await window.api.request("/projects/after-upload-401", { cache: "no-store" })
+    expect(globalThis.fetch.mock.calls[0][1].headers.Authorization).toBeUndefined()
+  })
+
+  it("uses the same in-memory token for frontend error reports", async () => {
+    mockJsonResponse({ ok: true })
+    window.api.setAccessToken("closed-token")
+
+    await window.api.reportFrontendError({ message: "safe diagnostic" })
+
+    const [url, init] = globalThis.fetch.mock.calls[0]
+    expect(url).toContain("/api/debug/frontend-errors")
+    expect(init.headers.Authorization).toBe("Bearer closed-token")
+    expect(init.keepalive).toBe(true)
+  })
+
+  it("clears a token rejected by frontend error reporting", async () => {
+    window.api.setAccessToken("rejected-token")
+    globalThis.fetch = vi.fn(() => Promise.resolve({ ok: false, status: 401 }))
+
+    await window.api.reportFrontendError({ message: "safe diagnostic" })
+
+    mockJsonResponse({ ok: true })
+    await window.api.request("/projects/after-report-401", { cache: "no-store" })
+    expect(globalThis.fetch.mock.calls[0][1].headers.Authorization).toBeUndefined()
   })
 
   it("sends the explicit import authorization snapshot for stage starts", async () => {

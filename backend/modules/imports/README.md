@@ -7,7 +7,8 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 
 ## 负责
 
-- 上传并解析 txt / epub / html / mobi / azw3 格式的小说文件
+- 上传并解析 txt / epub / html 格式的小说文件；mobi / azw3 保留上传白名单与
+  内容校验，但当前锁定依赖未声明其解析器包，不能视为已验证可用格式
 - 自动检测文本编码
 - 按章节模式（第X章、Chapter X、卷X 等）自动分章
 - 将解析结果写入 writing_drafts（每章一个已发布正文版本），上传响应返回已保存章节摘要
@@ -263,6 +264,10 @@ POST /api/imports/deep/abandon — 放弃恢复并清理同 workflow 自动派�
 - 文件类型白名单：txt, epub, html, htm, mobi, azw3
 - 文件大小上限：50MB
 - 文件名 sanitize：防止路径穿越
+- 客户端声明的 MIME 不作为信任依据；统一解析入口在调用具体解析器前校验实际
+  内容。TXT/HTML 必须可严格解码且不含二进制控制字符，HTML 还必须包含可识别
+  标记；EPUB 必须满足 ZIP mimetype、container/OPF 结构、安全成员路径及有界解压
+  约束；MOBI/AZW3 必须满足 PalmDB、PalmDOC 与 MOBI header 联合签名
 - 不保存上传文件到可执行目录，解析后即释放
 
 ## 测试

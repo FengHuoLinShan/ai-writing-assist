@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 
 import pytest
@@ -35,17 +36,36 @@ async def db_with_project(
 
 
 @pytest.fixture(autouse=True)
-def _mock_llm_embedding(request: pytest.FixtureRequest):
+def _mock_llm_embedding(
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+):
     """Mock embeddings unless a test explicitly opts into real-LLM acceptance."""
     if request.node.get_closest_marker("real_llm"):
         yield None
         return
 
-    from unittest.mock import AsyncMock, patch
+    from infrastructure.llm.client import LLMClient
 
-    with patch(
-        "infrastructure.llm.client.LLMClient.generate_embedding",
-        new_callable=AsyncMock,
-    ) as mock:
-        mock.return_value = [0.1] * 768
-        yield mock
+    def embed_one(text: str) -> list[float]:
+        digest = hashlib.sha256(text.encode("utf-8")).digest()
+        embedding = [0.0] * 768
+        for offset in range(0, 8, 2):
+            index = int.from_bytes(digest[offset : offset + 2], "big") % 768
+            embedding[index] = 0.5 if digest[8 + offset] % 2 == 0 else -0.5
+        return embedding
+
+    async def generate_embedding(
+        _client,
+        text: str | list[str],
+        model: str | None = None,
+        *,
+        is_query: bool = False,
+    ) -> list[float] | list[list[float]]:
+        del model, is_query
+        if isinstance(text, list):
+            return [embed_one(item) for item in text]
+        return embed_one(text)
+
+    monkeypatch.setattr(LLMClient, "generate_embedding", generate_embedding)
+    yield generate_embedding

@@ -20,6 +20,18 @@ import pytest
 from fastapi import HTTPException
 
 from core.container import override
+from infrastructure.tasks.registry import TaskRegistry
+
+
+@pytest.fixture(autouse=True)
+def restore_task_registry_method_overrides():
+    """Do not let worker-local method doubles leak through the registry singleton."""
+    registry = TaskRegistry()
+    registry.__dict__.pop("get_handler", None)
+    try:
+        yield
+    finally:
+        registry.__dict__.pop("get_handler", None)
 
 
 @pytest.fixture
@@ -507,14 +519,16 @@ class TestTaskWorkerClaimTask:
     """TaskWorker._claim_task 单元测试"""
 
     @pytest.mark.asyncio
-    async def test_claim_pending_task(self) -> None:
+    async def test_claim_pending_task(self, caplog) -> None:
         """GREEN: 成功领取 pending 任务"""
         from infrastructure.tasks.worker import TaskWorker
 
+        raw_novel_id = str(uuid.uuid4())
         task_mock = MagicMock()
         task_mock.id = uuid.uuid4()
         task_mock.status = "pending"
         task_mock.task_type = "test_type"
+        task_mock.meta = {"novel_id": raw_novel_id}
         task_mock.mark_running = MagicMock()
 
         result_mock = MagicMock()
@@ -527,12 +541,15 @@ class TestTaskWorkerClaimTask:
         with patch("infrastructure.tasks.worker.get_manager"):
             worker = TaskWorker()
 
-        claimed = await worker._claim_task(db_session)
+        with caplog.at_level("INFO", logger="infrastructure.tasks.worker"):
+            claimed = await worker._claim_task(db_session)
 
         assert claimed is task_mock
         task_mock.mark_running.assert_called_once()
         db_session.commit.assert_awaited_once()
         assert task_mock.id in worker._running_task_ids
+        assert "novel_id=<unverified>" in "\n".join(caplog.messages)
+        assert raw_novel_id not in caplog.text
 
     @pytest.mark.asyncio
     async def test_claim_no_pending_task(self) -> None:
@@ -625,19 +642,22 @@ class TestTaskWorkerExecuteTask:
         assert task_mock.id not in worker._running_task_ids
 
     @pytest.mark.asyncio
-    async def test_preflight_rejects_task_before_handler_runs(self) -> None:
+    async def test_preflight_rejects_task_before_handler_runs(self, caplog) -> None:
         """A recycled-project preflight failure must prevent business writes."""
         from core.errors import NotFoundError
         from infrastructure.tasks.worker import TaskWorker
 
+        raw_novel_id = str(uuid.uuid4())
         task_mock = MagicMock()
         task_mock.id = uuid.uuid4()
         task_mock.task_type = "test_type"
-        task_mock.meta = {"novel_id": str(uuid.uuid4())}
+        task_mock.meta = {"novel_id": raw_novel_id}
         task_mock.result = {}
         db_session = AsyncMock()
         handler = AsyncMock()
-        preflight = AsyncMock(side_effect=NotFoundError("Project not found"))
+        preflight = AsyncMock(
+            side_effect=NotFoundError(f"Project {raw_novel_id}\nprivate not found")
+        )
 
         with (
             patch("infrastructure.tasks.worker.get_manager", autospec=True),
@@ -647,6 +667,7 @@ class TestTaskWorkerExecuteTask:
                 autospec=True,
                 return_value=None,
             ),
+            caplog.at_level("INFO", logger="infrastructure.tasks.worker"),
         ):
             worker = TaskWorker(task_preflight=preflight)
             worker._lifecycle.finalize = AsyncMock(return_value=False)
@@ -658,6 +679,8 @@ class TestTaskWorkerExecuteTask:
         handler.assert_not_awaited()
         db_session.rollback.assert_awaited_once()
         assert worker._lifecycle.finalize.await_args.kwargs["status"] == "failed"
+        assert raw_novel_id not in caplog.text
+        assert "novel_id=<none>" in "\n".join(caplog.messages)
 
     @pytest.mark.asyncio
     async def test_execute_success_persists_deduplicated_llm_provenance(
@@ -953,6 +976,101 @@ class TestTaskWorkerExecuteTask:
         finalized = worker._lifecycle.finalize.await_args.kwargs
         assert finalized["status"] == "failed"
         assert finalized["error_message"] == "RuntimeError: provider request failed"
+
+    @pytest.mark.asyncio
+    async def test_execute_task_logs_canonical_novel_id_without_context_leak(
+        self,
+        caplog,
+    ) -> None:
+        from core.logging_context import (
+            bind_validated_novel_id,
+            current_novel_id_for_log,
+        )
+        from infrastructure.tasks.worker import TaskWorker
+
+        novel_id = str(uuid.uuid4())
+        observed_context: list[str] = []
+
+        async def handler(**_kwargs):
+            observed_context.append(current_novel_id_for_log())
+            return {"ok": True}
+
+        async def validate_project(_db, _task):
+            assert bind_validated_novel_id(novel_id) is True
+
+        task_mock = MagicMock()
+        task_mock.id = uuid.uuid4()
+        task_mock.task_type = "test_type"
+        task_mock.meta = {"novel_id": novel_id}
+        task_mock.result = {}
+        db_session = AsyncMock()
+
+        with (
+            patch("infrastructure.tasks.worker.get_manager", autospec=True),
+            patch.object(
+                TaskWorker,
+                "_heartbeat_loop",
+                autospec=True,
+                return_value=None,
+            ),
+            caplog.at_level("INFO", logger="infrastructure.tasks.worker"),
+        ):
+            worker = TaskWorker(task_preflight=validate_project)
+            worker._lifecycle.finalize = AsyncMock(return_value=True)
+            worker._registry.get_handler = MagicMock(return_value=handler)
+            await worker._execute_task(task_mock, db_session)
+
+        assert observed_context == [novel_id]
+        lifecycle_logs = "\n".join(caplog.messages)
+        assert f"novel_id={novel_id}" in lifecycle_logs
+        assert "Task completed:" in lifecycle_logs
+        assert current_novel_id_for_log() == "<none>"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "raw_novel_id",
+        ["123e4567-e89b-42d3-a456-426614174000", "private\ninvalid-project"],
+    )
+    async def test_execute_task_does_not_trust_unvalidated_meta_novel_id(
+        self,
+        raw_novel_id: str,
+        caplog,
+    ) -> None:
+        from core.logging_context import current_novel_id_for_log
+        from infrastructure.tasks.worker import TaskWorker
+
+        observed_context: list[str] = []
+
+        async def handler(**_kwargs):
+            observed_context.append(current_novel_id_for_log())
+            return {"ok": True}
+
+        task_mock = MagicMock()
+        task_mock.id = uuid.uuid4()
+        task_mock.task_type = "test_type"
+        task_mock.meta = {"novel_id": raw_novel_id}
+        task_mock.result = {}
+        db_session = AsyncMock()
+
+        with (
+            patch("infrastructure.tasks.worker.get_manager", autospec=True),
+            patch.object(
+                TaskWorker,
+                "_heartbeat_loop",
+                autospec=True,
+                return_value=None,
+            ),
+            caplog.at_level("INFO", logger="infrastructure.tasks.worker"),
+        ):
+            worker = TaskWorker()
+            worker._lifecycle.finalize = AsyncMock(return_value=True)
+            worker._registry.get_handler = MagicMock(return_value=handler)
+            await worker._execute_task(task_mock, db_session)
+
+        assert observed_context == ["<none>"]
+        assert f"novel_id={raw_novel_id}" not in "\n".join(caplog.messages)
+        assert raw_novel_id not in caplog.text
+        assert current_novel_id_for_log() == "<none>"
 
     @pytest.mark.asyncio
     async def test_execute_cancelled_error(self) -> None:

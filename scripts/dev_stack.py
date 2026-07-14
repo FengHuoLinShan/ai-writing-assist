@@ -17,6 +17,7 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,11 @@ BACKEND_PORT = int(os.environ.get("BACKEND_PORT", "8000"))
 FRONTEND_PORT = int(os.environ.get("FRONTEND_PORT", "8080"))
 DB_CONTAINER = os.environ.get("DEV_DB_CONTAINER", "ai-novel-db")
 
+
+class _RunCancelledError(Exception):
+    """Raised after a cancellable child command has been terminated and reaped."""
+
+
 def _run(
     cmd: list[str],
     *,
@@ -38,7 +44,47 @@ def _run(
     check: bool = True,
     capture: bool = False,
     env: dict[str, str] | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    if cancelled is not None:
+        if cancelled():
+            raise _RunCancelledError
+        process = subprocess.Popen(
+            cmd,
+            cwd=str(cwd),
+            text=True,
+            stdout=subprocess.PIPE if capture else None,
+            stderr=subprocess.PIPE if capture else None,
+            env=env,
+        )
+        while True:
+            try:
+                stdout, stderr = process.communicate(timeout=0.1)
+                break
+            except subprocess.TimeoutExpired:
+                if not cancelled():
+                    continue
+                try:
+                    process.terminate()
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.communicate(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate()
+                raise _RunCancelledError
+        result = subprocess.CompletedProcess(cmd, process.returncode, stdout, stderr)
+        if cancelled():
+            raise _RunCancelledError
+        if check and result.returncode != 0:
+            raise subprocess.CalledProcessError(
+                result.returncode,
+                cmd,
+                output=stdout,
+                stderr=stderr,
+            )
+        return result
     return subprocess.run(
         cmd,
         cwd=str(cwd),
@@ -213,27 +259,61 @@ def stop_apps(*, fallback: bool = True, remove_pidfile: bool = True) -> None:
             pass
 
 
-def start_db() -> None:
-    inspect = _run(["docker", "inspect", DB_CONTAINER], check=False, capture=True)
-    if inspect.returncode == 0:
-        print(f"=== Reusing existing {DB_CONTAINER} container ===")
-        _run(["docker", "start", DB_CONTAINER], check=False, capture=True)
-    else:
-        _run(["docker", "compose", "up", "-d"], cwd=ROOT)
+def start_db(*, cancelled: Callable[[], bool] | None = None) -> bool:
+    def cancellation_requested() -> bool:
+        return cancelled is not None and cancelled()
 
-    while True:
-        health = _run(
-            ["docker", "inspect", "-f", "{{.State.Health.Status}}", DB_CONTAINER],
+    if cancellation_requested():
+        return False
+    try:
+        inspect = _run(
+            ["docker", "inspect", DB_CONTAINER],
             check=False,
             capture=True,
+            cancelled=cancelled,
         )
-        status = (health.stdout or "").strip()
-        if status == "healthy":
-            return
-        if health.returncode == 0 and status in {"", "<no value>"}:
-            return
-        print(f"Waiting for {DB_CONTAINER} healthcheck...")
-        time.sleep(1)
+        if cancellation_requested():
+            return False
+        if inspect.returncode == 0:
+            print(f"=== Reusing existing {DB_CONTAINER} container ===")
+            _run(
+                ["docker", "start", DB_CONTAINER],
+                check=False,
+                capture=True,
+                cancelled=cancelled,
+            )
+        else:
+            _run(
+                ["docker", "compose", "up", "-d"],
+                cwd=ROOT,
+                cancelled=cancelled,
+            )
+
+        while not cancellation_requested():
+            health = _run(
+                [
+                    "docker",
+                    "inspect",
+                    "-f",
+                    "{{.State.Health.Status}}",
+                    DB_CONTAINER,
+                ],
+                check=False,
+                capture=True,
+                cancelled=cancelled,
+            )
+            if cancellation_requested():
+                return False
+            status = (health.stdout or "").strip()
+            if status == "healthy":
+                return True
+            if health.returncode == 0 and status in {"", "<no value>"}:
+                return True
+            print(f"Waiting for {DB_CONTAINER} healthcheck...")
+            time.sleep(1)
+    except _RunCancelledError:
+        return False
+    return False
 
 
 def stop_db() -> None:
@@ -260,15 +340,51 @@ def _spawn(
     )
 
 
+def _cleanup_started_processes(
+    processes: dict[str, subprocess.Popen[Any]],
+) -> None:
+    """Roll back children that started before stack initialization failed."""
+    for name, proc in reversed(processes.items()):
+        if proc.poll() is None:
+            print(f"Stopping partially started {name} pid={proc.pid}")
+            _terminate_pid(proc.pid)
+    try:
+        PIDFILE.unlink()
+    except OSError:
+        pass
+
+
 def start_stack() -> int:
+    processes: dict[str, subprocess.Popen[Any]] = {}
+    stopping = False
+    stack_ready = False
+    signal_exit_code: int | None = None
+
+    def shutdown(_signum: int | None = None, _frame: Any | None = None) -> None:
+        nonlocal signal_exit_code, stopping
+        if _signum is not None:
+            signal_exit_code = 128 + _signum
+        # Before the pidfile is ready, the startup path rolls back its in-memory
+        # process set immediately after the currently executing spawn returns.
+        if not stack_ready or stopping:
+            return
+        stopping = True
+        stop_apps(fallback=False)
+
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
+
     stop_apps(fallback=True)
-    start_db()
+    if signal_exit_code is not None:
+        return signal_exit_code
+    if not start_db(cancelled=lambda: signal_exit_code is not None):
+        return signal_exit_code or 1
 
     frontend_env = os.environ.copy()
     frontend_env["FRONTEND_PORT"] = str(FRONTEND_PORT)
 
-    processes = {
-        "backend": _spawn(
+    try:
+        processes["backend"] = _spawn(
             "backend",
             [
                 sys.executable,
@@ -279,32 +395,36 @@ def start_stack() -> int:
                 str(BACKEND_PORT),
             ],
             cwd=BACKEND,
-        ),
-        "worker": _spawn(
+        )
+        if signal_exit_code is not None:
+            _cleanup_started_processes(processes)
+            return signal_exit_code
+        processes["worker"] = _spawn(
             "worker",
             [sys.executable, "run_worker.py", "--reload"],
             cwd=BACKEND,
-        ),
-        "frontend": _spawn(
+        )
+        if signal_exit_code is not None:
+            _cleanup_started_processes(processes)
+            return signal_exit_code
+        processes["frontend"] = _spawn(
             "frontend",
             ["npm", "run", "dev"],
             cwd=FRONTEND,
             env=frontend_env,
-        ),
-    }
-    _write_pidfile(processes)
+        )
+        if signal_exit_code is not None:
+            _cleanup_started_processes(processes)
+            return signal_exit_code
+        _write_pidfile(processes)
+    except BaseException:
+        _cleanup_started_processes(processes)
+        raise
 
-    stopping = False
-
-    def shutdown(_signum: int | None = None, _frame: Any | None = None) -> None:
-        nonlocal stopping
-        if stopping:
-            return
-        stopping = True
-        stop_apps(fallback=False)
-
-    signal.signal(signal.SIGINT, shutdown)
-    signal.signal(signal.SIGTERM, shutdown)
+    stack_ready = True
+    if signal_exit_code is not None:
+        shutdown()
+        return signal_exit_code
     atexit.register(shutdown)
 
     print("")
@@ -316,12 +436,16 @@ def start_stack() -> int:
 
     try:
         while True:
+            if signal_exit_code is not None:
+                return signal_exit_code
             for name, proc in processes.items():
                 code = proc.poll()
+                if signal_exit_code is not None:
+                    return signal_exit_code
                 if code is not None:
                     print(f"{name} exited with code {code}; stopping stack")
                     shutdown()
-                    return code or 0
+                    return 128 - code if code < 0 else code
             time.sleep(0.5)
     finally:
         shutdown()

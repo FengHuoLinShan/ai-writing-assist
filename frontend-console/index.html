@@ -133,8 +133,12 @@
           <div id="view-actions"></div>
         </header>
         <div id="workspace-content">
-          <div id="empty-state">
-            <p>加载中...</p>
+          <div id="empty-state" class="loading-skeleton" role="status" aria-live="polite" aria-busy="true">
+            <span class="sr-only">应用加载中...</span>
+            <div class="skeleton loading-skeleton__heading" aria-hidden="true"></div>
+            <div class="skeleton loading-skeleton__line" aria-hidden="true"></div>
+            <div class="skeleton loading-skeleton__line loading-skeleton__line--medium" aria-hidden="true"></div>
+            <div class="skeleton loading-skeleton__line loading-skeleton__line--short" aria-hidden="true"></div>
           </div>
         </div>
       </main>
@@ -162,10 +166,10 @@
 
   <!-- 模态框 -->
   <div id="modal-overlay" class="hidden">
-    <div id="modal-content">
+    <div id="modal-content" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <div id="modal-header">
         <span id="modal-title"></span>
-        <button id="modal-close">&times;</button>
+        <button id="modal-close" type="button" aria-label="关闭对话框">&times;</button>
       </div>
       <div id="modal-body"></div>
       <div id="modal-footer"></div>
@@ -207,11 +211,11 @@
   <script src="stateSlices.js"></script>
   <script src="state.js"></script>
   <script src="apiContracts.js"></script>
-  <script src="api.js"></script>
+  <script type="module" src="api.js"></script>
   <script src="router.js"></script>
   <script src="commands.js"></script>
+  <script type="module" src="errorLogger.js"></script>
   <script type="module" src="app.js"></script>
-  <script src="errorLogger.js"></script>
   <!-- 视图 -->
   <script type="module" src="views/projectView.js"></script>
   <script type="module" src="views/worldView.js"></script>

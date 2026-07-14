@@ -15,6 +15,26 @@ function viewFiles() {
     .map((name) => join(viewsDir, name))
 }
 
+function jsFilesRecursively(directory) {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name)
+    if (entry.isDirectory()) return jsFilesRecursively(path)
+    return entry.isFile() && entry.name.endsWith(".js") ? [path] : []
+  })
+}
+
+function productionJsFiles() {
+  const rootFiles = readdirSync(projectRoot, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".js"))
+    .map((entry) => join(projectRoot, entry.name))
+  return [
+    ...rootFiles,
+    ...["shared", "ui", "views"].flatMap((directory) => (
+      jsFilesRecursively(join(projectRoot, directory))
+    )),
+  ]
+}
+
 function definedApiMethods() {
   const apiSource = readFileSync(join(projectRoot, "api.js"), "utf8")
   const groups = [...apiSource.matchAll(/\n\s{2}([a-zA-Z0-9_]+):\s*\{/g)]
@@ -181,6 +201,28 @@ describe("前后端 API 契约", () => {
 
     expect(scripts.indexOf("apiContracts.js")).toBeGreaterThanOrEqual(0)
     expect(scripts.indexOf("apiContracts.js")).toBeLessThan(scripts.indexOf("api.js"))
+    expect(html).toMatch(/<script\s+type="module"\s+src="api\.js"><\/script>/)
+  })
+
+  it("封闭测试令牌不再从 Web Storage 读取或写入", () => {
+    const productionFiles = productionJsFiles()
+    const combined = productionFiles
+      .map((file) => readFileSync(file, "utf8"))
+      .join("\n")
+
+    expect(combined).not.toContain("novel_app_access_token")
+  })
+
+  it("API module executes before authenticated error mirroring and app startup", () => {
+    const html = readFileSync(join(projectRoot, "index.html"), "utf8")
+    const apiIndex = html.indexOf('<script type="module" src="api.js"></script>')
+    const loggerIndex = html.indexOf('<script type="module" src="errorLogger.js"></script>')
+    const appIndex = html.indexOf('<script type="module" src="app.js"></script>')
+
+    expect(apiIndex).toBeGreaterThanOrEqual(0)
+    expect(loggerIndex).toBeGreaterThan(apiIndex)
+    expect(appIndex).toBeGreaterThan(apiIndex)
+    expect(loggerIndex).toBeLessThan(appIndex)
   })
 
   it("API_CONTRACTS 注册的 wrapper 必须在 api.js 中存在", () => {

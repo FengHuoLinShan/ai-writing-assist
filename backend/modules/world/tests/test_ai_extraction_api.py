@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -34,7 +35,15 @@ async def test_entity_extraction_routes_new_assets_through_suggestion_queue(
             ]
         )
     )
-    service = EntityExtractionService(draft_provider=draft_provider)
+    @asynccontextmanager
+    async def _open_fake_project_llm_client(_db, actual_novel_id):
+        assert actual_novel_id == novel_id
+        yield FakeLLM()
+
+    service = EntityExtractionService(
+        draft_provider=draft_provider,
+        project_llm_opener=_open_fake_project_llm_client,
+    )
     entity_id = uuid.uuid4()
     suggestion_id = uuid.uuid4()
     entity = CoreEntity(
@@ -60,11 +69,6 @@ async def test_entity_extraction_routes_new_assets_through_suggestion_queue(
             )
         ),
     )
-    monkeypatch.setattr(
-        "modules.project.facade.get_project_context",
-        AsyncMock(return_value=SimpleNamespace(settings={"llm": {"model": "fake"}})),
-    )
-
     class FakeLLM:
         model_name = "fake-model"
 

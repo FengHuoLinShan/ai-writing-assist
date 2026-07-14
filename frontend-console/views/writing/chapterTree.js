@@ -546,17 +546,10 @@ export function createChapterTree({
       )
       if (!selected.length) return
 
-      const confirmed = await new Promise((resolve) => {
-        confirmAction(
-          `确定删除选中的 ${selected.length} 个章节及其全部版本？此操作不可恢复。`,
-          () => resolve(true),
-          "确认删除",
-        )
-        setTimeout(() => {
-          const cancelBtn = document.querySelector(".modal-content .btn:not(.btn-primary)")
-          if (cancelBtn) cancelBtn.onclick = () => resolve(false)
-        }, 50)
-      })
+      const confirmed = await confirmAsync(
+        `确定删除选中的 ${selected.length} 个章节及其全部版本？此操作不可恢复。`,
+        "确认删除",
+      )
       if (!confirmed) return
 
       const result = await runBulkAction(selected, async (item) => {

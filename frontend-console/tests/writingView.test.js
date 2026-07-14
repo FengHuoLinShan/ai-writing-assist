@@ -193,6 +193,8 @@ describe("writingView render", () => {
     writingView._loading = true
     const html = await writingView.render()
     expect(html).toContain("加载中")
+    expect(html).toContain('class="loading-skeleton"')
+    expect(html).toContain('role="status"')
   })
 
   it("无章节时显示空状态", async () => {

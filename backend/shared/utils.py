@@ -123,7 +123,11 @@ def parse_llm_json(content: str, label: str = "LLM response") -> dict:
     m = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
     if m:
         try:
-            return json.loads(m.group(1).strip())
+            result = json.loads(m.group(1).strip())
+            if isinstance(result, dict):
+                return result
+            if isinstance(result, list):
+                return {"items": result}
         except json.JSONDecodeError:
             pass
 

@@ -14,7 +14,6 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
-from unittest.mock import Mock
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -103,110 +102,6 @@ class DeepImportPhaseRunners:
         dict[str, Any],
     ]
     structure_stage: StageOnlyPhaseRunner[StructureStageRequest]
-
-
-def _dummy_chapters(start_chapter: int, end_chapter: int) -> list[dict[str, Any]]:
-    return [
-        {
-            "chapter_index": chapter,
-            "title": f"第{chapter}章",
-            "content": f"第{chapter}章测试正文。",
-        }
-        for chapter in range(start_chapter, end_chapter + 1)
-    ]
-
-
-def _dummy_scene_slicing_result(phase0_plan):
-    from modules.imports.scene_slicing import SceneSliceCandidate, SceneSlicingResult
-
-    candidates = [
-        SceneSliceCandidate(
-            candidate_id=f"phase1a-dummy-{chapter['chapter_index']:04d}",
-            source_window_id="dummy",
-            source_window_index=1,
-            title=chapter.get("title") or f"第{chapter['chapter_index']}章",
-            goal="测试 Scene 目标。",
-            core_conflict="测试 Scene 冲突。",
-            start_chapter=int(chapter["chapter_index"]),
-            end_chapter=int(chapter["chapter_index"]),
-            boundary_status="complete",
-            source_chapter_indices=[int(chapter["chapter_index"])],
-        )
-        for chapter in getattr(phase0_plan, "chapters", [])
-    ]
-    return SceneSlicingResult(
-        candidates=candidates,
-        quality_stats={
-            "total_batches": int(
-                (getattr(phase0_plan, "quality_stats", {}) or {}).get(
-                    "total_batches",
-                    1,
-                )
-            ),
-            "completed_batches": int(
-                (getattr(phase0_plan, "quality_stats", {}) or {}).get(
-                    "total_batches",
-                    1,
-                )
-            ),
-            "success": len(candidates),
-            "failed": 0,
-            "fallback_count": 0,
-            "scene_count": len(candidates),
-        },
-    )
-
-
-def _dummy_scene_enrichment_result(phase1a_candidates):
-    from modules.imports.llm_schemas import SceneChunk
-    from modules.imports.scene_enrichment import Phase1bEnrichmentResult
-    from modules.imports.scene_fusion import FinalSceneCandidate
-
-    candidates = []
-    for index, scene in enumerate(phase1a_candidates, start=1):
-        chapter_indices = list(
-            range(int(scene.start_chapter), int(scene.end_chapter) + 1)
-        )
-        candidates.append(
-            FinalSceneCandidate(
-                candidate_id=f"phase1b-dummy-{index:04d}",
-                phase="phase1b_enrichment",
-                title=scene.title,
-                goal=scene.goal,
-                core_conflict=scene.core_conflict,
-                emotional_beat="测试情绪节拍。",
-                must_happen=scene.goal or "保留 Scene 推进。",
-                must_not_happen=scene.core_conflict or "不得偏离章节事实。",
-                narrative_tag="imported",
-                scene_chunks=[
-                    SceneChunk(chapter_index=chapter) for chapter in chapter_indices
-                ],
-                source_candidate_ids=[scene.candidate_id],
-                source_rounds=["A"],
-                source_chapter_indices=chapter_indices,
-                operation="kept",
-                confidence=0.7,
-                fallback_required=False,
-                boundary_status=scene.boundary_status,
-                boundary_reason="Dummy enrichment for non-DB workflow test.",
-                needs_review=scene.needs_review,
-                review_reason=scene.review_reason,
-            )
-        )
-    return Phase1bEnrichmentResult(
-        candidates=candidates,
-        quality_stats={
-            "total_windows": len(candidates),
-            "completed_windows": len(candidates),
-            "total_scenes": len(candidates),
-            "completed": len(candidates),
-            "failed": 0,
-            "fallback_count": 0,
-            "concurrency": 20,
-            "max_tokens": 32_768,
-            "max_retries": 1,
-        },
-    )
 
 
 class DeepImportWorkflow:
@@ -394,18 +289,15 @@ class DeepImportWorkflow:
     ):
         from modules.imports.scene_planning import build_scene_import_plan
 
-        if db is None or isinstance(db, Mock):
-            chapters = _dummy_chapters(start_chapter, end_chapter)
-        else:
-            chapters = await load_chapter_range(
-                db,
-                novel_id,
-                start_chapter,
-                end_chapter,
-                include_missing=False,
-            )
+        chapters = await load_chapter_range(
+            db,
+            novel_id,
+            start_chapter,
+            end_chapter,
+            include_missing=False,
+        )
         project_settings = getattr(self, "_agent_project_settings", None)
-        if project_settings is None and db is not None and not isinstance(db, Mock):
+        if project_settings is None:
             project_settings = await _project_settings_for_novel(db, novel_id)
         return build_scene_import_plan(
             chapters,
@@ -425,8 +317,6 @@ class DeepImportWorkflow:
         on_batch_progress: Callable[[int, int, str], Awaitable[None]] | None = None,
     ):
         del start_chapter, end_chapter
-        if db is None or isinstance(db, Mock):
-            return _dummy_scene_slicing_result(phase0_plan)
         from modules.imports.scene_slicing import Phase1aSceneSlicer
 
         project_settings = getattr(self, "_agent_project_settings", None)
@@ -455,8 +345,6 @@ class DeepImportWorkflow:
         on_batch_progress: Callable[[int, int, str], Awaitable[None]] | None = None,
     ):
         del start_chapter, end_chapter
-        if db is None or isinstance(db, Mock):
-            return _dummy_scene_enrichment_result(phase1a_candidates)
         from modules.imports.scene_enrichment import Phase1bSceneEnricher
 
         project_settings = getattr(self, "_agent_project_settings", None)
@@ -891,17 +779,6 @@ class DeepImportWorkflow:
         end_chapter: int | None = None,
     ) -> dict[str, Any]:
         handler = _container_get("world.run_scene_entity_extraction")
-        if db is None or isinstance(db, Mock):
-            return await handler(
-                db,
-                novel_id=novel_id,
-                workflow_id=workflow_id,
-                on_scene_progress=on_scene_progress,
-                existing_checkpoints=existing_checkpoints,
-                start_chapter=start_chapter,
-                end_chapter=end_chapter,
-            )
-
         from modules.imports.entity_extraction.scene_entity_config import (
             phase2_project_settings_context,
         )

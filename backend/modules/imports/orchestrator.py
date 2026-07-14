@@ -30,6 +30,11 @@ from shared.constants import TASK_HEARTBEAT_INTERVAL
 from shared.utils import parse_uuid as _parse_uuid
 
 ProgressObserver = Callable[[DeepImportProgress, float, Any], Awaitable[None]]
+SnapshotBuilder = Callable[[AsyncSession, str], Awaitable[dict[str, Any]]]
+SnapshotRestorer = Callable[
+    [AsyncSession, str, dict[str, Any]],
+    Awaitable[dict[str, Any] | None],
+]
 
 STAGE_TASK_TYPES = {
     "scenes": "scene_auto_extraction",
@@ -57,9 +62,13 @@ class DeepImportOrchestrator:
         workflow: DeepImportWorkflow | None = None,
         *,
         progress_observer: ProgressObserver | None = None,
+        snapshot_builder: SnapshotBuilder | None = None,
+        snapshot_restorer: SnapshotRestorer | None = None,
     ) -> None:
         self.workflow = workflow or DeepImportWorkflow()
         self.progress_observer = progress_observer
+        self._snapshot_builder = snapshot_builder
+        self._snapshot_restorer = snapshot_restorer
 
     async def start(
         self,
@@ -498,8 +507,8 @@ class DeepImportOrchestrator:
         progress.authorization_snapshot = dict(snapshot)
         progress.asset_summary = build_asset_summary(progress.quality_stats)
 
-    @staticmethod
     async def _restore_llm_execution_snapshot(
+        self,
         db: AsyncSession,
         task: Any,
         progress: DeepImportProgress,
@@ -507,47 +516,52 @@ class DeepImportOrchestrator:
     ) -> dict[str, Any] | None:
         snapshot = meta.get("llm_execution_snapshot")
         if not isinstance(snapshot, dict) or not snapshot:
-            # Compatibility for already-created local tasks and lightweight unit
-            # fakes. New production submissions always persist the snapshot.
-            from unittest.mock import Mock
-
-            if isinstance(db, Mock):
-                return None
-            from modules.project.facade import build_project_llm_execution_snapshot
-
-            snapshot = await build_project_llm_execution_snapshot(
-                db,
-                str(meta.get("novel_id") or ""),
+            # Compatibility for already-created local tasks. New production
+            # submissions always persist the snapshot.
+            snapshot = await self._build_snapshot(
+                db, str(meta.get("novel_id") or "")
             )
             next_meta = dict(meta)
             next_meta["llm_execution_snapshot"] = snapshot
             task.meta = next_meta
         progress.llm_execution_snapshot = dict(snapshot)
-        from modules.project.facade import restore_project_llm_execution_settings
-
-        return await restore_project_llm_execution_settings(
+        return await self._restore_snapshot(
             db,
             str(meta.get("novel_id") or ""),
             snapshot,
         )
 
-    @staticmethod
     async def _build_llm_execution_snapshot(
+        self,
         db: AsyncSession,
         novel_id: str,
     ) -> dict[str, Any]:
-        from unittest.mock import Mock
-
-        if isinstance(db, Mock):
-            return {}
-        from modules.project.facade import (
-            build_project_llm_execution_snapshot,
-            restore_project_llm_execution_settings,
-        )
-
-        snapshot = await build_project_llm_execution_snapshot(db, novel_id)
-        await restore_project_llm_execution_settings(db, novel_id, snapshot)
+        snapshot = await self._build_snapshot(db, novel_id)
+        await self._restore_snapshot(db, novel_id, snapshot)
         return snapshot
+
+    async def _build_snapshot(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> dict[str, Any]:
+        if self._snapshot_builder is not None:
+            return await self._snapshot_builder(db, novel_id)
+        from modules.project.facade import build_project_llm_execution_snapshot
+
+        return await build_project_llm_execution_snapshot(db, novel_id)
+
+    async def _restore_snapshot(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        snapshot: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        if self._snapshot_restorer is not None:
+            return await self._snapshot_restorer(db, novel_id, snapshot)
+        from modules.project.facade import restore_project_llm_execution_settings
+
+        return await restore_project_llm_execution_settings(db, novel_id, snapshot)
 
     @staticmethod
     def _task_progress_value(task: Any) -> float:

@@ -14,6 +14,8 @@ import logging
 import sys
 from pathlib import Path
 
+from core.config import get_settings, validate_llm_rate_limit_config
+
 BACKEND_ROOT = Path(__file__).resolve().parent
 RELOAD_DIRS = (
     "app",
@@ -72,11 +74,22 @@ async def _guard_active_task_project_finalize(db, task) -> bool:
 
 def _configure_worker_process() -> None:
     """Register domain DI and handlers at the worker composition root."""
+    _validate_worker_config()
+
     from app.bootstrap import register_container_services
 
     register_container_services(ignore_existing=True)
     for module_name in TASK_HANDLER_MODULES:
         importlib.import_module(module_name)
+
+
+def _validate_worker_config() -> None:
+    """Fail closed before a worker process or reload supervisor starts."""
+    settings = get_settings()
+    validate_llm_rate_limit_config(
+        settings.app_env,
+        settings.llm_rate_limit_per_minute,
+    )
 
 
 async def main() -> None:
@@ -115,6 +128,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.reload:
+        # Validate in the supervisor as well as each spawned worker. Otherwise a
+        # misconfigured child exits while watchfiles keeps an idle parent alive.
+        _validate_worker_config()
         from watchfiles import run_process
 
         reload_dirs = _existing_reload_dirs() or [str(BACKEND_ROOT)]

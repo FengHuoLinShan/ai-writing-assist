@@ -7,8 +7,13 @@
 
 from __future__ import annotations
 
+import io
 import re
+import stat
+import unicodedata
+import zipfile
 from typing import Any
+from xml.etree import ElementTree
 
 import chardet
 
@@ -26,8 +31,43 @@ CHAPTER_PATTERNS = [
 CHUNK_SIZE = 500 * 1024
 ENCODING_DETECT_SAMPLE_SIZE = 64 * 1024
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+_COMMON_CHINESE_ENCODINGS = {"big5", "gb18030", "gb2312", "gbk"}
+_DEFAULT_ENCODING_CONFIDENCE = 0.7
+_CHINESE_ENCODING_CONFIDENCE = 0.2
 
 ALLOWED_EXTENSIONS: set[str] = {".txt", ".epub", ".html", ".htm", ".mobi", ".azw3"}
+
+_CONTENT_TYPE_MISMATCH_MESSAGE = "文件内容与扩展名不匹配"
+_HTML_MARKUP_PATTERN = re.compile(
+    r"<\s*(?:!doctype\s+html|html|head|body|title|meta|link|main|article|section|"
+    r"header|footer|nav|h[1-6]|p|div|span|blockquote|pre|br|hr|ol|ul|li|table|"
+    r"thead|tbody|tfoot|tr|th|td|figure|figcaption|a|em|strong|b|i|u|ruby|rt)\b",
+    re.IGNORECASE,
+)
+_EPUB_MIMETYPE = b"application/epub+zip"
+_EPUB_MAX_MEMBERS = 4096
+_EPUB_MAX_UNCOMPRESSED_SIZE = MAX_FILE_SIZE * 2
+_EPUB_MAX_MEMBER_SIZE = MAX_FILE_SIZE
+_EPUB_MAX_CONTAINER_SIZE = 1024 * 1024
+_EPUB_MAX_PACKAGE_SIZE = 4 * 1024 * 1024
+_EPUB_ALLOWED_COMPRESSION = {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}
+_EPUB_CONTAINER_PATH = "META-INF/container.xml"
+_EPUB_CONTAINER_NAMESPACE = "urn:oasis:names:tc:opendocument:xmlns:container"
+_EPUB_PACKAGE_NAMESPACE = "http://www.idpf.org/2007/opf"
+_EPUB_PACKAGE_MEDIA_TYPE = "application/oebps-package+xml"
+_PALMDB_HEADER_SIZE = 78
+_PALMDB_RECORD_ENTRY_SIZE = 8
+_PALMDOC_HEADER_SIZE = 16
+_MOBI_MIN_HEADER_SIZE = 116
+_MOBI_COMPRESSION_TYPES = {1, 2, 17480}
+_MACH_O_MAGICS = {
+    b"\xca\xfe\xba\xbe",
+    b"\xbe\xba\xfe\xca",
+    b"\xce\xfa\xed\xfe",
+    b"\xcf\xfa\xed\xfe",
+    b"\xfe\xed\xfa\xce",
+    b"\xfe\xed\xfa\xcf",
+}
 
 
 def detect_encoding(data: bytes) -> str:
@@ -35,9 +75,220 @@ def detect_encoding(data: bytes) -> str:
     result = chardet.detect(data[:ENCODING_DETECT_SAMPLE_SIZE])
     encoding = result.get("encoding")
     confidence = result.get("confidence") or 0
-    if not encoding or confidence < 0.7:
+    normalized_encoding = str(encoding or "").lower().replace("-", "")
+    minimum_confidence = (
+        _CHINESE_ENCODING_CONFIDENCE
+        if normalized_encoding in _COMMON_CHINESE_ENCODINGS
+        else _DEFAULT_ENCODING_CONFIDENCE
+    )
+    if not encoding or confidence < minimum_confidence:
         return "utf-8"
     return encoding
+
+
+def _raise_content_type_mismatch() -> None:
+    raise ValueError(_CONTENT_TYPE_MISMATCH_MESSAGE)
+
+
+def _looks_like_executable(data: bytes) -> bool:
+    if data.startswith(b"\x7fELF") or data[:4] in _MACH_O_MAGICS:
+        return True
+    if not data.startswith(b"MZ") or len(data) < 64:
+        return False
+    pe_offset = int.from_bytes(data[60:64], "little")
+    return pe_offset >= 64 and data[pe_offset : pe_offset + 4] == b"PE\x00\x00"
+
+
+def _decode_text_for_validation(data: bytes) -> str:
+    encoding = detect_encoding(data)
+    try:
+        text = data.decode(encoding, errors="strict")
+    except (LookupError, UnicodeDecodeError) as exc:
+        raise ValueError(
+            "文本编码无法正确解析，请使用 UTF-8 或常见中文编码保存文件"
+        ) from exc
+
+    for char in text:
+        if unicodedata.category(char) == "Cc" and char not in "\t\n\r\f":
+            _raise_content_type_mismatch()
+    return text
+
+
+def _archive_path_is_unsafe(name: str) -> bool:
+    if not name or "\x00" in name or "\\" in name:
+        return True
+    normalized = name.replace("\\", "/")
+    parts = normalized.split("/")
+    return (
+        normalized.startswith("/")
+        or ".." in parts
+        or (len(normalized) >= 2 and normalized[0].isalpha() and normalized[1] == ":")
+    )
+
+
+def _read_epub_xml(
+    archive: zipfile.ZipFile,
+    member: zipfile.ZipInfo,
+    *,
+    max_size: int,
+) -> ElementTree.Element:
+    if member.is_dir() or member.file_size > max_size:
+        _raise_content_type_mismatch()
+    content = archive.read(member)
+    lowered = content.lower()
+    if b"<!doctype" in lowered or b"<!entity" in lowered:
+        _raise_content_type_mismatch()
+    try:
+        return ElementTree.fromstring(content)
+    except ElementTree.ParseError as exc:
+        raise ValueError(_CONTENT_TYPE_MISMATCH_MESSAGE) from exc
+
+
+def _xml_local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _validate_epub_content(data: bytes) -> None:
+    if not data.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")):
+        _raise_content_type_mismatch()
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            members = archive.infolist()
+            names = [member.filename for member in members]
+            if (
+                not members
+                or len(members) > _EPUB_MAX_MEMBERS
+                or len(names) != len(set(names))
+                or names.count("mimetype") != 1
+                or names.count(_EPUB_CONTAINER_PATH) != 1
+            ):
+                _raise_content_type_mismatch()
+
+            total_size = 0
+            for member in members:
+                if (
+                    member.flag_bits & 0x1
+                    or _archive_path_is_unsafe(member.filename)
+                    or stat.S_ISLNK(member.external_attr >> 16)
+                    or member.compress_type not in _EPUB_ALLOWED_COMPRESSION
+                    or member.file_size > _EPUB_MAX_MEMBER_SIZE
+                ):
+                    _raise_content_type_mismatch()
+                total_size += member.file_size
+                if total_size > _EPUB_MAX_UNCOMPRESSED_SIZE:
+                    _raise_content_type_mismatch()
+
+            mimetype_info = archive.getinfo("mimetype")
+            if (
+                members[0].filename != "mimetype"
+                or mimetype_info.header_offset != 0
+                or mimetype_info.compress_type != zipfile.ZIP_STORED
+                or mimetype_info.file_size != len(_EPUB_MIMETYPE)
+                or archive.read(mimetype_info) != _EPUB_MIMETYPE
+            ):
+                _raise_content_type_mismatch()
+
+            container = _read_epub_xml(
+                archive,
+                archive.getinfo(_EPUB_CONTAINER_PATH),
+                max_size=_EPUB_MAX_CONTAINER_SIZE,
+            )
+            if container.tag != f"{{{_EPUB_CONTAINER_NAMESPACE}}}container":
+                _raise_content_type_mismatch()
+            rootfiles = [
+                element
+                for element in container.iter()
+                if element.tag == f"{{{_EPUB_CONTAINER_NAMESPACE}}}rootfile"
+                and element.get("media-type") == _EPUB_PACKAGE_MEDIA_TYPE
+            ]
+            if not rootfiles:
+                _raise_content_type_mismatch()
+            for rootfile in rootfiles:
+                package_path = rootfile.get("full-path", "")
+                if _archive_path_is_unsafe(package_path) or package_path not in names:
+                    _raise_content_type_mismatch()
+                package = _read_epub_xml(
+                    archive,
+                    archive.getinfo(package_path),
+                    max_size=_EPUB_MAX_PACKAGE_SIZE,
+                )
+                required_package_elements = {"metadata", "manifest", "spine"}
+                package_elements = {
+                    _xml_local_name(element.tag)
+                    for element in package
+                    if isinstance(element.tag, str)
+                    and element.tag.startswith(f"{{{_EPUB_PACKAGE_NAMESPACE}}}")
+                }
+                if (
+                    package.tag != f"{{{_EPUB_PACKAGE_NAMESPACE}}}package"
+                    or not required_package_elements.issubset(package_elements)
+                ):
+                    _raise_content_type_mismatch()
+    except (OSError, RuntimeError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
+        raise ValueError(_CONTENT_TYPE_MISMATCH_MESSAGE) from exc
+
+
+def _validate_mobi_content(data: bytes) -> None:
+    if len(data) < _PALMDB_HEADER_SIZE or data[60:68] != b"BOOKMOBI":
+        _raise_content_type_mismatch()
+
+    record_count = int.from_bytes(data[76:78], "big")
+    record_table_end = _PALMDB_HEADER_SIZE + record_count * _PALMDB_RECORD_ENTRY_SIZE
+    if record_count == 0 or record_table_end > len(data):
+        _raise_content_type_mismatch()
+
+    offsets = [
+        int.from_bytes(data[offset : offset + 4], "big")
+        for offset in range(
+            _PALMDB_HEADER_SIZE,
+            record_table_end,
+            _PALMDB_RECORD_ENTRY_SIZE,
+        )
+    ]
+    if (
+        offsets[0] < record_table_end
+        or offsets[-1] >= len(data)
+        or any(current >= following for current, following in zip(offsets, offsets[1:]))
+    ):
+        _raise_content_type_mismatch()
+
+    first_record_start = offsets[0]
+    first_record_end = offsets[1] if len(offsets) > 1 else len(data)
+    if first_record_end - first_record_start < _PALMDOC_HEADER_SIZE + 8:
+        _raise_content_type_mismatch()
+    compression = int.from_bytes(data[first_record_start : first_record_start + 2], "big")
+    mobi_header_start = first_record_start + _PALMDOC_HEADER_SIZE
+    mobi_header_size = int.from_bytes(
+        data[mobi_header_start + 4 : mobi_header_start + 8],
+        "big",
+    )
+    if (
+        compression not in _MOBI_COMPRESSION_TYPES
+        or data[mobi_header_start : mobi_header_start + 4] != b"MOBI"
+        or mobi_header_size < _MOBI_MIN_HEADER_SIZE
+        or mobi_header_start + mobi_header_size > first_record_end
+    ):
+        _raise_content_type_mismatch()
+
+
+def _validate_file_content(data: bytes, file_type: str) -> None:
+    """校验不可信上传内容，再分派到具体格式解析器。"""
+    if not data:
+        return
+    if _looks_like_executable(data):
+        _raise_content_type_mismatch()
+
+    if file_type == "txt":
+        _decode_text_for_validation(data)
+    elif file_type in {"html", "htm"}:
+        text = _decode_text_for_validation(data)
+        if _HTML_MARKUP_PATTERN.search(text) is None:
+            _raise_content_type_mismatch()
+    elif file_type == "epub":
+        _validate_epub_content(data)
+    elif file_type in {"mobi", "azw3"}:
+        _validate_mobi_content(data)
 
 
 def split_chapters(text: str) -> list[dict[str, str]]:
@@ -259,4 +510,5 @@ def parse_file(data: bytes, file_type: str) -> list[dict[str, str]]:
     parser = parsers.get(file_type)
     if parser is None:
         raise ValueError(f"不支持的文件类型: {file_type}")
+    _validate_file_content(data, file_type)
     return parser(data)

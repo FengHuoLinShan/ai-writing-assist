@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import func, select
 
@@ -23,7 +24,7 @@ from modules.imports.schemas import ImportResponse
 from modules.project.models import Project
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def sample_project(async_client: AsyncClient, db_session):
     resp = await async_client.post("/api/projects", json={"title": "导入 API 测试小说"})
     assert resp.status_code == 201
@@ -297,6 +298,42 @@ async def test_upload_truncated_utf8_records_failed(
     assert len(items) == 1
     assert items[0]["status"] == "failed"
     assert "编码" in items[0]["error_message"]
+
+
+@pytest.mark.asyncio
+async def test_upload_executable_renamed_to_txt_records_failed_without_writing(
+    async_client: AsyncClient,
+    sample_project: dict,
+    db_session,
+) -> None:
+    """客户端 MIME 不可信：PE 内容伪装为 text/plain 仍应在解析边界拒绝。"""
+    novel_id = sample_project["id"]
+    executable = bytearray(132)
+    executable[:2] = b"MZ"
+    executable[60:64] = (128).to_bytes(4, "little")
+    executable[128:132] = b"PE\x00\x00"
+    content = bytes(executable)
+
+    resp = await async_client.post(
+        "/api/imports/upload",
+        data={"novel_id": novel_id},
+        files={"file": ("renamed.txt", content, "text/plain")},
+    )
+
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "文件内容与扩展名不匹配"
+
+    chapters_resp = await async_client.get(f"/api/writing/chapters?novel_id={novel_id}")
+    assert chapters_resp.json()["chapter_indices"] == []
+
+    list_resp = await async_client.get(f"/api/imports?novel_id={novel_id}")
+    items = list_resp.json()["items"]
+    assert len(items) == 1
+    assert items[0]["status"] == "failed"
+    assert items[0]["error_message"] == "文件内容与扩展名不匹配"
+
+    task_count = await db_session.scalar(select(func.count()).select_from(AsyncTask))
+    assert task_count == 0
 
 
 @pytest.mark.asyncio
@@ -745,6 +782,78 @@ async def test_import_project_routes_hide_recycled_project(
     )
 
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["resume", "abandon"])
+@pytest.mark.parametrize("payload", [{}, {"task_id": ""}, {"ignored": "legacy"}])
+async def test_deep_import_recovery_request_model_preserves_missing_task_id_error(
+    async_client: AsyncClient,
+    action: str,
+    payload: dict,
+) -> None:
+    response = await async_client.post(
+        f"/api/imports/deep/{action}",
+        json=payload,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "task_id is required"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["resume", "abandon"])
+@pytest.mark.parametrize(
+    "invalid_task_id",
+    [["not", "a", "string"], 123, True, None, {"id": "nested"}],
+)
+async def test_deep_import_recovery_request_model_rejects_non_string_task_id(
+    async_client: AsyncClient,
+    action: str,
+    invalid_task_id: object,
+) -> None:
+    response = await async_client.post(
+        f"/api/imports/deep/{action}",
+        json={"task_id": invalid_task_id},
+    )
+
+    assert response.status_code == 422
+    assert "task_id" in response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["resume", "abandon"])
+async def test_deep_import_recovery_request_preserves_whitespace_as_task_id(
+    async_client: AsyncClient,
+    action: str,
+) -> None:
+    response = await async_client.post(
+        f"/api/imports/deep/{action}",
+        json={"task_id": "   "},
+    )
+
+    # The legacy dict body did not trim task IDs. Preserve that wire behavior;
+    # ownership lookup treats the malformed UUID as a missing task.
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_deep_import_recovery_openapi_uses_shared_typed_body(
+    async_client: AsyncClient,
+) -> None:
+    document = (await async_client.get("/api/openapi.json")).json()
+    schema_ref = document["paths"]["/api/imports/deep/resume"]["post"]["requestBody"][
+        "content"
+    ]["application/json"]["schema"]["$ref"]
+    abandon_schema_ref = document["paths"]["/api/imports/deep/abandon"]["post"][
+        "requestBody"
+    ]["content"]["application/json"]["schema"]["$ref"]
+
+    assert schema_ref == abandon_schema_ref
+    schema_name = schema_ref.rsplit("/", 1)[-1]
+    schema = document["components"]["schemas"][schema_name]
+    assert schema["properties"]["task_id"]["type"] == "string"
+    assert schema["properties"]["task_id"]["default"] == ""
 
 
 @pytest.mark.asyncio

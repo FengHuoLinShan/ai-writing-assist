@@ -476,8 +476,11 @@ const worldView = {
     html += this._renderHeader(subView, reviewSubView)
     html += subViewHtml
 
-    setTimeout(() => this._bindEvents(), 0)
     return html
+  },
+
+  onRendered() {
+    this._bindEvents()
   },
 
   _normalizeReviewSubView(subView = state.currentSubView || "") {
@@ -2302,7 +2305,7 @@ const worldView = {
         }
       },
     }])
-    setTimeout(() => this._bindAliasTargetSearch({ selectedId: entityId }), 0)
+    this._bindAliasTargetSearch({ selectedId: entityId })
   },
 
   showResolveAliasForm(candidateId) {
@@ -2376,7 +2379,7 @@ const worldView = {
         }
       },
     }])
-    setTimeout(() => this._bindAliasTargetSearch({ sourceId: candidateId, selectedId: targetId }), 0)
+    this._bindAliasTargetSearch({ sourceId: candidateId, selectedId: targetId })
   },
 
   async _markEntityReviewed(id) {
@@ -3297,7 +3300,7 @@ const worldView = {
         }
       },
     }])
-    setTimeout(() => this._bindMergeTargetSearch(entity, targetId), 0)
+    this._bindMergeTargetSearch(entity, targetId)
   },
 
   _mergeTargetCandidates(sourceEntity, targetId, targetName) {

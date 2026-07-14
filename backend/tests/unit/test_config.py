@@ -7,6 +7,9 @@ core/config.py 单元测试
 """
 
 import os
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -17,6 +20,8 @@ from core.config import (
     load_env_file,
     validate_app_access_token_config,
     validate_cors_origins,
+    validate_http_rate_limit_config,
+    validate_llm_rate_limit_config,
 )
 
 
@@ -59,8 +64,28 @@ class TestSettingsEffectiveDefaults:
     def test_effective_import_max_chapters(self):
         assert Settings().import_max_chapters == 1000
 
-    def test_effective_debug(self):
+    def test_effective_debug(self, monkeypatch):
+        monkeypatch.delenv("DEBUG", raising=False)
+        monkeypatch.delenv("APP_DEBUG", raising=False)
         assert Settings().debug is False
+
+    def test_env_example_uses_the_debug_key_consumed_by_settings(self):
+        example = (Path(__file__).resolve().parents[2] / ".env.example").read_text(
+            encoding="utf-8"
+        )
+        keys = {
+            line.split("=", 1)[0].strip()
+            for line in example.splitlines()
+            if line.strip() and not line.lstrip().startswith("#") and "=" in line
+        }
+
+        assert "DEBUG" in keys
+        assert "APP_DEBUG" not in keys
+
+    def test_fastapi_app_consumes_debug_setting(self):
+        from app.main import app
+
+        assert app.debug is get_settings().debug
 
     # --- field(default_factory=...) 字段：实例化时求值 ---
 
@@ -82,8 +107,9 @@ class TestSettingsEffectiveDefaults:
     def test_effective_allowed_origins(self):
         assert Settings().allowed_origins == ["*"]
 
-    def test_effective_log_level(self):
-        assert Settings().log_level == "DEBUG"
+    def test_effective_log_level(self, monkeypatch):
+        monkeypatch.delenv("LOG_LEVEL", raising=False)
+        assert Settings().log_level == "INFO"
 
     def test_effective_bge_device(self):
         assert Settings().bge_onnx_device == "cpu"
@@ -169,6 +195,16 @@ class TestSettingsFromEnvFactoryFields:
         monkeypatch.setenv("LOG_LEVEL", level)
         assert Settings().log_level == level
 
+    @pytest.mark.parametrize("value", ["1", "true", "YES", "on"])
+    def test_debug_from_env(self, monkeypatch, value):
+        monkeypatch.setenv("DEBUG", value)
+        assert Settings().debug is True
+
+    def test_legacy_app_debug_is_not_consumed(self, monkeypatch):
+        monkeypatch.delenv("DEBUG", raising=False)
+        monkeypatch.setenv("APP_DEBUG", "true")
+        assert Settings().debug is False
+
     def test_bge_device_from_env(self, monkeypatch):
         monkeypatch.setenv("BGE_ONNX_DEVICE", "cuda")
         assert Settings().bge_onnx_device == "cuda"
@@ -245,6 +281,88 @@ class TestAppAccessTokenValidation:
 
     def test_non_local_env_accepts_token(self):
         validate_app_access_token_config("production", "secret")
+
+
+class TestHttpRateLimitValidation:
+    @pytest.mark.parametrize("app_env", ["development", "test", "local"])
+    def test_local_env_allows_disabled_limiter(self, app_env):
+        validate_http_rate_limit_config(app_env, 0, 60, 10_000)
+
+    @pytest.mark.parametrize("app_env", ["production", "staging"])
+    def test_non_local_env_requires_positive_rate(self, app_env):
+        with pytest.raises(RuntimeError, match="HTTP_RATE_LIMIT_PER_MINUTE"):
+            validate_http_rate_limit_config(app_env, 0, 60, 10_000)
+
+    def test_non_local_env_accepts_valid_limiter(self):
+        validate_http_rate_limit_config("production", 240, 60, 10_000)
+
+    @pytest.mark.parametrize(
+        ("rate", "burst", "max_clients", "field"),
+        [
+            (-1, 60, 10_000, "HTTP_RATE_LIMIT_PER_MINUTE"),
+            (60, -1, 10_000, "HTTP_RATE_LIMIT_BURST"),
+            (60, 0, 10_000, "HTTP_RATE_LIMIT_BURST"),
+            (60, 60, 0, "HTTP_RATE_LIMIT_MAX_CLIENTS"),
+        ],
+    )
+    def test_invalid_limiter_values_are_rejected(
+        self,
+        rate,
+        burst,
+        max_clients,
+        field,
+    ):
+        with pytest.raises(RuntimeError, match=field):
+            validate_http_rate_limit_config(
+                "development",
+                rate,
+                burst,
+                max_clients,
+            )
+
+
+class TestLlmRateLimitValidation:
+    @pytest.mark.parametrize("app_env", ["development", "test", "local", " TEST "])
+    def test_local_env_allows_disabled_limiter(self, app_env):
+        validate_llm_rate_limit_config(app_env, 0)
+
+    @pytest.mark.parametrize("app_env", ["production", "prod", "staging"])
+    def test_non_local_env_requires_positive_rate(self, app_env):
+        with pytest.raises(RuntimeError, match="LLM_RATE_LIMIT_PER_MINUTE"):
+            validate_llm_rate_limit_config(app_env, 0)
+
+    def test_non_local_env_accepts_positive_rate(self):
+        validate_llm_rate_limit_config("production", 60)
+
+    def test_negative_rate_is_rejected_in_local_env(self):
+        with pytest.raises(RuntimeError, match="LLM_RATE_LIMIT_PER_MINUTE"):
+            validate_llm_rate_limit_config("development", -1)
+
+    def test_non_local_api_process_rejects_disabled_limiter(self):
+        backend_root = Path(__file__).resolve().parents[2]
+        env = os.environ.copy()
+        env.update(
+            {
+                "APP_ENV": "production",
+                "ALLOWED_ORIGINS": "https://example.com",
+                "APP_ACCESS_TOKEN": "test-access-token",
+                "HTTP_RATE_LIMIT_PER_MINUTE": "60",
+                "HTTP_RATE_LIMIT_BURST": "10",
+                "LLM_RATE_LIMIT_PER_MINUTE": "0",
+            }
+        )
+
+        result = subprocess.run(
+            [sys.executable, "-c", "import app.main"],
+            cwd=backend_root,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode != 0
+        assert "LLM_RATE_LIMIT_PER_MINUTE must be positive" in result.stderr
 
 
 class TestSettingsFrozen:

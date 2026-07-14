@@ -63,7 +63,6 @@ const projectSettingsView = {
   },
 
   async render() {
-    setTimeout(() => this.bindEvents(), 0)
     if (!this._projectId) {
       return `
         <div class="project-settings-view empty-state settings-empty-state">
@@ -98,6 +97,10 @@ const projectSettingsView = {
         <div class="settings-tab-content">${this._renderCurrentTab()}</div>
       </div>
     `
+  },
+
+  onRendered() {
+    this.bindEvents()
   },
 
   _renderCurrentTab() {

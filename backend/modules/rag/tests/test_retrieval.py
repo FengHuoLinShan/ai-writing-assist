@@ -426,6 +426,48 @@ class TestRetrievalOrchestratorInjected:
         repo.vector_search.assert_awaited_once()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("similarity", "expected_count"),
+        [(0.64, 0), (0.65, 1)],
+    )
+    async def test_vector_only_match_requires_meaningful_similarity(
+        self,
+        similarity: float,
+        expected_count: int,
+    ) -> None:
+        orthogonal = (1.0 - similarity**2) ** 0.5
+        fake_chunk = _rerank_test_chunk(uuid.uuid4(), 0)
+        fake_chunk.text = "没有字面命中的正文"
+        fake_chunk.embedding = [similarity, orthogonal]
+        repo = type(
+            "Repo",
+            (),
+            {
+                "keyword_search": AsyncMock(return_value=[]),
+                "vector_search": AsyncMock(return_value=[(fake_chunk, similarity)]),
+            },
+        )()
+
+        async def _fake_expand(db, novel_id, query, **kwargs):
+            return query
+
+        expander = QueryExpander(term_loader=lambda db, nid: [])
+        expander.expand = _fake_expand  # type: ignore[method-assign]
+        orch = RetrievalOrchestrator(
+            repo=repo,  # type: ignore[arg-type]
+            query_expander=expander,
+        )
+
+        results = await orch.hybrid_search(
+            None,  # type: ignore[arg-type]
+            fake_chunk.novel_id,
+            "语义查询",
+            query_embedding=[1.0, 0.0],
+        )
+
+        assert len(results) == expected_count
+
+    @pytest.mark.asyncio
     async def test_retrieve_uses_injected_embedder_and_metrics(self) -> None:
         fake_chunk = type(
             "Chunk",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
@@ -32,6 +33,8 @@ from modules.world.schemas import (
     WorldProfileUpsertRequest,
 )
 from shared.utils import parse_uuid
+
+logger = logging.getLogger(__name__)
 
 
 class SuggestionAlreadyProcessedError(Exception):
@@ -678,8 +681,14 @@ class SuggestionQueueService:
                 reason="suggestion_confirmed",
             )
         except Exception:
-            # Context invalidation is advisory for v1; the accepted write remains valid.
-            pass
+            logger.warning(
+                "world_suggestion_context_invalidation_failed novel_id=%s "
+                "suggestion_id=%s asset_id=%s; accepted_write_remains_valid",
+                novel_id,
+                suggestion.id,
+                result_ref.get("id") or suggestion.id,
+                exc_info=True,
+            )
         await db.flush()
         return CreationSuggestionResponse.model_validate(suggestion)
 

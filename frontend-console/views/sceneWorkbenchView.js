@@ -1,4 +1,9 @@
-import { bindWorkspaceClick, renderActionMenu, bindActionMenus } from "../shared/viewHelper.js"
+import {
+  bindActionMenus,
+  bindWorkspaceClick,
+  renderActionMenu,
+  renderLoadingSkeleton,
+} from "../shared/viewHelper.js"
 import {
   clearActiveWorkflow,
   normalizeTaskProgress,
@@ -151,7 +156,7 @@ const sceneWorkbenchView = {
   },
 
   async render() {
-    if (this._loading) return '<div class="loading">加载中...</div>'
+    if (this._loading) return renderLoadingSkeleton("场景工作台加载中...")
     if (!state.currentProjectId) {
       return '<div class="empty-state"><p>请先从左侧选择一个项目开始创作。</p></div>'
     }
@@ -186,8 +191,11 @@ const sceneWorkbenchView = {
         </div>
       </div>
     `
-    setTimeout(() => this._bindEvents(), 0)
     return html
+  },
+
+  onRendered() {
+    this._bindEvents()
   },
 
   renderHeaderActions() {
@@ -1244,7 +1252,7 @@ const sceneWorkbenchView = {
       ["must_not_happen", "scene-detail-must-not"],
     ]
     const target = fields.find(([field]) => !scene[field])
-    if (target) setTimeout(() => document.getElementById(target[1])?.focus(), 0)
+    if (target) document.getElementById(target[1])?.focus()
   },
 
   async _assignChapter(chapterIndex) {
@@ -2291,13 +2299,7 @@ const sceneWorkbenchView = {
         importAuthorizationPayload(),
       )
       if (result.requires_confirmation) {
-        const confirmed = await new Promise((resolve) => {
-          confirmAction(result.warning, () => resolve(true), "确认覆盖")
-          setTimeout(() => {
-            const cancelBtn = document.querySelector(".modal-content .btn:not(.btn-primary)")
-            if (cancelBtn) cancelBtn.onclick = () => resolve(false)
-          }, 50)
-        })
+        const confirmed = await confirmAsync(result.warning, "确认覆盖")
         if (!confirmed) return
         await this._submitSceneAutoExtraction(start, end, highQuality, true)
         return

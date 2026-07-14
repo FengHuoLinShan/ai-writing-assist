@@ -146,3 +146,42 @@ class TestLoadProjectTerms:
 
         assert calls == 1
         assert first == second == [{"term": "灰雾", "id": "entity-1", "type": "entity"}]
+
+    @pytest.mark.asyncio
+    async def test_world_term_failure_logs_and_keeps_best_effort_result(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        from app.main import _register_container_services
+        from core.container import register, reset
+
+        novel_id = uuid.uuid4()
+
+        async def _fail_entity_terms(*_args: Any, **_kwargs: Any):
+            raise RuntimeError("world terms unavailable")
+
+        reset()
+        clear_project_terms_cache()
+        register("world.list_entity_terms", _fail_entity_terms)
+        try:
+            with caplog.at_level(
+                "WARNING",
+                logger="modules.rag.query_expansion",
+            ):
+                terms = await _load_project_terms(
+                    None,  # type: ignore[arg-type]
+                    novel_id,
+                )
+        finally:
+            reset()
+            clear_project_terms_cache()
+            _register_container_services()
+
+        assert terms == []
+        record = next(
+            item
+            for item in caplog.records
+            if "rag_project_terms_load_failed" in item.getMessage()
+        )
+        assert str(novel_id) in record.getMessage()
+        assert record.exc_info is not None

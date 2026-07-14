@@ -887,17 +887,10 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     if (backup.content === editor._currentContent && (backup.title || "") === editor._currentTitle) return false
 
     const age = ((Date.now() - (backup.timestamp || 0)) / 1000 / 60).toFixed(0)
-    const confirmed = await new Promise((resolve) => {
-      confirmAction(
-        `检测到本地暂存的第 ${chapterIndex} 章内容（${age} 分钟前）。是否恢复？`,
-        () => resolve(true),
-        "恢复本地内容",
-      )
-      setTimeout(() => {
-        const cancelBtn = document.querySelector(".modal-content .btn:not(.btn-primary)")
-        if (cancelBtn) cancelBtn.onclick = () => resolve(false)
-      }, 50)
-    })
+    const confirmed = await confirmAsync(
+      `检测到本地暂存的第 ${chapterIndex} 章内容（${age} 分钟前）。是否恢复？`,
+      "恢复本地内容",
+    )
 
     if (!confirmed) return false
     if (!isCurrentLoad()) return false

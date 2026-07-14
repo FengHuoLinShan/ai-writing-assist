@@ -10,6 +10,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.tasks.models import AsyncTask
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def sample_project(async_client: AsyncClient):
     resp = await async_client.post("/api/projects", json={"title": "API 测试小说"})
     assert resp.status_code == 201

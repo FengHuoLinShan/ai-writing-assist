@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
+from core.logging_context import bind_validated_novel_id
 from modules.project.contracts import ProjectSummary
 from modules.project.models import Project
 from modules.project.repositories import ProjectRepository
@@ -41,6 +42,7 @@ async def get_project_context(
     context = await _service.get_project_context(db, novel_id)
     if context is None:
         return None
+    bind_validated_novel_id(novel_id)
 
     from modules.settings.facade import materialize_effective_project_settings
 
@@ -54,6 +56,7 @@ async def require_active_project(
 ) -> None:
     """Require an active project, hiding missing and recycled projects as 404."""
     await _service.require_active_project(db, novel_id)
+    bind_validated_novel_id(novel_id)
 
 
 async def get_project_by_id(

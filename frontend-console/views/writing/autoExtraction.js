@@ -6,6 +6,7 @@
  */
 
 import { confirmAiReference } from "../../shared/aiReferenceModal.js"
+import { confirmAsync } from "../../shared/confirmAsync.js"
 import {
   importAuthorizationNotice,
   importAuthorizationPayload,
@@ -104,12 +105,9 @@ export function createAutoExtraction({
         importAuthorizationPayload(),
       )
       if (result.requires_confirmation) {
-        const confirmed = await new Promise((resolve) => {
-          modalApi.confirmAction(result.warning, () => resolve(true), "确认覆盖")
-          setTimeout(() => {
-            const cancelBtn = document.querySelector(".modal-content .btn:not(.btn-primary)")
-            if (cancelBtn) cancelBtn.onclick = () => resolve(false)
-          }, 50)
+        const confirmed = await confirmAsync(result.warning, "确认覆盖", {
+          confirmAction: modalApi.confirmAction,
+          closeModal: modalApi.closeModal,
         })
         if (!confirmed) return
         await submitStage(stage, startChapter, endChapter, true, highQuality)

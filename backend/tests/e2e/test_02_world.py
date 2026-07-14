@@ -7,6 +7,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,7 +19,7 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
 class TestWorldEntityCRUD:
     """世界对象 CRUD E2E 测试 — 覆盖创建、列表、查询、更新、删除"""
 
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def ctx(self, async_client: AsyncClient, db_session: AsyncSession):
         """返回 (client, project_id, entity_ids)"""
         meta = await create_base_scene(db_session)
@@ -206,7 +207,7 @@ class TestWorldEntityCRUD:
 class TestRelationshipCRUD:
     """关系 CRUD E2E 测试 — 覆盖创建、列表、删除"""
 
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def ctx(self, async_client: AsyncClient, db_session: AsyncSession):
         meta = await create_base_scene(db_session)
         await db_session.flush()
@@ -289,7 +290,7 @@ class TestRelationshipCRUD:
 class TestAliasCRUD:
     """别名 CRUD E2E 测试 — 覆盖创建、列表、删除"""
 
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def ctx(self, async_client: AsyncClient, db_session: AsyncSession):
         meta = await create_base_scene(db_session)
         await db_session.flush()
@@ -345,7 +346,7 @@ class TestAliasCRUD:
 class TestWorldCandidateAndGraphFlows:
     """候选对象接受/忽略、抽取任务、关联图谱 E2E 测试"""
 
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def ctx(self, async_client: AsyncClient, db_session: AsyncSession):
         meta = await create_base_scene(db_session)
         await db_session.flush()

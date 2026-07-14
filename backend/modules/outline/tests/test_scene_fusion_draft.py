@@ -112,7 +112,7 @@ async def test_generator_uses_structured_project_client_and_manuscript(
     assert result.confidence == 0.86
     assert result.degraded is False
     assert client.request.temperature == 0.2
-    assert client.request.max_tokens == 2500
+    assert client.request.max_tokens is None
     assert client.request.response_format == {"type": "json_object"}
     system_prompt = client.request.messages[0].content
     assert "公平考虑每个选中 Scene" in system_prompt

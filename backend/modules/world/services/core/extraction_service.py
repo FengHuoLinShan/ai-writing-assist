@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import inspect
 import logging
 import uuid
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -62,12 +63,22 @@ class EntityExtractionService:
     update existing_context → next chapter
     """
 
-    def __init__(self, draft_provider: DraftProvider | None = None) -> None:
+    def __init__(
+        self,
+        draft_provider: DraftProvider | None = None,
+        *,
+        project_llm_opener: Callable[
+            [AsyncSession, str],
+            AbstractAsyncContextManager[Any],
+        ]
+        | None = None,
+    ) -> None:
         self._entity_repo = CoreEntityRepository()
         self._candidate_repo = CoreEntityRepository()
         self._dedup_service = EntityDedupService()
         self._draft_provider = draft_provider or WritingDraftProvider()
         self._suggestion_queue = SuggestionQueueService()
+        self._project_llm_opener = project_llm_opener
 
     async def extract_entities_from_chapters(
         self,
@@ -78,35 +89,14 @@ class EntityExtractionService:
         batch_size: int = 5,
     ) -> ExtractionResult:
         """Run extraction with one lifecycle-managed project LLM client."""
-        from unittest.mock import Mock
+        opener = self._project_llm_opener
+        if opener is not None:
+            client_context = opener(db, novel_id)
+        else:
+            from modules.project.facade import open_project_llm_client
 
-        from infrastructure.llm.client import LLMClient
-        from modules.project.facade import open_project_llm_client
-
-        if isinstance(db, Mock):
-            from modules.project.facade import get_project_context
-
-            project_context = await get_project_context(db, novel_id)
-            if project_context is None:
-                raise ValidationError("Project LLM settings are required for extraction")
-            client = LLMClient.from_project_settings(project_context.settings)
-            try:
-                return await self._extract_entities_from_chapters_with_client(
-                    db,
-                    novel_id,
-                    start_chapter,
-                    end_chapter,
-                    batch_size=batch_size,
-                    llm=client,
-                )
-            finally:
-                close = getattr(client, "close", None)
-                if callable(close):
-                    close_result = close()
-                    if inspect.isawaitable(close_result):
-                        await close_result
-
-        async with open_project_llm_client(db, novel_id) as client:
+            client_context = open_project_llm_client(db, novel_id)
+        async with client_context as client:
             return await self._extract_entities_from_chapters_with_client(
                 db,
                 novel_id,

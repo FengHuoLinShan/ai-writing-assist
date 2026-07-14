@@ -6,6 +6,7 @@ string 两种格式。
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +17,8 @@ from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import CoreEntityUpdate
 from modules.world.services.common import parse_uuid
 from modules.world.services.core.dedup_service import EntityDedupService
+
+logger = logging.getLogger(__name__)
 
 # 别名列表一次性拉取的实体上限（低并发场景，分页作用于别名列表）。
 MAX_LIST_ALIAS_ENTITIES = 10000
@@ -179,8 +182,14 @@ class EntityAliasService:
                 reason=reason,
             )
         except Exception:
-            # Context confirmation invalidation is best-effort, matching entity service.
-            pass
+            logger.warning(
+                "world_alias_context_invalidation_failed novel_id=%s "
+                "entity_id=%s reason=%s; alias_write_remains_valid",
+                novel_id,
+                entity_id,
+                reason,
+                exc_info=True,
+            )
 
     async def list_aliases(
         self,

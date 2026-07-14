@@ -121,21 +121,39 @@ class TestDetectEncoding:
     def test_uses_only_encoding_detect_sample(self):
         """只把前 ENCODING_DETECT_SAMPLE_SIZE 字节传给 chardet"""
         data = b"A" * ENCODING_DETECT_SAMPLE_SIZE + b"B" * 500
-        with patch("modules.imports.parsers.chardet.detect") as mock_detect:
+        with patch(
+            "modules.imports.parsers.chardet.detect",
+            autospec=True,
+        ) as mock_detect:
             mock_detect.return_value = {"encoding": "ascii", "confidence": 1.0}
             enc = detect_encoding(data)
 
         mock_detect.assert_called_once_with(data[:ENCODING_DETECT_SAMPLE_SIZE])
         assert enc == "ascii"
 
-    def test_low_confidence_falls_back_to_utf8(self):
-        """chardet 低置信结果应回退到 utf-8"""
+    def test_low_confidence_unknown_encoding_falls_back_to_utf8(self):
+        """非中文编码的低置信结果应回退到 utf-8"""
         data = "第一章\n内容".encode("gbk")
-        with patch("modules.imports.parsers.chardet.detect") as mock_detect:
-            mock_detect.return_value = {"encoding": "GB2312", "confidence": 0.69}
+        with patch(
+            "modules.imports.parsers.chardet.detect",
+            autospec=True,
+        ) as mock_detect:
+            mock_detect.return_value = {"encoding": "ISO-8859-1", "confidence": 0.69}
             enc = detect_encoding(data)
 
         assert enc == "utf-8"
+
+    def test_short_chinese_text_accepts_lower_confidence_gb18030(self):
+        """短中文文本常见的低置信 GB18030 仍应可解码。"""
+        data = "第一章\n内容".encode("gbk")
+        with patch(
+            "modules.imports.parsers.chardet.detect",
+            autospec=True,
+        ) as mock_detect:
+            mock_detect.return_value = {"encoding": "GB18030", "confidence": 0.25}
+            enc = detect_encoding(data)
+
+        assert enc == "GB18030"
 
     def test_missing_encoding_falls_back_to_utf8(self):
         """chardet 缺失 encoding 时应回退到 utf-8"""
@@ -395,19 +413,31 @@ class TestParseFileMore:
 
     def test_azw3_routes_to_mobi_parser(self):
         """azw3 文件类型应路由到 parse_mobi"""
-        with patch("modules.imports.parsers.parse_mobi") as mock_mobi:
+        first_record_offset = 88
+        payload = bytearray(first_record_offset + 16 + 116)
+        payload[60:68] = b"BOOKMOBI"
+        payload[76:78] = (1).to_bytes(2, "big")
+        payload[78:82] = first_record_offset.to_bytes(4, "big")
+        payload[first_record_offset : first_record_offset + 2] = (1).to_bytes(2, "big")
+        payload[first_record_offset + 16 : first_record_offset + 20] = b"MOBI"
+        payload[first_record_offset + 20 : first_record_offset + 24] = (116).to_bytes(
+            4,
+            "big",
+        )
+        with patch("modules.imports.parsers.parse_mobi", autospec=True) as mock_mobi:
             mock_mobi.return_value = [{"title": "azw3 chapter", "content": "content"}]
-            result = parse_file(b"fake-azw3-data", "azw3")
+            result = parse_file(bytes(payload), "azw3")
             assert len(result) == 1
-            mock_mobi.assert_called_once_with(b"fake-azw3-data")
+            mock_mobi.assert_called_once_with(bytes(payload))
 
     def test_htm_routes_to_html_parser(self):
         """htm 文件类型应路由到 parse_html"""
-        with patch("modules.imports.parsers.parse_html") as mock_html:
+        payload = b"<p>fake-htm-data</p>"
+        with patch("modules.imports.parsers.parse_html", autospec=True) as mock_html:
             mock_html.return_value = [{"title": "htm chapter", "content": "content"}]
-            result = parse_file(b"fake-htm-data", "htm")
+            result = parse_file(payload, "htm")
             assert len(result) == 1
-            mock_html.assert_called_once_with(b"fake-htm-data")
+            mock_html.assert_called_once_with(payload)
 
     def test_unsupported_type_raises(self):
         """不支持的文件类型应抛出 ValueError"""
@@ -1313,7 +1343,17 @@ async def test_run_submitted_scene_stage_inline_uses_worker_workflow_path() -> N
     db = AsyncMock()
     db.get.return_value = task
 
-    result = await DeepImportOrchestrator(workflow=workflow).run_submitted_stage_inline(
+    async def _empty_snapshot(_db, novel_id):
+        return {"test_snapshot": True, "novel_id": novel_id}
+
+    async def _restore_snapshot(_db, _novel_id, _snapshot):
+        return None
+
+    result = await DeepImportOrchestrator(
+        workflow=workflow,
+        snapshot_builder=_empty_snapshot,
+        snapshot_restorer=_restore_snapshot,
+    ).run_submitted_stage_inline(
         db,
         str(task.id),
         stage="scenes",

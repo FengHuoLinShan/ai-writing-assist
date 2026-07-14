@@ -15,6 +15,17 @@ logger = logging.getLogger(__name__)
 
 _GetProjectContextFn = Callable[[AsyncSession, str], Awaitable[Any]]
 
+_PROMPT_SAFE_PROJECT_FIELDS = (
+    "novel_id",
+    "title",
+    "genre",
+    "tone",
+    "language",
+    "target_length",
+    "current_stage",
+    "default_reveal_policy",
+)
+
 
 async def _default_get_project_context(db: AsyncSession, novel_id: str) -> Any:
     from modules.project.facade import get_project_context
@@ -43,7 +54,10 @@ class ProjectLoader(Loader):
     ) -> None:
         ctx = await self._get_project_context(db, options.novel_id)
         if ctx is not None:
-            bundle.project = ctx.model_dump()
+            raw = ctx.model_dump()
+            bundle.project = {
+                field: raw[field] for field in _PROMPT_SAFE_PROJECT_FIELDS if field in raw
+            }
             bundle.budget_used["project"] = 1
         else:
             bundle.budget_used["project"] = 0

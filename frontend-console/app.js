@@ -553,7 +553,10 @@ const App = {
   _bindModalClose() {
     document.getElementById("modal-close")?.addEventListener("click", closeModal)
     document.getElementById("modal-overlay")?.addEventListener("click", (e) => {
-      if (e.target === e.currentTarget) closeModal()
+      if (e.target === e.currentTarget && !closeModal(e)) {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+      }
     })
   },
 

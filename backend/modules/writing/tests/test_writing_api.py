@@ -10,6 +10,7 @@ import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +23,7 @@ from modules.writing.schemas import WritingDraftCreate
 from modules.writing.tasks import handle_publish_chapter
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def sample_draft(async_client: AsyncClient):
     project_resp = await async_client.post(
         "/api/projects",

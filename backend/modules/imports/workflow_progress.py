@@ -330,7 +330,7 @@ class DeepImportProgressTracker:
         workflow_id: str | None,
         progress: DeepImportProgress,
     ) -> None:
-        if db is None or not workflow_id or type(db).__module__ == "unittest.mock":
+        if db is None or not workflow_id:
             return
         from modules.context.facade import build_snapshot_health_summary
 

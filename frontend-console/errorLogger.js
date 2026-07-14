@@ -92,9 +92,6 @@
 
   function _syncToBackend(entry) {
     if (!entry || entry.level !== "error" || typeof fetch !== "function") return
-    const accessToken = typeof sessionStorage !== "undefined"
-      ? sessionStorage.getItem("novel_app_access_token")
-      : null
     const payload = {
       frontendId: entry.id,
       level: entry.level,
@@ -115,18 +112,19 @@
       },
     }
 
-    const headers = {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-      "X-Requested-With": "XMLHttpRequest",
-    }
-    if (accessToken) {
-      headers.Authorization = `Bearer ${accessToken}`
+    if (typeof window.api?.reportFrontendError === "function") {
+      window.api.reportFrontendError(payload).catch(() => {})
+      return
     }
 
+    // api.js 是 module script；极早期启动错误发生在其执行前时仍允许无令牌上报。
     fetch(`${_debugApiBaseUrl()}/frontend-errors`, {
       method: "POST",
-      headers,
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+      },
       body: JSON.stringify(payload),
       keepalive: true,
     }).catch(() => {})

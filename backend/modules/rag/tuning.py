@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import math
 
 # 将 backend 目录加入 path（允许从项目根直接运行）
@@ -26,6 +27,8 @@ from dataclasses import dataclass, field
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 _backend = _os.path.dirname(
     _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
@@ -50,6 +53,12 @@ class EvalResult:
     precision_at_5: float = 0.0
     recall_at_5: float = 0.0
     avg_latency_ms: float = 0.0
+
+
+@dataclass
+class _EmbeddingFailureLogState:
+    warning_emitted: bool = False
+    failure_count: int = 0
 
 
 @dataclass
@@ -172,6 +181,8 @@ async def evaluate_weights(
     queries: list[EvalQuery],
     weights: tuple[float, float, float, float],
     top_k: int = 10,
+    *,
+    _embedding_failure_log_state: _EmbeddingFailureLogState | None = None,
 ) -> EvalResult:
     """用给定权重评估检索质量。"""
     from infrastructure.llm.client import LLMClient
@@ -185,6 +196,9 @@ async def evaluate_weights(
     r5_sum = 0.0
     total_latency = 0.0
     valid = 0
+    failure_log_state = (
+        _embedding_failure_log_state or _EmbeddingFailureLogState()
+    )
 
     for eq in queries:
         t0 = time.monotonic()
@@ -196,7 +210,16 @@ async def evaluate_weights(
             if isinstance(emb, list) and emb and isinstance(emb[0], float):
                 query_embedding = emb  # type: ignore[assignment]
         except Exception:
-            pass  # 降级为无向量模式
+            failure_log_state.failure_count += 1
+            if not failure_log_state.warning_emitted:
+                logger.warning(
+                    "rag_tuning_embedding_failed novel_id=%s chapter_index=%s; "
+                    "continuing_without_vector; subsequent_failures_suppressed",
+                    novel_id,
+                    eq.chapter_index,
+                    exc_info=True,
+                )
+                failure_log_state.warning_emitted = True
 
         scored = await retrieval.hybrid_search(
             db,
@@ -285,8 +308,15 @@ async def run_tuning(
 
     # 3. 网格搜索
     results: list[EvalResult] = []
+    embedding_failure_log_state = _EmbeddingFailureLogState()
     for i, w in enumerate(combos):
-        result = await evaluate_weights(db, nid, queries, w)
+        result = await evaluate_weights(
+            db,
+            nid,
+            queries,
+            w,
+            _embedding_failure_log_state=embedding_failure_log_state,
+        )
         results.append(result)
         if (i + 1) % 50 == 0 or i == 0:
             print(
