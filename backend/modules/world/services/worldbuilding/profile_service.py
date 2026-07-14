@@ -69,6 +69,16 @@ class WorldProfileService:
         else:
             profile = await self._upsert_generic(db, entity, data)
         await db.flush()
+        from modules.world.services.worldbuilding.synopsis_invalidation import (
+            mark_synopsis_source_changed,
+        )
+
+        await mark_synopsis_source_changed(
+            db,
+            novel_id,
+            source_type="profile",
+            source_id=entity_id,
+        )
         return self._profile_response(entity, profile)
 
     async def migrate_generic_to_strong(
@@ -101,6 +111,16 @@ class WorldProfileService:
             db.add(profile)
         generic.status = "migrated"
         await db.flush()
+        from modules.world.services.worldbuilding.synopsis_invalidation import (
+            mark_synopsis_source_changed,
+        )
+
+        await mark_synopsis_source_changed(
+            db,
+            novel_id,
+            source_type="profile",
+            source_id=entity_id,
+        )
         return self._profile_response(entity, profile)
 
     async def _get_entity(

@@ -98,6 +98,17 @@ class WorldEntityService(
                 )
 
         obj = await self.repo.create(db, nid, data)
+        if obj.status == "canonical":
+            from modules.world.services.worldbuilding.synopsis_invalidation import (
+                mark_synopsis_source_changed,
+            )
+
+            await mark_synopsis_source_changed(
+                db,
+                novel_id,
+                source_type="core_entity",
+                source_id=str(obj.id),
+            )
         return self._to_response(obj)
 
     # ============================================================
@@ -251,6 +262,17 @@ class WorldEntityService(
                     id,
                     exc_info=True,
                 )
+        if existing.status == "canonical" or updated.status == "canonical":
+            from modules.world.services.worldbuilding.synopsis_invalidation import (
+                mark_synopsis_source_changed,
+            )
+
+            await mark_synopsis_source_changed(
+                db,
+                novel_id,
+                source_type="core_entity",
+                source_id=id,
+            )
         return result
 
     @staticmethod
@@ -306,6 +328,17 @@ class WorldEntityService(
 
         existing.status = "deprecated"
         await db.flush()
+
+        from modules.world.services.worldbuilding.synopsis_invalidation import (
+            mark_synopsis_source_changed,
+        )
+
+        await mark_synopsis_source_changed(
+            db,
+            novel_id,
+            source_type="core_entity",
+            source_id=id,
+        )
 
         try:
             async with db.begin_nested():
@@ -429,6 +462,17 @@ class WorldEntityService(
                 entity_id,
                 exc_info=True,
             )
+
+        from modules.world.services.worldbuilding.synopsis_invalidation import (
+            mark_synopsis_source_changed,
+        )
+
+        await mark_synopsis_source_changed(
+            db,
+            novel_id,
+            source_type="core_entity",
+            source_id=entity_id,
+        )
 
         return EntityPromoteResponse(
             entity_id=str(updated.id),

@@ -30,9 +30,13 @@ from .worldbuilding import (
     KnowledgeTagExclusion,
     KnowledgeVisibilityPolicy,
     ReaderRevealPolicy,
+    WorldBibleCategory,
     WorldBiblePage,
+    WorldBiblePageDraft,
     WorldBiblePageProjection,
     WorldBiblePageRevision,
+    WorldBibleSynopsisHead,
+    WorldBibleSynopsisRevision,
 )
 
 WorldEntity = CoreEntity
@@ -71,8 +75,12 @@ __all__ = [
     "SpeciesProfile",
     "TextArchive",
     "WorldBiblePage",
+    "WorldBibleCategory",
+    "WorldBiblePageDraft",
     "WorldBiblePageProjection",
     "WorldBiblePageRevision",
+    "WorldBibleSynopsisHead",
+    "WorldBibleSynopsisRevision",
     "WorldEntity",
     "WorldEntityAlias",
     "_ProfileMixin",

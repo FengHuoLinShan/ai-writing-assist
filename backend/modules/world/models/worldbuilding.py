@@ -165,7 +165,15 @@ class WorldBiblePage(Base, UUIDMixin, TimestampMixin, StatusMixin):
 
 class WorldBiblePageRevision(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "world_bible_page_revisions"
-    __table_args__ = {"comment": "World Bible 页面版本"}
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "page_id",
+            "version_number",
+            name="uq_world_bible_page_revision_version",
+        ),
+        {"comment": "World Bible 页面版本"},
+    )
 
     novel_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -209,6 +217,12 @@ class WorldBiblePageProjection(Base, UUIDMixin, TimestampMixin, StatusMixin):
         index=True,
     )
     projection_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_page_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_spans_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     token_estimate: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -218,6 +232,160 @@ class WorldBiblePageProjection(Base, UUIDMixin, TimestampMixin, StatusMixin):
     stale_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_kind: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class WorldBibleCategory(Base, UUIDMixin, TimestampMixin, StatusMixin):
+    __tablename__ = "world_bible_categories"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "category_key",
+            name="uq_world_bible_category_key",
+        ),
+        {"comment": "项目自定义 World Bible 类别"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    category_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    color: Mapped[str] = mapped_column(String(7), nullable=False, default="#64748B")
+    icon: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+
+
+class WorldBiblePageDraft(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "world_bible_page_drafts"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "page_id",
+            name="uq_world_bible_page_active_draft",
+        ),
+        {"comment": "World Bible 页面服务器工作稿"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    page_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("world_bible_pages.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    base_version_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    page_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    free_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    linked_asset_refs_json: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class WorldBibleSynopsisRevision(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "world_bible_synopsis_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "version_number",
+            name="uq_world_bible_synopsis_revision_version",
+        ),
+        {"comment": "LLM 派生的不可变作者版世界观简介"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="ready")
+    rendered_text: Mapped[str] = mapped_column(Text, nullable=False)
+    claims_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    source_manifest_json: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    token_estimate: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    coverage_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    omitted_reasons_json: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
+    generation_meta_json: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+    )
+
+
+class WorldBibleSynopsisHead(Base, UUIDMixin, TimestampMixin, StatusMixin):
+    __tablename__ = "world_bible_synopsis_heads"
+    __table_args__ = (
+        UniqueConstraint("novel_id", name="uq_world_bible_synopsis_head_novel"),
+        {"comment": "世界观简介当前指针、失效与自动维护授权"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    desired_source_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default="",
+    )
+    current_revision_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("world_bible_synopsis_revisions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    pinned_revision_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("world_bible_synopsis_revisions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    active_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("async_tasks.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    stale: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    auto_refresh_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+    )
+    authorization_json: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+    )
+    enabled_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_kind: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 # ============================================================

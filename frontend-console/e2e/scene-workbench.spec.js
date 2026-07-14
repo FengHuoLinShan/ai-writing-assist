@@ -213,6 +213,41 @@ test.describe("Scene 工作台", () => {
     await expect(page.locator("#writing-panel-container")).toContainText("新目标")
   })
 
+  test("已采用 Scene 可移入历史并通过历史筛选查看", async ({ page }) => {
+    const project = await createProject({ title: "Scene 移入历史", genre: "fantasy", language: "zh" })
+    testProjectId = project.id
+    const scene = await createScene(project.id, {
+      scene_index: 0,
+      title: "旧版潜入计划",
+      goal: "潜入王宫",
+      core_conflict: "守卫巡查",
+      chapter_ids: ["1"],
+      status: "canonical",
+    })
+
+    await openWorkbench(page, project, "outline", "scenes")
+    const row = page.locator(`.scene-workbench-row[data-id="${scene.id}"]`)
+    await row.locator(".action-menu-btn").click()
+    await row.locator('[data-action="move-scene-to-history"]').click()
+
+    await expect(page.locator("#modal-title")).toHaveText("确认操作")
+    await expect(page.locator("#modal-body")).toContainText("正文和追踪信息会保留")
+    await page.getByRole("button", { name: "确认移入历史" }).click()
+
+    await expect(page.locator("#toast-container")).toContainText("Scene 已移入历史", { timeout: 10000 })
+    await expect(page.locator(`.scene-workbench-row[data-id="${scene.id}"]`)).toHaveCount(0)
+    await expect(page).toHaveURL(/outline\/scenes$/)
+
+    await page.locator("#scene-filter-status").selectOption("deprecated")
+    await page.locator('[data-action="apply-scene-filters"]').click()
+
+    const historyRow = page.locator(`.scene-workbench-row[data-id="${scene.id}"]`)
+    await expect(historyRow).toBeVisible()
+    await expect(historyRow).toContainText("历史")
+    await historyRow.locator(".action-menu-btn").click()
+    await expect(historyRow.locator('[data-action="move-scene-to-history"]')).toHaveCount(0)
+  })
+
   test("手动融合可保存新 Scene 并废弃原 Scene", async ({ page }) => {
     const project = await createProject({ title: "Scene 手动融合", genre: "fantasy", language: "zh" })
     testProjectId = project.id

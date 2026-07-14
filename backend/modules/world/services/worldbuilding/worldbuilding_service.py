@@ -27,9 +27,15 @@ from modules.world.services.worldbuilding.suggestion_queue_service import (  # n
     SuggestionAlreadyProcessedError,
     SuggestionQueueService,
 )
+from modules.world.services.worldbuilding.world_bible_lifecycle_service import (  # noqa: F401
+    WorldBibleLifecycleService,
+)
 from modules.world.services.worldbuilding.world_bible_service import (  # noqa: F401
     ProjectionRefreshConflictError,
     WorldBibleService,
+)
+from modules.world.services.worldbuilding.world_bible_synopsis_service import (  # noqa: F401
+    WorldBibleSynopsisService,
 )
 
 __all__ = [
@@ -45,6 +51,8 @@ __all__ = [
     "SuggestionAlreadyProcessedError",
     "SuggestionQueueService",
     "WorldBibleService",
+    "WorldBibleLifecycleService",
+    "WorldBibleSynopsisService",
     "WorldProfileService",
     "ProfileBinding",
     "normalize_profession_slug",

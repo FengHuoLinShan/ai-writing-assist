@@ -211,6 +211,33 @@ Do not create revisions for every autosave or cursor-level edit.
 Rollback creates a new revision. It does not delete prior revisions and does
 not roll back `CoreEntity`, profiles, relations, map facts, or structure assets.
 
+#### 2026-07-14 publish-workspace amendment
+
+Page editing now uses `world_bible_page_drafts`. A new-page draft may have
+`page_id=NULL`; an existing page has at most one draft per novel/page. Drafts
+store the full editable snapshot and `base_version_number`. Publish locks the
+page and performs a version CAS; success updates/creates the canonical page,
+writes one immutable revision, removes the draft and invalidates the author
+synopsis. A conflict returns 409 and keeps the draft. Restoring a revision
+creates a new draft instead of rewriting history.
+
+Built-in categories are `background/species/faction/location/rule/secret/custom`.
+Custom categories are presentation metadata only; their key is immutable and
+archiving does not delete pages. Structured assets remain canonical truth and
+are edited in their owning views, not inline inside World Bible pages.
+
+### Author World Bible Synopsis
+
+`world_bible_synopsis` is a separate P1, author-only derived section. It does
+not replace the deterministic, non-evictable P0 `World Core Brief`.
+`world_bible_synopsis_heads` stores desired source hash, current/pinned
+revision, active task, stale/error state and persisted auto-maintenance
+authorization. `world_bible_synopsis_revisions` stores immutable claims,
+rendered text, source manifest, coverage/omissions, prompt/model/provider and
+project execution snapshot provenance. Reader, character and POV compilation
+always excludes it. Restoring an old revision pins it and pauses automatic
+promotion until unpin-and-refresh.
+
 ### Free Text Projection
 
 `world_bible_page_projections` caches context-ready material derived from

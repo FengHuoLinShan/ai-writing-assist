@@ -549,6 +549,78 @@ const api = {
       return patch(withQuery(`/world/bible/pages/${pageId}`, { novel_id: novelId }), payload)
     },
 
+    async listBibleCategories(novelId, includeArchived = false) {
+      return request(withQuery("/world/bible/categories", {
+        novel_id: novelId,
+        include_archived: includeArchived,
+      }))
+    },
+
+    async createBibleCategory(payload) {
+      return post("/world/bible/categories", payload)
+    },
+
+    async updateBibleCategory(categoryId, payload, novelId) {
+      return patch(withQuery(`/world/bible/categories/${categoryId}`, { novel_id: novelId }), payload)
+    },
+
+    async listBibleDrafts(novelId) {
+      return request(withQuery("/world/bible/drafts", { novel_id: novelId }))
+    },
+
+    async createBibleDraft(payload) {
+      return post("/world/bible/drafts", payload)
+    },
+
+    async updateBibleDraft(draftId, payload, novelId) {
+      return patch(withQuery(`/world/bible/drafts/${draftId}`, { novel_id: novelId }), payload)
+    },
+
+    async discardBibleDraft(draftId, novelId) {
+      return deleteRequest(withQuery(`/world/bible/drafts/${draftId}`, {
+        novel_id: novelId,
+        confirmed: true,
+      }))
+    },
+
+    async publishBibleDraft(draftId, novelId) {
+      return post(withQuery(`/world/bible/drafts/${draftId}/publish`, { novel_id: novelId }))
+    },
+
+    async listBiblePageRevisions(pageId, novelId) {
+      return request(withQuery(`/world/bible/pages/${pageId}/revisions`, { novel_id: novelId }))
+    },
+
+    async restoreBiblePageRevision(pageId, version, novelId) {
+      return post(withQuery(`/world/bible/pages/${pageId}/revisions/${version}/restore-draft`, {
+        novel_id: novelId,
+      }))
+    },
+
+    async getBibleSynopsis(novelId) {
+      return request(withQuery("/world/bible/synopsis", { novel_id: novelId }))
+    },
+
+    async refreshBibleSynopsis(novelId) {
+      return post(withQuery("/world/bible/synopsis/refresh", { novel_id: novelId }))
+    },
+
+    async setBibleSynopsisAutoRefresh(novelId, enabled) {
+      return patch(withQuery("/world/bible/synopsis/auto-refresh", { novel_id: novelId }), { enabled })
+    },
+
+    async listBibleSynopsisRevisions(novelId) {
+      return request(withQuery("/world/bible/synopsis/revisions", { novel_id: novelId }))
+    },
+
+    async restoreBibleSynopsisRevision(revisionId, novelId) {
+      return post(withQuery(`/world/bible/synopsis/revisions/${revisionId}/restore`, { novel_id: novelId }))
+    },
+
+    async unpinBibleSynopsis(novelId) {
+      return post(withQuery("/world/bible/synopsis/unpin", { novel_id: novelId }))
+    },
+
     async listBibleTemplates() {
       return request("/world/bible/templates")
     },
@@ -583,6 +655,13 @@ const api = {
 
     async editAndConfirmSuggestion(suggestionId, payload, novelId) {
       return post(withQuery(`/world/suggestions/${suggestionId}/edit-confirm`, { novel_id: novelId }), payload)
+    },
+
+    async applySuggestionToBibleDraft(suggestionId, payload, novelId) {
+      return post(
+        withQuery(`/world/suggestions/${suggestionId}/apply-to-world-bible-draft`, { novel_id: novelId }),
+        payload,
+      )
     },
 
     async mergeSuggestion(suggestionId, targetEntityId, novelId) {

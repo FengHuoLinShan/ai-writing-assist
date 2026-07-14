@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,7 +13,21 @@ from modules.world.contracts import (
     WorldBackgroundEntryContract,
 )
 from modules.world.map_models import MapFact
-from modules.world.models import CharacterKnowledge, CoreEntity, EntityRelation
+from modules.world.models import (
+    CharacterKnowledge,
+    CoreEntity,
+    EntityRelation,
+    Event,
+    FactionProfile,
+    GenericEntityProfile,
+    ItemProfile,
+    LocationProfile,
+    RuleProfile,
+    SecretProfile,
+    SpeciesProfile,
+    WorldBiblePage,
+    WorldBiblePageProjection,
+)
 from shared.utils import parse_uuid
 
 
@@ -32,6 +48,9 @@ class WorldBackgroundAggregation:
             statuses.append("draft")
         entries: list[WorldBackgroundEntryContract] = []
 
+        profile_summaries = await self._profile_summaries(db, nid)
+        event_summaries = await self._event_summaries(db, nid)
+
         entities = await db.execute(
             select(CoreEntity)
             .where(CoreEntity.novel_id == nid, CoreEntity.status.in_(statuses))
@@ -39,7 +58,21 @@ class WorldBackgroundAggregation:
             .limit(limit)
         )
         for entity in entities.scalars().all():
-            summary = entity.summary or entity.public_info or entity.name
+            profile_summary = profile_summaries.get(entity.id)
+            event_summary = event_summaries.get(entity.id)
+            if context_mode == "author_full":
+                parts = [
+                    (entity.summary or entity.name)[:400],
+                    (entity.public_info or "")[:250],
+                    (entity.hidden_truth or "")[:500],
+                ]
+            else:
+                parts = [entity.summary or entity.public_info or entity.name]
+                if profile_summary:
+                    parts.append(profile_summary)
+                if event_summary:
+                    parts.append(event_summary)
+            summary = "；".join(item for item in parts if item)
             entries.append(
                 self._entry(
                     novel_id,
@@ -54,6 +87,36 @@ class WorldBackgroundAggregation:
                     self._keywords(entity.name, entity.content_json),
                 )
             )
+            if context_mode == "author_full" and profile_summary:
+                entries.append(
+                    self._entry(
+                        novel_id,
+                        "profile",
+                        str(entity.id),
+                        f"{entity.name}档案",
+                        profile_summary,
+                        f"profile:{entity.entity_type}",
+                        float(entity.importance or 0.5),
+                        entity.status,
+                        entity.reveal_level,
+                        [entity.name, entity.entity_type],
+                    )
+                )
+            if context_mode == "author_full" and event_summary:
+                entries.append(
+                    self._entry(
+                        novel_id,
+                        "event",
+                        str(entity.id),
+                        entity.name,
+                        event_summary,
+                        "event:timeline",
+                        float(entity.importance or 0.5),
+                        entity.status,
+                        entity.reveal_level,
+                        [entity.name, "event"],
+                    )
+                )
 
         relations = await db.execute(
             select(EntityRelation)
@@ -130,6 +193,51 @@ class WorldBackgroundAggregation:
                 )
             )
 
+        pages = await db.execute(
+            select(WorldBiblePage, WorldBiblePageProjection)
+            .outerjoin(
+                WorldBiblePageProjection,
+                (WorldBiblePageProjection.page_id == WorldBiblePage.id)
+                & (WorldBiblePageProjection.novel_id == WorldBiblePage.novel_id)
+                & (WorldBiblePageProjection.projection_type == "context_brief"),
+            )
+            .where(
+                WorldBiblePage.novel_id == nid,
+                WorldBiblePage.status.in_({"canonical", "confirmed"}),
+            )
+            .order_by(WorldBiblePage.sort_order, WorldBiblePage.title)
+            .limit(limit)
+        )
+        for page, projection in pages.all():
+            current_projection = bool(
+                projection
+                and not projection.stale
+                and projection.source_page_version == page.version_number
+                and projection.source_hash
+                == hashlib.sha256((page.free_text or "").encode("utf-8")).hexdigest()
+            )
+            summary = (
+                projection.content
+                if current_projection
+                else (page.free_text or "")[:2400]
+            )
+            if not summary:
+                continue
+            entries.append(
+                self._entry(
+                    novel_id,
+                    "world_bible_page",
+                    str(page.id),
+                    page.title,
+                    summary,
+                    f"{page.page_type}:{page.title}",
+                    0.7,
+                    page.status,
+                    "author_only",
+                    [page.title, page.page_type],
+                )
+            )
+
         entries.sort(key=lambda item: (-item.importance, item.entry_id))
         return WorldBackgroundBundleContract(
             novel_id=novel_id,
@@ -175,3 +283,60 @@ class WorldBackgroundAggregation:
         for item in aliases:
             values.append(str(item.get("alias") if isinstance(item, dict) else item))
         return values
+
+    @classmethod
+    async def _profile_summaries(
+        cls,
+        db: AsyncSession,
+        novel_id,
+    ) -> dict:
+        summaries: dict = {}
+        for model in (
+            SpeciesProfile,
+            FactionProfile,
+            LocationProfile,
+            RuleProfile,
+            ItemProfile,
+            SecretProfile,
+            GenericEntityProfile,
+        ):
+            result = await db.execute(
+                select(model).where(
+                    model.novel_id == novel_id,
+                    model.status.in_({"canonical", "confirmed"}),
+                )
+            )
+            for row in result.scalars().all():
+                fields: list[str] = []
+                for column in row.__table__.columns:
+                    if column.name in {
+                        "id",
+                        "novel_id",
+                        "entity_id",
+                        "status",
+                        "source",
+                        "confidence",
+                        "created_at",
+                        "updated_at",
+                        "evidence_refs_json",
+                    }:
+                        continue
+                    value = getattr(row, column.name, None)
+                    if value in (None, "", [], {}):
+                        continue
+                    fields.append(f"{column.name}={value}")
+                if fields:
+                    summaries[row.entity_id] = "；".join(fields)[:1600]
+        return summaries
+
+    @staticmethod
+    async def _event_summaries(db: AsyncSession, novel_id) -> dict:
+        result = await db.execute(select(Event).where(Event.novel_id == novel_id))
+        return {
+            row.entity_id: (
+                f"timeline_order={row.timeline_order}；"
+                f"occurrence_time={row.occurrence_time_label or ''}；"
+                f"location_entity_id={row.location_entity_id}"
+            )
+            for row in result.scalars().all()
+        }

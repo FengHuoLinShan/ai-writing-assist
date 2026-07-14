@@ -31,6 +31,7 @@ from modules.context.services.loaders import (
     ProjectLoader,
     RagChunksLoader,
     SceneLoader,
+    WorldBibleLoader,
     WorldEntitiesLoader,
 )
 from modules.context.services.protocol import Loader
@@ -38,9 +39,9 @@ from modules.context.services.protocol import Loader
 logger = logging.getLogger(__name__)
 
 SCOPE_LOADERS: dict[str, list[str]] = {
-    "project": ["project"],
-    "world": ["project", "world_entities"],
-    "world_character": ["project", "world_entities", "characters"],
+    "project": ["project", "world_bible"],
+    "world": ["project", "world_entities", "world_bible"],
+    "world_character": ["project", "world_entities", "characters", "world_bible"],
     "arc": [
         "scene",
         "project",
@@ -51,6 +52,7 @@ SCOPE_LOADERS: dict[str, list[str]] = {
         "rag_chunks",
         "plot_threads",
         "outline_arc",
+        "world_bible",
     ],
     "chapter": [
         "scene",
@@ -62,6 +64,7 @@ SCOPE_LOADERS: dict[str, list[str]] = {
         "rag_chunks",
         "plot_threads",
         "outline_arc",
+        "world_bible",
     ],
     "full": [
         "scene",
@@ -73,6 +76,7 @@ SCOPE_LOADERS: dict[str, list[str]] = {
         "rag_chunks",
         "plot_threads",
         "outline_arc",
+        "world_bible",
     ],
 }
 
@@ -100,6 +104,7 @@ class ContextCompiler:
         return [
             ProjectLoader(),
             WorldEntitiesLoader(),
+            WorldBibleLoader(),
             CharactersLoader(),
             EventsLoader(),
             MemoryRecordsLoader(),
@@ -268,6 +273,78 @@ class ContextCompiler:
         if options is not None and options.reveal_mode == "reader":
             sections.extend(self._build_reader_reveal_sections(bundle, options))
             return sections
+
+        if bundle.world_bible_synopsis:
+            synopsis = bundle.world_bible_synopsis
+            content = str(synopsis.get("content") or "").strip()
+            if content:
+                wrapped = (
+                    "<WORLD_BIBLE_SYNOPSIS_DATA>\n"
+                    f"{content}\n"
+                    "</WORLD_BIBLE_SYNOPSIS_DATA>"
+                )
+                sections.append(
+                    ContextSection(
+                        key="world_bible_synopsis",
+                        tier=Tier.P1,
+                        content=wrapped,
+                        token_count=estimate_token_count(wrapped),
+                        title="世界观简介",
+                        preview=content[:160],
+                        status="canonical",
+                        activation_reason="作者在本次生成中启用了世界观简介",
+                        sources=[
+                            {
+                                "type": "world_bible_synopsis",
+                                "id": str(synopsis.get("revision_id") or "fallback"),
+                                "label": "世界观简介",
+                                "status": str(synopsis.get("status") or "unknown"),
+                            }
+                        ],
+                        can_exclude=True,
+                        retrieval_metadata={
+                            "revision_id": synopsis.get("revision_id"),
+                            "source_hash": synopsis.get("source_hash"),
+                            "block_hash": synopsis.get("block_hash"),
+                            "stale": bool(synopsis.get("stale")),
+                            "fallback": bool(synopsis.get("fallback")),
+                            "coverage": dict(synopsis.get("coverage") or {}),
+                            "omitted_reasons": list(
+                                synopsis.get("omitted_reasons") or []
+                            ),
+                        },
+                    )
+                )
+
+        if bundle.world_bible_working_pages:
+            content = json.dumps(
+                bundle.world_bible_working_pages,
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            wrapped = (
+                "<WORLD_BIBLE_WORKING_PAGES_DATA>\n"
+                f"{content}\n"
+                "</WORLD_BIBLE_WORKING_PAGES_DATA>"
+            )
+            sections.append(
+                ContextSection(
+                    key="world_bible_working_pages",
+                    tier=Tier.P1,
+                    content=wrapped,
+                    token_count=estimate_token_count(wrapped),
+                    title="世界书工作稿",
+                    preview=content[:160],
+                    status="working",
+                    activation_reason="作者显式选择了未发布工作稿",
+                    sources=self._sources_from_items(
+                        bundle.world_bible_working_pages,
+                        default_type="world_bible_draft",
+                        status="working",
+                    ),
+                    can_exclude=True,
+                )
+            )
 
         if bundle.scene:
             content = json.dumps(bundle.scene, ensure_ascii=False, indent=2)

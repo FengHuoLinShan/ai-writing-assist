@@ -95,6 +95,7 @@ beforeEach(() => {
     downstream_refresh_required: ["world_objects", "plot_structure"],
   })
   api.outline.updateScene.mockResolvedValue({ id: "s1" })
+  api.outline.deleteScene = vi.fn().mockResolvedValue(null)
   sceneWorkbenchView._loading = false
   sceneWorkbenchView._fusionPreviewPending = false
   sceneWorkbenchView._fusionPreviewProjectId = null
@@ -1131,6 +1132,98 @@ describe("sceneWorkbenchView", () => {
     expect(toast).toHaveBeenCalledWith("Scene 已采用，仍有 2 项待处理", "warning")
     expect(router.refresh).not.toHaveBeenCalled()
     expect(document.querySelector(".scene-workbench__organize").scrollTop).toBe(84)
+  })
+
+  it("shows move to history only for active scene rows", () => {
+    const activeHtml = sceneWorkbenchView._renderSceneRow(workbenchPayload.items[0], "s1")
+    const historyHtml = sceneWorkbenchView._renderSceneRow({
+      ...workbenchPayload.items[0],
+      scene: {
+        ...workbenchPayload.items[0].scene,
+        status: "deprecated",
+      },
+    }, "s1")
+
+    expect(activeHtml).toContain('data-action="move-scene-to-history"')
+    expect(activeHtml).toContain("移入历史")
+    expect(historyHtml).not.toContain('data-action="move-scene-to-history"')
+  })
+
+  it("keeps a scene unchanged when moving to history is cancelled", async () => {
+    document.body.innerHTML = `
+      <div id="modal-overlay"></div>
+      <button id="modal-close"></button>
+      <div id="modal-footer"></div>
+    `
+    confirmAction.mockImplementation(() => {
+      const cancel = document.createElement("button")
+      cancel.textContent = "取消"
+      document.getElementById("modal-footer").appendChild(cancel)
+    })
+    sceneWorkbenchView._workbench = workbenchPayload
+    sceneWorkbenchView._selectedFusionSceneIds = new Set(["s1"])
+
+    const pending = sceneWorkbenchView._moveSceneToHistory("s1")
+    document.querySelector("#modal-footer button").click()
+    const moved = await pending
+
+    expect(moved).toBe(false)
+    expect(api.outline.deleteScene).not.toHaveBeenCalled()
+    expect(sceneWorkbenchView._selectedFusionSceneIds).toEqual(new Set(["s1"]))
+  })
+
+  it("moves the selected scene to history and clears its route and selection", async () => {
+    state.currentView = "outline"
+    state.currentSubView = "scenes"
+    window.history.replaceState(
+      { view: "outline", subView: "scenes", projectId: "p1" },
+      "",
+      "#workbench/p1/outline/scenes?scene_id=s1",
+    )
+    autoConfirm()
+    api.outline.deleteScene.mockResolvedValue(null)
+    sceneWorkbenchView._workbench = workbenchPayload
+    sceneWorkbenchView._selectedFusionSceneIds = new Set(["s1", "s2"])
+    const refresh = vi.spyOn(sceneWorkbenchView, "_refreshWorkbenchInPlace")
+      .mockResolvedValue()
+
+    const moved = await sceneWorkbenchView._moveSceneToHistory("s1")
+
+    expect(moved).toBe(true)
+    expect(confirmAction).toHaveBeenCalledWith(
+      expect.stringContaining("正文和追踪信息会保留"),
+      expect.any(Function),
+      "确认移入历史",
+    )
+    expect(api.outline.deleteScene).toHaveBeenCalledWith("s1", "p1")
+    expect(sceneWorkbenchView._selectedFusionSceneIds).toEqual(new Set(["s2"]))
+    expect(window.location.hash).toBe("#workbench/p1/outline/scenes")
+    expect(toast).toHaveBeenCalledWith("Scene 已移入历史", "success")
+    expect(refresh).toHaveBeenCalled()
+  })
+
+  it("preserves scene state when moving to history fails", async () => {
+    state.currentView = "outline"
+    state.currentSubView = "scenes"
+    window.history.replaceState(
+      { view: "outline", subView: "scenes", projectId: "p1" },
+      "",
+      "#workbench/p1/outline/scenes?scene_id=s1",
+    )
+    autoConfirm()
+    api.outline.deleteScene.mockRejectedValue(new Error("删除请求失败"))
+    sceneWorkbenchView._workbench = workbenchPayload
+    sceneWorkbenchView._selectedFusionSceneIds = new Set(["s1"])
+    const refresh = vi.spyOn(sceneWorkbenchView, "_refreshWorkbenchInPlace")
+      .mockResolvedValue()
+
+    const moved = await sceneWorkbenchView._moveSceneToHistory("s1")
+
+    expect(moved).toBe(false)
+    expect(sceneWorkbenchView._selectedFusionSceneIds).toEqual(new Set(["s1"]))
+    expect(window.location.hash).toContain("scene_id=s1")
+    expect(refresh).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("移入历史失败：删除请求失败", "error")
   })
 
   it("reviews selected scenes in bulk without resetting the scene list scroll", async () => {
@@ -2287,8 +2380,11 @@ describe("sceneWorkbenchView", () => {
 
     expect(showModal.mock.calls[1][0]).toBe("Scene 替换审查")
     const html = modalHtmlFromCall(showModal.mock.calls[1])
+    const buttonTexts = showModal.mock.calls[1][2].map((button) => button.text)
     expect(html).toContain("受保护的原 Scene")
     expect(html).toContain("新版潜入")
+    expect(buttonTexts).toContain("采用新 Scene，旧 Scene 移入历史")
+    expect(buttonTexts).toContain("编辑后采用，旧 Scene 移入历史")
     expect(api.outline.previewSceneFusion).not.toHaveBeenCalled()
     expect(result).toBe(false)
   })
@@ -2310,9 +2406,14 @@ describe("sceneWorkbenchView", () => {
       decision: "replace",
       confirmed: true,
     })
+    expect(confirmAction).toHaveBeenCalledWith(
+      expect.stringContaining("原 Scene 将移入历史"),
+      expect.any(Function),
+      "确认采用并移入历史",
+    )
     expect(refresh).toHaveBeenCalled()
     expect(toast).toHaveBeenCalledWith(
-      "Scene 已替换；建议按需重跑：world_objects、plot_structure",
+      "新 Scene 已采用，旧 Scene 已移入历史；建议按需重跑：world_objects、plot_structure",
       "success",
     )
   })

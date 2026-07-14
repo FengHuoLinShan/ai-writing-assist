@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.schemas import LLMCallResponse
+from modules.context.models import ContextSnapshot
 from modules.world.models import CoreEntity, CreationSuggestion
 from modules.writing.facade import create_draft_only
 
@@ -98,6 +99,67 @@ async def test_object_draft_chat_does_not_create_entity(
     assert "旧怨" in resp.json()["reply"]
     assert fake.models == ["deepseek-v4-flash"]
     assert await _entity_count(db_session) == before
+
+
+@pytest.mark.asyncio
+async def test_object_draft_chat_returns_actual_world_synopsis_usage(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _FakeLLMClient()
+    monkeypatch.setattr(
+        "modules.project.llm_runtime.LLMClient.from_resolved_profile",
+        lambda _profile: fake,
+    )
+    novel_id = (await _create_llm_project(async_client, "简介上下文"))["id"]
+    draft = await async_client.post(
+        "/api/world/bible/drafts",
+        json={
+            "novel_id": novel_id,
+            "title": "世界背景",
+            "page_type": "background",
+            "free_text": "星海帝国建立于长夜之后。",
+        },
+    )
+    assert draft.status_code == 201, draft.text
+    published = await async_client.post(
+        f"/api/world/bible/drafts/{draft.json()['id']}/publish",
+        params={"novel_id": novel_id},
+    )
+    assert published.status_code == 200, published.text
+
+    response = await async_client.post(
+        "/api/world/object-draft-chat",
+        json={
+            "novel_id": novel_id,
+            "template": "character",
+            "messages": [{"role": "user", "content": "设计一个反派"}],
+            "include_world_synopsis": True,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    usage = response.json()["context_usage"]
+    assert usage["included"] is True
+    assert usage["fallback"] is True
+    assert usage["revision_id"] is None
+    assert usage["source_hash"]
+    assert usage["block_hash"]
+    assert usage["context_snapshot_id"]
+    snapshot = await db_session.get(
+        ContextSnapshot,
+        uuid.UUID(usage["context_snapshot_id"]),
+    )
+    assert snapshot is not None
+    assert snapshot.status == "succeeded"
+    assert snapshot.compile_options["include_world_synopsis"] is True
+    assert snapshot.section_metadata["world_bible_synopsis"]["retrieval_metadata"][
+        "source_hash"
+    ] == usage["source_hash"]
+    prompt = "\n".join(message.content for message in fake.requests[0].messages)
+    assert "<WORLD_BIBLE_SYNOPSIS_DATA>" in prompt
+    assert "星海帝国建立于长夜之后" in prompt
 
 
 @pytest.mark.asyncio
@@ -242,6 +304,8 @@ async def test_generate_object_draft_accepts_custom_template_prompt(
     assert meta["template_name"] == "DND 圣骑士"
     assert meta["has_custom_template_prompt"] is True
     assert "必须写清楚誓言" in fake.requests[0].messages[1].content
+    assert "必须写清楚誓言" not in fake.requests[0].messages[0].content
+    assert "<AUTHOR_TEMPLATE_INSTRUCTION>" in fake.requests[0].messages[1].content
 
 
 @pytest.mark.asyncio

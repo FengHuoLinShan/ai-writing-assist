@@ -107,6 +107,9 @@ async def compile_structure_context(
     retrieval_purpose: str = "generic_context",
     consumer_action: str | None = None,
     thread_ids: list[str] | None = None,
+    include_world_synopsis: bool = False,
+    selected_world_bible_draft_ids: list[str] | None = None,
+    world_synopsis_revision_id: str | None = None,
 ) -> StructureContextBundle:
     """编译结构化创作上下文
 
@@ -171,6 +174,9 @@ async def compile_structure_context(
         include_pending_objects=include_pending_objects,
         excluded_asset_ids=excluded_asset_ids or {},
         user_note=user_note,
+        include_world_synopsis=include_world_synopsis,
+        selected_world_bible_draft_ids=selected_world_bible_draft_ids or [],
+        world_synopsis_revision_id=world_synopsis_revision_id,
     )
     return await _compiler.compile(db, options)
 
@@ -301,6 +307,120 @@ async def render_compiled_context_markdown(
     return _render_compiled_context(ctx)
 
 
+async def compile_generation_background(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    task: str,
+    include_world_synopsis: bool = False,
+    selected_world_bible_draft_ids: list[str] | None = None,
+    operation: str = "world.object_draft.generate",
+    prompt_name: str = "generation_center_world_object_draft",
+    model: str = "project-default",
+) -> dict:
+    """Compile the actual author-only background consumed by generation center."""
+    options = CompileOptions(
+        novel_id=novel_id,
+        task=task,
+        scope="world",
+        reveal_mode="author_safe",
+        retrieval_purpose="world_fusion",
+        consumer_action=operation,
+        include_world_synopsis=include_world_synopsis,
+        selected_world_bible_draft_ids=selected_world_bible_draft_ids or [],
+        budget_tokens=4000,
+    )
+    compiled = await _compiler.compile_with_tiers(
+        db,
+        options,
+        budget_tokens=options.budget_tokens,
+    )
+    rendered = _render_compiled_context(compiled)
+    synopsis = next(
+        (
+            section
+            for section in compiled.sections
+            if section.key == "world_bible_synopsis"
+        ),
+        None,
+    )
+    metadata = dict(synopsis.retrieval_metadata or {}) if synopsis else {}
+    usage = {
+        "included": synopsis is not None,
+        "section_key": "world_bible_synopsis",
+        "revision_id": metadata.get("revision_id"),
+        "source_hash": metadata.get("source_hash"),
+        "block_hash": metadata.get("block_hash"),
+        "token_count": synopsis.token_count if synopsis else 0,
+        "stale": bool(metadata.get("stale")),
+        "fallback": bool(metadata.get("fallback")),
+        "status": (
+            "included"
+            if synopsis is not None
+            else "not_requested" if not include_world_synopsis else "unavailable"
+        ),
+        "warnings": list(compiled.warnings),
+    }
+    included_asset_ids = {
+        "world_bible_draft": list(options.selected_world_bible_draft_ids),
+        "world_bible_synopsis_revision": (
+            [str(options.world_synopsis_revision_id)]
+            if options.world_synopsis_revision_id
+            else []
+        ),
+    }
+    section_metadata = {
+        section.key: {
+            "tier": int(section.tier),
+            "status": section.status,
+            "token_count": section.token_count,
+            "source_count": len(section.sources),
+            "retrieval_metadata": dict(section.retrieval_metadata or {}),
+        }
+        for section in compiled.sections
+    }
+    snapshot = await create_context_snapshot(
+        db,
+        novel_id=novel_id,
+        phase="generation_background",
+        operation=operation,
+        context_mode="canonical",
+        include_pending_objects=False,
+        prompt_name=prompt_name,
+        model=model,
+        compile_options={
+            "novel_id": options.novel_id,
+            "task": options.task,
+            "scope": options.scope,
+            "reveal_mode": options.reveal_mode,
+            "retrieval_purpose": options.retrieval_purpose,
+            "consumer_action": options.consumer_action,
+            "budget_tokens": options.budget_tokens,
+            "include_world_synopsis": options.include_world_synopsis,
+            "selected_world_bible_draft_ids": list(
+                options.selected_world_bible_draft_ids
+            ),
+            "world_synopsis_revision_id": options.world_synopsis_revision_id,
+            "world_synopsis_source_hash": options.world_synopsis_source_hash,
+            "world_synopsis_block_hash": options.world_synopsis_block_hash,
+        },
+        included_asset_ids=included_asset_ids,
+        context_summary={
+            "section_keys": [section.key for section in compiled.sections],
+            "warning_count": len(compiled.warnings),
+            "synopsis": usage,
+        },
+        section_metadata=section_metadata,
+        token_metadata={
+            "budget_tokens": options.budget_tokens,
+            "used_tokens": sum(section.token_count for section in compiled.sections),
+        },
+        rendered_context=rendered,
+    )
+    usage["context_snapshot_id"] = snapshot.id
+    return {"rendered_context": rendered, "context_usage": usage}
+
+
 async def preview_activation(
     db: AsyncSession,
     *,
@@ -354,6 +474,8 @@ async def confirm_context(
     excluded_asset_ids: dict[str, list[str]] | None = None,
     user_note: str | None = None,
     retrieval_purpose: str = "generic_context",
+    include_world_synopsis: bool = False,
+    selected_world_bible_draft_ids: list[str] | None = None,
 ) -> ContextConfirmationContract:
     return await _confirmation_service.confirm_context(
         db,
@@ -381,6 +503,8 @@ async def confirm_context(
         include_pending_objects=include_pending_objects,
         excluded_asset_ids=excluded_asset_ids,
         user_note=user_note,
+        include_world_synopsis=include_world_synopsis,
+        selected_world_bible_draft_ids=selected_world_bible_draft_ids,
     )
 
 

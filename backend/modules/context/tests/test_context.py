@@ -76,6 +76,63 @@ async def _add_active_project(db_session: AsyncSession, novel_id: str) -> None:
     await db_session.flush()
 
 
+@pytest.mark.asyncio
+async def test_world_bible_loader_pins_actual_synopsis_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.context.services.confirmation_service import (
+        ContextConfirmationService,
+    )
+    from modules.context.services.loaders.world_bible_loader import WorldBibleLoader
+    from modules.world import facade as world_facade
+
+    async def fake_synopsis_context(db, novel_id, *, revision_id=None):
+        assert novel_id == "00000000-0000-0000-0000-00000000b101"
+        assert revision_id is None
+        return SimpleNamespace(
+            included=True,
+            content="不可变作者简介",
+            revision_id="revision-1",
+            source_hash="source-hash-1",
+            block_hash="block-hash-1",
+            token_count=12,
+            stale=False,
+            fallback=False,
+            status="fresh",
+            coverage={"claim_count": 1},
+            omitted_reasons=[],
+            warnings=[],
+        )
+
+    monkeypatch.setattr(
+        world_facade,
+        "get_world_bible_synopsis_context",
+        fake_synopsis_context,
+    )
+    options = CompileOptions(
+        novel_id="00000000-0000-0000-0000-00000000b101",
+        task="生成世界对象",
+        scope="world",
+        reveal_mode="author_safe",
+        include_world_synopsis=True,
+    )
+    bundle = StructureContextBundle(
+        novel_id=options.novel_id,
+        task=options.task,
+        scope=options.scope,
+    )
+
+    await WorldBibleLoader().load(object(), options, bundle)
+
+    assert options.world_synopsis_revision_id == "revision-1"
+    assert options.world_synopsis_source_hash == "source-hash-1"
+    assert options.world_synopsis_block_hash == "block-hash-1"
+    persisted = ContextConfirmationService._compile_options_json(options)
+    assert persisted["world_synopsis_revision_id"] == "revision-1"
+    assert persisted["world_synopsis_source_hash"] == "source-hash-1"
+    assert persisted["world_synopsis_block_hash"] == "block-hash-1"
+
+
 # ============================================================
 # Context Confirmation 测试
 # ============================================================

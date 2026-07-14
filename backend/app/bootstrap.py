@@ -9,6 +9,9 @@ from typing import Any
 from core.container import get as _get
 from core.container import register as _register
 from modules.context.facade import compile_structure_context as _ctx_compile
+from modules.context.facade import (
+    compile_generation_background as _ctx_generation_background,
+)
 from modules.imports.entity_extraction.scene_entity_extraction import (
     SceneEntityExtractionService as _SceneExtractSvc,
 )
@@ -77,6 +80,7 @@ def _container_services() -> Iterable[tuple[str, Any]]:
         ("outline.foreshadowing_service", ForeshadowingPlanService()),
         ("outline.reveal_service", RevealPlanService()),
         ("context.compile", _ctx_compile),
+        ("context.generation_background", _ctx_generation_background),
         ("memory.service", memory),
         ("memory.capture_snapshot", memory.capture_snapshot),
         ("project.require_active", _project_require_active),

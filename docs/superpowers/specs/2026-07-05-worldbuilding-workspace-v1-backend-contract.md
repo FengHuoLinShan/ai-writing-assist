@@ -95,6 +95,25 @@ Projection status is stored on `world_bible_page_projections`. `stale` is read
 from that row. Short-lived inconsistency during async updates is acceptable and
 responses expose `stale_checked_at`.
 
+## Author Synopsis Refresh
+
+The author-only `world_bible_synopsis_refresh` task uses the existing
+PostgreSQL queue and the project LLM execution snapshot seam. The per-project
+head is locked when scheduling, so at most one pending/running task is active.
+Source commands only mark the synopsis stale; refresh updates the desired
+source hash, and both refresh and context compilation recompute the normalized
+manifest hash as the correctness check. Before promotion the worker
+locks/re-reads the head and performs a source-hash CAS. An obsolete result is
+stored as `superseded`, never promoted, and auto-maintenance may enqueue one
+coalesced follow-up task.
+
+`CompileOptions.include_world_synopsis` defaults to false and
+`selected_world_bible_draft_ids` defaults to an empty list. Confirmations pin
+the actual synopsis revision. Generation-center object chat/generate reaches
+context through the registered `GenerationBackgroundProvider` port and returns
+optional `context_usage` with section/revision/source hash/block hash/token,
+stale and fallback fields. These additive defaults preserve old wire behavior.
+
 ## Activation Scoring
 
 Source weights:

@@ -28,7 +28,9 @@ README、ORM 模型与 Alembic migration。
 | 概念 | 当前承载 | 含义 |
 |---|---|---|
 | 世界书页 | `world_bible_pages` | 作者可编辑的世界观组织页；它引用和解释事实，但不拥有 CoreEntity/关系等已采用事实。 |
+| 世界书类别与工作稿 | `world_bible_categories` / `world_bible_page_drafts` | 自定义类别只定义展示信息；工作稿是可丢弃的服务器编辑快照，发布后才以页面 revision 进入已采用世界观。 |
 | 世界书修订与投影 | `world_bible_page_revisions` / `world_bible_page_projections` | 页面保存点与可编译的派生投影；投影是缓存，不是事实源。 |
+| 世界观简介 | `world_bible_synopsis_heads` / `world_bible_synopsis_revisions` | 仅作者模式可用的 P1 LLM 派生背景；revision 不可变且可回滚，head 只协调 stale、pin、刷新任务与持久化自动授权。它不替代确定性 `World Core Brief`，reader/character 不得读取。 |
 | 页面模板 | 代码注册表 + `template_key` / `template_version` | 内置模板目前不使用 `world_bible_page_templates` 数据表。 |
 | 生成模板 | `generation_prompt_templates` / revisions | 项目级 Prompt 模板及版本；运行时仍受固定 scaffold 与 Pydantic 输出契约约束。 |
 | 知识标签 | `knowledge_tags` 及其授予/排除表 | 用标签表达群体知识；`CharacterKnowledge` 只记录偏离默认知识的个体覆盖。 |

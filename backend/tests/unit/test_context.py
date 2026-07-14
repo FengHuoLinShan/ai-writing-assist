@@ -54,6 +54,7 @@ from modules.context.services.loaders import (
     ProjectLoader,
     RagChunksLoader,
     SceneLoader,
+    WorldBibleLoader,
     WorldEntitiesLoader,
     is_loader_available,
 )
@@ -77,6 +78,7 @@ class TestLoaderProtocol:
         loaders = [
             ProjectLoader(),
             WorldEntitiesLoader(),
+            WorldBibleLoader(),
             CharactersLoader(),
             EventsLoader(),
             MemoryRecordsLoader(),
@@ -88,6 +90,7 @@ class TestLoaderProtocol:
         expected_names = [
             "project",
             "world_entities",
+            "world_bible",
             "characters",
             "events",
             "memory_records",
@@ -107,6 +110,7 @@ class TestLoaderProtocol:
         assert [loader.name for loader in loaders] == [
             "project",
             "world_entities",
+            "world_bible",
             "characters",
             "events",
             "memory_records",
@@ -280,9 +284,9 @@ class TestContextCompilerDispatch:
         assert results.get("memory_records") is True
 
     def test_default_loaders_created(self) -> None:
-        """默认 loaders 列表应包含所有 9 个 loader"""
+        """默认 loaders 列表应包含所有 10 个 loader"""
         compiler = ContextCompiler()
-        assert len(compiler._loaders) == 9
+        assert len(compiler._loaders) == 10
         for name in SCOPE_LOADERS["full"]:
             assert name in compiler._loaders
 

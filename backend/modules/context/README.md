@@ -16,6 +16,8 @@ RAG 负责“找”，context 负责“选、裁、确认、追踪”。
 - 在任务完成后把结果引用回写到确认记录
 - 在资产变化后把历史确认记录标记为 stale
 - 为前端 AI 参考资料审查台返回 section 元数据、激活原因、来源摘要和预算裁剪事件
+- 为作者生成按需加载 `world_bible_synopsis`，并把实际 revision/source/block hash 写入
+  编译结果、确认记录和生成响应 provenance
 
 ## 不负责
 
@@ -105,6 +107,21 @@ Loader 聚合业务资料
 ReaderRevealPolicy/公开基线允许的世界信息、从 writing 回读且 hash
 校验通过的正文证据和不含剧情事实的项目风格。完整 Scene 卡、
 剧情线、记忆、篇章纲和未过滤的动态约束不进入 reader `CompiledContext`。
+
+### 世界观简介与工作稿 section
+
+`CompileOptions.include_world_synopsis` 默认 `false`；只有 `author_safe/author_full` 可得到
+可排除的 P1 `world_bible_synopsis`。reader/character 即使请求开启也会返回可见性排除
+warning，POV 因固定使用 character 模式同样不会读取作者简介。简介与页面正文均包在明确的
+不可信数据边界中，不能作为 system 指令执行。
+
+`selected_world_bible_draft_ids` 只加载作者显式选择且通过 `novel_id` 校验的工作稿，并放入
+独立 P1 `world_bible_working_pages(status="working")`，不改变简介 source manifest。
+确认记录把实际 `world_synopsis_revision_id` 固定到 `compile_options`；回放读取同一不可变版本。
+生成中心通过注册的 `context.generation_background` DI port 获取上下文，world 不直接依赖
+context ORM/service。对象生成响应的 `context_usage` 是实际调用 provenance，不通过事后重编译
+猜测本次使用的 revision；同一次编译还会建立 `context_snapshots` 记录实际
+revision/source/block hash、section/token metadata 和后续产物引用。
 
 `budget_events` 记录预算执行过程，包含 `section_key`、`event_type`、`reason`、`before_tokens`、`after_tokens`、`tier`。被 evict 的 section 不再返回正文，但会通过 `budget_events` 告知前端“已移除”；被 truncate 的 section 保留裁剪后的正文和裁剪原因。
 

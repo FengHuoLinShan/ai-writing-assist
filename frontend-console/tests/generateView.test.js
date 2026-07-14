@@ -24,7 +24,11 @@ beforeEach(() => {
   generateView._lastPovSubmission = null
   generateView._povLoadWarning = null
   generateView._qualityMode = "fast"
+  generateView._includeWorldSynopsis = true
   generateView._lastEntity = null
+  generateView._lastContextUsage = null
+  generateView._lastChatContextUsage = null
+  generateView._lastEntityContextUsage = null
   generateView._busy = false
   generateView._abortControllers = null
   generateView._generateSubTab = "chat"
@@ -39,6 +43,7 @@ beforeEach(() => {
     viewpoint_character_id: undefined,
     chapter_index: undefined,
     scene_id: undefined,
+    include_world_synopsis: true,
   }
   generateView._lastContextBundle = null
   generateView._lastContextSource = null
@@ -895,7 +900,8 @@ describe("generateView task tab", () => {
     expect(html).toContain("任务描述")
     expect(html).toContain("gen-task")
     expect(html).toContain("gen-scope")
-    expect(html).toContain("执行任务")
+    expect(html).toContain("编译上下文")
+    expect(html).toContain("不会启动不存在的业务执行链路")
   })
 
   it("点击任务卡片填充默认值", async () => {
@@ -1374,39 +1380,77 @@ describe("generateView context integration", () => {
       status: "draft",
       summary: "旧友型反派",
     }
+    generateView._lastEntityContextUsage = { status: "included", warnings: [] }
     const html = await generateView.render()
 
-    expect(html).toContain("查看上下文")
+    expect(html).toContain("查看本次上下文")
   })
 
-  it("从自由对话查看上下文切换到预览标签", async () => {
-    generateView._messages = [{ role: "user", content: "设计一个反派" }]
+  it("查看上下文读取本次响应 provenance，不事后重新编译", async () => {
+    generateView._lastContextUsage = {
+      section_key: "world_bible_synopsis",
+      status: "included",
+      revision_id: "revision-1",
+      source_hash: "source-hash",
+      block_hash: "block-hash",
+      token_count: 320,
+      stale: false,
+      fallback: false,
+      warnings: [],
+    }
     document.body.innerHTML = await generateView.render()
 
     await generateView._viewGenerationContext()
 
-    expect(api.context.compile).toHaveBeenCalledWith(
-      expect.objectContaining({
-        novel_id: "p1",
-        task: "基于当前聊天和模板生成世界对象建议",
-        messages: [{ role: "user", content: "设计一个反派" }],
-      }),
-      expect.anything(),
+    expect(api.context.compile).not.toHaveBeenCalled()
+    expect(showModal).toHaveBeenCalledWith(
+      "本次实际使用的上下文",
+      expect.objectContaining({ html: expect.stringContaining("revision-1") }),
+      [],
+      { size: "large" },
     )
-    expect(generateView._generateSubTab).toBe("preview")
   })
 
-  it("查看上下文 payload 携带 quality_mode", async () => {
-    generateView._messages = [{ role: "user", content: "设计一个反派" }]
-    generateView._qualityMode = "pro"
+  it("聊天与对象生成分别保留各自的实际上下文", async () => {
+    const entityUsage = {
+      status: "included",
+      revision_id: "revision-entity",
+      context_snapshot_id: "snapshot-entity",
+      warnings: [],
+    }
+    const chatUsage = {
+      status: "fallback",
+      revision_id: "revision-chat",
+      context_snapshot_id: "snapshot-chat",
+      warnings: [],
+    }
+    generateView._messages = [{ role: "user", content: "先生成对象" }]
+    api.generate.generateObjectDraft.mockResolvedValue({
+      suggestion: { id: "suggestion-1", payload_json: { name: "空城" } },
+      context_usage: entityUsage,
+    })
     document.body.innerHTML = await generateView.render()
+    await generateView._generateObjectDraft()
 
-    await generateView._viewGenerationContext()
+    document.getElementById("generate-chat-input").value = "继续讨论"
+    api.generate.objectDraftChat.mockResolvedValue({ reply: "好", context_usage: chatUsage })
+    await generateView._sendChatMessage()
 
-    expect(api.context.compile).toHaveBeenCalledWith(
-      expect.objectContaining({ quality_mode: "pro" }),
-      expect.anything(),
-    )
+    await generateView._viewGenerationContext("entity")
+    expect(showModal.mock.calls.at(-1)[1].html).toContain("revision-entity")
+    expect(showModal.mock.calls.at(-1)[1].html).toContain("snapshot-entity")
+
+    await generateView._viewGenerationContext("chat")
+    expect(showModal.mock.calls.at(-1)[1].html).toContain("revision-chat")
+    expect(showModal.mock.calls.at(-1)[1].html).toContain("snapshot-chat")
+    expect(document.getElementById("generate-chat-context-usage")?.textContent).toContain("查看最近聊天上下文")
+  })
+
+  it("生成中心 payload 默认开启世界观简介", () => {
+    const payload = generateView._buildPayload()
+
+    expect(payload.include_world_synopsis).toBe(true)
+    expect(payload.selected_world_bible_draft_ids).toEqual([])
   })
 })
 
@@ -1445,6 +1489,18 @@ describe("generateView task execution", () => {
 
     expect(api.context.compile).not.toHaveBeenCalled()
     expect(toast).toHaveBeenCalledWith("角色视角模式必须选择或输入视角人物 ID", "warning")
+  })
+
+  it("切换读者视角时立即禁用作者简介并显示原因", async () => {
+    document.body.innerHTML = await generateView.render()
+    generateView._bindEvents()
+    const reveal = document.getElementById("gen-reveal")
+    reveal.value = "reader"
+    reveal.dispatchEvent(new Event("change"))
+
+    expect(document.getElementById("gen-include-world-synopsis").disabled).toBe(true)
+    expect(document.getElementById("gen-include-world-synopsis").checked).toBe(false)
+    expect(document.getElementById("gen-world-synopsis-visibility-hint").hidden).toBe(false)
   })
 })
 

@@ -66,6 +66,9 @@ from modules.world.map_facade import (  # noqa: F401
 )
 from modules.world.worldbuilding_facade import (  # noqa: F401
     get_world_background,
+    get_world_bible_synopsis_context,
+    get_world_bible_working_pages_context,
+    mark_world_bible_synopsis_stale,
     mark_worldbuilding_context_stale,
     preview_worldbuilding_activation,
 )
@@ -104,12 +107,15 @@ __all__ = [
     "get_events_context",
     "get_full_state",
     "get_world_background",
+    "get_world_bible_synopsis_context",
+    "get_world_bible_working_pages_context",
     "get_world_context",
     "list_auto_ingested_entities",
     "list_characters",
     "list_entities",
     "list_entity_terms",
     "mark_worldbuilding_context_stale",
+    "mark_world_bible_synopsis_stale",
     "merge_candidate_into_entity",
     "preview_worldbuilding_activation",
     "repair_deep_import_alias_metadata",

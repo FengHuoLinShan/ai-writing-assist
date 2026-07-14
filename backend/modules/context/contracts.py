@@ -65,6 +65,16 @@ class CompileOptions:
     """本次编译显式排除的资产 ID"""
     user_note: str | None = None
     """用户本次 AI 操作的额外注意事项"""
+    include_world_synopsis: bool = False
+    """是否为作者模式加入 LLM 派生的世界观简介"""
+    selected_world_bible_draft_ids: list[str] = field(default_factory=list)
+    """作者显式选择的 World Bible 工作稿"""
+    world_synopsis_revision_id: str | None = None
+    """确认/回放时钉住的不可变简介 revision"""
+    world_synopsis_source_hash: str | None = None
+    """确认/回放时记录的简介规范化来源 hash"""
+    world_synopsis_block_hash: str | None = None
+    """确认/回放时记录的实际上下文块 hash"""
 
 
 @dataclass
@@ -333,6 +343,10 @@ class StructureContextBundle:
     """项目元信息"""
     world_entities: list = field(default_factory=list)
     """世界对象列表"""
+    world_bible_synopsis: dict | None = None
+    """作者版世界观简介；reader/character 永不填充"""
+    world_bible_working_pages: list = field(default_factory=list)
+    """作者显式选择的工作稿页面"""
     characters: list = field(default_factory=list)
     """人物列表"""
     geo_locations: list = field(default_factory=list)

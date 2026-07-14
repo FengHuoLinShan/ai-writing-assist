@@ -73,6 +73,8 @@ Scene mutation 的稳定内部接口是 `SceneWorkbenchService`。旧
 `/api/outline/scenes/*` 路由仅作为兼容 adapter，创建、更新、删除、重排和
 legacy split 都应委托 Workbench，以统一章节映射校验、健康摘要和地图影响摘要。
 默认删除语义是把 Scene 标记为 `deprecated`，不硬删除正史结构资产。
+前端 Scene 行菜单将该操作显示为“移入历史”并要求二次确认；正文和
+追踪信息保留，用户可通过 `status=deprecated` 历史筛选查看。
 
 工作台 API：
 
@@ -177,6 +179,8 @@ Scene 草稿审稿界面，由用户选择主 Scene 并确认编辑后再复用
 候选保存在 `proposed_scene.draft_scenes`，不参与正文、上下文、RAG 或后续提取。作者可
 保留原 Scene、直接替换或只编辑语义字段后替换。替换采用在同一事务内创建 canonical
 Scene、软废弃来源、稳定重排、同步 span 和 suggestion 生命周期，并入队 RAG 重建。
+前端替换审查将后两种操作明确表述为“采用新 Scene，旧 Scene 移入历史”，
+避免把可追踪的软废弃误解为硬删除。
 
 ### SceneSpan 派生读模型
 

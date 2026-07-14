@@ -44,7 +44,13 @@ const BIBLE_FALLBACK_TYPE = {
 
 const worldBibleView = {
   _pages: [],
+  _categories: [],
+  _drafts: [],
   _activePage: null,
+  _activeDraft: null,
+  _synopsis: null,
+  _synopsisTask: null,
+  _synopsisPoller: null,
   _suggestions: [],
   _conflicts: [],
   _task: null,
@@ -58,6 +64,7 @@ const worldBibleView = {
   _aiTemplateId: "builtin:none",
   _aiQualityMode: "fast",
   _aiSelectedChapters: "",
+  _aiIncludeSynopsis: true,
   _aiResult: null,
   _displayMode: "editor",
   _activeCategory: "all",
@@ -93,9 +100,15 @@ const worldBibleView = {
       this._bibleClickContainer.removeEventListener("click", this._bibleClickHandler)
     }
     this._bibleClickHandler = (e) => {
+      const draftNode = e.target.closest("[data-bible-draft-id]")
+      if (draftNode) {
+        this._openDraft(draftNode.getAttribute("data-bible-draft-id"))
+        return
+      }
       const pageNode = e.target.closest("[data-bible-page-id]")
       if (pageNode) {
         this._activePage = this._pages.find((page) => page.id === pageNode.getAttribute("data-bible-page-id")) || null
+        this._activeDraft = this._draftForPage(this._activePage?.id)
         router.refresh()
         return
       }
@@ -104,6 +117,19 @@ const worldBibleView = {
       const action = actionNode.getAttribute("data-action")
       if (action === "bible-new-page") this._createPage()
       else if (action === "bible-save-page") this._savePage()
+      else if (action === "bible-publish-page") this._publishDraft()
+      else if (action === "bible-discard-draft") this._discardDraft()
+      else if (action === "bible-manage-categories") this._openCategoryManager()
+      else if (action === "bible-refresh-synopsis") this._refreshSynopsis()
+      else if (action === "bible-toggle-synopsis-auto") this._toggleSynopsisAuto()
+      else if (action === "bible-synopsis-history") this._openSynopsisHistory()
+      else if (action === "bible-unpin-synopsis") this._unpinSynopsis()
+      else if (action === "bible-page-history") this._openPageHistory()
+      else if (action === "bible-archive-page") this._archivePage()
+      else if (action === "bible-open-asset-ref") this._openAssetRef(
+        actionNode.getAttribute("data-ref-type"),
+        actionNode.getAttribute("data-ref-id"),
+      )
       else if (action === "bible-refresh-projection") this._refreshProjection(false)
       else if (action === "bible-force-refresh-projection") this._refreshProjection(true)
       else if (action === "bible-retry-projection") this._retryProjectionTask()
@@ -132,30 +158,64 @@ const worldBibleView = {
     container.querySelector("#bible-ai-chapters")?.addEventListener("input", (event) => {
       this._aiSelectedChapters = event.target.value || ""
     })
+    container.querySelector("#bible-ai-include-synopsis")?.addEventListener("change", (event) => {
+      this._aiIncludeSynopsis = Boolean(event.target.checked)
+    })
   },
 
   onLeave() {
     this._stopProjectionPolling()
+    this._stopSynopsisPolling()
   },
 
   async _load() {
-    const data = await api.world.listBiblePages({ novel_id: state.currentProjectId })
+    const [data, categories, drafts, synopsis] = await Promise.all([
+      api.world.listBiblePages({ novel_id: state.currentProjectId }),
+      // Archived categories remain visible in the manager and keep their display
+      // metadata for historical pages, but are filtered out of new selections.
+      api.world.listBibleCategories(state.currentProjectId, true),
+      api.world.listBibleDrafts(state.currentProjectId),
+      api.world.getBibleSynopsis(state.currentProjectId),
+    ])
     this._pages = data.items || []
-    if (!this._activePage && this._pages.length) this._activePage = this._pages[0]
+    this._categories = categories?.items || []
+    this._drafts = drafts?.items || []
+    this._synopsis = synopsis || null
+    if (this._synopsis?.active_task_id && !this._synopsisPoller) {
+      this._synopsisTask = {
+        task_id: this._synopsis.active_task_id,
+        status: "running",
+      }
+      this._startSynopsisPolling(this._synopsis.active_task_id)
+    }
+    if (!this._activePage && !this._activeDraft && this._pages.length) {
+      this._activePage = this._pages[0]
+    }
     if (this._activePage) {
       this._activePage = this._pages.find((page) => page.id === this._activePage.id) || this._activePage
+      this._activeDraft = this._draftForPage(this._activePage.id)
       await this._restoreProjectionTask(this._activePage)
+    } else if (!this._activeDraft) {
+      this._activeDraft = this._drafts.find((item) => !item.page_id) || null
     }
   },
 
   _renderPageNav() {
-    if (!this._pages.length) {
+    const newDrafts = this._drafts.filter((item) => !item.page_id)
+    if (!this._pages.length && !newDrafts.length) {
       return `<div class="world-bible-empty-hint">暂无页面</div>`
     }
-    return `<div class="world-bible-page-nav">${this._pages.map((page) => `
+    return `<div class="world-bible-page-nav">
+      ${newDrafts.map((draft) => `
+        <button class="btn btn-sm world-bible-page-btn ${this._activeDraft?.id === draft.id ? "btn-primary" : ""}"
+          data-bible-draft-id="${esc(draft.id)}">
+          ${esc(draft.title)} <span class="badge">工作稿</span>
+        </button>
+      `).join("")}
+      ${this._pages.map((page) => `
       <button class="btn btn-sm world-bible-page-btn ${this._activePage?.id === page.id ? "btn-primary" : ""}"
         data-bible-page-id="${esc(page.id)}">
-        ${esc(page.title)}
+        ${esc(page.title)}${this._draftForPage(page.id) ? ` <span class="badge">工作稿</span>` : ""}
       </button>
     `).join("")}</div>`
   },
@@ -176,6 +236,7 @@ const worldBibleView = {
             `).join("")}
           </span>
           <button class="btn btn-sm btn-primary" data-action="bible-new-page">新建页面</button>
+          <button class="btn btn-sm" data-action="bible-manage-categories">管理分类</button>
           <button class="btn btn-sm" data-action="bible-open-suggestions">创设建议</button>
           <button class="btn btn-sm" data-action="bible-open-conflicts">冲突检查</button>
         </div>
@@ -191,6 +252,7 @@ const worldBibleView = {
 
   _renderEditorMode() {
     return `
+      ${this._renderSynopsisPanel()}
       <div class="world-bible-layout">
         ${renderWorkspaceRail({
           key: workspaceRailKey("world-bible", state.currentProjectId, "pages"),
@@ -325,6 +387,16 @@ const worldBibleView = {
   },
 
   _typeMeta(type) {
+    const category = this._categories.find((item) => item.category_key === type)
+    if (category) {
+      return {
+        label: category.name,
+        title: category.name,
+        desc: category.description || "项目自定义世界书分类",
+        color: category.color || "#64748b",
+        symbol: category.icon || String(category.name || type).slice(0, 2),
+      }
+    }
     return BIBLE_PAGE_TYPES[type] || {
       ...BIBLE_FALLBACK_TYPE,
       title: type || BIBLE_FALLBACK_TYPE.title,
@@ -348,11 +420,15 @@ const worldBibleView = {
       const type = page.page_type || "custom"
       counts.set(type, (counts.get(type) || 0) + 1)
     }
-    const known = Object.keys(BIBLE_PAGE_TYPES)
-      .filter((type) => counts.has(type))
-      .map((type) => ({ type, count: counts.get(type), meta: this._typeMeta(type) }))
+    const activeCategories = this._categories.filter((item) => item.status !== "archived")
+    const knownKeys = new Set(activeCategories.map((item) => item.category_key))
+    const known = activeCategories.map((item) => ({
+      type: item.category_key,
+      count: counts.get(item.category_key) || 0,
+      meta: this._typeMeta(item.category_key),
+    }))
     const unknown = Array.from(counts.entries())
-      .filter(([type]) => !BIBLE_PAGE_TYPES[type])
+      .filter(([type]) => !knownKeys.has(type))
       .sort(([a], [b]) => String(a).localeCompare(String(b)))
       .map(([type, count]) => ({ type, count, meta: this._typeMeta(type) }))
     const items = [...known, ...unknown]
@@ -367,6 +443,127 @@ const worldBibleView = {
   _pagesForCategory(category) {
     if (!category || category === "all") return this._pages
     return this._pages.filter((page) => (page.page_type || "custom") === category)
+  },
+
+  _draftForPage(pageId) {
+    if (!pageId) return null
+    return this._drafts.find((item) => item.page_id === pageId) || null
+  },
+
+  _openDraft(draftId) {
+    const draft = this._drafts.find((item) => item.id === draftId)
+    if (!draft) return
+    this._activeDraft = draft
+    this._activePage = draft.page_id
+      ? this._pages.find((item) => item.id === draft.page_id) || null
+      : null
+    this._displayMode = "editor"
+    router.refresh()
+  },
+
+  _categoryOptions(selected) {
+    const categories = this._categories.length
+      ? this._categories.filter((item) => item.status !== "archived" || item.category_key === selected)
+      : Object.keys(BIBLE_PAGE_TYPES)
+        .filter((key) => key !== "item")
+        .map((key) => ({ category_key: key, name: BIBLE_PAGE_TYPES[key].title }))
+    if (selected && !categories.some((item) => item.category_key === selected)) {
+      categories.push({ category_key: selected, name: `${selected}（历史类别）` })
+    }
+    return categories.map((item) => `
+      <option value="${esc(item.category_key)}" ${item.category_key === selected ? "selected" : ""}>${esc(item.name)}</option>
+    `).join("")
+  },
+
+  _formatAssetRefs(refs) {
+    return (Array.isArray(refs) ? refs : []).map((ref) => {
+      const type = ref.type || ref.source_type || ref.target_type || ""
+      const id = ref.id || ref.source_id || ref.target_id || ""
+      return type && id ? `${type}:${id}` : ""
+    }).filter(Boolean).join("\n")
+  },
+
+  _parseAssetRefs(value) {
+    return String(value || "").split(/\n+/).map((line) => line.trim()).filter(Boolean).map((line) => {
+      const separator = line.indexOf(":")
+      if (separator < 1 || separator === line.length - 1) {
+        throw new Error(`无效资产引用：${line}`)
+      }
+      return { type: line.slice(0, separator).trim(), id: line.slice(separator + 1).trim() }
+    })
+  },
+
+  _renderAssetRefCards(refs) {
+    const items = Array.isArray(refs) ? refs : []
+    if (!items.length) return ""
+    return `
+      <div class="world-bible-suggestion-list">
+        ${items.map((ref) => {
+          const type = ref.type || ref.source_type || ref.target_type || ""
+          const id = ref.id || ref.source_id || ref.target_id || ""
+          return `
+            <div class="world-bible-suggestion-item">
+              <span class="badge">${esc(type)}</span> ${esc(id)}
+              <button class="btn btn-sm" data-action="bible-open-asset-ref"
+                data-ref-type="${esc(type)}" data-ref-id="${esc(id)}">跳转编辑</button>
+            </div>
+          `
+        }).join("")}
+      </div>
+    `
+  },
+
+  _openAssetRef(type, id) {
+    if (["world_bible_page", "page"].includes(type)) {
+      this._openPageCard(id)
+      return
+    }
+    if (["relation", "entity_relation"].includes(type)) {
+      router.navigate("world", "relations")
+      return
+    }
+    if (type === "map_fact") {
+      router.navigate("map", null)
+      return
+    }
+    if (["core_entity", "entity", "profile", "event"].includes(type)) {
+      router.navigate("world", "objects")
+      return
+    }
+    toast("该引用类型暂无可用的编辑入口", "warning")
+  },
+
+  _renderSynopsisPanel() {
+    const synopsis = this._synopsis
+    const revision = synopsis?.current_revision
+    const coverage = revision?.coverage_json || {}
+    const status = synopsis?.status || "missing"
+    return `
+      <section class="panel world-bible-synopsis-panel">
+        <div class="world-bible-panel__header">
+          <div>
+            <h2>世界观简介 <span class="badge">作者模式 · P1</span></h2>
+            <div class="world-bible-page-meta">只读 LLM 派生资料；不会替代确定性的 World Core Brief。</div>
+          </div>
+          <div class="world-bible-panel__actions">
+            <button class="btn btn-sm btn-primary" data-action="bible-refresh-synopsis"
+              ${synopsis?.pinned ? 'disabled title="请先取消固定"' : ""}>刷新简介</button>
+            <button class="btn btn-sm" data-action="bible-synopsis-history">版本历史</button>
+            <button class="btn btn-sm" data-action="bible-toggle-synopsis-auto">${synopsis?.auto_refresh_enabled ? "关闭自动维护" : "启用自动维护"}</button>
+            ${synopsis?.pinned ? `<button class="btn btn-sm" data-action="bible-unpin-synopsis">取消固定并刷新</button>` : ""}
+          </div>
+        </div>
+        <div class="world-bible-page-meta">
+          状态：${esc(status)}${revision ? ` · v${esc(revision.version_number)} · ${esc(revision.token_estimate)} tokens` : ""}
+          ${coverage.source_count != null ? ` · 覆盖 ${esc(coverage.source_count)} 个来源` : ""}
+          ${this._synopsisTask ? ` · 刷新任务 ${esc(this._synopsisTask.task_id || "")}` : ""}
+        </div>
+        ${revision?.rendered_text
+          ? `<pre class="generate-markdown-pre">${esc(revision.rendered_text)}</pre>`
+          : `<div class="world-bible-empty-hint">尚无成功版本；生成中心启用时会使用有界确定性降级资料。</div>`}
+        ${(synopsis?.warnings || []).map((item) => `<div class="world-bible-projection-status__hint">${esc(item)}</div>`).join("")}
+      </section>
+    `
   },
 
   _displayPreferenceKey(name) {
@@ -417,7 +614,11 @@ const worldBibleView = {
 
   _openPageCard(pageId) {
     const page = this._pages.find((item) => item.id === pageId)
-    if (page) this._activePage = page
+    if (page) {
+      this._activePage = page
+      // Do not let an unrelated new-page draft leak into the selected page editor.
+      this._activeDraft = this._draftForPage(page.id)
+    }
     this._displayMode = "editor"
     this._galleryCategory = null
     this._persistDisplayPreference("displayMode", "editor")
@@ -426,27 +627,50 @@ const worldBibleView = {
 
   _renderActivePage() {
     const page = this._activePage
-    if (!page) {
+    const draft = this._activeDraft || this._draftForPage(page?.id)
+    const source = draft || page
+    if (!source) {
       return `<div class="empty-state"><p>创建一个世界书页面开始整理设定。</p></div>`
     }
+    const isWorking = Boolean(draft)
+    const showAi = this._aiOpen && Boolean(page?.id)
     return `
       <div class="world-bible-panel__header">
         <div>
-          <h2>${esc(page.title)}</h2>
-          <div class="world-bible-page-meta">${esc(page.page_type)} · ${esc(worldAssetDisplay(page).label)}</div>
+          <h2>${esc(source.title)}</h2>
+          <div class="world-bible-page-meta">${esc(source.page_type)} · ${isWorking ? "工作稿" : esc(worldAssetDisplay(page).label)}</div>
         </div>
         <div class="world-bible-panel__actions">
-          <button class="btn btn-sm" data-action="bible-toggle-ai">${this._aiOpen ? "收起 AI" : "AI 创建/整理"}</button>
-          <button class="btn btn-sm btn-primary" data-action="bible-save-page">保存正文</button>
-          <button class="btn btn-sm" data-action="bible-refresh-projection">刷新投影</button>
+          ${page?.id ? `<button class="btn btn-sm" data-action="bible-toggle-ai">${this._aiOpen ? "收起 AI" : "AI 创建/整理"}</button>` : ""}
+          <button class="btn btn-sm" data-action="bible-save-page">保存工作稿</button>
+          ${isWorking ? `<button class="btn btn-sm btn-primary" data-action="bible-publish-page">发布</button>` : ""}
+          ${isWorking ? `<button class="btn btn-sm" data-action="bible-discard-draft">丢弃工作稿</button>` : ""}
+          ${page?.id ? `<button class="btn btn-sm" data-action="bible-page-history">版本历史</button>` : ""}
+          ${page?.id && !isWorking && page.status !== "archived" ? `<button class="btn btn-sm" data-action="bible-archive-page">归档页面</button>` : ""}
+          ${page?.id ? `<button class="btn btn-sm" data-action="bible-refresh-projection">刷新投影</button>` : ""}
         </div>
       </div>
-      <div class="world-bible-editor-layout${this._aiOpen ? " world-bible-editor-layout--with-ai" : ""}">
+      <div class="world-bible-editor-layout${showAi ? " world-bible-editor-layout--with-ai" : ""}">
         <div>
-          <textarea class="form-textarea world-bible-editor" id="bible-free-text" rows="16">${esc(page.free_text || "")}</textarea>
-          ${this._renderProjectionStatus(page)}
+          <div class="generate-form-grid">
+            <label>标题
+              <input class="form-input" id="bible-title" value="${esc(source.title || "")}" maxlength="255" />
+            </label>
+            <label>类别
+              <select class="form-select" id="bible-page-type">${this._categoryOptions(source.page_type)}</select>
+            </label>
+            <label>排序
+              <input class="form-input" id="bible-sort-order" type="number" value="${esc(source.sort_order || 0)}" />
+            </label>
+          </div>
+          <textarea class="form-textarea world-bible-editor" id="bible-free-text" rows="16">${esc(source.free_text || "")}</textarea>
+          <label class="bible-ai-field">关联资产（每行 type:id；世界书只保存引用，不内联修改资产）
+            <textarea class="form-textarea" id="bible-asset-refs" rows="3">${esc(this._formatAssetRefs(source.linked_asset_refs_json))}</textarea>
+          </label>
+          ${this._renderAssetRefCards(source.linked_asset_refs_json)}
+          ${page?.id ? this._renderProjectionStatus(page) : ""}
         </div>
-        ${this._aiOpen ? this._renderAiSidebar(page) : ""}
+        ${showAi ? this._renderAiSidebar(source) : ""}
       </div>
     `
   },
@@ -456,7 +680,7 @@ const worldBibleView = {
       <aside class="bible-ai-sidebar">
         <div>
           <div class="bible-ai-sidebar__title">AI 创建/整理</div>
-          <div class="bible-ai-sidebar__hint">生成结果会先进入待处理建议，采用后才写入页面或世界对象。</div>
+            <div class="bible-ai-sidebar__hint">生成结果会先进入待处理建议；页面建议需编辑并应用到工作稿，世界对象仍需明确采用。</div>
         </div>
         <div class="bible-ai-chip-row">
           <span class="badge">当前页：${esc(page.title)}</span>
@@ -484,6 +708,10 @@ const worldBibleView = {
           <input id="bible-ai-quality-pro" type="checkbox" ${this._aiQualityMode === "pro" ? "checked" : ""} />
           高质量
         </label>
+        <label class="bible-ai-toggle">
+          <input id="bible-ai-include-synopsis" type="checkbox" ${this._aiIncludeSynopsis ? "checked" : ""} />
+          使用当前世界观简介
+        </label>
         <div class="bible-ai-messages">
           ${this._aiMessages.length ? this._aiMessages.map((message) => `
             <div class="bible-ai-message ${message.role === "assistant" ? "bible-ai-message--assistant" : "bible-ai-message--user"}">
@@ -508,16 +736,19 @@ const worldBibleView = {
     if (!result) return "当前页正文会作为带来源标记的 AI 参考资料。"
     if (result.error) return `<span class="bible-ai-result-error">${esc(result.error)}</span>`
     const suggestions = Array.isArray(result.suggestions) ? result.suggestions : []
+    const usage = result.context_usage
+      ? `<div class="bible-ai-sidebar__hint">本次上下文：${esc(result.context_usage.status || "unknown")}${result.context_usage.revision_id ? ` · revision ${esc(result.context_usage.revision_id)}` : ""}${result.context_usage.fallback ? " · 确定性降级" : ""}</div>`
+      : ""
     if (suggestions.length) {
-      return suggestions.map((item) => `
+      return `${usage}${suggestions.map((item) => `
         <div class="bible-ai-result-card">
           <div class="bible-ai-result-card__title">${esc(item.title || this._targetTypeLabel(item.target_type))}</div>
           <div>${esc(this._targetTypeLabel(item.target_type))} · 风险 ${esc(item.risk_level || "medium")}</div>
           ${item.summary ? `<div>${esc(item.summary)}</div>` : ""}
         </div>
-      `).join("")
+      `).join("")}`
     }
-    return result.reply ? `<div class="bible-ai-reply">${esc(result.reply)}</div>` : "已完成。"
+    return result.reply ? `${usage}<div class="bible-ai-reply">${esc(result.reply)}</div>` : `${usage}已完成。`
   },
 
   _renderProjectionStatus(page) {
@@ -591,14 +822,7 @@ const worldBibleView = {
       <div class="form-group">
         <label>页面类型</label>
         <select class="form-select" id="bible-create-type">
-          <option value="background">世界基本背景</option>
-          <option value="species">种族</option>
-          <option value="faction">势力</option>
-          <option value="location">地点</option>
-          <option value="rule">规则体系</option>
-          <option value="item">重要物品</option>
-          <option value="secret">秘密</option>
-          <option value="custom">自定义</option>
+          ${this._categoryOptions("background")}
         </select>
       </div>
     `
@@ -613,17 +837,18 @@ const worldBibleView = {
             return
           }
           try {
-            const page = await api.world.createBiblePage({
+            const draft = await api.world.createBibleDraft({
               novel_id: state.currentProjectId,
               title,
               page_type: document.getElementById("bible-create-type")?.value || "custom",
-              status: "canonical",
             })
-            this._activePage = page
+            this._activeDraft = draft
+            this._activePage = null
+            this._drafts = [draft, ...this._drafts]
             this._displayMode = "editor"
             this._galleryCategory = null
             this._persistDisplayPreference("displayMode", "editor")
-            toast("页面已创建", "success")
+            toast("工作稿已创建；发布后才进入世界观简介来源", "success")
             router.refresh()
           } catch (err) {
             toast(err.message || "创建页面失败", "error")
@@ -635,14 +860,403 @@ const worldBibleView = {
 
   async _savePage() {
     const page = this._activePage
-    if (!page) return
-    const freeText = document.getElementById("bible-free-text")?.value || ""
+    let draft = this._activeDraft || this._draftForPage(page?.id)
+    if (!page && !draft) return
     try {
-      this._activePage = await api.world.updateBiblePage(page.id, { free_text: freeText }, state.currentProjectId)
-      toast("已保存，投影已标记为需要刷新", "success")
+      if (!draft) {
+        draft = await api.world.createBibleDraft({
+          novel_id: state.currentProjectId,
+          page_id: page.id,
+        })
+      }
+      const payload = this._readDraftEditor()
+      draft = await api.world.updateBibleDraft(draft.id, payload, state.currentProjectId)
+      this._activeDraft = draft
+      this._drafts = [draft, ...this._drafts.filter((item) => item.id !== draft.id)]
+      toast("工作稿已保存；正式页面尚未变化", "success")
       router.refresh()
     } catch (err) {
       toast(err.message || "保存失败", "error")
+    }
+  },
+
+  _readDraftEditor() {
+    const title = document.getElementById("bible-title")?.value?.trim() || ""
+    if (!title) throw new Error("标题不能为空")
+    return {
+      title,
+      page_type: document.getElementById("bible-page-type")?.value || "custom",
+      free_text: document.getElementById("bible-free-text")?.value || "",
+      sort_order: Number(document.getElementById("bible-sort-order")?.value || 0),
+      linked_asset_refs_json: this._parseAssetRefs(
+        document.getElementById("bible-asset-refs")?.value || "",
+      ),
+    }
+  },
+
+  async _publishDraft() {
+    let draft = this._activeDraft || this._draftForPage(this._activePage?.id)
+    if (!draft) return
+    try {
+      draft = await api.world.updateBibleDraft(
+        draft.id,
+        this._readDraftEditor(),
+        state.currentProjectId,
+      )
+      // The save succeeded even if the following publish CAS fails. Keep the
+      // returned server snapshot locally so the conflict UI never suggests that
+      // an older draft is the version preserved by the backend.
+      this._activeDraft = draft
+      this._drafts = [draft, ...this._drafts.filter((item) => item.id !== draft.id)]
+      const page = await api.world.publishBibleDraft(draft.id, state.currentProjectId)
+      this._activeDraft = null
+      this._activePage = page
+      this._drafts = this._drafts.filter((item) => item.id !== draft.id)
+      toast("页面已发布，世界观简介已标记为需要刷新", "success")
+      router.refresh()
+    } catch (err) {
+      const message = err.status === 409
+        ? "发布冲突：正式页已变化。工作稿已保留，请重新核对后发布。"
+        : err.message || "发布失败"
+      toast(message, "error")
+    }
+  },
+
+  _discardDraft() {
+    const draft = this._activeDraft || this._draftForPage(this._activePage?.id)
+    if (!draft) return
+    return confirmAction("丢弃这个工作稿？正式页面和历史版本不会受影响。", async () => {
+      try {
+        await api.world.discardBibleDraft(draft.id, state.currentProjectId)
+        this._drafts = this._drafts.filter((item) => item.id !== draft.id)
+        this._activeDraft = null
+        if (!draft.page_id) this._activePage = this._pages[0] || null
+        toast("工作稿已丢弃", "success")
+        router.refresh()
+      } catch (err) {
+        toast(err.message || "丢弃工作稿失败", "error")
+      }
+    })
+  },
+
+  async _openPageHistory() {
+    const page = this._activePage
+    if (!page?.id) return
+    try {
+      const revisions = await api.world.listBiblePageRevisions(
+        page.id,
+        state.currentProjectId,
+      )
+      const body = revisions.length ? revisions.map((item) => `
+        <article class="world-bible-suggestion-item">
+          <strong>v${esc(item.version_number)}</strong> · ${esc(item.revision_reason)}
+          <pre class="generate-markdown-pre">${esc(String(item.snapshot_json?.free_text || "").slice(0, 1200))}</pre>
+          <button class="btn btn-sm" data-bible-page-restore="${esc(item.version_number)}">恢复为工作稿</button>
+        </article>
+      `).join("") : `<div class="empty-state"><p>暂无页面版本</p></div>`
+      showModalHtml("世界书页面版本", body, [], { size: "large" })
+      document.querySelectorAll("[data-bible-page-restore]").forEach((button) => {
+        button.addEventListener("click", () => this._restorePageRevision(
+          Number(button.getAttribute("data-bible-page-restore")),
+        ))
+      })
+    } catch (err) {
+      toast(err.message || "加载页面历史失败", "error")
+    }
+  },
+
+  async _restorePageRevision(version) {
+    const page = this._activePage
+    if (!page?.id || !version) return
+    try {
+      const draft = await api.world.restoreBiblePageRevision(
+        page.id,
+        version,
+        state.currentProjectId,
+      )
+      closeModal()
+      this._drafts = [draft, ...this._drafts.filter((item) => item.id !== draft.id)]
+      this._activeDraft = draft
+      toast("旧版本已恢复为工作稿，再次发布后才会生效", "success")
+      router.refresh()
+    } catch (err) {
+      toast(err.message || "恢复页面版本失败", "error")
+    }
+  },
+
+  _archivePage() {
+    const page = this._activePage
+    if (!page?.id || this._draftForPage(page.id)) return
+    return confirmAction("归档此已发布页面？历史版本会保留，且页面将不再进入世界观简介。", async () => {
+      try {
+        const updated = await api.world.updateBiblePage(
+          page.id,
+          { status: "archived" },
+          state.currentProjectId,
+        )
+        this._activePage = updated
+        toast("页面已归档", "success")
+        await this._load()
+        router.refresh()
+      } catch (err) {
+        toast(err.message || "归档页面失败", "error")
+      }
+    })
+  },
+
+  _openCategoryManager() {
+    const custom = this._categories.filter((item) => !item.builtin)
+    const body = `
+      <div class="world-bible-suggestion-list">
+        ${custom.length ? custom.map((item) => `
+          <div class="world-bible-suggestion-item">
+            <strong>${esc(item.name)}</strong> · ${esc(item.category_key)} · ${esc(item.status)}
+            <div class="world-bible-suggestion-item__actions">
+              <button class="btn btn-sm" data-bible-category-edit="${esc(item.id)}">编辑</button>
+              ${item.status !== "archived"
+                ? `<button class="btn btn-sm" data-bible-category-archive="${esc(item.id)}">归档</button>`
+                : `<button class="btn btn-sm" data-bible-category-restore="${esc(item.id)}">恢复</button>`}
+            </div>
+          </div>
+        `).join("") : `<div class="world-bible-empty-hint">尚无自定义类别</div>`}
+        <div class="form-group"><label>类别键（创建后不可修改）</label><input class="form-input" id="bible-category-key" placeholder="technology" /></div>
+        <div class="form-group"><label>名称</label><input class="form-input" id="bible-category-name" placeholder="技术体系" /></div>
+        <div class="form-group"><label>说明</label><input class="form-input" id="bible-category-description" /></div>
+        <div class="form-group"><label>颜色</label><input class="form-input" id="bible-category-color" value="#64748B" /></div>
+        <div class="form-group"><label>图标短文本</label><input class="form-input" id="bible-category-icon" maxlength="16" /></div>
+        <div class="form-group"><label>排序</label><input class="form-input" id="bible-category-order" type="number" value="100" /></div>
+      </div>
+    `
+    showModalHtml("管理世界书类别", body, [{
+      text: "创建类别",
+      class: "btn-primary",
+      handler: () => this._createCategoryFromModal(),
+    }], { size: "large" })
+    document.querySelectorAll("[data-bible-category-edit]").forEach((button) => {
+      button.addEventListener("click", () => this._editCategory(
+        button.getAttribute("data-bible-category-edit"),
+      ))
+    })
+    document.querySelectorAll("[data-bible-category-archive]").forEach((button) => {
+      button.addEventListener("click", () => this._archiveCategory(
+        button.getAttribute("data-bible-category-archive"),
+      ))
+    })
+    document.querySelectorAll("[data-bible-category-restore]").forEach((button) => {
+      button.addEventListener("click", () => this._restoreCategory(
+        button.getAttribute("data-bible-category-restore"),
+      ))
+    })
+  },
+
+  _editCategory(categoryId) {
+    const item = this._categories.find((category) => category.id === categoryId)
+    if (!item || item.builtin) return
+    const body = `
+      <p class="world-bible-empty-hint">稳定键 ${esc(item.category_key)} 创建后不可修改。</p>
+      <div class="form-group"><label>名称</label><input class="form-input" id="bible-category-edit-name" value="${esc(item.name)}" /></div>
+      <div class="form-group"><label>说明</label><input class="form-input" id="bible-category-edit-description" value="${esc(item.description || "")}" /></div>
+      <div class="form-group"><label>颜色</label><input class="form-input" id="bible-category-edit-color" value="${esc(item.color || "#64748B")}" /></div>
+      <div class="form-group"><label>图标短文本</label><input class="form-input" id="bible-category-edit-icon" maxlength="16" value="${esc(item.icon || "")}" /></div>
+      <div class="form-group"><label>排序</label><input class="form-input" id="bible-category-edit-order" type="number" value="${esc(item.sort_order || 0)}" /></div>
+    `
+    showModalHtml("编辑世界书类别", body, [{
+      text: "保存",
+      class: "btn-primary",
+      handler: () => this._saveCategory(categoryId),
+    }])
+  },
+
+  async _saveCategory(categoryId) {
+    const name = document.getElementById("bible-category-edit-name")?.value?.trim() || ""
+    if (!name) {
+      toast("类别名称不能为空", "warning")
+      return
+    }
+    try {
+      await api.world.updateBibleCategory(categoryId, {
+        name,
+        description: document.getElementById("bible-category-edit-description")?.value || null,
+        color: document.getElementById("bible-category-edit-color")?.value || "#64748B",
+        icon: document.getElementById("bible-category-edit-icon")?.value || "",
+        sort_order: Number(document.getElementById("bible-category-edit-order")?.value || 0),
+      }, state.currentProjectId)
+      closeModal()
+      toast("类别已更新", "success")
+      await this._load()
+      router.refresh()
+    } catch (err) {
+      toast(err.message || "更新类别失败", "error")
+    }
+  },
+
+  _archiveCategory(categoryId) {
+    return confirmAction("归档该类别？现有页面不会删除，但不能再将工作稿切换到该类别。", async () => {
+      try {
+        await api.world.updateBibleCategory(
+          categoryId,
+          { status: "archived" },
+          state.currentProjectId,
+        )
+        closeModal()
+        toast("类别已归档，现有页面已保留", "success")
+        await this._load()
+        router.refresh()
+      } catch (err) {
+        toast(err.message || "归档类别失败", "error")
+      }
+    })
+  },
+
+  async _restoreCategory(categoryId) {
+    try {
+      await api.world.updateBibleCategory(
+        categoryId,
+        { status: "active" },
+        state.currentProjectId,
+      )
+      closeModal()
+      toast("类别已恢复，可重新用于工作稿", "success")
+      await this._load()
+      router.refresh()
+    } catch (err) {
+      toast(err.message || "恢复类别失败", "error")
+    }
+  },
+
+  async _createCategoryFromModal() {
+    const categoryKey = document.getElementById("bible-category-key")?.value?.trim() || ""
+    const name = document.getElementById("bible-category-name")?.value?.trim() || ""
+    if (!categoryKey || !name) {
+      toast("请填写类别键和名称", "warning")
+      return
+    }
+    try {
+      await api.world.createBibleCategory({
+        novel_id: state.currentProjectId,
+        category_key: categoryKey,
+        name,
+        description: document.getElementById("bible-category-description")?.value || null,
+        color: document.getElementById("bible-category-color")?.value || "#64748B",
+        icon: document.getElementById("bible-category-icon")?.value || "",
+        sort_order: Number(document.getElementById("bible-category-order")?.value || 100),
+      })
+      closeModal()
+      toast("类别已创建；类别键后续不可修改", "success")
+      router.refresh()
+    } catch (err) {
+      toast(err.message || "创建类别失败", "error")
+    }
+  },
+
+  async _refreshSynopsis() {
+    if (this._synopsis?.pinned) {
+      toast("当前固定在历史版本；请先“取消固定并刷新”", "warning")
+      return false
+    }
+    try {
+      this._synopsisTask = await api.world.refreshBibleSynopsis(state.currentProjectId)
+      toast(this._synopsisTask.existing ? "已有简介刷新任务在运行" : "简介刷新任务已提交", "success")
+      this._startSynopsisPolling(this._synopsisTask.task_id)
+      router.refresh()
+    } catch (err) {
+      toast(err.message || "刷新世界观简介失败", "error")
+    }
+  },
+
+  _stopSynopsisPolling() {
+    if (this._synopsisPoller?.stop) this._synopsisPoller.stop()
+    this._synopsisPoller = null
+  },
+
+  _startSynopsisPolling(taskId) {
+    if (!taskId) return
+    this._stopSynopsisPolling()
+    const novelId = state.currentProjectId
+    this._synopsisPoller = pollTaskProgress({
+      taskId,
+      workflowType: "world_bible_synopsis_refresh",
+      apiClient: {
+        tasks: {
+          get: (id) => api.tasks.get(id, novelId),
+        },
+      },
+      intervalMs: 800,
+      onUpdate: (_progress, task) => {
+        if (task) this._synopsisTask = { ...task, task_id: task.id || task.task_id }
+      },
+      onDone: async () => {
+        this._synopsisPoller = null
+        this._synopsisTask = { task_id: taskId, status: "done" }
+        this._synopsis = await api.world.getBibleSynopsis(novelId)
+        toast("世界观简介已刷新", "success")
+        router.renderCurrentView()
+      },
+      onFailed: async (progress) => {
+        this._synopsisPoller = null
+        this._synopsisTask = { task_id: taskId, status: "failed" }
+        this._synopsis = await api.world.getBibleSynopsis(novelId)
+        toast(`世界观简介刷新失败：${progress.errorMessage || "未知错误"}`, "error")
+        router.renderCurrentView()
+      },
+    })
+  },
+
+  async _toggleSynopsisAuto() {
+    try {
+      this._synopsis = await api.world.setBibleSynopsisAutoRefresh(
+        state.currentProjectId,
+        !this._synopsis?.auto_refresh_enabled,
+      )
+      toast(this._synopsis.auto_refresh_enabled ? "已授权自动维护世界观简介" : "已关闭自动维护", "success")
+      router.refresh()
+    } catch (err) {
+      toast(err.message || "更新自动维护授权失败", "error")
+    }
+  },
+
+  async _openSynopsisHistory() {
+    try {
+      const data = await api.world.listBibleSynopsisRevisions(state.currentProjectId)
+      const items = data.items || []
+      const body = items.length ? items.map((item) => `
+        <article class="world-bible-suggestion-item">
+          <strong>v${esc(item.version_number)}</strong> · ${esc(item.status)} · ${esc(item.token_estimate)} tokens
+          <pre class="generate-markdown-pre">${esc(String(item.rendered_text || "").slice(0, 1200))}</pre>
+          <button class="btn btn-sm" data-synopsis-restore="${esc(item.id)}">恢复并固定此版本</button>
+        </article>
+      `).join("") : `<div class="empty-state"><p>暂无简介版本</p></div>`
+      showModalHtml("世界观简介版本", body, [], { size: "large" })
+      document.querySelectorAll("[data-synopsis-restore]").forEach((button) => {
+        button.addEventListener("click", () => this._restoreSynopsis(button.getAttribute("data-synopsis-restore")))
+      })
+    } catch (err) {
+      toast(err.message || "加载简介历史失败", "error")
+    }
+  },
+
+  async _restoreSynopsis(revisionId) {
+    try {
+      this._synopsis = await api.world.restoreBibleSynopsisRevision(revisionId, state.currentProjectId)
+      closeModal()
+      toast("已恢复并固定旧版本；自动晋升暂停", "success")
+      router.refresh()
+    } catch (err) {
+      toast(err.message || "恢复简介版本失败", "error")
+    }
+  },
+
+  async _unpinSynopsis() {
+    try {
+      this._synopsis = await api.world.unpinBibleSynopsis(state.currentProjectId)
+      // unpin may enqueue automatically when authorization is enabled. Requesting
+      // refresh here is idempotent and also fulfils the explicit manual workflow.
+      this._synopsisTask = await api.world.refreshBibleSynopsis(state.currentProjectId)
+      this._startSynopsisPolling(this._synopsisTask.task_id)
+      toast(this._synopsisTask.existing ? "已取消固定，刷新任务正在运行" : "已取消固定并提交刷新", "success")
+      router.refresh()
+    } catch (err) {
+      toast(err.message || "取消固定失败", "error")
     }
   },
 
@@ -684,12 +1298,13 @@ const worldBibleView = {
           template_version: 1,
           template_variables: {},
           include_current_page: true,
+          include_world_synopsis: this._aiIncludeSynopsis,
         },
         state.currentProjectId,
       )
       if (response.reply) this._aiMessages.push({ role: "assistant", content: response.reply })
       this._aiResult = response
-      toast(outputTarget === "chat" ? "AI 已回复" : "建议已生成，采用后才会写入", "success")
+      toast(outputTarget === "chat" ? "AI 已回复" : "建议已生成；页面建议编辑后只会写入工作稿", "success")
       router.refresh()
     } catch (err) {
       this._aiResult = { error: err.message || "生成失败" }
@@ -861,7 +1476,9 @@ const worldBibleView = {
             <div class="world-bible-suggestion-risk">风险：${esc(item.risk_level)} · ${esc(item.action_schema)}</div>
             ${this._renderSuggestionPreview(item)}
             <div class="world-bible-suggestion-item__actions">
-              <button class="btn btn-sm btn-primary" data-bible-confirm-suggestion="${esc(item.id)}">采用</button>
+              ${this._isWorldBiblePageSuggestion(item)
+                ? `<button class="btn btn-sm btn-primary" data-bible-edit-suggestion="${esc(item.id)}">编辑并应用到工作稿</button>`
+                : `<button class="btn btn-sm btn-primary" data-bible-confirm-suggestion="${esc(item.id)}">采用</button>`}
               <button class="btn btn-sm" data-bible-reject-suggestion="${esc(item.id)}">忽略</button>
             </div>
           </div>
@@ -875,6 +1492,12 @@ const worldBibleView = {
     document.querySelector("[data-action='bible-batch-reject']")?.addEventListener("click", () => this._decideSuggestionBatch(false))
     document.querySelectorAll("[data-bible-confirm-suggestion]").forEach((node) => {
       node.addEventListener("click", () => this._decideSuggestion(node.getAttribute("data-bible-confirm-suggestion"), true))
+    })
+    document.querySelectorAll("[data-bible-edit-suggestion]").forEach((node) => {
+      node.addEventListener("click", () => {
+        const item = this._suggestions.find((entry) => entry.id === node.getAttribute("data-bible-edit-suggestion"))
+        if (item) this._editSuggestionIntoDraft(item)
+      })
     })
     document.querySelectorAll("[data-bible-reject-suggestion]").forEach((node) => {
       node.addEventListener("click", () => this._decideSuggestion(node.getAttribute("data-bible-reject-suggestion"), false))
@@ -953,6 +1576,54 @@ const worldBibleView = {
     }[targetType] || targetType || "创设建议"
   },
 
+  _isWorldBiblePageSuggestion(item) {
+    return ["world_bible_page_patch", "world_bible_page"].includes(item?.target_type)
+  },
+
+  _editSuggestionIntoDraft(item) {
+    const payload = item.payload_json || {}
+    const isPatch = item.target_type === "world_bible_page_patch"
+    const body = `
+      ${isPatch ? "" : `<div class="form-group"><label>标题</label><input class="form-input" id="bible-suggestion-title" value="${esc(payload.title || "")}" /></div>`}
+      ${isPatch ? "" : `<div class="form-group"><label>类别</label><select class="form-select" id="bible-suggestion-type">${this._categoryOptions(payload.page_type || "custom")}</select></div>`}
+      <div class="form-group">
+        <label>${isPatch ? "追加正文" : "页面正文"}</label>
+        <textarea class="form-textarea" id="bible-suggestion-text" rows="12">${esc(isPatch ? payload.append_text || "" : payload.free_text || "")}</textarea>
+      </div>
+      <p class="world-bible-empty-hint">应用只写入工作稿；发布前仍可继续编辑或丢弃。</p>
+    `
+    showModalHtml("编辑创设建议", body, [{
+      text: "应用到工作稿",
+      class: "btn-primary",
+      handler: () => this._applyEditedSuggestion(item),
+    }], { size: "large" })
+  },
+
+  async _applyEditedSuggestion(item) {
+    const isPatch = item.target_type === "world_bible_page_patch"
+    const text = document.getElementById("bible-suggestion-text")?.value || ""
+    try {
+      const result = await api.world.applySuggestionToBibleDraft(
+        item.id,
+        isPatch
+          ? { append_text: text }
+          : {
+              title: document.getElementById("bible-suggestion-title")?.value?.trim() || "",
+              page_type: document.getElementById("bible-suggestion-type")?.value || "custom",
+              free_text: text,
+            },
+        state.currentProjectId,
+      )
+      closeModal()
+      toast("建议已应用到工作稿；正式页面尚未变化", "success")
+      await this._load()
+      const draftId = result?.result_ref_json?.id
+      if (draftId) this._openDraft(draftId)
+    } catch (err) {
+      toast(err.message || "应用建议失败", "error")
+    }
+  },
+
   _renderSuggestionPreview(item) {
     const payload = item.payload_json || {}
     const excerpt = payload.append_text || payload.free_text || payload.summary || payload.public_info || ""
@@ -989,6 +1660,10 @@ const worldBibleView = {
       toast("选中的建议类型不一致，请分别处理", "warning")
       return
     }
+    if (accepted && selectedItems.some((item) => this._isWorldBiblePageSuggestion(item))) {
+      toast("页面建议需要逐条编辑并应用到工作稿", "warning")
+      return
+    }
     let failed = 0
     for (const id of selected) {
       try {
@@ -1004,6 +1679,11 @@ const worldBibleView = {
 
   async _decideSuggestion(id, accepted) {
     try {
+      const item = this._suggestions.find((entry) => entry.id === id)
+      if (accepted && this._isWorldBiblePageSuggestion(item)) {
+        this._editSuggestionIntoDraft(item)
+        return
+      }
       if (accepted) await api.world.confirmSuggestion(id, state.currentProjectId)
       else await api.world.rejectSuggestion(id, state.currentProjectId)
       toast(accepted ? "建议已采用" : "建议已忽略", "success")

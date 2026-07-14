@@ -52,6 +52,16 @@ def test_world_bible_projection_refresh_handler_is_registered() -> None:
     assert callable(handler)
 
 
+def test_world_bible_synopsis_refresh_handler_is_registered() -> None:
+    import modules.world.tasks  # noqa: F401
+    from infrastructure.tasks.registry import get_registry
+
+    handler = get_registry().get_handler("world_bible_synopsis_refresh")
+
+    assert handler is not None
+    assert callable(handler)
+
+
 @pytest.mark.asyncio
 async def test_plot_structure_generate_reports_coarse_progress() -> None:
     from modules.outline.tasks import handle_plot_structure_generate

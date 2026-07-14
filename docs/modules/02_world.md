@@ -29,7 +29,9 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - `characters` — 人物档案（entity_id PK+FK → core_entities.id）
 - `character_knowledge` — 人物知识边界
 - `species_profiles` / `faction_profiles` / `location_profiles` / `rule_profiles` / `item_profiles` / `secret_profiles` / `entity_profile_templates` / `generic_entity_profiles` — 世界对象的类型化 Profile 与模板
-- `generation_prompt_templates` / `generation_prompt_template_revisions` / `world_bible_pages` / `world_bible_page_revisions` / `world_bible_page_projections` — 生成模板与世界书资产
+- `generation_prompt_templates` / `generation_prompt_template_revisions` — 项目生成模板及不可变版本
+- `world_bible_categories` / `world_bible_page_drafts` / `world_bible_pages` / `world_bible_page_revisions` / `world_bible_page_projections` — 世界书类别、服务器工作稿、已发布页和派生投影
+- `world_bible_synopsis_heads` / `world_bible_synopsis_revisions` — 作者版世界观简介的刷新状态、授权与不可变版本
 - `knowledge_tags` / `character_knowledge_tags` / `asset_knowledge_tags` / `knowledge_tag_exclusions` / `knowledge_visibility_policies` / `reader_reveal_policies` / `creation_suggestion_queue` / `conflict_check_queue` — 知识标签、可见性和待处理工作队列
 - `map_configs` / `map_tiles` / `map_location_bindings` / `map_location_layouts` / `map_terrain_layers` / `map_terrain_regions` / `map_terrain_patches` / `map_terrain_bindings` / `map_markers` / `map_territory_tiles` / `map_observations` / `map_facts` — 动态地图子系统表，详见 `docs/modules/15_map.md`
 - ~~`entity_candidates`~~ — 已废弃，候选对象直接用 `core_entities.status="candidate"` 表达
@@ -63,6 +65,8 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - **DedupScorer** — 多路信号级联评分（rapidfuzz 形似 + pinyin 音似 + 子串包含 + 语义余弦 + 长度差异 + trigram Jaccard），可选 LR 模型
 - **EntityExtractionService** — RAG 有序 chunk → LLM 抽取 → 去重 → `SuggestionQueueService`；不直接拥有 CoreEntity 采用决策
 - **SuggestionQueueService** — 校验创设建议、可选兼容影子、并发安全裁决，以及对象/关系/别名的领域采用
+- **WorldBibleLifecycleService** — 自定义类别、工作稿、发布 CAS、页面 revision 恢复和资产引用校验
+- **WorldBibleSynopsisService** — 作者版 P1 世界观简介的 source manifest、受控 LLM 刷新、claim 引用校验、CAS 晋升与 pin/恢复
 - **CharacterService** — 人物 CRUD + 知识边界（从 character 模块迁入）
 - **CharacterKnowledgeService** — 人物知识边界管理
 
@@ -80,7 +84,8 @@ helper 和历史兼容入口：
 - `services/map/`：动态地图、地图状态、标记、territory、observation/fact 和播放。
 - `services/worldbuilding/`：世界书、模板、投影和作者资料整理。
   `worldbuilding_service.py` 仅作为旧 import path 兼容 hub；实现按概念拆到
-  `profile_service.py`、`world_bible_service.py`、`suggestion_queue_service.py`、
+  `profile_service.py`、`world_bible_service.py`、`world_bible_lifecycle_service.py`、
+  `world_bible_synopsis_service.py`、`suggestion_queue_service.py`、
   `knowledge_tag_service.py`、`reader_safety_service.py`、`conflict_queue_service.py`
   和 `activation_preview_service.py`。
 - `services/common.py`：跨子包通用 helper，如 `parse_uuid`、`normalize_name`。
@@ -138,6 +143,8 @@ async def get_full_state(db, novel_id) -> dict
 # ---- Worldbuilding ----
 async def preview_worldbuilding_activation(db, novel_id, *, entity_ids=None, ...) -> dict
 async def mark_worldbuilding_context_stale(db, novel_id, *, reason: str, asset_id="worldbuilding") -> int
+async def get_world_bible_synopsis_context(db, novel_id, *, revision_id=None) -> WorldBibleSynopsisContextContract
+async def get_world_bible_working_pages_context(db, novel_id, *, draft_ids) -> list[dict]
 
 # ---- EntityRevision (legacy rollback by revision_id) ----
 async def get_entity_revisions(db, novel_id, entity_id, skip=0, limit=20) -> dict
@@ -207,6 +214,19 @@ GET    /api/world/characters/{character_id}/knowledge
 POST   /api/world/characters/{character_id}/knowledge
 PUT    /api/world/knowledge/{knowledge_id}
 DELETE /api/world/knowledge/{knowledge_id}
+
+# World Bible 工作稿、历史和简介
+GET/POST/PATCH /api/world/bible/categories
+GET/POST/PATCH/DELETE /api/world/bible/drafts
+POST   /api/world/bible/drafts/{draft_id}/publish
+GET    /api/world/bible/pages/{page_id}/revisions
+POST   /api/world/bible/pages/{page_id}/revisions/{version}/restore-draft
+GET/POST /api/world/bible/synopsis[/refresh]
+PATCH  /api/world/bible/synopsis/auto-refresh
+GET    /api/world/bible/synopsis/revisions
+POST   /api/world/bible/synopsis/revisions/{revision_id}/restore
+POST   /api/world/bible/synopsis/unpin
+POST   /api/world/suggestions/{suggestion_id}/apply-to-world-bible-draft
 ```
 
 ## 回滚
@@ -224,6 +244,8 @@ DELETE /api/world/knowledge/{knowledge_id}
 
 ## World Background Aggregation
 
-`world.facade.get_world_background()` 是 context 的只读世界背景接口。它从世界对象、
-关系、已确认地图事实和人物知识边界派生带来源、状态、敏感级别、分组、优先级与 token
-估算的条目；该聚合不新增正史表，也不把 projection 写回事实层。
+`world.facade.get_world_background()` 是 context 的只读世界背景接口。它从世界对象/
+Profile/事件强字段、关系、已确认地图事实、已发布世界书页和人物知识边界派生带来源、
+状态、敏感级别、分组、优先级与 token 估算的条目；该聚合不新增正史表，也不把
+projection 写回事实层。作者版简介只消费其中已采用世界事实，明确排除
+`CharacterKnowledge`、草稿、待处理建议和已归档资产。

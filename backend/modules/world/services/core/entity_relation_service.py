@@ -213,12 +213,15 @@ class EntityRelationService(
             raise ConflictError("Relation already exists")
 
         created = await super().create(db, novel_id, data)
-        return created.model_copy(
+        response = created.model_copy(
             update={
                 "source_name": getattr(source, "name", ""),
                 "target_name": getattr(target, "name", ""),
             }
         )
+        if created.status == "canonical":
+            await self._mark_synopsis_changed(db, novel_id, created.id)
+        return response
 
     async def create_or_merge(
         self,
@@ -255,6 +258,8 @@ class EntityRelationService(
                     "target_name": getattr(target, "name", ""),
                 }
             )
+            if created.status == "canonical":
+                await self._mark_synopsis_changed(db, novel_id, created.id)
             return {"action": "created", "relation": response}
 
         # A review-only import must never mutate an already adopted relation.
@@ -289,6 +294,8 @@ class EntityRelationService(
                 "target_name": getattr(target, "name", ""),
             }
         )
+        if existing.status == "canonical":
+            await self._mark_synopsis_changed(db, novel_id, existing.id)
         return {"action": "merged", "relation": response}
 
     async def list(  # type: ignore[override]
@@ -361,6 +368,8 @@ class EntityRelationService(
             }
             db.add(updated)
             await db.flush()
+        if before["status"] == "canonical" or updated.status == "canonical":
+            await self._mark_synopsis_changed(db, novel_id, updated.id)
         return self._response_with_endpoint_names(updated)
 
     async def review_edit(
@@ -428,11 +437,30 @@ class EntityRelationService(
         await db.flush()
         rel = await self.repo.get(db, rid) or rel
         response = self._response_with_endpoint_names(rel)
+        if before["status"] == "canonical" or rel.status == "canonical":
+            await self._mark_synopsis_changed(db, novel_id, rel.id)
         return {
             "relation": response.model_dump(mode="json"),
             "affected_ids": [str(rel.id)],
             "review_meta": rel.review_meta or {},
         }
+
+    @staticmethod
+    async def _mark_synopsis_changed(
+        db: AsyncSession,
+        novel_id: str,
+        relation_id,
+    ) -> None:
+        from modules.world.services.worldbuilding.synopsis_invalidation import (
+            mark_synopsis_source_changed,
+        )
+
+        await mark_synopsis_source_changed(
+            db,
+            novel_id,
+            source_type="entity_relation",
+            source_id=str(relation_id),
+        )
 
     # ============================================================
     # 特例方法

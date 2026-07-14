@@ -82,10 +82,24 @@ from modules.world.schemas import (
     WorldAliasRelationExtractResponse,
     WorldBibleAiGenerateRequest,
     WorldBibleAiGenerateResponse,
+    WorldBibleCategoryCreate,
+    WorldBibleCategoryListResponse,
+    WorldBibleCategoryResponse,
+    WorldBibleCategoryUpdate,
     WorldBiblePageCreate,
+    WorldBiblePageDraftCreate,
+    WorldBiblePageDraftListResponse,
+    WorldBiblePageDraftResponse,
+    WorldBiblePageDraftUpdate,
     WorldBiblePageListResponse,
     WorldBiblePageResponse,
+    WorldBiblePageRevisionResponse,
     WorldBiblePageUpdate,
+    WorldBibleSuggestionApplyDraftRequest,
+    WorldBibleSynopsisAutoRefreshRequest,
+    WorldBibleSynopsisRefreshResponse,
+    WorldBibleSynopsisResponse,
+    WorldBibleSynopsisRevisionListResponse,
     WorldEntityExtractRequest,
     WorldEntityExtractResponse,
     WorldProfileListResponse,
@@ -120,7 +134,9 @@ from modules.world.services.worldbuilding.worldbuilding_service import (
     ProjectionRefreshConflictError,
     SuggestionAlreadyProcessedError,
     SuggestionQueueService,
+    WorldBibleLifecycleService,
     WorldBibleService,
+    WorldBibleSynopsisService,
     WorldProfileService,
 )
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
@@ -139,6 +155,8 @@ _character_service = CharacterService()
 _knowledge_service = CharacterKnowledgeService()
 _profile_service = WorldProfileService()
 _bible_service = WorldBibleService()
+_bible_lifecycle_service = WorldBibleLifecycleService()
+_bible_synopsis_service = WorldBibleSynopsisService()
 _suggestion_service = SuggestionQueueService()
 _conflict_queue_service = ConflictQueueService()
 _knowledge_tag_service = KnowledgeTagService()
@@ -437,6 +455,255 @@ async def update_bible_page(
     return await _bible_service.update_page(db, novel_id, page_id, data)
 
 
+@router.get("/bible/categories", response_model=WorldBibleCategoryListResponse)
+async def list_bible_categories(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    include_archived: bool = Query(default=False),
+) -> WorldBibleCategoryListResponse:
+    items = await _bible_lifecycle_service.list_categories(
+        db,
+        novel_id,
+        include_archived=include_archived,
+    )
+    return WorldBibleCategoryListResponse(items=items)
+
+
+@router.post(
+    "/bible/categories",
+    response_model=WorldBibleCategoryResponse,
+    status_code=201,
+)
+async def create_bible_category(
+    db: DbSession,
+    data: WorldBibleCategoryCreate,
+) -> WorldBibleCategoryResponse:
+    await require_active_project(db, data.novel_id)
+    return await _bible_lifecycle_service.create_category(db, data)
+
+
+@router.patch(
+    "/bible/categories/{category_id}",
+    response_model=WorldBibleCategoryResponse,
+)
+async def update_bible_category(
+    db: DbSession,
+    category_id: str,
+    data: WorldBibleCategoryUpdate,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldBibleCategoryResponse:
+    return await _bible_lifecycle_service.update_category(
+        db,
+        novel_id,
+        category_id,
+        data,
+    )
+
+
+@router.get("/bible/drafts", response_model=WorldBiblePageDraftListResponse)
+async def list_bible_drafts(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldBiblePageDraftListResponse:
+    items, total = await _bible_lifecycle_service.list_drafts(db, novel_id)
+    return WorldBiblePageDraftListResponse(items=items, total=total)
+
+
+@router.post(
+    "/bible/drafts",
+    response_model=WorldBiblePageDraftResponse,
+    status_code=201,
+)
+async def create_bible_draft(
+    db: DbSession,
+    data: WorldBiblePageDraftCreate,
+) -> WorldBiblePageDraftResponse:
+    await require_active_project(db, data.novel_id)
+    return await _bible_lifecycle_service.create_draft(db, data)
+
+
+@router.get("/bible/drafts/{draft_id}", response_model=WorldBiblePageDraftResponse)
+async def get_bible_draft(
+    db: DbSession,
+    draft_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldBiblePageDraftResponse:
+    return await _bible_lifecycle_service.get_draft(db, novel_id, draft_id)
+
+
+@router.patch("/bible/drafts/{draft_id}", response_model=WorldBiblePageDraftResponse)
+async def update_bible_draft(
+    db: DbSession,
+    draft_id: str,
+    data: WorldBiblePageDraftUpdate,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldBiblePageDraftResponse:
+    return await _bible_lifecycle_service.update_draft(
+        db,
+        novel_id,
+        draft_id,
+        data,
+    )
+
+
+@router.delete("/bible/drafts/{draft_id}")
+async def discard_bible_draft(
+    db: DbSession,
+    draft_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    confirmed: bool = Query(default=False),
+) -> dict:
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="confirmed=true is required")
+    await _bible_lifecycle_service.discard_draft(db, novel_id, draft_id)
+    return {"draft_id": draft_id, "discarded": True}
+
+
+@router.post(
+    "/bible/drafts/{draft_id}/publish",
+    response_model=WorldBiblePageResponse,
+)
+async def publish_bible_draft(
+    db: DbSession,
+    draft_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    published_by: str | None = Query(default=None, max_length=64),
+) -> WorldBiblePageResponse:
+    return await _bible_lifecycle_service.publish_draft(
+        db,
+        novel_id,
+        draft_id,
+        published_by=published_by,
+    )
+
+
+@router.get(
+    "/bible/pages/{page_id}/revisions",
+    response_model=list[WorldBiblePageRevisionResponse],
+)
+async def list_bible_page_revisions(
+    db: DbSession,
+    page_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> list[WorldBiblePageRevisionResponse]:
+    return await _bible_lifecycle_service.list_revisions(db, novel_id, page_id)
+
+
+@router.post(
+    "/bible/pages/{page_id}/revisions/{version_number}/restore-draft",
+    response_model=WorldBiblePageDraftResponse,
+)
+async def restore_bible_revision_to_draft(
+    db: DbSession,
+    page_id: str,
+    version_number: int,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    restored_by: str | None = Query(default=None, max_length=64),
+) -> WorldBiblePageDraftResponse:
+    return await _bible_lifecycle_service.restore_revision_to_draft(
+        db,
+        novel_id,
+        page_id,
+        version_number,
+        restored_by=restored_by,
+    )
+
+
+@router.get("/bible/synopsis", response_model=WorldBibleSynopsisResponse)
+async def get_bible_synopsis(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldBibleSynopsisResponse:
+    return await _bible_synopsis_service.get(db, novel_id)
+
+
+@router.post(
+    "/bible/synopsis/refresh",
+    response_model=WorldBibleSynopsisRefreshResponse,
+)
+async def refresh_bible_synopsis(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldBibleSynopsisRefreshResponse:
+    task_id, status, existing, source_hash = (
+        await _bible_synopsis_service.request_refresh(db, novel_id)
+    )
+    return WorldBibleSynopsisRefreshResponse(
+        task_id=task_id,
+        status=status,
+        existing=existing,
+        source_hash=source_hash,
+    )
+
+
+@router.patch(
+    "/bible/synopsis/auto-refresh",
+    response_model=WorldBibleSynopsisResponse,
+)
+async def set_bible_synopsis_auto_refresh(
+    db: DbSession,
+    data: WorldBibleSynopsisAutoRefreshRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldBibleSynopsisResponse:
+    return await _bible_synopsis_service.set_auto_refresh(
+        db,
+        novel_id,
+        enabled=data.enabled,
+        changed_by=data.changed_by,
+    )
+
+
+@router.get(
+    "/bible/synopsis/revisions",
+    response_model=WorldBibleSynopsisRevisionListResponse,
+)
+async def list_bible_synopsis_revisions(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldBibleSynopsisRevisionListResponse:
+    items, total = await _bible_synopsis_service.list_revisions(db, novel_id)
+    return WorldBibleSynopsisRevisionListResponse(items=items, total=total)
+
+
+@router.post(
+    "/bible/synopsis/revisions/{revision_id}/restore",
+    response_model=WorldBibleSynopsisResponse,
+)
+async def restore_bible_synopsis_revision(
+    db: DbSession,
+    revision_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldBibleSynopsisResponse:
+    return await _bible_synopsis_service.restore_revision(
+        db,
+        novel_id,
+        revision_id,
+    )
+
+
+@router.post("/bible/synopsis/unpin", response_model=WorldBibleSynopsisResponse)
+async def unpin_bible_synopsis(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldBibleSynopsisResponse:
+    return await _bible_synopsis_service.unpin(db, novel_id)
+
+
 @router.get("/bible/templates")
 async def list_bible_templates() -> list[dict]:
     return await _bible_service.list_templates()
@@ -577,6 +844,39 @@ async def edit_and_confirm_world_suggestion(
 ) -> SuggestionDecisionResponse:
     try:
         suggestion = await _suggestion_service.edit_and_confirm_core_entity(
+            db,
+            novel_id,
+            suggestion_id,
+            data,
+        )
+    except SuggestionAlreadyProcessedError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "status": "already_processed",
+                "suggestion_status": exc.status,
+            },
+        ) from exc
+    return SuggestionDecisionResponse(
+        status="accepted",
+        suggestion_status=suggestion.status,
+        result_ref_json=suggestion.result_ref_json,
+    )
+
+
+@router.post(
+    "/suggestions/{suggestion_id}/apply-to-world-bible-draft",
+    response_model=SuggestionDecisionResponse,
+)
+async def apply_world_suggestion_to_bible_draft(
+    db: DbSession,
+    suggestion_id: str,
+    data: WorldBibleSuggestionApplyDraftRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> SuggestionDecisionResponse:
+    try:
+        suggestion = await _suggestion_service.apply_world_bible_suggestion_to_draft(
             db,
             novel_id,
             suggestion_id,

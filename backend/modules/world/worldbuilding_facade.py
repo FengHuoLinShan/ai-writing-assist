@@ -49,6 +49,54 @@ async def get_world_background(
     )
 
 
+async def get_world_bible_synopsis_context(
+    db,
+    novel_id: str,
+    *,
+    revision_id: str | None = None,
+):
+    """Return author-only synopsis data without exposing world ORM models."""
+    from modules.world.contracts import WorldBibleSynopsisContextContract
+    from modules.world.services.worldbuilding.world_bible_synopsis_service import (
+        WorldBibleSynopsisService,
+    )
+
+    payload = await WorldBibleSynopsisService().context_payload(
+        db,
+        novel_id,
+        revision_id=revision_id,
+    )
+    return WorldBibleSynopsisContextContract(novel_id=novel_id, **payload)
+
+
+async def mark_world_bible_synopsis_stale(db, novel_id: str) -> None:
+    """Mark the project synopsis stale after a world-owned source change."""
+    from modules.world.services.worldbuilding.world_bible_synopsis_service import (
+        WorldBibleSynopsisService,
+    )
+
+    await WorldBibleSynopsisService().mark_stale(db, novel_id)
+
+
+async def get_world_bible_working_pages_context(
+    db,
+    novel_id: str,
+    *,
+    draft_ids: list[str],
+) -> list[dict]:
+    """Return explicitly selected working pages through a stable world seam."""
+    from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
+        WorldBibleLifecycleService,
+    )
+
+    service = WorldBibleLifecycleService()
+    items = []
+    for draft_id in list(dict.fromkeys(draft_ids))[:20]:
+        draft = await service.get_draft(db, novel_id, draft_id)
+        items.append(draft.model_dump(mode="json"))
+    return items
+
+
 async def mark_worldbuilding_context_stale(
     db,
     novel_id: str,

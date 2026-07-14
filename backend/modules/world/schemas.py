@@ -316,6 +316,25 @@ class ObjectDraftChatRequest(BaseModel):
     template_id: str | None = Field(default=None, max_length=128)
     template_version: int | None = Field(default=None, ge=1)
     template_variables: dict[str, Any] = Field(default_factory=dict)
+    include_world_synopsis: bool = False
+    selected_world_bible_draft_ids: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+
+
+class GenerationContextUsage(BaseModel):
+    included: bool = False
+    section_key: str = "world_bible_synopsis"
+    revision_id: str | None = None
+    source_hash: str | None = None
+    block_hash: str | None = None
+    token_count: int = 0
+    stale: bool = False
+    fallback: bool = False
+    status: str = "not_requested"
+    warnings: list[str] = Field(default_factory=list)
+    context_snapshot_id: str | None = None
 
 
 class ObjectDraftChatResponse(BaseModel):
@@ -324,6 +343,7 @@ class ObjectDraftChatResponse(BaseModel):
     reply: str
     model: str = ""
     provider: str = ""
+    context_usage: GenerationContextUsage | None = None
 
 
 class ObjectDraftGenerateRequest(BaseModel):
@@ -340,6 +360,11 @@ class ObjectDraftGenerateRequest(BaseModel):
     template_id: str | None = Field(default=None, max_length=128)
     template_version: int | None = Field(default=None, ge=1)
     template_variables: dict[str, Any] = Field(default_factory=dict)
+    include_world_synopsis: bool = False
+    selected_world_bible_draft_ids: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+    )
 
 
 class ObjectDraftGenerateResponse(BaseModel):
@@ -350,6 +375,7 @@ class ObjectDraftGenerateResponse(BaseModel):
     quality_mode: ObjectDraftQualityMode
     model: str = ""
     provider: str = ""
+    context_usage: GenerationContextUsage | None = None
 
 
 WorldBibleAiOutputTarget = Literal[
@@ -371,6 +397,11 @@ class WorldBibleAiGenerateRequest(BaseModel):
     template_version: int | None = Field(default=None, ge=1)
     template_variables: dict[str, Any] = Field(default_factory=dict)
     include_current_page: bool = True
+    include_world_synopsis: bool = False
+    selected_asset_refs: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=40,
+    )
 
 
 class WorldBibleAiSuggestionSummary(BaseModel):
@@ -391,12 +422,17 @@ class WorldBibleAiGenerateResponse(BaseModel):
     suggestions: list[WorldBibleAiSuggestionSummary] = Field(default_factory=list)
     model: str = ""
     provider: str = ""
+    context_usage: GenerationContextUsage | None = None
 
 
 class WorldBibleSourceRef(BaseModel):
     """世界书 AI 建议来源引用。"""
 
     source_type: str = Field(..., min_length=1, max_length=64)
+    source_id: str | None = None
+    source_version: int | None = None
+    source_hash: str | None = Field(default=None, max_length=64)
+    block_hash: str | None = Field(default=None, max_length=64)
     page_id: str | None = None
     title: str | None = Field(default=None, max_length=255)
     chapter_index: int | None = None
@@ -1635,6 +1671,20 @@ class WorldBiblePageUpdate(BaseModel):
     sort_order: int | None = None
     updated_by: str | None = Field(default=None, max_length=64)
 
+    @model_validator(mode="after")
+    def reject_null_required_fields(self) -> WorldBiblePageUpdate:
+        for field_name in {
+            "title",
+            "status",
+            "page_meta_json",
+            "linked_asset_refs_json",
+            "activation_defaults_json",
+            "sort_order",
+        }:
+            if field_name in self.model_fields_set and getattr(self, field_name) is None:
+                raise ValueError(f"{field_name} cannot be null")
+        return self
+
 
 class WorldBiblePageResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -1667,6 +1717,219 @@ class WorldBiblePageListResponse(BaseModel):
     total: int
 
 
+class WorldBibleCategoryCreate(BaseModel):
+    novel_id: str
+    category_key: str = Field(
+        ...,
+        min_length=2,
+        max_length=64,
+        pattern=r"^[a-z][a-z0-9_]*$",
+    )
+    name: str = Field(..., min_length=1, max_length=80)
+    description: str | None = Field(default=None, max_length=1000)
+    color: str = Field(default="#64748B", pattern=r"^#[0-9A-Fa-f]{6}$")
+    icon: str = Field(default="", max_length=16)
+    sort_order: int = 100
+
+
+class WorldBibleCategoryUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    description: str | None = Field(default=None, max_length=1000)
+    color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    icon: str | None = Field(default=None, max_length=16)
+    sort_order: int | None = None
+    status: Literal["active", "archived"] | None = None
+
+    @model_validator(mode="after")
+    def reject_null_required_fields(self) -> WorldBibleCategoryUpdate:
+        for field_name in {"name", "color", "icon", "sort_order", "status"}:
+            if field_name in self.model_fields_set and getattr(self, field_name) is None:
+                raise ValueError(f"{field_name} cannot be null")
+        return self
+
+
+class WorldBibleCategoryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    novel_id: str
+    category_key: str
+    name: str
+    description: str | None = None
+    color: str
+    icon: str
+    sort_order: int
+    status: str
+    builtin: bool = False
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    @field_validator("id", "novel_id", mode="before")
+    @classmethod
+    def coerce_category_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)
+
+
+class WorldBibleCategoryListResponse(BaseModel):
+    items: list[WorldBibleCategoryResponse]
+
+
+class WorldBiblePageDraftCreate(BaseModel):
+    novel_id: str
+    page_id: str | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    page_type: str | None = Field(default=None, min_length=1, max_length=64)
+    free_text: str | None = None
+    linked_asset_refs_json: list[dict[str, Any]] | None = None
+    sort_order: int | None = None
+    created_by: str | None = Field(default=None, max_length=64)
+
+
+class WorldBiblePageDraftUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    page_type: str | None = Field(default=None, min_length=1, max_length=64)
+    free_text: str | None = None
+    linked_asset_refs_json: list[dict[str, Any]] | None = None
+    sort_order: int | None = None
+    updated_by: str | None = Field(default=None, max_length=64)
+
+    @model_validator(mode="after")
+    def reject_null_required_fields(self) -> WorldBiblePageDraftUpdate:
+        for field_name in {
+            "title",
+            "page_type",
+            "linked_asset_refs_json",
+            "sort_order",
+        }:
+            if field_name in self.model_fields_set and getattr(self, field_name) is None:
+                raise ValueError(f"{field_name} cannot be null")
+        return self
+
+
+class WorldBiblePageDraftResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    novel_id: str
+    page_id: str | None = None
+    base_version_number: int | None = None
+    title: str
+    page_type: str
+    free_text: str | None = None
+    linked_asset_refs_json: list = Field(default_factory=list)
+    sort_order: int = 0
+    created_by: str | None = None
+    updated_by: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    @field_validator("id", "novel_id", mode="before")
+    @classmethod
+    def coerce_draft_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)
+
+    @field_validator("page_id", mode="before")
+    @classmethod
+    def coerce_optional_page_uuid(cls, v: object) -> str | None:
+        return _optional_uuid_validator(v)
+
+
+class WorldBiblePageDraftListResponse(BaseModel):
+    items: list[WorldBiblePageDraftResponse]
+    total: int
+
+
+class WorldBiblePageRevisionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    novel_id: str
+    page_id: str
+    version_number: int
+    snapshot_json: dict = Field(default_factory=dict)
+    revision_reason: str
+    created_at: datetime | None = None
+
+    @field_validator("id", "novel_id", "page_id", mode="before")
+    @classmethod
+    def coerce_revision_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)
+
+
+class WorldBibleSuggestionApplyDraftRequest(BaseModel):
+    append_text: str | None = Field(default=None, max_length=20000)
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    page_type: str | None = Field(default=None, min_length=1, max_length=64)
+    free_text: str | None = Field(default=None, max_length=30000)
+    updated_by: str | None = Field(default=None, max_length=64)
+
+
+class WorldBibleSynopsisClaim(BaseModel):
+    category_key: str = Field(default="custom", max_length=64)
+    text: str = Field(..., min_length=1, max_length=1200)
+    source_refs: list[dict[str, Any]] = Field(default_factory=list, min_length=1)
+
+
+class WorldBibleSynopsisStructuredOutput(BaseModel):
+    claims: list[WorldBibleSynopsisClaim] = Field(default_factory=list, max_length=80)
+    omitted_reasons: list[str] = Field(default_factory=list, max_length=40)
+
+
+class WorldBibleSynopsisRevisionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    novel_id: str
+    version_number: int
+    status: str
+    rendered_text: str
+    claims_json: list = Field(default_factory=list)
+    source_manifest_json: list = Field(default_factory=list)
+    source_hash: str
+    token_estimate: int
+    coverage_json: dict = Field(default_factory=dict)
+    omitted_reasons_json: list = Field(default_factory=list)
+    generation_meta_json: dict = Field(default_factory=dict)
+    created_at: datetime | None = None
+
+    @field_validator("id", "novel_id", mode="before")
+    @classmethod
+    def coerce_synopsis_revision_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)
+
+
+class WorldBibleSynopsisResponse(BaseModel):
+    novel_id: str
+    status: str
+    stale: bool = True
+    pinned: bool = False
+    desired_source_hash: str = ""
+    active_task_id: str | None = None
+    auto_refresh_enabled: bool = False
+    authorization: dict = Field(default_factory=dict)
+    current_revision: WorldBibleSynopsisRevisionResponse | None = None
+    warnings: list[str] = Field(default_factory=list)
+    last_error_kind: str | None = None
+    last_error_summary: str | None = None
+
+
+class WorldBibleSynopsisRefreshResponse(BaseModel):
+    task_id: str
+    status: str
+    existing: bool = False
+    source_hash: str
+
+
+class WorldBibleSynopsisAutoRefreshRequest(BaseModel):
+    enabled: bool
+    changed_by: str | None = Field(default=None, max_length=64)
+
+
+class WorldBibleSynopsisRevisionListResponse(BaseModel):
+    items: list[WorldBibleSynopsisRevisionResponse]
+    total: int
+
+
 class WorldBibleProjectionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -1674,6 +1937,8 @@ class WorldBibleProjectionResponse(BaseModel):
     novel_id: str
     page_id: str
     projection_type: str
+    source_page_version: int = 0
+    source_hash: str = ""
     status: str
     content: str | None = None
     token_estimate: int = 0

@@ -8,11 +8,13 @@ from modules.context.services.loaders.plot_threads_loader import PlotThreadsLoad
 from modules.context.services.loaders.project_loader import ProjectLoader
 from modules.context.services.loaders.rag_chunks_loader import RagChunksLoader
 from modules.context.services.loaders.scene_loader import SceneLoader
+from modules.context.services.loaders.world_bible_loader import WorldBibleLoader
 from modules.context.services.loaders.world_entities_loader import WorldEntitiesLoader
 
 _AVAILABLE_LOADERS: dict[str, bool] = {
     "project": True,
     "world_entities": True,
+    "world_bible": True,
     "characters": True,
     "memory_records": True,
     "events": True,
@@ -32,6 +34,7 @@ __all__ = [
     "OutlineArcLoader",
     "ProjectLoader",
     "WorldEntitiesLoader",
+    "WorldBibleLoader",
     "CharactersLoader",
     "EventsLoader",
     "RagChunksLoader",

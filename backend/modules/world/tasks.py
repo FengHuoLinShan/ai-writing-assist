@@ -236,3 +236,70 @@ async def handle_world_bible_projection_refresh(db, task):
         "error_summary": projection.error_summary,
         "stale": projection.stale,
     }
+
+
+@task_handler(
+    "world_bible_synopsis_refresh",
+    recovery_policy="auto_requeue",
+    max_attempts=2,
+)
+async def handle_world_bible_synopsis_refresh(db, task):
+    """Refresh the immutable author-only World Bible synopsis revision."""
+    from modules.project.facade import (
+        build_project_llm_execution_snapshot,
+        create_project_snapshot_llm_client,
+        restore_project_llm_execution_settings,
+    )
+    from modules.world.services.worldbuilding.world_bible_synopsis_service import (
+        WorldBibleSynopsisService,
+    )
+
+    meta = dict(task.meta or {})
+    novel_id = str(meta.get("novel_id") or "")
+    source_hash = str(meta.get("source_hash") or "")
+    if not novel_id or not source_hash:
+        raise ValueError("novel_id and source_hash are required")
+    snapshot = meta.get("llm_execution_snapshot")
+    if not isinstance(snapshot, dict) or not snapshot:
+        snapshot = await build_project_llm_execution_snapshot(db, novel_id)
+        task.meta = {**meta, "llm_execution_snapshot": snapshot}
+        await db.flush()
+    settings = await restore_project_llm_execution_settings(db, novel_id, snapshot)
+    client = create_project_snapshot_llm_client(
+        settings,
+        novel_id=novel_id,
+    )
+    service = WorldBibleSynopsisService()
+    task.update_progress(0.1)
+    try:
+        revision, promoted = await service.refresh_now(
+            db,
+            novel_id,
+            requested_source_hash=source_hash,
+            task_id=str(task.id),
+            llm_execution_snapshot=snapshot,
+            llm_client=client,
+        )
+        task.update_progress(0.9)
+        state = await service.get(db, novel_id, recompute_source_hash=False)
+        followup_task_id = None
+        if not promoted and not state.pinned:
+            followup_task_id, _status, _existing, _hash = await service.request_refresh(
+                db,
+                novel_id,
+            )
+        task.update_progress(1.0)
+        return {
+            "revision_id": revision.id,
+            "version_number": revision.version_number,
+            "source_hash": revision.source_hash,
+            "status": revision.status,
+            "promoted": promoted,
+            "followup_task_id": followup_task_id,
+            "token_estimate": revision.token_estimate,
+        }
+    except Exception as exc:
+        await service.record_failure(db, novel_id, str(task.id), exc)
+        raise
+    finally:
+        await client.close()

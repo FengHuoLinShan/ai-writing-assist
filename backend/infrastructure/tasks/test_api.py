@@ -48,13 +48,18 @@ async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "task_type",
+    ["world_entity_extraction", "world_bible_synopsis_refresh"],
+)
 async def test_submit_task_rejects_dangerous_domain_task(
     async_client: AsyncClient,
+    task_type: str,
 ) -> None:
     resp = await async_client.post(
         "/api/tasks",
         json={
-            "task_type": "world_entity_extraction",
+            "task_type": task_type,
             "meta": {
                 "novel_id": "00000000-0000-0000-0000-000000000701",
                 "start_chapter": 1,

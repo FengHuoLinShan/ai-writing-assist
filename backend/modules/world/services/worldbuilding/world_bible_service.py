@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -9,12 +10,13 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import NotFoundError, ValidationError
+from core.errors import ConflictError, NotFoundError, ValidationError
 from infrastructure.llm.token_estimation import estimate_token_count
 from infrastructure.tasks.enqueuer import enqueue_task
 from infrastructure.tasks.models import AsyncTask
 from modules.world.models import (
     WorldBiblePage,
+    WorldBiblePageDraft,
     WorldBiblePageProjection,
     WorldBiblePageRevision,
 )
@@ -25,6 +27,9 @@ from modules.world.schemas import (
     WorldBibleProjectionResponse,
 )
 from modules.world.services.worldbuilding.shared import normalize_profession_slug
+from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
+    WorldBibleLifecycleService,
+)
 from shared.utils import parse_uuid
 
 
@@ -36,6 +41,14 @@ class ProjectionRefreshConflictError(Exception):
 
 
 class WorldBibleService:
+    _ADOPTED_STATUSES = frozenset({"canonical", "confirmed"})
+
+    def __init__(
+        self,
+        lifecycle_service: WorldBibleLifecycleService | None = None,
+    ) -> None:
+        self._lifecycle = lifecycle_service or WorldBibleLifecycleService()
+
     async def list_pages(
         self,
         db: AsyncSession,
@@ -59,6 +72,11 @@ class WorldBibleService:
         data: WorldBiblePageCreate,
     ) -> WorldBiblePageResponse:
         nid = parse_uuid(data.novel_id, "novel_id")
+        await self._lifecycle.validate_asset_refs(
+            db,
+            data.novel_id,
+            data.linked_asset_refs_json,
+        )
         page_key = data.page_key or self._default_page_key(data.page_type, data.title)
         page = WorldBiblePage(
             novel_id=nid,
@@ -77,6 +95,10 @@ class WorldBibleService:
         )
         db.add(page)
         await db.flush()
+        if page.status in self._ADOPTED_STATUSES:
+            await self._add_revision(db, page, revision_reason="legacy_create")
+            await self._mark_synopsis_stale(db, str(page.novel_id))
+            await db.flush()
         return WorldBiblePageResponse.model_validate(page)
 
     async def get_page(
@@ -95,15 +117,52 @@ class WorldBibleService:
         page_id: str,
         data: WorldBiblePageUpdate,
     ) -> WorldBiblePageResponse:
-        page = await self._get_page_model(db, novel_id, page_id)
+        page = await self._get_page_model(db, novel_id, page_id, for_update=True)
+        active_draft = await db.scalar(
+            select(WorldBiblePageDraft.id).where(
+                WorldBiblePageDraft.novel_id == page.novel_id,
+                WorldBiblePageDraft.page_id == page.id,
+            )
+        )
+        if active_draft is not None:
+            raise ConflictError("World Bible page has an active working draft")
         payload = data.model_dump(exclude_unset=True)
+        if payload.get("linked_asset_refs_json") is not None:
+            await self._lifecycle.validate_asset_refs(
+                db,
+                novel_id,
+                payload["linked_asset_refs_json"],
+            )
         free_text_changed = (
             "free_text" in payload and payload["free_text"] != page.free_text
         )
+        meaningful_fields = {
+            "title",
+            "status",
+            "page_meta_json",
+            "free_text",
+            "linked_asset_refs_json",
+            "activation_defaults_json",
+            "template_key",
+            "sort_order",
+        }
+        meaningful_change = any(
+            key in meaningful_fields and getattr(page, key) != value
+            for key, value in payload.items()
+        )
+        before_status = page.status
         for key, value in payload.items():
             setattr(page, key, value)
         if free_text_changed:
             await self._mark_page_projections_stale(db, page)
+        adopted_change = meaningful_change and (
+            page.status in self._ADOPTED_STATUSES
+            or before_status in self._ADOPTED_STATUSES
+        )
+        if adopted_change:
+            page.version_number += 1
+            await self._add_revision(db, page, revision_reason="legacy_update")
+            await self._mark_synopsis_stale(db, str(page.novel_id))
         await db.flush()
         return WorldBiblePageResponse.model_validate(page)
 
@@ -116,7 +175,15 @@ class WorldBibleService:
         *,
         revision_reason: str = "ai_suggestion",
     ) -> WorldBiblePageResponse:
-        page = await self._get_page_model(db, novel_id, page_id)
+        page = await self._get_page_model(db, novel_id, page_id, for_update=True)
+        active_draft = await db.scalar(
+            select(WorldBiblePageDraft.id).where(
+                WorldBiblePageDraft.novel_id == page.novel_id,
+                WorldBiblePageDraft.page_id == page.id,
+            )
+        )
+        if active_draft is not None:
+            raise ConflictError("World Bible page has an active working draft")
         existing = (page.free_text or "").rstrip()
         patch = append_text.strip()
         if not patch:
@@ -126,6 +193,8 @@ class WorldBibleService:
         page.updated_by = "ai_world_bible"
         await self._mark_page_projections_stale(db, page)
         await self._add_revision(db, page, revision_reason=revision_reason)
+        if page.status in self._ADOPTED_STATUSES:
+            await self._mark_synopsis_stale(db, str(page.novel_id))
         await db.flush()
         return WorldBiblePageResponse.model_validate(page)
 
@@ -176,6 +245,10 @@ class WorldBibleService:
         try:
             content = self._build_projection_content(page, projection_type)
             projection.content = content
+            projection.source_page_version = page.version_number
+            projection.source_hash = hashlib.sha256(
+                (page.free_text or "").encode("utf-8")
+            ).hexdigest()
             projection.token_estimate = estimate_token_count(content)
             projection.source_spans_json = [
                 {"start": 0, "end": len(page.free_text or "")}
@@ -210,15 +283,18 @@ class WorldBibleService:
         db: AsyncSession,
         novel_id: str,
         page_id: str,
+        *,
+        for_update: bool = False,
     ) -> WorldBiblePage:
         nid = parse_uuid(novel_id, "novel_id")
         pid = parse_uuid(page_id, "page_id")
-        result = await db.execute(
-            select(WorldBiblePage).where(
-                WorldBiblePage.id == pid,
-                WorldBiblePage.novel_id == nid,
-            )
+        stmt = select(WorldBiblePage).where(
+            WorldBiblePage.id == pid,
+            WorldBiblePage.novel_id == nid,
         )
+        if for_update:
+            stmt = stmt.with_for_update()
+        result = await db.execute(stmt)
         page = result.scalar_one_or_none()
         if page is None:
             raise NotFoundError("World Bible page not found")
@@ -326,6 +402,14 @@ class WorldBibleService:
     def _default_page_key(self, page_type: str, title: str) -> str:
         slug = normalize_profession_slug(title) or "page"
         return f"{page_type}:{slug}:{uuid.uuid4().hex[:8]}"
+
+    @staticmethod
+    async def _mark_synopsis_stale(db: AsyncSession, novel_id: str) -> None:
+        from modules.world.services.worldbuilding.world_bible_synopsis_service import (
+            WorldBibleSynopsisService,
+        )
+
+        await WorldBibleSynopsisService().mark_stale(db, novel_id)
 
 
 __all__ = ["ProjectionRefreshConflictError", "WorldBibleService"]

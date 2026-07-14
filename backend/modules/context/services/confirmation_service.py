@@ -57,6 +57,8 @@ class ContextConfirmationService:
         include_pending_objects: bool = False,
         excluded_asset_ids: dict[str, list[str]] | None = None,
         user_note: str | None = None,
+        include_world_synopsis: bool = False,
+        selected_world_bible_draft_ids: list[str] | None = None,
     ) -> ContextConfirmationContract:
         retrieval_purpose = _resolve_retrieval_purpose(
             action,
@@ -88,6 +90,8 @@ class ContextConfirmationService:
             include_pending_objects=include_pending_objects,
             excluded_asset_ids=excluded_asset_ids or {},
             user_note=user_note,
+            include_world_synopsis=include_world_synopsis,
+            selected_world_bible_draft_ids=selected_world_bible_draft_ids or [],
         )
         compiled = await self._compiler.compile_with_tiers(
             db,
@@ -275,6 +279,10 @@ class ContextConfirmationService:
             selected["characters"] = list(options.character_ids)
         if options.location_ids:
             selected["locations"] = list(options.location_ids)
+        if options.selected_world_bible_draft_ids:
+            selected["world_bible_draft"] = list(
+                options.selected_world_bible_draft_ids
+            )
         selected["context_sections"] = [section.key for section in compiled.sections]
         return selected
 
@@ -306,6 +314,11 @@ class ContextConfirmationService:
             "include_pending_objects": options.include_pending_objects,
             "excluded_asset_ids": options.excluded_asset_ids,
             "user_note": options.user_note,
+            "include_world_synopsis": options.include_world_synopsis,
+            "selected_world_bible_draft_ids": options.selected_world_bible_draft_ids,
+            "world_synopsis_revision_id": options.world_synopsis_revision_id,
+            "world_synopsis_source_hash": options.world_synopsis_source_hash,
+            "world_synopsis_block_hash": options.world_synopsis_block_hash,
         }
 
     @staticmethod

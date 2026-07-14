@@ -54,7 +54,18 @@ class EventService(
             "Event location",
             entity_type="location",
         )
-        return await super().create(db, novel_id, data)
+        created = await super().create(db, novel_id, data)
+        from modules.world.services.worldbuilding.synopsis_invalidation import (
+            mark_synopsis_source_changed,
+        )
+
+        await mark_synopsis_source_changed(
+            db,
+            novel_id,
+            source_type="event",
+            source_id=created.entity_id,
+        )
+        return created
 
     async def get(  # type: ignore[override]
         self,
@@ -99,6 +110,16 @@ class EventService(
         )
         updated = await self.repo.update(db, eid, data)
         self._assert_found_in_novel(updated, id, nid)
+        from modules.world.services.worldbuilding.synopsis_invalidation import (
+            mark_synopsis_source_changed,
+        )
+
+        await mark_synopsis_source_changed(
+            db,
+            novel_id,
+            source_type="event",
+            source_id=id,
+        )
         return self._to_response(updated)
 
     async def _assert_entity_in_novel(

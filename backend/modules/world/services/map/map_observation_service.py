@@ -207,6 +207,16 @@ class MapObservationService:
                 observation,
                 "confirmed",
             )
+            from modules.world.services.worldbuilding.synopsis_invalidation import (
+                mark_synopsis_source_changed,
+            )
+
+            await mark_synopsis_source_changed(
+                db,
+                novel_id,
+                source_type="map_fact",
+                source_id=str(existing.id),
+            )
             return MapFactResponse.model_validate(existing)
 
         fact = await owner._fact_repo.create(
@@ -232,6 +242,16 @@ class MapObservationService:
             },
         )
         await owner._observation_repo.update_review_state(db, observation, "confirmed")
+        from modules.world.services.worldbuilding.synopsis_invalidation import (
+            mark_synopsis_source_changed,
+        )
+
+        await mark_synopsis_source_changed(
+            db,
+            novel_id,
+            source_type="map_fact",
+            source_id=str(fact.id),
+        )
         return MapFactResponse.model_validate(fact)
 
     async def batch_review_observations(
@@ -329,6 +349,17 @@ class MapObservationService:
                     updated_observations.append(
                         MapObservationResponse.model_validate(updated_observation)
                     )
+            if facts:
+                from modules.world.services.worldbuilding.synopsis_invalidation import (
+                    mark_synopsis_source_changed,
+                )
+
+                await mark_synopsis_source_changed(
+                    db,
+                    novel_id,
+                    source_type="map_fact_batch",
+                    source_id=map_id,
+                )
         else:
             next_state = "ignored" if data.action == "ignore" else "conflicted"
             updated = await owner._observation_repo.update_review_states(

@@ -8,6 +8,10 @@ World 对外契约 — v3 因果时空网
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @dataclass(frozen=True)
@@ -162,6 +166,42 @@ class WorldBackgroundBundleContract:
     warnings: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class WorldBibleSynopsisContextContract:
+    """Author-only derived synopsis material exposed to Context."""
+
+    novel_id: str
+    included: bool
+    content: str = ""
+    revision_id: str | None = None
+    source_hash: str = ""
+    block_hash: str = ""
+    token_count: int = 0
+    stale: bool = True
+    fallback: bool = False
+    status: str = "missing"
+    coverage: dict = field(default_factory=dict)
+    omitted_reasons: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+
+class GenerationBackgroundProvider(Protocol):
+    """DI port used by world generation without importing context internals."""
+
+    async def __call__(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        task: str,
+        include_world_synopsis: bool = False,
+        selected_world_bible_draft_ids: list[str] | None = None,
+        operation: str = "world.object_draft.generate",
+        prompt_name: str = "generation_center_world_object_draft",
+        model: str = "project-default",
+    ) -> dict[str, Any]: ...
+
+
 __all__ = [
     "CharacterContract",
     "CharacterKnowledgeContract",
@@ -169,8 +209,10 @@ __all__ = [
     "EntityRelationContract",
     "EntityRevisionContract",
     "EventContract",
+    "GenerationBackgroundProvider",
     "MergeResult",
     "ResolveResult",
     "WorldBackgroundBundleContract",
     "WorldBackgroundEntryContract",
+    "WorldBibleSynopsisContextContract",
 ]

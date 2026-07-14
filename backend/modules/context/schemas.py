@@ -106,6 +106,15 @@ class ContextSelectionRequest(BaseModel):
         default=False,
         description="是否包含待处理对象",
     )
+    include_world_synopsis: bool = Field(
+        default=False,
+        description="作者模式是否加入世界观简介；reader/character 会安全排除",
+    )
+    selected_world_bible_draft_ids: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description="本次显式加入的 World Bible 工作稿 ID",
+    )
     excluded_asset_ids: dict[str, list[str]] = Field(
         default_factory=dict,
         description="本次排除的资产 ID",

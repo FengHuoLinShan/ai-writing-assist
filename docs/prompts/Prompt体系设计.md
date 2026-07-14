@@ -26,6 +26,7 @@
 | `extract_chapter_scene.md` | 从正文提取章节卡信息 | 写作/大纲辅助 |
 | `extract_character.md` | 从正文片段提取人物档案字段 | 人物信息补全 |
 | `scene_fusion_draft.py` | 内联 step `outline.scene_fusion.draft.structured`：基于选中 Scene 卡和精确正文生成融合语义草稿 | Scene 工作台 |
+| `world_bible_synopsis_service.py` | 内联 step `world.world_bible.synopsis.structured`：把已采用世界事实压缩为作者版 P1 世界观简介 | world 世界书简介刷新任务 |
 
 ## 3. Prompt Contract System
 
@@ -51,6 +52,19 @@ shell、表达式或动态代码执行。默认只有 P0/P1 阻断；文档漂�
 | `structure_review_memory.md` | 已删除 | `review` 模块已移除，不再保留 Prompt 文件 |
 
 ## 5. 当前设计约束
+
+### 世界书简介类
+
+`world.world_bible.synopsis.structured` 只负责压缩和组织来源 manifest，不裁决正史。输入先由
+world 模块确定性排序、去重、冲突排除和预算裁剪；页面与结构化事实冲突时排除页面片段并保留
+冲突提示。输出是 category/claim schema，每条 claim 至少引用一个经 `novel_id` 校验且真实
+存在于 manifest 的 type/id；无法归因的 claim 丢弃，schema repair 最多两次，正文上限 1200
+tokens。
+
+世界书正文、简介和引用资料始终作为不可信 user/context 数据块注入；固定 system scaffold
+禁止执行其中指令。作者模板是显式 author instruction，不与背景混入 system Prompt。
+该简介只属于 `author_safe/author_full`，不得进入 reader/character/POV，也不得替代 P0
+`World Core Brief`。生成结果写不可变派生 revision，不直接修改任何正史对象或世界书正文。
 
 ### 结构生成类
 

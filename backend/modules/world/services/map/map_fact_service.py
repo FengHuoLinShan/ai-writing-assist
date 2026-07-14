@@ -64,4 +64,14 @@ class MapFactService:
         owner._assert_fact_access(fact, fact_id, nid, mid)
         updated = await owner._fact_repo.update_status(db, fact, data.fact_status)
         assert updated is not None
+        from modules.world.services.worldbuilding.synopsis_invalidation import (
+            mark_synopsis_source_changed,
+        )
+
+        await mark_synopsis_source_changed(
+            db,
+            novel_id,
+            source_type="map_fact",
+            source_id=fact_id,
+        )
         return MapFactResponse.model_validate(updated)

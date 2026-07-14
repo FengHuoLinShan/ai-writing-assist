@@ -22,7 +22,8 @@ infrastructure/tasks/
 
 - project：`smart_dedup_scan`
 - world：`world_entity_extraction`、`world_alias_relation_extraction`、
-  `world_entity_fusion_suggestions`、`world_bible_projection_refresh`
+  `world_entity_fusion_suggestions`、`world_bible_projection_refresh`、
+  `world_bible_synopsis_refresh`
 - outline：`plot_structure_generate`、`chapter_card_extraction`、
   `chapter_scene_generate`、`outline_analyze`、
   `outline_generate`、`outline_chapter_scenes_extract`

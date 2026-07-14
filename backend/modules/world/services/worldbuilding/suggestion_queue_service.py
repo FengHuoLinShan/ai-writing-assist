@@ -29,7 +29,11 @@ from modules.world.schemas import (
     EntityResolveAsAliasRequest,
     WorldBibleNewPageSuggestionPayload,
     WorldBiblePageCreate,
+    WorldBiblePageDraftCreate,
+    WorldBiblePageDraftUpdate,
     WorldBiblePagePatchSuggestionPayload,
+    WorldBibleSourceRef,
+    WorldBibleSuggestionApplyDraftRequest,
     WorldProfileUpsertRequest,
 )
 from shared.utils import parse_uuid
@@ -49,6 +53,7 @@ class SuggestionQueueService:
 
         self._profiles = worldbuilding_service.WorldProfileService()
         self._bible = worldbuilding_service.WorldBibleService()
+        self._lifecycle = worldbuilding_service.WorldBibleLifecycleService()
         from modules.world.services.core.entity_alias_service import EntityAliasService
         from modules.world.services.core.entity_relation_service import (
             EntityRelationService,
@@ -257,9 +262,9 @@ class SuggestionQueueService:
                     page_type=payload.page_type,
                     status="confirmed",
                     free_text=payload.free_text,
-                    linked_asset_refs_json=[
-                        item.model_dump() for item in payload.source_refs
-                    ],
+                    linked_asset_refs_json=self._world_bible_asset_refs(
+                        payload.source_refs
+                    ),
                     created_by="ai_world_bible",
                 ),
             )
@@ -405,6 +410,86 @@ class SuggestionQueueService:
             novel_id,
             suggestion_id,
             core_entity_changes=data,
+        )
+
+    async def apply_world_bible_suggestion_to_draft(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        suggestion_id: str,
+        data: WorldBibleSuggestionApplyDraftRequest,
+    ) -> CreationSuggestionResponse:
+        """Apply an edited page suggestion to a working draft, never canonical."""
+        pending = await self._get_pending(db, novel_id, suggestion_id)
+        if pending.target_type not in {"world_bible_page_patch", "world_bible_page"}:
+            raise ValidationError(
+                "This decision is only available for World Bible page suggestions"
+            )
+        payload_json = self._validated_payload_json(
+            pending.target_type,
+            pending.payload_json,
+        )
+        suggestion = await self._claim_pending(db, novel_id, suggestion_id)
+        if suggestion.target_type == "world_bible_page_patch":
+            payload = WorldBiblePagePatchSuggestionPayload.model_validate(payload_json)
+            append_text = (
+                data.append_text
+                if data.append_text is not None
+                else payload.append_text
+            ).strip()
+            if not append_text:
+                raise ValidationError("append_text must not be blank")
+            draft = await self._lifecycle.get_or_create_page_draft(
+                db,
+                novel_id,
+                payload.page_id,
+                created_by=data.updated_by or "manual",
+            )
+            existing = (draft.free_text or "").rstrip()
+            updated_text = (
+                f"{existing}\n\n{append_text}".strip() if existing else append_text
+            )
+            draft = await self._lifecycle.update_draft(
+                db,
+                novel_id,
+                draft.id,
+                WorldBiblePageDraftUpdate(
+                    free_text=updated_text,
+                    updated_by=data.updated_by or "manual",
+                ),
+            )
+            suggestion.payload_json = {
+                **payload_json,
+                "append_text": append_text,
+            }
+        else:
+            payload = WorldBibleNewPageSuggestionPayload.model_validate(payload_json)
+            title = data.title or payload.title
+            page_type = data.page_type or payload.page_type
+            free_text = (
+                data.free_text if data.free_text is not None else payload.free_text
+            )
+            draft = await self._lifecycle.create_draft(
+                db,
+                WorldBiblePageDraftCreate(
+                    novel_id=novel_id,
+                    title=title,
+                    page_type=page_type,
+                    free_text=free_text,
+                    created_by=data.updated_by or "manual",
+                ),
+            )
+            suggestion.payload_json = {
+                **payload_json,
+                "title": title,
+                "page_type": page_type,
+                "free_text": free_text,
+            }
+        return await self._mark_accepted(
+            db,
+            novel_id=novel_id,
+            suggestion=suggestion,
+            result_ref={"type": "world_bible_page_draft", "id": draft.id},
         )
 
     async def merge_core_entity(
@@ -727,6 +812,26 @@ class SuggestionQueueService:
                 )
             return payload
         raise ValidationError(f"Unsupported suggestion target_type: {target_type}")
+
+    @staticmethod
+    def _world_bible_asset_refs(
+        source_refs: list[WorldBibleSourceRef],
+    ) -> list[dict[str, Any]]:
+        """Keep provenance refs separate from page-to-canonical-asset links."""
+        supported_types = {
+            "core_entity",
+            "entity",
+            "profile",
+            "event",
+            "relation",
+            "entity_relation",
+            "map_fact",
+        }
+        return [
+            item.model_dump(mode="json", exclude_none=True)
+            for item in source_refs
+            if item.source_type in supported_types and item.source_id
+        ]
 
     async def reject(
         self,

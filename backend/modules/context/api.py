@@ -145,6 +145,8 @@ async def compile_context(
         include_pending_objects=request.include_pending_objects,
         excluded_asset_ids=request.excluded_asset_ids,
         user_note=request.user_note,
+        include_world_synopsis=request.include_world_synopsis,
+        selected_world_bible_draft_ids=request.selected_world_bible_draft_ids,
     )
 
     return _build_tier_compile_response(request, ctx)
@@ -189,6 +191,8 @@ async def render_context(
         include_pending_objects=request.include_pending_objects,
         excluded_asset_ids=request.excluded_asset_ids,
         user_note=request.user_note,
+        include_world_synopsis=request.include_world_synopsis,
+        selected_world_bible_draft_ids=request.selected_world_bible_draft_ids,
     )
 
     markdown = render_compiled_context(ctx)
@@ -240,6 +244,8 @@ async def confirm_context(
         include_pending_objects=request.include_pending_objects,
         excluded_asset_ids=request.excluded_asset_ids,
         user_note=request.user_note,
+        include_world_synopsis=request.include_world_synopsis,
+        selected_world_bible_draft_ids=request.selected_world_bible_draft_ids,
     )
     return ContextConfirmationResponse(**confirmation.__dict__)
 

@@ -25,7 +25,14 @@ beforeEach(() => {
   localStorage.clear()
   vi.clearAllMocks()
   worldBibleView._pages = []
+  worldBibleView._categories = []
+  worldBibleView._drafts = []
   worldBibleView._activePage = null
+  worldBibleView._activeDraft = null
+  worldBibleView._synopsis = null
+  worldBibleView._synopsisTask = null
+  if (worldBibleView._synopsisPoller?.stop) worldBibleView._synopsisPoller.stop()
+  worldBibleView._synopsisPoller = null
   worldBibleView._suggestions = []
   worldBibleView._suggestionBatchKey = null
   worldBibleView._conflicts = []
@@ -38,6 +45,7 @@ beforeEach(() => {
   worldBibleView._aiTemplateId = "builtin:none"
   worldBibleView._aiQualityMode = "fast"
   worldBibleView._aiSelectedChapters = ""
+  worldBibleView._aiIncludeSynopsis = true
   worldBibleView._aiResult = null
   worldBibleView._displayMode = "editor"
   worldBibleView._activeCategory = "all"
@@ -45,12 +53,26 @@ beforeEach(() => {
   if (worldBibleView._projectionPoller?.stop) worldBibleView._projectionPoller.stop()
   worldBibleView._projectionPoller = null
   worldBibleView._bibleClickHandler = null
+  api.world.listBibleCategories.mockResolvedValue({ items: [] })
+  api.world.listBibleDrafts.mockResolvedValue({ items: [], total: 0 })
+  api.world.getBibleSynopsis.mockResolvedValue({
+    status: "missing",
+    stale: true,
+    warnings: [],
+    auto_refresh_enabled: false,
+  })
 })
 
 describe("worldBibleView", () => {
   it("新建页面使用应用内弹窗，不依赖浏览器 prompt", async () => {
     api.world.listBiblePages.mockResolvedValue({ items: [], total: 0 })
-    api.world.createBiblePage.mockResolvedValue({ ...page, title: "种族设定", page_type: "species" })
+    api.world.createBibleDraft.mockResolvedValue({
+      id: "draft-1",
+      page_id: null,
+      title: "种族设定",
+      page_type: "species",
+      free_text: null,
+    })
 
     document.body.innerHTML = await worldBibleView.render()
     worldBibleView.bindEvents()
@@ -68,11 +90,10 @@ describe("worldBibleView", () => {
     document.getElementById("bible-create-type").value = "species"
     await showModal.mock.calls[0][2][0].handler()
 
-    expect(api.world.createBiblePage).toHaveBeenCalledWith({
+    expect(api.world.createBibleDraft).toHaveBeenCalledWith({
       novel_id: "p1",
       title: "种族设定",
       page_type: "species",
-      status: "canonical",
     })
     expect(router.refresh).toHaveBeenCalled()
   })
@@ -114,6 +135,52 @@ describe("worldBibleView", () => {
     expect(api.tasks.get).toHaveBeenCalledWith("task-1", "p1")
     expect(localStorage.getItem("worldBibleProjection:p1:page-1:context_brief")).toBe("task-1")
     expect(router.renderCurrentView).toHaveBeenCalled()
+  })
+
+  it("编辑正式页先保存服务器工作稿，发布才更新正式页面", async () => {
+    worldBibleView._activePage = { ...page, status: "canonical", sort_order: 0 }
+    api.world.createBibleDraft.mockResolvedValue({
+      id: "draft-1",
+      page_id: "page-1",
+      title: page.title,
+      page_type: page.page_type,
+      free_text: page.free_text,
+      linked_asset_refs_json: [],
+      sort_order: 0,
+    })
+    api.world.updateBibleDraft.mockResolvedValue({
+      id: "draft-1",
+      page_id: "page-1",
+      title: page.title,
+      page_type: page.page_type,
+      free_text: "工作稿正文",
+      linked_asset_refs_json: [],
+      sort_order: 0,
+    })
+    api.world.publishBibleDraft.mockResolvedValue({
+      ...page,
+      status: "canonical",
+      version_number: 2,
+      free_text: "工作稿正文",
+    })
+    document.body.innerHTML = worldBibleView._renderActivePage()
+    document.getElementById("bible-free-text").value = "工作稿正文"
+
+    await worldBibleView._savePage()
+
+    expect(api.world.createBibleDraft).toHaveBeenCalledWith({
+      novel_id: "p1",
+      page_id: "page-1",
+    })
+    expect(api.world.updateBiblePage).not.toHaveBeenCalled()
+    expect(worldBibleView._activeDraft.id).toBe("draft-1")
+
+    document.body.innerHTML = worldBibleView._renderActivePage()
+    await worldBibleView._publishDraft()
+
+    expect(api.world.publishBibleDraft).toHaveBeenCalledWith("draft-1", "p1")
+    expect(worldBibleView._activeDraft).toBeNull()
+    expect(worldBibleView._activePage.version_number).toBe(2)
   })
 
   it("普通刷新遇到已完成任务时保留真实 task 并使用单独 hint 提示", async () => {
@@ -213,7 +280,7 @@ describe("worldBibleView", () => {
     expect(showModal.mock.calls[1][0]).toBe("冲突检查")
   })
 
-  it("创设建议弹窗保留单条确认/拒绝按钮", async () => {
+  it("页面创设建议使用编辑后应用工作稿，不走直发确认", async () => {
     api.world.listSuggestions.mockResolvedValue({
       items: [{
         id: "s1",
@@ -229,8 +296,69 @@ describe("worldBibleView", () => {
     await worldBibleView._openSuggestions()
 
     const html = showModal.mock.calls[0][1].html
-    expect(html).toContain('data-bible-confirm-suggestion="s1"')
+    expect(html).toContain('data-bible-edit-suggestion="s1"')
+    expect(html).not.toContain('data-bible-confirm-suggestion="s1"')
     expect(html).toContain('data-bible-reject-suggestion="s1"')
+  })
+
+  it("编辑后的页面建议只应用到工作稿", async () => {
+    const suggestion = {
+      id: "s1",
+      target_type: "world_bible_page_patch",
+      payload_json: { append_text: "AI 原文" },
+    }
+    worldBibleView._suggestions = [suggestion]
+    api.world.applySuggestionToBibleDraft.mockResolvedValue({
+      result_ref_json: { type: "world_bible_page_draft", id: "draft-1" },
+    })
+    api.world.listBiblePages.mockResolvedValue({ items: [page], total: 1 })
+    api.world.listBibleDrafts.mockResolvedValue({
+      items: [{ id: "draft-1", page_id: "page-1", title: page.title }],
+      total: 1,
+    })
+    api.world.listSuggestions.mockResolvedValue({ items: [], total: 0 })
+
+    worldBibleView._editSuggestionIntoDraft(suggestion)
+    document.body.innerHTML = showModal.mock.calls[0][1].html
+    document.getElementById("bible-suggestion-text").value = "作者编辑稿"
+    await showModal.mock.calls[0][2][0].handler()
+
+    expect(api.world.applySuggestionToBibleDraft).toHaveBeenCalledWith(
+      "s1",
+      { append_text: "作者编辑稿" },
+      "p1",
+    )
+    expect(api.world.confirmSuggestion).not.toHaveBeenCalled()
+    expect(api.world.listSuggestions).not.toHaveBeenCalled()
+    expect(worldBibleView._activeDraft.id).toBe("draft-1")
+  })
+
+  it("世界观简介面板展示只读版本并可提交刷新", async () => {
+    worldBibleView._synopsis = {
+      status: "fresh",
+      stale: false,
+      auto_refresh_enabled: false,
+      current_revision: {
+        id: "revision-1",
+        version_number: 3,
+        rendered_text: "只读世界观简介",
+        token_estimate: 120,
+        coverage_json: { source_count: 8 },
+      },
+      warnings: [],
+    }
+    api.world.refreshBibleSynopsis.mockResolvedValue({
+      task_id: "task-synopsis",
+      existing: false,
+    })
+
+    const html = worldBibleView._renderSynopsisPanel()
+    expect(html).toContain("作者模式 · P1")
+    expect(html).toContain("只读世界观简介")
+    await worldBibleView._refreshSynopsis()
+
+    expect(api.world.refreshBibleSynopsis).toHaveBeenCalledWith("p1")
+    expect(worldBibleView._synopsisTask.task_id).toBe("task-synopsis")
   })
 
   it("世界书 AI 边栏生成建议时带当前页和输出目标", async () => {
@@ -264,12 +392,13 @@ describe("worldBibleView", () => {
       expect.objectContaining({
         output_target: "page_patch",
         include_current_page: true,
+        include_world_synopsis: true,
         messages: [{ role: "user", content: "帮我补写这一页" }],
       }),
       "p1",
     )
     expect(worldBibleView._aiResult.suggestions[0].id).toBe("s1")
-    expect(toast).toHaveBeenCalledWith("建议已生成，采用后才会写入", "success")
+    expect(toast).toHaveBeenCalledWith("建议已生成；页面建议编辑后只会写入工作稿", "success")
   })
 
   it("世界书 AI 拒绝超过服务上限的章节附件", async () => {
@@ -483,5 +612,81 @@ describe("worldBibleView", () => {
     expect(document.querySelector("script")).toBeNull()
     expect(document.body.innerHTML).toContain("&lt;img src=x onerror=alert(1)&gt;")
     expect(document.body.innerHTML).toContain("&lt;script&gt;alert(1)&lt;/script&gt;")
+  })
+
+  it("加载已归档类别供历史页面展示和恢复", async () => {
+    api.world.listBiblePages.mockResolvedValue({ items: [], total: 0 })
+
+    await worldBibleView.render()
+
+    expect(api.world.listBibleCategories).toHaveBeenCalledWith("p1", true)
+  })
+
+  it("从图鉴打开正式页时不会泄漏另一个新页工作稿", () => {
+    worldBibleView._pages = [speciesPage]
+    worldBibleView._drafts = [{ id: "draft-new", page_id: null, title: "新页工作稿" }]
+    worldBibleView._activeDraft = worldBibleView._drafts[0]
+
+    worldBibleView._openPageCard("page-2")
+
+    expect(worldBibleView._activePage.id).toBe("page-2")
+    expect(worldBibleView._activeDraft).toBeNull()
+  })
+
+  it("发布 CAS 冲突时保留服务器已保存的最新工作稿", async () => {
+    const staleDraft = {
+      id: "draft-1",
+      page_id: "page-1",
+      title: page.title,
+      page_type: page.page_type,
+      free_text: "旧工作稿",
+      linked_asset_refs_json: [],
+      sort_order: 0,
+    }
+    const savedDraft = { ...staleDraft, free_text: "已保存的作者改动" }
+    worldBibleView._activePage = { ...page, status: "canonical" }
+    worldBibleView._activeDraft = staleDraft
+    worldBibleView._drafts = [staleDraft]
+    api.world.updateBibleDraft.mockResolvedValue(savedDraft)
+    const conflict = new Error("version conflict")
+    conflict.status = 409
+    api.world.publishBibleDraft.mockRejectedValue(conflict)
+    document.body.innerHTML = worldBibleView._renderActivePage()
+    document.getElementById("bible-free-text").value = savedDraft.free_text
+
+    await worldBibleView._publishDraft()
+
+    expect(worldBibleView._activeDraft).toEqual(savedDraft)
+    expect(worldBibleView._drafts[0]).toEqual(savedDraft)
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining("工作稿已保留"), "error")
+  })
+
+  it("已归档自定义类别可恢复", async () => {
+    api.world.updateBibleCategory.mockResolvedValue({ id: "category-1", status: "active" })
+    api.world.listBiblePages.mockResolvedValue({ items: [], total: 0 })
+
+    await worldBibleView._restoreCategory("category-1")
+
+    expect(api.world.updateBibleCategory).toHaveBeenCalledWith(
+      "category-1",
+      { status: "active" },
+      "p1",
+    )
+    expect(toast).toHaveBeenCalledWith("类别已恢复，可重新用于工作稿", "success")
+  })
+
+  it("固定简介时阻止直接刷新，取消固定会显式提交刷新", async () => {
+    worldBibleView._synopsis = { pinned: true, auto_refresh_enabled: false }
+
+    expect(await worldBibleView._refreshSynopsis()).toBe(false)
+    expect(api.world.refreshBibleSynopsis).not.toHaveBeenCalled()
+
+    api.world.unpinBibleSynopsis.mockResolvedValue({ pinned: false, stale: true })
+    api.world.refreshBibleSynopsis.mockResolvedValue({ task_id: "task-refresh", existing: false })
+    await worldBibleView._unpinSynopsis()
+
+    expect(api.world.unpinBibleSynopsis).toHaveBeenCalledWith("p1")
+    expect(api.world.refreshBibleSynopsis).toHaveBeenCalledWith("p1")
+    expect(worldBibleView._synopsisTask.task_id).toBe("task-refresh")
   })
 })

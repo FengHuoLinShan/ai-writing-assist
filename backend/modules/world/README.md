@@ -74,6 +74,35 @@ Prompt 校验外，`/api/world` 与
 - 向其他模块提供世界上下文（`get_world_context`）
 - 人物档案与知识边界（Character / CharacterKnowledge）
 
+## World Bible 工作稿与世界观简介
+
+World Bible 页面是作者组织和解释世界事实的手册层；`CoreEntity`、Profile、关系、
+事件和已确认地图事实仍是结构化正史来源。新版编辑流程不直接覆盖正式页：
+
+1. 作者创建或打开 `world_bible_page_drafts` 工作稿；标题、类别、正文、关联资产引用和
+   排序均可编辑，结构化资产只提供引用与跳转编辑。
+2. 发布时以 `base_version_number` 做行锁 + CAS；版本冲突返回 409 并保留工作稿。
+3. 发布原子更新 `canonical` 页面、递增 `version_number`、写不可变 revision、删除工作稿，
+   并标记作者版世界观简介 stale。恢复旧页面版本只创建新工作稿，不覆盖历史。
+4. 页面类 AI 建议必须先由作者编辑，再通过
+   `POST /api/world/suggestions/{id}/apply-to-world-bible-draft` 落工作稿；新版 UI 不使用
+   旧 `/confirm` 直发路径。
+
+内置类别为 `background/species/faction/location/rule/secret/custom`。项目自定义类别只
+保存 `key/name/description/color/icon/sort_order/status`；`category_key` 创建后不可修改，
+归档不删除历史页面，也不定义模板 schema 或资产激活规则。
+
+`world_bible_synopsis` 是独立的作者模式 P1 section，UI 名称为“世界观简介”。它由 LLM
+从已采用结构化世界事实和 `canonical/confirmed` 页面派生，保存不可变 revision、逐 claim
+来源、source manifest/hash、coverage、Prompt/model/provider 和项目 LLM execution snapshot。
+它不能替代确定性、不可驱逐的 P0 `World Core Brief`，也永不进入 reader/character/POV。
+无成功版本时只使用有界确定性降级资料。恢复旧简介会固定 revision 并暂停自动晋升，直到
+作者取消固定并刷新。
+
+自动维护默认关闭。首次启用会持久化授权范围、workflow、`editable=false` 和
+`rollback=true`；现有 PostgreSQL 任务队列按项目合并刷新任务，提交前以 source hash CAS
+决定是否晋升，过期结果保留为 `superseded` 并最多补排一个后续任务。
+
 ## 边界
 
 明确不做：
@@ -114,6 +143,13 @@ Prompt 校验外，`/api/world` 与
 | `events` | 事件扩展表（entity_id PK+FK → core_entities） |
 | `characters` | 人物档案（entity_id PK+FK → core_entities） |
 | `character_knowledge` | 人物知识边界 |
+| `world_bible_categories` | 项目自定义世界书类别；内置类别不落库 |
+| `world_bible_page_drafts` | 新页或已有页的服务器工作稿与发布基线版本 |
+| `world_bible_pages` | 已发布作者手册页面；新版 UI 只发布为 canonical |
+| `world_bible_page_revisions` | 页面发布点的不可变快照，项目/页面/版本唯一 |
+| `world_bible_page_projections` | 与页面版本/source hash 绑定的派生投影 |
+| `world_bible_synopsis_heads` | 每项目简介指针、stale/pin/task 与自动维护授权 |
+| `world_bible_synopsis_revisions` | 作者版世界观简介的不可变 LLM 派生版本 |
 | `entity_revisions` | 实体快照版本表（旧版快照；当前活跃回滚优先使用 `TextArchive`，无归档时回退到 `EntityRevision`） |
 | `map_configs` | 动态地图配置（世界/城市/区域/地下城，自引用树，PRD §4.1） |
 | `map_tiles` | 六边形地形网格（轴向坐标 q,r，PRD §4.2） |

@@ -520,6 +520,9 @@ const sceneWorkbenchView = {
             ...(this._sceneReviewState(item).reviewed
               ? [{ action: "mark-scene-unreviewed", label: "标记需检查", data: { id: scene.id } }]
               : []),
+            ...(!structureAssetDisplay(scene).isHistory
+              ? [{ action: "move-scene-to-history", label: "移入历史", data: { id: scene.id } }]
+              : []),
           ])}
         </div>
       </article>
@@ -1118,6 +1121,33 @@ const sceneWorkbenchView = {
     })
     toast("Scene 已标记为需要人工检查", "success")
     await this._refreshWorkbenchInPlace()
+  },
+
+  async _moveSceneToHistory(sceneId) {
+    const item = this._findSceneItem(sceneId)
+    const scene = item?.scene
+    if (!scene || structureAssetDisplay(scene).isHistory) {
+      toast("未找到可移入历史的 Scene", "error")
+      return false
+    }
+    const confirmed = await confirmAsync(
+      `确认将“${scene.title || "未命名 Scene"}”移入历史？Scene 正文和追踪信息会保留，可通过“状态 → 历史”查看。`,
+      "确认移入历史",
+    )
+    if (!confirmed) return false
+
+    try {
+      await api.outline.deleteScene(sceneId, state.currentProjectId)
+    } catch (err) {
+      toast(`移入历史失败：${err.message || "未知错误"}`, "error")
+      return false
+    }
+
+    this._selectedFusionSceneIds.delete(sceneId)
+    if (this._selectedSceneId() === sceneId) this._clearEmbeddedSceneHistory()
+    toast("Scene 已移入历史", "success")
+    await this._refreshWorkbenchInPlace()
+    return true
   },
 
   async _handleSceneHealth(sceneId, healthKey) {
@@ -2641,12 +2671,12 @@ const sceneWorkbenchView = {
         handler: async () => this._dismissReplacementSuggestion(suggestion),
       },
       {
-        text: "直接替换",
+        text: "采用新 Scene，旧 Scene 移入历史",
         class: "btn-primary",
         handler: async () => this._applyReplacementSuggestion(suggestion, false),
       },
       {
-        text: "编辑后替换",
+        text: "编辑后采用，旧 Scene 移入历史",
         class: "btn-primary",
         handler: async () => this._applyReplacementSuggestion(suggestion, true),
       },
@@ -2680,9 +2710,13 @@ const sceneWorkbenchView = {
   },
 
   async _applyReplacementSuggestion(suggestion, edited) {
+    const sourceCount = suggestion?.source_scene_ids?.length || 0
+    const draftCount = suggestion?.proposed_scene?.draft_scenes?.length || 0
+    const sourceLabel = sourceCount ? `${sourceCount} 个原 Scene` : "原 Scene"
+    const draftLabel = draftCount ? `${draftCount} 个新 Scene` : "新 Scene"
     const confirmed = await confirmAsync(
-      "采用后，原 Scene 将进入历史；世界对象和剧情结构不会自动重写。",
-      edited ? "确认编辑后替换" : "确认直接替换",
+      `采用 ${draftLabel} 后，${sourceLabel} 将移入历史；正文和追踪信息会保留，世界对象和剧情结构不会自动重写。`,
+      edited ? "确认编辑后采用" : "确认采用并移入历史",
     )
     if (!confirmed) return false
     try {
@@ -2696,8 +2730,8 @@ const sceneWorkbenchView = {
       const refresh = result?.downstream_refresh_required || []
       toast(
         refresh.length
-          ? `Scene 已替换；建议按需重跑：${refresh.join("、")}`
-          : "Scene 已替换",
+          ? `新 Scene 已采用，旧 Scene 已移入历史；建议按需重跑：${refresh.join("、")}`
+          : "新 Scene 已采用，旧 Scene 已移入历史",
         "success",
       )
       await this._refreshWorkbenchInPlace()
@@ -2768,6 +2802,7 @@ const sceneWorkbenchView = {
       "save-scene-detail": (_e, _t, ctx) => ctx.id && this._saveSceneDetails(ctx.id),
       "mark-scene-reviewed": (_e, _t, ctx) => ctx.id && this._markSceneReviewed(ctx.id),
       "mark-scene-unreviewed": (_e, _t, ctx) => ctx.id && this._markSceneUnreviewed(ctx.id),
+      "move-scene-to-history": (_e, _t, ctx) => ctx.id && this._moveSceneToHistory(ctx.id),
       "toggle-fusion-selection": (e, t, ctx) => {
         e.stopPropagation()
         this._toggleFusionSelection(ctx.id, t.checked)

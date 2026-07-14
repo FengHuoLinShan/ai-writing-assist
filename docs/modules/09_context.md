@@ -73,6 +73,7 @@ reader 视角不沿用作者 section 组装：编译器只纳入公开/已揭示
 | `MemoryRecordsLoader` | `memory` 全景查询 |
 | `OutlineArcLoader` / `SceneLoader` / `PlotThreadsLoader` | `outline` 服务与 facade |
 | `RagChunksLoader` | `rag.facade.retrieve()` |
+| `WorldBibleLoader` | `world.facade` 的作者简介与显式选中工作稿 |
 
 loader 的外部调度契约仍由 `SCOPE_LOADERS` 与各 loader `name` 决定；具体依赖统一为构造函数注入 callable。默认 callable 委托上表既有来源，因此 API、schema、bundle shape 和 ContextCompiler 外部行为不变。测试可直接传入 fake callable；`load()` 内不做 facade local import，也不直接访问 DI container。
 
@@ -113,6 +114,8 @@ public baseline 的 CharacterKnowledge 默认排除。
 - `include_pending_objects`：是否允许待处理对象进入本次上下文，默认关闭
 - `excluded_asset_ids`：显式排除的资产
 - `user_note`：用户对本次 AI 操作的补充提醒
+- `include_world_synopsis`：是否加入只供作者的 P1 世界观简介，默认关闭
+- `selected_world_bible_draft_ids`：显式选中的世界书工作稿，放入独立 `working` section
 
 确认弹窗展示的是结构化参考资料清单，不展示 raw Markdown textarea，也不允许用户直接编辑最终 prompt。用户确认的是“本次 AI 调用可参考哪些 section、哪些 section 被裁剪、哪些来源被激活”，不是直接确认一段 prompt 文本。
 
@@ -149,6 +152,7 @@ V1 复用 `excluded_asset_ids`，新增约定：
 - Phase 3 记录结构分析使用的 working context，并设置 `include_pending_objects=true`。
 - 默认只保存摘要、资产 ID、hash 和 token/section metadata；完整 `rendered_context` 需要调用方显式开启，并由保留策略清理。
 - `context_snapshots` 不替代 `context_confirmations`，也不替代 `memory_snapshots`。
+- 生成中心的对象聊天/建议会为实际编译的世界观背景建立快照，保存实际 synopsis revision/source/block hash、section/token metadata 和产物引用。
 
 生产调用使用 `ContextSnapshotRequest` + lifecycle facade：
 

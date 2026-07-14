@@ -111,7 +111,11 @@ const generateView = {
   _lastPovSubmission: null,
   _povLoadWarning: null,
   _qualityMode: "fast",
+  _includeWorldSynopsis: true,
   _lastEntity: null,
+  _lastContextUsage: null,
+  _lastChatContextUsage: null,
+  _lastEntityContextUsage: null,
   _busy: false,
   _abortControllers: null,
 
@@ -127,6 +131,7 @@ const generateView = {
     viewpoint_character_id: undefined,
     chapter_index: undefined,
     scene_id: undefined,
+    include_world_synopsis: true,
   },
   _lastContextBundle: null,
   _lastContextSource: null,
@@ -209,7 +214,7 @@ const generateView = {
     if (this._generateSubTab === "task") {
       return `
         ${projectChip}
-        <button class="btn btn-sm btn-primary" data-action="run-task">执行任务</button>
+        <button class="btn btn-sm btn-primary" data-action="run-task">编译上下文</button>
         <button class="btn btn-sm" data-action="preview-task-context">预览上下文</button>
         <button class="btn btn-sm" data-action="render-task-md">渲染 Markdown</button>
         <button class="btn btn-sm" data-action="apply-to-chat">应用到聊天</button>
@@ -274,6 +279,13 @@ const generateView = {
                 <input id="generate-quality-pro" type="checkbox" ${this._qualityMode === "pro" ? "checked" : ""} />
                 <span>高质量</span>
               </label>
+              <label class="generate-quality-toggle">
+                <input id="generate-include-world-synopsis" type="checkbox" ${this._includeWorldSynopsis ? "checked" : ""} />
+                <span>使用世界观简介</span>
+              </label>
+              <div id="generate-chat-context-usage">
+                ${this._renderChatContextUsageAction()}
+              </div>
               <button class="btn btn-sm" data-action="select-source-chapters">附带正文</button>
             </div>
             <p class="generate-empty-copy">单次最多附带 20 章；长对话只发送最近 40 条消息。</p>
@@ -342,6 +354,7 @@ const generateView = {
           </div>
           ${hasManualRole ? `<div class="generate-pov-note">本次使用手动选择角色，不修改 Scene POV 设置。</div>` : ""}
           ${hasSceneWithoutPov ? `<div class="generate-pov-note">当前 Scene 未设置 POV 角色，请手动选择本次生成角色。</div>` : ""}
+          <div class="generate-pov-note">世界观简介在角色视角模式中强制禁用；本次继续使用逐事实可见性过滤链。</div>
           <label>作者指令
             <textarea class="form-textarea" id="generate-pov-instruction" rows="5" placeholder="作为作者意图输入，不等于角色知识。">${esc(form.instruction || "")}</textarea>
           </label>
@@ -472,9 +485,15 @@ const generateView = {
       "copy-task-md": () => this._copyTaskMarkdown(),
       "export-task-md": () => this._exportTaskMarkdown(),
       "apply-to-chat": () => this._applyTaskToChat(),
-      "view-generation-context": () => this._viewGenerationContext(),
+      "view-generation-context": (_e, target) => this._viewGenerationContext(
+        target.getAttribute("data-context-kind"),
+      ),
     })
     document.getElementById("generate-quality-pro")?.addEventListener("change", () => {
+      this._syncInputs()
+      this._persistState()
+    })
+    document.getElementById("generate-include-world-synopsis")?.addEventListener("change", () => {
       this._syncInputs()
       this._persistState()
     })
@@ -497,6 +516,15 @@ const generateView = {
       const group = document.getElementById("gen-viewpoint-character-group")
       if (group) {
         group.style.display = event.target.value === "character" ? "" : "none"
+      }
+      const synopsis = document.getElementById("gen-include-world-synopsis")
+      const synopsisHint = document.getElementById("gen-world-synopsis-visibility-hint")
+      if (synopsis) {
+        synopsis.disabled = ["reader", "character"].includes(event.target.value)
+        if (synopsis.disabled) synopsis.checked = false
+      }
+      if (synopsisHint) {
+        synopsisHint.hidden = !["reader", "character"].includes(event.target.value)
       }
     })
   },
@@ -804,6 +832,9 @@ const generateView = {
       this._setBusy(true)
       controller = this._trackRequestController()
       const response = await api.generate.objectDraftChat(payload, { signal: controller.signal })
+      this._lastContextUsage = response?.context_usage || null
+      this._lastChatContextUsage = response?.context_usage || null
+      this._renderChatContextUsageAction(true)
       if (response?.reply) {
         pendingMessage.content = response.reply
         pendingMessage.pending = false
@@ -844,6 +875,8 @@ const generateView = {
       controller = this._trackRequestController()
       const response = await api.generate.generateObjectDraft(this._buildPayload(), { signal: controller.signal })
       this._lastEntity = response?.suggestion || response?.entity || null
+      this._lastContextUsage = response?.context_usage || null
+      this._lastEntityContextUsage = response?.context_usage || null
       if (resultEl) {
         resultEl.replaceChildren()
         if (this._lastEntity) {
@@ -981,6 +1014,17 @@ const generateView = {
     }`
   },
 
+  _renderChatContextUsageAction(updateDom = false) {
+    const html = this._lastChatContextUsage
+      ? `<button class="btn btn-sm" data-action="view-generation-context" data-context-kind="chat">查看最近聊天上下文</button>`
+      : ""
+    if (updateDom) {
+      const container = document.getElementById("generate-chat-context-usage")
+      if (container) container.innerHTML = html
+    }
+    return html
+  },
+
   _renderEntityResult(entity) {
     const content = entity.payload_json || entity.entity || entity
     const display = worldAssetDisplay({ ...content, status: entity.status || content.status || "candidate" })
@@ -993,7 +1037,9 @@ const generateView = {
           <button class="btn btn-sm btn-primary" data-action="open-generated-destination" data-target-view="world" data-target-subview="review-objects">前往待处理</button>
           <button class="btn btn-sm" data-action="continue-chat">继续聊</button>
           <button class="btn btn-sm" data-action="generate-another">再生成一个</button>
-          <button class="btn btn-sm" data-action="view-generation-context">查看上下文</button>
+          ${this._lastEntityContextUsage
+            ? `<button class="btn btn-sm" data-action="view-generation-context" data-context-kind="entity">查看本次上下文</button>`
+            : ""}
         </div>
       </div>
     `
@@ -1023,13 +1069,16 @@ const generateView = {
       ["open-generated-destination", "前往待处理", "btn btn-sm btn-primary"],
       ["continue-chat", "继续聊", "btn btn-sm"],
       ["generate-another", "再生成一个", "btn btn-sm"],
-      ["view-generation-context", "查看上下文", "btn btn-sm"],
     ]
+    if (this._lastEntityContextUsage) {
+      buttons.push(["view-generation-context", "查看本次上下文", "btn btn-sm"])
+    }
     for (const [action, label, className] of buttons) {
       const button = document.createElement("button")
       button.type = "button"
       button.className = className
       button.dataset.action = action
+      if (action === "view-generation-context") button.dataset.contextKind = "entity"
       if (action === "open-generated-destination") {
         button.dataset.targetView = "world"
         button.dataset.targetSubview = "review-objects"
@@ -1069,11 +1118,15 @@ const generateView = {
         .slice(0, AI_SELECTED_CHAPTER_LIMIT)
         .map((item) => item.chapter_index),
       quality_mode: this._qualityMode,
+      include_world_synopsis: this._includeWorldSynopsis,
+      selected_world_bible_draft_ids: [],
     }
   },
 
   _syncInputs() {
     this._qualityMode = document.getElementById("generate-quality-pro")?.checked ? "pro" : "fast"
+    const synopsis = document.getElementById("generate-include-world-synopsis")
+    if (synopsis) this._includeWorldSynopsis = Boolean(synopsis.checked)
   },
 
   _captureDraftInputAsMessage() {
@@ -1132,6 +1185,7 @@ const generateView = {
 
   _clearResult() {
     this._lastEntity = null
+    this._lastEntityContextUsage = null
     const resultEl = document.getElementById("generate-result")
     if (resultEl) {
       resultEl.innerHTML = '<p class="generate-empty-copy">可以继续基于当前聊天生成新的世界对象建议。</p>'
@@ -1194,7 +1248,11 @@ const generateView = {
     this._lastPovSubmission = null
     this._povLoadWarning = null
     this._qualityMode = "fast"
+    this._includeWorldSynopsis = true
     this._lastEntity = null
+    this._lastContextUsage = null
+    this._lastChatContextUsage = null
+    this._lastEntityContextUsage = null
     this._generateSubTab = "chat"
     this._taskPreset = "custom"
     this._taskForm = {
@@ -1207,6 +1265,7 @@ const generateView = {
       viewpoint_character_id: undefined,
       chapter_index: undefined,
       scene_id: undefined,
+      include_world_synopsis: true,
     }
     this._lastContextBundle = null
     this._lastContextSource = null
@@ -1224,7 +1283,11 @@ const generateView = {
       povForm: this._povForm,
       lastPovSubmission: this._lastPovSubmission,
       qualityMode: this._qualityMode,
+      includeWorldSynopsis: this._includeWorldSynopsis,
       lastEntity: this._lastEntity,
+      lastContextUsage: this._lastContextUsage,
+      lastChatContextUsage: this._lastChatContextUsage,
+      lastEntityContextUsage: this._lastEntityContextUsage,
       generateSubTab: this._generateSubTab,
       taskPreset: this._taskPreset,
       taskForm: this._taskForm,
@@ -1243,11 +1306,17 @@ const generateView = {
       droppedDerived = Boolean(
         payload.lastPovSubmission
         || payload.lastEntity
+        || payload.lastContextUsage
+        || payload.lastChatContextUsage
+        || payload.lastEntityContextUsage
         || payload.lastContextBundle
         || payload.lastContextSource,
       )
       payload.lastPovSubmission = null
       payload.lastEntity = null
+      payload.lastContextUsage = null
+      payload.lastChatContextUsage = null
+      payload.lastEntityContextUsage = null
       payload.lastContextBundle = null
       payload.lastContextSource = null
       serialized = JSON.stringify(payload)
@@ -1418,7 +1487,12 @@ const generateView = {
         : this._povForm
       this._lastPovSubmission = parsed.lastPovSubmission || null
       this._qualityMode = parsed.qualityMode || "fast"
+      this._includeWorldSynopsis = parsed.includeWorldSynopsis !== false
       this._lastEntity = parsed.lastEntity || null
+      this._lastContextUsage = parsed.lastContextUsage || null
+      this._lastChatContextUsage = parsed.lastChatContextUsage || null
+      this._lastEntityContextUsage = parsed.lastEntityContextUsage
+        || (this._lastEntity ? parsed.lastContextUsage : null)
       this._generateSubTab = ["chat", "task", "preview", "pov_prose"].includes(parsed.generateSubTab)
         ? parsed.generateSubTab
         : this._generateSubTab
@@ -1693,6 +1767,11 @@ const generateView = {
     }
     const viewpointCharacter = document.getElementById("gen-viewpoint-character")
     if (viewpointCharacter) viewpointCharacter.value = this._taskForm.viewpoint_character_id || ""
+    const synopsis = document.getElementById("gen-include-world-synopsis")
+    if (synopsis) {
+      synopsis.disabled = ["reader", "character"].includes(this._taskForm.reveal_mode)
+      synopsis.checked = !synopsis.disabled && Boolean(this._taskForm.include_world_synopsis)
+    }
   },
 
   _readTaskForm() {
@@ -1705,6 +1784,7 @@ const generateView = {
     const sceneInput = document.getElementById("gen-scene")?.value || ""
     const budgetInput = document.getElementById("gen-budget")?.value || ""
     const viewpointCharacterInput = document.getElementById("gen-viewpoint-character")?.value || ""
+    const includeWorldSynopsis = Boolean(document.getElementById("gen-include-world-synopsis")?.checked)
     const entityIds = entitiesInput ? entitiesInput.split(",").map((s) => s.trim()).filter((s) => s) : undefined
     const characterIds = charactersInput ? charactersInput.split(",").map((s) => s.trim()).filter((s) => s) : undefined
     const chapterIndex = chapterInput ? parseInt(chapterInput, 10) : undefined
@@ -1725,6 +1805,7 @@ const generateView = {
       character_ids: finalCharacterIds,
       reveal_mode: reveal,
       viewpoint_character_id: viewpointCharacterId,
+      include_world_synopsis: !["reader", "character"].includes(reveal) && includeWorldSynopsis,
     }
   },
 
@@ -1757,6 +1838,7 @@ const generateView = {
       viewpoint_character_id: params.viewpoint_character_id,
       chapter_index: params.chapter_index,
       scene_id: params.scene_id,
+      include_world_synopsis: params.include_world_synopsis,
     }
     this._lastContextSource = "task"
     this._lastContextRequestParams = params
@@ -1772,7 +1854,7 @@ const generateView = {
       this._persistState()
       await this._refreshView()
     } catch (err) {
-      const message = `编译失败：${esc(err.message || "未知错误")}`
+      const message = `编译失败：${err.message || "未知错误"}`
       if (output) {
         output.replaceChildren(this._renderInlineError(message))
       }
@@ -1852,43 +1934,37 @@ const generateView = {
     this._refreshView()
   },
 
-  async _viewGenerationContext() {
+  async _viewGenerationContext(kind = null) {
     if (!state.currentProjectId) {
       toast("请先选择项目", "warning")
       return
     }
-    const templatePayload = this._selectedTemplatePayload()
-    const params = {
-      novel_id: state.currentProjectId,
-      task: "基于当前聊天和模板生成世界对象建议",
-      scope: "world",
-      template: templatePayload.template,
-      template_name: templatePayload.template_name,
-      messages: this._messages
-        .filter((item) => !item.pending && !item.error && (item.role === "user" || item.role === "assistant"))
-        .map((item) => ({ role: item.role, content: item.content })),
-      selected_chapter_indices: this._selectedChapters.map((item) => item.chapter_index),
-      quality_mode: this._qualityMode,
-      budget_tokens: 4000,
-      reveal_mode: "author_full",
+    const usage = kind === "chat"
+      ? this._lastChatContextUsage
+      : kind === "entity"
+        ? this._lastEntityContextUsage
+        : this._lastContextUsage
+    if (!usage) {
+      toast("本次生成没有返回可审计的上下文记录", "warning")
+      return
     }
-    let controller = null
-    try {
-      this._setBusy(true)
-      controller = this._trackRequestController()
-      const data = await api.context.compile(params, { signal: controller.signal })
-      this._lastContextBundle = data
-      this._lastContextSource = "chat"
-      this._lastContextRequestParams = params
-      this._generateSubTab = "preview"
-      this._persistState()
-      this._refreshView()
-    } catch (err) {
-      toast(`编译失败：${err.message || "未知错误"}`, "error")
-    } finally {
-      this._releaseRequestController(controller)
-      this._setBusy(false)
-    }
+    const body = `
+      <div class="generate-context-header">
+        <span class="generate-context-stat">${esc(usage.section_key || "world_bible_synopsis")}</span>
+        <span class="generate-context-meta">状态：${esc(usage.status || "unknown")}</span>
+        <span class="generate-context-meta">Tokens：${esc(usage.token_count || 0)}</span>
+      </div>
+      <table class="data-table"><tbody>
+        <tr><th>Revision</th><td>${esc(usage.revision_id || "确定性降级/未包含")}</td></tr>
+        <tr><th>Source hash</th><td>${esc(usage.source_hash || "-")}</td></tr>
+        <tr><th>Block hash</th><td>${esc(usage.block_hash || "-")}</td></tr>
+        <tr><th>Context snapshot</th><td>${esc(usage.context_snapshot_id || "-")}</td></tr>
+        <tr><th>Stale</th><td>${usage.stale ? "是" : "否"}</td></tr>
+        <tr><th>Fallback</th><td>${usage.fallback ? "是" : "否"}</td></tr>
+      </tbody></table>
+      ${(usage.warnings || []).map((item) => `<p class="generate-context-warning-text">${esc(item)}</p>`).join("")}
+    `
+    showModalHtml("本次实际使用的上下文", body, [], { size: "large" })
   },
 
   _renderTaskTab() {
@@ -1953,6 +2029,16 @@ const generateView = {
                   `).join("")}
                 </select>
               </div>
+              <label class="generate-quality-toggle">
+                <input id="gen-include-world-synopsis" type="checkbox"
+                  ${form.include_world_synopsis ? "checked" : ""}
+                  ${["reader", "character"].includes(form.reveal_mode) ? "disabled" : ""} />
+                <span>在作者模式中加入世界观简介</span>
+              </label>
+              <p id="gen-world-synopsis-visibility-hint" class="generate-form-hint"
+                ${["reader", "character"].includes(form.reveal_mode) ? "" : "hidden"}>
+                读者/角色模式强制排除作者全知简介。
+              </p>
               <div class="form-group" id="gen-viewpoint-character-group" style="${form.reveal_mode === "character" ? "" : "display:none;"}">
                 <label>视角人物 *</label>
                 <input class="form-input" id="gen-viewpoint-character" value="${esc(form.viewpoint_character_id || "")}" placeholder="角色视角模式必须填写一个 character ID" />
@@ -1969,7 +2055,7 @@ const generateView = {
               </span>
             </div>
             <div id="gen-task-output">
-              ${this._lastContextBundle && this._lastContextSource === "task" ? this._renderCompileResult(this._lastContextBundle) : '<p class="generate-empty-copy">选择任务或填写描述后点击执行任务。</p>'}
+              ${this._lastContextBundle && this._lastContextSource === "task" ? this._renderCompileResult(this._lastContextBundle) : '<p class="generate-empty-copy">选择任务或填写描述后编译、预览上下文；此页签不会启动不存在的业务执行链路。</p>'}
             </div>
           </div>
         </div>
