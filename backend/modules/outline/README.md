@@ -72,6 +72,10 @@ Scene 工作台是 Scene 管理、章节映射和结构整理的主入口，直�
 Scene mutation 的稳定内部接口是 `SceneWorkbenchService`。旧
 `/api/outline/scenes/*` 路由仅作为兼容 adapter，创建、更新、删除、重排和
 legacy split 都应委托 Workbench，以统一章节映射校验、健康摘要和地图影响摘要。
+legacy 重排请求必须把当前项目的全部 active Scene 各提交一次，重复、缺失、历史态或
+跨项目 ID 会在写入前拒绝；legacy split 同样先校验 source / target，缺失、跨项目或
+历史 target 统一按 404 隐藏，同一 source / target 和无效边界按 400 拒绝。成功拆分会
+同时更新 `chapter_ids`、`scene_chunks`、章节关联和 span 派生读模型。
 默认删除语义是把 Scene 标记为 `deprecated`，不硬删除正史结构资产。
 前端 Scene 行菜单将该操作显示为“移入历史”并要求二次确认；正文和
 追踪信息保留，用户可通过 `status=deprecated` 历史筛选查看。
@@ -115,6 +119,8 @@ Scene 结构、正文定位和待处理跨章融合建议；`health.needs_organi
 `high` 三档，分别表示 `<0.5`、`0.5-0.8` 和 `>=0.8`。健康筛选在服务端
 应用，返回的 `total` 与分页都基于筛选后结果；健康统计仍按其他管理筛选后的
 全集计算，不被当前健康桶二次缩窄。健康桶是活跃 Scene 的可操作队列，
+全局统计只读取健康计算所需的轻量投影，完整 Scene ORM 记录仅按当前页加载；
+章节占用同样使用标量投影，避免分页请求把全项目 Scene 全量物化到 session。
 即使同时指定 `status=deprecated` 也不会返回历史 Scene；历史产物仍可通过状态筛选
 单独查看。显式 `selected_scene_id` 不在请求页时，服务端
 把窗口对齐到目标 Scene 所在页，并在响应 `skip` 返回实际窗口起点；目标不属于当前
@@ -231,10 +237,25 @@ RAG 片段或资产摘要作为证据交给 LLM 判断 `merge`、`deprecate_dupl
 应用建议必须由用户确认。Scene 复用 Scene 工作台 merge 逻辑；其他结构资产不会
 硬删除，只标记为 `deprecated`，并在 `provenance_meta` 写入
 `merged_into_asset_id`、`dedup_source="smart_dedup"` 和 `needs_review=true`。
+项目级工作台调用 `apply_structure_dedup_group()` 严格入口：整组先校验资产类型、
+状态和 execution fingerprint，任一操作失败直接向上抛出以便 project savepoint
+回滚；组内存在 `keep_separate` 时，会在其他写入完成后按最终资产状态重新生成
+semantic fingerprints。Scene 融合还要求客户端先调用 Scene 工作台 preview，确认预览后才能进入
+待执行组；实际写入仍委托 `SceneWorkbenchService`。
 
 Analyze/generate/Scene extract、PlotStructureGenerator 和结构去重均通过
 project runtime seam 获取 client；batch/pair 外层复用同一 client，结果仍只进入
 preview/needs_review，不扩大自动 apply 权限。
+异步 `plot_structure_generate`、`outline_analyze`、`outline_generate` 和
+`outline_chapter_scenes_extract` 使用仅 TaskWorker 可调用的 prepare / execute /
+finalize seam：提交时冻结无 secret 的 project LLM execution snapshot（旧任务首次执行时
+补建并先做 lease-fenced checkpoint），prepare 阶段在 project `FOR SHARE` 保护下把确认
+上下文和生成器输入复制为 plain DTO 并记录 source fingerprint，同时恢复冻结 profile
+与 Phase 3 token budget；随后显式 fenced commit 并清空 prepare 阶段的 ORM identity
+map，LLM 等待期间 session 必须没有数据库事务。finalize 重新取得
+project 共享锁、复核 fresh confirmation，并重建必要上下文/生成器 fingerprint；并发修改
+导致漂移时丢弃旧结果，不绑定 preview/result ref。取消或 provider 错误同样不会留下部分
+结果。普通 API/service 入口不拥有该 commit 权限，也不会隐式提交调用方事务。
 深度导入 Phase 3 传入任务提交时冻结的 project settings snapshot，
 `PlotStructureGenerator` 用 project snapshot seam 构造并在 `finally` 关闭 client；
 `high_quality=true` 时使用 `max` reasoning，但仍使用冻结 snapshot 中手动选择的 model，不因 worker 启动后项目默认模型变更而漂移。

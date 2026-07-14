@@ -6,6 +6,7 @@ Writing API 层测试
 
 from __future__ import annotations
 
+import json
 import uuid
 from unittest.mock import AsyncMock, patch
 
@@ -152,9 +153,22 @@ async def test_generate_enqueues_domain_task_after_context_confirmation(
     async_client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
+    api_secret = "sk-writing-generate-secret"
+    query_secret = "writing-query-secret"
+    extra_secret = "writing-extra-secret"
     project_resp = await async_client.post(
         "/api/projects",
-        json={"title": "AI 生成入队项目"},
+        json={
+            "title": "AI 生成入队项目",
+            "settings": {
+                "llm": {
+                    "api_key": api_secret,
+                    "base_url": f"https://llm.test/v1?token={query_secret}",
+                    "model": "frozen-writing-model",
+                    "extra": {"private_token": extra_secret},
+                }
+            },
+        },
     )
     assert project_resp.status_code == 201
     novel_id = project_resp.json()["id"]
@@ -196,6 +210,13 @@ async def test_generate_enqueues_domain_task_after_context_confirmation(
     assert task.meta["novel_id"] == novel_id
     assert task.meta["chapter_index"] == 2
     assert task.meta["context_confirmation_id"] == confirmation_id
+    snapshot = task.meta["llm_execution_snapshot"]
+    assert snapshot["novel_id"] == novel_id
+    assert snapshot["profile"]["model"] == "frozen-writing-model"
+    assert snapshot["profile_hash"]
+    serialized_snapshot = json.dumps(snapshot, ensure_ascii=False)
+    for secret in (api_secret, query_secret, extra_secret):
+        assert secret not in serialized_snapshot
 
     confirmation_result = await db_session.execute(
         select(ContextConfirmation).where(
@@ -247,13 +268,15 @@ async def test_saved_draft_publish_task_indexes_latest_content(
     )
     task = result.scalar_one()
 
-    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.generate_embedding = AsyncMock(
             side_effect=Exception("embedding down"),
         )
         mock_client_cls.return_value = mock_client
 
+        # Direct handler execution emulates TaskWorker's fenced session.
+        db_session.task_checkpoint_enabled = True  # type: ignore[attr-defined]
         publish_result = await handle_publish_chapter(db_session, task)
 
     assert publish_result["rag_chunks"] > 0

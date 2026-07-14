@@ -31,6 +31,7 @@ class TestImportsOutlineIntegration:
         with mock.patch(
             "modules.imports.workflow._container_get",
             return_value=_mock_generate,
+            autospec=True,
         ):
             result = await workflow._analyze_structure(
                 db_session,
@@ -61,6 +62,7 @@ class TestImportsOutlineIntegration:
         with mock.patch(
             "modules.imports.workflow._container_get",
             return_value=_mock_generate_fail,
+            autospec=True,
         ):
             result = await workflow._analyze_structure(
                 db_session,

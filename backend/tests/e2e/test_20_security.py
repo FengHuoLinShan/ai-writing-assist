@@ -182,10 +182,8 @@ class TestInputValidation:
         # Assert
         assert resp.status_code in (201, 422)
 
-    async def test_security_empty_entity_list_for_unknown_novel_returns_zero_items(
-        self, ctx
-    ):
-        """对不存在的 novel_id 查询实体列表应返回空结果"""
+    async def test_security_unknown_novel_is_hidden(self, ctx):
+        """不存在的 novel_id 统一按 active-project gate 返回 404。"""
         # Arrange
         client, pid = ctx
 
@@ -193,6 +191,4 @@ class TestInputValidation:
         resp = await client.get(f"/api/world/entities?novel_id={uuid.uuid4()}")
 
         # Assert
-        assert resp.status_code == 200
-        items = resp.json().get("items", [])
-        assert len(items) == 0
+        assert resp.status_code == 404

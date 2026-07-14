@@ -179,7 +179,7 @@ class TestCRUDFunctions:
         got = await _repo.get(db, uuid.uuid4())
         assert got is None
 
-    @patch("modules.project.repositories.ProjectRepository.get")
+    @patch("modules.project.repositories.ProjectRepository.get", autospec=True)
     async def test_update_returns_project_when_found(
         self,
         mock_get: MagicMock,
@@ -192,11 +192,11 @@ class TestCRUDFunctions:
         assert updated is not None
         assert updated is original
         assert updated.title == "新标题"
-        mock_get.assert_awaited_once_with(db, uid)
+        mock_get.assert_awaited_once_with(_repo, db, uid)
         db.add.assert_called_once_with(original)
         db.flush.assert_awaited_once()
 
-    @patch("modules.project.repositories.ProjectRepository.get")
+    @patch("modules.project.repositories.ProjectRepository.get", autospec=True)
     async def test_update_returns_none_when_missing(
         self,
         mock_get: MagicMock,
@@ -206,7 +206,7 @@ class TestCRUDFunctions:
         result = await _repo.update(db, uuid.uuid4(), ProjectUpdate(title="x"))
         assert result is None
 
-    @patch("modules.project.repositories.ProjectRepository.get")
+    @patch("modules.project.repositories.ProjectRepository.get", autospec=True)
     async def test_update_loaded_project_does_not_fetch_again(
         self,
         mock_get: MagicMock,
@@ -245,13 +245,11 @@ class TestCRUDFunctions:
 class TestProjectService:
     """ProjectService——mock 底层 CRUD 函数"""
 
-    @patch("modules.project.repositories.ProjectRepository.create")
     async def test_create_returns_project_response(
         self,
-        mock_create: MagicMock,
     ) -> None:
         now = datetime.now(UTC)
-        mock_create.return_value = Project(
+        created = Project(
             id=uuid.uuid4(),
             title="测试小说",
             genre="玄幻",
@@ -261,8 +259,8 @@ class TestProjectService:
             created_at=now,
             updated_at=now,
         )
-        repo = MagicMock()
-        repo.create = mock_create
+        repo = MagicMock(spec=ProjectRepository)
+        repo.create = AsyncMock(return_value=created)
         svc = ProjectService(repo=repo)
         resp = await svc.create_project(
             AsyncMock(spec=AsyncSession),
@@ -272,7 +270,7 @@ class TestProjectService:
         assert resp.title == "测试小说"
         assert resp.genre == "玄幻"
 
-    @patch("modules.project.repositories.ProjectRepository.get")
+    @patch("modules.project.repositories.ProjectRepository.get", autospec=True)
     async def test_get_raises_404_when_missing(
         self,
         mock_get: MagicMock,
@@ -286,7 +284,7 @@ class TestProjectService:
             )
         assert exc.value.status_code == 404
 
-    @patch("modules.project.repositories.ProjectRepository.update")
+    @patch("modules.project.repositories.ProjectRepository.update", autospec=True)
     async def test_update_raises_404_when_missing(
         self,
         mock_update: MagicMock,
@@ -337,7 +335,7 @@ class TestProjectService:
         update_data = repo.update.await_args.args[2]
         assert update_data.settings["llm"]["provider_id"] == "deepseek"
 
-    @patch("modules.project.repositories.ProjectRepository.soft_delete")
+    @patch("modules.project.repositories.ProjectRepository.soft_delete", autospec=True)
     async def test_delete_raises_404_when_missing(
         self,
         mock_soft_delete: MagicMock,
@@ -357,7 +355,7 @@ class TestProjectService:
             await svc.get_project(AsyncMock(spec=AsyncSession), "not-a-uuid")
         assert exc.value.status_code == 422
 
-    @patch("modules.project.repositories.ProjectRepository.list")
+    @patch("modules.project.repositories.ProjectRepository.list", autospec=True)
     async def test_list_clamps_limit_to_max(
         self,
         mock_list: MagicMock,
@@ -381,8 +379,10 @@ class TestProjectService:
 class TestGetProjectContextFacade:
     """get_project_context——供其他模块使用的项目上下文"""
 
-    @patch("modules.project.repositories.ProjectRepository.get")
-    @patch("modules.settings.facade.materialize_effective_project_settings")
+    @patch("modules.project.repositories.ProjectRepository.get", autospec=True)
+    @patch(
+        "modules.settings.facade.materialize_effective_project_settings", autospec=True
+    )
     async def test_found_returns_context(
         self,
         mock_materialize_settings: MagicMock,
@@ -405,7 +405,7 @@ class TestGetProjectContextFacade:
         assert ctx.genre == "玄幻"
         assert ctx.settings == {"llm": {"provider_id": "deepseek"}}
 
-    @patch("modules.project.repositories.ProjectRepository.get")
+    @patch("modules.project.repositories.ProjectRepository.get", autospec=True)
     async def test_not_found_returns_none(
         self,
         mock_get: MagicMock,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -67,6 +68,7 @@ def generation_center_frontend_template_options_match(
     contract_id: str,
 ) -> list[ContractIssue]:
     from modules.world.services.worldbuilding.generation_prompt_template_service import (
+        BUILTIN_GENERATION_TEMPLATES,
         SUPPORTED_OBJECT_TEMPLATES,
     )
 
@@ -85,22 +87,66 @@ def generation_center_frontend_template_options_match(
                 path="frontend-console/views/generateView.js",
             )
         ]
+    issues: list[ContractIssue] = []
     frontend_options = set(re.findall(r'"([^"]+)"', match.group(1)))
     backend_options = set(SUPPORTED_OBJECT_TEMPLATES)
-    if frontend_options == backend_options:
-        return []
-    return [
-        ContractIssue(
-            severity="P1",
-            contract_id=contract_id,
-            code="frontend.template_options_drift",
-            message=(
-                "Generation Center frontend template type options differ from "
-                "backend supported object templates."
-            ),
-            path="frontend-console/views/generateView.js",
+    if frontend_options != backend_options:
+        issues.append(
+            ContractIssue(
+                severity="P1",
+                contract_id=contract_id,
+                code="frontend.template_options_drift",
+                message=(
+                    "Generation Center frontend template type options differ from "
+                    "backend supported object templates."
+                ),
+                path="frontend-console/views/generateView.js",
+            )
         )
-    ]
+
+    prompts_match = re.search(
+        r"const BUILTIN_TEMPLATE_PROMPTS = \{(.*?)\n\}",
+        text,
+        re.S,
+    )
+    if not prompts_match:
+        issues.append(
+            ContractIssue(
+                severity="P1",
+                contract_id=contract_id,
+                code="frontend.template_prompts_missing",
+                message="Generation Center frontend fallback prompts were not found.",
+                path="frontend-console/views/generateView.js",
+            )
+        )
+        return issues
+
+    frontend_prompts = {
+        key: json.loads(literal)
+        for key, literal in re.findall(
+            r'^\s*(\w+):\s*("(?:\\.|[^"\\])*")',
+            prompts_match.group(1),
+            re.M,
+        )
+    }
+    backend_prompts = {
+        key: str(template["prompt_text"])
+        for key, template in BUILTIN_GENERATION_TEMPLATES.items()
+    }
+    if frontend_prompts != backend_prompts:
+        issues.append(
+            ContractIssue(
+                severity="P1",
+                contract_id=contract_id,
+                code="frontend.template_prompts_drift",
+                message=(
+                    "Generation Center frontend fallback prompts differ from "
+                    "backend built-in templates."
+                ),
+                path="frontend-console/views/generateView.js",
+            )
+        )
+    return issues
 
 
 def generation_center_docs_commands_present(contract_id: str) -> list[ContractIssue]:

@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import asyncio
 import math
+import threading
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -160,6 +161,7 @@ class TestEmbeddingCacheTTL:
         with patch(
             "infrastructure.embedding.cache.time.monotonic",
             side_effect=[100.0, 105.0, 111.0],
+            autospec=True,
         ):
             cache.set("hello", [0.1, 0.2], is_query=False)
             assert cache.get("hello", is_query=False) == [0.1, 0.2]
@@ -414,14 +416,20 @@ class TestBgeOnnxWorkerInit:
         """GREEN: 默认初始化"""
         from infrastructure.embedding.worker import BgeOnnxWorker
 
-        worker = BgeOnnxWorker(model_path="test-model")
+        with patch(
+            "infrastructure.embedding.worker.mp.Queue", autospec=True
+        ) as queue_factory:
+            worker = BgeOnnxWorker(model_path="test-model")
 
+        queue_factory.assert_not_called()
         assert worker._model_path == "test-model"
         assert worker._device == "cpu"
         assert worker._quantization == "int8"
         assert worker._max_batch == 64
         assert worker._timeout == 5.0
         assert worker._queue_maxsize == 200
+        assert worker._task_queue is None
+        assert worker._result_queue is None
         assert worker._healthy is False
         assert worker._request_counter == 0
 
@@ -451,6 +459,22 @@ class TestBgeOnnxWorkerInit:
 
         assert worker._queue_maxsize == 1
 
+    def test_real_multiprocessing_queues_release_under_active_platform_context(
+        self,
+    ) -> None:
+        from infrastructure.embedding.worker import BgeOnnxWorker
+
+        worker = BgeOnnxWorker(model_path="test")
+        worker._open_queues()
+
+        assert worker._task_queue is not None
+        assert worker._result_queue is not None
+
+        worker.stop()
+
+        assert worker._task_queue is None
+        assert worker._result_queue is None
+
     def test_healthy_when_no_process(self) -> None:
         """GREEN: 无进程时 healthy 返回 False"""
         from infrastructure.embedding.worker import BgeOnnxWorker
@@ -478,6 +502,8 @@ class TestBgeOnnxWorkerInit:
         process_mock = MagicMock()
         process_mock.is_alive.return_value = True
         worker._process = process_mock
+        worker._task_queue = MagicMock()
+        worker._result_queue = MagicMock()
         worker._healthy = True
 
         assert worker.healthy is True
@@ -495,11 +521,68 @@ class TestBgeOnnxWorkerStart:
         worker = BgeOnnxWorker(model_path="test")
         worker._process = MagicMock()
         worker._process.is_alive.return_value = True
+        worker._task_queue = MagicMock()
+        worker._result_queue = MagicMock()
         worker._healthy = True
 
         original_process = worker._process
-        worker.start()  # 应直接返回，不替换 _process
+        with (
+            patch(
+                "infrastructure.embedding.worker.mp.Queue", autospec=True
+            ) as queue_factory,
+            patch(
+                "infrastructure.embedding.worker.mp.Process", autospec=True
+            ) as process_factory,
+        ):
+            worker.start()  # 应直接返回，不替换 _process
+
+        queue_factory.assert_not_called()
+        process_factory.assert_not_called()
         assert worker._process is original_process
+
+    def test_start_creates_independent_queues_lazily(self) -> None:
+        from infrastructure.embedding.worker import BgeOnnxWorker, _worker_loop
+
+        worker = BgeOnnxWorker(model_path="test")
+        task_queue = MagicMock()
+        result_queue = MagicMock()
+        result_queue.get.return_value = ("__ready__", "onnx")
+        process_mock = MagicMock()
+        process_mock.pid = 123
+        process_mock.is_alive.return_value = False
+
+        with (
+            patch(
+                "infrastructure.embedding.worker.mp.Queue",
+                side_effect=[task_queue, result_queue],
+                autospec=True,
+            ) as queue_factory,
+            patch(
+                "infrastructure.embedding.worker.mp.Process",
+                return_value=process_mock,
+                autospec=True,
+            ) as process_factory,
+        ):
+            worker.start()
+
+        assert queue_factory.call_args_list == [call(maxsize=200), call()]
+        process_factory.assert_called_once_with(
+            target=_worker_loop,
+            args=("test", "cpu", "int8", 64, task_queue, result_queue),
+            daemon=True,
+            name="bge-worker",
+        )
+        process_mock.start.assert_called_once_with()
+        result_queue.get.assert_called_once_with(timeout=60.0)
+        assert worker._task_queue is task_queue
+        assert worker._result_queue is result_queue
+        assert worker._healthy is True
+
+        worker.stop()
+        task_queue.close.assert_called_once_with()
+        task_queue.join_thread.assert_called_once_with()
+        result_queue.close.assert_called_once_with()
+        result_queue.join_thread.assert_called_once_with()
 
     def test_start_worker_init_failure_raises(self) -> None:
         """RED: worker 初始化失败时抛出 RuntimeError"""
@@ -508,21 +591,38 @@ class TestBgeOnnxWorkerStart:
         from infrastructure.embedding.worker import BgeOnnxWorker
 
         worker = BgeOnnxWorker(model_path="test")
-        worker._result_queue = MagicMock()
-        worker._result_queue.get.return_value = (
+        task_queue = MagicMock()
+        result_queue = MagicMock()
+        result_queue.get.return_value = (
             "__error__",
             RuntimeError("model not found"),
         )
 
         process_mock = MagicMock()
-        with patch(
-            "infrastructure.embedding.worker.mp.Process",
-            return_value=process_mock,
+        process_mock.is_alive.return_value = False
+        with (
+            patch(
+                "infrastructure.embedding.worker.mp.Queue",
+                side_effect=[task_queue, result_queue],
+                autospec=True,
+            ),
+            patch(
+                "infrastructure.embedding.worker.mp.Process",
+                return_value=process_mock,
+                autospec=True,
+            ),
         ):
             with pytest.raises(RuntimeError, match="failed to initialize"):
                 worker.start()
 
         assert worker._healthy is False
+        assert worker._process is None
+        assert worker._task_queue is None
+        assert worker._result_queue is None
+        task_queue.close.assert_called_once_with()
+        task_queue.join_thread.assert_called_once_with()
+        result_queue.close.assert_called_once_with()
+        result_queue.join_thread.assert_called_once_with()
 
     def test_start_worker_unexpected_message_raises(self) -> None:
         """RED: worker 返回意外消息时抛出 RuntimeError"""
@@ -531,18 +631,32 @@ class TestBgeOnnxWorkerStart:
         from infrastructure.embedding.worker import BgeOnnxWorker
 
         worker = BgeOnnxWorker(model_path="test")
-        worker._result_queue = MagicMock()
-        worker._result_queue.get.return_value = ("weird_msg", None)
+        task_queue = MagicMock()
+        result_queue = MagicMock()
+        result_queue.get.return_value = ("weird_msg", None)
 
         process_mock = MagicMock()
-        with patch(
-            "infrastructure.embedding.worker.mp.Process",
-            return_value=process_mock,
+        process_mock.is_alive.return_value = False
+        with (
+            patch(
+                "infrastructure.embedding.worker.mp.Queue",
+                side_effect=[task_queue, result_queue],
+                autospec=True,
+            ),
+            patch(
+                "infrastructure.embedding.worker.mp.Process",
+                return_value=process_mock,
+                autospec=True,
+            ),
         ):
             with pytest.raises(RuntimeError, match="unexpected init message"):
                 worker.start()
 
         assert worker._healthy is False
+        assert worker._task_queue is None
+        assert worker._result_queue is None
+        task_queue.close.assert_called_once_with()
+        result_queue.close.assert_called_once_with()
 
     def test_start_worker_timeout_raises(self) -> None:
         """RED: worker 启动超时时抛出 RuntimeError"""
@@ -551,18 +665,92 @@ class TestBgeOnnxWorkerStart:
         from infrastructure.embedding.worker import BgeOnnxWorker
 
         worker = BgeOnnxWorker(model_path="test")
-        worker._result_queue = MagicMock()
-        worker._result_queue.get.side_effect = Exception("timeout")
+        task_queue = MagicMock()
+        result_queue = MagicMock()
+        result_queue.get.side_effect = TimeoutError("timeout")
 
         process_mock = MagicMock()
-        with patch(
-            "infrastructure.embedding.worker.mp.Process",
-            return_value=process_mock,
+        process_mock.is_alive.return_value = False
+        with (
+            patch(
+                "infrastructure.embedding.worker.mp.Queue",
+                side_effect=[task_queue, result_queue],
+                autospec=True,
+            ),
+            patch(
+                "infrastructure.embedding.worker.mp.Process",
+                return_value=process_mock,
+                autospec=True,
+            ),
         ):
             with pytest.raises(RuntimeError, match="failed to start"):
                 worker.start()
 
         assert worker._healthy is False
+        assert worker._task_queue is None
+        assert worker._result_queue is None
+        task_queue.close.assert_called_once_with()
+        result_queue.close.assert_called_once_with()
+
+    def test_start_process_failure_releases_queues(self) -> None:
+        from infrastructure.embedding.worker import BgeOnnxWorker
+
+        worker = BgeOnnxWorker(model_path="test")
+        task_queue = MagicMock()
+        result_queue = MagicMock()
+        process_mock = MagicMock()
+        process_mock.start.side_effect = OSError("spawn failed")
+        process_mock.is_alive.return_value = False
+
+        with (
+            patch(
+                "infrastructure.embedding.worker.mp.Queue",
+                side_effect=[task_queue, result_queue],
+                autospec=True,
+            ),
+            patch(
+                "infrastructure.embedding.worker.mp.Process",
+                return_value=process_mock,
+                autospec=True,
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="failed to start"):
+                worker.start()
+
+        assert worker._process is None
+        assert worker._task_queue is None
+        assert worker._result_queue is None
+        task_queue.close.assert_called_once_with()
+        task_queue.join_thread.assert_called_once_with()
+        result_queue.close.assert_called_once_with()
+        result_queue.join_thread.assert_called_once_with()
+
+    def test_start_refuses_when_previous_process_survives_termination(self) -> None:
+        from infrastructure.embedding.worker import BgeOnnxWorker
+
+        worker = BgeOnnxWorker(model_path="test")
+        process_mock = MagicMock()
+        process_mock.is_alive.return_value = True
+        worker._process = process_mock
+
+        with (
+            patch(
+                "infrastructure.embedding.worker.mp.Queue", autospec=True
+            ) as queue_factory,
+            patch(
+                "infrastructure.embedding.worker.mp.Process", autospec=True
+            ) as process_factory,
+        ):
+            with pytest.raises(RuntimeError, match="previous process is alive"):
+                worker.start()
+
+        queue_factory.assert_not_called()
+        process_factory.assert_not_called()
+        process_mock.terminate.assert_called_once_with()
+        process_mock.close.assert_not_called()
+        assert worker._process is process_mock
+        assert worker._task_queue is None
+        assert worker._result_queue is None
 
 
 class TestBgeOnnxWorkerEncode:
@@ -746,6 +934,78 @@ class TestBgeOnnxWorkerHealthcheck:
 
         assert worker.healthcheck() is False
 
+    def test_healthcheck_waits_for_concurrent_encode_exchange(self) -> None:
+        from infrastructure.embedding.worker import BgeOnnxWorker
+
+        first_waiting = threading.Event()
+        release_first = threading.Event()
+        health_started = threading.Event()
+
+        class _Process:
+            @staticmethod
+            def is_alive() -> bool:
+                return True
+
+        class _TaskQueue:
+            def __init__(self) -> None:
+                self.items: list[object] = []
+
+            def put(self, item, *, timeout: float) -> None:
+                _ = timeout
+                self.items.append(item)
+
+        class _ResultQueue:
+            def __init__(self, task_queue: _TaskQueue) -> None:
+                self.task_queue = task_queue
+                self.index = 0
+
+            def get(self, *, timeout: float):
+                _ = timeout
+                if self.index == 0:
+                    first_waiting.set()
+                    assert release_first.wait(timeout=1.0)
+                item = self.task_queue.items[self.index]
+                self.index += 1
+                if isinstance(item, tuple) and len(item) == 3:
+                    return item[2], [[1.0]]
+                return item[1], "ok"
+
+        worker = BgeOnnxWorker(model_path="test")
+        task_queue = _TaskQueue()
+        worker._process = _Process()  # type: ignore[assignment]
+        worker._task_queue = task_queue  # type: ignore[assignment]
+        worker._result_queue = _ResultQueue(task_queue)  # type: ignore[assignment]
+        encode_result: list[list[list[float]]] = []
+        health_result: list[bool] = []
+
+        encode_thread = threading.Thread(
+            target=lambda: encode_result.append(worker.encode(["text"]))
+        )
+
+        def _healthcheck() -> None:
+            health_started.set()
+            health_result.append(worker.healthcheck())
+
+        health_thread = threading.Thread(target=_healthcheck)
+        encode_thread.start()
+        assert first_waiting.wait(timeout=1.0)
+        health_thread.start()
+        assert health_started.wait(timeout=1.0)
+        assert len(task_queue.items) == 1
+
+        release_first.set()
+        encode_thread.join(timeout=1.0)
+        health_thread.join(timeout=1.0)
+
+        assert not encode_thread.is_alive()
+        assert not health_thread.is_alive()
+        assert encode_result == [[[1.0]]]
+        assert health_result == [True]
+        assert task_queue.items == [
+            (["text"], False, "emb-1"),
+            ("__HEALTHCHECK__", "health-2"),
+        ]
+
 
 class TestBgeOnnxWorkerStop:
     """BgeOnnxWorker.stop 单元测试"""
@@ -755,41 +1015,225 @@ class TestBgeOnnxWorkerStop:
         from infrastructure.embedding.worker import BgeOnnxWorker
 
         process_mock = MagicMock()
-        process_mock.is_alive.return_value = True
+        process_mock.is_alive.side_effect = [True, False]
+        task_queue = MagicMock()
+        result_queue = MagicMock()
 
         worker = BgeOnnxWorker(model_path="test")
-        worker._task_queue = MagicMock()
+        worker._task_queue = task_queue
+        worker._result_queue = result_queue
         worker._process = process_mock
 
         worker.stop(timeout=2.0)
 
-        worker._task_queue.put.assert_called_once()
+        task_queue.put.assert_called_once()
         # verify shutdown signal sent
-        assert worker._task_queue.put.call_args[0][0] == "__SHUTDOWN__"
-        process_mock.join.assert_called()
+        assert task_queue.put.call_args[0][0] == "__SHUTDOWN__"
+        process_mock.join.assert_called_once_with(timeout=2.0)
+        task_queue.close.assert_called_once_with()
+        task_queue.join_thread.assert_called_once_with()
+        result_queue.close.assert_called_once_with()
+        result_queue.join_thread.assert_called_once_with()
+        process_mock.close.assert_called_once_with()
+        assert worker._process is None
+        assert worker._task_queue is None
+        assert worker._result_queue is None
         assert worker._healthy is False
 
-    def test_stop_no_process(self) -> None:
-        """GREEN: 无进程时 stop 不报错"""
+    def test_repeated_stop_is_safe(self) -> None:
+        """GREEN: 无进程或重复 stop 不报错也不重复释放"""
         from infrastructure.embedding.worker import BgeOnnxWorker
 
         worker = BgeOnnxWorker(model_path="test")
-        worker.stop()  # should not raise
+        task_queue = MagicMock()
+        result_queue = MagicMock()
+        worker._task_queue = task_queue
+        worker._result_queue = result_queue
+
+        worker.stop()
+        worker.stop()
+
+        task_queue.close.assert_called_once_with()
+        task_queue.join_thread.assert_called_once_with()
+        result_queue.close.assert_called_once_with()
+        result_queue.join_thread.assert_called_once_with()
 
     def test_stop_terminates_if_not_joined(self) -> None:
         """GREEN: join 超时时 terminate 进程"""
         from infrastructure.embedding.worker import BgeOnnxWorker
 
         process_mock = MagicMock()
-        process_mock.is_alive.side_effect = [True, True, False]  # alive after join
+        process_mock.is_alive.side_effect = [
+            True,
+            True,
+            False,
+        ]  # alive after graceful join
+        task_queue = MagicMock()
+        result_queue = MagicMock()
 
         worker = BgeOnnxWorker(model_path="test")
-        worker._task_queue = MagicMock()
+        worker._task_queue = task_queue
+        worker._result_queue = result_queue
         worker._process = process_mock
 
         worker.stop(timeout=1.0)
 
         process_mock.terminate.assert_called_once()
+        assert process_mock.join.call_args_list == [
+            call(timeout=1.0),
+            call(timeout=1.0),
+        ]
+        task_queue.close.assert_called_once_with()
+        task_queue.join_thread.assert_called_once_with()
+        result_queue.close.assert_called_once_with()
+        result_queue.join_thread.assert_called_once_with()
+
+    def test_stop_waits_for_active_encode_before_releasing_queues(self) -> None:
+        from infrastructure.embedding.worker import BgeOnnxWorker
+
+        encode_waiting = threading.Event()
+        release_encode = threading.Event()
+        stop_started = threading.Event()
+        shutdown_sent = threading.Event()
+        queue_closed = threading.Event()
+
+        class _Process:
+            def __init__(self) -> None:
+                self.alive = True
+
+            def is_alive(self) -> bool:
+                return self.alive
+
+            def join(self, *, timeout: float) -> None:
+                _ = timeout
+                self.alive = False
+
+            def terminate(self) -> None:
+                self.alive = False
+
+            @staticmethod
+            def close() -> None:
+                return None
+
+        class _TaskQueue:
+            def put(self, item, *, timeout: float) -> None:
+                _ = timeout
+                if item == "__SHUTDOWN__":
+                    shutdown_sent.set()
+
+            @staticmethod
+            def close() -> None:
+                queue_closed.set()
+
+            @staticmethod
+            def join_thread() -> None:
+                return None
+
+        class _ResultQueue:
+            @staticmethod
+            def get(*, timeout: float):
+                _ = timeout
+                encode_waiting.set()
+                assert release_encode.wait(timeout=1.0)
+                return "emb-1", [[1.0]]
+
+            @staticmethod
+            def close() -> None:
+                return None
+
+            @staticmethod
+            def join_thread() -> None:
+                return None
+
+        worker = BgeOnnxWorker(model_path="test")
+        worker._process = _Process()  # type: ignore[assignment]
+        worker._task_queue = _TaskQueue()  # type: ignore[assignment]
+        worker._result_queue = _ResultQueue()  # type: ignore[assignment]
+        encode_result: list[list[list[float]]] = []
+
+        encode_thread = threading.Thread(
+            target=lambda: encode_result.append(worker.encode(["text"]))
+        )
+
+        def _stop() -> None:
+            stop_started.set()
+            worker.stop()
+
+        stop_thread = threading.Thread(target=_stop)
+        encode_thread.start()
+        assert encode_waiting.wait(timeout=1.0)
+        stop_thread.start()
+        assert stop_started.wait(timeout=1.0)
+        assert not shutdown_sent.wait(timeout=0.05)
+        assert not queue_closed.is_set()
+
+        release_encode.set()
+        encode_thread.join(timeout=1.0)
+        stop_thread.join(timeout=1.0)
+
+        assert not encode_thread.is_alive()
+        assert not stop_thread.is_alive()
+        assert encode_result == [[[1.0]]]
+        assert shutdown_sent.is_set()
+        assert queue_closed.is_set()
+        assert worker._process is None
+
+    def test_stop_then_start_rebuilds_fresh_queues(self) -> None:
+        from infrastructure.embedding.worker import BgeOnnxWorker
+
+        worker = BgeOnnxWorker(model_path="test")
+        first_task_queue = MagicMock()
+        first_result_queue = MagicMock()
+        first_result_queue.get.return_value = ("__ready__", "onnx")
+        second_task_queue = MagicMock()
+        second_result_queue = MagicMock()
+        second_result_queue.get.return_value = ("__ready__", "onnx")
+        first_process = MagicMock()
+        first_process.pid = 1
+        first_process.is_alive.side_effect = [True, False]
+        second_process = MagicMock()
+        second_process.pid = 2
+        second_process.is_alive.side_effect = [True, False]
+
+        with (
+            patch(
+                "infrastructure.embedding.worker.mp.Queue",
+                side_effect=[
+                    first_task_queue,
+                    first_result_queue,
+                    second_task_queue,
+                    second_result_queue,
+                ],
+                autospec=True,
+            ) as queue_factory,
+            patch(
+                "infrastructure.embedding.worker.mp.Process",
+                side_effect=[first_process, second_process],
+                autospec=True,
+            ) as process_factory,
+        ):
+            worker.start()
+            worker.stop()
+            worker.start()
+
+            assert worker._task_queue is second_task_queue
+            assert worker._result_queue is second_result_queue
+            assert worker._process is second_process
+            assert worker._healthy is True
+
+            worker.stop()
+
+        assert queue_factory.call_args_list == [
+            call(maxsize=200),
+            call(),
+            call(maxsize=200),
+            call(),
+        ]
+        assert process_factory.call_count == 2
+        first_task_queue.close.assert_called_once_with()
+        first_result_queue.close.assert_called_once_with()
+        second_task_queue.close.assert_called_once_with()
+        second_result_queue.close.assert_called_once_with()
 
 
 # ============================================================
@@ -810,9 +1254,9 @@ class TestBgeEmbeddingClientSingleton:
         BgeEmbeddingClient._instance = None
 
         with (
-            patch("infrastructure.embedding.client.get_settings"),
-            patch("infrastructure.embedding.client.BgeOnnxWorker"),
-            patch.object(BgeEmbeddingClient, "start", return_value=None),
+            patch("infrastructure.embedding.client.get_settings", autospec=True),
+            patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
+            patch.object(BgeEmbeddingClient, "start", return_value=None, autospec=True),
         ):
             instance1 = await BgeEmbeddingClient.get_instance()
             instance2 = await BgeEmbeddingClient.get_instance()
@@ -829,8 +1273,8 @@ class TestBgeEmbeddingClientSingleton:
         start_mock = AsyncMock()
 
         with (
-            patch("infrastructure.embedding.client.get_settings"),
-            patch("infrastructure.embedding.client.BgeOnnxWorker"),
+            patch("infrastructure.embedding.client.get_settings", autospec=True),
+            patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             instance = BgeEmbeddingClient()
             instance._started = False
@@ -863,8 +1307,14 @@ class TestBgeEmbeddingClientStartClose:
         )
 
         with (
-            patch("infrastructure.embedding.client.get_settings", return_value=settings),
-            patch("infrastructure.embedding.client.BgeOnnxWorker") as worker_cls,
+            patch(
+                "infrastructure.embedding.client.get_settings",
+                return_value=settings,
+                autospec=True,
+            ),
+            patch(
+                "infrastructure.embedding.client.BgeOnnxWorker", autospec=True
+            ) as worker_cls,
         ):
             BgeEmbeddingClient()
 
@@ -883,8 +1333,8 @@ class TestBgeEmbeddingClientStartClose:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings"),
-            patch("infrastructure.embedding.client.BgeOnnxWorker"),
+            patch("infrastructure.embedding.client.get_settings", autospec=True),
+            patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
             client._started = True
@@ -901,8 +1351,8 @@ class TestBgeEmbeddingClientStartClose:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings"),
-            patch("infrastructure.embedding.client.BgeOnnxWorker"),
+            patch("infrastructure.embedding.client.get_settings", autospec=True),
+            patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
             client._started = False
@@ -919,8 +1369,8 @@ class TestBgeEmbeddingClientStartClose:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings"),
-            patch("infrastructure.embedding.client.BgeOnnxWorker"),
+            patch("infrastructure.embedding.client.get_settings", autospec=True),
+            patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
             client._started = True
@@ -939,8 +1389,8 @@ class TestBgeEmbeddingClientStartClose:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings"),
-            patch("infrastructure.embedding.client.BgeOnnxWorker"),
+            patch("infrastructure.embedding.client.get_settings", autospec=True),
+            patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
             client._started = False
@@ -960,8 +1410,8 @@ class TestBgeEmbeddingClientProperties:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings"),
-            patch("infrastructure.embedding.client.BgeOnnxWorker"),
+            patch("infrastructure.embedding.client.get_settings", autospec=True),
+            patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
             client._worker = MagicMock()
@@ -975,8 +1425,8 @@ class TestBgeEmbeddingClientProperties:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings"),
-            patch("infrastructure.embedding.client.BgeOnnxWorker"),
+            patch("infrastructure.embedding.client.get_settings", autospec=True),
+            patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
             client._started = False
@@ -988,8 +1438,8 @@ class TestBgeEmbeddingClientProperties:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings"),
-            patch("infrastructure.embedding.client.BgeOnnxWorker"),
+            patch("infrastructure.embedding.client.get_settings", autospec=True),
+            patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
             client._cache = MagicMock()
@@ -1007,8 +1457,8 @@ class TestBgeEmbeddingClientGenerateEmbedding:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings"),
-            patch("infrastructure.embedding.client.BgeOnnxWorker"),
+            patch("infrastructure.embedding.client.get_settings", autospec=True),
+            patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
             client._cache = MagicMock()
@@ -1028,8 +1478,8 @@ class TestBgeEmbeddingClientGenerateEmbedding:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings"),
-            patch("infrastructure.embedding.client.BgeOnnxWorker"),
+            patch("infrastructure.embedding.client.get_settings", autospec=True),
+            patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
             client._cache = MagicMock()
@@ -1049,8 +1499,8 @@ class TestBgeEmbeddingClientGenerateEmbedding:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings"),
-            patch("infrastructure.embedding.client.BgeOnnxWorker"),
+            patch("infrastructure.embedding.client.get_settings", autospec=True),
+            patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
             client._cache = MagicMock()
@@ -1072,8 +1522,8 @@ class TestBgeEmbeddingClientGenerateEmbedding:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings"),
-            patch("infrastructure.embedding.client.BgeOnnxWorker"),
+            patch("infrastructure.embedding.client.get_settings", autospec=True),
+            patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
             client._cache = MagicMock()
@@ -1091,8 +1541,8 @@ class TestBgeEmbeddingClientGenerateEmbedding:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings"),
-            patch("infrastructure.embedding.client.BgeOnnxWorker"),
+            patch("infrastructure.embedding.client.get_settings", autospec=True),
+            patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
             client._cache = MagicMock()
@@ -1128,8 +1578,8 @@ class TestBgeEmbeddingClientGenerateEmbedding:
                 active_calls -= 1
 
         with (
-            patch("infrastructure.embedding.client.get_settings"),
-            patch("infrastructure.embedding.client.BgeOnnxWorker"),
+            patch("infrastructure.embedding.client.get_settings", autospec=True),
+            patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
             client._cache = MagicMock()
@@ -1152,8 +1602,8 @@ class TestBgeEmbeddingClientGenerateEmbedding:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings"),
-            patch("infrastructure.embedding.client.BgeOnnxWorker"),
+            patch("infrastructure.embedding.client.get_settings", autospec=True),
+            patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
             client._cache = MagicMock()
@@ -1170,8 +1620,8 @@ class TestBgeEmbeddingClientGenerateEmbedding:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings"),
-            patch("infrastructure.embedding.client.BgeOnnxWorker"),
+            patch("infrastructure.embedding.client.get_settings", autospec=True),
+            patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
             client._cache = MagicMock()
@@ -1189,8 +1639,8 @@ class TestBgeEmbeddingClientGenerateEmbedding:
         from infrastructure.embedding.client import BgeEmbeddingClient
 
         with (
-            patch("infrastructure.embedding.client.get_settings"),
-            patch("infrastructure.embedding.client.BgeOnnxWorker"),
+            patch("infrastructure.embedding.client.get_settings", autospec=True),
+            patch("infrastructure.embedding.client.BgeOnnxWorker", autospec=True),
         ):
             client = BgeEmbeddingClient()
             client._cache = MagicMock()

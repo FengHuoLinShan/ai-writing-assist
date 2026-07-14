@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, ClassVar
 
 from sqlalchemy import and_, case, delete, func, or_, select, update
@@ -24,6 +26,37 @@ from modules.outline.schemas import (
     SceneUpdate,
 )
 from shared.constants import DEFAULT_PAGE_SIZE
+
+
+@dataclass(frozen=True, slots=True)
+class SceneWorkbenchHealthProjection:
+    """Lightweight Scene fields needed for global workbench health summaries."""
+
+    id: uuid.UUID
+    source: str
+    status: str
+    structure_meta: dict[str, Any]
+    chapter_ids: list[Any]
+    scene_chunks: list[dict[str, Any]]
+    missing_setup: bool
+
+
+@dataclass(frozen=True, slots=True)
+class SceneSuggestionSourceProjection:
+    """Scene fields needed to validate durable fusion-suggestion fingerprints."""
+
+    id: uuid.UUID
+    status: str
+    title: str | None
+    goal: str | None
+    core_conflict: str | None
+    emotional_beat: str | None
+    must_happen: str | None
+    must_not_happen: str | None
+    narrative_tag: str
+    chapter_ids: list[Any]
+    scene_chunks: list[Any]
+    updated_at: datetime | None
 
 
 def apply_structure_asset_filters(
@@ -985,6 +1018,52 @@ class SceneRepository:
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_suggestion_source_projections(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        scene_ids: list[uuid.UUID],
+    ) -> list[SceneSuggestionSourceProjection]:
+        """Load fingerprint inputs without hydrating off-page Scene ORM rows."""
+        if not scene_ids:
+            return []
+        result = await db.execute(
+            select(
+                Scene.id,
+                Scene.status,
+                Scene.title,
+                Scene.goal,
+                Scene.core_conflict,
+                Scene.emotional_beat,
+                Scene.must_happen,
+                Scene.must_not_happen,
+                Scene.narrative_tag,
+                Scene.chapter_ids,
+                Scene.scene_chunks,
+                Scene.updated_at,
+            ).where(
+                Scene.novel_id == novel_id,
+                Scene.id.in_(scene_ids),
+            )
+        )
+        return [
+            SceneSuggestionSourceProjection(
+                id=row.id,
+                status=row.status,
+                title=row.title,
+                goal=row.goal,
+                core_conflict=row.core_conflict,
+                emotional_beat=row.emotional_beat,
+                must_happen=row.must_happen,
+                must_not_happen=row.must_not_happen,
+                narrative_tag=row.narrative_tag,
+                chapter_ids=row.chapter_ids or [],
+                scene_chunks=row.scene_chunks or [],
+                updated_at=row.updated_at,
+            )
+            for row in result
+        ]
+
     async def get_by_novel(
         self,
         db: AsyncSession,
@@ -1007,9 +1086,8 @@ class SceneRepository:
         items: Sequence[Scene] = result.scalars().all()
         return list(items), total
 
-    async def get_by_novel_ordered(
+    def _scene_ordered_conditions(
         self,
-        db: AsyncSession,
         novel_id: uuid.UUID,
         *,
         status: str | None = None,
@@ -1023,9 +1101,7 @@ class SceneRepository:
         chapter_from: int | None = None,
         chapter_to: int | None = None,
         confidence_band: str | None = None,
-        skip: int = 0,
-        limit: int | None = None,
-    ) -> list[Scene]:
+    ) -> list[Any]:
         conditions = [Scene.novel_id == novel_id]
         if status:
             conditions.append(Scene.status == status)
@@ -1083,6 +1159,41 @@ class SceneRepository:
             conditions.append(
                 select(SceneChapterLink.id).where(*chapter_conditions).exists()
             )
+        return conditions
+
+    async def get_by_novel_ordered(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        status: str | None = None,
+        source: str | None = None,
+        workflow_id: str | None = None,
+        needs_review: bool | None = None,
+        boundary_status: str | None = None,
+        phase: str | None = None,
+        phase1a_fallback: bool | None = None,
+        q: str | None = None,
+        chapter_from: int | None = None,
+        chapter_to: int | None = None,
+        confidence_band: str | None = None,
+        skip: int = 0,
+        limit: int | None = None,
+    ) -> list[Scene]:
+        conditions = self._scene_ordered_conditions(
+            novel_id,
+            status=status,
+            source=source,
+            workflow_id=workflow_id,
+            needs_review=needs_review,
+            boundary_status=boundary_status,
+            phase=phase,
+            phase1a_fallback=phase1a_fallback,
+            q=q,
+            chapter_from=chapter_from,
+            chapter_to=chapter_to,
+            confidence_band=confidence_band,
+        )
         stmt = (
             select(Scene)
             .where(*conditions)
@@ -1094,6 +1205,93 @@ class SceneRepository:
         result = await db.execute(stmt)
         items: Sequence[Scene] = result.scalars().all()
         return list(items)
+
+    async def get_workbench_health_projections(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        status: str | None = None,
+        source: str | None = None,
+        workflow_id: str | None = None,
+        needs_review: bool | None = None,
+        boundary_status: str | None = None,
+        phase: str | None = None,
+        phase1a_fallback: bool | None = None,
+        q: str | None = None,
+        chapter_from: int | None = None,
+        chapter_to: int | None = None,
+        confidence_band: str | None = None,
+    ) -> list[SceneWorkbenchHealthProjection]:
+        """Load only fields required to calculate global workbench summaries."""
+        conditions = self._scene_ordered_conditions(
+            novel_id,
+            status=status,
+            source=source,
+            workflow_id=workflow_id,
+            needs_review=needs_review,
+            boundary_status=boundary_status,
+            phase=phase,
+            phase1a_fallback=phase1a_fallback,
+            q=q,
+            chapter_from=chapter_from,
+            chapter_to=chapter_to,
+            confidence_band=confidence_band,
+        )
+        missing_setup = or_(
+            Scene.goal.is_(None),
+            Scene.goal == "",
+            Scene.core_conflict.is_(None),
+            Scene.core_conflict == "",
+            Scene.must_happen.is_(None),
+            Scene.must_happen == "",
+            Scene.must_not_happen.is_(None),
+            Scene.must_not_happen == "",
+        ).label("missing_setup")
+        result = await db.execute(
+            select(
+                Scene.id,
+                Scene.source,
+                Scene.status,
+                Scene.structure_meta,
+                Scene.chapter_ids,
+                Scene.scene_chunks,
+                missing_setup,
+            )
+            .where(*conditions)
+            .order_by(Scene.scene_index, Scene.id)
+        )
+        return [
+            SceneWorkbenchHealthProjection(
+                id=row.id,
+                source=row.source,
+                status=row.status,
+                structure_meta=row.structure_meta or {},
+                chapter_ids=row.chapter_ids or [],
+                scene_chunks=row.scene_chunks or [],
+                missing_setup=bool(row.missing_setup),
+            )
+            for row in result
+        ]
+
+    async def get_active_assigned_chapter_indices(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> set[int]:
+        """Return active Scene chapter assignments without hydrating Scene rows."""
+        result = await db.execute(
+            select(Scene.chapter_ids).where(
+                Scene.novel_id == novel_id,
+                Scene.status.in_(("candidate", "draft", "canonical")),
+            )
+        )
+        return {
+            int(chapter_id)
+            for chapter_ids in result.scalars().all()
+            for chapter_id in chapter_ids or []
+            if str(chapter_id).isdigit()
+        }
 
     async def get_by_provenance_key(
         self,

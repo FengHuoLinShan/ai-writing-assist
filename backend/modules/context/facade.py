@@ -7,6 +7,8 @@ Facade 不写复杂业务逻辑，只做稳定的对外代理。
 
 from __future__ import annotations
 
+import hashlib
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.context.contracts import (
@@ -317,15 +319,26 @@ async def compile_generation_background(
     operation: str = "world.object_draft.generate",
     prompt_name: str = "generation_center_world_object_draft",
     model: str = "project-default",
+    focus_text: str = "",
+    reference_chapter_index: int | None = None,
 ) -> dict:
     """Compile the actual author-only background consumed by generation center."""
+    is_object_generation = operation in {
+        "world.object_draft.chat",
+        "world.object_draft.generate",
+    }
+    normalized_focus = " ".join((focus_text or "").split())[:4000]
+    compile_task = f"{task}：{normalized_focus}" if normalized_focus else task
     options = CompileOptions(
         novel_id=novel_id,
-        task=task,
-        scope="world",
+        task=compile_task,
+        scope="generation_center" if is_object_generation else "world",
         reveal_mode="author_safe",
-        retrieval_purpose="world_fusion",
+        retrieval_purpose=(
+            "world_object_generation" if is_object_generation else "world_fusion"
+        ),
         consumer_action=operation,
+        chapter_index=reference_chapter_index,
         include_world_synopsis=include_world_synopsis,
         selected_world_bible_draft_ids=selected_world_bible_draft_ids or [],
         budget_tokens=4000,
@@ -345,19 +358,26 @@ async def compile_generation_background(
         None,
     )
     metadata = dict(synopsis.retrieval_metadata or {}) if synopsis else {}
+    total_tokens = sum(section.token_count for section in compiled.sections)
     usage = {
-        "included": synopsis is not None,
-        "section_key": "world_bible_synopsis",
+        "included": bool(compiled.sections),
+        "section_key": (
+            "generation_background" if is_object_generation else "world_bible_synopsis"
+        ),
         "revision_id": metadata.get("revision_id"),
         "source_hash": metadata.get("source_hash"),
         "block_hash": metadata.get("block_hash"),
-        "token_count": synopsis.token_count if synopsis else 0,
+        "token_count": total_tokens
+        if is_object_generation
+        else (synopsis.token_count if synopsis else 0),
         "stale": bool(metadata.get("stale")),
         "fallback": bool(metadata.get("fallback")),
         "status": (
             "included"
-            if synopsis is not None
-            else "not_requested" if not include_world_synopsis else "unavailable"
+            if compiled.sections
+            else "not_requested"
+            if not include_world_synopsis
+            else "unavailable"
         ),
         "warnings": list(compiled.warnings),
     }
@@ -368,6 +388,15 @@ async def compile_generation_background(
             if options.world_synopsis_revision_id
             else []
         ),
+    }
+    for section in compiled.sections:
+        for source in section.sources:
+            source_type = str(source.get("type") or "context_source")
+            source_id = str(source.get("id") or "").strip()
+            if source_id:
+                included_asset_ids.setdefault(source_type, []).append(source_id)
+    included_asset_ids = {
+        key: list(dict.fromkeys(values)) for key, values in included_asset_ids.items()
     }
     section_metadata = {
         section.key: {
@@ -390,11 +419,17 @@ async def compile_generation_background(
         model=model,
         compile_options={
             "novel_id": options.novel_id,
-            "task": options.task,
+            "task": task,
+            "focus_hash": (
+                hashlib.sha256(normalized_focus.encode("utf-8")).hexdigest()
+                if normalized_focus
+                else None
+            ),
             "scope": options.scope,
             "reveal_mode": options.reveal_mode,
             "retrieval_purpose": options.retrieval_purpose,
             "consumer_action": options.consumer_action,
+            "reference_chapter_index": reference_chapter_index,
             "budget_tokens": options.budget_tokens,
             "include_world_synopsis": options.include_world_synopsis,
             "selected_world_bible_draft_ids": list(
@@ -662,12 +697,15 @@ async def require_fresh_confirmation(
     novel_id: str,
     action: str,
     confirmation_id: str,
+    for_update: bool = False,
 ) -> ContextConfirmationContract:
+    """Require a usable confirmation, optionally locking it for finalization."""
     return await _confirmation_service.require_fresh_confirmation(
         db,
         novel_id=novel_id,
         action=action,
         confirmation_id=confirmation_id,
+        for_update=for_update,
     )
 
 
@@ -677,13 +715,15 @@ async def prepare_confirmed_ai_action(
     novel_id: str,
     action: str,
     confirmation_id: str,
+    for_update: bool = False,
 ) -> ConfirmedAIActionContext:
-    """Return validated, rendered context for an AI action."""
+    """Return validated context, optionally locking its confirmation row."""
     return await _confirmed_ai_action_service.prepare(
         db,
         novel_id=novel_id,
         action=action,
         confirmation_id=confirmation_id,
+        for_update=for_update,
     )
 
 

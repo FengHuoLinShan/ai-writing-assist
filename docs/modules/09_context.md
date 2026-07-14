@@ -105,6 +105,7 @@ public baseline 的 CharacterKnowledge 默认排除。
 
 - `confirm_context()`：编译并落一条 `context_confirmations`
 - `require_confirmation()`：校验 action / novel_id / confirmation_id 是否匹配
+- `prepare_confirmed_ai_action(..., for_update=True)`：任务 finalize 在重编译上下文前锁定 confirmation owner
 - `attach_result_ref()`：把后续任务或产物回写到确认记录
 - `mark_asset_context_changed()`：资产变更后把相关确认记录标脏
 
@@ -124,6 +125,8 @@ public baseline 的 CharacterKnowledge 默认排除。
 世界对象”警告。context confirmation 和 snapshot 是调用审计，不表示建议已被采用。
 
 `POST /api/context/confirm` 会落库一条 `context_confirmations`，并在响应中返回本次编译的 `sections` 和 `budget_events` 供前端展示。这些展示详情不持久化；持久化仍只保存 `selected_asset_ids`、`compile_options`、`warnings`、`result_refs`、`stale_reasons` 等摘要。
+结果引用回写使用行锁并刷新当前 ORM 快照，因此并发任务入队和产物 finalize
+不会用旧 `result_refs` 相互覆盖。
 
 ### Section 级排除
 

@@ -588,7 +588,7 @@ test.describe("写作台模块", () => {
   })
 
   test("剧情设定冲突检查流程、状态更新和发布快照归档", async ({ page }) => {
-    await createDraft(testProjectId, 1, "第一章", "旧稿")
+    await createAutosavedDraft(testProjectId, 1, "第一章", "旧稿")
     await createScene(testProjectId, {
       scene_index: 0,
       title: "宫门对峙",
@@ -816,6 +816,10 @@ test.describe("写作台模块", () => {
     await expect(page.locator(SEL.toastContainer)).toContainText("已发布", { timeout: 15000 })
 
     const latestDraft = await getLatestDraft(testProjectId, 1)
+    expect(latestDraft.novel_id).toBe(testProjectId)
+    expect(latestDraft.status).toBe("published")
+    expect(latestDraft.title).toBe("第一章 冲突检查")
+    expect(latestDraft.content).toBe("主角死亡。城门仍未开启。")
     expect(latestDraft.conflict_check_snapshot_json?.items?.length).toBeGreaterThanOrEqual(2)
     expect(latestDraft.conflict_check_snapshot_json.items.some((item) => item.kind === "forbidden_present")).toBe(true)
   })

@@ -20,7 +20,10 @@ from modules.context.facade import (
     bind_confirmed_action_result,
     prepare_confirmed_ai_action,
 )
-from modules.project.facade import require_active_project
+from modules.project.facade import (
+    build_project_llm_execution_snapshot,
+    require_active_project,
+)
 from modules.writing.facade import (
     create_draft_only as _create_draft_only,
 )
@@ -167,6 +170,10 @@ async def enqueue_conflict_check_ai_review(
         check_id=check_id,
         data=data,
     )
+    llm_execution_snapshot = await build_project_llm_execution_snapshot(
+        db,
+        data.novel_id,
+    )
     task_id = enqueue_task(
         db,
         "writing_conflict_ai_review",
@@ -174,7 +181,14 @@ async def enqueue_conflict_check_ai_review(
             "novel_id": data.novel_id,
             "check_id": check_id,
             "context_confirmation_id": data.context_confirmation_id,
+            "llm_execution_snapshot": llm_execution_snapshot,
         },
+    )
+    await _conflict_service.bind_ai_review_task_owner(
+        db,
+        novel_id=data.novel_id,
+        check_id=check_id,
+        task_id=task_id,
     )
     await bind_confirmed_action_result(
         db,
@@ -282,6 +296,10 @@ async def generate_writing_candidate(
 
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    llm_execution_snapshot = await build_project_llm_execution_snapshot(
+        db,
+        data.novel_id,
+    )
     task_id = enqueue_task(
         db,
         "writing_generate",
@@ -291,6 +309,7 @@ async def generate_writing_candidate(
             "title": data.title,
             "instruction": data.instruction,
             "context_confirmation_id": data.context_confirmation_id,
+            "llm_execution_snapshot": llm_execution_snapshot,
         },
     )
     await bind_confirmed_action_result(

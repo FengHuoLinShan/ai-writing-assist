@@ -16,6 +16,8 @@ from modules.outline.models import Scene, SceneFusionSuggestion, SceneSpan
 from modules.outline.repositories import (
     SceneFusionSuggestionRepository,
     SceneRepository,
+    SceneSuggestionSourceProjection,
+    SceneWorkbenchHealthProjection,
 )
 from modules.outline.scene_draft_review import SceneDraftReviewService
 from modules.outline.scene_fusion_draft import SceneFusionDraftGenerator
@@ -201,7 +203,7 @@ class SceneWorkbenchService:
             confidence_band=confidence_band,
         )
         nid = parse_uuid(novel_id, "novel_id")
-        all_matching_scenes = await self.repo.get_by_novel_ordered(
+        all_matching_scenes = await self.repo.get_workbench_health_projections(
             db,
             nid,
             status=status,
@@ -215,8 +217,6 @@ class SceneWorkbenchService:
             chapter_from=chapter_from,
             chapter_to=chapter_to,
             confidence_band=confidence_band,
-            skip=0,
-            limit=None,
         )
         if health:
             # Health buckets are actionable work queues. Historical Scenes remain
@@ -225,17 +225,16 @@ class SceneWorkbenchService:
             all_matching_scenes = [
                 scene for scene in all_matching_scenes if scene.status != "deprecated"
             ]
-        all_active_scenes = await self.repo.get_by_novel_ordered(
+        chapter_indices = await list_chapter_indices(db, novel_id)
+        assigned_chapter_indices = await self.repo.get_active_assigned_chapter_indices(
             db,
             nid,
-            skip=0,
-            limit=None,
         )
-        chapter_indices = await list_chapter_indices(db, novel_id)
-        unassigned_chapters = self._unassigned_chapters(
-            chapter_indices,
-            all_active_scenes,
-        )
+        unassigned_chapters = [
+            chapter_index
+            for chapter_index in chapter_indices
+            if chapter_index not in assigned_chapter_indices
+        ]
         span_review_by_scene: dict[uuid.UUID, list[SceneSpan]] = defaultdict(list)
         for span in await self.repo.get_scene_spans_needing_review(db, nid):
             span_review_by_scene[span.scene_id].append(span)
@@ -247,9 +246,13 @@ class SceneWorkbenchService:
                 statuses=("draft", "canonical"),
             )
         )
-        pending_suggestions = await self._active_pending_suggestions(db, nid)
-        suggestions_by_scene: dict[uuid.UUID, list[SceneFusionSuggestion]] = (
-            defaultdict(list)
+        pending_suggestions = await self._active_pending_suggestions(
+            db,
+            nid,
+            use_source_projections=True,
+        )
+        suggestions_by_scene: dict[uuid.UUID, list[SceneFusionSuggestion]] = defaultdict(
+            list
         )
         for suggestion in pending_suggestions:
             for raw_scene_id in suggestion.source_scene_ids or []:
@@ -305,16 +308,26 @@ class SceneWorkbenchService:
         else:
             visible_scenes = filtered_scenes[effective_skip:]
 
-        items = [
-            SceneWorkbenchItem(
-                scene=SceneResponse.model_validate(scene),
-                health=health_by_scene[scene.id],
-                health_details=details_by_scene[scene.id],
-                chapter_range=self._chapter_range(scene.chapter_ids or []),
-                summary=scene.goal or scene.core_conflict or scene.emotional_beat,
+        visible_models = await self.repo.get_many_for_novel(
+            db,
+            nid,
+            [scene.id for scene in visible_scenes],
+        )
+        visible_by_id = {scene.id: scene for scene in visible_models}
+        items = []
+        for projection in visible_scenes:
+            scene = visible_by_id.get(projection.id)
+            if scene is None:
+                raise LookupError("Scene not found")
+            items.append(
+                SceneWorkbenchItem(
+                    scene=SceneResponse.model_validate(scene),
+                    health=health_by_scene[scene.id],
+                    health_details=details_by_scene[scene.id],
+                    chapter_range=self._chapter_range(scene.chapter_ids or []),
+                    summary=scene.goal or scene.core_conflict or scene.emotional_beat,
+                )
             )
-            for scene in visible_scenes
-        ]
 
         counts = {key: 0 for key in HEALTH_DEFS}
         breakdown = {
@@ -550,8 +563,7 @@ class SceneWorkbenchService:
         visible = pending[skip : skip + limit]
         return SceneFusionSuggestionListResponse(
             items=[
-                SceneFusionSuggestionResponse.model_validate(item)
-                for item in visible
+                SceneFusionSuggestionResponse.model_validate(item) for item in visible
             ],
             total=len(pending),
         )
@@ -770,8 +782,7 @@ class SceneWorkbenchService:
             unexpected = set(edited) - allowed
             if unexpected:
                 raise ValueError(
-                    "edited replacement contains protected fields: "
-                    f"{sorted(unexpected)}"
+                    f"edited replacement contains protected fields: {sorted(unexpected)}"
                 )
             merged.append({**dict(original), **{key: edited[key] for key in edited}})
         return merged
@@ -1548,7 +1559,7 @@ class SceneWorkbenchService:
 
     def _health_keys(
         self,
-        scene: Scene,
+        scene: Scene | SceneWorkbenchHealthProjection,
         details: dict[str, list[SceneHealthReason]],
     ) -> list[str]:
         health: list[str] = []
@@ -1562,10 +1573,18 @@ class SceneWorkbenchService:
         chapter_ids = scene.chapter_ids or []
         if not chapter_ids:
             health.append("unassigned")
-        if any(
-            not getattr(scene, field)
-            for field in ("goal", "core_conflict", "must_happen", "must_not_happen")
-        ):
+        missing_setup = getattr(scene, "missing_setup", None)
+        if missing_setup is None:
+            missing_setup = any(
+                not getattr(scene, field)
+                for field in (
+                    "goal",
+                    "core_conflict",
+                    "must_happen",
+                    "must_not_happen",
+                )
+            )
+        if missing_setup:
             health.append("missing_setup")
         if details.get("needs_organize"):
             health.append("needs_organize")
@@ -1573,7 +1592,7 @@ class SceneWorkbenchService:
 
     def _scene_health_details(
         self,
-        scene: Scene,
+        scene: Scene | SceneWorkbenchHealthProjection,
         spans: list[SceneSpan],
         suggestions: list[SceneFusionSuggestion],
         overlapping_span_chapters: set[int],
@@ -1649,9 +1668,7 @@ class SceneWorkbenchService:
             source_key = (
                 f"hash:{span.source_content_hash}"
                 if span.source_content_hash
-                else (
-                    f"draft:{span.source_draft_id}" if span.source_draft_id else None
-                )
+                else (f"draft:{span.source_draft_id}" if span.source_draft_id else None)
             )
             if source_key is None:
                 continue
@@ -1722,11 +1739,14 @@ class SceneWorkbenchService:
         self,
         db: AsyncSession,
         novel_id: uuid.UUID,
+        *,
+        use_source_projections: bool = False,
     ) -> list[SceneFusionSuggestion]:
         return await self._current_fusion_suggestions(
             db,
             novel_id,
             statuses=("pending",),
+            use_source_projections=use_source_projections,
         )
 
     async def _current_fusion_suggestions(
@@ -1735,6 +1755,7 @@ class SceneWorkbenchService:
         novel_id: uuid.UUID,
         *,
         statuses: tuple[str, ...],
+        use_source_projections: bool = False,
     ) -> list[SceneFusionSuggestion]:
         candidates = await self._suggestion_repo.list_by_statuses(
             db,
@@ -1754,11 +1775,18 @@ class SceneWorkbenchService:
         if not parsed_candidates:
             return []
 
-        scenes = await self.repo.get_many_for_novel(
-            db,
-            novel_id,
-            list(source_ids),
-        )
+        if use_source_projections:
+            scenes = await self.repo.get_suggestion_source_projections(
+                db,
+                novel_id,
+                list(source_ids),
+            )
+        else:
+            scenes = await self.repo.get_many_for_novel(
+                db,
+                novel_id,
+                list(source_ids),
+            )
         scene_by_id = {scene.id: scene for scene in scenes}
         return [
             item
@@ -1795,7 +1823,7 @@ class SceneWorkbenchService:
         self,
         item: SceneFusionSuggestion,
         source_ids: list[uuid.UUID],
-        scene_by_id: dict[uuid.UUID, Scene],
+        scene_by_id: dict[uuid.UUID, Scene | SceneSuggestionSourceProjection],
     ) -> bool:
         if any(scene_id not in scene_by_id for scene_id in source_ids):
             return False
@@ -1809,7 +1837,7 @@ class SceneWorkbenchService:
     @staticmethod
     def _replacement_suggestion_is_current(
         item: SceneFusionSuggestion,
-        scenes: list[Scene],
+        scenes: list[Scene | SceneSuggestionSourceProjection],
     ) -> bool:
         from modules.outline.scene_replacement import (
             replacement_source_fingerprint,
@@ -1827,7 +1855,10 @@ class SceneWorkbenchService:
             proposed,
         )
 
-    def _suggestion_source_fingerprint(self, scenes: list[Scene]) -> str:
+    def _suggestion_source_fingerprint(
+        self,
+        scenes: list[Scene | SceneSuggestionSourceProjection],
+    ) -> str:
         payload = [
             {
                 "id": str(scene.id),
@@ -1850,19 +1881,6 @@ class SceneWorkbenchService:
             default=str,
         )
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-
-    def _unassigned_chapters(
-        self,
-        chapter_indices: list[int],
-        scenes: list[Scene],
-    ) -> list[int]:
-        assigned = {
-            int(chapter_id)
-            for scene in scenes
-            for chapter_id in scene.chapter_ids or []
-            if str(chapter_id).isdigit()
-        }
-        return [idx for idx in chapter_indices if idx not in assigned]
 
     def _chapter_range(self, chapter_ids: list[str]) -> str:
         nums = sorted(int(cid) for cid in chapter_ids if str(cid).isdigit())

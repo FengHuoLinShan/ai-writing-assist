@@ -1,6 +1,6 @@
 """Deep-import relation provenance persistence tests."""
 
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -39,15 +39,15 @@ async def test_phase2a_relation_payload_keeps_scene_provenance_when_merged() -> 
     with (
         patch(
             "modules.world.facade.find_working_entity_ids_by_names",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={"克莱恩": "entity-1", "伦纳德": "entity-2"},
         ),
         patch(
             "modules.world.facade.create_or_merge_relation",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={"action": "merged", "relation": Mock(id="relation-1")},
         ) as create_or_merge,
-        patch.object(gateway, "_record_quote_evidence", new_callable=AsyncMock),
+        patch.object(gateway, "_record_quote_evidence", autospec=True),
     ):
         created = await gateway.persist_relations(
             _FakeNestedDb(),
@@ -99,15 +99,15 @@ async def test_phase2b_relation_payload_keeps_workflow_and_scene_evidence() -> N
     with (
         patch(
             "modules.world.facade.find_working_entity_ids_by_names",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={"克莱恩": "entity-1", "梅丽莎": "entity-2"},
         ),
         patch(
             "modules.world.facade.create_or_merge_relation",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={"action": "created", "relation": Mock(id="relation-2")},
         ) as create_or_merge,
-        patch.object(gateway, "_record_quote_evidence", new_callable=AsyncMock),
+        patch.object(gateway, "_record_quote_evidence", autospec=True),
     ):
         result = await gateway.persist_alias_relation_output(
             _FakeNestedDb(),

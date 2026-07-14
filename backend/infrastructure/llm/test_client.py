@@ -48,6 +48,10 @@ class _StructuredItemsPayload(BaseModel):
     items: list[_StructuredPayload]
 
 
+class _StructuredMappingPayload(BaseModel):
+    values: dict[str, int]
+
+
 class _StructuredScenesPayload(BaseModel):
     scenes: list[_StructuredPayload]
     notes: list[str] = []
@@ -615,7 +619,7 @@ async def test_generate_structured_validation_retry_uses_backoff(monkeypatch) ->
 
 
 @pytest.mark.asyncio
-async def test_generate_structured_final_error_keeps_last_validation_detail() -> None:
+async def test_generate_structured_final_error_keeps_safe_validation_detail() -> None:
     client = LLMClient()
 
     async def fake_generate(self: LLMClient, request: LLMCallRequest) -> LLMCallResponse:
@@ -640,8 +644,77 @@ async def test_generate_structured_final_error_keeps_last_validation_detail() ->
             max_fix_attempts=0,
         )
 
-    assert "String should have at least 1 character" in str(exc_info.value)
+    assert "string_too_short" in str(exc_info.value)
     assert exc_info.value.raw_response == '{"value": ""}'
+
+
+@pytest.mark.asyncio
+async def test_generate_structured_does_not_log_invalid_field_content(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = LLMClient()
+    private_content = "PRIVATE_NOVEL_TEXT_MUST_NOT_REACH_LOGS"
+
+    async def fake_generate(self: LLMClient, request: LLMCallRequest) -> LLMCallResponse:
+        return LLMCallResponse(
+            content=json.dumps({"value": [private_content]}),
+            finish_reason="stop",
+            usage=LLMUsage(completion_tokens=5, total_tokens=5),
+            model="fake",
+            provider="fake",
+        )
+
+    client.generate = MethodType(fake_generate, client)  # type: ignore[method-assign]
+
+    with (
+        caplog.at_level("WARNING", logger="infrastructure.llm.client"),
+        pytest.raises(LLMInvalidResponseError) as exc_info,
+    ):
+        await client.generate_structured(
+            LLMCallRequest(model="fake", messages=[]),
+            _StructuredPayload,
+            max_fix_attempts=0,
+        )
+
+    assert private_content not in caplog.text
+    assert private_content not in str(exc_info.value)
+    assert "string_type" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_generate_structured_masks_dynamic_mapping_keys_in_errors(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = LLMClient()
+    private_key = "PRIVATE_NOVEL_KEY_MUST_NOT_REACH_DIAGNOSTICS"
+    diagnostics: list[dict] = []
+
+    async def fake_generate(self: LLMClient, request: LLMCallRequest) -> LLMCallResponse:
+        return LLMCallResponse(
+            content=json.dumps({"values": {private_key: "not-an-integer"}}),
+            finish_reason="stop",
+            usage=LLMUsage(completion_tokens=5, total_tokens=5),
+            model="fake",
+            provider="fake",
+        )
+
+    client.generate = MethodType(fake_generate, client)  # type: ignore[method-assign]
+
+    with (
+        caplog.at_level("WARNING", logger="infrastructure.llm.client"),
+        pytest.raises(LLMInvalidResponseError) as exc_info,
+    ):
+        await client.generate_structured(
+            LLMCallRequest(model="fake", messages=[]),
+            _StructuredMappingPayload,
+            max_fix_attempts=0,
+            diagnostics=diagnostics,
+        )
+
+    assert private_key not in caplog.text
+    assert private_key not in str(exc_info.value)
+    assert private_key not in str(diagnostics)
+    assert "int_parsing" in str(exc_info.value)
 
 
 @pytest.mark.asyncio

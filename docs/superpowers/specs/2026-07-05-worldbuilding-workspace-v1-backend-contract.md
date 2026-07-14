@@ -31,9 +31,19 @@ Generic profile entity types:
 - `power_system`
 
 Any entity type not in the strong registry uses `generic_entity_profiles`.
-Strong and generic profiles are mutually exclusive for one `CoreEntity`.
-Migrating from generic to strong must preserve unmapped data in
-`extra_json.unmapped_generic` and mark the generic profile `status=migrated`.
+Strong and generic rows may coexist only for reversible type history; exactly
+one Profile row may be non-`migrated` for one `CoreEntity`. Type transitions
+persist versioned snapshots and history in
+`generic_entity_profiles.extra_json._type_migration_v1`. Returning to an old
+type restores its snapshot and reuses the migrated row. First-time generic to
+strong migration preserves fields outside the target binding in
+`extra_json.unmapped_generic`. Two active rows are a `profile_state_conflict`.
+
+Author create/update/promote/suggestion-edit-confirm inputs accept safe custom
+`entity_type` strings up to 64 characters. AI extraction and initial suggestion
+creation remain restricted to the fixed system catalog. Existing entity type
+changes must use the world-internal transition service; typed dependencies
+block with `entity_type_change_blocked` instead of being deleted or archived.
 
 Profile status carries confirmation semantics. `canonical` and `confirmed` can
 be used by reasoning and derived tags. `draft` and `candidate` cannot.

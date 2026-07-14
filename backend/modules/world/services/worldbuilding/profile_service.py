@@ -62,12 +62,12 @@ class WorldProfileService:
         entity_id: str,
         data: WorldProfileUpsertRequest,
     ) -> WorldProfileResponse:
-        entity = await self._get_entity(db, novel_id, entity_id)
+        entity = await self._get_entity(db, novel_id, entity_id, lock=True)
         if entity.entity_type in PROFILE_REGISTRY:
-            await self._ensure_no_generic(db, entity)
-            profile = await self._upsert_strong(db, entity, data)
+            await self._ensure_no_generic(db, entity, lock=True)
+            profile = await self._upsert_strong(db, entity, data, lock=True)
         else:
-            profile = await self._upsert_generic(db, entity, data)
+            profile = await self._upsert_generic(db, entity, data, lock=True)
         await db.flush()
         from modules.world.services.worldbuilding.synopsis_invalidation import (
             mark_synopsis_source_changed,
@@ -87,14 +87,14 @@ class WorldProfileService:
         novel_id: str,
         entity_id: str,
     ) -> WorldProfileResponse:
-        entity = await self._get_entity(db, novel_id, entity_id)
+        entity = await self._get_entity(db, novel_id, entity_id, lock=True)
         if entity.entity_type not in PROFILE_REGISTRY:
             raise ValidationError("Entity type has no strong profile table")
-        generic = await self._get_generic(db, entity)
+        generic = await self._get_generic(db, entity, lock=True)
         if generic is None:
             raise NotFoundError("Generic profile not found")
         binding = PROFILE_REGISTRY[entity.entity_type]
-        profile = await self._get_strong(db, entity, binding)
+        profile = await self._get_strong(db, entity, binding, lock=True)
         if profile is None:
             profile = binding.model(
                 novel_id=entity.novel_id,
@@ -128,19 +128,31 @@ class WorldProfileService:
         db: AsyncSession,
         novel_id: str,
         entity_id: str,
+        *,
+        lock: bool = False,
     ) -> CoreEntity:
         nid = parse_uuid(novel_id, "novel_id")
         eid = parse_uuid(entity_id, "entity_id")
-        result = await db.execute(
-            select(CoreEntity).where(CoreEntity.id == eid, CoreEntity.novel_id == nid)
+        stmt = select(CoreEntity).where(
+            CoreEntity.id == eid,
+            CoreEntity.novel_id == nid,
         )
+        if lock:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
+        result = await db.execute(stmt)
         entity = result.scalar_one_or_none()
         if entity is None:
             raise NotFoundError("Entity not found in this novel")
         return entity
 
-    async def _ensure_no_generic(self, db: AsyncSession, entity: CoreEntity) -> None:
-        generic = await self._get_generic(db, entity)
+    async def _ensure_no_generic(
+        self,
+        db: AsyncSession,
+        entity: CoreEntity,
+        *,
+        lock: bool = False,
+    ) -> None:
+        generic = await self._get_generic(db, entity, lock=lock)
         if generic and generic.status != "migrated":
             raise ValidationError(
                 "Strong profile requires migrating existing generic profile first",
@@ -150,13 +162,16 @@ class WorldProfileService:
         self,
         db: AsyncSession,
         entity: CoreEntity,
+        *,
+        lock: bool = False,
     ) -> GenericEntityProfile | None:
-        result = await db.execute(
-            select(GenericEntityProfile).where(
-                GenericEntityProfile.novel_id == entity.novel_id,
-                GenericEntityProfile.entity_id == entity.id,
-            )
+        stmt = select(GenericEntityProfile).where(
+            GenericEntityProfile.novel_id == entity.novel_id,
+            GenericEntityProfile.entity_id == entity.id,
         )
+        if lock:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
+        result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
     async def _get_strong(
@@ -164,13 +179,16 @@ class WorldProfileService:
         db: AsyncSession,
         entity: CoreEntity,
         binding: ProfileBinding,
+        *,
+        lock: bool = False,
     ):
-        result = await db.execute(
-            select(binding.model).where(
-                binding.model.novel_id == entity.novel_id,
-                binding.model.entity_id == entity.id,
-            )
+        stmt = select(binding.model).where(
+            binding.model.novel_id == entity.novel_id,
+            binding.model.entity_id == entity.id,
         )
+        if lock:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
+        result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
     async def _upsert_strong(
@@ -178,9 +196,11 @@ class WorldProfileService:
         db: AsyncSession,
         entity: CoreEntity,
         data: WorldProfileUpsertRequest,
+        *,
+        lock: bool = False,
     ):
         binding = PROFILE_REGISTRY[entity.entity_type]
-        profile = await self._get_strong(db, entity, binding)
+        profile = await self._get_strong(db, entity, binding, lock=lock)
         if profile is None:
             profile = binding.model(novel_id=entity.novel_id, entity_id=entity.id)
             db.add(profile)
@@ -202,10 +222,12 @@ class WorldProfileService:
         db: AsyncSession,
         entity: CoreEntity,
         data: WorldProfileUpsertRequest,
+        *,
+        lock: bool = False,
     ) -> GenericEntityProfile:
         if entity.entity_type in PROFILE_REGISTRY:
             raise ValidationError("Strong profile entity cannot create generic profile")
-        profile = await self._get_generic(db, entity)
+        profile = await self._get_generic(db, entity, lock=lock)
         if profile is None:
             profile = GenericEntityProfile(
                 novel_id=entity.novel_id,

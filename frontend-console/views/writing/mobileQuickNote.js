@@ -102,7 +102,7 @@ export function createMobileQuickNote({ state, api, toast, esc, editor, onSaved 
       }
     }
     container.querySelectorAll('[data-action="save-mobile-note"]').forEach((btn) => {
-      btn.addEventListener("click", () => save())
+      btn.onclick = () => save()
     })
   }
 

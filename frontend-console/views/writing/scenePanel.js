@@ -263,20 +263,20 @@ export function createScenePanel({
 
   function bindEvents(container) {
     container.querySelectorAll('[data-action="open-map"]').forEach((btn) => {
-      btn.addEventListener("click", () => openMap())
+      btn.onclick = () => openMap()
     })
     container.querySelectorAll('[data-action="switch-cockpit-tab"]').forEach((btn) => {
-      btn.addEventListener("click", () => {
+      btn.onclick = () => {
         const tab = btn.getAttribute("data-tab")
         if (typeof onSwitchTab === "function") onSwitchTab(tab)
         switchTab(tab)
-      })
+      }
     })
     container.querySelectorAll('[data-action="toggle-cockpit-module"]').forEach((btn) => {
-      btn.addEventListener("click", () => {
+      btn.onclick = () => {
         const module = btn.closest(".scene-cockpit-module")
         if (module) module.classList.toggle("is-collapsed")
-      })
+      }
     })
     bindCockpitDrag(container)
   }

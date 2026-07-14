@@ -399,9 +399,10 @@ export function drawTerritories(ctx, territories, size, offsetX, offsetY, factio
   if (!territories || territories.length === 0) return
   const colors = factionColors || {}
   for (const t of territories) {
-    const color = colors[t.faction_id] || hashColor(t.faction_id)
+    const factionId = t.faction_id || t.faction_entity_id
+    const color = colors[factionId] || hashColor(factionId || "territory")
     const fillColor = color + "66" // 40% alpha
-    for (const h of t.hexes || []) {
+    for (const h of t.hexes || [t]) {
       const opacity = getOpacity ? getOpacity(h.hex_q, h.hex_r) : 1
       drawHexCell(ctx, h.hex_q, h.hex_r, size, {
         fill: fillColor,

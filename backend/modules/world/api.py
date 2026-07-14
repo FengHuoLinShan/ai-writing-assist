@@ -15,8 +15,12 @@ from core.config import get_settings
 from core.dependencies import DbSession
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.context.facade import attach_result_ref, require_fresh_confirmation
-from modules.project.facade import require_active_project
+from modules.project.facade import (
+    build_project_llm_execution_snapshot,
+    require_active_project,
+)
 from modules.world.entity_fusion import WorldEntityFusionService
+from modules.world.map_schemas import MapEntityPresenceResponse
 from modules.world.schemas import (
     CharacterCreate,
     CharacterKnowledgeCreate,
@@ -54,6 +58,7 @@ from modules.world.schemas import (
     EntityRevisionListResponse,
     EntityRollbackRequest,
     EntityRollbackResponse,
+    EntityTypeCatalogResponse,
     EventCreate,
     EventListResponse,
     EventResponse,
@@ -118,6 +123,7 @@ from modules.world.services import (
     WorldEntityService,
 )
 from modules.world.services.core.dedup_service import EntityDedupService
+from modules.world.services.map.map_entity_presence import MapEntityPresenceService
 from modules.world.services.worldbuilding.generation_prompt_template_service import (
     GenerationPromptTemplateService,
     TemplateVersionConflictError,
@@ -163,6 +169,7 @@ _knowledge_tag_service = KnowledgeTagService()
 _object_draft_service = ObjectDraftGenerationService()
 _world_bible_ai_service = WorldBibleAiGenerationService()
 _generation_template_service = GenerationPromptTemplateService()
+_map_presence_service = MapEntityPresenceService()
 
 
 async def _require_active_novel_id(
@@ -636,9 +643,12 @@ async def refresh_bible_synopsis(
     *,
     novel_id: ActiveNovelIdQuery,
 ) -> WorldBibleSynopsisRefreshResponse:
-    task_id, status, existing, source_hash = (
-        await _bible_synopsis_service.request_refresh(db, novel_id)
-    )
+    (
+        task_id,
+        status,
+        existing,
+        source_hash,
+    ) = await _bible_synopsis_service.request_refresh(db, novel_id)
     return WorldBibleSynopsisRefreshResponse(
         task_id=task_id,
         status=status,
@@ -1080,6 +1090,15 @@ async def lock_character_knowledge_tag(
 # ============================================================
 
 
+@router.get("/entity-types", response_model=EntityTypeCatalogResponse)
+async def list_entity_types(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> EntityTypeCatalogResponse:
+    return await _entity_service.list_entity_types(db, novel_id)
+
+
 @router.get("/entities", response_model=CoreEntityListResponse)
 async def list_entities(
     db: DbSession,
@@ -1205,10 +1224,17 @@ async def extract_alias_relations(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    llm_execution_snapshot = await build_project_llm_execution_snapshot(
+        db,
+        data.novel_id,
+    )
     task_id = enqueue_task(
         db,
         "world_alias_relation_extraction",
-        meta=data.model_dump(exclude_none=True),
+        meta={
+            **data.model_dump(exclude_none=True),
+            "llm_execution_snapshot": llm_execution_snapshot,
+        },
     )
     await attach_result_ref(
         db,
@@ -1229,6 +1255,25 @@ async def get_entity(
     novel_id: ActiveNovelIdQuery,
 ) -> CoreEntityResponse:
     return await _entity_service.get(db, entity_id, novel_id=novel_id)
+
+
+@router.get(
+    "/entities/{entity_id}/map-presence",
+    response_model=MapEntityPresenceResponse,
+)
+async def get_entity_map_presence(
+    db: DbSession,
+    entity_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    include_candidates: bool = Query(False),
+) -> MapEntityPresenceResponse:
+    return await _map_presence_service.list_for_entity(
+        db,
+        novel_id,
+        entity_id,
+        include_candidates=include_candidates,
+    )
 
 
 @router.put("/entities/{entity_id}", response_model=CoreEntityResponse)

@@ -294,9 +294,13 @@ class TestApiOutlineGenerate:
         from unittest import mock
 
         with (
-            mock.patch("modules.outline.api.require_fresh_confirmation") as mock_require,
-            mock.patch("modules.outline.api.attach_result_ref") as mock_attach,
-            mock.patch("modules.outline.api.enqueue_task") as mock_enqueue,
+            mock.patch(
+                "modules.outline.api.require_fresh_confirmation", autospec=True
+            ) as mock_require,
+            mock.patch(
+                "modules.outline.api.attach_result_ref", autospec=True
+            ) as mock_attach,
+            mock.patch("modules.outline.api.enqueue_task", autospec=True) as mock_enqueue,
         ):
             mock_enqueue.return_value = "task-outline-generate"
 

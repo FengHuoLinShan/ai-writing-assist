@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest import mock
 
@@ -8,6 +9,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.tasks.contracts import CompletedTaskPayloadContract
 from infrastructure.tasks.models import AsyncTask
 from modules.outline.ai_workflow_service import OutlineAIWorkflowService
 
@@ -71,7 +73,9 @@ async def test_generate_returns_preview_without_persisting(
     db.flush.assert_awaited_once()
 
 
-async def test_apply_structure_preview_requires_confirmation_and_rejects_legacy() -> None:
+async def test_apply_structure_preview_requires_confirmation_and_rejects_legacy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     service = OutlineAIWorkflowService()
     db = mock.AsyncMock()
     source_task_id = str(uuid.uuid4())
@@ -85,23 +89,29 @@ async def test_apply_structure_preview_requires_confirmation_and_rejects_legacy(
             confirmed=False,
         )
 
-    locked_result = mock.MagicMock()
-    locked_result.scalar_one_or_none.return_value = SimpleNamespace(
-        task_type="plot_structure_generate",
+    get_payload = mock.AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        "infrastructure.tasks.facade.get_completed_task_payload",
+        get_payload,
     )
-    db.execute = mock.AsyncMock(return_value=locked_result)
+    novel_id = str(uuid.uuid4())
     with pytest.raises(ValueError, match="confirmed outline preview task"):
         await service.apply_structure_preview(
             db,
-            novel_id=str(uuid.uuid4()),
+            novel_id=novel_id,
             confirmation_id="confirmation-1",
             source_task_id=source_task_id,
             draft_structure={},
             confirmed=True,
         )
 
-    lock_stmt = db.execute.await_args.args[0]
-    assert "FOR UPDATE" in str(lock_stmt)
+    get_payload.assert_awaited_once_with(
+        db,
+        task_id=source_task_id,
+        task_type="outline_generate",
+        novel_id=novel_id,
+        for_update=True,
+    )
 
 
 async def test_extract_chapter_scenes_returns_preview_without_persisting(
@@ -222,21 +232,39 @@ async def test_apply_chapter_scene_preview_requires_confirmation_and_clears_revi
             confirmed=False,
         )
 
-    preview_task = SimpleNamespace(
+    preview_task = CompletedTaskPayloadContract(
+        task_id=source_task_id,
         task_type="outline_chapter_scenes_extract",
-        status="done",
-        meta={
-            "novel_id": novel_id,
-            "context_confirmation_id": "confirmation-1",
-        },
+        novel_id=novel_id,
+        context_confirmation_id="confirmation-1",
+        revision_token=datetime(2026, 7, 14, tzinfo=UTC),
         result={
             "draft_scenes": [{"title": "预览"}],
             "requires_apply": True,
         },
     )
-    locked_result = mock.MagicMock()
-    locked_result.scalar_one_or_none.return_value = preview_task
-    db.execute = mock.AsyncMock(return_value=locked_result)
+    applied_task = CompletedTaskPayloadContract(
+        task_id=source_task_id,
+        task_type="outline_chapter_scenes_extract",
+        novel_id=novel_id,
+        context_confirmation_id=preview_task.context_confirmation_id,
+        revision_token=datetime(2026, 7, 14, 0, 0, 1, tzinfo=UTC),
+        result={
+            **preview_task.result,
+            "apply_status": "applied",
+            "applied_scene_ids": [str(created_id)],
+        },
+    )
+    get_payload = mock.AsyncMock(side_effect=[preview_task, applied_task])
+    replace_result = mock.AsyncMock(return_value=True)
+    monkeypatch.setattr(
+        "infrastructure.tasks.facade.get_completed_task_payload",
+        get_payload,
+    )
+    monkeypatch.setattr(
+        "infrastructure.tasks.facade.replace_completed_task_result",
+        replace_result,
+    )
 
     result = await service.apply_chapter_scene_preview(
         db,
@@ -305,10 +333,18 @@ async def test_apply_chapter_scene_preview_requires_confirmation_and_clears_revi
         result_refs=[{"type": "outline_scene", "id": str(created_id)}],
         status="done",
     )
-    assert preview_task.result["apply_status"] == "applied"
-    assert preview_task.result["applied_scene_ids"] == [str(created_id)]
-    lock_stmt = db.execute.await_args_list[0].args[0]
-    assert "FOR UPDATE" in str(lock_stmt)
+    replace_result.assert_awaited_once_with(
+        db,
+        task_id=source_task_id,
+        task_type="outline_chapter_scenes_extract",
+        novel_id=novel_id,
+        expected_revision_token=preview_task.revision_token,
+        result={
+            **preview_task.result,
+            "apply_status": "applied",
+            "applied_scene_ids": [str(created_id)],
+        },
+    )
 
     replay = await service.apply_chapter_scene_preview(
         db,

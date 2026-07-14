@@ -236,6 +236,42 @@ describe("前后端 API 契约", () => {
     expect(getApiContract("world.getEntity").method).toBe("GET")
     expect(contractPath("world.getEntity", { id: "entity-1" }, { novel_id: "novel-1" }))
       .toBe("/world/entities/entity-1?novel_id=novel-1")
+    expect(contractPath("world.replaceLocationLayouts", { mapId: "map-1" }, { novel_id: "novel-1" }))
+      .toBe("/world/maps/map-1/location-layouts?novel_id=novel-1")
+    expect(getApiContract("world.updateTerrainLayer").method).toBe("PATCH")
+    expect(contractPath("world.updateTerrainLayer", { mapId: "map-1", layerId: "layer-1" }, { novel_id: "novel-1" }))
+      .toBe("/world/maps/map-1/terrain/layers/layer-1?novel_id=novel-1")
+    expect(getApiContract("world.deleteTerrainLayer").method).toBe("DELETE")
+    expect(getApiContract("world.applyMapEditor")).toMatchObject({
+      method: "POST",
+      requiredBody: ["expected_revision", "commands"],
+    })
+    expect(contractPath("world.applyMapEditor", { mapId: "map-1" }, { novel_id: "novel-1" }))
+      .toBe("/world/maps/map-1/editor/apply?novel_id=novel-1")
+    expect(contractPath("world.getMapLayerTree", { mapId: "map-1" }, { novel_id: "novel-1" }))
+      .toBe("/world/maps/map-1/layer-tree?novel_id=novel-1")
+    expect(contractPath("world.getMapPaths", { mapId: "map-1" }, { novel_id: "novel-1", status: "all" }))
+      .toBe("/world/maps/map-1/paths?novel_id=novel-1&status=all")
+    expect(contractPath("world.getMapPathArchiveImpact", { mapId: "map-1", pathId: "path-1" }, { novel_id: "novel-1" }))
+      .toBe("/world/maps/map-1/paths/path-1/archive-impact?novel_id=novel-1")
+    expect(contractPath("world.getEntityMapPresence", { id: "entity-1" }, { novel_id: "novel-1" }))
+      .toBe("/world/entities/entity-1/map-presence?novel_id=novel-1")
+    expect(contractPath("world.getMapTimeline", { mapId: "map-1" }, {
+      novel_id: "novel-1",
+      from_scene_index: 2,
+      to_scene_index: 9,
+      tracks: "journey,status",
+      include_candidates: true,
+      skip: 0,
+      limit: 500,
+    })).toBe("/world/maps/map-1/timeline?novel_id=novel-1&from_scene_index=2&to_scene_index=9&tracks=journey%2Cstatus&include_candidates=true&skip=0&limit=500")
+    expect(contractPath("world.getMapStateAt", { mapId: "map-1" }, {
+      novel_id: "novel-1",
+      scene_index: 9,
+      focus_entity_id: "entity-1",
+    })).toBe("/world/maps/map-1/state-at?novel_id=novel-1&scene_index=9&focus_entity_id=entity-1")
+    expect(getApiContract("world.getMapStateAt").requiredQuery)
+      .toEqual(["novel_id", "scene_index"])
 
     expect(contractPath("imports.startStage", { stage: "scenes" }))
       .toBe("/imports/stages/scenes")

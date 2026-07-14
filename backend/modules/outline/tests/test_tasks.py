@@ -27,10 +27,13 @@ from tests.utils import _make_bundle
 
 
 def _mock_client(generate_structured: mock.AsyncMock) -> mock.MagicMock:
-    return mock.MagicMock(
-        model_name="test-model",
-        generate_structured=generate_structured,
-    )
+    client = mock.MagicMock(model_name="test-model")
+
+    async def bound_generate(*args, **kwargs):
+        return await generate_structured(client, *args, **kwargs)
+
+    client.generate_structured = mock.AsyncMock(side_effect=bound_generate)
+    return client
 
 
 # Shared Pydantic response models used by LLM mocks in TestPlotStructureGenerator.
@@ -199,10 +202,13 @@ class TestPlotStructureGenerator:
 
         with (
             mock.patch(
-                "modules.context.facade.compile_structure_context", return_value=bundle
+                "modules.context.facade.compile_structure_context",
+                return_value=bundle,
+                autospec=True,
             ),
             mock.patch(
-                "infrastructure.llm.client.LLMClient.generate_structured"
+                "infrastructure.llm.client.LLMClient.generate_structured",
+                autospec=True,
             ) as mock_llm,
         ):
             mock_llm.return_value = _GO(
@@ -268,10 +274,13 @@ class TestPlotStructureGenerator:
 
         with (
             mock.patch(
-                "modules.context.facade.compile_structure_context", return_value=bundle
+                "modules.context.facade.compile_structure_context",
+                return_value=bundle,
+                autospec=True,
             ),
             mock.patch(
-                "infrastructure.llm.client.LLMClient.generate_structured"
+                "infrastructure.llm.client.LLMClient.generate_structured",
+                autospec=True,
             ) as mock_llm,
         ):
             mock_llm.return_value = _GO(
@@ -356,10 +365,13 @@ class TestPlotStructureGenerator:
 
         with (
             mock.patch(
-                "modules.context.facade.compile_structure_context", return_value=bundle
+                "modules.context.facade.compile_structure_context",
+                return_value=bundle,
+                autospec=True,
             ),
             mock.patch(
-                "infrastructure.llm.client.LLMClient.generate_structured"
+                "infrastructure.llm.client.LLMClient.generate_structured",
+                autospec=True,
             ) as mock_llm,
         ):
             mock_llm.return_value = _GO(plot_threads=[], outline_arcs=[])
@@ -389,10 +401,13 @@ class TestPlotStructureGenerator:
 
         with (
             mock.patch(
-                "modules.context.facade.compile_structure_context", return_value=bundle
+                "modules.context.facade.compile_structure_context",
+                return_value=bundle,
+                autospec=True,
             ),
             mock.patch(
-                "infrastructure.llm.client.LLMClient.generate_structured"
+                "infrastructure.llm.client.LLMClient.generate_structured",
+                autospec=True,
             ) as mock_llm,
         ):
             mock_llm.return_value = _GO(
@@ -454,11 +469,14 @@ class TestPlotStructureGenerator:
 
         with (
             mock.patch(
-                "modules.context.facade.compile_structure_context", return_value=bundle
+                "modules.context.facade.compile_structure_context",
+                return_value=bundle,
+                autospec=True,
             ),
             mock.patch(
                 "infrastructure.llm.client.LLMClient.generate_structured",
                 side_effect=Exception("LLM down"),
+                autospec=True,
             ) as mock_llm,
         ):
             generator = PlotStructureGenerator(llm_client=_mock_client(mock_llm))

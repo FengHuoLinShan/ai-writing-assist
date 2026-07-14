@@ -130,6 +130,11 @@ AI 能力是显式追加流程，不替代规则层结果：
 `POST /api/writing/generate` 只创建作者可见的正文建议。兼容期底层仍保存为
 `status="candidate"`，但它不会进入 latest working、项目正文统计、原文 grep 或 RAG
 working 来源，也不会自动发布。
+入队会固定 secret-free 项目 LLM execution snapshot。worker 在有 lease fence 的
+prepare 中冻结 prompt、确认上下文/证据指纹和 POV hidden guard，提交后才等待
+provider；finalize 会按 project-first 顺序重验 profile、上下文与当前最新 running task owner。
+同一 confirmation 的新任务会取代旧任务；取消、lease 丢失、项目删除或输入漂移
+会使 candidate 与 confirmation bind 在最终任务事务中一起回滚。
 
 `writing_drafts.provenance_json` 保存 AI 生成来源追踪：
 

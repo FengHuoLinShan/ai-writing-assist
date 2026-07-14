@@ -123,8 +123,13 @@ class ContextConfirmationService:
         novel_id: str,
         action: str,
         confirmation_id: str | uuid.UUID,
+        for_update: bool = False,
     ) -> ContextConfirmationContract:
-        record = await self._repo.get(db, self._as_uuid(confirmation_id))
+        record = await self._repo.get(
+            db,
+            self._as_uuid(confirmation_id),
+            for_update=for_update,
+        )
         if record is None:
             raise ValueError("context_confirmation_id not found")
         if str(record.novel_id) != str(parse_uuid(novel_id, "novel_id")):
@@ -140,12 +145,14 @@ class ContextConfirmationService:
         novel_id: str,
         action: str,
         confirmation_id: str | uuid.UUID,
+        for_update: bool = False,
     ) -> ContextConfirmationContract:
         confirmation = await self.require_confirmation(
             db,
             novel_id=novel_id,
             action=action,
             confirmation_id=confirmation_id,
+            for_update=for_update,
         )
         if confirmation.result_status in {"stale_context", "needs_review"}:
             raise ValueError(
@@ -184,7 +191,11 @@ class ContextConfirmationService:
         result_id: str,
         status: str = "running",
     ) -> ContextConfirmationContract:
-        record = await self._repo.get(db, self._as_uuid(confirmation_id))
+        record = await self._repo.get(
+            db,
+            self._as_uuid(confirmation_id),
+            for_update=True,
+        )
         if record is None:
             raise ValueError("context_confirmation_id not found")
         refs = [
@@ -209,7 +220,11 @@ class ContextConfirmationService:
         result_refs: list[dict[str, str]],
         status: str = "running",
     ) -> ContextConfirmationContract:
-        record = await self._repo.get(db, self._as_uuid(confirmation_id))
+        record = await self._repo.get(
+            db,
+            self._as_uuid(confirmation_id),
+            for_update=True,
+        )
         if record is None:
             raise ValueError("context_confirmation_id not found")
 

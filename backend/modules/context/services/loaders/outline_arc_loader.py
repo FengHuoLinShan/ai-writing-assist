@@ -70,6 +70,13 @@ class OutlineArcLoader(Loader):
             "climax": arc.climax,
             "result": arc.result,
             "next_hook": arc.next_hook,
+            "related_thread_ids": list(getattr(arc, "related_thread_ids", None) or []),
+            "related_character_ids": list(
+                getattr(arc, "related_character_ids", None) or []
+            ),
+            "related_entity_ids": list(
+                getattr(arc, "related_entity_ids", None) or []
+            ),
             "status": arc.status,
         }
         bundle.budget_used["outline_arc"] = 1

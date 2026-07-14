@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -163,7 +163,8 @@ async def test_project_context_lookup_binds_only_after_project_is_found() -> Non
             ),
             patch(
                 "modules.settings.facade.materialize_effective_project_settings",
-                new=AsyncMock(return_value={}),
+                autospec=True,
+                return_value={},
             ),
         ):
             assert await facade.get_project_context(object(), novel_id) is project_context

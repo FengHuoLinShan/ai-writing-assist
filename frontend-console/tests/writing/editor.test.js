@@ -485,6 +485,25 @@ describe("createEditor", () => {
     expect(onSceneChange).toHaveBeenCalledWith("s1")
   })
 
+  it("重绑到无编辑器容器时清理 document 光标监听", async () => {
+    state.currentProjectId = "p1"
+    api.writing.getVersionHistory.mockResolvedValue({ versions: [] })
+    api.writing.get.mockResolvedValue({ id: "d1", content: "正文", title: "", version_number: 1 })
+    const removeListener = vi.spyOn(document, "removeEventListener")
+    const editor = createTestEditor()
+    await editor.loadChapter(1)
+    document.body.innerHTML = editor.render()
+    editor.bindEvents(document.body)
+
+    document.body.innerHTML = "<div>未选择章节</div>"
+    editor.bindEvents(document.body)
+
+    expect(removeListener).toHaveBeenCalledWith(
+      "selectionchange",
+      expect.any(Function),
+    )
+  })
+
   it("HTML 转义动态内容防止 XSS", async () => {
     state.currentProjectId = "p1"
     api.writing.getVersionHistory.mockResolvedValue({

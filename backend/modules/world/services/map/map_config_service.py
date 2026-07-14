@@ -22,7 +22,10 @@ from modules.world.map_schemas import (
     MapStateResponse,
 )
 from modules.world.services.common import parse_uuid
+from modules.world.services.map.map_archive import MapArchiveService
 from modules.world.services.map.map_context import MapContext
+from modules.world.services.map.map_layer_tree import MapLayerTreeService
+from modules.world.services.map.map_revision import MapRevisionService
 from modules.world.services.map.map_state_assembler import MapStateAssembler
 from modules.world.services.map.map_templates import (
     generate_detail_tiles,
@@ -52,6 +55,9 @@ class MapConfigService(
         self._binding_repo = MapLocationBindingRepository()
         self._territory_repo = MapTerritoryRepository()
         self._ctx = MapContext()
+        self._archive = MapArchiveService(self.repo)
+        self._layer_tree = MapLayerTreeService(context=self._ctx)
+        self._revision = MapRevisionService(self.repo)
         self._state_assembler = MapStateAssembler(
             config_repo=self.repo,
             tile_repo=self._tile_repo,
@@ -70,13 +76,19 @@ class MapConfigService(
         novel_id: str,
         *,
         parent_map_id: str | None = None,
+        status: str = "active",
         skip: int = 0,
         limit: int = 100,
     ) -> MapConfigListResponse:
         nid = parse_uuid(novel_id, "novel_id")
         pid = parse_uuid(parent_map_id, "parent_map_id") if parent_map_id else None
         items, total = await self.repo.get_by_novel(
-            db, nid, parent_map_id=pid, skip=skip, limit=limit
+            db,
+            nid,
+            parent_map_id=pid,
+            status=status,
+            skip=skip,
+            limit=limit,
         )
         return MapConfigListResponse(
             items=[MapConfigResponse.model_validate(m) for m in items],
@@ -101,18 +113,17 @@ class MapConfigService(
         data: MapConfigCreate,
     ) -> MapConfigResponse:
         nid = parse_uuid(novel_id, "novel_id")
+        await self.repo.lock_hierarchy(db, nid)
 
         # 校验 parent_map_id 属同 novel
         parent_map_id_uuid: Any = None
         if data.parent_map_id:
             pid = parse_uuid(data.parent_map_id, "parent_map_id")
-            parent = await self.repo.get(db, pid)
-            if parent is None or parent.novel_id != nid:
-                raise ValidationError(
-                    "parent_map_id 不存在或不属于该项目",
-                    code="invalid_parent_map",
-                )
-            parent_map_id_uuid = pid
+            parent = await self.repo.get_in_novel(db, nid, pid, status="active")
+            if parent is None:
+                raise NotFoundError("父地图不存在", code="map_not_found")
+            await self._ctx.require_map(db, novel_id, data.parent_map_id)
+            parent_map_id_uuid = parent.id
 
         # 校验 parent_entity_id 属同 novel 且 entity_type=location（PRD §4.1/§4.3）
         parent_entity_id_uuid: Any = None
@@ -159,6 +170,7 @@ class MapConfigService(
         template = data.template if data.map_type == "world" else "blank"
         tiles = generate_template_tiles(data.grid_width, data.grid_height, template)
         await self._tile_repo.bulk_create(db, nid, config.id, tiles)
+        await self._layer_tree.ensure_default_tree(db, novel_id, str(config.id))
 
         # 刷新 config 以拿到完整字段
         fresh = await self.repo.get(db, config.id)
@@ -175,9 +187,7 @@ class MapConfigService(
         novel_id: str,
     ) -> MapConfigResponse:
         nid = parse_uuid(novel_id, "novel_id")
-        mid = parse_uuid(map_id, self.id_param)
-        existing = await self.repo.get(db, mid)
-        self._assert_found_in_novel(existing, map_id, nid)
+        existing = await self._ctx.require_map(db, novel_id, map_id)
         if existing.parent_entity_id is not None:
             await self._ctx.require_canonical_entity(
                 db,
@@ -199,6 +209,19 @@ class MapConfigService(
             if value is not None:
                 values[field] = value
 
+        if "name" in values and values["name"] != existing.name:
+            duplicate = await self.repo.get_by_name(
+                db,
+                nid,
+                name=values["name"],
+                parent_map_id=existing.parent_map_id,
+            )
+            if duplicate is not None and duplicate.id != existing.id:
+                raise ConflictError(
+                    f"同层级已存在名为 {values['name']!r} 的地图",
+                    code="duplicate_map_name",
+                )
+
         obj = await self.repo.update(db, existing, values)
         self._assert_found_in_novel(obj, map_id, nid)
         return self._to_response(obj)
@@ -210,10 +233,8 @@ class MapConfigService(
         *,
         novel_id: str,
     ) -> None:
-        config = await self._ctx.require_map(db, novel_id, map_id)
-        ok = await self.repo.delete(db, config.id)
-        if not ok:
-            self._raise_404(map_id)
+        await self._ctx.require_map(db, novel_id, map_id)
+        await self._archive.archive(db, novel_id, map_id)
 
     # 新增: 聚合状态
     async def get_state(
@@ -266,7 +287,11 @@ class MapConfigService(
         map_id: str,
     ) -> MapStateResponse:
         """清空并重新生成详图地形（中心 city + 外 road + 随机 grassland/forest）。"""
+        locked_config = await self._revision.lock_active(db, novel_id, map_id)
         config = await self._ctx.require_map(db, novel_id, map_id)
+        await self._layer_tree.assert_writable(
+            db, novel_id, map_id, layer_key="baseTerrain"
+        )
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
 
@@ -281,4 +306,10 @@ class MapConfigService(
         await self._tile_repo.delete_by_map(db, nid, mid)
         changes = generate_detail_tiles(config.grid_width, config.grid_height)
         await self._tile_repo.bulk_create(db, nid, mid, changes)
+        await self._revision.bump(
+            db,
+            novel_id,
+            map_id,
+            locked_config=locked_config,
+        )
         return await self.get_state(db, novel_id, map_id)

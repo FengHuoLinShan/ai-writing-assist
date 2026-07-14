@@ -50,7 +50,11 @@ async def test_generate_returns_persist_result() -> None:
         persister=persister,
     )
 
-    with mock.patch("modules.outline.generator.PlotStructureParser", return_value=parser):
+    with mock.patch(
+        "modules.outline.generator.PlotStructureParser",
+        return_value=parser,
+        autospec=True,
+    ):
         result = await generator.generate(
             db=mock.AsyncMock(),
             novel_id="12345678-1234-5678-1234-567812345678",
@@ -98,7 +102,11 @@ async def test_generate_preview_does_not_persist() -> None:
         persister=persister,
     )
 
-    with mock.patch("modules.outline.generator.PlotStructureParser", return_value=parser):
+    with mock.patch(
+        "modules.outline.generator.PlotStructureParser",
+        return_value=parser,
+        autospec=True,
+    ):
         result = await generator.generate(
             db=mock.AsyncMock(),
             novel_id="12345678-1234-5678-1234-567812345678",
@@ -138,7 +146,11 @@ async def test_generate_returns_empty_on_parse_failure() -> None:
         persister=persister,
     )
 
-    with mock.patch("modules.outline.generator.PlotStructureParser", return_value=parser):
+    with mock.patch(
+        "modules.outline.generator.PlotStructureParser",
+        return_value=parser,
+        autospec=True,
+    ):
         result = await generator.generate(
             db=mock.AsyncMock(),
             novel_id="12345678-1234-5678-1234-567812345678",

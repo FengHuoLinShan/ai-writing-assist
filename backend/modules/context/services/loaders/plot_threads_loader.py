@@ -48,6 +48,17 @@ class PlotThreadsLoader(Loader):
             options.novel_id,
             chapter,
         )
+        selected_ids = {str(item) for item in options.thread_ids or []}
+        if isinstance(bundle.outline_arc, dict):
+            selected_ids.update(
+                str(item) for item in bundle.outline_arc.get("related_thread_ids") or []
+            )
+        if selected_ids:
+            selected = [thread for thread in threads if str(thread.id) in selected_ids]
+            remaining = [
+                thread for thread in threads if str(thread.id) not in selected_ids
+            ]
+            threads = [*selected, *remaining]
         bundle.plot_threads = [
             {
                 "id": t.id,
@@ -59,6 +70,8 @@ class PlotThreadsLoader(Loader):
                 "start_chapter": t.start_chapter,
                 "planned_payoff_chapter": t.planned_payoff_chapter,
                 "current_stage": t.current_stage,
+                "related_character_ids": list(t.related_character_ids or []),
+                "related_entity_ids": list(t.related_entity_ids or []),
                 "reader_known_state": t.reader_known_state,
                 "author_known_state": t.author_known_state,
                 "status": t.status,

@@ -51,6 +51,16 @@ Writing 模块是章节正文的事实源，同时负责在 fresh context confir
 | created_at | TIMESTAMP | 创建时间 |
 | updated_at | TIMESTAMP | 更新时间 |
 
+PostgreSQL 上同一 `novel_id + chapter_index` 的版本号分配使用事务级
+advisory lock 串行化，再读取历史最大版本号；因此首版和后续版本的并发创建
+都不会分配重复号。底层唯一约束继续作为最终防线，已废弃版本的号码也不复用。
+advisory key 稳定为 `writing_versions:{novel_id}:{chapter_index}`，多章时按章号
+升序取锁。同一把锁也覆盖 working 正文原地修改、latest content 更新和
+发布时的内容替换，并通过
+`facade.lock_chapter_versions_for_revalidation()` 允许独立 Scene task 在最终
+来源重验到资产提交期间阻止并发正文写入。SQLite 环境下该锁是 no-op，
+不改变现有单进程测试语义。
+
 ## 对外契约
 
 ```python
@@ -85,6 +95,7 @@ async def adopt_candidate_to_working(db: AsyncSession, novel_id: str, draft_id: 
 async def get_latest_draft_for_chapter(db: AsyncSession, novel_id: str, chapter_index: int) -> WritingDraftContract | None
 async def list_latest_drafts_for_chapters(db: AsyncSession, novel_id: str, chapter_indices: list[int], *, content_limit: int | None = None) -> list[WritingDraftContract]
 async def list_chapter_indices(db: AsyncSession, novel_id: str) -> list[int]
+async def lock_chapter_versions_for_revalidation(db: AsyncSession, novel_id: str, chapter_indices: list[int]) -> None
 async def list_manuscript_sources(db, novel_id, chapter_indices=None, *, content_mode="canonical") -> list[WritingDraftContract]
 async def grep_manuscript(db, novel_id, pattern, *, content_mode="canonical", ...) -> ManuscriptSearchPageContract
 async def read_manuscript_range(db, novel_id, source_ref, *, before_paragraphs=0, after_paragraphs=0) -> ManuscriptReadContract
@@ -93,6 +104,14 @@ async def build_manuscript_range_ref(db, novel_id, draft_id, start_offset, end_o
 
 通过 `facade.create_draft` 创建已发布正文版本并提交 `publish_chapter` 章节发布任务；`facade.create_published_draft_only` 只创建已发布正文版本，不入队；`facade.create_draft_only` 仅创建草稿，不会提交发布任务。facade create 系列返回跨模块 `WritingDraftContract`，API 层负责适配为 `WritingDraftResponse`。导入模块等内部调用方不需要直接访问 RAG 模块。
 AI 生成结果会在 `provenance_json` 中记录 `source_confirmation_id` 和来源任务。兼容期内底层仍以 `candidate` 保存建议，但 API/contract 投影为 `display_state=review` 和 `source=ai_generated`，不将其当作工作稿。
+
+`publish_chapter` 通过 RAG 的 task-only DI port 执行索引：先在 worker fence 下结束
+source-read checkpoint，再在无 PostgreSQL 事务时等待 embedding，入库前重验
+canonical draft ID/hash。RAG chunk/index state 成功后立即经 worker fence 提交并释放锁，
+memory snapshot 再以 `project FOR SHARE → memory` 的锁序开启新事务。若 RAG 已成功但
+snapshot 失败，任务重新从发布源发起时会合并 fresh RAG，只补做 snapshot；RAG 是
+可重建派生数据，已发布正文仍是事实源。项目删除或 task lease 丢失会使当前 checkpoint
+失败并回滚，不会跨 `novel_id` 写入。
 
 `canonical` 严格选择每章最新非废弃 `published` 版本；缺失时返回警告，
 不回退到 working。`working` 只选择已采用的 `draft / published / canonical` 兼容状态；未采用 `candidate` 不进入章节最新稿、项目统计、原文 grep 或 RAG working 来源。`SourceRangeRefContract`
@@ -133,10 +152,38 @@ POST /api/writing/conflict-checks                 → 创建剧情设定冲突�
 GET /api/writing/conflict-checks                  → 获取章节/Scene 检查历史
 GET /api/writing/conflict-checks/{id}             → 获取检查详情
 POST /api/writing/conflict-checks/{id}/ai-review  → 为检查追加 AI 软冲突判断
+POST /api/writing/conflict-checks/{id}/ai-review-task → 异步执行 AI 软冲突判断
 PATCH /api/writing/conflict-check-items/{id}      → 更新问题处理状态
 POST /api/writing/conflict-check-items/{id}/ai-suggestion → 生成单条问题 AI 修复建议
 POST /api/writing/generate                        → 从已确认 context 生成正文 candidate
 ```
+
+默认正文生成把模型定位为共同创作者，不使用固定字数、段落或节奏
+模板。当前编辑章关联 Scene 时，确认上下文会纳入该 Scene；同时包含
+当前活跃剧情线及与 Scene、篇章、剧情线或 RAG 证据关联的人物和物品。
+人物超出预算时取 Top 6，相关世界对象超出预算时取 Top 16。输出仍只是
+`candidate`，不会自动采用、覆盖或发布。
+
+当确认上下文同时指定当前 Scene、`reveal_mode=character` 和
+POV 人物时，生成使用单角色有限视角。这不强制第一人称，
+也不预设对话、动作、描写或内心戏比例。模型输出一个结构化对象：
+`draft_prose` 是主要正文候选，`pov_state` 仅保留可检查的感知事实、
+解读、当前意图和已知但隐矒的信息，`uncertainties` 仅记录
+实质影响写作的资料不确定性。Scene 和剧情线导演信息可以引导
+情节，但不得变成 POV 角色已知事实；输出还会经过确定性
+hidden guard 检查，但仍只保存为待审阅 candidate。
+
+`writing_generate` 入队时同时保存 secret-free 项目 LLM execution snapshot；兼容旧任务
+会先在 worker lease fence 下冻结并持久化一次，重试继续复用同一 snapshot。task-only
+generation seam 在 prepare 阶段冻结 rendered context、完整 confirmation/evidence 指纹、
+prompt/request、生成 profile 和 POV hidden guard terms，随后提交并清空 identity map；真实
+LLM、POV 解析、正文/标题清洗、hidden guard 与 provenance 组装均在无数据库事务阶段完成。
+finalize 按 project-first 锁序重新验证项目和完整 confirmed context/hidden evidence 指纹，
+profile 与当前最新 running task owner；只有 fresh 结果才在同一最终 worker
+transaction 中创建 candidate 并绑定 confirmation。同一 confirmation 重复入队时，
+最后绑定的 task 取代旧 task，旧结果不会写入。
+上下文漂移、项目删除、取消或 lease 丢失均不会留下 candidate。同步
+`WritingGenerationService.generate_candidate()` 仍保留原调用语义且不自行 commit。
 
 版本历史是审计视图：按 `version_number` 倒序返回 active、review 和
 archived 全部记录，`total` 与返回集合一致。列表项的 `display_state`
@@ -181,6 +228,7 @@ split provider 同步 Scene chunk；该操作不入队 `publish_chapter`。
 Phase 2 AI 能力是显式追加，不影响规则层检查：
 
 - `POST /api/writing/conflict-checks/{id}/ai-review` 需要 `context_confirmation_id`，且确认记录 action 必须是 `writing.conflict_check.ai_review`。
+- `/ai-review-task` 在入队事务中保存 secret-free 项目 LLM execution snapshot 和内部 task owner；worker 只允许在带 lease commit fence 的 task session 中运行。prepare 阶段读取并锁定当前检查/问题、重建已确认上下文后提交，真实 LLM 等待期间不持有数据库事务；finalize 再检查项目、确认上下文、检查及问题的语义指纹。输入漂移或任务被更新任务取代时不会追加旧结果，内部 owner 不进入 API 或发布快照。同步 `/ai-review` 的既有单事务语义不变。
 - AI 软冲突判断保存为 `is_ai_judgment=true` 的问题项，保留 `source_confirmation_id`、`confidence`、`llm_rationale`；包含待确认对象或依赖待确认对象时标记 `needs_review=true`。
 - LLM 输出逐条校验；非法条目丢弃并记录到 `summary_json.ai_review.discarded_count`，LLM 失败只把 `ai_review_status` 置为 `failed`，不删除规则层结果。
 - `POST /api/writing/conflict-check-items/{id}/ai-suggestion` 需要 action 为 `writing.conflict_check.ai_suggestion` 的确认记录，只把最新建议写入该问题项，不修改正文、Scene、地图、世界对象、记忆或正史资产。

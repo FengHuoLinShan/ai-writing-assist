@@ -97,6 +97,7 @@ async def test_parse_falls_back_to_per_item_validation(
             fake_client,
             "generate_structured",
             side_effect=ValidationError.from_exception_data("GeneratedOutput", []),
+            autospec=True,
         ) as mock_structured,
         mock.patch.object(
             fake_client,
@@ -104,6 +105,7 @@ async def test_parse_falls_back_to_per_item_validation(
             return_value=LLMCallResponse(
                 content='{"plot_threads": [{"name": "主线", "thread_type": "main"}]}'
             ),
+            autospec=True,
         ) as mock_generate,
     ):
         result = await parser.parse(fake_client, "gpt-4", 1, 3)

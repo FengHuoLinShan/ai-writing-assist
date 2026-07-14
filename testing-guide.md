@@ -44,13 +44,27 @@ Three layers:
 | `make test-fast-coverage TEST_WORKERS=2` | Same fast layer with parallel production-code coverage and an 85% gate | None |
 | `make secret-hygiene` | Tracked/indexed runtime env, private-key, and high-confidence credential gate | Git working tree; no Python dependency install required |
 | `make test-integration` | SQLite cross-module flows | None |
-| `make test-e2e` | PostgreSQL/pgvector behavior | Running test database at Alembic head; fails fast if unavailable or stale |
+| `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e` | PostgreSQL/pgvector behavior | Explicit dedicated test database at Alembic head; fails fast if missing, non-dedicated, unavailable, or stale |
 | `make test-real-llm` | Explicit SQLite real-model acceptance | Configured provider credentials |
-| `make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt` | Real source corpus and PostgreSQL/real-model acceptance | Source path, PostgreSQL, and configured provider credentials |
+| `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt` | Real source corpus and PostgreSQL/real-model acceptance | Source path, dedicated PostgreSQL, and configured provider credentials |
 
 `pytest` uses the same fast test paths by default. Every marker is strict: use
 `real_llm` for a remote provider call and `external_data` for a user-supplied
 local corpus. Neither may enter the default fast layer.
+
+PostgreSQL E2E additionally installs a function-loop-scoped global
+`DatabaseManager` that is bound to the same explicit `E2E_DATABASE_URL` as the
+fixture session. The URL must use PostgreSQL and name a dedicated database with
+a standalone `audit`, `e2e`, or `test` marker; no default URL exists, and the
+developer `ai_novel_engine` database is rejected before any engine is created.
+The fixture compares normalized backend, host (including canonical IPv6), port,
+and the exact database name, fails closed on any mismatch, and awaits engine
+disposal before that test loop exits. While the isolated scope is active,
+resetting, losing, or replacing the global manager also fails closed instead of
+rebuilding it from ordinary application settings. This covers production paths
+that intentionally open an independent session instead of using FastAPI's
+overridden `get_db`; tests must not suppress async connection cleanup warnings
+or silently fall back to the developer database.
 
 ### Continuous integration
 

@@ -40,6 +40,7 @@ class ParallelSceneEntityExtractor:
         bulk_error_kind: str | None,
         include_alias_relations: bool = True,
         existing_checkpoints: dict[str, dict[str, Any]] | None = None,
+        existing_alias_relation_checkpoints: dict[str, Any] | None = None,
         visible_until_chapter: int | None = None,
     ) -> dict[str, Any]:
         service = self.service
@@ -49,43 +50,11 @@ class ParallelSceneEntityExtractor:
         llm_timeout_seconds = phase2_parallel_llm_timeout_seconds()
         prepared: list[dict[str, Any]] = []
         skipped_checkpoints: list[dict[str, Any]] = []
+        rerun_scenes = 0
         for scene_idx, scene in enumerate(scenes):
             previous = (existing_checkpoints or {}).get(service._scene_id(scene))
             previous_status = (previous or {}).get("status")
             previous_retries = int((previous or {}).get("retry_count") or 0)
-            if previous_status == "done":
-                skipped_checkpoints.append(
-                    service._build_scene_checkpoint(
-                        scene,
-                        status="skipped",
-                        workflow_id=workflow_id,
-                        scene_provenance_key=service._scene_provenance_key(
-                            workflow_id,
-                            scene,
-                        ),
-                        retry_count=previous_retries,
-                        created_entity_ids=previous.get("created_entity_ids", []),
-                        created_relation_ids=previous.get("created_relation_ids", []),
-                        created_delta_ids=previous.get("created_delta_ids", []),
-                    )
-                )
-                continue
-            if previous_status == "quality_failed" and previous_retries >= 1:
-                skipped_checkpoints.append(
-                    service._build_scene_checkpoint(
-                        scene,
-                        status="skipped",
-                        workflow_id=workflow_id,
-                        scene_provenance_key=service._scene_provenance_key(
-                            workflow_id,
-                            scene,
-                        ),
-                        retry_count=previous_retries,
-                        error="quality_rerun_exhausted",
-                        error_kind="quality_rerun_exhausted",
-                    )
-                )
-                continue
             if service._has_persistent_scene_id(scene):
                 activation_kwargs: dict[str, Any] = {
                     "novel_id": str(nid),
@@ -120,6 +89,51 @@ class ParallelSceneEntityExtractor:
                     "budget_events": [],
                     "warnings": ["transient_scene_compatibility_adapter"],
                 }
+            input_fingerprint = service._scene_input_fingerprint(scene, chapters_text)
+            fingerprint_matches = bool(
+                previous and previous.get("input_fingerprint") == input_fingerprint
+            )
+            if previous_status in {"done", "skipped"} and fingerprint_matches:
+                skipped_checkpoints.append(
+                    service._build_scene_checkpoint(
+                        scene,
+                        status="skipped",
+                        workflow_id=workflow_id,
+                        scene_provenance_key=service._scene_provenance_key(
+                            workflow_id,
+                            scene,
+                        ),
+                        retry_count=previous_retries,
+                        created_entity_ids=previous.get("created_entity_ids", []),
+                        created_relation_ids=previous.get("created_relation_ids", []),
+                        created_delta_ids=previous.get("created_delta_ids", []),
+                        input_fingerprint=input_fingerprint,
+                    )
+                )
+                continue
+            if (
+                previous_status == "quality_failed"
+                and previous_retries >= 1
+                and fingerprint_matches
+            ):
+                skipped_checkpoints.append(
+                    service._build_scene_checkpoint(
+                        scene,
+                        status="skipped",
+                        workflow_id=workflow_id,
+                        scene_provenance_key=service._scene_provenance_key(
+                            workflow_id,
+                            scene,
+                        ),
+                        retry_count=previous_retries,
+                        error="quality_rerun_exhausted",
+                        error_kind="quality_rerun_exhausted",
+                        input_fingerprint=input_fingerprint,
+                    )
+                )
+                continue
+            if previous_status is not None:
+                rerun_scenes += 1
             if not chapters_text:
                 prepared.append(
                     {
@@ -131,6 +145,7 @@ class ParallelSceneEntityExtractor:
                         "world_context": world_context,
                         "activation": activation_metadata,
                         "snapshot_id": None,
+                        "input_fingerprint": input_fingerprint,
                     }
                 )
                 continue
@@ -156,6 +171,7 @@ class ParallelSceneEntityExtractor:
                     "world_context": world_context,
                     "activation": activation_metadata,
                     "snapshot_id": snapshot.id,
+                    "input_fingerprint": input_fingerprint,
                 }
             )
 
@@ -265,6 +281,7 @@ class ParallelSceneEntityExtractor:
                         error_kind=error_kind,
                         activation_version=item["activation"]["activation_version"],
                         activation_source_count=len(item["activation"]["sources"]),
+                        input_fingerprint=item["input_fingerprint"],
                     )
                 )
                 if on_scene_progress is not None:
@@ -295,6 +312,7 @@ class ParallelSceneEntityExtractor:
                         ),
                         activation_version=item["activation"]["activation_version"],
                         activation_source_count=len(item["activation"]["sources"]),
+                        input_fingerprint=item["input_fingerprint"],
                     )
                 )
                 if not missing_current_evidence:
@@ -372,6 +390,7 @@ class ParallelSceneEntityExtractor:
                         error_kind=error_kind,
                         activation_version=item["activation"]["activation_version"],
                         activation_source_count=len(item["activation"]["sources"]),
+                        input_fingerprint=item["input_fingerprint"],
                     )
                 )
                 if on_scene_progress is not None:
@@ -407,6 +426,7 @@ class ParallelSceneEntityExtractor:
                     created_delta_ids=service._result_ref_ids(result_refs, "delta_log"),
                     activation_version=item["activation"]["activation_version"],
                     activation_source_count=len(item["activation"]["sources"]),
+                    input_fingerprint=item["input_fingerprint"],
                 )
             )
             try:
@@ -467,8 +487,8 @@ class ParallelSceneEntityExtractor:
                 if item.get("error") is not None
             ],
             "completed_scenes": completed_scenes,
-            "skipped_scenes": len(unresolved_scene_indices),
-            "rerun_scenes": 0,
+            "skipped_scenes": len(skipped_checkpoints) + len(unresolved_scene_indices),
+            "rerun_scenes": rerun_scenes,
             "quality_failed_scene_ids": [],
             "unresolved_scene_indices": unresolved_scene_indices,
             "unresolved_scene_ids": unresolved_scene_ids,
@@ -497,6 +517,7 @@ class ParallelSceneEntityExtractor:
                 nid,
                 scenes,
                 workflow_id=workflow_id,
+                existing_checkpoints=existing_alias_relation_checkpoints,
             )
         else:
             alias_result = {"alias_relation_skipped": True}

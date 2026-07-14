@@ -12,7 +12,6 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ValidationError
@@ -22,7 +21,11 @@ from modules.memory.contracts import (
     MemoryDeltaIngestResult,
 )
 from modules.memory.models import DeltaLog
-from modules.memory.repositories import EventRepository, SnapshotRepository
+from modules.memory.repositories import (
+    DeltaLogRepository,
+    EventRepository,
+    SnapshotRepository,
+)
 from modules.memory.schemas import (
     ChapterPanorama,
     CharacterLocationInPanorama,
@@ -42,6 +45,8 @@ logger = logging.getLogger(__name__)
 
 _SNAPSHOT_INTERVAL = 10  # K=10
 MEMORY_REPLAY_EVENT_BATCH_SIZE = 500
+MEMORY_EVENT_LIST_BATCH_SIZE = 500
+DELTA_ROLLBACK_BATCH_SIZE = 500
 MAX_MEMORY_EVENTS_PER_CHAPTER = 500
 MAX_MEMORY_EVENT_PAYLOAD_CHARS = 20000
 
@@ -53,9 +58,11 @@ class MemoryService:
         self,
         event_repo: EventRepository | None = None,
         snapshot_repo: SnapshotRepository | None = None,
+        delta_log_repo: DeltaLogRepository | None = None,
     ) -> None:
         self._event_repo = event_repo or EventRepository()
         self._snapshot_repo = snapshot_repo or SnapshotRepository()
+        self._delta_log_repo = delta_log_repo or DeltaLogRepository()
 
     # ============================================================
     # 事件记录
@@ -281,18 +288,10 @@ class MemoryService:
     ) -> int:
         """Count auto-ingested deep import DeltaLogs for cleanup reporting."""
         nid = parse_uuid(novel_id, "novel_id")
-        stmt = select(DeltaLog).where(
-            DeltaLog.novel_id == nid,
-            DeltaLog.source == "deep_import",
-        )
-        result = await db.execute(stmt)
-        items = result.scalars().all()
-        return sum(
-            1
-            for item in items
-            if (item.meta or {}).get("workflow_id") == workflow_id
-            and (item.meta or {}).get("auto_ingested") is True
-            and (item.meta or {}).get("rolled_back") is not True
+        return await self._delta_log_repo.count_active_by_workflow(
+            db,
+            nid,
+            workflow_id,
         )
 
     async def rollback_deep_import_delta_logs_by_workflow(
@@ -303,36 +302,36 @@ class MemoryService:
     ) -> int:
         """Mark workflow-owned import deltas as rolled back without erasing audit data."""
         nid = parse_uuid(novel_id, "novel_id")
-        stmt = (
-            select(DeltaLog)
-            .where(
-                DeltaLog.novel_id == nid,
-                DeltaLog.source == "deep_import",
-            )
-            .with_for_update()
-        )
-        result = await db.execute(stmt)
         rolled_back_at = datetime.now(UTC).isoformat()
         count = 0
-        for item in result.scalars().all():
-            meta = dict(item.meta or {})
-            if (
-                meta.get("workflow_id") != workflow_id
-                or meta.get("auto_ingested") is not True
-                or meta.get("rolled_back") is True
-            ):
-                continue
-            meta.update(
-                {
-                    "rolled_back": True,
-                    "rolled_back_at": rolled_back_at,
-                    "rollback_reason": "workflow_abandoned",
-                }
+        cursor: uuid.UUID | None = None
+        while True:
+            page = await self._delta_log_repo.get_active_by_workflow_page_after(
+                db,
+                nid,
+                workflow_id,
+                after_id=cursor,
+                limit=DELTA_ROLLBACK_BATCH_SIZE,
+                for_update=True,
             )
-            item.meta = meta
-            db.add(item)
-            count += 1
-        await db.flush()
+            if not page:
+                break
+            for item in page:
+                meta = dict(item.meta or {})
+                meta.update(
+                    {
+                        "rolled_back": True,
+                        "rolled_back_at": rolled_back_at,
+                        "rollback_reason": "workflow_abandoned",
+                    }
+                )
+                item.meta = meta
+                db.add(item)
+                count += 1
+            cursor = page[-1].id
+            await db.flush()
+            if len(page) < DELTA_ROLLBACK_BATCH_SIZE:
+                break
         return count
 
     # ============================================================
@@ -459,14 +458,29 @@ class MemoryService:
     ) -> EventListResponse:
         """按章节范围查询事件列表"""
         nid = parse_uuid(novel_id)
-        events = await self._event_repo.get_by_chapter_range(
-            db,
-            nid,
-            from_chapter,
-            to_chapter,
+        total = await self._event_repo.count_by_chapter_range(
+            db, nid, from_chapter, to_chapter
         )
-        items = [MemoryEventResponse.model_validate(e) for e in events]
-        return EventListResponse(items=items, total=len(items))
+        items: list[MemoryEventResponse] = []
+        cursor: tuple[int, int, uuid.UUID] | None = None
+        while len(items) < total:
+            remaining = total - len(items)
+            page = await self._event_repo.get_by_chapter_range_page_after(
+                db,
+                nid,
+                from_chapter,
+                to_chapter,
+                after=cursor,
+                limit=min(MEMORY_EVENT_LIST_BATCH_SIZE, remaining),
+            )
+            if not page:
+                break
+            items.extend(MemoryEventResponse.model_validate(event) for event in page)
+            last = page[-1]
+            cursor = (last.chapter_index, last.sequence, last.id)
+            if len(page) < MEMORY_EVENT_LIST_BATCH_SIZE:
+                break
+        return EventListResponse(items=items, total=total)
 
     async def get_entity_timeline(
         self,
@@ -507,33 +521,18 @@ class MemoryService:
     ) -> MemoryStatusResponse:
         """获取 memory 模块当前状态"""
         nid = parse_uuid(novel_id)
-        snapshots = await self._snapshot_repo.list_for_novel(db, nid)
-
-        if not snapshots:
-            return MemoryStatusResponse(
-                novel_id=novel_id,
-                latest_chapter=None,
-                latest_snapshot_chapter=None,
-                has_stale=False,
-                stale_from_chapter=None,
-            )
-
-        latest_current = max(
-            (s.chapter_index for s in snapshots if s.status == "current"),
-            default=None,
-        )
-        stale_snapshots = [s for s in snapshots if s.status == "stale"]
-        stale_from = (
-            min((s.chapter_index for s in stale_snapshots), default=None)
-            if stale_snapshots
-            else None
-        )
+        (
+            snapshot_count,
+            latest_chapter,
+            latest_current,
+            stale_from,
+        ) = await self._snapshot_repo.get_status_summary(db, nid)
 
         return MemoryStatusResponse(
             novel_id=novel_id,
-            latest_chapter=max(s.chapter_index for s in snapshots),
+            latest_chapter=latest_chapter if snapshot_count else None,
             latest_snapshot_chapter=latest_current,
-            has_stale=len(stale_snapshots) > 0,
+            has_stale=stale_from is not None,
             stale_from_chapter=stale_from,
         )
 
@@ -558,8 +557,12 @@ class MemoryService:
         nid = parse_uuid(novel_id)
         from modules.world.facade import get_full_state
 
-        # 清理旧数据
-        await self._snapshot_repo.delete_stale(db, nid)
+        # Preserve snapshot history: rebuilt current snapshots are superseded,
+        # not hard-deleted.  Snapshots before the correction point remain valid.
+        await self._snapshot_repo.mark_stale_from(db, nid, from_chapter)
+        max_chapter = await self._event_repo.get_max_chapter_in_range(
+            db, nid, from_chapter, 999999
+        )
         await self._event_repo.delete_from_chapter(db, nid, from_chapter)
 
         # 获取基准状态（from_chapter 之前的状态）
@@ -586,9 +589,6 @@ class MemoryService:
             await self.record_events(db, novel_id, from_chapter, all_events)
 
         # 重建快照（每 K 章一个，加上最新章）
-        max_chapter = await self._event_repo.get_max_chapter_in_range(
-            db, nid, from_chapter, 999999
-        )
         final_chapter = max_chapter or from_chapter
 
         rebuilt_count = 0

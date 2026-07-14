@@ -117,6 +117,7 @@ class BulkSceneEntityExtractor:
         )
         draft_by_chapter = {draft.chapter_index: draft for draft in drafts}
         scene_texts: list[str] = []
+        input_fingerprints: dict[str, str] = {}
         for scene, chapter_indices, chunk_by_chapter in scene_chapter_payloads:
             text = scene_text_from_drafts(
                 service,
@@ -124,6 +125,9 @@ class BulkSceneEntityExtractor:
                 chapter_indices,
                 chunk_by_chapter,
                 draft_by_chapter,
+            )
+            input_fingerprints[service._scene_id(scene)] = (
+                service._scene_input_fingerprint(scene, text)
             )
             if text:
                 scene_texts.append(f"### Scene {scene.get('scene_index')}\n\n{text}")
@@ -135,6 +139,7 @@ class BulkSceneEntityExtractor:
                 "created_entity_ids": [],
                 "created_relation_ids": [],
                 "created_delta_ids": [],
+                "input_fingerprints": input_fingerprints,
             }
 
         chapters_text = "\n\n".join(scene_texts)
@@ -246,6 +251,7 @@ class BulkSceneEntityExtractor:
             ),
             "created_delta_ids": service._result_ref_ids(result_refs, "delta_log"),
             "structured_format_diagnostics": format_diagnostics[:20],
+            "input_fingerprints": input_fingerprints,
         }
 
     async def supplement_small_sample(

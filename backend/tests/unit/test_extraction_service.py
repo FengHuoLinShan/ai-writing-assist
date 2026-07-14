@@ -257,11 +257,11 @@ def _setup_llm(mock_llm_client, *, return_value=None):
 class TestEntityExtractionService:
     """EntityExtractionService 单元测试 — 验证实体抽取、去重、错误处理与上下文累积"""
 
-    @mock.patch("modules.project.facade.get_project_context", new_callable=mock.AsyncMock)
-    @mock.patch("modules.world.facade.find_entity_id_by_name")
-    @mock.patch("modules.world.facade.get_world_context")
-    @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
-    @mock.patch("infrastructure.llm.client.LLMClient")
+    @mock.patch("modules.project.facade.get_project_context", autospec=True)
+    @mock.patch("modules.world.facade.find_entity_id_by_name", autospec=True)
+    @mock.patch("modules.world.facade.get_world_context", autospec=True)
+    @mock.patch("infrastructure.llm.prompt_loader.load_prompt", autospec=True)
+    @mock.patch("infrastructure.llm.client.LLMClient", autospec=True)
     async def test_extract_entities_uses_project_llm_profile(
         self,
         mock_llm_client,
@@ -297,10 +297,10 @@ class TestEntityExtractionService:
         assert result.total_created == 2
         mock_llm_client.from_project_settings.assert_called_once_with(profile)
 
-    @mock.patch("modules.world.facade.find_entity_id_by_name")
-    @mock.patch("modules.world.facade.get_world_context")
-    @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
-    @mock.patch("infrastructure.llm.client.LLMClient")
+    @mock.patch("modules.world.facade.find_entity_id_by_name", autospec=True)
+    @mock.patch("modules.world.facade.get_world_context", autospec=True)
+    @mock.patch("infrastructure.llm.prompt_loader.load_prompt", autospec=True)
+    @mock.patch("infrastructure.llm.client.LLMClient", autospec=True)
     async def test_extract_entities_from_chapters_with_create_new_action_creates_entities(
         self,
         mock_llm_client,
@@ -336,10 +336,10 @@ class TestEntityExtractionService:
         assert result.total_chapters == 1
         assert result.items[0]["name"] == "白砚"
 
-    @mock.patch("modules.world.facade.find_entity_id_by_name")
-    @mock.patch("modules.world.facade.get_world_context")
-    @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
-    @mock.patch("infrastructure.llm.client.LLMClient")
+    @mock.patch("modules.world.facade.find_entity_id_by_name", autospec=True)
+    @mock.patch("modules.world.facade.get_world_context", autospec=True)
+    @mock.patch("infrastructure.llm.prompt_loader.load_prompt", autospec=True)
+    @mock.patch("infrastructure.llm.client.LLMClient", autospec=True)
     @pytest.mark.parametrize(
         "action,expected_created,expected_skipped",
         [
@@ -393,11 +393,11 @@ class TestEntityExtractionService:
         assert result.total_created == expected_created
         assert result.total_skipped == expected_skipped
 
-    @mock.patch("modules.world.services.core.extraction_service.logger")
-    @mock.patch("modules.world.facade.find_entity_id_by_name")
-    @mock.patch("modules.world.facade.get_world_context")
-    @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
-    @mock.patch("infrastructure.llm.client.LLMClient")
+    @mock.patch("modules.world.services.core.extraction_service.logger", autospec=True)
+    @mock.patch("modules.world.facade.find_entity_id_by_name", autospec=True)
+    @mock.patch("modules.world.facade.get_world_context", autospec=True)
+    @mock.patch("infrastructure.llm.prompt_loader.load_prompt", autospec=True)
+    @mock.patch("infrastructure.llm.client.LLMClient", autospec=True)
     @pytest.mark.parametrize(
         "exception_cls,expected_log,want_exc_info",
         [
@@ -458,10 +458,10 @@ class TestEntityExtractionService:
             if want_exc_info:
                 assert _call_kwargs.kwargs.get("exc_info", False) is True
 
-    @mock.patch("modules.world.facade.find_entity_id_by_name")
-    @mock.patch("modules.world.facade.get_world_context")
-    @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
-    @mock.patch("infrastructure.llm.client.LLMClient")
+    @mock.patch("modules.world.facade.find_entity_id_by_name", autospec=True)
+    @mock.patch("modules.world.facade.get_world_context", autospec=True)
+    @mock.patch("infrastructure.llm.prompt_loader.load_prompt", autospec=True)
+    @mock.patch("infrastructure.llm.client.LLMClient", autospec=True)
     async def test_extract_entities_from_chapters_with_name_embedding_match_skips_entity(
         self,
         mock_llm_client,
@@ -510,10 +510,10 @@ class TestEntityExtractionService:
             for call in mock_llm_client.return_value.generate_embedding.call_args_list
         )
 
-    @mock.patch("modules.world.facade.find_entity_id_by_name")
-    @mock.patch("modules.world.facade.get_world_context")
-    @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
-    @mock.patch("infrastructure.llm.client.LLMClient")
+    @mock.patch("modules.world.facade.find_entity_id_by_name", autospec=True)
+    @mock.patch("modules.world.facade.get_world_context", autospec=True)
+    @mock.patch("infrastructure.llm.prompt_loader.load_prompt", autospec=True)
+    @mock.patch("infrastructure.llm.client.LLMClient", autospec=True)
     async def test_content_embedding_match_skips_entity(
         self,
         mock_llm_client,
@@ -569,10 +569,10 @@ class TestEntityExtractionService:
             for call in mock_llm_client.return_value.generate_embedding.call_args_list
         )
 
-    @mock.patch("modules.world.facade.find_entity_id_by_name")
-    @mock.patch("modules.world.facade.get_world_context")
-    @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
-    @mock.patch("infrastructure.llm.client.LLMClient")
+    @mock.patch("modules.world.facade.find_entity_id_by_name", autospec=True)
+    @mock.patch("modules.world.facade.get_world_context", autospec=True)
+    @mock.patch("infrastructure.llm.prompt_loader.load_prompt", autospec=True)
+    @mock.patch("infrastructure.llm.client.LLMClient", autospec=True)
     async def test_multiple_create_new_entities_use_batched_embeddings(
         self,
         mock_llm_client,
@@ -611,10 +611,10 @@ class TestEntityExtractionService:
         assert storage_call.args[0] == ["白砚", "霜华剑"]
         assert storage_call.kwargs == {"is_query": False}
 
-    @mock.patch("modules.world.facade.find_entity_id_by_name")
-    @mock.patch("modules.world.facade.get_world_context")
-    @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
-    @mock.patch("infrastructure.llm.client.LLMClient")
+    @mock.patch("modules.world.facade.find_entity_id_by_name", autospec=True)
+    @mock.patch("modules.world.facade.get_world_context", autospec=True)
+    @mock.patch("infrastructure.llm.prompt_loader.load_prompt", autospec=True)
+    @mock.patch("infrastructure.llm.client.LLMClient", autospec=True)
     async def test_ignore_and_link_to_existing_do_not_enter_embedding_batches(
         self,
         mock_llm_client,
@@ -669,10 +669,10 @@ class TestEntityExtractionService:
         assert query_call.args[0] == ["白砚", "主角"]
         assert storage_call.args[0] == ["白砚"]
 
-    @mock.patch("modules.world.facade.find_entity_id_by_name")
-    @mock.patch("modules.world.facade.get_world_context")
-    @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
-    @mock.patch("infrastructure.llm.client.LLMClient")
+    @mock.patch("modules.world.facade.find_entity_id_by_name", autospec=True)
+    @mock.patch("modules.world.facade.get_world_context", autospec=True)
+    @mock.patch("infrastructure.llm.prompt_loader.load_prompt", autospec=True)
+    @mock.patch("infrastructure.llm.client.LLMClient", autospec=True)
     async def test_embedding_batch_failure_still_creates_entity(
         self,
         mock_llm_client,
@@ -710,10 +710,10 @@ class TestEntityExtractionService:
         name_dedup_call = service._dedup_service.find_similar_entities.call_args_list[0]
         assert name_dedup_call.kwargs["query_embedding"] is None
 
-    @mock.patch("modules.world.facade.find_entity_id_by_name")
-    @mock.patch("modules.world.facade.get_world_context")
-    @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
-    @mock.patch("infrastructure.llm.client.LLMClient")
+    @mock.patch("modules.world.facade.find_entity_id_by_name", autospec=True)
+    @mock.patch("modules.world.facade.get_world_context", autospec=True)
+    @mock.patch("infrastructure.llm.prompt_loader.load_prompt", autospec=True)
+    @mock.patch("infrastructure.llm.client.LLMClient", autospec=True)
     async def test_embedding_batch_length_mismatch_does_not_misassign_vectors(
         self,
         mock_llm_client,
@@ -760,10 +760,10 @@ class TestEntityExtractionService:
             not hasattr(entity, "embedding") for entity in service._test_created_entities
         )
 
-    @mock.patch("modules.world.facade.find_entity_id_by_name")
-    @mock.patch("modules.world.facade.get_world_context")
-    @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
-    @mock.patch("infrastructure.llm.client.LLMClient")
+    @mock.patch("modules.world.facade.find_entity_id_by_name", autospec=True)
+    @mock.patch("modules.world.facade.get_world_context", autospec=True)
+    @mock.patch("infrastructure.llm.prompt_loader.load_prompt", autospec=True)
+    @mock.patch("infrastructure.llm.client.LLMClient", autospec=True)
     async def test_multiple_chapters_accumulate_context(
         self,
         mock_llm_client,
@@ -824,10 +824,10 @@ class TestEntityExtractionService:
         assert "白砚" in context_snapshots[2]
         assert "霜华剑" in context_snapshots[2]
 
-    @mock.patch("modules.world.facade.find_entity_id_by_name")
-    @mock.patch("modules.world.facade.get_world_context")
-    @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
-    @mock.patch("infrastructure.llm.client.LLMClient")
+    @mock.patch("modules.world.facade.find_entity_id_by_name", autospec=True)
+    @mock.patch("modules.world.facade.get_world_context", autospec=True)
+    @mock.patch("infrastructure.llm.prompt_loader.load_prompt", autospec=True)
+    @mock.patch("infrastructure.llm.client.LLMClient", autospec=True)
     async def test_empty_entities_returns_zero_created(
         self,
         mock_llm_client,
@@ -861,10 +861,10 @@ class TestEntityExtractionService:
         assert result.total_chapters == 1
         assert mock_load_prompt.call_count == 1
 
-    @mock.patch("modules.world.facade.find_entity_id_by_name")
-    @mock.patch("modules.world.facade.get_world_context")
-    @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
-    @mock.patch("infrastructure.llm.client.LLMClient")
+    @mock.patch("modules.world.facade.find_entity_id_by_name", autospec=True)
+    @mock.patch("modules.world.facade.get_world_context", autospec=True)
+    @mock.patch("infrastructure.llm.prompt_loader.load_prompt", autospec=True)
+    @mock.patch("infrastructure.llm.client.LLMClient", autospec=True)
     async def test_empty_name_skips_entity(
         self,
         mock_llm_client,
@@ -898,10 +898,10 @@ class TestEntityExtractionService:
         assert result.total_created == 0
         assert service._suggestion_queue.create_core_entity_suggestion.call_count == 0
 
-    @mock.patch("modules.world.facade.find_entity_id_by_name")
-    @mock.patch("modules.world.facade.get_world_context")
-    @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
-    @mock.patch("infrastructure.llm.client.LLMClient")
+    @mock.patch("modules.world.facade.find_entity_id_by_name", autospec=True)
+    @mock.patch("modules.world.facade.get_world_context", autospec=True)
+    @mock.patch("infrastructure.llm.prompt_loader.load_prompt", autospec=True)
+    @mock.patch("infrastructure.llm.client.LLMClient", autospec=True)
     async def test_embedding_failure_still_creates_entity(
         self,
         mock_llm_client,
@@ -937,10 +937,10 @@ class TestEntityExtractionService:
         assert result.total_created == 1
         assert result.total_skipped == 0
 
-    @mock.patch("modules.world.facade.find_entity_id_by_name")
-    @mock.patch("modules.world.facade.get_world_context")
-    @mock.patch("infrastructure.llm.prompt_loader.load_prompt")
-    @mock.patch("infrastructure.llm.client.LLMClient")
+    @mock.patch("modules.world.facade.find_entity_id_by_name", autospec=True)
+    @mock.patch("modules.world.facade.get_world_context", autospec=True)
+    @mock.patch("infrastructure.llm.prompt_loader.load_prompt", autospec=True)
+    @mock.patch("infrastructure.llm.client.LLMClient", autospec=True)
     async def test_extract_entities_from_chapters_with_empty_chapters_raises_400(
         self,
         mock_llm_client,

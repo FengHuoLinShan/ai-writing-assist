@@ -94,6 +94,12 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
   }
 
   function bindEvents(container) {
+    _clearCursorDebounceTimer()
+    if (editor._boundSelectionChange) {
+      document.removeEventListener("selectionchange", editor._boundSelectionChange)
+      editor._boundSelectionChange = null
+    }
+
     const titleInput = container.querySelector("#writing-title-input")
     if (titleInput) {
       titleInput.oninput = () => {
@@ -106,7 +112,6 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
 
     const editorEl = container.querySelector("#writing-editor")
     if (editorEl) {
-      _clearCursorDebounceTimer()
       editorEl.oninput = () => {
         editor._editRevision += 1
         editor._currentContent = editorEl.value
@@ -116,10 +121,6 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
       }
       editorEl.onclick = null
       editorEl.onkeyup = null
-      if (editor._boundSelectionChange) {
-        document.removeEventListener("selectionchange", editor._boundSelectionChange)
-      }
-
       const updateCursorScene = () => {
         if (document.activeElement !== editorEl) return
         editor._cursorOffset = editorEl.selectionStart || 0
@@ -141,14 +142,14 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
     }
 
     container.querySelectorAll('[data-action="adopt-draft-candidate"]').forEach((btn) => {
-      btn.addEventListener("click", async () => {
+      btn.onclick = async () => {
         btn.disabled = true
         try {
           await adoptDraftCandidate()
         } finally {
           if (editor._draftStatus === "candidate") btn.disabled = false
         }
-      })
+      }
     })
   }
 

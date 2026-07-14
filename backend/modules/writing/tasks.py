@@ -12,6 +12,41 @@ from infrastructure.tasks.registry import task_handler
 logger = logging.getLogger(__name__)
 
 _MAX_RETRIES = 3
+_LEGACY_UNOWNED_AI_REVIEW_KEY = "_legacy_unowned_ai_review"
+
+
+async def _require_llm_execution_snapshot(
+    db,
+    task,
+    meta: dict,
+    novel_id: str,
+    *,
+    legacy_meta_key: str | None = _LEGACY_UNOWNED_AI_REVIEW_KEY,
+) -> tuple[dict, bool]:
+    """Return the frozen profile and whether this is an owner-less legacy task."""
+    from infrastructure.tasks.facade import require_task_checkpoint_session
+
+    require_task_checkpoint_session(db)
+    snapshot = meta.get("llm_execution_snapshot")
+    if isinstance(snapshot, dict) and snapshot:
+        return dict(snapshot), bool(legacy_meta_key and meta.get(legacy_meta_key, False))
+
+    from modules.project.facade import (
+        build_project_llm_execution_snapshot,
+        require_active_project,
+    )
+
+    await require_active_project(db, novel_id)
+    snapshot = await build_project_llm_execution_snapshot(db, novel_id)
+    task_meta = {**meta, "llm_execution_snapshot": snapshot}
+    if legacy_meta_key:
+        task_meta[legacy_meta_key] = True
+    task.meta = task_meta
+    await db.commit()
+    if db.in_transaction():
+        raise RuntimeError("writing task snapshot checkpoint must close the transaction")
+    db.expire_all()
+    return snapshot, bool(legacy_meta_key)
 
 
 @asynccontextmanager
@@ -49,35 +84,19 @@ async def handle_publish_chapter(db, task):
 
     # Step 1: RAG 索引
     rag_ok = False
-    from modules.rag.index_state import RagIndexStateService
-
-    index_state = RagIndexStateService()
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
-            async with _attempt_savepoint(db):
-                claimed = await index_state.begin_direct(
-                    db,
-                    novel_id=novel_id,
-                    chapter_index=chapter_index,
-                    content_mode="canonical",
-                )
-                if not claimed:
-                    results["rag_chunks"] = 0
-                    results["rag_index_status"] = "coalesced"
-                    rag_ok = True
-                    break
-                report = await _container_get("rag.index_chapter")(
-                    db,
-                    novel_id,
-                    chapter_index,
-                )
-                await index_state.finish(
-                    db,
-                    novel_id=novel_id,
-                    report=report,
-                )
+            outcome = await _container_get("rag.index_chapter_for_task")(
+                db,
+                novel_id,
+                chapter_index,
+                content_mode="canonical",
+            )
+            report = outcome.report
             results["rag_chunks"] = report.chunks_created
             results["rag_embedding_failed"] = report.embedding_failed_count
+            if outcome.status == "coalesced":
+                results["rag_index_status"] = "coalesced"
             rag_ok = True
             logger.info(
                 "Publish chapter %d — RAG done (attempt %d): %d chunks",
@@ -87,13 +106,7 @@ async def handle_publish_chapter(db, task):
             )
             break
         except Exception as e:
-            await index_state.fail(
-                db,
-                novel_id=novel_id,
-                chapter_index=chapter_index,
-                content_mode="canonical",
-                error=str(e),
-            )
+            await db.rollback()
             logger.warning(
                 "Publish chapter %d — RAG attempt %d/%d failed: %s",
                 chapter_index,
@@ -110,6 +123,11 @@ async def handle_publish_chapter(db, task):
         )
 
     task.update_progress(0.5)
+    from modules.project.facade import require_active_project
+
+    # RAG committed and released its locks. Start the memory transaction in
+    # deletion-safe order: project FOR SHARE before any memory child write.
+    await require_active_project(db, novel_id)
     await db.flush()
 
     # Step 2: Memory 快照
@@ -153,10 +171,10 @@ async def handle_publish_chapter(db, task):
 @task_handler("writing_generate", recovery_policy="restart_origin")
 async def handle_writing_generate(db, task):
     """处理 AI 正文建议生成任务。"""
-    from modules.context.facade import bind_confirmed_action_result
     from modules.writing.services import WritingGenerationService
 
     meta = task.meta or {}
+    task_id = str(task.id)
     novel_id = meta.get("novel_id", "")
     chapter_index = int(meta.get("chapter_index", 0))
     context_confirmation_id = meta.get("context_confirmation_id", "")
@@ -168,22 +186,24 @@ async def handle_writing_generate(db, task):
     if not context_confirmation_id:
         raise ValueError("context_confirmation_id is required for writing_generate")
 
+    llm_execution_snapshot, _legacy = await _require_llm_execution_snapshot(
+        db,
+        task,
+        meta,
+        novel_id,
+        legacy_meta_key=None,
+    )
+    task.update_progress(0.1)
     service = WritingGenerationService()
-    draft = await service.generate_candidate(
+    draft = await service.generate_candidate_for_task(
         db,
         novel_id=novel_id,
         chapter_index=chapter_index,
         title=meta.get("title"),
         instruction=meta.get("instruction"),
         context_confirmation_id=context_confirmation_id,
-        source_task_id=str(task.id),
-    )
-    await bind_confirmed_action_result(
-        db,
-        confirmation_id=context_confirmation_id,
-        result_type="writing_draft",
-        result_id=draft.id,
-        status="done",
+        source_task_id=task_id,
+        llm_execution_snapshot=llm_execution_snapshot,
     )
     task.update_progress(1.0)
     await db.flush()
@@ -196,6 +216,7 @@ async def handle_writing_conflict_ai_review(db, task):
     from modules.writing.services import WritingConflictCheckService
 
     meta = task.meta or {}
+    task_id = str(task.id)
     novel_id = meta.get("novel_id", "")
     check_id = meta.get("check_id", "")
     context_confirmation_id = meta.get("context_confirmation_id", "")
@@ -209,17 +230,23 @@ async def handle_writing_conflict_ai_review(db, task):
             "context_confirmation_id is required for writing_conflict_ai_review",
         )
 
+    llm_execution_snapshot, allow_unowned_legacy = await _require_llm_execution_snapshot(
+        db, task, meta, novel_id
+    )
     task.update_progress(0.1)
     service = WritingConflictCheckService()
     from modules.writing.schemas import WritingConflictAiReviewRequest
 
-    check = await service.run_ai_review(
+    check = await service.run_ai_review_for_task(
         db,
         check_id=check_id,
         data=WritingConflictAiReviewRequest(
             novel_id=novel_id,
             context_confirmation_id=context_confirmation_id,
         ),
+        task_id=task_id,
+        llm_execution_snapshot=llm_execution_snapshot,
+        allow_unowned_legacy=allow_unowned_legacy,
     )
     task.update_progress(1.0)
     await db.flush()

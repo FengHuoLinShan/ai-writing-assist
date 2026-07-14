@@ -10,6 +10,86 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
+_AI_WORLD_ENTITY_TYPES = {
+    "character",
+    "location",
+    "faction",
+    "organization",
+    "species",
+    "group",
+    "item",
+    "object",
+    "event",
+    "rule",
+    "power_system",
+    "secret",
+    "legend",
+    "resource",
+    "concept",
+    "creature",
+    "skill",
+    "ability",
+    "artifact",
+    "other",
+}
+_AI_WORLD_ENTITY_TYPE_ALIASES = {
+    "人物": "character",
+    "人": "character",
+    "角色": "character",
+    "地点": "location",
+    "场所": "location",
+    "位置": "location",
+    "组织": "organization",
+    "势力": "faction",
+    "派系": "faction",
+    "势力/派系": "faction",
+    "种族": "species",
+    "族群": "species",
+    "群体": "group",
+    "团体": "group",
+    "物品": "item",
+    "道具": "item",
+    "物品/装备": "item",
+    "物体": "object",
+    "对象": "object",
+    "事件": "event",
+    "事件/活动": "event",
+    "规则": "rule",
+    "规则/系统": "rule",
+    "力量体系": "power_system",
+    "超凡体系": "power_system",
+    "秘密": "secret",
+    "秘密/真相": "secret",
+    "设定": "secret",
+    "传说": "legend",
+    "传说/神话": "legend",
+    "资源": "resource",
+    "资源/材料": "resource",
+    "概念": "concept",
+    "概念（抽象）": "concept",
+    "生物": "creature",
+    "怪物": "creature",
+    "生物/怪物": "creature",
+    "技能": "skill",
+    "能力": "ability",
+    "技能/能力": "skill",
+    "rule/power_system": "rule",
+    "secret/legend": "secret",
+    "神器": "artifact",
+    "遗物": "artifact",
+    "神器/遗物": "artifact",
+    "其他": "other",
+    "character_ref": "character",
+}
+
+
+def _normalize_ai_world_entity_type(value: Any) -> str:
+    text = _coerce_short_text(value).strip()
+    normalized = _AI_WORLD_ENTITY_TYPE_ALIASES.get(text, text.lower())
+    if normalized not in _AI_WORLD_ENTITY_TYPES:
+        raise ValueError(f"Unsupported AI entity_type: {text!r}")
+    return normalized
+
 
 def _coerce_score(value: Any, *, default: float = 0.5) -> float:
     """Normalize common LLM confidence/importance spellings to a 0-1 score."""
@@ -332,7 +412,9 @@ class ExtractedEntity(BaseModel):
         mode="before",
     )
     @classmethod
-    def _normalize_optional_text(cls, value: Any) -> str:
+    def _normalize_optional_text(cls, value: Any, info: ValidationInfo) -> str:
+        if info.field_name == "entity_type":
+            return _normalize_ai_world_entity_type(value)
         return _coerce_short_text(value)
 
     @field_validator("quote", mode="before")
@@ -491,7 +573,9 @@ class Phase2WorldObject(BaseModel):
         mode="before",
     )
     @classmethod
-    def _normalize_text(cls, value: Any) -> str:
+    def _normalize_text(cls, value: Any, info: ValidationInfo) -> str:
+        if info.field_name == "entity_type":
+            return _normalize_ai_world_entity_type(value)
         return _coerce_short_text(value).strip()
 
     @field_validator("aliases", "supporting_scene_ids", mode="before")

@@ -118,6 +118,7 @@ describe("Smart Dedup Manager", () => {
           target_asset_id: "t1",
           alias: "来源",
           allow_canonical_merge: false,
+          allow_canonical_alias: false,
         },
       ],
     })
@@ -324,6 +325,7 @@ describe("Smart Dedup Manager", () => {
           target_asset_id: "candidate-id",
           alias: "正史对象",
           allow_canonical_merge: false,
+          allow_canonical_alias: false,
         },
         {
           asset_type: "world_entity",
@@ -332,6 +334,7 @@ describe("Smart Dedup Manager", () => {
           target_asset_id: "manual-primary",
           alias: "小名",
           allow_canonical_merge: false,
+          allow_canonical_alias: false,
         },
       ],
     })
@@ -361,4 +364,189 @@ describe("Smart Dedup Manager", () => {
     expect(manager.getState().taskId).toBeNull()
     manager.dispose()
   })
+
+  it("renders schema v2 groups as a large decision workbench without manual IDs", async () => {
+    await runScanToDone(groupResult())
+
+    const modal = latestModal()
+    const call = showModal.mock.calls.at(-1)
+    expect(modal.title).toBe("智能去重裁决工作台")
+    expect(modal.body.html).toContain("重复组队列")
+    expect(modal.body.html).toContain("只看差异")
+    expect(modal.body.html).toContain("融合内容并迁移引用")
+    expect(modal.body.html).not.toContain("手动主体 ID")
+    expect(call[3]).toEqual({ size: "large", protectUnsaved: true })
+  })
+
+  it("submits all ready schema v2 groups with task-bound fingerprints", async () => {
+    api.projects.applySmartDedup.mockResolvedValue({
+      applied: 2,
+      skipped: 0,
+      group_results: [{ group_id: "group-world", status: "success", applied: 2 }],
+    })
+    await runScanToDone(groupResult())
+
+    await latestModal().buttons.find((button) => button.text === "执行已就绪组 (1)").handler()
+
+    expect(api.projects.applySmartDedup).toHaveBeenCalledWith("p1", {
+      confirmed: true,
+      scan_task_id: "scan-1",
+      groups: [{
+        group_id: "group-world",
+        asset_type: "world_entity",
+        primary_asset_id: "b",
+        operations: [
+          expect.objectContaining({
+            source_asset_id: "a",
+            action: "merge",
+            expected_source_execution_fingerprint: "a".repeat(64),
+            expected_target_execution_fingerprint: "b".repeat(64),
+          }),
+          expect.objectContaining({
+            source_asset_id: "c",
+            action: "alias_only",
+            expected_source_execution_fingerprint: "c".repeat(64),
+            expected_target_execution_fingerprint: "b".repeat(64),
+          }),
+        ],
+      }],
+    })
+    expect(latestModal().body.html).toContain("执行成功")
+    expect(closeModal).not.toHaveBeenCalled()
+  })
+
+  it("does not submit a completed group draft after the active project changes", async () => {
+    let currentProjectId = "p1"
+    api.projects.startSmartDedupScan.mockResolvedValue({ task_id: "scan-switch-done" })
+    api.tasks.get.mockResolvedValue({
+      task_id: "scan-switch-done",
+      task_type: "smart_dedup_scan",
+      status: "done",
+      result: groupResult(),
+    })
+    const manager = createManager({ getCurrentProjectId: () => currentProjectId })
+    await manager.startScan()
+    await flushPromises()
+    const button = latestModal().buttons.find((item) => item.text === "执行已就绪组 (1)")
+
+    currentProjectId = "p2"
+    await button.handler()
+
+    expect(api.projects.applySmartDedup).not.toHaveBeenCalled()
+    expect(closeModal).toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("项目已切换，旧扫描裁决已清理", "warning")
+  })
+
+  it("requires a fresh Scene workbench preview before a Scene group is ready", async () => {
+    api.outline.previewSceneMerge.mockResolvedValue({
+      operation: "merge",
+      field_changes: { goal: { before: "A", after: "B" } },
+      chapter_mapping_change: { before: { s1: [1] }, after: { s2: [1, 2] } },
+    })
+    const result = sceneGroupResult()
+    const manager = await runScanToDone(result)
+    let modal = latestModal()
+    expect(modal.body.html).toContain("生成 Scene 影响预览")
+    expect(modal.buttons[0].text).toBe("执行已就绪组 (0)")
+
+    document.body.innerHTML = modal.body.html
+    const groups = manager._groups(result)
+    manager._bindGroupControls(groups)
+    document.querySelector("[data-smart-dedup-preview-scene]").click()
+    await flushPromises()
+
+    expect(api.outline.previewSceneMerge).toHaveBeenCalledWith("p1", {
+      target_scene_id: "s2",
+      source_scene_ids: ["s1"],
+      confirmed: false,
+    })
+    modal = latestModal()
+    expect(modal.body.html).toContain("我已核对当前预览")
+    expect(manager._groupReadiness(groups[0]).ready).toBe(false)
+
+    manager._groupDraftFor(groups[0]).operations.s1.scenePreviewConfirmed = true
+    expect(manager._groupReadiness(groups[0]).ready).toBe(true)
+  })
+
+  it("keeps stale group results visible and offers a rescan instead of retrying them", async () => {
+    const manager = await runScanToDone(groupResult())
+    manager._groupResults["group-world"] = {
+      group_id: "group-world",
+      status: "failed",
+      error_code: "stale_suggestion",
+      message: "fingerprint changed",
+    }
+
+    manager._showGroupWorkbench()
+
+    const modal = latestModal()
+    expect(modal.body.html).toContain("建议已过期")
+    expect(modal.buttons.map((button) => button.text)).toContain("重新扫描")
+    expect(modal.buttons[0].text).toBe("执行已就绪组 (0)")
+  })
 })
+
+function groupResult() {
+  return {
+    schema_version: 2,
+    total_assets_scanned: 3,
+    groups: [{
+      group_id: "group-world",
+      asset_type: "world_entity",
+      presentation: "cluster",
+      members: [
+        { asset_id: "a", title: "周明瑞", status: "draft", summary: "A" },
+        { asset_id: "b", title: "克莱恩·莫雷蒂", status: "canonical", summary: "B" },
+        { asset_id: "c", title: "克莱恩", status: "candidate", summary: "C" },
+      ],
+      eligible_primary_asset_ids: ["b"],
+      recommended_primary_asset_id: "b",
+      edges: [
+        {
+          source_asset_id: "a",
+          target_asset_id: "b",
+          recommended_action: "merge",
+          allowed_actions: ["merge", "alias_only", "keep_separate"],
+          reason: "主人公同一身份",
+          source_execution_fingerprint: "a".repeat(64),
+          target_execution_fingerprint: "b".repeat(64),
+        },
+        {
+          source_asset_id: "c",
+          target_asset_id: "b",
+          recommended_action: "alias_only",
+          allowed_actions: ["merge", "alias_only", "keep_separate"],
+          reason: "简称命中",
+          source_execution_fingerprint: "c".repeat(64),
+          target_execution_fingerprint: "b".repeat(64),
+        },
+      ],
+    }],
+  }
+}
+
+function sceneGroupResult() {
+  return {
+    schema_version: 2,
+    total_assets_scanned: 2,
+    groups: [{
+      group_id: "group-scene",
+      asset_type: "scene",
+      presentation: "pair",
+      members: [
+        { asset_id: "s1", title: "Scene A", status: "draft", details: { goal: "A", chapter_ids: [1] } },
+        { asset_id: "s2", title: "Scene B", status: "canonical", details: { goal: "B", chapter_ids: [2] } },
+      ],
+      eligible_primary_asset_ids: ["s1", "s2"],
+      recommended_primary_asset_id: "s2",
+      edges: [{
+        source_asset_id: "s1",
+        target_asset_id: "s2",
+        recommended_action: "merge",
+        allowed_actions: ["merge", "keep_separate"],
+        source_execution_fingerprint: "1".repeat(64),
+        target_execution_fingerprint: "2".repeat(64),
+      }],
+    }],
+  }
+}

@@ -195,6 +195,202 @@ async def test_rollback_deep_import_delta_logs_is_scoped_and_idempotent(
 
 
 @pytest.mark.asyncio
+async def test_delta_count_and_rollback_use_repository_filters_and_keyset_batches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.memory.models import DeltaLog
+
+    novel_id = str(uuid.uuid4())
+    rows = [
+        DeltaLog(
+            id=uuid.uuid4(),
+            novel_id=uuid.UUID(novel_id),
+            category="location_changed",
+            source="deep_import",
+            meta={"workflow_id": "wf-1", "auto_ingested": True},
+        )
+        for _ in range(2)
+    ]
+    delta_repo = MagicMock()
+    delta_repo.count_active_by_workflow = AsyncMock(return_value=2)
+    delta_repo.get_active_by_workflow_page_after = AsyncMock(
+        side_effect=[[rows[0]], [rows[1]], []]
+    )
+    monkeypatch.setattr("modules.memory.services.DELTA_ROLLBACK_BATCH_SIZE", 1)
+    service = MemoryService(delta_log_repo=delta_repo)
+    db = MagicMock()
+    db.flush = AsyncMock()
+
+    count = await service.count_deep_import_delta_logs_by_workflow(db, novel_id, "wf-1")
+    rolled_back = await service.rollback_deep_import_delta_logs_by_workflow(
+        db, novel_id, "wf-1"
+    )
+
+    assert count == 2
+    assert rolled_back == 2
+    delta_repo.count_active_by_workflow.assert_awaited_once_with(
+        db, uuid.UUID(novel_id), "wf-1"
+    )
+    assert delta_repo.get_active_by_workflow_page_after.await_count == 3
+    assert all(row.meta["rolled_back"] is True for row in rows)
+
+
+@pytest.mark.asyncio
+async def test_delta_rollback_uuid_keyset_covers_multiple_real_pages_once(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.memory.models import DeltaLog
+
+    novel_id = uuid.uuid4()
+    matching = [
+        DeltaLog(
+            id=uuid.UUID(int=value),
+            novel_id=novel_id,
+            category="location_changed",
+            source="deep_import",
+            meta={"workflow_id": "wf-keyset", "auto_ingested": True},
+        )
+        for value in (5, 1, 4, 2, 3)
+    ]
+    unrelated = DeltaLog(
+        id=uuid.UUID(int=6),
+        novel_id=novel_id,
+        category="location_changed",
+        source="deep_import",
+        meta={"workflow_id": "wf-other", "auto_ingested": True},
+    )
+    db_session.add_all([*matching, unrelated])
+    await db_session.flush()
+    monkeypatch.setattr("modules.memory.services.DELTA_ROLLBACK_BATCH_SIZE", 2)
+    service = MemoryService()
+
+    assert (
+        await service.rollback_deep_import_delta_logs_by_workflow(
+            db_session,
+            str(novel_id),
+            "wf-keyset",
+        )
+        == 5
+    )
+    assert (
+        await service.rollback_deep_import_delta_logs_by_workflow(
+            db_session,
+            str(novel_id),
+            "wf-keyset",
+        )
+        == 0
+    )
+
+    refreshed = list(
+        (
+            await db_session.execute(
+                select(DeltaLog).where(DeltaLog.novel_id == novel_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    refreshed_by_id = {item.id: item for item in refreshed}
+    assert all(
+        refreshed_by_id[item.id].meta["rolled_back"] is True for item in matching
+    )
+    assert refreshed_by_id[unrelated.id].meta.get("rolled_back") is None
+
+
+@pytest.mark.asyncio
+async def test_full_rebuild_stales_replaced_snapshots_without_deleting_history(
+    db_with_project: AsyncSession,
+    sample_novel_id: uuid.UUID,
+    memory_service: MemoryService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.memory.models import MemoryEvent, MemorySnapshot
+    from modules.memory.repositories import SnapshotRepository
+    from modules.project.models import Project
+
+    empty_state = {
+        "entities": [],
+        "relations": [],
+        "character_locations": {},
+        "character_knowledge": [],
+    }
+    snapshot_repo = SnapshotRepository()
+    for chapter in (5, 6, 10, 12):
+        await snapshot_repo.create(
+            db_with_project,
+            novel_id=sample_novel_id,
+            chapter_index=chapter,
+            full_state=empty_state,
+        )
+    historical_stale = MemorySnapshot(
+        novel_id=sample_novel_id,
+        chapter_index=10,
+        status="stale",
+        full_state=empty_state,
+    )
+    other_novel_id = uuid.uuid4()
+    db_with_project.add(
+        Project(id=other_novel_id, title="另一项目", genre="奇幻")
+    )
+    await db_with_project.flush()
+    other_snapshot = await snapshot_repo.create(
+        db_with_project,
+        novel_id=other_novel_id,
+        chapter_index=12,
+        full_state=empty_state,
+    )
+    db_with_project.add(historical_stale)
+    db_with_project.add(
+        MemoryEvent(
+            novel_id=sample_novel_id,
+            chapter_index=12,
+            sequence=1,
+            event_type="manual_correction",
+            snapshot_after={},
+            source="manual_edit",
+        )
+    )
+    await db_with_project.flush()
+    monkeypatch.setattr(
+        "modules.world.facade.get_full_state",
+        AsyncMock(return_value=empty_state),
+    )
+
+    result = await memory_service.full_rebuild(
+        db_with_project,
+        str(sample_novel_id),
+        6,
+    )
+
+    snapshots = list(
+        (
+            await db_with_project.execute(
+                select(MemorySnapshot)
+                .where(MemorySnapshot.novel_id == sample_novel_id)
+                .order_by(MemorySnapshot.chapter_index, MemorySnapshot.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    statuses_by_chapter: dict[int, list[str]] = {}
+    for snapshot in snapshots:
+        statuses_by_chapter.setdefault(snapshot.chapter_index, []).append(snapshot.status)
+
+    assert result["final_chapter"] == 12
+    assert result["rebuilt_snapshots"] == 2
+    assert statuses_by_chapter[5] == ["current"]
+    assert statuses_by_chapter[6] == ["stale"]
+    assert statuses_by_chapter[10].count("current") == 1
+    assert statuses_by_chapter[10].count("stale") == 2
+    assert sorted(statuses_by_chapter[12]) == ["current", "stale"]
+    assert historical_stale in snapshots
+    await db_with_project.refresh(other_snapshot)
+    assert other_snapshot.status == "current"
+
+
+@pytest.mark.asyncio
 async def test_record_events_replaces_chapter_events_without_stale_tail(
     db_with_project: AsyncSession,
     memory_service: MemoryService,
@@ -721,6 +917,98 @@ class TestRecordEvents:
         event_repo.create.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_list_events_uses_keyset_batches_and_sql_total(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    novel_id = str(uuid.uuid4())
+    first = _make_memory_event(
+        id=uuid.uuid4(), chapter_index=2, sequence=1, novel_id=uuid.UUID(novel_id)
+    )
+    second = _make_memory_event(
+        id=uuid.uuid4(), chapter_index=3, sequence=1, novel_id=uuid.UUID(novel_id)
+    )
+    event_repo = MagicMock()
+    event_repo.count_by_chapter_range = AsyncMock(return_value=2)
+    event_repo.get_by_chapter_range = AsyncMock(
+        side_effect=AssertionError("event list must not full-load a chapter range")
+    )
+    event_repo.get_by_chapter_range_page_after = AsyncMock(
+        side_effect=[[first], [second]]
+    )
+    monkeypatch.setattr("modules.memory.services.MEMORY_EVENT_LIST_BATCH_SIZE", 1)
+    service = MemoryService(event_repo=event_repo)
+
+    result = await service.list_events(MagicMock(), novel_id, 2, 3)
+
+    assert result.total == 2
+    assert [(item.chapter_index, item.sequence) for item in result.items] == [
+        (2, 1),
+        (3, 1),
+    ]
+    assert event_repo.get_by_chapter_range_page_after.await_count == 2
+    event_repo.get_by_chapter_range.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_list_events_real_keyset_keeps_order_total_shape_and_last_limit(
+    db_with_project: AsyncSession,
+    sample_novel_id: uuid.UUID,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.memory.repositories import EventRepository
+
+    event_repo = EventRepository()
+    rows = [
+        {
+            "novel_id": sample_novel_id,
+            "chapter_index": chapter,
+            "sequence": sequence,
+            "event_type": "entity_created",
+            "snapshot_after": {"chapter": chapter, "sequence": sequence},
+        }
+        for chapter, sequence in ((3, 1), (1, 2), (2, 2), (1, 1), (2, 1))
+    ]
+    await event_repo.create_many(db_with_project, rows)
+    original_page = event_repo.get_by_chapter_range_page_after
+    event_repo.get_by_chapter_range_page_after = AsyncMock(wraps=original_page)  # type: ignore[method-assign]
+    monkeypatch.setattr("modules.memory.services.MEMORY_EVENT_LIST_BATCH_SIZE", 2)
+    service = MemoryService(event_repo=event_repo)
+
+    result = await service.list_events(
+        db_with_project,
+        str(sample_novel_id),
+        1,
+        3,
+    )
+
+    assert result.total == 5
+    assert [(item.chapter_index, item.sequence) for item in result.items] == [
+        (1, 1),
+        (1, 2),
+        (2, 1),
+        (2, 2),
+        (3, 1),
+    ]
+    assert set(result.model_dump()) == {"items", "total"}
+    limits = [
+        call.kwargs["limit"]
+        for call in event_repo.get_by_chapter_range_page_after.await_args_list
+    ]
+    assert limits == [2, 2, 1]
+
+    calls_before_empty = event_repo.get_by_chapter_range_page_after.await_count
+    empty = await service.list_events(
+        db_with_project,
+        str(sample_novel_id),
+        4,
+        4,
+    )
+    assert empty.total == 0
+    assert empty.items == []
+    assert event_repo.get_by_chapter_range_page_after.await_count == calls_before_empty
+
+
 class TestReplayState:
     """replay_state 方法测试 — repo 用 AsyncMock 替换"""
 
@@ -952,7 +1240,10 @@ class TestReplayState:
             side_effect=AssertionError("full_rebuild must not full-load events")
         )
         snapshot_repo = MagicMock()
-        snapshot_repo.delete_stale = AsyncMock(return_value=0)
+        snapshot_repo.mark_stale_from = AsyncMock(return_value=0)
+        snapshot_repo.delete_stale = AsyncMock(
+            side_effect=AssertionError("rebuild must preserve stale history")
+        )
         snapshot_repo.create = AsyncMock(
             side_effect=[
                 _make_snapshot(novel_id=uuid.UUID(novel_id), chapter_index=10),
@@ -984,6 +1275,8 @@ class TestReplayState:
             db, uuid.UUID(novel_id), 1, 999999
         )
         event_repo.get_by_chapter_range.assert_not_awaited()
+        snapshot_repo.mark_stale_from.assert_awaited_once_with(db, uuid.UUID(novel_id), 1)
+        snapshot_repo.delete_stale.assert_not_awaited()
 
 
 class TestMarkStale:
@@ -1026,7 +1319,10 @@ class TestGetStatus:
         """无快照 → 返回空状态"""
         novel_id = str(uuid.uuid4())
         snapshot_repo = MagicMock()
-        snapshot_repo.list_for_novel = AsyncMock(return_value=[])
+        snapshot_repo.get_status_summary = AsyncMock(return_value=(0, None, None, None))
+        snapshot_repo.list_for_novel = AsyncMock(
+            side_effect=AssertionError("status must use SQL aggregation")
+        )
         service = MemoryService(snapshot_repo=snapshot_repo)
         db = MagicMock()
 
@@ -1039,12 +1335,11 @@ class TestGetStatus:
     async def test_all_current(self) -> None:
         """全部 current 快照"""
         novel_id = str(uuid.uuid4())
-        snapshots = [
-            _make_snapshot(novel_id=novel_id, chapter_index=5, status="current"),
-            _make_snapshot(novel_id=novel_id, chapter_index=10, status="current"),
-        ]
         snapshot_repo = MagicMock()
-        snapshot_repo.list_for_novel = AsyncMock(return_value=snapshots)
+        snapshot_repo.get_status_summary = AsyncMock(return_value=(2, 10, 10, None))
+        snapshot_repo.list_for_novel = AsyncMock(
+            side_effect=AssertionError("status must use SQL aggregation")
+        )
         service = MemoryService(snapshot_repo=snapshot_repo)
         db = MagicMock()
 
@@ -1058,12 +1353,11 @@ class TestGetStatus:
     async def test_with_stale(self) -> None:
         """有 stale 快照 → has_stale=True"""
         novel_id = str(uuid.uuid4())
-        snapshots = [
-            _make_snapshot(novel_id=novel_id, chapter_index=5, status="current"),
-            _make_snapshot(novel_id=novel_id, chapter_index=10, status="stale"),
-        ]
         snapshot_repo = MagicMock()
-        snapshot_repo.list_for_novel = AsyncMock(return_value=snapshots)
+        snapshot_repo.get_status_summary = AsyncMock(return_value=(2, 10, 5, 10))
+        snapshot_repo.list_for_novel = AsyncMock(
+            side_effect=AssertionError("status must use SQL aggregation")
+        )
         service = MemoryService(snapshot_repo=snapshot_repo)
         db = MagicMock()
 

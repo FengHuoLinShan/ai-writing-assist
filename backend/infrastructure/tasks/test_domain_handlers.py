@@ -33,7 +33,9 @@ async def test_world_entity_extraction_reports_coarse_progress() -> None:
         items=[],
     )
 
-    with patch("modules.world.tasks.EntityExtractionService") as service_cls:
+    with patch(
+        "modules.world.tasks.EntityExtractionService", autospec=True
+    ) as service_cls:
         service = service_cls.return_value
         service.extract_entities_from_chapters = AsyncMock(return_value=result)
 
@@ -71,12 +73,18 @@ async def test_plot_structure_generate_reports_coarse_progress() -> None:
             "novel_id": "11111111-1111-1111-1111-111111111111",
             "start_chapter": 1,
             "end_chapter": 3,
+            "llm_execution_snapshot": {"profile_hash": "frozen"},
         }
     )
+    db = AsyncMock()
+    db.task_checkpoint_enabled = True
 
-    with patch("modules.outline.generator.PlotStructureGenerator") as generator_cls:
-        generator = generator_cls.return_value
-        generator.generate = AsyncMock(
+    with patch(
+        "modules.outline.ai_workflow_service.OutlineAIWorkflowService",
+        autospec=True,
+    ) as service_cls:
+        service = service_cls.return_value
+        service.generate_legacy_preview_for_task = AsyncMock(
             return_value={
                 "total_threads": 1,
                 "total_arcs": 1,
@@ -84,10 +92,16 @@ async def test_plot_structure_generate_reports_coarse_progress() -> None:
             }
         )
 
-        await handle_plot_structure_generate(AsyncMock(), task)
+        await handle_plot_structure_generate(db, task)
 
     assert task.progress_updates == [0.1, 0.85, 0.95]
-    assert generator.generate.await_args.kwargs["persist"] is False
+    service.generate_legacy_preview_for_task.assert_awaited_once_with(
+        db,
+        novel_id="11111111-1111-1111-1111-111111111111",
+        start_chapter=1,
+        end_chapter=3,
+        llm_execution_snapshot={"profile_hash": "frozen"},
+    )
 
 
 @pytest.mark.asyncio

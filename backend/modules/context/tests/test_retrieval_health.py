@@ -3,13 +3,16 @@ from __future__ import annotations
 import hashlib
 import uuid
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from modules.context.contracts import CompileOptions, StructureContextBundle
 from modules.context.facade import get_evidence_health, list_retrieval_traces
+from modules.context.models import ContextRetrievalTrace
 from modules.context.services.loaders.rag_chunks_loader import RagChunksLoader
 from modules.context.services.retrieval_trace_service import RetrievalTraceService
+from modules.project.models import Project
 from modules.rag.contracts import RagChunkContract
 from modules.writing.models import WritingDraft
 
@@ -194,6 +197,165 @@ async def test_trace_retention_enforces_per_project_hard_cap(
     )
     traces = await service.list(db_session, novel_id=test_project_id)
     assert len(traces) == 1
+
+
+@pytest.mark.asyncio
+async def test_trace_summary_preserves_empty_reason_semantics_and_ignores_bad_json(
+    db_session,
+    test_project_id: str,
+) -> None:
+    other_novel_id = uuid.uuid4()
+    db_session.add(Project(id=other_novel_id, title="other trace project"))
+
+    def _trace(*, novel_id: uuid.UUID, drop_counts, reason: str | None):
+        return ContextRetrievalTrace(
+            novel_id=novel_id,
+            content_mode="canonical",
+            consumer_action="test",
+            retrieval_purpose="generic_context",
+            reveal_mode="author",
+            plan_version="test-v1",
+            plan_hash=uuid.uuid4().hex,
+            clause_summaries=[],
+            candidate_count=0,
+            unique_count=0,
+            hydrated_count=0,
+            drop_counts=drop_counts,
+            safe_empty_reason=reason,
+            degraded=False,
+            warning_codes=[],
+            latency_metadata={},
+        )
+
+    novel_uuid = uuid.UUID(test_project_id)
+    db_session.add_all(
+        [
+            _trace(
+                novel_id=novel_uuid,
+                drop_counts={
+                    "valid": 2,
+                    "numeric_string": "3",
+                    "negative": -1,
+                    "too_large": 10**20,
+                },
+                reason="",
+            ),
+            _trace(
+                novel_id=novel_uuid,
+                drop_counts={"valid": 4},
+                reason="classified",
+            ),
+            _trace(
+                novel_id=novel_uuid,
+                drop_counts=["not", "an", "object"],
+                reason=None,
+            ),
+            _trace(
+                novel_id=other_novel_id,
+                drop_counts={"valid": 100},
+                reason="other_project",
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    summary = await RetrievalTraceService().summarize(
+        db_session,
+        novel_id=test_project_id,
+        content_mode="canonical",
+        window_hours=1,
+    )
+
+    assert summary["query_count"] == 3
+    assert summary["empty_count"] == 3
+    assert summary["unclassified_empty_count"] == 2
+    assert summary["safe_empty_reasons"] == {"classified": 1}
+    assert summary["drop_counts"] == {"valid": 6}
+
+
+@pytest.mark.asyncio
+async def test_trace_record_normalizes_untrusted_reason_and_drop_count_shapes(
+    db_session,
+    test_project_id: str,
+) -> None:
+    service = RetrievalTraceService()
+    malformed = await service.record(
+        db_session,
+        novel_id=test_project_id,
+        payload={
+            "drop_counts": ["not", "a", "mapping"],
+            "safe_empty_reason": {"not": "a code"},
+        },
+    )
+    sanitized = await service.record(
+        db_session,
+        novel_id=test_project_id,
+        payload={
+            "drop_counts": {
+                "valid": "2",
+                "negative": -1,
+                "not-a-code": 3,
+                "not_numeric": "many",
+                "too_large": 10**20,
+            },
+            "safe_empty_reason": "not-a-code",
+        },
+    )
+
+    assert malformed.drop_counts == {}
+    assert malformed.safe_empty_reason is None
+    assert sanitized.drop_counts == {"valid": 2}
+    assert sanitized.safe_empty_reason is None
+
+
+@pytest.mark.asyncio
+async def test_trace_retention_prunes_old_rows_without_crossing_novel_boundary(
+    db_session,
+    test_project_id: str,
+) -> None:
+    other_novel_id = uuid.uuid4()
+    db_session.add(Project(id=other_novel_id, title="other retention project"))
+    old_time = datetime.now(UTC) - timedelta(days=40)
+
+    def _old_trace(novel_id: uuid.UUID) -> ContextRetrievalTrace:
+        return ContextRetrievalTrace(
+            novel_id=novel_id,
+            content_mode="canonical",
+            consumer_action="test",
+            retrieval_purpose="generic_context",
+            reveal_mode="author",
+            plan_version="test-v1",
+            plan_hash=uuid.uuid4().hex,
+            clause_summaries=[],
+            candidate_count=0,
+            unique_count=0,
+            hydrated_count=0,
+            drop_counts={},
+            safe_empty_reason="no_query_clause",
+            degraded=False,
+            warning_codes=[],
+            latency_metadata={},
+            created_at=old_time,
+        )
+
+    target = _old_trace(uuid.UUID(test_project_id))
+    other = _old_trace(other_novel_id)
+    db_session.add_all([target, other])
+    await db_session.flush()
+
+    service = RetrievalTraceService()
+    assert (
+        await service.prune(
+            db_session,
+            novel_id=test_project_id,
+            retention_days=30,
+            retain_latest=10,
+            dry_run=False,
+        )
+        == 1
+    )
+    assert await db_session.get(ContextRetrievalTrace, target.id) is None
+    assert await db_session.get(ContextRetrievalTrace, other.id) is not None
 
 
 @pytest.mark.asyncio

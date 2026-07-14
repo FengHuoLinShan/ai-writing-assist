@@ -259,6 +259,7 @@ class TestEntityRevisionService:
             },
         )
         entity_repo.update = AsyncMock(return_value=entity)
+        entity_repo.get_for_update = AsyncMock(return_value=entity)
         repo.get_revision = AsyncMock(return_value=revision)
         svc.create_snapshot = AsyncMock(return_value={})
         db = MagicMock()
@@ -281,7 +282,12 @@ class TestEntityRevisionService:
     async def test_rollback_to_revision_not_found_raises_domain_not_found(self):
         """Exception path: missing revision raises domain NotFoundError."""
         # Arrange
-        svc, repo, _entity_repo = _make_revision_service()
+        svc, repo, entity_repo = _make_revision_service()
+        novel_id = uuid.uuid4()
+        entity_id = uuid.uuid4()
+        entity_repo.get_for_update = AsyncMock(
+            return_value=_mock_entity(id=entity_id, novel_id=novel_id)
+        )
         repo.get_revision = AsyncMock(return_value=None)
         svc.create_snapshot = AsyncMock(return_value={})
         db = MagicMock()
@@ -289,7 +295,7 @@ class TestEntityRevisionService:
         # Act & Assert
         with pytest.raises(NotFoundError) as exc_info:
             await svc.rollback_to_revision(
-                db, str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+                db, str(entity_id), str(uuid.uuid4()), str(novel_id)
             )
         assert exc_info.value.status_code == 404
         assert "Revision" in exc_info.value.detail
@@ -301,7 +307,11 @@ class TestEntityRevisionService:
         # Arrange
         svc, repo, entity_repo = _make_revision_service()
         entity_id = uuid.uuid4()
-        revision = _mock_revision(entity_id=uuid.uuid4(), novel_id=uuid.uuid4())
+        novel_id = uuid.uuid4()
+        entity_repo.get_for_update = AsyncMock(
+            return_value=_mock_entity(id=entity_id, novel_id=novel_id)
+        )
+        revision = _mock_revision(entity_id=uuid.uuid4(), novel_id=novel_id)
         repo.get_revision = AsyncMock(return_value=revision)
         entity_repo.update = AsyncMock()
         svc.create_snapshot = AsyncMock(return_value={})
@@ -310,7 +320,7 @@ class TestEntityRevisionService:
         # Act & Assert
         with pytest.raises(NotFoundError) as exc_info:
             await svc.rollback_to_revision(
-                db, str(entity_id), str(revision.id), str(uuid.uuid4())
+                db, str(entity_id), str(revision.id), str(novel_id)
             )
         assert exc_info.value.status_code == 404
         entity_repo.update.assert_not_called()
@@ -327,6 +337,9 @@ class TestEntityRevisionService:
             snapshot={"entity_type": "character", "name": "Old Name"},
         )
         repo.get_revision = AsyncMock(return_value=revision)
+        entity_repo.get_for_update = AsyncMock(
+            return_value=_mock_entity(id=entity_id, novel_id=novel_id)
+        )
         entity_repo.update = AsyncMock(return_value=None)
         svc.create_snapshot = AsyncMock(return_value={})
         db = MagicMock()
@@ -353,7 +366,7 @@ class TestEntityRevisionService:
         db = MagicMock()
         db.execute = AsyncMock(return_value=result)
         db.flush = AsyncMock()
-        entity_repo.get = AsyncMock(return_value=entity)
+        entity_repo.get_for_update = AsyncMock(return_value=entity)
         entity_repo.update = AsyncMock(return_value=entity)
 
         # Act
@@ -366,7 +379,7 @@ class TestEntityRevisionService:
 
         # Assert
         assert response["restored_fields"] == ["summary"]
-        entity_repo.get.assert_awaited_once_with(db, entity.id)
+        entity_repo.get_for_update.assert_awaited_once_with(db, entity.id)
         entity_repo.update.assert_awaited_once()
         assert entity_repo.update.await_args.args[1] is entity
         update_data = entity_repo.update.await_args.args[2]
@@ -398,7 +411,7 @@ class TestEntityRevisionService:
         db = MagicMock()
         db.execute = AsyncMock(return_value=result)
         db.flush = AsyncMock()
-        entity_repo.get = AsyncMock(return_value=entity)
+        entity_repo.get_for_update = AsyncMock(return_value=entity)
         entity_repo.update = AsyncMock(return_value=entity)
         repo.get_revisions = AsyncMock(return_value=([revision], 1))
 
@@ -413,7 +426,7 @@ class TestEntityRevisionService:
         # Assert
         assert "summary" in response["restored_fields"]
         assert any("EntityRevision" in warning for warning in response["warnings"])
-        entity_repo.get.assert_awaited_once_with(db, entity.id)
+        entity_repo.get_for_update.assert_awaited_once_with(db, entity.id)
         entity_repo.update.assert_awaited_once()
         assert entity_repo.update.await_args.args[1] is entity
         update_data = entity_repo.update.await_args.args[2]

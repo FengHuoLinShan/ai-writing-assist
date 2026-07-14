@@ -19,6 +19,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 关系原始状态仍兼容 `candidate` / `canonical` / `deprecated`；作者界面统一投影为待处理 / 已采用 / 历史。`canonical` 关系边使用 `(novel_id, source_id, target_id, relation_type)` 作为数据库幂等键，关系写入由仓储层 upsert 兜底。
 - 待处理对象合并响应可带 `affected_ids` / `merged_ids`，前端只按精确 ID 更新；缺少 affected ids 时刷新当前待处理 tab。
 - CoreEntity、关系、别名、创设建议和 Map Observation/Fact 响应按需提供 `display_state / source / attention_reasons / suggested_action`；原始状态字段保持兼容
+- 作者可在新建、编辑后采用和已采用对象编辑中使用安全自定义 `entity_type`；AI 抽取和建议创建仍限系统目录。已有对象类型变化统一由 `EntityTypeTransitionService` 执行可逆 Profile snapshot 迁移，并在人物、事件、地图等硬依赖存在时以结构化 409 阻止，详见 ADR-0005
 
 ## 数据表
 
@@ -61,6 +62,7 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - **EntityRelationService** — 实体关系边 CRUD（v3 取代旧 RelationshipService）
 - **EventService** — 事件 CRUD（entity_type="event"）
 - **EntityRevisionService** — 实体版本回滚服务：实现活跃回滚 `rollback_to_scene_index`（基于 `TextArchive` 查询与恢复，`EntityRevision` 兜底），同时保留 `rollback_to_revision` 兼容能力
+- **EntityTypeTransitionService** — 已有对象类型转换、strong/generic Profile 双向 snapshot 迁移、硬依赖门禁与冲突检测；update/promote/建议影子同步/版本回滚共用
 - **EntityDedupService** — 混合去重（pg_trgm 词法 + pgvector 语义 RRF 融合）+ 9 步深度事务合并
 - **DedupScorer** — 多路信号级联评分（rapidfuzz 形似 + pinyin 音似 + 子串包含 + 语义余弦 + 长度差异 + trigram Jaccard），可选 LR 模型
 - **EntityExtractionService** — RAG 有序 chunk → LLM 抽取 → 去重 → `SuggestionQueueService`；不直接拥有 CoreEntity 采用决策
@@ -170,6 +172,7 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 # CoreEntity
 POST   /api/world/entities
 GET    /api/world/entities
+GET    /api/world/entity-types
 GET    /api/world/entities/{id}
 PUT    /api/world/entities/{id}
 DELETE /api/world/entities/{id}

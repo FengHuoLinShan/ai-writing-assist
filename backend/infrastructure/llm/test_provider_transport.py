@@ -14,8 +14,8 @@ from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 def test_provider_initialization_log_omits_base_url_query_secret(caplog) -> None:
     query_secret = "fixture-query-secret"
     with (
-        patch("infrastructure.llm.providers.httpx.AsyncClient"),
-        patch("infrastructure.llm.providers.AsyncOpenAI"),
+        patch("infrastructure.llm.providers.httpx.AsyncClient", autospec=True),
+        patch("infrastructure.llm.providers.AsyncOpenAI", autospec=True),
         caplog.at_level(logging.INFO, logger="infrastructure.llm.providers"),
     ):
         OpenAIProvider(
@@ -37,8 +37,10 @@ def test_provider_disables_system_proxy_by_default(monkeypatch) -> None:
     monkeypatch.delenv("LLM_PROXY_URL", raising=False)
     get_settings.cache_clear()
     with (
-        patch("infrastructure.llm.providers.httpx.AsyncClient") as http_client_cls,
-        patch("infrastructure.llm.providers.AsyncOpenAI") as openai_cls,
+        patch(
+            "infrastructure.llm.providers.httpx.AsyncClient", autospec=True
+        ) as http_client_cls,
+        patch("infrastructure.llm.providers.AsyncOpenAI", autospec=True) as openai_cls,
     ):
         http_client = MagicMock()
         http_client_cls.return_value = http_client
@@ -63,8 +65,8 @@ def test_provider_does_not_fall_back_to_llm_env_profile(monkeypatch) -> None:
     monkeypatch.setenv("LLM_BASE_URL", "https://env.example/v1")
     monkeypatch.setenv("LLM_MODEL", "env-model")
     with (
-        patch("infrastructure.llm.providers.httpx.AsyncClient"),
-        patch("infrastructure.llm.providers.AsyncOpenAI") as openai_cls,
+        patch("infrastructure.llm.providers.httpx.AsyncClient", autospec=True),
+        patch("infrastructure.llm.providers.AsyncOpenAI", autospec=True) as openai_cls,
     ):
         provider = OpenAIProvider()
 
@@ -77,8 +79,10 @@ def test_provider_does_not_fall_back_to_llm_env_profile(monkeypatch) -> None:
 def test_provider_uses_explicit_proxy_when_configured() -> None:
     """Explicit proxy configuration should be the only proxy path."""
     with (
-        patch("infrastructure.llm.providers.httpx.AsyncClient") as http_client_cls,
-        patch("infrastructure.llm.providers.AsyncOpenAI"),
+        patch(
+            "infrastructure.llm.providers.httpx.AsyncClient", autospec=True
+        ) as http_client_cls,
+        patch("infrastructure.llm.providers.AsyncOpenAI", autospec=True),
     ):
         OpenAIProvider(
             api_key="test-key",
@@ -96,8 +100,8 @@ def test_provider_uses_explicit_proxy_when_configured() -> None:
 def test_provider_rejects_reserved_extra_fields() -> None:
     """Provider extra 不能覆盖模型、消息、流式、认证或传输字段。"""
     with (
-        patch("infrastructure.llm.providers.httpx.AsyncClient"),
-        patch("infrastructure.llm.providers.AsyncOpenAI"),
+        patch("infrastructure.llm.providers.httpx.AsyncClient", autospec=True),
+        patch("infrastructure.llm.providers.AsyncOpenAI", autospec=True),
     ):
         provider = OpenAIProvider(
             api_key="test-key",
@@ -117,8 +121,8 @@ def test_provider_rejects_reserved_extra_fields() -> None:
 
 def test_provider_allows_non_reserved_extra_fields() -> None:
     with (
-        patch("infrastructure.llm.providers.httpx.AsyncClient"),
-        patch("infrastructure.llm.providers.AsyncOpenAI"),
+        patch("infrastructure.llm.providers.httpx.AsyncClient", autospec=True),
+        patch("infrastructure.llm.providers.AsyncOpenAI", autospec=True),
     ):
         provider = OpenAIProvider(
             api_key="test-key",
@@ -140,8 +144,8 @@ def test_provider_allows_non_reserved_extra_fields() -> None:
 
 def test_provider_sends_thinking_through_extra_body() -> None:
     with (
-        patch("infrastructure.llm.providers.httpx.AsyncClient"),
-        patch("infrastructure.llm.providers.AsyncOpenAI"),
+        patch("infrastructure.llm.providers.httpx.AsyncClient", autospec=True),
+        patch("infrastructure.llm.providers.AsyncOpenAI", autospec=True),
     ):
         provider = OpenAIProvider(
             api_key="test-key",

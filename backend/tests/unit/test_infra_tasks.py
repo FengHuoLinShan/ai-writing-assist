@@ -18,9 +18,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+from pydantic import BaseModel, ConfigDict
 
 from core.container import override
 from infrastructure.tasks.registry import TaskRegistry
+
+
+class _TestTaskMeta(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str | None = None
+    novel_id: str | None = None
 
 
 @pytest.fixture(autouse=True)
@@ -45,6 +53,17 @@ def active_project_guard():
 def _compiled_execute_statement(db: AsyncMock) -> str:
     statement = db.execute.call_args[0][0]
     return str(statement.compile(compile_kwargs={"literal_binds": True}))
+
+
+def test_task_checkpoint_session_guard_requires_explicit_worker_capability() -> None:
+    from infrastructure.tasks.facade import require_task_checkpoint_session
+
+    with pytest.raises(RuntimeError, match="fenced TaskWorker handler session"):
+        require_task_checkpoint_session(MagicMock())
+
+    enabled = MagicMock()
+    enabled.task_checkpoint_enabled = True
+    require_task_checkpoint_session(enabled)
 
 
 # ============================================================
@@ -132,9 +151,15 @@ class TestSubmitTask:
 
         with patch(
             "infrastructure.tasks.api.TaskRegistry",
+            autospec=True,
         ) as mock_registry:
             registry_instance = mock_registry.return_value
             registry_instance.__contains__ = MagicMock(return_value=True)
+            definition = MagicMock()
+            definition.generic_submit_schema = _TestTaskMeta
+            definition.recovery_policy = "restart_origin"
+            definition.max_attempts = 1
+            registry_instance.get_definition.return_value = definition
 
             response = await submit_task(request, db=db)
 
@@ -155,6 +180,7 @@ class TestSubmitTask:
 
         with patch(
             "infrastructure.tasks.api.TaskRegistry",
+            autospec=True,
         ) as mock_registry:
             registry_instance = mock_registry.return_value
             registry_instance.__contains__ = MagicMock(return_value=False)
@@ -180,14 +206,63 @@ class TestSubmitTask:
 
         with patch(
             "infrastructure.tasks.api.TaskRegistry",
+            autospec=True,
         ) as mock_registry:
             registry_instance = mock_registry.return_value
             registry_instance.__contains__ = MagicMock(return_value=True)
+            definition = MagicMock()
+            definition.generic_submit_schema = _TestTaskMeta
+            definition.recovery_policy = "restart_origin"
+            definition.max_attempts = 1
+            registry_instance.get_definition.return_value = definition
 
             _ = await submit_task(request, db=db)
 
         task = db.add.call_args[0][0]
         assert task.meta == {}
+
+    @pytest.mark.asyncio
+    async def test_submit_rejects_module_owned_task_type(self) -> None:
+        from infrastructure.tasks.api import TaskSubmitRequest, submit_task
+
+        db = AsyncMock()
+        request = TaskSubmitRequest(
+            task_type="publish_chapter",
+            meta={"novel_id": str(uuid.uuid4()), "chapter_index": 1},
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await submit_task(request, db=db)
+
+        assert exc_info.value.status_code == 403
+        db.add.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_submit_validates_meta_with_registered_schema(self) -> None:
+        from infrastructure.tasks.api import TaskSubmitRequest, submit_task
+
+        db = AsyncMock()
+        request = TaskSubmitRequest(
+            task_type="test_type",
+            meta={"PRIVATE_DYNAMIC_FIELD": "value"},
+        )
+
+        with patch(
+            "infrastructure.tasks.api.TaskRegistry",
+            autospec=True,
+        ) as mock_registry:
+            registry_instance = mock_registry.return_value
+            registry_instance.__contains__ = MagicMock(return_value=True)
+            definition = MagicMock()
+            definition.generic_submit_schema = _TestTaskMeta
+            registry_instance.get_definition.return_value = definition
+
+            with pytest.raises(HTTPException) as exc_info:
+                await submit_task(request, db=db)
+
+        assert exc_info.value.status_code == 422
+        assert "PRIVATE_DYNAMIC_FIELD" not in str(exc_info.value.detail)
+        db.add.assert_not_called()
 
 
 class TestGetTaskStatus:
@@ -464,7 +539,7 @@ class TestTaskWorkerInitAndProps:
         """GREEN: 自定义参数"""
         from infrastructure.tasks.worker import TaskWorker
 
-        with patch("infrastructure.tasks.worker.get_manager"):
+        with patch("infrastructure.tasks.worker.get_manager", autospec=True):
             worker = TaskWorker(
                 poll_interval=0.5,
                 heartbeat_interval=5.0,
@@ -494,7 +569,7 @@ class TestTaskWorkerInitAndProps:
         """GREEN: stats 返回副本而非引用"""
         from infrastructure.tasks.worker import TaskWorker
 
-        with patch("infrastructure.tasks.worker.get_manager"):
+        with patch("infrastructure.tasks.worker.get_manager", autospec=True):
             worker = TaskWorker()
 
         stats = worker.stats
@@ -507,7 +582,7 @@ class TestTaskWorkerInitAndProps:
         """GREEN: stop() 设置 _running = False"""
         from infrastructure.tasks.worker import TaskWorker
 
-        with patch("infrastructure.tasks.worker.get_manager"):
+        with patch("infrastructure.tasks.worker.get_manager", autospec=True):
             worker = TaskWorker()
 
         worker._running = True
@@ -538,7 +613,7 @@ class TestTaskWorkerClaimTask:
         db_session.execute = AsyncMock(return_value=result_mock)
         db_session.commit = AsyncMock()
 
-        with patch("infrastructure.tasks.worker.get_manager"):
+        with patch("infrastructure.tasks.worker.get_manager", autospec=True):
             worker = TaskWorker()
 
         with caplog.at_level("INFO", logger="infrastructure.tasks.worker"):
@@ -562,7 +637,7 @@ class TestTaskWorkerClaimTask:
         db_session = AsyncMock()
         db_session.execute = AsyncMock(return_value=result_mock)
 
-        with patch("infrastructure.tasks.worker.get_manager"):
+        with patch("infrastructure.tasks.worker.get_manager", autospec=True):
             worker = TaskWorker()
 
         claimed = await worker._claim_task(db_session)
@@ -585,7 +660,7 @@ class TestTaskWorkerClaimTask:
         db_session.execute = AsyncMock(return_value=result_mock)
         db_session.commit = AsyncMock()
 
-        with patch("infrastructure.tasks.worker.get_manager"):
+        with patch("infrastructure.tasks.worker.get_manager", autospec=True):
             worker = TaskWorker()
 
         await worker._claim_task(db_session)
@@ -683,6 +758,52 @@ class TestTaskWorkerExecuteTask:
         assert "novel_id=<none>" in "\n".join(caplog.messages)
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("pending_state", ["new", "dirty", "deleted"])
+    async def test_successful_preflight_rejects_pending_session_writes(
+        self,
+        pending_state: str,
+    ) -> None:
+        """The injected gate is read-only and cannot stage hidden business writes."""
+        from infrastructure.tasks.worker import TaskWorker
+
+        task_mock = MagicMock()
+        task_mock.id = uuid.uuid4()
+        task_mock.task_type = "test_type"
+        task_mock.meta = {}
+        task_mock.result = {}
+        db_session = AsyncMock()
+        db_session.new = ()
+        db_session.dirty = ()
+        db_session.deleted = ()
+        setattr(db_session, pending_state, (object(),))
+        db_session.in_transaction = MagicMock(return_value=True)
+        handler = AsyncMock()
+        preflight = AsyncMock()
+
+        with (
+            patch("infrastructure.tasks.worker.get_manager", autospec=True),
+            patch.object(
+                TaskWorker,
+                "_heartbeat_loop",
+                autospec=True,
+                return_value=None,
+            ),
+        ):
+            worker = TaskWorker(task_preflight=preflight)
+            worker._lifecycle.finalize = AsyncMock(return_value=True)
+            worker._registry.get_handler = MagicMock(return_value=handler)
+            await worker._execute_task(task_mock, db_session)
+
+        preflight.assert_awaited_once_with(db_session, task_mock)
+        handler.assert_not_awaited()
+        db_session.rollback.assert_awaited_once()
+        finalized = worker._lifecycle.finalize.await_args.kwargs
+        assert finalized["status"] == "failed"
+        assert finalized["error_message"] == (
+            "RuntimeError: Task preflight must be read-only"
+        )
+
+    @pytest.mark.asyncio
     async def test_execute_success_persists_deduplicated_llm_provenance(
         self,
     ) -> None:
@@ -727,8 +848,8 @@ class TestTaskWorkerExecuteTask:
         db_session = AsyncMock()
 
         with (
-            patch("infrastructure.tasks.worker.get_manager"),
-            patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
+            patch("infrastructure.tasks.worker.get_manager", autospec=True),
+            patch.object(TaskWorker, "_heartbeat_loop", return_value=None, autospec=True),
         ):
             worker = TaskWorker()
             worker._lifecycle.finalize = AsyncMock(return_value=True)
@@ -765,8 +886,8 @@ class TestTaskWorkerExecuteTask:
         handler = AsyncMock(return_value="simple_string_result")
 
         with (
-            patch("infrastructure.tasks.worker.get_manager"),
-            patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
+            patch("infrastructure.tasks.worker.get_manager", autospec=True),
+            patch.object(TaskWorker, "_heartbeat_loop", return_value=None, autospec=True),
         ):
             worker = TaskWorker()
             worker._lifecycle.finalize = AsyncMock(return_value=True)
@@ -784,8 +905,6 @@ class TestTaskWorkerExecuteTask:
     @pytest.mark.asyncio
     async def test_execute_handler_none_registered(self) -> None:
         """RED: 未注册 handler 时标记为 failed"""
-        from unittest.mock import PropertyMock
-
         from infrastructure.tasks.registry import TaskRegistry
         from infrastructure.tasks.worker import TaskWorker
 
@@ -799,16 +918,12 @@ class TestTaskWorkerExecuteTask:
         db_session.commit = AsyncMock()
 
         with (
-            patch("infrastructure.tasks.worker.get_manager"),
-            patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
-            patch.object(
-                TaskRegistry,
-                "registered_types",
-                new_callable=PropertyMock,
-                return_value=["known_type"],
-            ),
+            patch("infrastructure.tasks.worker.get_manager", autospec=True),
+            patch.object(TaskWorker, "_heartbeat_loop", return_value=None, autospec=True),
         ):
             worker = TaskWorker()
+            worker._registry = MagicMock(spec=TaskRegistry)
+            worker._registry.registered_types = ["known_type"]
             worker._lifecycle.finalize = AsyncMock(return_value=True)
             worker._registry.get_handler = MagicMock(return_value=None)
 
@@ -839,8 +954,8 @@ class TestTaskWorkerExecuteTask:
             raise ValueError("processing error")
 
         with (
-            patch("infrastructure.tasks.worker.get_manager"),
-            patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
+            patch("infrastructure.tasks.worker.get_manager", autospec=True),
+            patch.object(TaskWorker, "_heartbeat_loop", return_value=None, autospec=True),
         ):
             worker = TaskWorker()
             worker._lifecycle.finalize = AsyncMock(return_value=True)
@@ -888,8 +1003,8 @@ class TestTaskWorkerExecuteTask:
         db_session = AsyncMock()
 
         with (
-            patch("infrastructure.tasks.worker.get_manager"),
-            patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
+            patch("infrastructure.tasks.worker.get_manager", autospec=True),
+            patch.object(TaskWorker, "_heartbeat_loop", return_value=None, autospec=True),
         ):
             worker = TaskWorker()
             worker._lifecycle.finalize = AsyncMock(return_value=True)
@@ -960,8 +1075,8 @@ class TestTaskWorkerExecuteTask:
         db_session = AsyncMock()
 
         with (
-            patch("infrastructure.tasks.worker.get_manager"),
-            patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
+            patch("infrastructure.tasks.worker.get_manager", autospec=True),
+            patch.object(TaskWorker, "_heartbeat_loop", return_value=None, autospec=True),
             caplog.at_level("ERROR", logger="infrastructure.tasks.worker"),
         ):
             worker = TaskWorker()
@@ -1004,6 +1119,10 @@ class TestTaskWorkerExecuteTask:
         task_mock.meta = {"novel_id": novel_id}
         task_mock.result = {}
         db_session = AsyncMock()
+        db_session.new = ()
+        db_session.dirty = ()
+        db_session.deleted = ()
+        db_session.in_transaction = MagicMock(return_value=True)
 
         with (
             patch("infrastructure.tasks.worker.get_manager", autospec=True),
@@ -1021,6 +1140,7 @@ class TestTaskWorkerExecuteTask:
             await worker._execute_task(task_mock, db_session)
 
         assert observed_context == [novel_id]
+        db_session.rollback.assert_awaited_once()
         lifecycle_logs = "\n".join(caplog.messages)
         assert f"novel_id={novel_id}" in lifecycle_logs
         assert "Task completed:" in lifecycle_logs
@@ -1090,8 +1210,8 @@ class TestTaskWorkerExecuteTask:
             raise asyncio.CancelledError()
 
         with (
-            patch("infrastructure.tasks.worker.get_manager"),
-            patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
+            patch("infrastructure.tasks.worker.get_manager", autospec=True),
+            patch.object(TaskWorker, "_heartbeat_loop", return_value=None, autospec=True),
         ):
             worker = TaskWorker()
             worker._lifecycle.finalize = AsyncMock(return_value=True)
@@ -1137,8 +1257,8 @@ class TestTaskWorkerExecuteTask:
         db_session = AsyncMock()
 
         with (
-            patch("infrastructure.tasks.worker.get_manager"),
-            patch.object(TaskWorker, "_heartbeat_loop", return_value=None),
+            patch("infrastructure.tasks.worker.get_manager", autospec=True),
+            patch.object(TaskWorker, "_heartbeat_loop", return_value=None, autospec=True),
         ):
             worker = TaskWorker()
             worker._lifecycle.finalize = AsyncMock(return_value=True)
@@ -1177,11 +1297,12 @@ class TestTaskWorkerExecuteTask:
                 pass
 
         with (
-            patch("infrastructure.tasks.worker.get_manager"),
+            patch("infrastructure.tasks.worker.get_manager", autospec=True),
             patch.object(
                 TaskWorker,
                 "_heartbeat_loop",
                 side_effect=dummy_heartbeat,
+                autospec=True,
             ),
         ):
             worker = TaskWorker()
@@ -1475,13 +1596,19 @@ class TestTaskWorkerRecoverStale:
         worker = TaskWorker(db_manager=db_manager, poll_interval=2.0)
         worker.recover_stale_tasks = AsyncMock(return_value=0)
 
-        with patch("infrastructure.tasks.worker.monotonic", return_value=10.0):
+        with patch(
+            "infrastructure.tasks.worker.monotonic", return_value=10.0, autospec=True
+        ):
             await worker._maybe_recover_stale_tasks(force=True)
 
-        with patch("infrastructure.tasks.worker.monotonic", return_value=11.0):
+        with patch(
+            "infrastructure.tasks.worker.monotonic", return_value=11.0, autospec=True
+        ):
             await worker._maybe_recover_stale_tasks()
 
-        with patch("infrastructure.tasks.worker.monotonic", return_value=12.1):
+        with patch(
+            "infrastructure.tasks.worker.monotonic", return_value=12.1, autospec=True
+        ):
             await worker._maybe_recover_stale_tasks()
 
         assert worker.recover_stale_tasks.await_count == 2

@@ -203,8 +203,10 @@ describe("createScenePanel", () => {
 
     document.body.innerHTML = panel.render()
     panel.bindEvents(document.body)
+    panel.bindEvents(document.body)
 
     document.querySelector('[data-action="open-map"]').click()
+    expect(onOpenMap).toHaveBeenCalledTimes(1)
     expect(onOpenMap).toHaveBeenCalledWith(openTarget)
   })
 

@@ -2,11 +2,13 @@
 
 ## 1. 设计原则
 
-系统使用一组结构化 Prompt 完成生成、抽取和切分任务，不构建自治多 Agent 运行时。
+系统使用受确定性工作流编排的 Prompt 完成正文生成、结构生成、
+抽取和切分任务，不构建自治多 Agent 运行时。
 
 统一原则：
 
-- Prompt 输出结构化 JSON，不直接写数据库状态
+- 结构化 Prompt 输出经 schema 校验的 JSON；正文 Prompt 输出可审阅文本候选
+- LLM 输出不直接写入已采用或正史状态
 - `status` 不应作为 Prompt 契约的一部分
 - 创建/关联/忽略主要通过 `suggested_action` 或调用方路由语义决定
 - reveal、知识边界以及待处理建议与已采用资产的隔离由调用方服务和上下文编译器共同保证
@@ -27,6 +29,8 @@
 | `extract_character.md` | 从正文片段提取人物档案字段 | 人物信息补全 |
 | `scene_fusion_draft.py` | 内联 step `outline.scene_fusion.draft.structured`：基于选中 Scene 卡和精确正文生成融合语义草稿 | Scene 工作台 |
 | `world_bible_synopsis_service.py` | 内联 step `world.world_bible.synopsis.structured`：把已采用世界事实压缩为作者版 P1 世界观简介 | world 世界书简介刷新任务 |
+| `generation_prompt_template_service.py` | 内置创作视角与项目级自定义模板；作为 author brief 进入生成中心 | world 对象共创 |
+| `writing/services.py` | 内联 step `writing.generation.candidate.generate`：根据已确认上下文生成正文候选 | writing 正文生成 |
 
 ## 3. Prompt Contract System
 
@@ -119,9 +123,81 @@ provenance 由 outline 确定性逻辑保持。调用失败时只返回带 warni
 只在多个方案同样有证据支持或冲突无法兼容时作为意图、叙事重心和
 表达取向的偏好信号，不是融合骨架，也不得导致其他 Scene 的有证据信息被忽略。
 
+### 正文生成类
+
+`writing.generation.candidate.generate` 把模型定位为长篇小说共同创作者，
+直接输出可审阅的正文候选，不输出提纲、分析或 JSON。有当前 Scene 时
+以 Scene 为写作范围，否则以当前章节为范围。已确认上下文作为
+有边界的 user/context 数据注入，不进入 system Prompt。
+
+写作上下文优先包含当前 Scene、当前章活跃剧情线、相关人物和物品。
+人物与相关世界对象超出预算时，按显式选择、Scene、篇章、剧情线和
+RAG 证据的关联顺序取 Top-K；人物上限 6，相关世界对象上限 16。
+该 Prompt 不预设字数、段落数量、描写比例或统一节奏模板，允许模型补充
+不改变重大设定的局部、可逆写作细节。结果只保存为 candidate，仍需作者显式采用。
+
+#### 单角色 POV 正文候选
+
+当写作确认记录同时指定当前 Scene、character reveal 和 POV 人物时，
+同一 LLM step 切换为单角色有限视角。设计目的是让正文的感知、解读、
+判断、对话和行动都受角色的当下经验与认知驱动，而不是强制第一人称
+或堆叠内心独白。项目叙事人称、叙事距离和文风仍然有效。
+
+上下文按用途区分为三类：
+
+1. POV 档案、经 CharacterKnowledge 过滤的对象、其他人物的可观察信息和
+   当前 Scene 证据，可以影响角色认知与行动。
+2. Scene 目标、冲突、must/must_not 以及剧情线的公开进展仅作为
+   `director_only` 叙事指导，不得变成角色已知事实。
+3. compiler warning 只说明资料缺口或保守排除，模型不得伪造被排除知识。
+
+输出仅有 `pov_state / draft_prose / uncertainties` 三个顶层字段。
+`draft_prose` 是主要文学成果；`pov_state` 是简洁、可检查的状态摘要，
+不要求模型暴露分步推理；`withheld_known_information` 只能记录角色
+确实已知的信息；`uncertainties` 无实质问题时为空数组。不再拆分固定的
+动作、表情、对话、内心戏和潜台词字段，避免结构绑架文学表达。
+输出仍经 parser 和 hidden guard 确定性检查，并且只进入待审阅 candidate。
+
+### 生成中心世界对象共创
+
+`world.object_draft.chat.generate` 是不写库的自由共创 step。模型的设计目标
+不是按问卷填满对象卡，而是根据对话当前状态自主选择发散、比较、
+指出矛盾、提出实质性问题或阶段性收束。作者明确的选择、否定和修正
+优先于模型早先的建议；高影响新设定应标明为建议，不假定已经成立。
+
+`world.object_draft.generate.structured` 负责把共创过程忠实收束为一个
+待处理世界对象建议，不进行第二次随机重设计。新近作者决定优先于旧内容；
+助手方案只有被作者接受或后续明显沿用时才视为已确定。当作者要求
+自由完成时允许模型运用创作判断；当作者已给出明确设计时，不为完整度
+擅自增加秘密、反转、关系、能力或剧情用途。
+
+结构化输出继续使用 `name / summary / public_info / hidden_truth /
+importance_level / reveal_level / details / character_card`，不新增用于绑架
+创作的中间字段。`summary` 不设固定长度和统一内容模板；
+`hidden_truth` 没有隐藏层时为 null；`character_card` 仅人物对象使用。
+枚举、schema 校验、模板版本、`novel_id` 隔离、上下文快照和 suggestion-only
+状态迁移保留在确定性代码中。
+
+两个 step 共用 `generation_center` 上下文：项目风格、世界观简介、作者
+选择的世界书工作稿、相关剧情线/篇章/RAG 证据，以及从这些证据关联的
+已采用对象和人物 Top-K。选中章节在总预算内优先取命中作者意图的窗口，
+无命中时保留头尾，不使用每章开头固定 500 字的截断。
+
+内置模板不规定对象必须拥有哪些字段，而是提供与类型相关的创作视角。
+人物聚焦欲望、阻力、选择和行为逻辑；事件聚焦有因果的状态变化；物品聚焦
+使用、持有与争夺；地点聚焦空间如何塑造行动与生活；组织聚焦集体决策与行动；
+规则聚焦对世界运行和选择后果的稳定约束。外貌、秘密、反转、宿敌、代价、例外等
+都只在对当前对象有帮助时发展，不为填满模板强行生成。
+
+`不带模板` 不预设固定框架，允许对象暂时跨类别，并先收束为概念建议。
+现有结构化输出仍确定性映射为 `concept`；这只是采用前的临时分类，不是对创作内容
+的强制归类，作者可在采用前调整类型。模板不覆盖结构化 system scaffold，
+不声明 JSON、数据库字段、状态或采用操作；这些边界继续由确定性代码与 schema 负责。
+
 ## 6. `shared_rules.md` 的权威地位
 
-共享规则要求：
+该文件当前只是结构化 Prompt 的规则参考，不适用于正文生成 Prompt。
+其规则要求：
 
 1. 不直接生成小说正文。
 2. 不输出最终数据库状态。

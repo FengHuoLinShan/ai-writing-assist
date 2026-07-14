@@ -415,7 +415,7 @@ class TestMapConfigValidation:
                 MapConfigUpdate(name="不应更新"),
                 novel_id=nid,
             )
-        assert exc.value.code == "unadopted_map_entity"
+        assert exc.value.code == "map_not_found"
 
     @pytest.mark.asyncio
     async def test_generate_on_world_map_returns_400(self, db_session):

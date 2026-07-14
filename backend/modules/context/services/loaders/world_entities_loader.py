@@ -90,10 +90,11 @@ class WorldEntitiesLoader(Loader):
     ) -> None:
         core_limit = CONTEXT_BUDGET.get("core_entities", 8)
         normal_limit = CONTEXT_BUDGET.get("normal_entities", 8)
+        related_ids = _related_entity_ids(options, bundle)
 
-        if options.entity_ids:
+        if related_ids:
             all_limit = core_limit + normal_limit
-            limited_ids = options.entity_ids[:all_limit]
+            limited_ids = related_ids[:all_limit]
             ctx = await self._get_world_context(
                 db,
                 options.novel_id,
@@ -191,3 +192,34 @@ class WorldEntitiesLoader(Loader):
                 redacted["summary"] = redacted.get("public_info")
             visible.append(redacted)
         bundle.world_entities = visible
+
+
+def _related_entity_ids(
+    options: CompileOptions,
+    bundle: StructureContextBundle,
+) -> list[str]:
+    """Rank explicit and current-writing references before applying Top-K."""
+    ranked: list[str] = []
+
+    def extend(values: object) -> None:
+        if not isinstance(values, list | tuple | set):
+            return
+        for value in values:
+            entity_id = str(value or "").strip()
+            if entity_id and entity_id not in ranked:
+                ranked.append(entity_id)
+
+    extend(options.entity_ids)
+    scene = bundle.scene if isinstance(bundle.scene, dict) else {}
+    scene_meta = scene.get("structure_meta") or {}
+    if isinstance(scene_meta, dict):
+        extend(scene_meta.get("related_entity_ids"))
+    arc = bundle.outline_arc if isinstance(bundle.outline_arc, dict) else {}
+    extend(arc.get("related_entity_ids"))
+    for thread in bundle.plot_threads:
+        if isinstance(thread, dict):
+            extend(thread.get("related_entity_ids"))
+    for chunk in bundle.rag_chunks:
+        if isinstance(chunk, dict):
+            extend(chunk.get("entity_ids"))
+    return ranked

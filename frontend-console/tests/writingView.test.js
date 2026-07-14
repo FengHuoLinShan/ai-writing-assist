@@ -260,6 +260,20 @@ describe("writingView chapter selection", () => {
     expect(document.getElementById("btn-publish").disabled).toBe(false)
   })
 
+  it("首次选择章节的完整重绘会重新绑定事件", async () => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    mockEditorLoad()
+    await writingView.onEnter()
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+    const bindEvents = vi.spyOn(writingView, "_bindEvents")
+
+    await writingView._selectChapter(1)
+
+    expect(bindEvents).toHaveBeenCalled()
+    expect(document.getElementById("writing-editor")).not.toBeNull()
+  })
+
   it("重复点击同一章节刷新版本", async () => {
     state.currentProjectId = "p1"
     mockChapterList()
@@ -271,6 +285,28 @@ describe("writingView chapter selection", () => {
     await writingView._selectChapter(1)
 
     expect(api.writing.getVersionHistory).toHaveBeenCalledWith(1, "p1")
+  })
+
+  it("重复选择当前章节时同步刷新 Scene 面板", async () => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    api.outline.listScenesOrdered.mockResolvedValue([
+      {
+        id: "scene-1",
+        title: "抵达洛阳",
+        chapter_ids: ["1"],
+        scene_chunks: [{ chapter_index: 1, start_pos: 0, end_pos: 10 }],
+      },
+    ])
+    mockEditorLoad()
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+    const update = vi.spyOn(writingView._scenePanel, "update")
+
+    await writingView._selectChapter(1)
+
+    expect(update).toHaveBeenCalledWith("scene-1", 1)
+    expect(writingView._scenePanel.getCurrentScene()).toMatchObject({ id: "scene-1" })
   })
 
   it("切换章节后保留章节树和页面滚动位置", async () => {

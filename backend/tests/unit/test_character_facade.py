@@ -8,11 +8,13 @@ We mock _character_service to isolate the facade layer.
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, patch
+from contextlib import contextmanager
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import modules.world.character_facade as character_facade
 from modules.world.facade import (
     create_character,
     filter_context_by_character_knowledge,
@@ -28,6 +30,14 @@ from modules.world.schemas import (
 )
 
 pytestmark = [pytest.mark.asyncio]
+
+
+@contextmanager
+def _use_character_service(mock_service: AsyncMock):
+    """Use an explicit service double without bypassing the patch autospec gate."""
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(character_facade, "_character_service", mock_service)
+        yield
 
 
 # ============================================================
@@ -52,7 +62,7 @@ async def test_create_character_with_valid_data_returns_character_response(
     mock_service.create.return_value = expected
 
     # Act
-    with patch("modules.world.character_facade._character_service", mock_service):
+    with _use_character_service(mock_service):
         result = await create_character(
             db_session,
             novel_id,
@@ -86,7 +96,7 @@ async def test_create_character_with_none_world_entity_id_uses_empty_string(
     mock_service.create.return_value = expected
 
     # Act
-    with patch("modules.world.character_facade._character_service", mock_service):
+    with _use_character_service(mock_service):
         result = await create_character(
             db_session,
             novel_id,
@@ -127,7 +137,7 @@ async def test_create_character_propagates_service_exception(
     mock_service.create.side_effect = RuntimeError("db error")
 
     # Act / Assert
-    with patch("modules.world.character_facade._character_service", mock_service):
+    with _use_character_service(mock_service):
         with pytest.raises(RuntimeError, match="db error"):
             await create_character(db_session, novel_id, name)
 
@@ -154,7 +164,7 @@ async def test_list_characters_with_defaults_returns_tuple(
     mock_service.list.return_value = (expected_items, expected_total)
 
     # Act
-    with patch("modules.world.character_facade._character_service", mock_service):
+    with _use_character_service(mock_service):
         items, total = await list_characters(db_session, novel_id)
 
     # Assert
@@ -178,7 +188,7 @@ async def test_list_characters_with_custom_pagination_returns_tuple(
     mock_service.list.return_value = ([], 0)
 
     # Act
-    with patch("modules.world.character_facade._character_service", mock_service):
+    with _use_character_service(mock_service):
         await list_characters(db_session, novel_id, skip=10, limit=50)
 
     # Assert
@@ -200,7 +210,7 @@ async def test_list_characters_with_zero_limit_returns_empty(
     mock_service.list.return_value = ([], 0)
 
     # Act
-    with patch("modules.world.character_facade._character_service", mock_service):
+    with _use_character_service(mock_service):
         items, total = await list_characters(db_session, novel_id, limit=0)
 
     # Assert
@@ -218,7 +228,7 @@ async def test_list_characters_propagates_service_exception(
     mock_service.list.side_effect = ValueError("bad query")
 
     # Act / Assert
-    with patch("modules.world.character_facade._character_service", mock_service):
+    with _use_character_service(mock_service):
         with pytest.raises(ValueError, match="bad query"):
             await list_characters(db_session, novel_id)
 
@@ -246,7 +256,7 @@ async def test_get_characters_context_with_defaults_returns_bundle(
     mock_service.get_characters_context.return_value = expected
 
     # Act
-    with patch("modules.world.character_facade._character_service", mock_service):
+    with _use_character_service(mock_service):
         result = await get_characters_context(
             db_session,
             novel_id,
@@ -279,7 +289,7 @@ async def test_get_characters_context_with_custom_reveal_mode_returns_bundle(
     mock_service.get_characters_context.return_value = expected
 
     # Act
-    with patch("modules.world.character_facade._character_service", mock_service):
+    with _use_character_service(mock_service):
         result = await get_characters_context(
             db_session,
             novel_id,
@@ -312,7 +322,7 @@ async def test_get_characters_context_with_empty_ids_returns_empty_bundle(
     mock_service.get_characters_context.return_value = expected
 
     # Act
-    with patch("modules.world.character_facade._character_service", mock_service):
+    with _use_character_service(mock_service):
         result = await get_characters_context(db_session, novel_id, [])
 
     # Assert
@@ -330,7 +340,7 @@ async def test_get_characters_context_propagates_service_exception(
     mock_service.get_characters_context.side_effect = PermissionError("denied")
 
     # Act / Assert
-    with patch("modules.world.character_facade._character_service", mock_service):
+    with _use_character_service(mock_service):
         with pytest.raises(PermissionError, match="denied"):
             await get_characters_context(
                 db_session,
@@ -364,7 +374,7 @@ async def test_get_character_knowledge_context_with_target_ids_returns_list(
     mock_service.get_character_knowledge_context.return_value = expected
 
     # Act
-    with patch("modules.world.character_facade._character_service", mock_service):
+    with _use_character_service(mock_service):
         result = await get_character_knowledge_context(
             db_session,
             novel_id,
@@ -394,7 +404,7 @@ async def test_get_character_knowledge_context_with_none_target_ids_returns_list
     mock_service.get_character_knowledge_context.return_value = expected
 
     # Act
-    with patch("modules.world.character_facade._character_service", mock_service):
+    with _use_character_service(mock_service):
         result = await get_character_knowledge_context(
             db_session,
             novel_id,
@@ -424,7 +434,7 @@ async def test_get_character_knowledge_context_with_empty_target_ids_returns_lis
     mock_service.get_character_knowledge_context.return_value = expected
 
     # Act
-    with patch("modules.world.character_facade._character_service", mock_service):
+    with _use_character_service(mock_service):
         result = await get_character_knowledge_context(
             db_session,
             novel_id,
@@ -455,7 +465,7 @@ async def test_get_character_knowledge_context_propagates_service_exception(
     )
 
     # Act / Assert
-    with patch("modules.world.character_facade._character_service", mock_service):
+    with _use_character_service(mock_service):
         with pytest.raises(ConnectionError, match="db down"):
             await get_character_knowledge_context(
                 db_session,
@@ -499,7 +509,7 @@ async def test_filter_context_by_character_knowledge_with_items_returns_filtered
     )
 
     # Act
-    with patch("modules.world.character_facade._character_service", mock_service):
+    with _use_character_service(mock_service):
         result = await filter_context_by_character_knowledge(
             db_session,
             novel_id,
@@ -529,7 +539,7 @@ async def test_filter_context_by_character_knowledge_with_empty_items_returns_em
     mock_service.filter_context_by_character_knowledge.return_value = ([], 0, 0)
 
     # Act
-    with patch("modules.world.character_facade._character_service", mock_service):
+    with _use_character_service(mock_service):
         result = await filter_context_by_character_knowledge(
             db_session,
             novel_id,
@@ -557,7 +567,7 @@ async def test_filter_context_by_character_knowledge_discards_counts(
     )
 
     # Act
-    with patch("modules.world.character_facade._character_service", mock_service):
+    with _use_character_service(mock_service):
         result = await filter_context_by_character_knowledge(
             db_session,
             novel_id,
@@ -583,7 +593,7 @@ async def test_filter_context_by_character_knowledge_propagates_service_exceptio
     )
 
     # Act / Assert
-    with patch("modules.world.character_facade._character_service", mock_service):
+    with _use_character_service(mock_service):
         with pytest.raises(OSError, match="disk full"):
             await filter_context_by_character_knowledge(
                 db_session,
@@ -614,7 +624,7 @@ async def test_create_character_with_special_characters_in_name(
     mock_service.create.return_value = expected
 
     # Act
-    with patch("modules.world.character_facade._character_service", mock_service):
+    with _use_character_service(mock_service):
         result = await create_character(db_session, novel_id, name)
 
     # Assert
@@ -631,7 +641,7 @@ async def test_list_characters_with_negative_skip_passes_through(
     mock_service.list.return_value = ([], 0)
 
     # Act
-    with patch("modules.world.character_facade._character_service", mock_service):
+    with _use_character_service(mock_service):
         await list_characters(db_session, novel_id, skip=-1)
 
     # Assert
@@ -659,7 +669,7 @@ async def test_get_characters_context_with_multiple_ids_passes_all(
     mock_service.get_characters_context.return_value = expected
 
     # Act
-    with patch("modules.world.character_facade._character_service", mock_service):
+    with _use_character_service(mock_service):
         await get_characters_context(db_session, novel_id, ids)
 
     # Assert

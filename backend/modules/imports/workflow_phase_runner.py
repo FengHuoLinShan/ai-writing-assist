@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +28,10 @@ class DeepImportPhaseRequest:
 class SceneFullPipelineRequest(DeepImportPhaseRequest):
     stop_after: DeepImportStep | None = None
     replace_existing: bool = False
+    prepared_phase0_result: Any | None = None
+    project_profile: dict[str, Any] | None = None
+    before_scene_commit: Callable[[], Awaitable[None]] | None = None
+    require_provider_no_transaction: bool = False
 
 
 @dataclass(frozen=True, kw_only=True)

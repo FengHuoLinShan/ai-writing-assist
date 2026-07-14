@@ -388,11 +388,10 @@ class TestWorldCandidateAndGraphFlows:
         merged = await client.get(f"/api/world/entities/{candidate_id}?novel_id={pid}")
         assert merged.json()["status"] == "merged"
 
-    async def test_task_submit_entity_extraction_returns_pending_task(self, ctx):
-        """提交实体抽取任务应返回 pending 状态的任务"""
+    async def test_generic_task_submit_rejects_module_owned_type(self, ctx):
+        """通用任务端点不得绕过业务模块的请求 schema。"""
         client, pid, _ = ctx
 
-        # Act
         submit_resp = await client.post(
             "/api/tasks",
             json={
@@ -405,24 +404,7 @@ class TestWorldCandidateAndGraphFlows:
             },
         )
 
-        # Assert
-        assert submit_resp.status_code == 201
-        data = submit_resp.json()
-        assert "task_id" in data
-        assert data["status"] == "pending"
-
-        # Act — 查询任务详情
-        task_id = data["task_id"]
-        status_resp = await client.get(
-            f"/api/tasks/{task_id}",
-            params={"novel_id": pid},
-        )
-
-        # Assert
-        assert status_resp.status_code == 200
-        status_data = status_resp.json()
-        assert status_data["task_type"] == "publish_chapter"
-        assert status_data["status"] in ("pending", "running", "completed", "failed")
+        assert submit_resp.status_code == 403
 
     async def test_world_entity_related_graph_returns_list_with_expected_fields(
         self, ctx

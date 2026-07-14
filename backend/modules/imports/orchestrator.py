@@ -7,6 +7,8 @@ task progress shaping for the user-confirmed deep import pipeline.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -48,10 +50,16 @@ STAGE_TASK_TYPES = {
 SCENE_STAGE_PHASE1A_WEIGHT = 0.59
 SCENE_STAGE_PHASE1B_WEIGHT = 0.40
 SCENE_STAGE_COMMIT_START = 0.99
+SCENE_STAGE_TASK_PREPARE_VERSION = "scene-stage-prepare-v1"
+SCENE_STAGE_TASK_PREPARE_KEY = "scene_stage_prepare"
 
 
 class DeepImportWorkflowFailedError(RuntimeError):
     """A persisted workflow failure that must become a failed async task."""
+
+
+class SceneStageInputDriftError(RuntimeError):
+    """Frozen Scene-stage business inputs changed before formal persistence."""
 
 
 class DeepImportOrchestrator:
@@ -279,6 +287,17 @@ class DeepImportOrchestrator:
         replace_existing = bool(meta.get("replace_existing", False))
         if not novel_id:
             raise ValueError(f"novel_id is required for {task.task_type}")
+        if stage == "scenes" and getattr(db, "task_checkpoint_enabled", False) is True:
+            return await self._run_fenced_scene_stage_task(
+                db,
+                task,
+                meta=dict(meta),
+                novel_id=str(novel_id),
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+                high_quality=high_quality,
+                replace_existing=replace_existing,
+            )
 
         progress = self._progress_from_task(task)
         self._hydrate_authorization(progress, meta)
@@ -361,6 +380,430 @@ class DeepImportOrchestrator:
                 progress.message or f"Deep import stage {stage} failed"
             )
         return self._result_from_progress(progress)
+
+    async def _run_fenced_scene_stage_task(
+        self,
+        db: AsyncSession,
+        task: Any,
+        *,
+        meta: dict[str, Any],
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
+        high_quality: bool,
+        replace_existing: bool,
+    ) -> dict[str, Any]:
+        """Run Scene extraction with one prepare and one atomic asset commit."""
+        from infrastructure.tasks.facade import require_task_checkpoint_session
+
+        require_task_checkpoint_session(db)
+        self._validate_scene_task_identity(task, meta, novel_id)
+        progress = self._progress_from_task(task)
+        self._hydrate_authorization(progress, meta)
+        progress.workflow_type = "scene_auto_extraction"
+        progress.stage = "scenes"
+        progress.total_steps = 1
+
+        existing_prepare = meta.get(SCENE_STAGE_TASK_PREPARE_KEY)
+        if isinstance(existing_prepare, dict) and progress.phase == "done":
+            return self._result_from_progress(progress)
+
+        (
+            project_settings,
+            phase0_result,
+            project_profile,
+            preparation,
+        ) = await self._prepare_fenced_scene_stage(
+            db,
+            task,
+            meta=meta,
+            novel_id=novel_id,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            high_quality=high_quality,
+            replace_existing=replace_existing,
+        )
+        task.meta = {
+            **dict(task.meta or meta),
+            SCENE_STAGE_TASK_PREPARE_KEY: preparation,
+        }
+        progress.llm_execution_snapshot = dict(
+            (task.meta or {}).get("llm_execution_snapshot") or {}
+        )
+        progress.checkpoints[SCENE_STAGE_TASK_PREPARE_KEY] = (
+            self._public_scene_prepare_checkpoint(preparation)
+        )
+        progress.asset_summary = build_asset_summary(progress.quality_stats)
+        task.result = progress.model_dump(mode="json")
+        self._update_task_progress(task, 0.0)
+
+        # This is the only durable checkpoint before health/provider I/O.  The
+        # TaskHandlerSession hook atomically persists detached meta/result and
+        # rejects a lost lease before any external call can begin.
+        await db.commit()
+        db.expire_all()
+        if db.in_transaction():
+            raise RuntimeError(
+                "scene_auto_extraction prepare checkpoint left a transaction open"
+            )
+
+        scene_commit_checkpointed = False
+
+        async def _record_progress(
+            updated: DeepImportProgress,
+            progress_value: float,
+        ) -> None:
+            nonlocal scene_commit_checkpointed
+            updated.workflow_type = "scene_auto_extraction"
+            updated.stage = "scenes"
+            updated.asset_summary = build_asset_summary(updated.quality_stats)
+            task.result = updated.model_dump(mode="json")
+            persisted_value = self._update_task_progress(
+                task,
+                self._scene_stage_progress_value(updated),
+            )
+            terminal_scene_commit = bool(
+                updated.current_phase == "scene_commit" and updated.phase == "done"
+            )
+            failed_scene_commit = bool(
+                updated.current_phase == "scene_commit" and updated.phase == "failed"
+            )
+            if terminal_scene_commit and not scene_commit_checkpointed:
+                # Formal Scene rows, suggestions, RAG enqueue, and this task
+                # progress/result become durable under the same worker CAS.
+                await db.commit()
+                scene_commit_checkpointed = True
+                db.expire_all()
+            elif failed_scene_commit:
+                # SceneCommitter may already have deprecated old Scenes or
+                # flushed only part of the replacement set.  A failed coverage
+                # decision must discard that whole finalizer transaction while
+                # preserving the earlier prepare checkpoint.
+                if db.in_transaction():
+                    await db.rollback()
+            elif db.in_transaction():
+                raise RuntimeError(
+                    "scene_auto_extraction progress opened a provider transaction"
+                )
+            if self.progress_observer is not None:
+                await self.progress_observer(updated, persisted_value, task)
+            if db.in_transaction():
+                raise RuntimeError(
+                    "scene_auto_extraction observer opened a provider transaction"
+                )
+
+        async def _before_scene_commit() -> None:
+            await self._revalidate_fenced_scene_stage(
+                db,
+                task,
+                preparation=preparation,
+                novel_id=novel_id,
+                start_chapter=start_chapter,
+                end_chapter=end_chapter,
+            )
+
+        progress = await self.workflow.run_step(
+            db,
+            novel_id=novel_id,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            progress=progress,
+            workflow_id=str(task.id),
+            context_mode=str(meta.get("context_mode") or "working"),
+            include_pending_objects=bool(meta.get("include_pending_objects", True)),
+            high_quality=high_quality,
+            replace_existing=replace_existing,
+            project_settings=project_settings,
+            on_progress=_record_progress,
+            stop_after=DeepImportStep.scene_segmentation,
+            prepared_scene_phase0_result=phase0_result,
+            scene_project_profile=project_profile,
+            before_scene_commit=_before_scene_commit,
+            require_scene_provider_no_transaction=True,
+        )
+        self._hydrate_authorization(progress, dict(task.meta or meta))
+        if progress.phase == "failed":
+            await _record_progress(progress, self._task_progress_value(task))
+            raise DeepImportWorkflowFailedError(
+                progress.message or "Deep import stage scenes failed"
+            )
+        if not scene_commit_checkpointed:
+            raise RuntimeError(
+                "scene_auto_extraction completed without a fenced Scene checkpoint"
+            )
+        return self._result_from_progress(progress)
+
+    async def _prepare_fenced_scene_stage(
+        self,
+        db: AsyncSession,
+        task: Any,
+        *,
+        meta: dict[str, Any],
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
+        high_quality: bool,
+        replace_existing: bool,
+    ) -> tuple[dict[str, Any] | None, Any, dict[str, Any], dict[str, Any]]:
+        from modules.imports.chapter_loader import load_chapter_range
+        from modules.imports.scene_planning import build_scene_import_plan
+        from modules.project.facade import get_project_context, require_active_project
+
+        await require_active_project(db, novel_id)
+        context = await get_project_context(db, novel_id)
+        if context is None:
+            raise SceneStageInputDriftError("Scene-stage project is no longer active")
+        progress = self._progress_from_task(task)
+        project_settings = await self._restore_llm_execution_snapshot(
+            db,
+            task,
+            progress,
+            meta,
+        )
+        current_meta = dict(task.meta or meta)
+        snapshot = current_meta.get("llm_execution_snapshot")
+        if not isinstance(snapshot, dict) or not snapshot:
+            raise ValueError("llm_execution_snapshot is required")
+        chapters = await load_chapter_range(
+            db,
+            novel_id,
+            start_chapter,
+            end_chapter,
+            include_missing=False,
+        )
+        project_profile = self._scene_project_profile(context)
+        preparation = self._build_scene_stage_preparation(
+            task=task,
+            meta=current_meta,
+            novel_id=novel_id,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            high_quality=high_quality,
+            replace_existing=replace_existing,
+            chapters=chapters,
+            project_profile=project_profile,
+            llm_execution_snapshot=snapshot,
+        )
+        existing = meta.get(SCENE_STAGE_TASK_PREPARE_KEY)
+        if isinstance(existing, dict):
+            if (
+                existing.get("version") != SCENE_STAGE_TASK_PREPARE_VERSION
+                or existing.get("input_fingerprint") != preparation["input_fingerprint"]
+            ):
+                raise SceneStageInputDriftError(
+                    "Scene-stage inputs changed after the prepare checkpoint"
+                )
+            preparation = dict(existing)
+        phase0_result = build_scene_import_plan(
+            chapters,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+            project_settings=project_settings,
+        )
+        progress.llm_execution_snapshot = dict(snapshot)
+        return project_settings, phase0_result, project_profile, preparation
+
+    async def _revalidate_fenced_scene_stage(
+        self,
+        db: AsyncSession,
+        task: Any,
+        *,
+        preparation: dict[str, Any],
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
+    ) -> None:
+        from modules.imports.chapter_loader import load_chapter_range
+        from modules.project.facade import get_project_context, require_active_project
+        from modules.writing.facade import lock_chapter_versions_for_revalidation
+
+        # Lock order is project -> source/profile -> task.  The project shared
+        # lock linearizes this final business write against project deletion.
+        await require_active_project(db, novel_id)
+        context = await get_project_context(db, novel_id)
+        if context is None:
+            raise SceneStageInputDriftError("Scene-stage project is no longer active")
+        current_profile = self._scene_project_profile(context)
+        if self._stable_hash(current_profile) != preparation.get(
+            "project_profile_fingerprint"
+        ):
+            raise SceneStageInputDriftError(
+                "Scene-stage project profile changed during generation"
+            )
+
+        task_meta = dict(task.meta or {})
+        snapshot = task_meta.get("llm_execution_snapshot")
+        if not isinstance(snapshot, dict) or not snapshot:
+            raise SceneStageInputDriftError("Scene-stage LLM snapshot is missing")
+        if self._stable_hash(snapshot) != preparation.get(
+            "llm_execution_snapshot_fingerprint"
+        ):
+            raise SceneStageInputDriftError("Scene-stage LLM snapshot changed")
+        # Re-resolve current secrets/endpoint-specific values.  The frozen model
+        # and generation settings remain intentionally stable across retries.
+        await self._restore_snapshot(db, novel_id, snapshot)
+
+        await lock_chapter_versions_for_revalidation(
+            db,
+            novel_id,
+            list(range(start_chapter, end_chapter + 1)),
+        )
+        chapters = await load_chapter_range(
+            db,
+            novel_id,
+            start_chapter,
+            end_chapter,
+            include_missing=False,
+        )
+        if self._chapter_source_vector(chapters) != preparation.get("source_vector"):
+            raise SceneStageInputDriftError(
+                "Scene-stage chapter sources changed during generation"
+            )
+
+        current_task = await db.scalar(
+            select(AsyncTask)
+            .where(AsyncTask.id == _parse_uuid(str(task.id)))
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if current_task is None:
+            raise asyncio.CancelledError
+        current_meta = dict(current_task.meta or {})
+        current_prepare = current_meta.get(SCENE_STAGE_TASK_PREPARE_KEY)
+        current_snapshot = current_meta.get("llm_execution_snapshot")
+        fence_valid = bool(
+            current_task.status == "running"
+            and str(current_task.lease_id or "") == str(task.lease_id or "")
+            and int(current_task.attempt or 0) == int(task.attempt or 0)
+            and current_task.task_type == "scene_auto_extraction"
+            and str(current_meta.get("novel_id") or "") == novel_id
+            and current_meta.get("stage") == "scenes"
+            and int(current_meta.get("start_chapter", 0)) == start_chapter
+            and int(current_meta.get("end_chapter", 0)) == end_chapter
+            and bool(current_meta.get("high_quality", False))
+            == bool(preparation.get("high_quality", False))
+            and bool(current_meta.get("replace_existing", False))
+            == bool(preparation.get("replace_existing", False))
+            and self._stable_hash(current_meta.get("authorization_snapshot"))
+            == preparation.get("authorization_fingerprint")
+            and isinstance(current_snapshot, dict)
+            and self._stable_hash(current_snapshot)
+            == preparation.get("llm_execution_snapshot_fingerprint")
+            and isinstance(current_prepare, dict)
+            and current_prepare.get("input_fingerprint")
+            == preparation.get("input_fingerprint")
+        )
+        if not fence_valid:
+            raise asyncio.CancelledError
+
+    @staticmethod
+    def _validate_scene_task_identity(
+        task: Any,
+        meta: dict[str, Any],
+        novel_id: str,
+    ) -> None:
+        if str(getattr(task, "task_type", "")) != "scene_auto_extraction":
+            raise ValueError("scene stage task_type mismatch")
+        if str(meta.get("novel_id") or "") != novel_id:
+            raise ValueError("scene stage novel_id mismatch")
+        if meta.get("stage") != "scenes":
+            raise ValueError("scene stage scope mismatch")
+
+    @classmethod
+    def _build_scene_stage_preparation(
+        cls,
+        *,
+        task: Any,
+        meta: dict[str, Any],
+        novel_id: str,
+        start_chapter: int,
+        end_chapter: int,
+        high_quality: bool,
+        replace_existing: bool,
+        chapters: list[dict[str, Any]],
+        project_profile: dict[str, Any],
+        llm_execution_snapshot: dict[str, Any],
+    ) -> dict[str, Any]:
+        authorization = meta.get("authorization_snapshot")
+        semantic_inputs = {
+            "task_id": str(task.id),
+            "task_type": "scene_auto_extraction",
+            "novel_id": novel_id,
+            "start_chapter": start_chapter,
+            "end_chapter": end_chapter,
+            "high_quality": bool(high_quality),
+            "replace_existing": bool(replace_existing),
+            "authorization_fingerprint": cls._stable_hash(authorization),
+            "source_vector": cls._chapter_source_vector(chapters),
+            "project_profile": project_profile,
+            "project_profile_fingerprint": cls._stable_hash(project_profile),
+            "llm_execution_snapshot_fingerprint": cls._stable_hash(
+                llm_execution_snapshot
+            ),
+        }
+        return {
+            "version": SCENE_STAGE_TASK_PREPARE_VERSION,
+            **semantic_inputs,
+            "input_fingerprint": cls._stable_hash(semantic_inputs),
+        }
+
+    @staticmethod
+    def _scene_project_profile(context: Any) -> dict[str, Any]:
+        return {
+            "title": str(getattr(context, "title", "") or ""),
+            "genre": str(getattr(context, "genre", "") or ""),
+            "tone": str(getattr(context, "tone", "") or ""),
+        }
+
+    @classmethod
+    def _chapter_source_vector(
+        cls,
+        chapters: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        return [
+            {
+                "chapter_index": int(chapter["chapter_index"]),
+                "source_draft_id": str(chapter.get("source_draft_id") or ""),
+                "content_hash": hashlib.sha256(
+                    str(chapter.get("content") or "").encode("utf-8")
+                ).hexdigest(),
+            }
+            for chapter in sorted(
+                chapters,
+                key=lambda item: int(item["chapter_index"]),
+            )
+        ]
+
+    @staticmethod
+    def _stable_hash(value: Any) -> str:
+        payload = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _public_scene_prepare_checkpoint(
+        preparation: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            key: preparation.get(key)
+            for key in (
+                "version",
+                "input_fingerprint",
+                "source_vector",
+                "project_profile_fingerprint",
+                "llm_execution_snapshot_fingerprint",
+                "authorization_fingerprint",
+                "start_chapter",
+                "end_chapter",
+                "high_quality",
+                "replace_existing",
+            )
+        }
 
     async def run_submitted_stage_inline(
         self,
@@ -518,9 +961,7 @@ class DeepImportOrchestrator:
         if not isinstance(snapshot, dict) or not snapshot:
             # Compatibility for already-created local tasks. New production
             # submissions always persist the snapshot.
-            snapshot = await self._build_snapshot(
-                db, str(meta.get("novel_id") or "")
-            )
+            snapshot = await self._build_snapshot(db, str(meta.get("novel_id") or ""))
             next_meta = dict(meta)
             next_meta["llm_execution_snapshot"] = snapshot
             task.meta = next_meta
@@ -794,9 +1235,7 @@ class DeepImportOrchestrator:
             db, novel_id, status_filter=["candidate", "draft", "canonical"]
         )
         overlapping_scenes = [
-            s
-            for s in scenes
-            if self._scene_overlaps_range(s, start_chapter, end_chapter)
+            s for s in scenes if self._scene_overlaps_range(s, start_chapter, end_chapter)
         ]
         replaceable_scenes = [
             scene

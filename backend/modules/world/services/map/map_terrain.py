@@ -15,7 +15,9 @@ from modules.world.map_schemas import (
     MapTerrainBindingCreate,
     MapTerrainBindingResponse,
     MapTerrainBindingUpdate,
+    MapTerrainLayerDeleteResponse,
     MapTerrainLayerResponse,
+    MapTerrainLayerUpdate,
     MapTerrainPatchReplaceRequest,
     MapTerrainPatchResponse,
     MapTerrainRegionResponse,
@@ -23,6 +25,8 @@ from modules.world.map_schemas import (
 )
 from modules.world.services.common import parse_uuid
 from modules.world.services.map.map_context import MapContext
+from modules.world.services.map.map_layer_tree import MapLayerTreeService
+from modules.world.services.map.map_revision import MapRevisionService
 
 
 class MapTerrainService:
@@ -42,6 +46,11 @@ class MapTerrainService:
         self._patch_repo = patch_repo or MapTerrainPatchRepository()
         self._binding_repo = binding_repo or MapTerrainBindingRepository()
         self._ctx = context or MapContext()
+        self._layer_tree = MapLayerTreeService(
+            terrain_repo=self._layer_repo,
+            context=self._ctx,
+        )
+        self._revision = MapRevisionService()
 
     async def get_state(
         self,
@@ -109,7 +118,14 @@ class MapTerrainService:
         map_id: str,
         layer_id: str,
         data: MapTerrainPatchReplaceRequest,
+        *,
+        bump_revision: bool = True,
     ) -> MapTerrainStateResponse:
+        locked_config = (
+            await self._revision.lock_active(db, novel_id, map_id)
+            if bump_revision
+            else None
+        )
         config = await self._ctx.require_map(db, novel_id, map_id)
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
@@ -121,6 +137,9 @@ class MapTerrainService:
                     f"地形图层 {layer_id} 不存在",
                     code="map_terrain_layer_not_found",
                 )
+            await self._layer_tree.assert_writable(
+                db, novel_id, map_id, layer_key="terrainOverlay"
+            )
             layer = await self._layer_repo.create(
                 db,
                 nid,
@@ -128,8 +147,20 @@ class MapTerrainService:
                 {"id": lid, **data.layer.model_dump()},
             )
             lid = layer.id
+            await self._layer_tree.create_terrain_leaf(
+                db, novel_id, map_id, str(lid)
+            )
+        else:
+            await self._layer_tree.assert_writable(
+                db,
+                novel_id,
+                map_id,
+                terrain_layer_id=lid,
+                error_code="map_terrain_layer_locked",
+            )
 
         existing_regions = await self._region_repo.get_by_map(db, nid, mid)
+        existing_regions_by_id = {region.id: region for region in existing_regions}
         region_ids = {region.id for region in existing_regions if region.layer_id == lid}
         region_values = []
         for region_data in data.regions:
@@ -138,13 +169,33 @@ class MapTerrainService:
                     "region.layer_id 必须等于当前 layer_id",
                     code="invalid_terrain_region_layer",
                 )
+            region_id = (
+                parse_uuid(region_data.id, "region_id") if region_data.id else None
+            )
+            if region_id is not None:
+                existing_region = existing_regions_by_id.get(region_id)
+                if existing_region is None:
+                    foreign_region = await self._region_repo.get(db, region_id)
+                    if foreign_region is not None:
+                        raise NotFoundError(
+                            f"地形区域 {region_data.id} 不存在",
+                            code="map_terrain_region_not_found",
+                        )
+                elif existing_region.layer_id != lid:
+                    await self._layer_tree.assert_writable(
+                        db,
+                        novel_id,
+                        map_id,
+                        terrain_layer_id=existing_region.layer_id,
+                        error_code="map_terrain_layer_locked",
+                    )
+                    raise ValidationError(
+                        "地形区域不能跨图层迁移",
+                        code="invalid_terrain_region_layer",
+                    )
             region_values.append(
                 {
-                    **(
-                        {"id": parse_uuid(region_data.id, "region_id")}
-                        if region_data.id
-                        else {}
-                    ),
+                    **({"id": region_id} if region_id else {}),
                     "layer_id": lid,
                     "name": region_data.name,
                     "region_status": region_data.region_status,
@@ -178,7 +229,139 @@ class MapTerrainService:
                 }
             )
         await self._patch_repo.replace_for_layer(db, nid, mid, lid, patch_values)
+        if bump_revision:
+            await self._revision.bump(
+                db,
+                novel_id,
+                map_id,
+                locked_config=locked_config,
+            )
         return await self.get_state(db, novel_id, map_id)
+
+    async def update_layer(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        map_id: str,
+        layer_id: str,
+        data: MapTerrainLayerUpdate,
+        *,
+        bump_revision: bool = True,
+    ) -> MapTerrainLayerResponse:
+        locked_config = (
+            await self._revision.lock_active(db, novel_id, map_id)
+            if bump_revision
+            else None
+        )
+        if not bump_revision:
+            await self._revision.lock_visual_write(db, map_id)
+        await self._ctx.require_map(db, novel_id, map_id)
+        nid = parse_uuid(novel_id, "novel_id")
+        mid = parse_uuid(map_id, "map_id")
+        lid = parse_uuid(layer_id, "layer_id")
+        layer = await self._layer_repo.get_in_map(db, nid, mid, lid)
+        if layer is None:
+            raise NotFoundError(
+                f"地形图层 {layer_id} 不存在",
+                code="map_terrain_layer_not_found",
+            )
+        values = data.model_dump(exclude_unset=True)
+        explicit_unlock_only = values == {"locked": False}
+        if not explicit_unlock_only:
+            await self._layer_tree.assert_writable(
+                db,
+                novel_id,
+                map_id,
+                terrain_layer_id=lid,
+                error_code="map_terrain_layer_locked",
+            )
+        layer_values = {
+            key: value
+            for key, value in values.items()
+            if key in {"terrain_asset_key", "meta"}
+        }
+        if layer_values:
+            await self._layer_repo.update(db, layer, layer_values)
+        if any(
+            key in values
+            for key in {"name", "opacity", "z_index", "visible", "locked"}
+        ):
+            await self._layer_tree.update_terrain_leaf_from_legacy(
+                db, novel_id, map_id, layer_id, values
+            )
+        updated = await self._layer_repo.get_in_map(db, nid, mid, lid)
+        assert updated is not None
+        if bump_revision:
+            await self._revision.bump(
+                db,
+                novel_id,
+                map_id,
+                locked_config=locked_config,
+            )
+        return MapTerrainLayerResponse.model_validate(updated)
+
+    async def delete_layer(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        map_id: str,
+        layer_id: str,
+        *,
+        bump_revision: bool = True,
+    ) -> MapTerrainLayerDeleteResponse:
+        locked_config = (
+            await self._revision.lock_active(db, novel_id, map_id)
+            if bump_revision
+            else None
+        )
+        await self._ctx.require_map(db, novel_id, map_id)
+        nid = parse_uuid(novel_id, "novel_id")
+        mid = parse_uuid(map_id, "map_id")
+        lid = parse_uuid(layer_id, "layer_id")
+        layer = await self._layer_repo.get_in_map(db, nid, mid, lid)
+        if layer is None:
+            raise NotFoundError(
+                f"地形图层 {layer_id} 不存在",
+                code="map_terrain_layer_not_found",
+            )
+        await self._layer_tree.assert_writable(
+            db,
+            novel_id,
+            map_id,
+            terrain_layer_id=lid,
+            error_code="map_terrain_layer_locked",
+        )
+        regions = [
+            region
+            for region in await self._region_repo.get_by_map(db, nid, mid)
+            if region.layer_id == lid
+        ]
+        region_ids = {region.id for region in regions}
+        patches = [
+            patch
+            for patch in await self._patch_repo.get_by_map(db, nid, mid)
+            if patch.layer_id == lid
+        ]
+        bindings = [
+            binding
+            for binding in await self._binding_repo.get_by_map(db, nid, mid)
+            if binding.region_id in region_ids
+        ]
+        await self._layer_repo.delete(db, lid)
+        await self._layer_tree.sync_terrain_projection(db, novel_id, map_id)
+        if bump_revision:
+            await self._revision.bump(
+                db,
+                novel_id,
+                map_id,
+                locked_config=locked_config,
+            )
+        return MapTerrainLayerDeleteResponse(
+            deleted_layer_id=str(lid),
+            deleted_regions=len(regions),
+            deleted_patches=len(patches),
+            deleted_bindings=len(bindings),
+        )
 
     async def create_binding(
         self,
@@ -186,7 +369,14 @@ class MapTerrainService:
         novel_id: str,
         map_id: str,
         data: MapTerrainBindingCreate,
+        *,
+        bump_revision: bool = True,
     ) -> MapTerrainBindingResponse:
+        locked_config = (
+            await self._revision.lock_active(db, novel_id, map_id)
+            if bump_revision
+            else None
+        )
         await self._ctx.require_map(db, novel_id, map_id)
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
@@ -197,6 +387,13 @@ class MapTerrainService:
                 f"地形区域 {data.region_id} 不存在",
                 code="map_terrain_region_not_found",
             )
+        await self._layer_tree.assert_writable(
+            db,
+            novel_id,
+            map_id,
+            terrain_layer_id=region.layer_id,
+            error_code="map_terrain_layer_locked",
+        )
         require_location = (
             self._ctx.require_canonical_entity
             if data.review_state == "confirmed"
@@ -223,6 +420,13 @@ class MapTerrainService:
                 "meta": data.meta or {},
             },
         )
+        if bump_revision:
+            await self._revision.bump(
+                db,
+                novel_id,
+                map_id,
+                locked_config=locked_config,
+            )
         return MapTerrainBindingResponse.model_validate(binding)
 
     async def update_binding(
@@ -232,7 +436,14 @@ class MapTerrainService:
         map_id: str,
         binding_id: str,
         data: MapTerrainBindingUpdate,
+        *,
+        bump_revision: bool = True,
     ) -> MapTerrainBindingResponse:
+        locked_config = (
+            await self._revision.lock_active(db, novel_id, map_id)
+            if bump_revision
+            else None
+        )
         await self._ctx.require_map(db, novel_id, map_id)
         nid = parse_uuid(novel_id, "novel_id")
         bid = parse_uuid(binding_id, "binding_id")
@@ -243,6 +454,20 @@ class MapTerrainService:
                 f"地形绑定 {binding_id} 不存在",
                 code="map_terrain_binding_not_found",
             )
+        region = await self._region_repo.get_in_map(
+            db, nid, mid, existing.region_id
+        )
+        if region is None:
+            raise NotFoundError(
+                "地形区域不存在", code="map_terrain_region_not_found"
+            )
+        await self._layer_tree.assert_writable(
+            db,
+            novel_id,
+            map_id,
+            terrain_layer_id=region.layer_id,
+            error_code="map_terrain_layer_locked",
+        )
         next_review_state = data.review_state or existing.review_state
         if next_review_state == "confirmed":
             await self._ctx.require_canonical_entity(
@@ -254,4 +479,11 @@ class MapTerrainService:
         values = data.model_dump(exclude_unset=True)
         updated = await self._binding_repo.update(db, existing, values)
         assert updated is not None
+        if bump_revision:
+            await self._revision.bump(
+                db,
+                novel_id,
+                map_id,
+                locked_config=locked_config,
+            )
         return MapTerrainBindingResponse.model_validate(updated)

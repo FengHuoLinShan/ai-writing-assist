@@ -130,6 +130,15 @@ class RagIndexReport:
 
 
 @dataclass(frozen=True)
+class RagTaskIndexOutcome:
+    """Task-only chapter indexing outcome after lease-fenced checkpointing."""
+
+    report: RagIndexReport
+    status: str = "indexed"
+    followup_task_id: str | None = None
+
+
+@dataclass(frozen=True)
 class RagSceneMappingCoverageContract:
     """Scene/SceneSpan mapping health for chapter-text chunks."""
 

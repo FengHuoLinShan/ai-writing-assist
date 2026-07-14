@@ -199,6 +199,29 @@ class GenerationBackgroundProvider(Protocol):
         operation: str = "world.object_draft.generate",
         prompt_name: str = "generation_center_world_object_draft",
         model: str = "project-default",
+        focus_text: str = "",
+        reference_chapter_index: int | None = None,
+    ) -> dict[str, Any]: ...
+
+
+class WorldAliasRelationTaskPort(Protocol):
+    """Task-only DI port; provider execution intentionally has no DB argument."""
+
+    async def prepare_alias_relation_task(
+        self,
+        db: AsyncSession,
+        **kwargs: Any,
+    ) -> dict[str, Any]: ...
+
+    async def execute_alias_relation_task(
+        self,
+        **kwargs: Any,
+    ) -> dict[str, Any]: ...
+
+    async def finalize_alias_relation_task(
+        self,
+        db: AsyncSession,
+        **kwargs: Any,
     ) -> dict[str, Any]: ...
 
 
@@ -215,4 +238,5 @@ __all__ = [
     "WorldBackgroundBundleContract",
     "WorldBackgroundEntryContract",
     "WorldBibleSynopsisContextContract",
+    "WorldAliasRelationTaskPort",
 ]

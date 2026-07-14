@@ -22,6 +22,8 @@ from modules.world.schemas import (
     CoreEntityUpdate,
     EntityPromoteRequest,
     EntityPromoteResponse,
+    EntityTypeCatalogResponse,
+    EntityTypeOption,
 )
 from modules.world.services.common import parse_uuid
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
@@ -167,6 +169,31 @@ class WorldEntityService(
             total=total,
         )
 
+    async def list_entity_types(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> EntityTypeCatalogResponse:
+        from modules.world.services.core.entity_types import (
+            SUPPORTED_ENTITY_TYPES,
+            SYSTEM_ENTITY_TYPE_CATALOG,
+        )
+
+        nid = parse_uuid(novel_id, "novel_id")
+        stored = await self.repo.list_distinct_entity_types(db, nid)
+        items = [
+            EntityTypeOption(value=value, label=label, kind="system")
+            for value, label in SYSTEM_ENTITY_TYPE_CATALOG
+        ]
+        items.extend(
+            EntityTypeOption(value=value, label=value, kind="custom")
+            for value in sorted(
+                (value for value in stored if value not in SUPPORTED_ENTITY_TYPES),
+                key=str.casefold,
+            )
+        )
+        return EntityTypeCatalogResponse(items=items)
+
     # ============================================================
     # Override: update 前打快照，支持手动编辑后回滚
     # ============================================================
@@ -180,14 +207,14 @@ class WorldEntityService(
         novel_id: str,
         _from_suggestion_queue: bool = False,
     ) -> CoreEntityResponse:
-        """更新实体前为当前状态打快照；snapshot 失败不阻断主流程。"""
+        """更新实体前打快照；类型转换时 snapshot 属于原子迁移契约。"""
         from modules.world.services.core.entity_revision_service import (
             EntityRevisionService,
         )
 
         rid = parse_uuid(id, "entity_id")
         nid = parse_uuid(novel_id, "novel_id")
-        existing = await self.repo.get(db, rid)
+        existing = await self.repo.get_for_update(db, rid)
         self._assert_found_in_novel(existing, id, nid)
         assert existing is not None
 
@@ -197,6 +224,8 @@ class WorldEntityService(
             raise ValidationError("该实体由待处理建议管理，请通过对应建议执行编辑或裁决")
 
         changed = data.model_dump(exclude_unset=True)
+        new_type = changed.get("entity_type")
+        type_changed = new_type is not None and new_type != existing.entity_type
         if changed.get("status") == "canonical" and existing.status != "canonical":
             raise ValidationError(
                 "Use /entities/{entity_id}/promote to promote entities to canonical"
@@ -222,17 +251,36 @@ class WorldEntityService(
             content_json["_meta"] = meta
             data = data.model_copy(update={"content_json": content_json})
 
-        try:
-            revision_service = EntityRevisionService()
+        revision_service = EntityRevisionService()
+        if type_changed:
             await revision_service.create_snapshot(
                 db,
                 entity_id=id,
                 novel_id=novel_id,
                 revision_reason="manual_update",
             )
-        except Exception:
-            # snapshot 创建失败不应阻断编辑主流程，但需要记录日志便于排障
-            logger.warning("实体 %s 手动编辑前快照失败", id, exc_info=True)
+        else:
+            try:
+                await revision_service.create_snapshot(
+                    db,
+                    entity_id=id,
+                    novel_id=novel_id,
+                    revision_reason="manual_update",
+                )
+            except Exception:
+                logger.warning("实体 %s 手动编辑前快照失败", id, exc_info=True)
+
+        if type_changed:
+            from modules.world.services.core.entity_type_transition_service import (
+                EntityTypeTransitionService,
+            )
+
+            await EntityTypeTransitionService().transition(
+                db,
+                entity=existing,
+                new_type=new_type,
+                changed_by="manual",
+            )
 
         updated = await self.repo.update(db, existing, data)
         self._assert_found_in_novel(updated, id, nid)
@@ -262,6 +310,16 @@ class WorldEntityService(
                     id,
                     exc_info=True,
                 )
+        if type_changed:
+            from modules.context.facade import mark_asset_context_changed
+
+            await mark_asset_context_changed(
+                db,
+                novel_id=novel_id,
+                asset_type="world_entity",
+                asset_id=id,
+                reason="entity_type_changed",
+            )
         if existing.status == "canonical" or updated.status == "canonical":
             from modules.world.services.worldbuilding.synopsis_invalidation import (
                 mark_synopsis_source_changed,
@@ -379,7 +437,7 @@ class WorldEntityService(
         rid = parse_uuid(entity_id, "entity_id")
         nid = parse_uuid(novel_id, "novel_id")
 
-        entity = await self.repo.get(db, rid)
+        entity = await self.repo.get_for_update(db, rid)
         self._assert_found_in_novel(entity, entity_id, nid)
         assert entity is not None
 
@@ -402,25 +460,35 @@ class WorldEntityService(
             ).items()
             if value is not None
         }
+        new_type = changes.get("entity_type")
+        type_changed = new_type is not None and new_type != entity.entity_type
         if changes:
             from modules.world.services.core.entity_revision_service import (
                 EntityRevisionService,
             )
 
-            try:
-                async with db.begin_nested():
-                    await EntityRevisionService().create_snapshot(
-                        db,
-                        entity_id=entity_id,
-                        novel_id=novel_id,
-                        revision_reason="manual_update",
-                    )
-            except Exception:
-                logger.warning(
-                    "实体 %s 编辑后采用前快照失败",
-                    entity_id,
-                    exc_info=True,
+            if type_changed:
+                await EntityRevisionService().create_snapshot(
+                    db,
+                    entity_id=entity_id,
+                    novel_id=novel_id,
+                    revision_reason="manual_update",
                 )
+            else:
+                try:
+                    async with db.begin_nested():
+                        await EntityRevisionService().create_snapshot(
+                            db,
+                            entity_id=entity_id,
+                            novel_id=novel_id,
+                            revision_reason="manual_update",
+                        )
+                except Exception:
+                    logger.warning(
+                        "实体 %s 编辑后采用前快照失败",
+                        entity_id,
+                        exc_info=True,
+                    )
 
         approved_by = data.approved_by or "manual"
         if _from_suggestion_queue:
@@ -443,6 +511,17 @@ class WorldEntityService(
             approved_by=approved_by,
             content_json=content_json,
         )
+        if type_changed:
+            from modules.world.services.core.entity_type_transition_service import (
+                EntityTypeTransitionService,
+            )
+
+            await EntityTypeTransitionService().transition(
+                db,
+                entity=entity,
+                new_type=new_type,
+                changed_by=approved_by,
+            )
         updated = await self.repo.update(db, entity, update_data)
         self._assert_found_in_novel(updated, entity_id, nid)
         assert updated is not None
@@ -461,6 +540,16 @@ class WorldEntityService(
                 "实体 %s 提升后标记上下文确认复核失败",
                 entity_id,
                 exc_info=True,
+            )
+        if type_changed:
+            from modules.context.facade import mark_asset_context_changed
+
+            await mark_asset_context_changed(
+                db,
+                novel_id=novel_id,
+                asset_type="world_entity",
+                asset_id=entity_id,
+                reason="entity_type_changed",
             )
 
         from modules.world.services.worldbuilding.synopsis_invalidation import (

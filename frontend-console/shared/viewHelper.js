@@ -102,6 +102,8 @@ export function renderActionMenu(menuId, items) {
   `
 }
 
+let activeActionMenuCloseAll = null
+
 /**
  * 绑定行内操作下拉菜单
  *
@@ -124,7 +126,17 @@ export function bindActionMenus(container = document.getElementById("workspace-c
     })
   })
 
-  const closeAll = () => container.querySelectorAll(".action-menu.open").forEach((m) => m.classList.remove("open"))
-  document.removeEventListener("click", closeAll)
+  // The document listener may outlive a rendered view. Query the live document
+  // instead of closing over a detached workspace container.
+  const closeAll = () => document.querySelectorAll(".action-menu.open").forEach((m) => m.classList.remove("open"))
+  if (activeActionMenuCloseAll) {
+    document.removeEventListener("click", activeActionMenuCloseAll)
+  }
+  activeActionMenuCloseAll = closeAll
   document.addEventListener("click", closeAll)
+  return () => {
+    if (activeActionMenuCloseAll !== closeAll) return
+    document.removeEventListener("click", closeAll)
+    activeActionMenuCloseAll = null
+  }
 }

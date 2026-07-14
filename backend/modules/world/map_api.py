@@ -7,7 +7,7 @@ World 动态地图 API 路由 — PRD docs/PRD-动态地图功能.md
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
 
@@ -15,6 +15,8 @@ from core.api_params import NovelIdQuery
 from core.dependencies import DbSession
 from modules.project.facade import require_active_project
 from modules.world.map_schemas import (
+    MapArchiveImpactResponse,
+    MapArchiveResponse,
     MapBatchActionRequest,
     MapBatchActionResponse,
     MapConfigCreate,
@@ -22,10 +24,15 @@ from modules.world.map_schemas import (
     MapConfigResponse,
     MapConfigUpdate,
     MapDashboardResponse,
+    MapDynamicStateAtResponse,
     MapDynamicStateResponse,
+    MapDynamicTimelineResponse,
+    MapEditorApplyRequest,
+    MapEditorApplyResponse,
     MapFactListResponse,
     MapFactResponse,
     MapFactStatusUpdate,
+    MapLayerTreeResponse,
     MapLocationBindingCreate,
     MapLocationBindingResponse,
     MapLocationBindingUpdate,
@@ -41,17 +48,25 @@ from modules.world.map_schemas import (
     MapObservationResponse,
     MapObservationReviewUpdate,
     MapOpenTarget,
+    MapPathArchiveImpactResponse,
+    MapPathResponse,
+    MapPathStateResponse,
     MapPlaybackResponse,
     MapQuickCreateConfirmRequest,
     MapQuickCreateConfirmResponse,
     MapQuickCreateContextResponse,
     MapQuickCreatePreviewRequest,
     MapQuickCreatePreviewResponse,
+    MapRestoreRequest,
+    MapRestoreResponse,
     MapSceneSummaryResponse,
     MapStateResponse,
     MapTerrainBindingCreate,
     MapTerrainBindingResponse,
     MapTerrainBindingUpdate,
+    MapTerrainLayerDeleteResponse,
+    MapTerrainLayerResponse,
+    MapTerrainLayerUpdate,
     MapTerrainPatchReplaceRequest,
     MapTerrainStateResponse,
     MapTerritoryCreate,
@@ -60,7 +75,11 @@ from modules.world.map_schemas import (
     MapTileBatchUpdate,
     MapTileResponse,
 )
+from modules.world.services.map.map_archive import MapArchiveService
+from modules.world.services.map.map_editor_apply import MapEditorApplyService
+from modules.world.services.map.map_layer_tree import MapLayerTreeService
 from modules.world.services.map.map_location_layout import MapLocationLayoutService
+from modules.world.services.map.map_path import MapPathService
 from modules.world.services.map.map_quick_create import MapQuickCreateService
 from modules.world.services.map.map_scene_summary import MapSceneSummaryService
 from modules.world.services.map.map_terrain import MapTerrainService
@@ -85,6 +104,10 @@ _dynamic_fact_service = MapDynamicFactService()
 _layout_service = MapLocationLayoutService()
 _quick_create_service = MapQuickCreateService()
 _terrain_service = MapTerrainService()
+_archive_service = MapArchiveService()
+_editor_apply_service = MapEditorApplyService()
+_layer_tree_service = MapLayerTreeService()
+_path_service = MapPathService()
 
 
 async def _require_active_novel_id(
@@ -109,8 +132,18 @@ async def list_maps(
     *,
     novel_id: ActiveNovelIdQuery,
     parent_map_id: str | None = Query(None, description="父地图 ID（空=顶层）"),
+    status: Literal["active", "archived"] = Query("active"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
 ) -> MapConfigListResponse:
-    return await _map_config_service.list(db, novel_id, parent_map_id=parent_map_id)
+    return await _map_config_service.list(
+        db,
+        novel_id,
+        parent_map_id=parent_map_id,
+        status=status,
+        skip=skip,
+        limit=limit,
+    )
 
 
 @router.post("", response_model=MapConfigResponse, status_code=201)
@@ -220,6 +253,102 @@ async def delete_map(
     await _map_config_service.delete(db, map_id, novel_id=novel_id)
 
 
+@router.get(
+    "/{map_id}/archive-impact",
+    response_model=MapArchiveImpactResponse,
+)
+async def get_map_archive_impact(
+    db: DbSession,
+    map_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> MapArchiveImpactResponse:
+    return await _archive_service.impact(db, novel_id, map_id)
+
+
+@router.post("/{map_id}/archive", response_model=MapArchiveResponse)
+async def archive_map(
+    db: DbSession,
+    map_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> MapArchiveResponse:
+    return await _archive_service.archive(db, novel_id, map_id)
+
+
+@router.post("/{map_id}/restore", response_model=MapRestoreResponse)
+async def restore_map(
+    db: DbSession,
+    map_id: str,
+    data: MapRestoreRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> MapRestoreResponse:
+    return await _archive_service.restore(db, novel_id, map_id, data)
+
+
+@router.post("/{map_id}/editor/apply", response_model=MapEditorApplyResponse)
+async def apply_map_editor_commands(
+    db: DbSession,
+    map_id: str,
+    data: MapEditorApplyRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> MapEditorApplyResponse:
+    return await _editor_apply_service.apply(db, novel_id, map_id, data)
+
+
+@router.get("/{map_id}/layer-tree", response_model=MapLayerTreeResponse)
+async def get_map_layer_tree(
+    db: DbSession,
+    map_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> MapLayerTreeResponse:
+    return await _layer_tree_service.get_tree(db, novel_id, map_id)
+
+
+@router.get("/{map_id}/paths", response_model=MapPathStateResponse)
+async def get_map_paths(
+    db: DbSession,
+    map_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    status: Literal["active", "archived", "all"] = Query("active"),
+) -> MapPathStateResponse:
+    return await _path_service.get_state(
+        db,
+        novel_id,
+        map_id,
+        status=status,
+    )
+
+
+@router.get("/{map_id}/paths/{path_id}", response_model=MapPathResponse)
+async def get_map_path(
+    db: DbSession,
+    map_id: str,
+    path_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> MapPathResponse:
+    return await _path_service.get_path(db, novel_id, map_id, path_id)
+
+
+@router.get(
+    "/{map_id}/paths/{path_id}/archive-impact",
+    response_model=MapPathArchiveImpactResponse,
+)
+async def get_map_path_archive_impact(
+    db: DbSession,
+    map_id: str,
+    path_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> MapPathArchiveImpactResponse:
+    return await _path_service.archive_impact(db, novel_id, map_id, path_id)
+
+
 @router.post("/{map_id}/generate", response_model=MapStateResponse)
 async def generate_map_terrain(
     db: DbSession,
@@ -306,6 +435,74 @@ async def get_map_playback(
     )
 
 
+@router.get("/{map_id}/timeline", response_model=MapDynamicTimelineResponse)
+async def get_map_timeline(
+    db: DbSession,
+    map_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    from_scene_index: int | None = Query(None, ge=0),
+    to_scene_index: int | None = Query(None, ge=0),
+    focus_entity_id: str | None = Query(None, description="聚焦对象 ID"),
+    tracks: str | None = Query(
+        None,
+        description="逗号分隔的 journey/territory/crisis/resource/status/world",
+    ),
+    include_candidates: bool = Query(False, description="是否包含待处理覆盖层"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+) -> MapDynamicTimelineResponse:
+    selected_tracks = (
+        {item.strip() for item in tracks.split(",") if item.strip()}
+        if tracks
+        else None
+    )
+    return await _dynamic_fact_service.get_timeline(
+        db,
+        novel_id,
+        map_id=map_id,
+        from_scene_index=from_scene_index,
+        to_scene_index=to_scene_index,
+        focus_entity_id=focus_entity_id,
+        tracks=selected_tracks,
+        include_candidates=include_candidates,
+        skip=skip,
+        limit=limit,
+    )
+
+
+@router.get("/{map_id}/state-at", response_model=MapDynamicStateAtResponse)
+async def get_map_state_at(
+    db: DbSession,
+    map_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    scene_index: int = Query(..., ge=0),
+    focus_entity_id: str | None = Query(None, description="聚焦对象 ID"),
+    tracks: str | None = Query(
+        None,
+        description="逗号分隔的 journey/territory/crisis/resource/status/world",
+    ),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+) -> MapDynamicStateAtResponse:
+    selected_tracks = (
+        {item.strip() for item in tracks.split(",") if item.strip()}
+        if tracks
+        else None
+    )
+    return await _dynamic_fact_service.get_state_at(
+        db,
+        novel_id,
+        map_id=map_id,
+        scene_index=scene_index,
+        focus_entity_id=focus_entity_id,
+        tracks=selected_tracks,
+        skip=skip,
+        limit=limit,
+    )
+
+
 # ============================================================
 # 地点布局（快速创建 / 拖拽 / +/-）
 # ============================================================
@@ -373,6 +570,41 @@ async def get_terrain_state(
         map_id,
         include_candidates=include_candidates,
     )
+
+
+@router.patch(
+    "/{map_id}/terrain/layers/{layer_id}",
+    response_model=MapTerrainLayerResponse,
+)
+async def update_terrain_layer(
+    db: DbSession,
+    map_id: str,
+    layer_id: str,
+    data: MapTerrainLayerUpdate,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> MapTerrainLayerResponse:
+    return await _terrain_service.update_layer(
+        db,
+        novel_id,
+        map_id,
+        layer_id,
+        data,
+    )
+
+
+@router.delete(
+    "/{map_id}/terrain/layers/{layer_id}",
+    response_model=MapTerrainLayerDeleteResponse,
+)
+async def delete_terrain_layer(
+    db: DbSession,
+    map_id: str,
+    layer_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> MapTerrainLayerDeleteResponse:
+    return await _terrain_service.delete_layer(db, novel_id, map_id, layer_id)
 
 
 @router.put(
@@ -466,7 +698,9 @@ async def update_location_binding(
     *,
     novel_id: ActiveNovelIdQuery,
 ) -> MapLocationBindingResponse:
-    return await _map_binding_service.update(db, novel_id, binding_id, data)
+    return await _map_binding_service.update(
+        db, novel_id, binding_id, data, map_id=map_id
+    )
 
 
 @router.delete(
@@ -480,7 +714,7 @@ async def delete_location_binding(
     *,
     novel_id: ActiveNovelIdQuery,
 ) -> None:
-    await _map_binding_service.delete(db, novel_id, binding_id)
+    await _map_binding_service.delete(db, novel_id, binding_id, map_id=map_id)
 
 
 # ============================================================
@@ -521,7 +755,9 @@ async def update_marker(
     *,
     novel_id: ActiveNovelIdQuery,
 ):
-    marker = await _marker_service.update(db, novel_id, marker_id, data)
+    marker = await _marker_service.update(
+        db, novel_id, marker_id, data, map_id=map_id
+    )
     return MapMarkerResponse.model_validate(marker)
 
 
@@ -533,7 +769,7 @@ async def delete_marker(
     *,
     novel_id: ActiveNovelIdQuery,
 ):
-    await _marker_service.delete(db, novel_id, marker_id)
+    await _marker_service.delete(db, novel_id, marker_id, map_id=map_id)
 
 
 # ============================================================
@@ -573,7 +809,9 @@ async def update_territory(
     *,
     novel_id: ActiveNovelIdQuery,
 ):
-    territory = await _territory_service.update(db, novel_id, territory_id, data)
+    territory = await _territory_service.update(
+        db, novel_id, territory_id, data, map_id=map_id
+    )
     return MapTerritoryResponse.model_validate(territory)
 
 
@@ -585,7 +823,7 @@ async def delete_territory(
     *,
     novel_id: ActiveNovelIdQuery,
 ) -> None:
-    await _territory_service.delete(db, novel_id, territory_id)
+    await _territory_service.delete(db, novel_id, territory_id, map_id=map_id)
 
 
 @router.delete("/{map_id}/territories", status_code=204)

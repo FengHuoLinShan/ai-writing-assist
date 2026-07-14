@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import and_, delete, func, or_, select, text, update
+from sqlalchemy import and_, case, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
-from modules.memory.models import MemoryEvent, MemorySnapshot
+from modules.memory.models import DeltaLog, MemoryEvent, MemorySnapshot
 from shared.constants import DEFAULT_PAGE_SIZE
 
 
@@ -338,6 +339,114 @@ class EventRepository:
         return result.scalar() or 0
 
 
+class DeltaLogRepository:
+    """Bounded, novel-scoped reads for workflow-owned delta logs."""
+
+    @staticmethod
+    def _active_workflow_conditions(
+        novel_id: uuid.UUID,
+        workflow_id: str,
+        *,
+        dialect_name: str,
+    ) -> list[ColumnElement[bool]]:
+        workflow_value = DeltaLog.meta["workflow_id"]
+        auto_ingested_value = DeltaLog.meta["auto_ingested"]
+        rolled_back_value = DeltaLog.meta["rolled_back"]
+        conditions: list[ColumnElement[bool]] = [
+            DeltaLog.novel_id == novel_id,
+            DeltaLog.source == "deep_import",
+        ]
+        if dialect_name == "sqlite":
+            workflow_type = func.json_type(DeltaLog.meta, '$."workflow_id"')
+            auto_ingested_type = func.json_type(
+                DeltaLog.meta, '$."auto_ingested"'
+            )
+            rolled_back_type = func.json_type(DeltaLog.meta, '$."rolled_back"')
+            return [
+                *conditions,
+                workflow_type == "text",
+                workflow_value.as_string() == workflow_id,
+                auto_ingested_type == "true",
+                or_(rolled_back_type.is_(None), rolled_back_type != "true"),
+            ]
+        if dialect_name == "postgresql":
+            workflow_type = func.json_typeof(workflow_value)
+            auto_ingested_type = func.json_typeof(auto_ingested_value)
+            rolled_back_type = func.json_typeof(rolled_back_value)
+            auto_ingested_is_true = case(
+                (
+                    auto_ingested_type == "boolean",
+                    auto_ingested_value.as_boolean(),
+                ),
+                else_=False,
+            ).is_(True)
+            rolled_back_is_not_true = case(
+                (
+                    rolled_back_type == "boolean",
+                    rolled_back_value.as_boolean(),
+                ),
+                else_=False,
+            ).is_(False)
+            return [
+                *conditions,
+                workflow_type == "string",
+                workflow_value.as_string() == workflow_id,
+                auto_ingested_is_true,
+                rolled_back_is_not_true,
+            ]
+        rolled_back = rolled_back_value.as_boolean()
+        return [
+            *conditions,
+            workflow_value.as_string() == workflow_id,
+            auto_ingested_value.as_boolean().is_(True),
+            or_(rolled_back.is_(None), rolled_back.is_(False)),
+        ]
+
+    @staticmethod
+    def _dialect_name(db: AsyncSession) -> str:
+        bind = db.get_bind()
+        return bind.dialect.name if bind is not None else ""
+
+    async def count_active_by_workflow(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        workflow_id: str,
+    ) -> int:
+        stmt = select(func.count(DeltaLog.id)).where(
+            *self._active_workflow_conditions(
+                novel_id,
+                workflow_id,
+                dialect_name=self._dialect_name(db),
+            )
+        )
+        result = await db.execute(stmt)
+        return int(result.scalar_one())
+
+    async def get_active_by_workflow_page_after(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        workflow_id: str,
+        *,
+        after_id: uuid.UUID | None,
+        limit: int,
+        for_update: bool = False,
+    ) -> list[DeltaLog]:
+        conditions = self._active_workflow_conditions(
+            novel_id,
+            workflow_id,
+            dialect_name=self._dialect_name(db),
+        )
+        if after_id is not None:
+            conditions.append(DeltaLog.id > after_id)
+        stmt = select(DeltaLog).where(*conditions).order_by(DeltaLog.id).limit(limit)
+        if for_update:
+            stmt = stmt.with_for_update()
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+
 class SnapshotRepository:
     """记忆快照数据访问"""
 
@@ -350,6 +459,16 @@ class SnapshotRepository:
         full_state: dict,
         events_until: int | None = None,
     ) -> MemorySnapshot:
+        await self._lock_snapshot_chapter(db, novel_id, chapter_index)
+        await db.execute(
+            update(MemorySnapshot)
+            .where(
+                MemorySnapshot.novel_id == novel_id,
+                MemorySnapshot.chapter_index == chapter_index,
+                MemorySnapshot.status == "current",
+            )
+            .values(status="stale")
+        )
         snapshot = MemorySnapshot(
             novel_id=novel_id,
             chapter_index=chapter_index,
@@ -360,6 +479,19 @@ class SnapshotRepository:
         db.add(snapshot)
         await db.flush()
         return snapshot
+
+    async def _lock_snapshot_chapter(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+    ) -> None:
+        bind = db.get_bind()
+        if bind is not None and bind.dialect.name == "postgresql":
+            await db.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                {"key": f"memory_snapshots:{novel_id}:{chapter_index}"},
+            )
 
     async def get_latest(
         self,
@@ -412,6 +544,30 @@ class SnapshotRepository:
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_status_summary(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> tuple[int, int | None, int | None, int | None]:
+        stmt = select(
+            func.count(MemorySnapshot.id),
+            func.max(MemorySnapshot.chapter_index),
+            func.max(
+                case(
+                    (MemorySnapshot.status == "current", MemorySnapshot.chapter_index),
+                    else_=None,
+                )
+            ),
+            func.min(
+                case(
+                    (MemorySnapshot.status == "stale", MemorySnapshot.chapter_index),
+                    else_=None,
+                )
+            ),
+        ).where(MemorySnapshot.novel_id == novel_id)
+        row = (await db.execute(stmt)).one()
+        return int(row[0] or 0), row[1], row[2], row[3]
 
     async def mark_stale_from(
         self,

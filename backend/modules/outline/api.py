@@ -121,6 +121,12 @@ async def _enqueue_confirmed_outline_task(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     meta = data.model_dump(exclude_none=True)
+    from modules.project.facade import build_project_llm_execution_snapshot
+
+    meta["llm_execution_snapshot"] = await build_project_llm_execution_snapshot(
+        db,
+        data.novel_id,
+    )
     task_id = enqueue_task(db, task_type, meta=meta)
     await attach_result_ref(
         db,

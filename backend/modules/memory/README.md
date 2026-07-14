@@ -23,6 +23,16 @@ memory 模块维护世界状态变化历史，而不是维护另一份正史对�
 `memory_events` 使用 `(novel_id, chapter_index, sequence)` 作为章内幂等键。重建某章事件时，`MemoryService.record_events` 通过仓储层逐条 upsert 并清理新事件流之外的尾部事件，避免并发 delete-then-insert 交错。
 
 全景重放优先从最近快照开始，只对后续事件做 keyset 分页增量应用；快照事件数和重建终点使用聚合查询计算，避免大世界长章节范围一次性加载全部 `memory_events`。
+事件列表同样使用稳定 `(chapter_index, sequence, id)` keyset 分批读取，
+`total` 由 SQL 聚合计算，保持现有 API 返回形状。DeltaLog 的 deep-import workflow
+计数与回滚在数据库中先按 `novel_id + source + workflow_id + auto_ingested +
+rolled_back` 过滤；回滚再按 ID keyset 分批加锁更新，不扫描其他 workflow 或项目。
+
+从 `from_chapter` 重建时，该项目范围内原 `current` 快照会转为 `stale`，
+再生成新 `current` 快照；旧快照作为历史保留，不在重建中硬删除。重建终点继续通过
+`MAX(chapter_index)` 聚合 seam 获取，不全量加载事件。普通 capture 和重建共用同章
+supersede 语义：写入新 `current` 前先把同项目、同章节旧 `current` 转为 `stale`；
+PostgreSQL 以事务级 advisory lock 串行化该章节的并发 capture。
 
 ## API
 

@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.crud import CrudService
+from core.errors import NotFoundError, ValidationError
 from modules.outline.contracts import (
     OutlineArcContract,
     PlotThreadContract,
@@ -811,6 +812,35 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
         """批量重排 Scene 顺序"""
         nid = parse_uuid(novel_id, "novel_id")
         ids = [parse_uuid(sid, "scene_id") for sid in scene_ids]
+
+        if len(set(ids)) != len(ids):
+            raise ValidationError(
+                "scene_ids must not contain duplicate Scene IDs",
+                code="scene_reorder_duplicate_ids",
+            )
+
+        requested_scenes = await self.repo.get_many_for_novel(db, nid, ids)
+        if len(requested_scenes) != len(ids) or any(
+            scene.status not in {"candidate", "draft", "canonical"}
+            for scene in requested_scenes
+        ):
+            raise ValidationError(
+                "scene_ids must reference active Scenes in the current novel",
+                code="scene_reorder_invalid_scene_ids",
+            )
+
+        active_scenes = await self.repo.get_by_novel_ordered(db, nid)
+        active_ids = {scene.id for scene in active_scenes}
+        if set(ids) != active_ids:
+            raise ValidationError(
+                "scene_ids must include every active Scene exactly once",
+                code="scene_reorder_incomplete",
+                context={
+                    "expected_count": len(active_ids),
+                    "received_count": len(ids),
+                },
+            )
+
         updated = await self.repo.reorder(db, nid, ids)
         return {"updated": updated, "total": len(scene_ids)}
 
@@ -833,63 +863,211 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
         # 找到包含此章节的源 Scene
         source_scene = await self.repo.get_by_chapter_index(db, nid, chapter_index)
         if source_scene is None:
-            raise ValueError(f"Chapter {chapter_index} is not assigned to any Scene")
+            raise NotFoundError(
+                f"Chapter {chapter_index} is not assigned to any Scene",
+                code="scene_split_source_not_found",
+            )
 
-        src_ids = source_scene.chapter_ids or []
-        # 找到断点位置
-        split_point = None
-        for i, cid in enumerate(src_ids):
-            try:
-                if int(cid) >= chapter_index:
-                    split_point = i
-                    break
-            except (ValueError, TypeError):
-                continue
+        keep_ids, move_ids = self._partition_chapter_ids(
+            source_scene.chapter_ids or [],
+            chapter_index,
+        )
+        keep_chunks, move_chunks = self._partition_scene_chunks(
+            source_scene.scene_chunks or [],
+            chapter_index,
+        )
+        if not move_ids and not move_chunks:
+            raise ValidationError(
+                f"Chapter {chapter_index} not found in source Scene mapping",
+                code="scene_split_boundary_not_found",
+            )
 
-        if split_point is None:
-            raise ValueError(f"Chapter {chapter_index} not found in source Scene")
-
-        # 从断点分割
-        keep_ids = src_ids[:split_point]
-        move_ids = src_ids[split_point:]
-
-        # 更新源 Scene
-        source_scene.chapter_ids = keep_ids
-        db.add(source_scene)
-
-        # 目标 Scene
+        target: Scene | None = None
         if tid:
             target = await self.repo.get(db, tid)
-            if target is None or str(target.novel_id) != str(nid):
-                raise ValueError(f"Target Scene {target_scene_id} not found")
-            target_ids = list(target.chapter_ids or [])
-            target_ids.extend(move_ids)
-            target_ids = sorted(
-                set(target_ids), key=lambda x: int(x) if str(x).isdigit() else 0
+            if (
+                target is None
+                or target.novel_id != nid
+                or target.status not in {"candidate", "draft", "canonical"}
+            ):
+                raise NotFoundError(
+                    f"Target Scene {target_scene_id} not found",
+                    code="scene_split_target_not_found",
+                )
+            if target.id == source_scene.id:
+                raise ValidationError(
+                    "Source and target Scene must be different",
+                    code="scene_split_same_target",
+                )
+
+        source_update = SceneUpdate(
+            chapter_ids=keep_ids,
+            scene_chunks=keep_chunks,
+        )
+        target_update: SceneUpdate | None = None
+        new_scene_data: SceneCreate | None = None
+        if target is not None:
+            target_update = SceneUpdate(
+                chapter_ids=self._ordered_unique_chapter_ids(
+                    [*(target.chapter_ids or []), *move_ids]
+                ),
+                scene_chunks=self._ordered_scene_chunks(
+                    [*(target.scene_chunks or []), *move_chunks]
+                ),
             )
-            target.chapter_ids = target_ids
-            db.add(target)
         else:
-            # 新建 Scene
-            new_scene = Scene(
-                novel_id=nid,
+            new_scene_data = SceneCreate(
                 scene_index=source_scene.scene_index + 1,
                 title=f"Scene (断章自 Ch.{chapter_index})",
-                chapter_ids=move_ids,
+                narrative_tag=source_scene.narrative_tag or "draft",
                 source="manual",
+                scene_chunks=move_chunks,
+                chapter_ids=move_ids,
+                pov_character_id=(
+                    str(source_scene.pov_character_id)
+                    if source_scene.pov_character_id
+                    else None
+                ),
+                structure_meta={
+                    "split_from_scene_id": str(source_scene.id),
+                    "split_at_chapter_index": chapter_index,
+                },
+                status="draft",
             )
-            db.add(new_scene)
 
-        await db.flush()
-        await self.repo.sync_chapter_links(db, source_scene)
-        if tid:
-            await self.repo.sync_chapter_links(db, target)
+        updated_source = await self.repo.update(
+            db,
+            source_scene.id,
+            source_update,
+        )
+        if updated_source is None:
+            raise NotFoundError(
+                f"Source Scene {source_scene.id} not found",
+                code="scene_split_source_not_found",
+            )
+
+        if target is not None:
+            assert target_update is not None
+            updated_target = await self.repo.update(
+                db,
+                target.id,
+                target_update,
+            )
+            if updated_target is None:
+                raise NotFoundError(
+                    f"Target Scene {target.id} not found",
+                    code="scene_split_target_not_found",
+                )
         else:
-            await self.repo.sync_scene_indexes(db, new_scene)
+            assert new_scene_data is not None
+            await self.repo.shift_scene_indices_after(
+                db,
+                nid,
+                source_scene.scene_index,
+            )
+            await self.repo.create(
+                db,
+                nid,
+                new_scene_data,
+            )
 
-        # 返回更新后的 scenes
         scenes = await self.repo.get_by_novel_ordered(db, nid)
         return [scene_to_contract(scene) for scene in scenes]
+
+    @staticmethod
+    def _partition_chapter_ids(
+        chapter_ids: list[str],
+        chapter_index: int,
+    ) -> tuple[list[str], list[str]]:
+        keep: list[str] = []
+        move: list[str] = []
+        for chapter_id in chapter_ids:
+            value = str(chapter_id)
+            try:
+                numeric_id = int(value)
+            except (TypeError, ValueError):
+                keep.append(value)
+                continue
+            (move if numeric_id >= chapter_index else keep).append(value)
+        return keep, move
+
+    @classmethod
+    def _partition_scene_chunks(
+        cls,
+        chunks: list[dict],
+        chapter_index: int,
+    ) -> tuple[list[dict], list[dict]]:
+        keep: list[dict] = []
+        move: list[dict] = []
+        for chunk in chunks:
+            copied = dict(chunk)
+            chunk_chapter = cls._scene_chunk_chapter_index(copied)
+            if chunk_chapter is not None and chunk_chapter >= chapter_index:
+                move.append(copied)
+            else:
+                keep.append(copied)
+        return keep, move
+
+    @staticmethod
+    def _scene_chunk_chapter_index(chunk: dict[str, Any]) -> int | None:
+        raw_value = chunk.get("chapter_index")
+        if raw_value is None:
+            raw_value = chunk.get("chapter_id")
+        try:
+            return int(raw_value) if raw_value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _ordered_unique_chapter_ids(chapter_ids: list[str]) -> list[str]:
+        unique: list[tuple[int, str]] = []
+        seen: set[str] = set()
+        for order, chapter_id in enumerate(chapter_ids):
+            value = str(chapter_id)
+            if value in seen:
+                continue
+            seen.add(value)
+            unique.append((order, value))
+
+        def sort_key(item: tuple[int, str]) -> tuple[int, int, int]:
+            order, value = item
+            try:
+                return (0, int(value), order)
+            except (TypeError, ValueError):
+                return (1, order, 0)
+
+        return [value for _, value in sorted(unique, key=sort_key)]
+
+    @classmethod
+    def _ordered_scene_chunks(cls, chunks: list[dict]) -> list[dict]:
+        indexed_chunks = [(order, dict(chunk)) for order, chunk in enumerate(chunks)]
+
+        def sort_key(item: tuple[int, dict]) -> tuple[int, int, int, int, int]:
+            order, chunk = item
+            chapter = cls._scene_chunk_chapter_index(chunk)
+            start = chunk.get("start_offset")
+            if start is None:
+                start = chunk.get("start_pos")
+            try:
+                start_position = int(start) if start is not None else 10**12
+            except (TypeError, ValueError):
+                start_position = 10**12
+            start_paragraph = chunk.get("start_paragraph")
+            try:
+                paragraph_position = (
+                    int(start_paragraph) if start_paragraph is not None else 10**12
+                )
+            except (TypeError, ValueError):
+                paragraph_position = 10**12
+            return (
+                0 if chapter is not None else 1,
+                chapter if chapter is not None else 10**12,
+                start_position,
+                paragraph_position,
+                order,
+            )
+
+        return [chunk for _, chunk in sorted(indexed_chunks, key=sort_key)]
 
     async def split_scene_chunk_to_new_chapter(
         self,
@@ -914,45 +1092,64 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
         if source is None or str(source.novel_id) != str(nid):
             raise ValueError(f"Source Scene {source_scene_id} not found")
 
-        chunks = source.scene_chunks or []
-        target_chunk = None
-        for chunk in chunks:
-            if (
-                chunk.get("chapter_id") == source_chapter_id
-                or chunk.get("chapter_index") == source_chapter_index
-            ):
-                target_chunk = chunk
-                break
+        # SceneChunkContract uses start_offset/end_offset, while older rows may
+        # still carry start_pos/end_pos.  Copy the JSON values before mutation so
+        # SQLAlchemy observes the replacement even without a Mutable JSON type.
+        chunks = [dict(chunk) for chunk in source.scene_chunks or []]
+        matching_chunks = [
+            chunk
+            for chunk in chunks
+            if self._scene_chunk_matches_chapter(
+                chunk,
+                chapter_id=source_chapter_id,
+                chapter_index=source_chapter_index,
+            )
+        ]
+        target_chunk = next(
+            (
+                chunk
+                for chunk in matching_chunks
+                if self._scene_chunk_contains_offset(chunk, split_pos)
+            ),
+            None,
+        )
 
-        if target_chunk is None:
+        if not matching_chunks:
             raise ValueError(
                 f"Chapter {source_chapter_id} not found in source Scene chunks"
             )
-
-        start_pos = target_chunk.get("start_pos", 0)
-        end_pos = target_chunk.get("end_pos", 0)
-        if not (start_pos < split_pos < end_pos):
+        if target_chunk is None:
+            start_pos, end_pos = self._scene_chunk_offsets(matching_chunks[0])
             raise ValueError(
                 f"split_pos {split_pos} must be inside chunk range "
                 f"({start_pos}, {end_pos})"
             )
 
-        target_chunk["end_pos"] = split_pos
+        if "end_offset" in target_chunk:
+            target_chunk["end_offset"] = split_pos
+        if "end_pos" in target_chunk or "end_offset" not in target_chunk:
+            target_chunk["end_pos"] = split_pos
         source.scene_chunks = chunks
         db.add(source)
 
+        new_chunk = {
+            "chapter_id": new_chapter_id,
+            "chapter_index": new_chapter_index,
+            "start_pos": 0,
+            "end_pos": new_chapter_length,
+        }
+        if "start_offset" in target_chunk or "end_offset" in target_chunk:
+            new_chunk.update(
+                {
+                    "start_offset": 0,
+                    "end_offset": new_chapter_length,
+                }
+            )
         new_scene = Scene(
             novel_id=nid,
             scene_index=source.scene_index + 1,
             chapter_ids=[new_chapter_id],
-            scene_chunks=[
-                {
-                    "chapter_id": new_chapter_id,
-                    "chapter_index": new_chapter_index,
-                    "start_pos": 0,
-                    "end_pos": new_chapter_length,
-                }
-            ],
+            scene_chunks=[new_chunk],
             source="manual",
             narrative_tag="draft",
             status="draft",
@@ -971,6 +1168,40 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
 
         scenes = await self.repo.get_by_novel_ordered(db, nid)
         return list(scenes)
+
+    @classmethod
+    def _scene_chunk_matches_chapter(
+        cls,
+        chunk: dict[str, Any],
+        *,
+        chapter_id: str,
+        chapter_index: int,
+    ) -> bool:
+        if str(chunk.get("chapter_id")) == str(chapter_id):
+            return True
+        return cls._scene_chunk_chapter_index(chunk) == chapter_index
+
+    @staticmethod
+    def _scene_chunk_offsets(chunk: dict[str, Any]) -> tuple[int, int]:
+        raw_start = chunk.get("start_offset")
+        if raw_start is None:
+            raw_start = chunk.get("start_pos", 0)
+        raw_end = chunk.get("end_offset")
+        if raw_end is None:
+            raw_end = chunk.get("end_pos", 0)
+        try:
+            return int(raw_start), int(raw_end)
+        except (TypeError, ValueError):
+            return 0, 0
+
+    @classmethod
+    def _scene_chunk_contains_offset(
+        cls,
+        chunk: dict[str, Any],
+        split_pos: int,
+    ) -> bool:
+        start_pos, end_pos = cls._scene_chunk_offsets(chunk)
+        return start_pos < split_pos < end_pos
 
 
 class OutlineStructureCleanupService:

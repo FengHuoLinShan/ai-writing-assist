@@ -11,12 +11,15 @@ from modules.world.map_repositories import (
     MapLocationBindingRepository,
     MapMarkerRepository,
     MapObservationRepository,
+    MapPathRepository,
     MapTerritoryRepository,
 )
 from modules.world.map_schemas import (
     MapBatchActionRequest,
     MapBatchActionResponse,
     MapDashboardResponse,
+    MapDynamicStateAtResponse,
+    MapDynamicTimelineResponse,
     MapFactListResponse,
     MapFactResponse,
     MapFactStatusUpdate,
@@ -38,6 +41,7 @@ from modules.world.services.map.map_fact_service import MapFactService
 from modules.world.services.map.map_observation_service import MapObservationService
 from modules.world.services.map.map_open_target_service import MapOpenTargetService
 from modules.world.services.map.map_playback_service import MapPlaybackService
+from modules.world.services.map.map_timeline_service import MapTimelineService
 
 
 class MapDynamicFactService(MapDynamicHelperMixin):
@@ -53,6 +57,7 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         binding_repo: MapLocationBindingRepository | None = None,
         marker_repo: MapMarkerRepository | None = None,
         territory_repo: MapTerritoryRepository | None = None,
+        path_repo: MapPathRepository | None = None,
     ) -> None:
         self._observation_repo = observation_repo or MapObservationRepository()
         self._fact_repo = fact_repo or MapFactRepository()
@@ -62,6 +67,7 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         self._binding_repo = binding_repo or MapLocationBindingRepository()
         self._marker_repo = marker_repo or MapMarkerRepository()
         self._territory_repo = territory_repo or MapTerritoryRepository()
+        self._path_repo = path_repo or MapPathRepository()
 
     @property
     def _observations(self) -> MapObservationService:
@@ -78,6 +84,15 @@ class MapDynamicFactService(MapDynamicHelperMixin):
     @property
     def _playback(self) -> MapPlaybackService:
         return MapPlaybackService(self)
+
+    @property
+    def _timeline(self) -> MapTimelineService:
+        return MapTimelineService(
+            context=self._ctx,
+            fact_repo=self._fact_repo,
+            observation_repo=self._observation_repo,
+            path_repo=self._path_repo,
+        )
 
     @property
     def _open_targets(self) -> MapOpenTargetService:
@@ -403,4 +418,54 @@ class MapDynamicFactService(MapDynamicHelperMixin):
             scene_id=scene_id,
             focus_entity_id=focus_entity_id,
             include_candidates=include_candidates,
+        )
+
+    async def get_timeline(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        map_id: str,
+        from_scene_index: int | None = None,
+        to_scene_index: int | None = None,
+        focus_entity_id: str | None = None,
+        tracks: set[str] | None = None,
+        include_candidates: bool = False,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> MapDynamicTimelineResponse:
+        return await self._timeline.get_timeline(
+            db,
+            novel_id,
+            map_id=map_id,
+            from_scene_index=from_scene_index,
+            to_scene_index=to_scene_index,
+            focus_entity_id=focus_entity_id,
+            tracks=tracks,
+            include_candidates=include_candidates,
+            skip=skip,
+            limit=limit,
+        )
+
+    async def get_state_at(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        map_id: str,
+        scene_index: int,
+        focus_entity_id: str | None = None,
+        tracks: set[str] | None = None,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> MapDynamicStateAtResponse:
+        return await self._timeline.get_state_at(
+            db,
+            novel_id,
+            map_id=map_id,
+            scene_index=scene_index,
+            focus_entity_id=focus_entity_id,
+            tracks=tracks,
+            skip=skip,
+            limit=limit,
         )

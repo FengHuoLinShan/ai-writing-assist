@@ -27,8 +27,10 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - 分阶段世界对象自动提取执行 Phase 2a / 2b：先基于已提交 Scene 抽取世界对象与 Delta，再补抽别名 / 关系
 - Phase 2a 对已持久化 Scene 以 Scene 为并发单元；每个请求只消费当前 Scene 的版本绑定精确 span 和前序 brief，写入仍按 `scene_index` 串行归并
 - Phase 2a 已收敛为 `ImportContextActivation -> concurrent LLM -> scene_index ordered persistence`：当前 Scene 在可见截止章/offset 以前的精确 span 正文和最多两个前序 brief 是唯一 Scene-local 证据。Phase 2a/2b 的 DeepSeek 请求普通模式使用 `high` reasoning，高质量模式使用 `max`；Phase 2b 单调用默认超时 120 秒，高质量模式有效超时翻倍。
+- Phase 2a/2b checkpoint 追加确定性 `input_fingerprint`，覆盖 Scene 语义、`scene_chunks` 的 draft/hash/offset 来源信息与实际消费正文。只有 `done` / `skipped` checkpoint 的指纹与当前输入一致时才允许跳过；旧 checkpoint、缺失指纹或输入漂移均按 fail-safe 重新执行。Scene 正文选择优先使用 end-exclusive `start_offset:end_offset`，仅在 offset 无效时回退到显式 paragraph 边界，不会把缺失边界默认为首段。
 - Phase 2a 不接收后续 Scene 或右侧边界补充证据；需要全局信息的别名、关系和连续性对账仅在 Phase 2b 执行
-- Phase 2 入库前通过 world facade 使用名称 / 别名 / embedding 去重能力；高置信重复实体只记录建议目标并进入待处理，不自动融合到已有对象。重复关系走 create-or-merge，并在 progress/result 中记录 action、dedup、boundary supplement 和 degraded 统计
+- Phase 2a 的 `ExtractedEntity` 与窗口级 `Phase2WorldObject` 在进入 world 的作者宽松 `CoreEntityCreate` 前仍执行固定系统 `entity_type` 校验；深度导入不会创建或复用项目自定义类型
+- Phase 2 入库前通过 world facade 使用名称 / 别名 / embedding 去重能力；`link_to_existing` 的目标名称必须重新解析为同项目、同类型的已采用对象 ID，未解析到已采用对象时只保留名称提示，不视为有效别名目标。高置信重复实体只记录建议目标并进入待处理，不自动融合到已有对象。重复关系走 create-or-merge，并在 progress/result 中记录 action、dedup、boundary supplement 和 degraded 统计
 - Phase 3 完成后会通过 outline facade 生成结构去重建议；只自动应用同一 deep import workflow 内的高置信重复，跨已有资产的建议仅写入任务结果
 - Phase 3 结构化请求同样使用冻结的 `deep_import.phase3.structure_max_tokens`（默认 32768），不再按 prompt 长度进行 token 阶梯扩容；该字段会出现在项目设置与任务冻结快照中。格式/transport 故障可保留一次同预算修复/重试，业务质量 replacement rerun 继续是独立门禁，两者都不扩大 `max_tokens`。
 - 深度导入 Phase 2 拆为 Phase 2a 世界对象/Delta 抽取与 Phase 2b 别名/关系提取；Phase 2b 失败只降级，不丢弃已抽取对象
@@ -116,6 +118,23 @@ world entities。任务在 commit 前失败时旧资产保持不变。
 execution snapshot。API Key、Base URL 或 model 不可用时直接返回 400，
 不入队，也不执行 force 覆盖前的派生数据废弃。worker 内的工作流
 `phase="failed"` 必须收敛为 task `failed`；失败保留当前进度，只有成功终态写入 100%。
+
+独立 `scene_auto_extraction` stage task 在任何 health/provider 调用前先以
+worker lease fence 持久化一次 prepare：冻结项目 title/genre/tone、项目 LLM
+execution snapshot 指纹、授权范围与每章
+`chapter_index + source_draft_id + content_hash` 来源向量，以及
+`high_quality/replace_existing` 提交语义。旧任务只在第一次
+prepare 时补冻结 snapshot，重试不把动态 lease/attempt 纳入语义指纹。
+LLM health、Phase 1a/1b 与高质量 Phase 1c 等待期间不持有数据库事务；
+provider 结果提交前按 project 优先锁序重验项目、snapshot、来源向量和
+当前 task type/novel/lease/attempt。PostgreSQL 上还会按章节升序取 writing
+version advisory lock，与正文版本创建和原地内容修改串行化。正式 Scene、
+融合建议、RAG 入队与 task progress/checkpoint/result 只在同一个最终
+fenced transaction 中持久化；最终 fence 拒绝、空结果或覆盖不完整时整体回滚。
+provider 在最终
+commit 前崩溃时允许 at-least-once 重试，正式资产依靠 provenance key 与原子
+checkpoint 保持幂等。该 seam 不改变普通 deep import、world-object 或
+plot-structure stage 的现有执行路径。
 
 worker 启动时会检测 stale 的 deep-import/stage task，清空旧 lease 并收敛为
 `failed + recovery_required`，但不会自动继续。前端只在任务 `available_actions`
@@ -206,13 +225,18 @@ Phase 2 的 Scene 实体抽取实现位于 `entity_extraction/` 子包；
 - `entity_extraction/scene_entity_parallel.py` — 小样本并发抽取与 bulk 失败 fallback
 - `entity_extraction/scene_entity_bulk.py` — bulk 抽取、小样本 LLM supplement 与 fallback 候选
 - `entity_extraction/scene_entity_alias_relation.py` — Phase 2b 别名/关系抽取
+- `entity_extraction/scene_entity_alias_relation_task.py` — 仅供 world 手动补抽任务的
+  prepare/LLM/finalize 事务隔离与漂移重验；detached receipt 冻结实际
+  timeout/concurrency 并保持 Phase 2b 动态总超时语义，每个 Scene 的 context
+  snapshot 只回写该 Scene 自身产物引用；不改变 Deep Import Phase 2b 路径
 - `entity_extraction/scene_entity_persistence.py` — entity / alias / relation / delta / map observation 写入
 - `entity_extraction/scene_entity_text.py`、`entity_extraction/scene_entity_snapshots.py`、`entity_extraction/scene_entity_llm_adapters.py`
   — Scene 正文、context snapshot、LLM adapter 支撑逻辑
 - `entity_extraction/scene_entity_checkpoint.py`、`entity_extraction/scene_entity_config.py` — checkpoint、错误分类和 Phase 2 常量
 
-这些拆分不改变 `extract_by_scenes()` / `extract_alias_relations()` 返回字段、
-checkpoint shape、snapshot/audit summary、LLM prompt 或 timeout 语义。
+这些拆分不改变 `extract_by_scenes()` / `extract_alias_relations()` 已有返回字段、
+snapshot/audit summary、LLM prompt 或 timeout 语义；checkpoint 仅追加
+`input_fingerprint` 用于安全续跑。
 
 ## Facade
 

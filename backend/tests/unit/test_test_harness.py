@@ -54,6 +54,98 @@ def _fixture_names(path: Path) -> set[str]:
     return names
 
 
+def _unautospecced_patch_calls(source: str, *, filename: str) -> list[int]:
+    """Return unittest.mock.patch call lines without literal autospec=True."""
+    tree = ast.parse(source, filename=filename)
+    patch_aliases: set[str] = set()
+    mock_aliases: set[str] = set()
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "unittest.mock":
+            patch_aliases.update(
+                alias.asname or alias.name
+                for alias in node.names
+                if alias.name == "patch"
+            )
+        elif isinstance(node, ast.ImportFrom) and node.module == "unittest":
+            mock_aliases.update(
+                alias.asname or alias.name for alias in node.names if alias.name == "mock"
+            )
+        elif isinstance(node, ast.Import):
+            mock_aliases.update(
+                alias.asname
+                for alias in node.names
+                if alias.name == "unittest.mock" and alias.asname
+            )
+
+    def is_patch_call(node: ast.Call) -> bool:
+        function = node.func
+        if isinstance(function, ast.Name):
+            return function.id in patch_aliases
+        if not isinstance(function, ast.Attribute):
+            return False
+        if function.attr == "object":
+            function = function.value
+        if isinstance(function, ast.Name):
+            return function.id in patch_aliases
+        return (
+            isinstance(function, ast.Attribute)
+            and function.attr == "patch"
+            and isinstance(function.value, ast.Name)
+            and function.value.id in mock_aliases
+        )
+
+    violations: list[int] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not is_patch_call(node):
+            continue
+        autospec_values = [
+            keyword.value for keyword in node.keywords if keyword.arg == "autospec"
+        ]
+        if not (
+            len(autospec_values) == 1
+            and isinstance(autospec_values[0], ast.Constant)
+            and autospec_values[0].value is True
+        ):
+            violations.append(node.lineno)
+    return sorted(violations)
+
+
+def test_patch_autospec_guard_recognizes_aliases_decorators_and_object_calls() -> None:
+    source = """
+from unittest.mock import patch as replace
+from unittest import mock as unit_mock
+
+@replace("package.decorated")
+def decorated(mocked):
+    pass
+
+with replace.object(object(), "attribute", autospec=True):
+    pass
+
+with unit_mock.patch("package.context", autospec=False):
+    pass
+
+with unit_mock.patch.object(object(), "attribute", autospec=True):
+    pass
+"""
+
+    assert _unautospecced_patch_calls(source, filename="aliases.py") == [5, 12]
+
+
+def test_all_unittest_patch_calls_use_literal_autospec_true() -> None:
+    violations: list[str] = []
+    for path in _python_test_files():
+        relative_path = path.relative_to(BACKEND_ROOT)
+        lines = _unautospecced_patch_calls(
+            path.read_text(encoding="utf-8"),
+            filename=str(path),
+        )
+        violations.extend(f"{relative_path}:{line}" for line in lines)
+
+    assert violations == []
+
+
 def test_every_module_test_directory_is_a_package() -> None:
     test_directories = sorted(
         path for path in MODULES_ROOT.glob("*/tests") if path.is_dir()

@@ -32,6 +32,28 @@ import {
 import renderEditPanel, { updatePendingCount, updateBindingPendingCount, toggleToolSections } from "./mapEditPanel.js"
 import { buildMapLayout } from "./mapLayoutEngine.js"
 import { drawTerrainLayers } from "./mapTerrainRenderer.js"
+import { getTerrainAsset, TERRAIN_PRESETS } from "./mapTerrainAssets.js"
+import {
+  drawMapPaths,
+  hitTestPath,
+  MAP_PATH_PROFILES,
+  normalizePathState,
+  pathNodesFor,
+  representativePathPoint,
+  simplifyPathToLimit,
+} from "./mapPathRenderer.js"
+import {
+  activeSelectionReason,
+  layerNodeId,
+  resolveLayerSelections,
+  sessionLayerVisible,
+  setLayerSelection,
+} from "./mapLayerSession.js"
+import {
+  drawTimelineProjection,
+  timelineAnchorPoint,
+  timelineProjectionSignature,
+} from "./mapTimelineProjection.js"
 import {
   bulkResultMessage,
   clearBulkSelection,
@@ -46,12 +68,11 @@ import {
   toggleAllBulkSelection,
   toggleBulkSelection,
 } from "../shared/bulkSelection.js"
-import { bindWorkspaceClick } from "../shared/viewHelper.js"
+import { bindDelegation } from "../shared/viewHelper.js"
 import {
   mapState,
   resetMapState,
   stageTerrainChange,
-  stageBindingChange,
   consumePendingChanges,
   setCurrentScene,
   setFocusMode,
@@ -65,6 +86,11 @@ import {
   startDragDraw,
   endDragDraw,
   recordDragHex,
+  setEditorLayer,
+  recordEditorCommand,
+  popEditorUndo,
+  popEditorRedo,
+  hasMapDraftChanges,
 } from "./mapState.js"
 
 const LEAFLET_VERSION = "1.9.4"
@@ -76,6 +102,14 @@ const LEAFLET_CSS_INTEGRITY = "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BM
 const LEAFLET_JS_INTEGRITY = "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
 const MAP_TILE_BATCH_LIMIT = 10000
 const MAP_LOCATION_BINDING_HEX_LIMIT = 5000
+const MAP_TERRITORY_HEX_LIMIT = 5000
+const MAP_LOCATION_ITEM_LIMIT = 2000
+const MAP_TERRAIN_REGION_LIMIT = 200
+const MAP_TERRAIN_PATCH_LIMIT = 20000
+const MAP_LAYER_NODE_LIMIT = 500
+const MAP_EDITOR_COMMAND_LIMIT = 200
+const MAP_PATH_NODE_LIMIT = 500
+const MAP_PATH_BATCH_NODE_LIMIT = 2000
 
 let leafletLoadPromise = null
 
@@ -134,6 +168,10 @@ const mapView = {
   _ctx: null,
   /** 当前地图聚合状态（MapStateResponse） */
   _state: null,
+  _layerTree: null,
+  _pathState: normalizePathState(),
+  _pathGeometryCache: new Map(),
+  _markerBaselineById: new Map(),
   /** 当前 novel 下的地图列表 */
   _maps: [],
   _mapsLoadError: null,
@@ -146,6 +184,11 @@ const mapView = {
   _indexedLocations: null,
   _indexedMaps: null,
   _redrawFrame: null,
+  _renderSubsetCache: new Map(),
+  _renderMetrics: null,
+  _performanceMetrics: null,
+  _performanceFrameDurations: [],
+  _firstDrawStartedAt: null,
   _labelsDirty: true,
   _bulkSelections: {},
   /** 可绑定的 location 实体列表 */
@@ -162,12 +205,26 @@ const mapView = {
   _tooltipPopup: null,
   /** 拖拽绘制中是否已移动到新格（用于区分单击和拖拽） */
   _dragMoved: false,
+  _dragLocationId: null,
+  _dragMarkerId: null,
+  _pointerStartSnapshot: null,
+  _pathPointerSamples: null,
+  _dragPathNode: null,
+  _dragOutOfBoundsNotified: false,
+  _pointerStartHadPending: false,
+  _suppressNextCanvasClick: false,
+  _ignoreDirtyGuard: false,
   /** 当前侧边栏筛选模式 ("all" | "location") */
   _currentFilter: "all",
   /** 当前挂载容器 ID */
   _mountRootId: "map-root",
   /** 一级地图工作台传入的打开上下文 */
   _mountContext: {},
+  /** 使异步编辑过渡在 unmount/重新 mount 后失效。 */
+  _lifecycleEpoch: 0,
+  /** Scene 时间轴只读投影；不进入编辑草稿或 editor_revision。 */
+  _timelineProjection: null,
+  _timelineProjectionSignature: "",
 
   // ============================================================
   // 生命周期：由 worldView 调用
@@ -179,33 +236,61 @@ const mapView = {
    * @param {object} context
    */
   async mount(rootId, context = {}) {
+    const lifecycleEpoch = ++this._lifecycleEpoch
     this._mountRootId = rootId
     this._mountContext = context || {}
     await this._loadMaps()
+    if (!this._isLifecycleCurrent(lifecycleEpoch, context)) return false
     if (context.mapId) {
       await this._loadMapState(context.mapId, context.sceneId || null)
+      if (!this._isLifecycleCurrent(lifecycleEpoch, context)) return false
       await Promise.all([
         this._loadLocations(),
         this._loadAllEntities(),
         this._loadScenes(),
+        this._loadLayerTree(),
+        this._loadPaths(),
       ])
+      if (!this._isLifecycleCurrent(lifecycleEpoch, context)) return false
       if (context.sceneId) setCurrentScene(context.sceneId)
       if (context.focusEntityId && this._focusEntityHasTerritory(context.focusEntityId)) {
         setFocusMode(true, context.focusEntityId)
         await this._loadFocusState(context.focusEntityId)
+        if (!this._isLifecycleCurrent(lifecycleEpoch, context)) return false
       }
     } else {
       await this._loadScenes()
+      if (!this._isLifecycleCurrent(lifecycleEpoch, context)) return false
     }
     this._render(rootId)
+    return true
   },
 
   /** 退出时清理 Leaflet 实例 */
   unmount() {
+    this._lifecycleEpoch += 1
     this._clearPendingTimers()
     this._teardownInteractiveSurface()
     this._state = null
+    this._layerTree = null
+    this._pathState = normalizePathState()
+    this._pathGeometryCache.clear()
+    this._renderSubsetCache.clear()
+    this._renderMetrics = null
+    this._performanceMetrics = null
+    this._performanceFrameDurations = []
+    this._firstDrawStartedAt = null
+    this._markerBaselineById = new Map()
+    this._pathPointerSamples = null
+    this._dragPathNode = null
+    this._timelineProjection = null
+    this._timelineProjectionSignature = ""
+    this._pointerStartHadPending = false
     resetMapState()
+  },
+
+  _isLifecycleCurrent(lifecycleEpoch, mountContext = this._mountContext) {
+    return lifecycleEpoch === this._lifecycleEpoch && this._mountContext === mountContext
   },
 
   _defer(fn) {
@@ -215,6 +300,12 @@ const mapView = {
     }, 0)
     this._pendingTimers.add(timer)
     return timer
+  },
+
+  _bindViewClick(handlerMap) {
+    const root = document.getElementById(this._mountRootId || "map-root")
+      || document.getElementById("workspace-content")
+    if (root) bindDelegation(this, root, "click", handlerMap)
   },
 
   _clearPendingTimers() {
@@ -256,43 +347,110 @@ const mapView = {
   // ============================================================
 
   async _loadMaps() {
+    const lifecycleEpoch = this._lifecycleEpoch
+    const projectId = state.currentProjectId
     this._mapsLoadError = null
-    if (!state.currentProjectId) {
+    if (!projectId) {
       this._maps = []
       this._rebuildIndexes()
-      return
+      return true
     }
     try {
-      const data = await api.world.listMaps({ novel_id: state.currentProjectId })
-      this._maps = data.items || []
+      const maps = []
+      const limit = 500
+      let skip = 0
+      while (true) {
+        const data = await api.world.listMaps({
+          novel_id: projectId,
+          status: "active",
+          skip,
+          limit,
+        })
+        const items = data.items || data || []
+        maps.push(...items)
+        if (items.length < limit) break
+        skip += limit
+      }
+      if (lifecycleEpoch !== this._lifecycleEpoch || state.currentProjectId !== projectId) {
+        return false
+      }
+      this._maps = maps
       this._rebuildIndexes()
+      return true
     } catch (err) {
+      if (lifecycleEpoch !== this._lifecycleEpoch || state.currentProjectId !== projectId) {
+        return false
+      }
       this._maps = []
       this._mapsLoadError = err?.message || "加载失败"
       this._rebuildIndexes()
       toast("地图列表加载失败，可稍后重试", "warning")
+      return true
     }
   },
 
   async _loadMapState(mapId, sceneId = mapState.currentSceneId) {
+    const lifecycleEpoch = this._lifecycleEpoch
+    const projectId = state.currentProjectId
     try {
-      this._state = await api.world.getMapState(mapId, state.currentProjectId, sceneId)
+      const startedAt = performance.now()
+      const nextState = await api.world.getMapState(mapId, projectId, sceneId)
+      if (lifecycleEpoch !== this._lifecycleEpoch || state.currentProjectId !== projectId) {
+        return false
+      }
+      this._state = nextState
+      const loadedAt = performance.now()
+      const serialized = JSON.stringify(this._state)
+      const payloadBytes = typeof TextEncoder === "function"
+        ? new TextEncoder().encode(serialized).length
+        : serialized.length
+      this._performanceMetrics = {
+        map_id: mapId,
+        grid: `${this._state.map?.grid_width || 0}x${this._state.map?.grid_height || 0}`,
+        payload_bytes: payloadBytes,
+        request_and_parse_ms: loadedAt - startedAt,
+        first_draw_ms: null,
+        warmup_frames: 20,
+        sampled_frames: 0,
+        average_frame_ms: null,
+        p95_frame_ms: null,
+      }
+      this._performanceFrameDurations = []
+      this._firstDrawStartedAt = startedAt
+      this._renderSubsetCache.clear()
+      this._markerBaselineById = new Map(
+        (this._state.markers || []).map((marker) => [marker.id, { ...marker }]),
+      )
       resetMapState()
       mapState.currentMapId = mapId
       if (sceneId) setCurrentScene(sceneId)
       this._rebuildIndexes()
       this._notifyMapOpened()
+      return true
     } catch (err) {
+      if (lifecycleEpoch !== this._lifecycleEpoch || state.currentProjectId !== projectId) {
+        return false
+      }
       toast(`加载地图失败：${err.message}`, "error")
       this._state = null
+      this._layerTree = null
+      this._markerBaselineById = new Map()
       this._rebuildIndexes()
+      return true
     }
   },
 
-  async _reloadMapStatePreservingSession(mapId, sceneId = mapState.currentSceneId) {
+  async _reloadMapStatePreservingSession(
+    mapId,
+    sceneId = mapState.currentSceneId,
+    { preserveMarkers = true } = {},
+  ) {
+    const lifecycleEpoch = this._lifecycleEpoch
+    const mountContext = this._mountContext
     const session = {
       mode: mapState.mode,
       activeTool: mapState.activeTool,
+      editorLayer: mapState.editorLayer,
       selectedTerrain: mapState.selectedTerrain,
       selectedLocationEntityId: mapState.selectedLocationEntityId,
       bindCenterMode: mapState.bindCenterMode,
@@ -307,12 +465,45 @@ const mapView = {
       focusRelatedHexes: new Set(mapState.focusRelatedHexes),
       selectedFactionId: mapState.selectedFactionId,
       factionColors: { ...mapState.factionColors },
+      pendingTerrainChanges: { ...mapState.pendingTerrainChanges },
+      pendingBindings: { ...mapState.pendingBindings },
+      pendingLocationLayouts: { ...mapState.pendingLocationLayouts },
+      pendingTerrainOverlay: mapState.pendingTerrainOverlay
+        ? JSON.parse(JSON.stringify(mapState.pendingTerrainOverlay))
+        : null,
+      pendingTerrainLayerDeletes: [...mapState.pendingTerrainLayerDeletes],
+      pendingMarkerChanges: JSON.parse(JSON.stringify(mapState.pendingMarkerChanges)),
+      pendingLayerTree: mapState.pendingLayerTree
+        ? JSON.parse(JSON.stringify(mapState.pendingLayerTree))
+        : null,
+      layerTreeBaselineStale: mapState.layerTreeBaselineStale,
+      activeLayerChildIds: { ...mapState.activeLayerChildIds },
+      isolateLayerNodeId: mapState.isolateLayerNodeId,
+      pendingPathChanges: JSON.parse(JSON.stringify(mapState.pendingPathChanges)),
+      pendingPathLayerChanges: JSON.parse(JSON.stringify(mapState.pendingPathLayerChanges)),
+      selectedPathLayerId: mapState.selectedPathLayerId,
+      selectedPathId: mapState.selectedPathId,
+      selectedPathNodeIndex: mapState.selectedPathNodeIndex,
+      selectedPathType: mapState.selectedPathType,
+      pathTool: mapState.pathTool,
+      workingMarkers: JSON.parse(JSON.stringify(this._state?.markers || [])),
+      selectedTerrainLayerId: mapState.selectedTerrainLayerId,
+      selectedTerrainAssetKey: mapState.selectedTerrainAssetKey,
+      selectedTerrainPreset: mapState.selectedTerrainPreset,
+      overlayBrushSize: mapState.overlayBrushSize,
+      overlayTool: mapState.overlayTool,
+      territoryEraseMode: mapState.territoryEraseMode,
+      pendingTerritoryChanges: JSON.parse(JSON.stringify(mapState.pendingTerritoryChanges)),
+      editorHistory: mapState.editorHistory,
+      editorRedo: mapState.editorRedo,
     }
 
-    await this._loadMapState(mapId, sceneId)
+    const loaded = await this._loadMapState(mapId, sceneId)
+    if (!loaded || !this._isLifecycleCurrent(lifecycleEpoch, mountContext)) return false
 
     mapState.mode = session.mode
     mapState.activeTool = session.activeTool
+    mapState.editorLayer = session.editorLayer
     mapState.selectedTerrain = session.selectedTerrain
     mapState.selectedLocationEntityId = session.selectedLocationEntityId
     mapState.bindCenterMode = session.bindCenterMode
@@ -327,35 +518,186 @@ const mapView = {
     mapState.focusRelatedHexes = session.focusRelatedHexes
     mapState.selectedFactionId = session.selectedFactionId
     mapState.factionColors = session.factionColors
+    mapState.pendingTerrainChanges = session.pendingTerrainChanges
+    mapState.pendingBindings = session.pendingBindings
+    mapState.pendingLocationLayouts = session.pendingLocationLayouts
+    mapState.pendingTerrainOverlay = session.pendingTerrainOverlay
+    mapState.pendingTerrainLayerDeletes = session.pendingTerrainLayerDeletes
+    mapState.pendingMarkerChanges = preserveMarkers ? session.pendingMarkerChanges : {}
+    mapState.pendingLayerTree = session.pendingLayerTree
+    mapState.layerTreeBaselineStale = session.layerTreeBaselineStale
+    mapState.activeLayerChildIds = session.activeLayerChildIds
+    mapState.isolateLayerNodeId = session.isolateLayerNodeId
+    mapState.pendingPathChanges = session.pendingPathChanges
+    mapState.pendingPathLayerChanges = session.pendingPathLayerChanges
+    mapState.selectedPathLayerId = session.selectedPathLayerId
+    mapState.selectedPathId = session.selectedPathId
+    mapState.selectedPathNodeIndex = session.selectedPathNodeIndex
+    mapState.selectedPathType = session.selectedPathType
+    mapState.pathTool = session.pathTool
+    if (this._state && preserveMarkers) {
+      const localMarkers = new Map(
+        session.workingMarkers.map((marker) => [marker.id, marker]),
+      )
+      const mergedMarkers = new Map(
+        (this._state.markers || []).map((marker) => [marker.id, marker]),
+      )
+      for (const [markerId, change] of Object.entries(session.pendingMarkerChanges)) {
+        if (change.operation === "delete") {
+          mergedMarkers.delete(markerId)
+          continue
+        }
+        const local = localMarkers.get(markerId)
+        if (local) mergedMarkers.set(markerId, local)
+      }
+      this._state.markers = [...mergedMarkers.values()]
+    }
+    mapState.selectedTerrainLayerId = session.selectedTerrainLayerId
+    mapState.selectedTerrainAssetKey = session.selectedTerrainAssetKey
+    mapState.selectedTerrainPreset = session.selectedTerrainPreset
+    mapState.overlayBrushSize = session.overlayBrushSize
+    mapState.overlayTool = session.overlayTool
+    mapState.territoryEraseMode = session.territoryEraseMode
+    mapState.pendingTerritoryChanges = session.pendingTerritoryChanges
+    mapState.editorHistory = session.editorHistory
+    mapState.editorRedo = session.editorRedo
+    this._rebuildIndexes()
+    return true
   },
 
   async _loadLocations() {
-    this._locations = await this._listAllEntities({ entity_type: "location" }).catch(() => [])
+    const lifecycleEpoch = this._lifecycleEpoch
+    const projectId = state.currentProjectId
+    const locations = await this._listAllEntities({
+      entity_type: "location",
+      novel_id: projectId,
+    }).catch(() => [])
+    if (lifecycleEpoch !== this._lifecycleEpoch || state.currentProjectId !== projectId) {
+      return false
+    }
+    this._locations = locations
     this._rebuildIndexes()
+    return true
+  },
+
+  async _loadLayerTree() {
+    if (!this._state?.map?.id || !api.world.getMapLayerTree) return
+    const lifecycleEpoch = this._lifecycleEpoch
+    const projectId = state.currentProjectId
+    const mapId = this._state.map.id
+    try {
+      const layerTree = await api.world.getMapLayerTree(
+        mapId,
+        projectId,
+      )
+      if (
+        lifecycleEpoch !== this._lifecycleEpoch
+        || state.currentProjectId !== projectId
+        || this._state?.map?.id !== mapId
+      ) return false
+      this._layerTree = layerTree
+      mapState.activeLayerChildIds = resolveLayerSelections({
+        nodes: this._layerTree?.nodes || [],
+        novelId: projectId,
+        mapId,
+        focusNodeId: this._mountContext?.focusLayerNodeId || null,
+        previous: mapState.activeLayerChildIds,
+      })
+      return true
+    } catch (err) {
+      if (
+        lifecycleEpoch !== this._lifecycleEpoch
+        || state.currentProjectId !== projectId
+        || this._state?.map?.id !== mapId
+      ) return false
+      this._layerTree = null
+      toast(`图层树加载失败：${err.message}`, "warning")
+      return true
+    }
+  },
+
+  async _loadPaths(status = "all") {
+    if (!this._state?.map?.id || !api.world.getMapPaths) {
+      this._pathState = normalizePathState()
+      return
+    }
+    const lifecycleEpoch = this._lifecycleEpoch
+    const projectId = state.currentProjectId
+    const mapId = this._state.map.id
+    try {
+      const pathState = normalizePathState(await api.world.getMapPaths(
+        mapId,
+        projectId,
+        status,
+      ))
+      if (
+        lifecycleEpoch !== this._lifecycleEpoch
+        || state.currentProjectId !== projectId
+        || this._state?.map?.id !== mapId
+      ) return false
+      this._pathState = pathState
+      mapState.selectedPathLayerId ||= this._pathState.path_layers.find(
+        (layer) => layer.status !== "archived",
+      )?.id || null
+      const focused = this._mountContext?.focusPathId
+      if (focused && this._pathState.paths.some((path) => path.id === focused)) {
+        mapState.selectedPathId = focused
+      }
+      this._pathGeometryCache.clear()
+      return true
+    } catch (err) {
+      if (
+        lifecycleEpoch !== this._lifecycleEpoch
+        || state.currentProjectId !== projectId
+        || this._state?.map?.id !== mapId
+      ) return false
+      this._pathState = normalizePathState()
+      toast(`线路加载失败：${err.message}`, "warning")
+      return true
+    }
   },
 
   async _loadScenes() {
-    if (!state.currentProjectId) return
+    const lifecycleEpoch = this._lifecycleEpoch
+    const projectId = state.currentProjectId
+    if (!projectId) return
     try {
-      const data = await api.outline.listScenesOrdered(state.currentProjectId)
+      const data = await api.outline.listScenesOrdered(projectId)
+      if (lifecycleEpoch !== this._lifecycleEpoch || state.currentProjectId !== projectId) {
+        return false
+      }
       mapState.sceneList = (data.items || data || []).map((s) => ({
         id: s.id,
         index: s.scene_index,
         title: s.title || `Scene ${s.scene_index}`,
       }))
+      return true
     } catch {
+      if (lifecycleEpoch !== this._lifecycleEpoch || state.currentProjectId !== projectId) {
+        return false
+      }
       mapState.sceneList = []
+      return true
     }
   },
 
   async _loadAllEntities() {
-    if (!state.currentProjectId) return
+    const lifecycleEpoch = this._lifecycleEpoch
+    const projectId = state.currentProjectId
+    if (!projectId) return
     const types = ["character", "event", "item", "location", "organization"]
     const results = await Promise.all(
-      types.map((t) => this._listAllEntities({ entity_type: t }).catch(() => []))
+      types.map((t) => this._listAllEntities({
+        entity_type: t,
+        novel_id: projectId,
+      }).catch(() => []))
     )
+    if (lifecycleEpoch !== this._lifecycleEpoch || state.currentProjectId !== projectId) {
+      return false
+    }
     this._allEntities = results.flat()
     this._rebuildIndexes()
+    return true
   },
 
   _hexKey(q, r) {
@@ -452,6 +794,8 @@ const mapView = {
       candidate_territories: dynamic.candidate_territories || [],
       scene: dynamic.scene || null,
     }
+    this._renderSubsetCache.clear()
+    this._rebuildIndexes()
     this._labelsDirty = true
   },
 
@@ -459,14 +803,15 @@ const mapView = {
    * 分页拉取世界对象，避免 limit 超过后端 MAX_PAGE_SIZE 导致 422。
    */
   async _listAllEntities(baseParams) {
-    if (!state.currentProjectId) return []
+    const novelId = baseParams.novel_id || state.currentProjectId
+    if (!novelId) return []
     const all = []
     const limit = 50
     let skip = 0
     while (true) {
       const data = await api.world.listEntities({
         ...baseParams,
-        novel_id: state.currentProjectId,
+        novel_id: novelId,
         display_state: "active",
         skip,
         limit,
@@ -544,7 +889,7 @@ const mapView = {
         <td>${m.grid_width}×${m.grid_height}</td>
         <td>
           <button class="btn btn-sm" data-action="map-open" data-id="${esc(m.id)}">打开</button>
-          <button class="btn btn-sm btn-danger" data-action="map-delete" data-id="${esc(m.id)}">删除</button>
+          <button class="btn btn-sm" data-action="map-delete" data-id="${esc(m.id)}">归档</button>
         </td>
       </tr>
     `).join("")
@@ -559,7 +904,7 @@ const mapView = {
         </div>
       </div>
       ${renderBulkToolbar(this, scope, [
-        { action: "delete-maps", label: "批量删除地图", className: "btn-danger" },
+        { action: "delete-maps", label: "批量归档地图" },
       ], { noun: "地图", hint: "只处理当前地图列表" })}
       <table class="data-table">
         <thead><tr><th class="selection-cell">${renderSelectionHeader(this, scope, ids, "全选当前地图")}</th><th>名称</th><th>类型</th><th>尺寸</th><th>操作</th></tr></thead>
@@ -601,7 +946,29 @@ const mapView = {
       : `<button class="btn btn-sm" data-action="map-enter-edit">编辑</button>`
 
     const editPanelHtml = mapState.mode === "edit"
-      ? renderEditPanel({ locations: this._locations, allEntities: this._allEntities, scenes: mapState.sceneList }) + this._renderTerritoryTools()
+      ? renderEditPanel({
+        locations: this._locations,
+        allEntities: this._allEntities,
+        scenes: mapState.sceneList,
+        terrainLayers: this._state.terrain_layers || [],
+        layerTree: (mapState.pendingLayerTree || this._layerTree?.nodes || []).map((node) => ({
+          ...node,
+          session_reason: activeSelectionReason(
+            node,
+            mapState.pendingLayerTree || this._layerTree?.nodes || [],
+            mapState.activeLayerChildIds,
+          ),
+        })),
+        pathLayers: this._effectivePathLayers().map((layer) => {
+          const leaf = (mapState.pendingLayerTree || this._layerTree?.nodes || []).find(
+            (node) => node.path_layer_id === layer.id || node.path_layer_client_id === layer.id,
+          )
+          return { ...layer, name: leaf?.name || layer.name || layer.display_name }
+        }),
+        paths: this._effectivePaths(),
+        pathProfiles: MAP_PATH_PROFILES,
+        territoryTools: this._renderTerritoryTools(),
+      })
       : ""
 
     return `
@@ -628,8 +995,54 @@ const mapView = {
   },
 
   _renderDetailPanel(q, r) {
-    const binding = this._bindingAt(q, r)
-    if (binding?.is_center) {
+    const path = this._pathAt(q, r)
+    if (path) {
+      const profile = MAP_PATH_PROFILES[path.path_type]
+      const nodes = pathNodesFor(path, this._pathState?.nodes || [])
+      const start = this._pathEndpointStatus(path, "start", nodes[0])
+      const end = this._pathEndpointStatus(path, "end", nodes.at(-1))
+      return `
+        <div class="map-detail-header">${esc(path.name || "未命名线路")}</div>
+        <div class="map-detail-section"><div class="map-detail-label">类型</div><div class="map-detail-value">${esc(profile?.label || path.path_type || "线路")}${path.status === "archived" ? " · 已归档" : ""}</div></div>
+        <div class="map-detail-section"><div class="map-detail-label">几何</div><div class="map-detail-value">${nodes.length} 个节点 · revision ${Number(path.content_revision || 0)}</div></div>
+        ${start ? `<div class="map-detail-section"><div class="map-detail-label">起点</div><div class="map-detail-value ${start.drifted ? "is-warning" : ""}">${esc(start.name)}${start.unresolved ? " · 未布置" : start.drifted ? ` · 偏离 ${start.distance.toFixed(2)} 格` : " · 已对齐"}</div></div>` : ""}
+        ${end ? `<div class="map-detail-section"><div class="map-detail-label">终点</div><div class="map-detail-value ${end.drifted ? "is-warning" : ""}">${esc(end.name)}${end.unresolved ? " · 未布置" : end.drifted ? ` · 偏离 ${end.distance.toFixed(2)} 格` : " · 已对齐"}</div></div>` : ""}
+      `
+    }
+    const marker = this._markerAt(q, r)
+    if (marker) {
+      const typeLabel = { character: "人物标记", event: "事件标记", item: "物品标记" }[marker.marker_type] || "标记"
+      return `
+        <div class="map-detail-header">${esc(marker.label || typeLabel)}</div>
+        <div class="map-detail-section"><div class="map-detail-label">类型</div><div class="map-detail-value">${esc(typeLabel)}</div></div>
+        <div class="map-detail-section"><div class="map-detail-label">坐标</div><div class="map-detail-value">q:${q}, r:${r}</div></div>
+        <div class="map-detail-actions"><button class="btn btn-sm" data-action="map-detail-world-object" data-id="${esc(marker.entity_id)}">查看世界对象</button></div>
+      `
+    }
+    const territory = this._visibleTerritoryAt(q, r)
+    if (territory) {
+      const entity = (this._allEntities || []).find(
+        (item) => item.id === territory.faction_entity_id,
+      )
+      return `
+        <div class="map-detail-header">${esc(entity?.name || "领地")}</div>
+        <div class="map-detail-section"><div class="map-detail-label">类型</div><div class="map-detail-value">领地</div></div>
+        <div class="map-detail-section"><div class="map-detail-label">坐标</div><div class="map-detail-value">q:${q}, r:${r}</div></div>
+        <div class="map-detail-actions"><button class="btn btn-sm" data-action="map-detail-world-object" data-id="${esc(territory.faction_entity_id)}">查看世界对象</button></div>
+      `
+    }
+    const terrainState = this._terrainRenderState()
+    const patch = this._visibleTerrainPatchAt(q, r, terrainState)
+    if (patch) {
+      const layer = terrainState.layers.find((item) => item.id === patch.layer_id)
+      return `
+        <div class="map-detail-header">${esc(layer?.name || "覆盖素材")}</div>
+        <div class="map-detail-section"><div class="map-detail-label">类型</div><div class="map-detail-value">覆盖素材 · ${esc(layer?.terrain_asset_key || "unknown")}</div></div>
+        <div class="map-detail-section"><div class="map-detail-label">坐标</div><div class="map-detail-value">q:${q}, r:${r}</div></div>
+      `
+    }
+    const binding = this._visibleBindingAt(q, r)
+    if (binding) {
       const loc = this._locationById.get(binding.location_entity_id)
       const name = loc ? loc.name : "未命名地点"
       const summary = loc && loc.summary ? loc.summary : "暂无摘要"
@@ -647,11 +1060,12 @@ const mapView = {
           <div class="map-detail-value">${bindingCount}</div>
         </div>
         <div class="map-detail-actions">
-          <button class="btn btn-sm btn-primary" data-action="map-detail-drill" data-id="${esc(binding.location_entity_id)}">${esc(actionText)}</button>
+          ${binding.is_center ? `<button class="btn btn-sm btn-primary" data-action="map-detail-drill" data-id="${esc(binding.location_entity_id)}">${esc(actionText)}</button>` : ""}
+          <button class="btn btn-sm" data-action="map-detail-world-object" data-id="${esc(binding.location_entity_id)}">查看世界对象</button>
         </div>
       `
     }
-    const tile = this._tileAt(q, r)
+    const tile = this._visibleTileAt(q, r)
     if (tile) {
       return `
         <div class="map-detail-header">地形：${esc(tile.terrain_type)}</div>
@@ -662,6 +1076,39 @@ const mapView = {
       `
     }
     return `<div class="map-detail-empty">点击地图查看详情</div>`
+  },
+
+  _locationAnchor(entityId) {
+    if (!entityId) return null
+    const layout = this._effectiveLocationLayouts().find(
+      (item) => item.location_entity_id === entityId,
+    )
+    if (layout) return { q: Number(layout.center_hex_q), r: Number(layout.center_hex_r) }
+    const bindings = (this._state?.location_bindings || []).filter(
+      (item) => item.location_entity_id === entityId,
+    )
+    const center = bindings.find((item) => item.is_center)
+    if (center) return { q: Number(center.hex_q), r: Number(center.hex_r) }
+    if (!bindings.length) return null
+    return {
+      q: bindings.reduce((sum, item) => sum + Number(item.hex_q), 0) / bindings.length,
+      r: bindings.reduce((sum, item) => sum + Number(item.hex_r), 0) / bindings.length,
+    }
+  },
+
+  _pathEndpointStatus(path, side, node) {
+    const entityId = path?.[`${side}_location_entity_id`]
+    if (!entityId || !node) return null
+    const anchor = this._locationAnchor(entityId)
+    const entity = this._locationById.get(entityId)
+    if (!anchor) return { name: entity?.name || "未命名地点", unresolved: true, drifted: false, distance: null }
+    const distance = Math.hypot(anchor.q - node.q, anchor.r - node.r)
+    return {
+      name: entity?.name || "未命名地点",
+      unresolved: false,
+      drifted: distance > 0.75,
+      distance,
+    }
   },
 
   _updateDetailPanel(q, r) {
@@ -707,6 +1154,7 @@ const mapView = {
       [[-(lastY + size), -size], [size, (size * 1.5 * (w - 1)) + size]]
     )
     this._leaflet.fitBounds(bounds)
+    this._focusViewportFromContext(size)
 
     // canvas overlay：用 L.LayerGroup 持有一个 canvas
     this._canvas = document.createElement("canvas")
@@ -738,13 +1186,13 @@ const mapView = {
 
     // 点击：hex 命中
     this._canvas.addEventListener("click", (e) => this._handleCanvasClick(e))
-    // 鼠标移动 / 离开：hover 高亮 + tooltip
-    this._canvas.addEventListener("mousemove", (e) => this._handleCanvasMouseMove(e))
+    // Pointer Events 同时覆盖鼠标与触控；拖动期间暂停 Leaflet 平移。
+    this._canvas.style.touchAction = "none"
+    this._canvas.addEventListener("pointermove", (e) => this._handleCanvasMouseMove(e))
     this._canvas.addEventListener("mouseout", () => this._handleCanvasMouseOut())
-    // 拖拽绘制
-    this._canvas.addEventListener("mousedown", (e) => this._handleCanvasMouseDown(e))
-    this._canvas.addEventListener("mouseup", () => this._handleCanvasMouseUp())
-    this._canvas.addEventListener("mouseleave", () => this._handleCanvasMouseUp())
+    this._canvas.addEventListener("pointerdown", (e) => this._handleCanvasMouseDown(e))
+    this._canvas.addEventListener("pointerup", (e) => this._handleCanvasMouseUp(e))
+    this._canvas.addEventListener("pointercancel", (e) => this._handleCanvasMouseUp(e))
   },
 
   _renderLeafletLoadFailure(container) {
@@ -759,15 +1207,335 @@ const mapView = {
     })
   },
 
+  _focusViewportFromContext(size) {
+    let rawQ = this._mountContext?.focusHexQ
+    let rawR = this._mountContext?.focusHexR
+    if ((rawQ == null || rawR == null) && this._mountContext?.focusPathId) {
+      const path = this._effectivePaths().find(
+        (item) => item.id === this._mountContext.focusPathId,
+      )
+      const point = path ? representativePathPoint(path, this._pathState?.nodes || []) : null
+      rawQ = point?.q
+      rawR = point?.r
+    }
+    if (rawQ == null || rawR == null) return
+    const q = Number(rawQ)
+    const r = Number(rawR)
+    if (!Number.isFinite(q) || !Number.isFinite(r) || !this._leaflet?.setView) return
+    const [x, y] = hexToPixel(q, r, size)
+    const currentZoom = Number(this._leaflet.getZoom?.() ?? 0)
+    this._leaflet.setView(window.L.latLng(-y, x), Math.max(1, currentZoom))
+  },
+
+  _effectiveLayerNode({ layerKey = null, terrainLayerId = null, pathLayerId = null, zoom = null } = {}) {
+    const nodes = mapState.pendingLayerTree || this._layerTree?.nodes || []
+    const node = terrainLayerId
+      ? nodes.find((item) => item.terrain_layer_id === terrainLayerId || item.terrain_layer_client_id === terrainLayerId)
+      : pathLayerId
+        ? nodes.find((item) => item.path_layer_id === pathLayerId || item.path_layer_client_id === pathLayerId)
+        : nodes.find((item) => item.layer_key === layerKey)
+    if (!node) return {
+      visible: true,
+      interactiveVisible: true,
+      sessionVisible: true,
+      locked: false,
+      opacity: 1,
+    }
+    const minZoom = node.effective_min_zoom ?? node.min_zoom
+    const maxZoom = node.effective_max_zoom ?? node.max_zoom
+    const inZoom = (zoom == null || minZoom == null || zoom >= minZoom)
+      && (zoom == null || maxZoom == null || zoom <= maxZoom)
+    const structuralVisible = (node.effective_visible ?? node.visible) !== false && inZoom
+    const sessionVisible = sessionLayerVisible(
+      node,
+      nodes,
+      mapState.activeLayerChildIds,
+      mapState.isolateLayerNodeId,
+    )
+    const isolateBaseContext = Boolean(
+      mapState.isolateLayerNodeId
+      && layerKey === "baseTerrain"
+      && !sessionVisible,
+    )
+    return {
+      visible: structuralVisible && (sessionVisible || isolateBaseContext),
+      interactiveVisible: structuralVisible && sessionVisible,
+      sessionVisible,
+      locked: Boolean(node.effective_locked ?? node.locked),
+      opacity: isolateBaseContext ? 0.15 : Number(node.effective_opacity ?? node.opacity ?? 1),
+      minZoom,
+      maxZoom,
+      sessionReason: structuralVisible
+        ? activeSelectionReason(node, nodes, mapState.activeLayerChildIds)
+        : "结构隐藏",
+      node,
+    }
+  },
+
+  _viewportPredicate(size, origin, scale) {
+    const margin = size * 2
+    const minX = (0 - origin.x) / scale - margin
+    const maxX = (this._canvas.width - origin.x) / scale + margin
+    const minY = (0 - origin.y) / scale - margin
+    const maxY = (this._canvas.height - origin.y) / scale + margin
+    return (item) => {
+      if (item?.hex_q == null || item?.hex_r == null) return false
+      const [x, y] = hexToPixel(item.hex_q, item.hex_r, size)
+      return x >= minX && x <= maxX && y >= minY && y <= maxY
+    }
+  },
+
+  _pathViewport(size, origin, scale) {
+    const toAxial = (px, py) => {
+      const x = (px - origin.x) / scale
+      const y = (py - origin.y) / scale
+      return {
+        q: (2 / 3) * x / size,
+        r: (-x / 3 + Math.sqrt(3) * y / 3) / size,
+      }
+    }
+    const corners = [
+      toAxial(0, 0),
+      toAxial(this._canvas.width, 0),
+      toAxial(0, this._canvas.height),
+      toAxial(this._canvas.width, this._canvas.height),
+    ]
+    return {
+      minQ: Math.min(...corners.map((point) => point.q)) - 1,
+      maxQ: Math.max(...corners.map((point) => point.q)) + 1,
+      minR: Math.min(...corners.map((point) => point.r)) - 1,
+      maxR: Math.max(...corners.map((point) => point.r)) + 1,
+    }
+  },
+
+  _effectivePathLayers() {
+    const layers = new Map((this._pathState?.path_layers || []).map((layer) => [layer.id, { ...layer }]))
+    for (const change of Object.values(mapState.pendingPathLayerChanges || {})) {
+      const id = change.client_id || change.id
+      if (!id) continue
+      if (change.operation === "delete") layers.delete(id)
+      else if (change.operation === "create") {
+        layers.set(id, {
+          id,
+          client_id: change.client_id,
+          __draft: true,
+          category: change.data?.category || "transport",
+          name: change.data?.display_name || change.data?.name || "新线路图层",
+        })
+      }
+    }
+    return [...layers.values()]
+  },
+
+  _effectivePaths() {
+    const paths = new Map((this._pathState?.paths || []).map((path) => [path.id, { ...path }]))
+    for (const change of Object.values(mapState.pendingPathChanges || {})) {
+      const id = change.client_id || change.id
+      if (!id) continue
+      if (change.operation === "create") {
+        paths.set(id, {
+          id,
+          client_id: change.client_id,
+          __draft: true,
+          status: "active",
+          visible: true,
+          opacity: 1,
+          ...change.data,
+        })
+      } else if (change.operation === "update") {
+        const current = paths.get(id)
+        if (current) paths.set(id, { ...current, ...change.data })
+      } else if (change.operation === "archive") {
+        const current = paths.get(id)
+        if (current) paths.set(id, { ...current, status: "archived" })
+      } else if (change.operation === "restore") {
+        const current = paths.get(id)
+        if (current) paths.set(id, { ...current, status: "active" })
+      }
+    }
+    const layerRanks = this._pathLayerDfsRanks()
+    return [...paths.values()].sort((left, right) => {
+      const leftLayer = this._pathLayerId(left)
+      const rightLayer = this._pathLayerId(right)
+      return (layerRanks.get(leftLayer) ?? Number.MAX_SAFE_INTEGER)
+        - (layerRanks.get(rightLayer) ?? Number.MAX_SAFE_INTEGER)
+        || String(leftLayer || "").localeCompare(String(rightLayer || ""))
+        || Number(left.sort_order || 0) - Number(right.sort_order || 0)
+        || String(left.id || left.client_id || "").localeCompare(String(right.id || right.client_id || ""))
+    })
+  },
+
+  _pathLayerDfsRanks() {
+    const nodes = mapState.pendingLayerTree || this._layerTree?.nodes || []
+    const children = new Map()
+    for (const node of nodes) {
+      const parent = node.parent_id || node.parent_client_id || null
+      const siblings = children.get(parent) || []
+      siblings.push(node)
+      children.set(parent, siblings)
+    }
+    for (const siblings of children.values()) {
+      siblings.sort((left, right) => (
+        Number(left.sort_order || 0) - Number(right.sort_order || 0)
+        || String(this._layerNodeIdentity(left) || "").localeCompare(
+          String(this._layerNodeIdentity(right) || ""),
+        )
+      ))
+    }
+    const ranks = new Map()
+    let rank = 0
+    const visit = (node) => {
+      const layerId = node.path_layer_id || node.path_layer_client_id
+      if (layerId) ranks.set(layerId, rank)
+      rank += 1
+      for (const child of children.get(this._layerNodeIdentity(node)) || []) visit(child)
+    }
+    for (const root of children.get(null) || []) visit(root)
+    return ranks
+  },
+
+  _pathLayerId(path) {
+    return path.path_layer_id
+      || path.layer_id
+      || path.path_layer_ref?.id
+      || path.path_layer_ref?.client_id
+      || null
+  },
+
+  _pathVisible(path, zoom = this._leaflet?.getZoom?.() ?? null) {
+    if (path.status === "archived" && path.id !== this._mountContext?.focusPathId) return false
+    const minZoom = path.min_zoom
+    const maxZoom = path.max_zoom
+    if (zoom != null && minZoom != null && zoom < minZoom) return false
+    if (zoom != null && maxZoom != null && zoom > maxZoom) return false
+    return path.visible !== false && this._effectiveLayerNode({
+      pathLayerId: this._pathLayerId(path),
+      zoom,
+    }).visible
+  },
+
+  _pathOpacity(path, zoom = this._leaflet?.getZoom?.() ?? null) {
+    return this._effectiveLayerNode({
+      pathLayerId: this._pathLayerId(path),
+      zoom,
+    }).opacity
+  },
+
+  _visibleRenderSubset(size, origin, scale, zoom) {
+    const predicate = this._viewportPredicate(size, origin, scale)
+    const revision = Number(this._state.map.editor_revision || 0)
+    // Draft edits no longer disable viewport caching wholesale. Draft mutation
+    // paths invalidate this cache, so unchanged animation frames can reuse the
+    // indexed visible subset even while the editor remains dirty.
+    const cacheable = true
+    const workspaceLayers = this._mountContext?.layers || {}
+    const key = [
+      this._state.map.id,
+      revision,
+      zoom,
+      Math.round(origin.x),
+      Math.round(origin.y),
+      this._canvas.width,
+      this._canvas.height,
+      workspaceLayers.terrain !== false,
+      workspaceLayers.locations !== false,
+      workspaceLayers.markers !== false,
+      workspaceLayers.events !== false,
+      workspaceLayers.items !== false,
+      workspaceLayers.territories !== false,
+      workspaceLayers.candidate === true,
+      JSON.stringify(mapState.activeLayerChildIds),
+      mapState.isolateLayerNodeId || "",
+      JSON.stringify(mapState.pendingPathChanges),
+    ].join(":")
+    if (cacheable && this._renderSubsetCache.has(key)) {
+      if (this._renderMetrics) this._renderMetrics.cache_hit = true
+      return this._renderSubsetCache.get(key)
+    }
+    const terrainState = this._terrainRenderState(zoom)
+    const baseState = this._effectiveLayerNode({ layerKey: "baseTerrain", zoom })
+    const locationState = this._effectiveLayerNode({ layerKey: "location", zoom })
+    const territoryState = this._effectiveLayerNode({ layerKey: "territory", zoom })
+    const pendingState = this._effectiveLayerNode({ layerKey: "pending", zoom })
+    const baseVisible = this._isLayerEnabled("terrain") && baseState.visible
+    const locationsVisible = this._isLayerEnabled("locations") && locationState.visible
+    const territoriesVisible = this._isLayerEnabled("territories") && territoryState.visible
+    const pendingVisible = this._isLayerEnabled("candidate") && pendingState.visible
+    const visibleTerrainLayerIds = new Set(
+      terrainState.layers.filter((layer) => layer.visible !== false).map((layer) => layer.id),
+    )
+    const visibleMarkers = this._filteredMarkers(zoom).filter(predicate)
+    const markersByType = { character: [], event: [], item: [] }
+    for (const marker of visibleMarkers) {
+      const markerType = marker.marker_type || "character"
+      ;(markersByType[markerType] ||= []).push(marker)
+    }
+    const subset = {
+      tiles: baseVisible ? (this._state.tiles || []).filter(predicate) : [],
+      bindings: locationsVisible
+        ? (this._state.location_bindings || []).filter(predicate)
+        : [],
+      markers: visibleMarkers,
+      markersByType,
+      territories: territoriesVisible
+        ? this._effectiveTerritories().filter(predicate)
+        : [],
+      candidateBindings: pendingVisible
+        ? (this._state.candidate_location_bindings || []).filter(predicate)
+        : [],
+      candidateMarkers: pendingVisible
+        ? this._candidateMarkers(zoom).filter(predicate)
+        : [],
+      candidateTerritories: pendingVisible
+        ? (this._state.candidate_territories || []).filter(predicate)
+        : [],
+      terrain: {
+        layers: terrainState.layers,
+        regions: terrainState.regions,
+        patches: terrainState.patches.filter(
+          (patch) => visibleTerrainLayerIds.has(patch.layer_id) && predicate(patch),
+        ),
+      },
+      predicate,
+    }
+    this._renderMetrics = {
+      map_id: this._state.map.id,
+      editor_revision: revision,
+      zoom,
+      total_hex_items: (this._state.tiles || []).length
+        + (this._state.location_bindings || []).length
+        + (this._state.markers || []).length
+        + (this._state.territories || []).length
+        + (terrainState.patches || []).length,
+      queued_hex_items: subset.tiles.length
+        + subset.bindings.length
+        + subset.markers.length
+        + subset.territories.length
+        + subset.terrain.patches.length,
+      cache_hit: false,
+    }
+    this._renderMetrics.culled_hex_items = Math.max(
+      0,
+      this._renderMetrics.total_hex_items - this._renderMetrics.queued_hex_items,
+    )
+    if (cacheable) {
+      if (this._renderSubsetCache.size >= 8) this._renderSubsetCache.clear()
+      this._renderSubsetCache.set(key, subset)
+    }
+    return subset
+  },
+
   /** Leaflet 视口变换 → 计算 canvas 偏移/缩放，重绘 */
   _redraw(options = {}) {
     if (!this._ctx || !this._canvas || !this._state) return
+    const frameStartedAt = performance.now()
     this._syncCanvasSize()
     const cfg = this._state.map
     const size = cfg.hex_size || 30
     const origin = this._leaflet.latLngToContainerPoint([0, 0])
     const zoom = this._leaflet.getZoom()
     const scale = Math.pow(2, zoom)
+    const visible = this._visibleRenderSubset(size, origin, scale, zoom)
 
     this._ctx.setTransform(1, 0, 0, 1, 0, 0)
     this._ctx.clearRect(0, 0, this._canvas.width, this._canvas.height)
@@ -777,39 +1545,115 @@ const mapView = {
 
     const showBoundary = this._currentFilter === "location"
     const getHexOpacity = this._getHexOpacity.bind(this)
-    if (this._isLayerEnabled("terrain")) {
-      drawTerrain(this._ctx, this._state.tiles, size, 0, 0, getHexOpacity)
-      drawTerrainLayers(this._ctx, {
-        layers: this._state.terrain_layers || [],
-        regions: this._state.terrain_regions || [],
-        patches: this._state.terrain_patches || [],
-      }, {
+    const baseLayer = this._effectiveLayerNode({ layerKey: "baseTerrain", zoom })
+    const locationLayer = this._effectiveLayerNode({ layerKey: "location", zoom })
+    const territoryLayer = this._effectiveLayerNode({ layerKey: "territory", zoom })
+    const pendingLayer = this._effectiveLayerNode({ layerKey: "pending", zoom })
+    if (this._isLayerEnabled("terrain") && baseLayer.visible) {
+      this._drawWithOpacity(baseLayer.opacity, () => {
+        drawTerrain(this._ctx, visible.tiles, size, 0, 0, getHexOpacity)
+      })
+    }
+    if (this._isLayerEnabled("terrain") && this._effectiveLayerNode({ layerKey: "terrainOverlay", zoom }).visible) {
+      drawTerrainLayers(this._ctx, visible.terrain, {
         hexSize: size,
         editMode: mapState.mode === "edit",
       })
     }
-    if (this._isLayerEnabled("locations")) {
-      drawBindings(this._ctx, this._state.location_bindings, size, 0, 0, showBoundary, getHexOpacity)
+    const effectivePaths = this._effectivePaths()
+    const queuedPaths = drawMapPaths(
+      this._ctx,
+      effectivePaths,
+      this._pathState?.nodes || [],
+      {
+        hexSize: size,
+        isVisible: (path) => this._pathVisible(path, zoom),
+        opacityFor: (path) => this._pathOpacity(path, zoom),
+        viewport: this._pathViewport(size, origin, scale),
+        selectedPathId: mapState.selectedPathId,
+        selectedNodeIndex: mapState.selectedPathNodeIndex,
+        focusedPathId: this._mountContext?.focusPathId || null,
+        editMode: mapState.mode === "edit" && mapState.editorLayer === "path",
+        geometryCache: this._pathGeometryCache,
+      },
+    )
+    if (this._pathPointerSamples?.length > 1) {
+      drawMapPaths(this._ctx, [{
+        id: "__path_preview__",
+        path_type: mapState.selectedPathType,
+        nodes: this._normalizedPathNodes(this._pathPointerSamples),
+        opacity: 0.8,
+      }], [], {
+        hexSize: size,
+        viewport: this._pathViewport(size, origin, scale),
+      })
     }
-    drawMarkers(this._ctx, this._filteredMarkers(), size, 0, 0)
-    if (this._isLayerEnabled("territories")) {
-      drawTerritories(this._ctx, this._state.territories, size, 0, 0, mapState.factionColors, getHexOpacity)
+    if (this._renderMetrics) {
+      this._renderMetrics.total_path_nodes = effectivePaths.reduce(
+        (total, path) => total + pathNodesFor(path, this._pathState?.nodes || []).length,
+        0,
+      )
+      this._renderMetrics.queued_path_nodes = queuedPaths.reduce(
+        (total, item) => total + item.nodes.length,
+        0,
+      )
     }
-    if (this._isLayerEnabled("candidate")) {
-      drawCandidateBindings(this._ctx, this._state.candidate_location_bindings || [], size, 0, 0, getHexOpacity)
-      drawCandidateMarkers(this._ctx, this._candidateMarkers(), size, 0, 0)
-      drawCandidateTerritories(this._ctx, this._state.candidate_territories || [], size, 0, 0, mapState.factionColors, getHexOpacity)
+    if (this._isLayerEnabled("locations") && locationLayer.visible) {
+      this._drawWithOpacity(locationLayer.opacity, () => {
+        drawBindings(this._ctx, visible.bindings, size, 0, 0, showBoundary, getHexOpacity)
+      })
+    }
+    for (const markerType of ["character", "event", "item"]) {
+      const markerLayer = this._effectiveLayerNode({ layerKey: `marker.${markerType}`, zoom })
+      this._drawWithOpacity(markerLayer.opacity, () => {
+        drawMarkers(
+          this._ctx,
+          visible.markersByType?.[markerType] || [],
+          size,
+          0,
+          0,
+        )
+      })
+    }
+    if (this._isLayerEnabled("territories") && territoryLayer.visible) {
+      this._drawWithOpacity(territoryLayer.opacity, () => {
+        drawTerritories(this._ctx, visible.territories, size, 0, 0, mapState.factionColors, getHexOpacity)
+      })
+    }
+    if (this._isLayerEnabled("candidate") && pendingLayer.visible) {
+      this._drawWithOpacity(pendingLayer.opacity, () => {
+        drawCandidateBindings(this._ctx, visible.candidateBindings, size, 0, 0, getHexOpacity)
+        drawCandidateMarkers(this._ctx, visible.candidateMarkers, size, 0, 0)
+        drawCandidateTerritories(this._ctx, visible.candidateTerritories, size, 0, 0, mapState.factionColors, getHexOpacity)
+      })
     }
 
     // 待应用变更叠加在基础地形之上
-    if (this._isLayerEnabled("terrain")) {
-      drawPendingTerrain(this._ctx, mapState.pendingTerrainChanges, size, 0, 0, getHexOpacity)
+    if (this._isLayerEnabled("terrain") && baseLayer.visible) {
+      this._drawWithOpacity(baseLayer.opacity, () => {
+        drawPendingTerrain(this._ctx, Object.fromEntries(Object.entries(mapState.pendingTerrainChanges).filter(([, item]) => visible.predicate(item))), size, 0, 0, getHexOpacity)
+      })
     }
-    if (this._isLayerEnabled("locations")) {
-      drawPendingBindings(this._ctx, mapState.pendingBindings, size, 0, 0, getHexOpacity)
+    if (this._isLayerEnabled("locations") && locationLayer.visible) {
+      this._drawWithOpacity(locationLayer.opacity, () => {
+        drawPendingBindings(this._ctx, Object.fromEntries(Object.entries(mapState.pendingBindings).filter(([, item]) => visible.predicate(item))), size, 0, 0, getHexOpacity)
+      })
     }
 
-    drawContextHighlights(this._ctx, this._contextHighlightHexes(), size, 0, 0, getHexOpacity)
+    drawContextHighlights(this._ctx, this._contextHighlightHexes().filter(visible.predicate), size, 0, 0, getHexOpacity)
+
+    // 时间轴投影是基于 MapFact 的只读覆盖层。observation/fact 不递增
+    // editor_revision，因此由每次 timeline/state-at 响应显式更新签名和缓存。
+    if (mapState.mode !== "edit" && this._timelineProjection) {
+      drawTimelineProjection(this._ctx, this._timelineProjection, {
+        hexSize: size,
+        isVisible: (point) => visible.predicate({ hex_q: point.q, hex_r: point.r }),
+      })
+    }
+
+    if (mapState.mode === "edit" && mapState.editorLayer === "location") {
+      this._drawLocationEditAnchors(this._ctx, size)
+    }
 
     // 悬停高亮
     if (mapState.hoveredHex) {
@@ -831,6 +1675,178 @@ const mapView = {
     }
 
     this._ctx.restore()
+    this._recordRenderPerformance(frameStartedAt)
+  },
+
+  _drawWithOpacity(opacity, draw) {
+    this._ctx.save()
+    const currentAlpha = Number(this._ctx.globalAlpha)
+    this._ctx.globalAlpha = (Number.isFinite(currentAlpha) ? currentAlpha : 1)
+      * Math.max(0, Math.min(1, Number(opacity ?? 1)))
+    draw()
+    this._ctx.restore()
+  },
+
+  _recordRenderPerformance(frameStartedAt) {
+    const finishedAt = performance.now()
+    const duration = finishedAt - frameStartedAt
+    if (this._renderMetrics) this._renderMetrics.frame_duration_ms = duration
+    if (!this._performanceMetrics) return
+    if (this._performanceMetrics.first_draw_ms == null && this._firstDrawStartedAt != null) {
+      this._performanceMetrics.first_draw_ms = finishedAt - this._firstDrawStartedAt
+      this._firstDrawStartedAt = null
+    }
+    const frameIndex = (this._performanceMetrics.total_frames || 0) + 1
+    this._performanceMetrics.total_frames = frameIndex
+    if (frameIndex <= this._performanceMetrics.warmup_frames) return
+    if (this._performanceFrameDurations.length >= 100) return
+    this._performanceFrameDurations.push(duration)
+    const sorted = [...this._performanceFrameDurations].sort((a, b) => a - b)
+    const total = this._performanceFrameDurations.reduce((sum, value) => sum + value, 0)
+    this._performanceMetrics.sampled_frames = this._performanceFrameDurations.length
+    this._performanceMetrics.average_frame_ms = total / this._performanceFrameDurations.length
+    this._performanceMetrics.p95_frame_ms = sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)]
+  },
+
+  _terrainRenderState(zoom = this._leaflet?.getZoom?.() ?? null) {
+    const overlay = mapState.pendingTerrainOverlay
+    const projectLayers = (layers) => (layers || []).map((layer) => {
+      const effective = this._effectiveLayerNode({ terrainLayerId: layer.id, zoom })
+      return {
+        ...layer,
+        visible: layer.visible !== false && effective.visible,
+        opacity: effective.opacity,
+        effective_locked: effective.locked,
+      }
+    })
+    if (!overlay) {
+      return {
+        layers: projectLayers(this._state?.terrain_layers),
+        regions: this._state?.terrain_regions || [],
+        patches: this._state?.terrain_patches || [],
+      }
+    }
+    return {
+      layers: projectLayers(this._state?.terrain_layers),
+      regions: [
+        ...(this._state?.terrain_regions || []).filter((item) => item.layer_id !== overlay.layerId),
+        ...(overlay.regions || []),
+      ],
+      patches: [
+        ...(this._state?.terrain_patches || []).filter((item) => item.layer_id !== overlay.layerId),
+        ...(overlay.patches || []),
+      ],
+    }
+  },
+
+  _effectiveTerritories() {
+    const draft = mapState.pendingTerritoryChanges || { add: {}, remove: {} }
+    const removed = new Set(Object.keys(draft.remove || {}))
+    return [
+      ...(this._state?.territories || []).filter((item) => !removed.has(item.id)),
+      ...Object.values(draft.add || {}),
+    ]
+  },
+
+  _layerInteractiveVisible(layerKey, workspaceLayer, zoom = this._leaflet?.getZoom?.() ?? null) {
+    if (workspaceLayer && !this._isLayerEnabled(workspaceLayer)) return false
+    const effective = this._effectiveLayerNode({ layerKey, zoom })
+    return effective.interactiveVisible ?? effective.visible
+  },
+
+  _visibleTerritoryAt(q, r, zoom = this._leaflet?.getZoom?.() ?? null) {
+    if (!this._layerInteractiveVisible("territory", "territories", zoom)) return null
+    return this._effectiveTerritories().find(
+      (item) => item.hex_q === q && item.hex_r === r,
+    ) || null
+  },
+
+  _visibleTerrainPatchAt(
+    q,
+    r,
+    terrainState = this._terrainRenderState(),
+    zoom = this._leaflet?.getZoom?.() ?? null,
+  ) {
+    if (!this._layerInteractiveVisible("terrainOverlay", "terrain", zoom)) return null
+    const visibleLayerIds = new Set(
+      (terrainState.layers || []).filter((layer) => layer.visible !== false).map((layer) => layer.id),
+    )
+    return (terrainState.patches || []).find(
+      (item) => item.hex_q === q && item.hex_r === r && visibleLayerIds.has(item.layer_id),
+    ) || null
+  },
+
+  _visibleBindingAt(q, r, zoom = this._leaflet?.getZoom?.() ?? null) {
+    if (!this._layerInteractiveVisible("location", "locations", zoom)) return null
+    return this._bindingAt(q, r)
+  },
+
+  _visibleTileAt(q, r, zoom = this._leaflet?.getZoom?.() ?? null) {
+    if (!this._layerInteractiveVisible("baseTerrain", "terrain", zoom)) return null
+    return this._tileAt(q, r)
+  },
+
+  _drawLocationEditAnchors(ctx, size) {
+    for (const layout of this._effectiveLocationLayouts()) {
+      const [x, y] = hexToPixel(layout.center_hex_q, layout.center_hex_r, size)
+      ctx.save()
+      ctx.beginPath()
+      ctx.arc(x, y, Math.max(8, size * 0.34), 0, Math.PI * 2)
+      ctx.fillStyle = layout.locked ? "rgba(245,158,11,.9)" : "rgba(14,165,233,.92)"
+      ctx.fill()
+      ctx.strokeStyle = "#fff"
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.fillStyle = "#fff"
+      ctx.font = `${Math.max(10, size * 0.38)}px sans-serif`
+      ctx.textAlign = "center"
+      ctx.fillText(this._locationName(layout.location_entity_id), x, y - size * 0.62)
+      ctx.restore()
+    }
+  },
+
+  _effectiveLocationLayouts() {
+    const persisted = this._state?.location_layouts || []
+    const byId = new Map(persisted.map((layout) => [layout.location_entity_id, { ...layout }]))
+    const bindingsByLocation = new Map()
+    for (const binding of this._state?.location_bindings || []) {
+      const items = bindingsByLocation.get(binding.location_entity_id) || []
+      items.push(binding)
+      bindingsByLocation.set(binding.location_entity_id, items)
+    }
+    for (const [locationId, bindings] of bindingsByLocation) {
+      if (byId.has(locationId)) continue
+      const centers = bindings.filter((binding) => binding.is_center)
+      let anchor = centers.sort((a, b) => a.hex_q - b.hex_q || a.hex_r - b.hex_r || String(a.id).localeCompare(String(b.id)))[0]
+      if (!anchor) {
+        const meanQ = bindings.reduce((sum, item) => sum + item.hex_q, 0) / bindings.length
+        const meanR = bindings.reduce((sum, item) => sum + item.hex_r, 0) / bindings.length
+        anchor = [...bindings].sort((a, b) => {
+          const adq = a.hex_q - meanQ
+          const adr = a.hex_r - meanR
+          const bdq = b.hex_q - meanQ
+          const bdr = b.hex_r - meanR
+          return Math.max(Math.abs(adq), Math.abs(adr), Math.abs(adq + adr))
+            - Math.max(Math.abs(bdq), Math.abs(bdr), Math.abs(bdq + bdr))
+            || a.hex_q - b.hex_q || a.hex_r - b.hex_r || String(a.id).localeCompare(String(b.id))
+        })[0]
+      }
+      if (anchor) byId.set(locationId, {
+        location_entity_id: locationId,
+        center_hex_q: anchor.hex_q,
+        center_hex_r: anchor.hex_r,
+        occupy_radius: 1,
+        locked: false,
+        layout_source: "legacy_binding",
+        layout_version: 1,
+        sync_geo_setting: false,
+        meta: {},
+      })
+    }
+    for (const [locationId, pending] of Object.entries(mapState.pendingLocationLayouts || {})) {
+      byId.set(locationId, { ...(byId.get(locationId) || {}), ...pending })
+    }
+    return [...byId.values()]
   },
 
   _syncCanvasSize() {
@@ -849,7 +1865,15 @@ const mapView = {
     this._leaflet.eachLayer((layer) => {
       if (layer._isMapLabel) this._leaflet.removeLayer(layer)
     })
-    if (mapState.mode === "edit" || !this._isLayerEnabled("locations")) return // 编辑模式不显示标签
+    const locationLayer = this._effectiveLayerNode({
+      layerKey: "location",
+      zoom: this._leaflet.getZoom?.() ?? null,
+    })
+    if (
+      mapState.mode === "edit"
+      || !this._isLayerEnabled("locations")
+      || !locationLayer.visible
+    ) return // 编辑模式不显示标签
 
     const cfg = this._state.map
     const size = cfg.hex_size || 30
@@ -896,7 +1920,7 @@ const mapView = {
       const iconHeight = labelLayout.box.height
       const icon = window.L.divIcon({
         className: `map-center-marker map-layout-marker is-${labelLayout.displayLevel}`,
-        html: `<div class="map-center-label" data-action="map-click-center" data-id="${esc(b.location_entity_id)}">
+        html: `<div class="map-center-label" style="opacity:${locationLayer.opacity}" data-action="map-click-center" data-id="${esc(b.location_entity_id)}">
                  <span class="map-center-name">${esc(labelLayout.label || label)}</span>
                  <span class="map-center-drill ${hasDetail ? "has-detail" : ""}">${hasDetail ? "▾" : "·"}</span>
                </div>`,
@@ -946,10 +1970,27 @@ const mapView = {
     const cfg = this._state.map
     if (q < 0 || q >= cfg.grid_width || r < 0 || r >= cfg.grid_height) return
     if (mapState.mode === "edit") {
-      if (mapState.activeTool === "bucket") {
+      if (!this._guardEditorLayerWritable()) return
+      if (mapState.editorLayer === "path") {
+        if (this._suppressNextCanvasClick) {
+          this._suppressNextCanvasClick = false
+          return
+        }
+        this._handlePathSelectAtEvent(e)
+      } else if (mapState.editorLayer === "terrainOverlay" && mapState.overlayTool === "bucket") {
+        this._handleOverlayBucket(q, r)
+      } else if (mapState.editorLayer === "baseTerrain" && mapState.activeTool === "bucket") {
         this._handleBucketClick(q, r)
-      } else if (mapState.activeTool === "marker") {
-        this._handleMarkerClick(q, r)
+      } else if (mapState.editorLayer === "marker") {
+        if (this._suppressNextCanvasClick) {
+          this._suppressNextCanvasClick = false
+          return
+        }
+        const marker = this._markerAt(q, r)
+        if (marker) this._showMarkerEditor(marker)
+        else this._handleMarkerClick(q, r)
+      } else if (mapState.editorLayer === "territory" && !this._dragMoved) {
+        this._handleTerritoryEdit(q, r)
       } else if (!this._dragMoved) {
         this._handleDragDraw(q, r)
       }
@@ -961,6 +2002,7 @@ const mapView = {
 
   _handleBrowseClick(q, r) {
     setSelectedHex(q, r)
+    mapState.selectedMapObject = this._typedSelectionAt(q, r)
     this._updateDetailPanel(q, r)
     const eventMarker = this._markerAt(q, r, (marker) => marker.marker_type === "event")
     if (eventMarker && eventMarker.start_scene_id) {
@@ -968,8 +2010,8 @@ const mapView = {
       this._reloadWithScene()
       return
     }
-    const tile = this._tileAt(q, r)
-    const binding = this._bindingAt(q, r)
+    const tile = this._visibleTileAt(q, r)
+    const binding = this._visibleBindingAt(q, r)
     if (binding) {
       const name = this._locationName(binding.location_entity_id)
       toast(`地点：${name}${binding.is_center ? "（中心）" : ""}`, "info")
@@ -978,7 +2020,31 @@ const mapView = {
     }
   },
 
+  _typedSelectionAt(q, r) {
+    const marker = this._markerAt(q, r)
+    if (marker) return { kind: "marker", id: marker.id, entityId: marker.entity_id, q, r }
+    const path = hitTestPath(
+      this._effectivePaths().filter((item) => this._pathVisible(item)),
+      this._pathState?.nodes || [],
+      q,
+      r,
+      0.45,
+      this._pathGeometryCache,
+    )
+    if (path) return { kind: "path", id: path.id, data: path, q, r }
+    const territory = this._visibleTerritoryAt(q, r)
+    if (territory) return { kind: "territory", id: territory.id, entityId: territory.faction_entity_id, q, r }
+    const patch = this._visibleTerrainPatchAt(q, r)
+    if (patch) return { kind: "terrain", id: patch.id, layerId: patch.layer_id, q, r }
+    const binding = this._visibleBindingAt(q, r)
+    if (binding) return { kind: "location", id: binding.id, entityId: binding.location_entity_id, q, r }
+    const tile = this._visibleTileAt(q, r)
+    if (tile) return { kind: "baseTerrain", id: tile.id, q, r }
+    return null
+  },
+
   _handleBucketClick(q, r) {
+    const before = this._snapshotActiveDraft()
     const terrain = mapState.selectedTerrain
     const getTerrain = (qq, rr) => {
       const t = this._tileAt(qq, rr)
@@ -989,6 +2055,11 @@ const mapView = {
     const changes = floodFillTerrain(q, r, target, terrain, getTerrain)
     for (const c of changes) stageTerrainChange(c.hex_q, c.hex_r, c.terrain_type)
     updatePendingCount(Object.keys(mapState.pendingTerrainChanges).length)
+    const after = this._snapshotActiveDraft()
+    if (JSON.stringify(before) !== JSON.stringify(after)) {
+      recordEditorCommand("baseTerrain", { kind: "draft", before, after })
+      this._notifyEditingChanged()
+    }
   },
 
   _sceneNav(direction) {
@@ -1045,7 +2116,7 @@ const mapView = {
   _bindSceneEvents() {
   },
 
-  async _handleMarkerClick(q, r) {
+  _handleMarkerClick(q, r) {
     const entityId = mapState.selectedMarkerEntityId
     const markerType = mapState.selectedMarkerType || "character"
     const label = mapState.selectedMarkerLabel || null
@@ -1073,38 +2144,128 @@ const mapView = {
       const sceneObj = mapState.sceneList.find((s) => s.id === sceneEndSelect.value)
       if (sceneObj) payload.end_scene_index = sceneObj.index
     }
-    try {
-      await api.world.createMapMarker(
-        this._state.map.id,
-        payload,
-        state.currentProjectId
-      )
-      toast("标记已添加", "success")
-      await this._reloadMapStatePreservingSession(this._state.map.id)
-      this._redraw()
-    } catch (err) {
-      toast(`标记创建失败：${err.message}`, "error")
+    const created = {
+      id: crypto.randomUUID(),
+      map_id: this._state.map.id,
+      novel_id: state.currentProjectId,
+      offset_x: 0,
+      offset_y: 0,
+      style_json: {},
+      start_scene_id: null,
+      start_scene_index: null,
+      end_scene_id: null,
+      end_scene_index: null,
+      ...payload,
+      __draft: true,
     }
+    this._state.markers = [...(this._state.markers || []), created]
+    recordEditorCommand("marker", { kind: "markerCreate", marker: { ...created } })
+    this._rebuildPendingMarkerChanges()
+    this._rebuildIndexes()
+    this._notifyEditingChanged()
+    toast("标记已加入草稿", "info")
+    this._redraw()
+  },
+
+  _showMarkerEditor(marker) {
+    const form = `<div class="form-group"><label>标记名称</label><input id="map-marker-edit-label" class="form-input" value="${esc(marker.label || "")}" /></div><label class="map-checkbox"><input id="map-marker-edit-visible" type="checkbox" ${marker.visible !== false ? "checked" : ""}/> 显示</label>`
+    showModalHtml("编辑标记", form, [
+      {
+        text: "删除",
+        class: "btn-danger",
+        handler: () => {
+          const deleted = { ...marker }
+          this._state.markers = (this._state.markers || []).filter((item) => item.id !== marker.id)
+          recordEditorCommand("marker", { kind: "markerDelete", marker: deleted })
+          this._rebuildPendingMarkerChanges()
+          this._rebuildIndexes()
+          this._notifyEditingChanged()
+          closeModal()
+          this._redraw()
+        },
+      },
+      {
+        text: "保存",
+        class: "btn-primary",
+        handler: () => {
+          const before = { ...marker }
+          const updated = {
+            label: document.getElementById("map-marker-edit-label")?.value?.trim() || null,
+            visible: Boolean(document.getElementById("map-marker-edit-visible")?.checked),
+          }
+          Object.assign(marker, updated)
+          recordEditorCommand("marker", {
+            kind: "marker",
+            markerId: marker.id,
+            before,
+            after: { ...marker },
+          })
+          this._rebuildPendingMarkerChanges()
+          this._rebuildIndexes()
+          this._notifyEditingChanged()
+          closeModal()
+          this._redraw()
+        },
+      },
+    ])
   },
 
   _handleCanvasMouseMove(e) {
     if (!this._canvas || !this._state || !this._leaflet) return
+    if (mapState.mode === "edit" && mapState.editorLayer === "path") {
+      if (this._pathPointerSamples || this._dragPathNode) {
+        this._handlePathPointerMove(e)
+        return
+      }
+    }
     const [q, r] = this._eventToHex(e)
     if (q == null) {
       clearHoveredHex()
-      this._redraw()
+      this._scheduleRedraw()
       return
     }
     const cfg = this._state.map
     if (q < 0 || q >= cfg.grid_width || r < 0 || r >= cfg.grid_height) {
+      if ((this._dragLocationId || this._dragMarkerId || mapState.dragDrawing) && !this._dragOutOfBoundsNotified) {
+        this._dragOutOfBoundsNotified = true
+        toast("已到地图边界，越界位置不会保存", "warning")
+      }
       clearHoveredHex()
-      this._redraw()
+      this._scheduleRedraw()
       return
     }
     setHoveredHex(q, r)
     if (mapState.mode === "edit") {
+      if (this._dragLocationId) {
+        const current = this._effectiveLocationLayouts().find(
+          (layout) => layout.location_entity_id === this._dragLocationId,
+        )
+        if (current && !current.locked) {
+          mapState.pendingLocationLayouts[this._dragLocationId] = {
+            ...current,
+            center_hex_q: q,
+            center_hex_r: r,
+            layout_source: "user_drag",
+          }
+          this._dragMoved = true
+          this._notifyEditingChanged()
+        }
+        this._scheduleRedraw()
+        return
+      }
+      if (this._dragMarkerId) {
+        const marker = (this._state.markers || []).find((item) => item.id === this._dragMarkerId)
+        if (marker) {
+          marker.hex_q = q
+          marker.hex_r = r
+          this._dragMoved = true
+          this._renderSubsetCache.clear()
+        }
+        this._scheduleRedraw()
+        return
+      }
       if (mapState.dragDrawing) this._handleDragDraw(q, r)
-      this._redraw()
+      this._scheduleRedraw()
       return
     }
     // 浏览模式：debounce 300ms 后显示 tooltip
@@ -1112,7 +2273,7 @@ const mapView = {
     this._tooltipDebounceTimer = setTimeout(() => {
       this._showTooltip(q, r)
     }, 300)
-    this._redraw()
+    this._scheduleRedraw()
   },
 
   _handleCanvasMouseOut() {
@@ -1125,23 +2286,161 @@ const mapView = {
       if (this._leaflet) this._leaflet.closePopup(this._tooltipPopup)
       this._tooltipPopup = null
     }
-    this._redraw()
+    this._scheduleRedraw()
   },
 
   _handleCanvasMouseDown(e) {
     if (!this._canvas || !this._state || mapState.mode !== "edit") return
+    if (!this._guardEditorLayerWritable()) return
+    if (mapState.editorLayer === "path") {
+      this._handlePathPointerDown(e)
+      return
+    }
     const [q, r] = this._eventToHex(e)
     if (q == null) return
-    if (mapState.activeTool === "bucket") return // bucket is click-only
+    if (mapState.editorLayer === "location" && mapState.activeTool === "locationMove") {
+      const layout = this._effectiveLocationLayouts().find(
+        (item) => item.center_hex_q === q && item.center_hex_r === r,
+      )
+      if (!layout) return
+      if (layout.locked) {
+        toast("该地点已锁定，请先解锁", "warning")
+        return
+      }
+      if (this._hasPendingBindingEdits(layout.location_entity_id)) {
+        toast("该地点有未应用的范围修改，请先应用或撤销后再移动", "warning")
+        return
+      }
+      this._dragLocationId = layout.location_entity_id
+      this._pointerStartSnapshot = { ...layout }
+      this._pointerStartHadPending = Object.prototype.hasOwnProperty.call(
+        mapState.pendingLocationLayouts,
+        layout.location_entity_id,
+      )
+      this._dragMoved = false
+      this._dragOutOfBoundsNotified = false
+      this._canvas.setPointerCapture?.(e.pointerId)
+      this._leaflet.dragging?.disable?.()
+      e.preventDefault?.()
+      return
+    }
+    if (mapState.editorLayer === "marker") {
+      const marker = this._markerAt(q, r)
+      if (marker) {
+        this._dragMarkerId = marker.id
+        this._pointerStartSnapshot = { ...marker }
+        this._dragMoved = false
+        this._dragOutOfBoundsNotified = false
+        this._canvas.setPointerCapture?.(e.pointerId)
+        this._leaflet.dragging?.disable?.()
+        e.preventDefault?.()
+        return
+      }
+      return
+    }
+    if (
+      (mapState.editorLayer === "baseTerrain" && mapState.activeTool === "bucket")
+      || (mapState.editorLayer === "terrainOverlay" && mapState.overlayTool === "bucket")
+    ) return
     this._dragMoved = false
+    this._dragOutOfBoundsNotified = false
+    this._pointerStartSnapshot = this._snapshotActiveDraft()
     startDragDraw()
     this._handleDragDraw(q, r)
+    this._canvas.setPointerCapture?.(e.pointerId)
+    this._leaflet.dragging?.disable?.()
+    e.preventDefault?.()
     this._redraw()
   },
 
-  _handleCanvasMouseUp() {
+  async _handleCanvasMouseUp(e = {}) {
+    if (this._pathPointerSamples || this._dragPathNode) {
+      this._handlePathPointerUp(e)
+      return
+    }
+    if (this._dragLocationId) {
+      const locationId = this._dragLocationId
+      const before = this._pointerStartSnapshot
+      const after = mapState.pendingLocationLayouts[locationId]
+      if (e.type === "pointercancel") {
+        if (this._pointerStartHadPending && before) {
+          mapState.pendingLocationLayouts[locationId] = { ...before }
+        } else {
+          delete mapState.pendingLocationLayouts[locationId]
+        }
+      } else if (before && after && (before.center_hex_q !== after.center_hex_q || before.center_hex_r !== after.center_hex_r)) {
+        recordEditorCommand("location", { kind: "location", locationId, before, after: { ...after } })
+      }
+      this._dragLocationId = null
+      this._pointerStartSnapshot = null
+      this._pointerStartHadPending = false
+      this._canvas?.releasePointerCapture?.(e.pointerId)
+      this._leaflet?.dragging?.enable?.()
+      if (e.type === "pointercancel") {
+        this._notifyEditingChanged()
+        this._redraw()
+      }
+      setTimeout(() => { this._dragMoved = false }, 0)
+      return
+    }
+    if (this._dragMarkerId) {
+      const markerId = this._dragMarkerId
+      const marker = (this._state?.markers || []).find((item) => item.id === markerId)
+      const before = this._pointerStartSnapshot
+      this._dragMarkerId = null
+      this._pointerStartSnapshot = null
+      this._canvas?.releasePointerCapture?.(e.pointerId)
+      this._leaflet?.dragging?.enable?.()
+      if (e.type === "pointercancel" && marker && before) Object.assign(marker, before)
+      const markerMoved = e.type !== "pointercancel" && Boolean(
+        marker
+        && before
+        && (marker.hex_q !== before.hex_q || marker.hex_r !== before.hex_r),
+      )
+      this._suppressNextCanvasClick = markerMoved
+      if (this._suppressNextCanvasClick) {
+        setTimeout(() => { this._suppressNextCanvasClick = false }, 250)
+      }
+      if (markerMoved) {
+        recordEditorCommand("marker", {
+          kind: "marker",
+          markerId,
+          before,
+          after: { ...marker },
+        })
+        this._rebuildPendingMarkerChanges()
+        this._notifyEditingChanged()
+      }
+      this._rebuildPendingMarkerChanges()
+      this._rebuildIndexes()
+      this._redraw()
+      setTimeout(() => { this._dragMoved = false }, 0)
+      return
+    }
     if (!mapState.dragDrawing) return
     endDragDraw()
+    if (e.type === "pointercancel") {
+      this._restoreActiveDraft(this._pointerStartSnapshot)
+      this._pointerStartSnapshot = null
+      this._canvas?.releasePointerCapture?.(e.pointerId)
+      this._leaflet?.dragging?.enable?.()
+      this._notifyEditingChanged()
+      this._redraw()
+      setTimeout(() => { this._dragMoved = false }, 0)
+      return
+    }
+    const after = this._snapshotActiveDraft()
+    if (JSON.stringify(this._pointerStartSnapshot) !== JSON.stringify(after)) {
+      recordEditorCommand(mapState.editorLayer, {
+        kind: "draft",
+        before: this._pointerStartSnapshot,
+        after,
+      })
+      this._notifyEditingChanged()
+    }
+    this._pointerStartSnapshot = null
+    this._canvas?.releasePointerCapture?.(e.pointerId)
+    this._leaflet?.dragging?.enable?.()
     // click 事件会在 mouseup 后触发，保留 _dragMoved 到 click 判断完成
     setTimeout(() => { this._dragMoved = false }, 0)
   },
@@ -1152,18 +2451,91 @@ const mapView = {
     if (q < 0 || q >= cfg.grid_width || r < 0 || r >= cfg.grid_height) return
     if (!recordDragHex(q, r)) return
     this._dragMoved = true
-    if (mapState.activeTool === "brush") {
+    if (["baseTerrain", "none"].includes(mapState.editorLayer) && mapState.activeTool === "brush") {
       stageTerrainChange(q, r, mapState.selectedTerrain)
       updatePendingCount(Object.keys(mapState.pendingTerrainChanges).length)
-    } else if (mapState.activeTool === "bind") {
+    } else if (["location", "none"].includes(mapState.editorLayer) && mapState.activeTool === "bind") {
       const entityId = mapState.selectedLocationEntityId
       if (!entityId) return
       const isCenter = !!mapState.bindCenterMode
-      stageBindingChange(entityId, q, r, isCenter)
+      this._stageBindingEdit(entityId, q, r, isCenter)
       updateBindingPendingCount(Object.keys(mapState.pendingBindings).length)
-    } else if (mapState.activeTool === "territory") {
-      this._handleTerritoryPaint(q, r)
+    } else if (mapState.editorLayer === "terrainOverlay") {
+      this._stageOverlayBrush(q, r)
+    } else if (mapState.editorLayer === "territory") {
+      this._handleTerritoryEdit(q, r)
     }
+    this._renderSubsetCache.clear()
+  },
+
+  _stageBindingEdit(entityId, q, r, isCenter) {
+    if (isCenter) {
+      if (this._hasPendingBindingEdits(entityId)) {
+        toast("该地点有未应用的范围修改，请先应用或撤销后再设置中心", "warning")
+        return
+      }
+      const current = this._effectiveLocationLayouts().find(
+        (layout) => layout.location_entity_id === entityId,
+      ) || {
+        location_entity_id: entityId,
+        occupy_radius: 1,
+        locked: false,
+        layout_version: 1,
+        sync_geo_setting: false,
+        meta: {},
+      }
+      mapState.pendingLocationLayouts[entityId] = {
+        ...current,
+        center_hex_q: q,
+        center_hex_r: r,
+        layout_source: "binding_center_edit",
+      }
+      this._notifyEditingChanged()
+      return
+    }
+    if (mapState.pendingLocationLayouts[entityId]) {
+      toast("该地点有未应用的位置修改，请先应用或撤销后再编辑范围", "warning")
+      return
+    }
+    const key = `${q},${r}`
+    const pending = mapState.pendingBindings[key]
+    if (pending?.location_entity_id === entityId) {
+      delete mapState.pendingBindings[key]
+      this._notifyEditingChanged()
+      return
+    }
+    const persisted = (this._state?.location_bindings || []).find((binding) => (
+      binding.location_entity_id === entityId
+      && binding.hex_q === q
+      && binding.hex_r === r
+    ))
+    if (persisted?.is_center) {
+      toast("中心格不能从范围中擦除，请改用“移动地点”调整中心", "warning")
+      return
+    }
+    mapState.pendingBindings[key] = persisted
+      ? {
+          location_entity_id: entityId,
+          hex_q: q,
+          hex_r: r,
+          is_center: false,
+          operation: "delete",
+          binding_id: persisted.id,
+        }
+      : {
+          location_entity_id: entityId,
+          hex_q: q,
+          hex_r: r,
+          is_center: false,
+          operation: "add",
+        }
+    this._notifyEditingChanged()
+  },
+
+  _hasPendingBindingEdits(entityId) {
+    return Object.values(mapState.pendingBindings || []).some(
+      (binding) => binding.location_entity_id === entityId,
+    )
   },
 
   _eventToHex(e) {
@@ -1179,6 +2551,259 @@ const mapView = {
     const cfg = this._state.map
     const size = cfg.hex_size || 30
     return pixelToHex(worldX, worldY, size)
+  },
+
+  _eventToAxial(e) {
+    if (!this._canvas || !this._leaflet || !this._state) return [null, null]
+    const rect = this._canvas.getBoundingClientRect()
+    const origin = this._leaflet.latLngToContainerPoint([0, 0])
+    const scale = Math.pow(2, this._leaflet.getZoom())
+    const x = (e.clientX - rect.left - origin.x) / scale
+    const y = (e.clientY - rect.top - origin.y) / scale
+    const size = this._state.map.hex_size || 30
+    return [
+      (2 / 3) * x / size,
+      (-x / 3 + Math.sqrt(3) * y / 3) / size,
+    ]
+  },
+
+  _pathAt(q, r) {
+    return hitTestPath(
+      this._effectivePaths().filter((path) => this._pathVisible(path)),
+      this._pathState?.nodes || [],
+      q,
+      r,
+      0.3,
+      this._pathGeometryCache,
+    )
+  },
+
+  _pathWritable(path, { allowArchived = false } = {}) {
+    if (!path) return false
+    if (path.status === "archived" && !allowArchived) {
+      toast("已归档线路只读，请先恢复", "warning")
+      return false
+    }
+    if (path.locked) {
+      toast("该线路已锁定，请先解锁", "warning")
+      return false
+    }
+    const layer = this._effectiveLayerNode({ pathLayerId: this._pathLayerId(path) })
+    if (layer.locked) {
+      toast("线路图层受自身或父组锁定，请先解锁", "warning")
+      return false
+    }
+    return true
+  },
+
+  _handlePathSelectAtEvent(e) {
+    const [q, r] = this._eventToAxial(e)
+    if (q == null) return
+    const path = this._pathAt(q, r)
+    this._selectPath(path)
+    mapState.selectedMapObject = path ? { kind: "path", id: mapState.selectedPathId, data: path } : null
+    this._scheduleRedraw()
+    this._rerenderEditor()
+  },
+
+  _selectPath(path) {
+    mapState.selectedPathId = path?.id || path?.client_id || null
+    mapState.selectedPathNodeIndex = null
+    if (!path) return
+    mapState.selectedPathLayerId = this._pathLayerId(path)
+    mapState.selectedPathType = path.path_type || mapState.selectedPathType
+  },
+
+  _handlePathPointerDown(e) {
+    const [q, r] = this._eventToAxial(e)
+    const cfg = this._state.map
+    if (q == null || q < 0 || q > cfg.grid_width - 1 || r < 0 || r > cfg.grid_height - 1) return
+    this._dragOutOfBoundsNotified = false
+    if (mapState.pathTool === "draw") {
+      if (!mapState.selectedPathLayerId) {
+        toast("请先新建或选择线路图层", "warning")
+        return
+      }
+      this._pathPointerSamples = [{ q, r }]
+      this._pointerStartSnapshot = this._snapshotActiveDraft()
+    } else {
+      const path = this._pathAt(q, r)
+      if (!path) return
+      this._selectPath(path)
+      if (mapState.pathTool !== "nodes" || !this._pathWritable(path)) {
+        this._scheduleRedraw()
+        return
+      }
+      const nodes = pathNodesFor(path, this._pathState?.nodes || [])
+      let closest = null
+      nodes.forEach((node, index) => {
+        const distance = Math.hypot(node.q - q, node.r - r)
+        if (distance <= 0.35 && (!closest || distance < closest.distance)) {
+          closest = { index, distance }
+        }
+      })
+      if (!closest) return
+      this._dragPathNode = { pathId: mapState.selectedPathId, index: closest.index }
+      mapState.selectedPathNodeIndex = closest.index
+      this._pointerStartSnapshot = this._snapshotActiveDraft()
+    }
+    this._canvas.setPointerCapture?.(e.pointerId)
+    this._leaflet.dragging?.disable?.()
+    e.preventDefault?.()
+  },
+
+  _handlePathPointerMove(e) {
+    const [q, r] = this._eventToAxial(e)
+    const cfg = this._state.map
+    if (q == null || q < 0 || q > cfg.grid_width - 1 || r < 0 || r > cfg.grid_height - 1) {
+      if (!this._dragOutOfBoundsNotified) {
+        this._dragOutOfBoundsNotified = true
+        toast("已到地图边界，越界节点不会保存", "warning")
+      }
+      return
+    }
+    if (this._pathPointerSamples) {
+      const last = this._pathPointerSamples.at(-1)
+      if (Math.hypot(last.q - q, last.r - r) >= 0.2) this._pathPointerSamples.push({ q, r })
+      this._dragMoved = this._pathPointerSamples.length > 1
+    } else if (this._dragPathNode) {
+      const path = this._effectivePaths().find(
+        (item) => (item.id || item.client_id) === this._dragPathNode.pathId,
+      )
+      if (!path) return
+      const nodes = pathNodesFor(path, this._pathState?.nodes || [])
+      nodes[this._dragPathNode.index] = { ...nodes[this._dragPathNode.index], q, r }
+      this._stagePathUpdate(path, { nodes: this._normalizedPathNodes(nodes) })
+      this._dragMoved = true
+    }
+    this._pathGeometryCache.clear()
+    this._notifyEditingChanged()
+    this._scheduleRedraw()
+  },
+
+  _normalizedPathNodes(nodes) {
+    return (nodes || []).map((node, index) => ({
+      q: Number(node.q),
+      r: Number(node.r),
+      sort_order: index,
+      width_scale: Number(node.width_scale ?? 1),
+      tension: Number(node.tension ?? 0.5),
+      ...(node.segment_type ? { segment_type: node.segment_type } : {}),
+    }))
+  },
+
+  _stagePathUpdate(path, data) {
+    const id = path.id || path.client_id
+    const existing = mapState.pendingPathChanges[id]
+    if (existing?.operation === "create") {
+      existing.data = { ...existing.data, ...data }
+    } else {
+      mapState.pendingPathChanges[id] = {
+        operation: "update",
+        id,
+        data: { ...(existing?.data || {}), ...data },
+      }
+    }
+  },
+
+  _stageSelectedPathClassification({ layerId, pathType }) {
+    const path = this._effectivePaths().find(
+      (item) => (item.id || item.client_id) === mapState.selectedPathId,
+    )
+    const layer = this._effectivePathLayers().find((item) => item.id === layerId)
+    if (!path || !layer || !this._pathWritable(path)) return false
+    const requestedProfile = MAP_PATH_PROFILES[pathType]
+    const compatibleType = requestedProfile?.category === layer.category
+      ? pathType
+      : layer.category === "water" ? "river" : "major_road"
+    const nodes = pathNodesFor(path, this._pathState?.nodes || [])
+    const sanitizedNodes = nodes.map((node) => {
+      const segmentProfile = MAP_PATH_PROFILES[node.segment_type]
+      if (!node.segment_type || segmentProfile?.category === layer.category) return { ...node }
+      const next = { ...node }
+      delete next.segment_type
+      return next
+    })
+    const nodesChanged = nodes.some(
+      (node, index) => node.segment_type !== sanitizedNodes[index]?.segment_type,
+    )
+    const before = this._snapshotActiveDraft()
+    mapState.selectedPathLayerId = layerId
+    mapState.selectedPathType = compatibleType
+    const data = {
+      path_layer_id: layerId,
+      path_type: compatibleType,
+      ...(nodesChanged ? { nodes: this._normalizedPathNodes(sanitizedNodes) } : {}),
+    }
+    this._stagePathUpdate(path, data)
+    const after = this._snapshotActiveDraft()
+    if (JSON.stringify(before) !== JSON.stringify(after)) {
+      recordEditorCommand("path", { kind: "draft", before, after })
+      this._pathGeometryCache.clear()
+      this._notifyEditingChanged()
+    }
+    return true
+  },
+
+  _handlePathPointerUp(e = {}) {
+    const before = this._pointerStartSnapshot
+    if (e.type === "pointercancel") {
+      this._restoreActiveDraft(before)
+      this._pathPointerSamples = null
+      this._dragPathNode = null
+      this._pointerStartSnapshot = null
+      this._canvas?.releasePointerCapture?.(e.pointerId)
+      this._leaflet?.dragging?.enable?.()
+      this._dragMoved = false
+      this._suppressNextCanvasClick = false
+      this._pathGeometryCache.clear()
+      this._notifyEditingChanged()
+      this._scheduleRedraw()
+      this._rerenderEditor()
+      return
+    }
+    if (this._pathPointerSamples) {
+      const simplified = simplifyPathToLimit(this._pathPointerSamples, MAP_PATH_NODE_LIMIT)
+      if (simplified.overLimit) {
+        toast(`线路节点仍超过 ${MAP_PATH_NODE_LIMIT} 个，请分段绘制`, "error")
+      } else if (simplified.nodes.length >= 2) {
+        const clientId = crypto.randomUUID()
+        const profile = MAP_PATH_PROFILES[mapState.selectedPathType] || MAP_PATH_PROFILES.major_road
+        mapState.pendingPathChanges[clientId] = {
+          operation: "create",
+          client_id: clientId,
+          data: {
+            name: `${profile.label} ${this._effectivePaths().length + 1}`,
+            path_type: mapState.selectedPathType,
+            path_layer_id: mapState.selectedPathLayerId,
+            visible: true,
+            locked: false,
+            opacity: 1,
+            nodes: this._normalizedPathNodes(simplified.nodes),
+          },
+        }
+        mapState.selectedPathId = clientId
+        if (simplified.tolerance > 0.08) toast("线路较长，已自动提高简化强度", "info")
+      }
+    }
+    this._pathPointerSamples = null
+    this._dragPathNode = null
+    const after = this._snapshotActiveDraft()
+    if (JSON.stringify(before) !== JSON.stringify(after)) {
+      recordEditorCommand("path", { kind: "draft", before, after })
+      this._notifyEditingChanged()
+    }
+    this._pointerStartSnapshot = null
+    this._canvas?.releasePointerCapture?.(e.pointerId)
+    this._leaflet?.dragging?.enable?.()
+    this._suppressNextCanvasClick = this._dragMoved
+    setTimeout(() => {
+      this._dragMoved = false
+      this._suppressNextCanvasClick = false
+    }, 250)
+    this._pathGeometryCache.clear()
+    this._scheduleRedraw()
+    this._rerenderEditor()
   },
 
   _showTooltip(q, r) {
@@ -1205,8 +2830,8 @@ const mapView = {
   },
 
   _buildTooltipContent(q, r) {
-    const binding = this._bindingAt(q, r)
-    const tile = this._tileAt(q, r)
+    const binding = this._visibleBindingAt(q, r)
+    const tile = this._visibleTileAt(q, r)
     if (binding) {
       const name = this._locationName(binding.location_entity_id)
       const centerTag = binding.is_center ? "（中心）" : ""
@@ -1260,7 +2885,7 @@ const mapView = {
   // ============================================================
 
   _bindListEvents() {
-    bindWorkspaceClick(this, {
+    this._bindViewClick({
       "bulk-toggle-one": (e, t) => {
         e.stopPropagation()
         toggleBulkSelection(this, t.getAttribute("data-scope"), t.getAttribute("data-id"), t.checked)
@@ -1290,7 +2915,7 @@ const mapView = {
   },
 
   _bindMapEvents() {
-    bindWorkspaceClick(this, {
+    this._bindViewClick({
       "map-back-list": () => this._backToList(),
       "map-settings": () => this._showSettingsModal(),
       "map-enter-edit": () => this._enterEdit(),
@@ -1307,6 +2932,13 @@ const mapView = {
         const id = t.getAttribute("data-id")
         if (id) this._onCenterClick(id)
       },
+      "map-detail-world-object": (_e, t) => {
+        const id = t.getAttribute("data-id")
+        if (!id) return
+        const callback = this._mountContext?.onOpenEntity
+        if (typeof callback === "function") callback(id)
+        else router.navigate("world", "objects")
+      },
       "map-filter": (_e, t) => {
         this._currentFilter = t.getAttribute("data-filter") || "all"
         document.querySelectorAll(".map-filter").forEach((el) => el.classList.remove("active"))
@@ -1316,9 +2948,15 @@ const mapView = {
       "map-tool-brush": () => this._switchTool("brush"),
       "map-tool-bucket": () => this._switchTool("bucket"),
       "map-tool-bind": () => this._switchTool("bind"),
+      "map-tool-locationMove": () => this._switchTool("locationMove"),
       "map-tool-marker": () => this._switchTool("marker"),
+      "map-editor-layer": (_e, t) => this._switchEditorLayer(t.getAttribute("data-layer")),
       "map-undo": () => this._undo(),
-      "map-apply": () => this._applyAllChanges(),
+      "map-redo": () => this._redo(),
+      "map-apply": () => this._applyAllChanges({ onlyLayer: true }),
+      "map-layer-undo": () => this._undoLayerTree(),
+      "map-layer-redo": () => this._redoLayerTree(),
+      "map-layer-apply": () => this._applyAllChanges({ onlyLayerTree: true }),
       "map-save": () => this._saveAndExit(),
       "map-scene-prev": () => this._sceneNav(-1),
       "map-scene-next": () => this._sceneNav(1),
@@ -1335,12 +2973,156 @@ const mapView = {
       },
       "map-territory-paint": () => this._switchTool("territory"),
       "map-territory-clear": () => this._clearFactionTerritory(),
+      "map-territory-mode": (_e, t) => this._setTerritoryMode(t.getAttribute("data-mode")),
+      "map-location-lock": () => this._toggleSelectedLocationLock(),
+      "map-overlay-layer-add": () => this._showOverlayLayerCreate(),
+      "map-overlay-layer-edit": () => this._showOverlayLayerSettings(),
+      "map-overlay-layer-delete": () => this._deleteOverlayLayer(),
+      "map-overlay-tool": (_e, t) => this._setOverlayTool(t.getAttribute("data-tool")),
+      "map-layer-toggle-visible": (_e, t) => this._toggleLayerNode(t.getAttribute("data-id"), "visible"),
+      "map-layer-toggle-lock": (_e, t) => this._toggleLayerNode(t.getAttribute("data-id"), "locked"),
+      "map-layer-collapse": (_e, t) => {
+        const id = t.getAttribute("data-id")
+        if (mapState.collapsedLayerNodeIds.has(id)) mapState.collapsedLayerNodeIds.delete(id)
+        else mapState.collapsedLayerNodeIds.add(id)
+        this._rerenderEditor()
+      },
+      "map-layer-move-up": (_e, t) => this._moveLayerNode(t.getAttribute("data-id"), -1),
+      "map-layer-move-down": (_e, t) => this._moveLayerNode(t.getAttribute("data-id"), 1),
+      "map-layer-settings": (_e, t) => this._showLayerNodeSettings(t.getAttribute("data-id")),
+      "map-layer-isolate": (_e, t) => this._toggleLayerIsolation(t.getAttribute("data-id")),
+      "map-layer-add-group": () => this._addLayerGroup(),
+      "map-layer-delete-group": (_e, t) => this._deleteLayerGroup(t.getAttribute("data-id")),
+      "map-path-layer-add": () => this._showPathLayerCreate(),
+      "map-path-layer-delete": () => this._deleteSelectedPathLayer(),
+      "map-path-tool": (_e, t) => this._setPathTool(t.getAttribute("data-tool")),
+      "map-path-select": (_e, t) => {
+        const pathId = t.getAttribute("data-id") || null
+        const path = this._effectivePaths().find(
+          (item) => (item.id || item.client_id) === pathId,
+        )
+        this._selectPath(path)
+        this._rerenderEditor()
+      },
+      "map-path-archive": (_e, t) => this._togglePathArchive(t.getAttribute("data-id")),
+      "map-path-endpoint-snap": (_e, t) => {
+        const side = t.getAttribute("data-side")
+        const select = document.getElementById(`map-path-${side}-location`)
+        this._stageSelectedPathEndpoint(side, select?.value || null, true)
+      },
+      "map-path-node-action": (_e, t) => {
+        this._editSelectedPathNode(t.getAttribute("data-node-action"))
+      },
+    })
+
+    document.querySelectorAll("[data-layer-active-group]").forEach((select) => {
+      select.addEventListener("change", () => {
+        mapState.activeLayerChildIds = setLayerSelection({
+          nodes: mapState.pendingLayerTree || this._layerTree?.nodes || [],
+          selections: mapState.activeLayerChildIds,
+          groupId: select.dataset.layerActiveGroup,
+          childId: select.value,
+          novelId: state.currentProjectId,
+          mapId: this._state?.map?.id,
+        })
+        this._replaceLayerFocusInRoute(select.value)
+        this._renderSubsetCache.clear()
+        this._pathGeometryCache.clear()
+        this._rerenderEditor()
+      })
     })
 
     // 地形选择
     const terrainSelect = document.getElementById("map-terrain-select")
     terrainSelect?.addEventListener("change", () => {
       mapState.selectedTerrain = terrainSelect.value
+    })
+    const overlayLayer = document.getElementById("map-overlay-layer")
+    overlayLayer?.addEventListener("change", () => {
+      if (
+        mapState.pendingTerrainOverlay
+        && mapState.pendingTerrainOverlay.layerId !== overlayLayer.value
+      ) {
+        overlayLayer.value = mapState.selectedTerrainLayerId || ""
+        toast("当前覆盖图层有未应用修改，请先应用或撤销后再切换", "warning")
+        return
+      }
+      mapState.selectedTerrainLayerId = overlayLayer.value || null
+      const selected = (this._state?.terrain_layers || []).find((item) => item.id === overlayLayer.value)
+      if (selected) {
+        mapState.selectedTerrainAssetKey = selected.terrain_asset_key
+        mapState.selectedTerrainPreset = selected.meta?.preset_key || "standard"
+      }
+      this._redraw()
+    })
+    const overlayAsset = document.getElementById("map-overlay-asset")
+    overlayAsset?.addEventListener("change", () => {
+      const before = this._snapshotActiveDraft()
+      mapState.selectedTerrainAssetKey = overlayAsset.value
+      this._ensureOverlayDraft()
+      const after = this._snapshotActiveDraft()
+      recordEditorCommand("terrainOverlay", { kind: "draft", before, after })
+      this._notifyEditingChanged()
+    })
+    const overlayPreset = document.getElementById("map-overlay-preset")
+    overlayPreset?.addEventListener("change", () => {
+      const before = this._snapshotActiveDraft()
+      mapState.selectedTerrainPreset = overlayPreset.value
+      this._ensureOverlayDraft()
+      const after = this._snapshotActiveDraft()
+      recordEditorCommand("terrainOverlay", { kind: "draft", before, after })
+      this._notifyEditingChanged()
+    })
+    const overlayBrushSize = document.getElementById("map-overlay-brush-size")
+    overlayBrushSize?.addEventListener("input", () => {
+      mapState.overlayBrushSize = Number(overlayBrushSize.value) || 1
+    })
+    const pathLayerSelect = document.getElementById("map-path-layer")
+    pathLayerSelect?.addEventListener("change", () => {
+      const layerId = pathLayerSelect.value || null
+      const layer = this._effectivePathLayers().find((item) => item.id === layerId)
+      const profile = MAP_PATH_PROFILES[mapState.selectedPathType]
+      const nextType = layer && profile?.category !== layer.category
+        ? layer.category === "water" ? "river" : "major_road"
+        : mapState.selectedPathType
+      if (mapState.selectedPathId) {
+        this._stageSelectedPathClassification({ layerId, pathType: nextType })
+      } else {
+        mapState.selectedPathLayerId = layerId
+        mapState.selectedPathType = nextType
+      }
+      this._rerenderEditor()
+    })
+    const pathTypeSelect = document.getElementById("map-path-type")
+    pathTypeSelect?.addEventListener("change", () => {
+      const pathType = pathTypeSelect.value || "major_road"
+      if (mapState.selectedPathId) {
+        this._stageSelectedPathClassification({
+          layerId: mapState.selectedPathLayerId,
+          pathType,
+        })
+      } else {
+        mapState.selectedPathType = pathType
+      }
+      this._rerenderEditor()
+    })
+    for (const side of ["start", "end"]) {
+      const endpointSelect = document.getElementById(`map-path-${side}-location`)
+      endpointSelect?.addEventListener("change", () => {
+        this._stageSelectedPathEndpoint(side, endpointSelect.value || null)
+      })
+    }
+    const nodeWidth = document.getElementById("map-path-node-width")
+    nodeWidth?.addEventListener("change", () => {
+      this._setSelectedPathNodeField("width_scale", Number(nodeWidth.value))
+    })
+    const nodeTension = document.getElementById("map-path-node-tension")
+    nodeTension?.addEventListener("change", () => {
+      this._setSelectedPathNodeField("tension", Number(nodeTension.value))
+    })
+    const nodeSegment = document.getElementById("map-path-node-segment")
+    nodeSegment?.addEventListener("change", () => {
+      this._setSelectedPathNodeField("segment_type", nodeSegment.value || null)
     })
     // 地点选择
     const bindSelect = document.getElementById("map-bind-select")
@@ -1382,7 +3164,8 @@ const mapView = {
     this._keyHandler = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && mapState.mode === "edit") {
         e.preventDefault()
-        this._undo()
+        if (e.shiftKey) this._redo()
+        else this._undo()
       }
     }
     document.addEventListener("keydown", this._keyHandler)
@@ -1393,39 +3176,56 @@ const mapView = {
   // ============================================================
 
   async _openMap(mapId) {
+    if (!this._guardDirty()) return false
+    this._discardDrafts()
     const rootId = this._mountRootId || "map-root"
     const context = this._mountContext || {}
     this.unmount()
     this._mountRootId = rootId
     this._mountContext = context
     await this._loadMapState(mapId)
-    await this._loadLocations()
-    await this._loadScenes()
+    await Promise.all([
+      this._loadLocations(),
+      this._loadScenes(),
+      this._loadLayerTree(),
+      this._loadPaths(),
+    ])
     this._render(rootId)
+    return true
   },
 
   _backToList() {
+    if (!this._guardDirty()) return false
+    this._discardDrafts()
     this.unmount()
     this._render("map-root")
+    return true
   },
 
-  _deleteMap(mapId) {
+  async _deleteMap(mapId) {
     const map = this._maps.find((m) => m.id === mapId)
     const name = map ? map.name : "该地图"
-    confirmAction(
-      `确定删除地图「${esc(name)}」？该操作不可恢复，子地图将变为顶层地图。`,
+    let impact
+    try {
+      impact = await api.world.getMapArchiveImpact(mapId, state.currentProjectId)
+    } catch (err) {
+      toast(`读取归档影响失败：${err.message}`, "error")
+      return
+    }
+    return confirmAction(
+      `归档地图「${esc(name)}」及其 ${impact.map_count} 张地图？关联内容会保留，可在归档列表恢复。`,
       async () => {
         try {
-          await api.world.deleteMap(mapId, state.currentProjectId)
-          toast("地图已删除", "success")
+          await api.world.archiveMap(mapId, state.currentProjectId)
+          toast("地图子树已归档", "success")
           await this._loadMaps()
           this.unmount()
           this._render("map-root")
         } catch (err) {
-          toast(`删除失败：${err.message}`, "error")
+          toast(`归档失败：${err.message}`, "error")
         }
       },
-      "删除"
+      "归档子树"
     )
   },
 
@@ -1436,33 +3236,61 @@ const mapView = {
       toast("请先选择地图", "warning")
       return
     }
-    return confirmAction(`确定删除选中的 ${items.length} 张地图？该操作不可恢复。`, async () => {
+    return confirmAction(`归档选中的 ${items.length} 张地图及其子树？内容会保留并可恢复。`, async () => {
       const result = await runBulkAction(items, async (map) => {
-        await api.world.deleteMap(map.id, state.currentProjectId)
+        await api.world.archiveMap(map.id, state.currentProjectId)
       })
-      toast(bulkResultMessage(result, "批量删除地图", (item) => item.name || item.id), result.failed.length ? "warning" : "success")
+      toast(bulkResultMessage(result, "批量归档地图", (item) => item.name || item.id), result.failed.length ? "warning" : "success")
       clearBulkSelection(this, "map-list")
       await this._loadMaps()
       this._render("map-root")
-    }, "删除")
+    }, "归档")
   },
 
   async _enterEdit() {
-    await this._loadLocations()
-    await this._loadAllEntities()
+    const lifecycleEpoch = this._lifecycleEpoch
+    const mountContext = this._mountContext
+    const mapId = this._state?.map?.id
+    if (!mapId) return false
+    await Promise.all([
+      this._loadLocations(),
+      this._loadAllEntities(),
+      this._loadLayerTree(),
+      this._loadPaths(),
+    ])
+    if (
+      !this._isLifecycleCurrent(lifecycleEpoch, mountContext)
+      || this._state?.map?.id !== mapId
+    ) return false
     this._teardownInteractiveSurface()
     mapState.mode = "edit"
+    setEditorLayer("location")
+    mapState.activeTool = "locationMove"
+    mapState.selectedLocationEntityId ||= this._locations[0]?.id || null
+    mapState.selectedTerrainLayerId ||= this._state?.terrain_layers?.[0]?.id || null
+    const firstOverlay = (this._state?.terrain_layers || []).find(
+      (item) => item.id === mapState.selectedTerrainLayerId,
+    )
+    if (firstOverlay) {
+      mapState.selectedTerrainAssetKey = firstOverlay.terrain_asset_key
+      mapState.selectedTerrainPreset = firstOverlay.meta?.preset_key || "standard"
+    }
+    this._notifyEditingChanged()
     this._render(this._mountRootId || "map-root")
+    return true
   },
 
   _exitEdit() {
-    mapState.pendingTerrainChanges = {}
-    mapState.pendingBindings = {}
+    if (!this._guardDirty()) return false
+    this._discardDrafts()
     updatePendingCount(0)
     updateBindingPendingCount(0)
     this._teardownInteractiveSurface()
     mapState.mode = "browse"
+    setEditorLayer("none")
+    this._notifyEditingChanged()
     this._render(this._mountRootId || "map-root")
+    return true
   },
 
   _switchTool(tool) {
@@ -1470,8 +3298,687 @@ const mapView = {
     toggleToolSections(tool)
   },
 
-  _undo() {
-    // P0：Ctrl+Z 只撤销未应用的 pending 变更（地形 + 绑定）
+  _switchEditorLayer(layer) {
+    const next = ["location", "baseTerrain", "terrainOverlay", "path", "marker", "territory"].includes(layer)
+      ? layer
+      : "location"
+    setEditorLayer(next)
+    const defaultTools = {
+      location: "locationMove",
+      baseTerrain: "brush",
+      terrainOverlay: "overlay",
+      path: "pathDraw",
+      marker: "marker",
+      territory: "territory",
+    }
+    mapState.activeTool = defaultTools[next]
+    this._teardownInteractiveSurface()
+    this._render(this._mountRootId || "map-root")
+  },
+
+  _editorLayerEffectiveState(layer = mapState.editorLayer) {
+    const layerKey = {
+      location: "location",
+      baseTerrain: "baseTerrain",
+      marker: `marker.${mapState.selectedMarkerType || "character"}`,
+      territory: "territory",
+    }[layer]
+    if (layer === "terrainOverlay") {
+      return mapState.selectedTerrainLayerId
+        ? this._effectiveLayerNode({ terrainLayerId: mapState.selectedTerrainLayerId })
+        : this._effectiveLayerNode({ layerKey: "terrainOverlay" })
+    }
+    if (layer === "path") {
+      return mapState.selectedPathLayerId
+        ? this._effectiveLayerNode({ pathLayerId: mapState.selectedPathLayerId })
+        : this._effectiveLayerNode({ layerKey: "path" })
+    }
+    return layerKey
+      ? this._effectiveLayerNode({ layerKey })
+      : { visible: true, locked: false, opacity: 1 }
+  },
+
+  _guardEditorLayerWritable(layer = mapState.editorLayer) {
+    const effective = this._editorLayerEffectiveState(layer)
+    if (!effective.visible) {
+      toast(`当前编辑图层${effective.sessionReason ? `处于「${effective.sessionReason}」` : "不可见"}，请先切换当前子层`, "warning")
+      return false
+    }
+    if (!effective.locked) return true
+    toast("当前图层受自身或父组锁定，请先在图层树中解锁", "warning")
+    return false
+  },
+
+  _layerNodeIdentity(node) {
+    return node?.id || node?.client_id || null
+  },
+
+  _ensureLayerTreeDraft() {
+    if (mapState.pendingLayerTree) return mapState.pendingLayerTree
+    mapState.pendingLayerTree = (this._layerTree?.nodes || []).map((node) => ({
+      id: node.id,
+      parent_id: node.parent_id || null,
+      terrain_layer_id: node.terrain_layer_id || null,
+      path_layer_id: node.path_layer_id || null,
+      node_type: node.node_type,
+      layer_key: node.layer_key || null,
+      name: node.name,
+      visible: node.visible !== false,
+      locked: Boolean(node.locked),
+      opacity: Number(node.opacity ?? 1),
+      sort_order: Number(node.sort_order || 0),
+      min_zoom: node.min_zoom ?? null,
+      max_zoom: node.max_zoom ?? null,
+      selection_mode: node.selection_mode || "normal",
+      floor_level: node.floor_level ?? null,
+      meta: node.meta || {},
+      depth: node.depth || 1,
+      effective_visible: node.effective_visible,
+      effective_locked: node.effective_locked,
+    }))
+    return mapState.pendingLayerTree
+  },
+
+  _findLayerNode(nodeId) {
+    return this._ensureLayerTreeDraft().find(
+      (node) => this._layerNodeIdentity(node) === nodeId,
+    )
+  },
+
+  _refreshLayerTreeDraft() {
+    const nodes = this._ensureLayerTreeDraft()
+    const children = new Map()
+    for (const node of nodes) {
+      const parent = node.parent_id || node.parent_client_id || null
+      if (!children.has(parent)) children.set(parent, [])
+      children.get(parent).push(node)
+    }
+    for (const siblings of children.values()) {
+      siblings.sort((a, b) => a.sort_order - b.sort_order)
+      siblings.forEach((node, index) => { node.sort_order = index })
+    }
+    const ordered = []
+    const visit = (node, depth, inherited) => {
+      const effectiveMin = node.min_zoom == null
+        ? inherited.minZoom
+        : inherited.minZoom == null ? node.min_zoom : Math.max(node.min_zoom, inherited.minZoom)
+      const effectiveMax = node.max_zoom == null
+        ? inherited.maxZoom
+        : inherited.maxZoom == null ? node.max_zoom : Math.min(node.max_zoom, inherited.maxZoom)
+      const zoomRangeVisible = effectiveMin == null || effectiveMax == null || effectiveMin <= effectiveMax
+      node.depth = depth
+      node.effective_visible = node.visible !== false && inherited.visible && zoomRangeVisible
+      node.effective_locked = Boolean(node.locked || inherited.locked)
+      node.effective_opacity = Number(node.opacity ?? 1) * inherited.opacity
+      node.effective_min_zoom = effectiveMin
+      node.effective_max_zoom = effectiveMax
+      ordered.push(node)
+      for (const child of children.get(this._layerNodeIdentity(node)) || []) {
+        visit(child, depth + 1, {
+          visible: node.effective_visible,
+          locked: node.effective_locked,
+          opacity: node.effective_opacity,
+          minZoom: effectiveMin,
+          maxZoom: effectiveMax,
+        })
+      }
+    }
+    for (const root of children.get(null) || []) {
+      visit(root, 1, {
+        visible: true,
+        locked: false,
+        opacity: 1,
+        minZoom: null,
+        maxZoom: null,
+      })
+    }
+    mapState.pendingLayerTree = ordered
+    mapState.activeLayerChildIds = resolveLayerSelections({
+      nodes: ordered,
+      novelId: state.currentProjectId,
+      mapId: this._state?.map?.id,
+      focusNodeId: this._mountContext?.focusLayerNodeId || null,
+      previous: mapState.activeLayerChildIds,
+    })
+    this._notifyEditingChanged()
+  },
+
+  _recordLayerTreeChange(before) {
+    recordEditorCommand("layerTree", {
+      kind: "layerTree",
+      before,
+      after: JSON.parse(JSON.stringify(mapState.pendingLayerTree)),
+    })
+  },
+
+  _rerenderEditor() {
+    this._teardownInteractiveSurface()
+    this._render(this._mountRootId || "map-root")
+  },
+
+  _toggleLayerNode(nodeId, field) {
+    const before = JSON.parse(JSON.stringify(this._ensureLayerTreeDraft()))
+    const node = this._findLayerNode(nodeId)
+    if (!node) return
+    node[field] = !node[field]
+    this._refreshLayerTreeDraft()
+    this._recordLayerTreeChange(before)
+    this._rerenderEditor()
+  },
+
+  _moveLayerNode(nodeId, direction) {
+    const node = this._findLayerNode(nodeId)
+    if (!node) return
+    const parent = node.parent_id || node.parent_client_id || null
+    const siblings = this._ensureLayerTreeDraft()
+      .filter((item) => (item.parent_id || item.parent_client_id || null) === parent)
+      .sort((a, b) => a.sort_order - b.sort_order)
+    const index = siblings.indexOf(node)
+    const target = siblings[index + direction]
+    if (!target) return
+    const before = JSON.parse(JSON.stringify(this._ensureLayerTreeDraft()))
+    const currentOrder = node.sort_order
+    node.sort_order = target.sort_order
+    target.sort_order = currentOrder
+    this._refreshLayerTreeDraft()
+    this._recordLayerTreeChange(before)
+    this._rerenderEditor()
+  },
+
+  _addLayerGroup() {
+    const groups = this._ensureLayerTreeDraft().filter((node) => node.node_type === "group")
+    const options = [`<option value="">顶层</option>`, ...groups.map((group) => (
+      `<option value="${esc(this._layerNodeIdentity(group))}">${esc(group.name)}</option>`
+    ))].join("")
+    const form = `<div class="form-group"><label>分组名称</label><input class="form-input" id="map-layer-group-name" value="新分组" /></div><div class="form-group"><label>父分组</label><select class="form-select" id="map-layer-group-parent">${options}</select></div>`
+    showModalHtml("新建图层分组", form, [{
+      text: "创建",
+      class: "btn-primary",
+      handler: () => {
+        const before = JSON.parse(JSON.stringify(this._ensureLayerTreeDraft()))
+        const clientId = crypto.randomUUID()
+        const parentIdentity = document.getElementById("map-layer-group-parent")?.value || null
+        const parentNode = groups.find((node) => this._layerNodeIdentity(node) === parentIdentity)
+        const siblings = this._ensureLayerTreeDraft().filter(
+          (node) => (node.parent_id || node.parent_client_id || null) === parentIdentity,
+        )
+        this._ensureLayerTreeDraft().push({
+          client_id: clientId,
+          parent_id: parentNode?.id || null,
+          parent_client_id: parentNode?.client_id || null,
+          node_type: "group",
+          layer_key: null,
+          name: document.getElementById("map-layer-group-name")?.value?.trim() || "新分组",
+          visible: true,
+          locked: false,
+          opacity: 1,
+          sort_order: siblings.length,
+          min_zoom: null,
+          max_zoom: null,
+          selection_mode: "normal",
+          floor_level: null,
+          meta: {},
+        })
+        this._refreshLayerTreeDraft()
+        this._recordLayerTreeChange(before)
+        closeModal()
+        this._rerenderEditor()
+      },
+    }])
+  },
+
+  _deleteLayerGroup(nodeId) {
+    const nodes = this._ensureLayerTreeDraft()
+    const node = this._findLayerNode(nodeId)
+    if (!node || node.layer_key || node.node_type !== "group") return
+    const hasChildren = nodes.some(
+      (item) => (item.parent_id || item.parent_client_id) === nodeId,
+    )
+    if (hasChildren) {
+      toast("请先把子图层移出该分组", "warning")
+      return
+    }
+    const before = JSON.parse(JSON.stringify(nodes))
+    mapState.pendingLayerTree = nodes.filter(
+      (item) => this._layerNodeIdentity(item) !== nodeId,
+    )
+    this._refreshLayerTreeDraft()
+    this._recordLayerTreeChange(before)
+    this._rerenderEditor()
+  },
+
+  _showLayerNodeSettings(nodeId) {
+    const node = this._findLayerNode(nodeId)
+    if (!node) return
+    const nodes = this._ensureLayerTreeDraft()
+    const descendants = new Set()
+    if (node.node_type === "group") {
+      const pending = [nodeId]
+      while (pending.length) {
+        const parentId = pending.pop()
+        for (const child of nodes.filter(
+          (item) => (item.parent_id || item.parent_client_id) === parentId,
+        )) {
+          const childId = this._layerNodeIdentity(child)
+          if (!descendants.has(childId)) {
+            descendants.add(childId)
+            pending.push(childId)
+          }
+        }
+      }
+    }
+    const groupOptions = [
+      `<option value="">顶层</option>`,
+      ...nodes.filter((item) => (
+        item.node_type === "group"
+        && this._layerNodeIdentity(item) !== nodeId
+        && !descendants.has(this._layerNodeIdentity(item))
+      ))
+        .map((item) => {
+          const id = this._layerNodeIdentity(item)
+          const selected = (node.parent_id || node.parent_client_id) === id ? "selected" : ""
+          return `<option value="${esc(id)}" ${selected}>${esc(item.name)}</option>`
+        }),
+    ].join("")
+    const modeControl = node.node_type === "group"
+      ? `<div class="form-group"><label>分组模式</label><select class="form-select" id="map-layer-node-selection-mode"><option value="normal" ${node.selection_mode === "normal" ? "selected" : ""}>普通</option><option value="exclusive" ${node.selection_mode === "exclusive" ? "selected" : ""}>独占子层</option><option value="floor" ${node.selection_mode === "floor" ? "selected" : ""}>楼层</option></select></div>`
+      : ""
+    const floorControl = `<div class="form-group"><label>楼层编号（父组为楼层模式时必填）</label><input class="form-input" id="map-layer-node-floor-level" type="number" min="-1000" max="1000" value="${node.floor_level ?? ""}" /></div>`
+    const form = `<div class="form-group"><label>名称</label><input class="form-input" id="map-layer-node-name" value="${esc(node.name)}" /></div><div class="form-group"><label>父分组</label><select class="form-select" id="map-layer-node-parent">${groupOptions}</select></div>${modeControl}${floorControl}<div class="form-group"><label>透明度</label><input class="form-input" id="map-layer-node-opacity" type="number" min="0" max="1" step="0.05" value="${Number(node.opacity ?? 1)}" /></div><div class="form-group"><label>最小缩放（-3~3，可空）</label><input class="form-input" id="map-layer-node-min-zoom" type="number" min="-3" max="3" value="${node.min_zoom ?? ""}" /></div><div class="form-group"><label>最大缩放（-3~3，可空）</label><input class="form-input" id="map-layer-node-max-zoom" type="number" min="-3" max="3" value="${node.max_zoom ?? ""}" /></div>`
+    showModalHtml("图层设置", form, [{
+      text: "保存",
+      class: "btn-primary",
+      handler: () => {
+        const before = JSON.parse(JSON.stringify(this._ensureLayerTreeDraft()))
+        const parentIdentity = document.getElementById("map-layer-node-parent")?.value || null
+        const parent = nodes.find((item) => this._layerNodeIdentity(item) === parentIdentity)
+        const minRaw = document.getElementById("map-layer-node-min-zoom")?.value
+        const maxRaw = document.getElementById("map-layer-node-max-zoom")?.value
+        const minZoom = minRaw === "" ? null : Number(minRaw)
+        const maxZoom = maxRaw === "" ? null : Number(maxRaw)
+        if (minZoom != null && maxZoom != null && minZoom > maxZoom) {
+          toast("最小缩放不能大于最大缩放", "warning")
+          return
+        }
+        node.name = document.getElementById("map-layer-node-name")?.value?.trim() || node.name
+        node.opacity = Math.max(0, Math.min(1, Number(document.getElementById("map-layer-node-opacity")?.value ?? node.opacity)))
+        node.min_zoom = minZoom
+        node.max_zoom = maxZoom
+        node.parent_id = parent?.id || null
+        node.parent_client_id = parent?.client_id || null
+        if (node.node_type === "group") {
+          node.selection_mode = document.getElementById("map-layer-node-selection-mode")?.value || "normal"
+          if (node.selection_mode !== "floor") {
+            for (const child of nodes.filter((item) => (
+              (item.parent_id || item.parent_client_id) === this._layerNodeIdentity(node)
+            ))) child.floor_level = null
+          }
+        }
+        const floorRaw = document.getElementById("map-layer-node-floor-level")?.value
+        node.floor_level = parent?.selection_mode === "floor"
+          ? (floorRaw === "" ? null : Number(floorRaw))
+          : null
+        if (parent?.selection_mode === "floor" && node.floor_level == null) {
+          mapState.pendingLayerTree = before
+          this._refreshLayerTreeDraft()
+          toast("楼层组的直接子层必须填写楼层编号", "warning")
+          return
+        }
+        this._refreshLayerTreeDraft()
+        this._recordLayerTreeChange(before)
+        closeModal()
+        this._rerenderEditor()
+      },
+    }])
+  },
+
+  _toggleLayerIsolation(nodeId) {
+    mapState.isolateLayerNodeId = mapState.isolateLayerNodeId === nodeId ? null : nodeId
+    this._renderSubsetCache.clear()
+    this._pathGeometryCache.clear()
+    this._rerenderEditor()
+  },
+
+  _replaceLayerFocusInRoute(nodeId) {
+    const raw = (window.location.hash || "").replace(/^#/, "")
+    if (!raw) return
+    const [path, query = ""] = raw.split("?")
+    const params = new URLSearchParams(query)
+    if (nodeId) params.set("focus_layer_node_id", nodeId)
+    else params.delete("focus_layer_node_id")
+    const next = `#${path}${params.toString() ? `?${params}` : ""}`
+    window.history?.replaceState?.(window.history.state, "", next)
+  },
+
+  async _undoLayerTree() {
+    const command = popEditorUndo("layerTree")
+    if (!command) {
+      toast("无可撤销的图层结构操作", "info")
+      return
+    }
+    await this._applyEditorCommand(command, "before")
+  },
+
+  async _redoLayerTree() {
+    const command = popEditorRedo("layerTree")
+    if (!command) {
+      toast("无可重做的图层结构操作", "info")
+      return
+    }
+    await this._applyEditorCommand(command, "after")
+  },
+
+  _setPathTool(tool) {
+    mapState.pathTool = ["draw", "select", "nodes"].includes(tool) ? tool : "draw"
+    this._rerenderEditor()
+  },
+
+  _showPathLayerCreate() {
+    if (this._effectiveLayerNode({ layerKey: "path" }).locked) {
+      toast("线路组已锁定，请先解锁", "warning")
+      return
+    }
+    const form = `<div class="form-group"><label>图层名称</label><input class="form-input" id="map-path-layer-name" value="交通线路" /></div><div class="form-group"><label>类别</label><select class="form-select" id="map-path-layer-category"><option value="transport">交通</option><option value="water">水系</option></select></div>`
+    showModalHtml("新建线路图层", form, [{
+      text: "创建",
+      class: "btn-primary",
+      handler: () => {
+        const before = this._snapshotActiveDraft()
+        const clientId = crypto.randomUUID()
+        const leafClientId = crypto.randomUUID()
+        const displayName = document.getElementById("map-path-layer-name")?.value?.trim() || "线路图层"
+        const category = document.getElementById("map-path-layer-category")?.value === "water"
+          ? "water"
+          : "transport"
+        mapState.pendingPathLayerChanges[clientId] = {
+          operation: "create",
+          client_id: clientId,
+          leaf_client_id: leafClientId,
+          data: { display_name: displayName, category, meta: {} },
+        }
+        mapState.selectedPathLayerId = clientId
+        mapState.selectedPathType = category === "water" ? "river" : "major_road"
+        recordEditorCommand("path", {
+          kind: "draft",
+          before,
+          after: this._snapshotActiveDraft(),
+        })
+        closeModal()
+        this._notifyEditingChanged()
+        this._rerenderEditor()
+      },
+    }])
+  },
+
+  _deleteSelectedPathLayer() {
+    const layerId = mapState.selectedPathLayerId
+    const layer = this._effectivePathLayers().find((item) => item.id === layerId)
+    if (!layer) return
+    const effective = this._effectiveLayerNode({ pathLayerId: layerId })
+    if (effective.locked) {
+      toast("线路图层受自身或父组锁定，请先解锁", "warning")
+      return
+    }
+    const paths = this._effectivePaths().filter(
+      (path) => this._pathLayerId(path) === layerId,
+    )
+    if (!layer.__draft && paths.length) {
+      toast(`该图层仍包含 ${paths.length} 条线路（含已归档），无法删除`, "warning")
+      return
+    }
+    const stage = () => {
+      const before = this._snapshotActiveDraft()
+      if (layer.__draft) {
+        delete mapState.pendingPathLayerChanges[layerId]
+        for (const [pathId, change] of Object.entries(mapState.pendingPathChanges || {})) {
+          if (change.operation === "create" && change.data?.path_layer_id === layerId) {
+            delete mapState.pendingPathChanges[pathId]
+          }
+        }
+      } else {
+        mapState.pendingPathLayerChanges[layerId] = {
+          operation: "delete",
+          id: layerId,
+        }
+      }
+      if (paths.some((path) => (path.id || path.client_id) === mapState.selectedPathId)) {
+        mapState.selectedPathId = null
+        mapState.selectedPathNodeIndex = null
+      }
+      mapState.selectedPathLayerId = this._effectivePathLayers().find(
+        (item) => item.id !== layerId && item.status !== "archived",
+      )?.id || null
+      recordEditorCommand("path", {
+        kind: "draft",
+        before,
+        after: this._snapshotActiveDraft(),
+      })
+      this._notifyEditingChanged()
+      this._rerenderEditor()
+    }
+    confirmAction(
+      `删除线路图层「${layer.name || layer.display_name || "未命名图层"}」？${layer.__draft && paths.length ? `同时放弃 ${paths.length} 条未保存线路。` : ""}`,
+      stage,
+      "删除线路图层",
+    )
+  },
+
+  _stageSelectedPathEndpoint(side, entityId, snap = false) {
+    if (!["start", "end"].includes(side)) return false
+    const path = this._effectivePaths().find(
+      (item) => (item.id || item.client_id) === mapState.selectedPathId,
+    )
+    if (!path || !this._pathWritable(path)) return false
+    const before = this._snapshotActiveDraft()
+    const data = { [`${side}_location_entity_id`]: entityId || null }
+    if (snap && entityId) {
+      const anchor = this._locationAnchor(entityId)
+      if (!anchor) {
+        toast("该地点尚无可用地图锚点，无法吸附", "warning")
+        return false
+      }
+      const nodes = pathNodesFor(path, this._pathState?.nodes || [])
+      if (nodes.length < 2) return false
+      const index = side === "start" ? 0 : nodes.length - 1
+      nodes[index] = { ...nodes[index], q: anchor.q, r: anchor.r }
+      data.nodes = this._normalizedPathNodes(nodes)
+    }
+    this._stagePathUpdate(path, data)
+    recordEditorCommand("path", {
+      kind: "draft",
+      before,
+      after: this._snapshotActiveDraft(),
+    })
+    this._pathGeometryCache.clear()
+    this._notifyEditingChanged()
+    this._rerenderEditor()
+    return true
+  },
+
+  _mutateSelectedPathNodes(mutator) {
+    const path = this._effectivePaths().find(
+      (item) => (item.id || item.client_id) === mapState.selectedPathId,
+    )
+    if (!path || !this._pathWritable(path)) return false
+    const nodes = pathNodesFor(path, this._pathState?.nodes || [])
+      .map((node) => ({ ...node }))
+    const index = Number(mapState.selectedPathNodeIndex)
+    if (!Number.isInteger(index) || index < 0 || index >= nodes.length) return false
+    const before = this._snapshotActiveDraft()
+    const nextIndex = mutator(nodes, index)
+    if (!Number.isInteger(nextIndex)) return false
+    mapState.selectedPathNodeIndex = nextIndex
+    this._stagePathUpdate(path, { nodes: this._normalizedPathNodes(nodes) })
+    recordEditorCommand("path", {
+      kind: "draft",
+      before,
+      after: this._snapshotActiveDraft(),
+    })
+    this._pathGeometryCache.clear()
+    this._notifyEditingChanged()
+    this._rerenderEditor()
+    return true
+  },
+
+  _editSelectedPathNode(action) {
+    return this._mutateSelectedPathNodes((nodes, index) => {
+      if (action === "delete") {
+        if (nodes.length <= 2) return NaN
+        nodes.splice(index, 1)
+        return Math.min(index, nodes.length - 1)
+      }
+      if (action !== "insert" || nodes.length >= MAP_PATH_NODE_LIMIT) return NaN
+      const otherIndex = index < nodes.length - 1 ? index + 1 : index - 1
+      const other = nodes[otherIndex]
+      const current = nodes[index]
+      if (!other) return NaN
+      const inserted = {
+        q: (current.q + other.q) / 2,
+        r: (current.r + other.r) / 2,
+        width_scale: (Number(current.width_scale ?? 1) + Number(other.width_scale ?? 1)) / 2,
+        tension: (Number(current.tension ?? 0.5) + Number(other.tension ?? 0.5)) / 2,
+        segment_type: current.segment_type || other.segment_type || null,
+      }
+      const insertAt = index < nodes.length - 1 ? index + 1 : index
+      nodes.splice(insertAt, 0, inserted)
+      return insertAt
+    })
+  },
+
+  _setSelectedPathNodeField(field, rawValue) {
+    if (!["width_scale", "tension", "segment_type"].includes(field)) return false
+    return this._mutateSelectedPathNodes((nodes, index) => {
+      let value = rawValue
+      if (field === "width_scale") value = Math.max(0.25, Math.min(4, Number(rawValue)))
+      if (field === "tension") value = Math.max(0, Math.min(1, Number(rawValue)))
+      nodes[index] = { ...nodes[index], [field]: value || (field === "segment_type" ? null : value) }
+      return index
+    })
+  },
+
+  async _togglePathArchive(pathId) {
+    const path = this._effectivePaths().find((item) => (item.id || item.client_id) === pathId)
+    if (!path) return
+    if (path.__draft) {
+      const before = this._snapshotActiveDraft()
+      delete mapState.pendingPathChanges[pathId]
+      mapState.selectedPathId = null
+      recordEditorCommand("path", {
+        kind: "draft",
+        before,
+        after: this._snapshotActiveDraft(),
+      })
+      this._notifyEditingChanged()
+      this._rerenderEditor()
+      return
+    }
+    const pending = mapState.pendingPathChanges[pathId]
+    if (["archive", "restore"].includes(pending?.operation)) {
+      const before = this._snapshotActiveDraft()
+      delete mapState.pendingPathChanges[pathId]
+      recordEditorCommand("path", {
+        kind: "draft",
+        before,
+        after: this._snapshotActiveDraft(),
+      })
+      this._notifyEditingChanged()
+      this._rerenderEditor()
+      return
+    }
+    if (pending?.operation === "update") {
+      toast("该线路有未保存编辑，请先应用或撤销后再归档", "warning")
+      return
+    }
+    const persisted = (this._pathState?.paths || []).find((item) => item.id === pathId)
+    if (!persisted || !this._pathWritable(persisted, { allowArchived: true })) return
+    let impact = null
+    if (persisted.status !== "archived" && api.world.getMapPathArchiveImpact) {
+      try {
+        impact = await api.world.getMapPathArchiveImpact(
+          this._state.map.id,
+          pathId,
+          state.currentProjectId,
+        )
+      } catch (err) {
+        toast(`读取线路归档影响失败：${err.message}`, "error")
+        return
+      }
+    }
+    const action = persisted.status === "archived" ? "restore" : "archive"
+    const stage = () => {
+      const before = this._snapshotActiveDraft()
+      mapState.pendingPathChanges[pathId] = { operation: action, id: pathId }
+      recordEditorCommand("path", {
+        kind: "draft",
+        before,
+        after: this._snapshotActiveDraft(),
+      })
+      this._notifyEditingChanged()
+      this._rerenderEditor()
+    }
+    if (action === "restore") {
+      stage()
+      return
+    }
+    const references = Number(impact?.observation_count || 0)
+      + Number(impact?.fact_count || 0)
+      + Number(impact?.other_reference_count || 0)
+    confirmAction(
+      `归档「${esc(persisted.name || "未命名线路")}」？${references ? `它仍被 ${references} 条叙事记录引用，历史回放将保留只读高亮。` : ""}`,
+      stage,
+      "归档线路",
+    )
+  },
+
+  _setOverlayTool(tool) {
+    mapState.overlayTool = ["brush", "eraser", "bucket"].includes(tool) ? tool : "brush"
+    document.querySelectorAll(".map-overlay-tool").forEach((button) => button.classList.remove("active"))
+    document.querySelector(`[data-action="map-overlay-tool"][data-tool="${mapState.overlayTool}"]`)?.classList.add("active")
+  },
+
+  _setTerritoryMode(mode) {
+    mapState.territoryEraseMode = mode === "erase"
+    this._switchEditorLayer("territory")
+  },
+
+  _toggleSelectedLocationLock() {
+    if (!this._guardEditorLayerWritable("location")) return
+    const locationId = mapState.selectedLocationEntityId
+    if (this._hasPendingBindingEdits(locationId)) {
+      toast("该地点有未应用的范围修改，请先应用或撤销后再锁定", "warning")
+      return
+    }
+    const current = this._effectiveLocationLayouts().find(
+      (layout) => layout.location_entity_id === locationId,
+    )
+    if (!current) {
+      toast("请先选择地图上的地点", "warning")
+      return
+    }
+    const next = { ...current, locked: !current.locked, layout_source: "user_lock" }
+    mapState.pendingLocationLayouts[locationId] = next
+    recordEditorCommand("location", {
+      kind: "location",
+      locationId,
+      before: { ...current },
+      after: { ...next },
+    })
+    this._notifyEditingChanged()
+    this._redraw()
+  },
+
+  async _undo() {
+    const command = popEditorUndo()
+    if (command) {
+      try {
+        await this._applyEditorCommand(command, "before")
+        toast("已撤销上一步操作", "info")
+      } catch (err) {
+        popEditorRedo()
+        toast(`撤销失败：${err.message}`, "error")
+      }
+      return
+    }
     const bindingCount = Object.keys(mapState.pendingBindings).length
     if (bindingCount > 0) {
       mapState.pendingBindings = {}
@@ -1491,22 +3998,989 @@ const mapView = {
     toast("无可撤销的操作（已应用的变更不可撤销）", "info")
   },
 
-  async _applyAllChanges() {
-    const terrainChanges = Object.keys(mapState.pendingTerrainChanges).length
-    const bindingChanges = Object.keys(mapState.pendingBindings).length
-    if (terrainChanges === 0 && bindingChanges === 0) {
-      toast("没有待应用的变更", "info")
+  async _redo() {
+    const command = popEditorRedo()
+    if (!command) {
+      toast("无可重做的操作", "info")
       return
     }
     try {
-      if (terrainChanges > 0) await this._applyTerrainChanges()
-      if (bindingChanges > 0) await this._applyBindings()
-      toast(`已应用 ${terrainChanges + bindingChanges} 个变更`, "success")
-      await this._reloadMapStatePreservingSession(this._state.map.id)
-      this._redraw()
+      await this._applyEditorCommand(command, "after")
+      toast("已重做上一步操作", "info")
     } catch (err) {
-      toast(`应用失败：${err.message}`, "error")
-      // pending retained, no reload
+      popEditorUndo()
+      toast(`重做失败：${err.message}`, "error")
+    }
+  },
+
+  async _applyEditorCommand(command, side) {
+    const value = command?.[side]
+    if (command?.kind === "location" && command.locationId && value) {
+      mapState.pendingLocationLayouts[command.locationId] = { ...value }
+    } else if (
+      command?.kind === "draft"
+      && Object.prototype.hasOwnProperty.call(command, side)
+    ) {
+      this._restoreActiveDraft(value)
+    } else if (command?.kind === "layerTree" && value) {
+      mapState.pendingLayerTree = JSON.parse(JSON.stringify(value))
+      this._refreshLayerTreeDraft()
+    } else if (command?.kind === "marker" && value && this._state) {
+      const marker = (this._state.markers || []).find((item) => item.id === command.markerId)
+      if (marker) {
+        Object.assign(marker, value)
+      }
+    } else if (command?.kind === "markerCreate" && this._state) {
+      if (side === "before") {
+        this._state.markers = (this._state.markers || [])
+          .filter((marker) => marker.id !== command.marker.id)
+      } else {
+        this._state.markers = [
+          ...(this._state.markers || []),
+          { ...command.marker },
+        ]
+      }
+    } else if (command?.kind === "markerDelete" && this._state) {
+      if (side === "before") {
+        this._state.markers = [
+          ...(this._state.markers || []),
+          { ...command.marker },
+        ]
+      } else {
+        this._state.markers = (this._state.markers || [])
+          .filter((marker) => marker.id !== command.marker.id)
+      }
+    }
+    this._rebuildPendingMarkerChanges()
+    this._rebuildIndexes()
+    this._notifyEditingChanged()
+    this._redraw()
+  },
+
+  _markerCreatePayload(marker) {
+    const payload = {
+      entity_id: marker.entity_id,
+      marker_type: marker.marker_type,
+      hex_q: marker.hex_q,
+      hex_r: marker.hex_r,
+      offset_x: marker.offset_x || 0,
+      offset_y: marker.offset_y || 0,
+      label: marker.label ?? null,
+      style_json: marker.style_json || {},
+      visible: marker.visible !== false,
+    }
+    if (marker.start_scene_id) payload.start_scene_id = marker.start_scene_id
+    if (marker.start_scene_index != null) payload.start_scene_index = marker.start_scene_index
+    if (marker.end_scene_id) payload.end_scene_id = marker.end_scene_id
+    if (marker.end_scene_index != null) payload.end_scene_index = marker.end_scene_index
+    return payload
+  },
+
+  _markerUpdatePayload(marker) {
+    return {
+      hex_q: marker.hex_q,
+      hex_r: marker.hex_r,
+      offset_x: marker.offset_x || 0,
+      offset_y: marker.offset_y || 0,
+      label: marker.label ?? null,
+      style_json: marker.style_json || {},
+      start_scene_id: marker.start_scene_id || null,
+      start_scene_index: marker.start_scene_index ?? null,
+      end_scene_id: marker.end_scene_id || null,
+      end_scene_index: marker.end_scene_index ?? null,
+      visible: marker.visible !== false,
+    }
+  },
+
+  _rebuildPendingMarkerChanges() {
+    const working = new Map((this._state?.markers || []).map((marker) => [marker.id, marker]))
+    const changes = {}
+    const ids = new Set([...this._markerBaselineById.keys(), ...working.keys()])
+    for (const markerId of ids) {
+      const baseline = this._markerBaselineById.get(markerId)
+      const marker = working.get(markerId)
+      if (!baseline && marker) {
+        changes[markerId] = {
+          operation: "create",
+          client_id: markerId,
+          data: this._markerCreatePayload(marker),
+        }
+      } else if (baseline && !marker) {
+        changes[markerId] = { operation: "delete", id: markerId }
+      } else if (baseline && marker) {
+        const before = this._markerUpdatePayload(baseline)
+        const after = this._markerUpdatePayload(marker)
+        if (JSON.stringify(before) !== JSON.stringify(after)) {
+          changes[markerId] = {
+            operation: "update",
+            id: markerId,
+            data: after,
+          }
+        }
+      }
+    }
+    mapState.pendingMarkerChanges = changes
+  },
+
+  _snapshotActiveDraft() {
+    if (mapState.editorLayer === "terrainOverlay") {
+      return mapState.pendingTerrainOverlay
+        ? JSON.parse(JSON.stringify(mapState.pendingTerrainOverlay))
+        : null
+    }
+    if (mapState.editorLayer === "location") {
+      return JSON.parse(JSON.stringify({
+        layouts: mapState.pendingLocationLayouts || {},
+        bindings: mapState.pendingBindings || {},
+      }))
+    }
+    if (mapState.editorLayer === "baseTerrain") {
+      return JSON.parse(JSON.stringify(mapState.pendingTerrainChanges || {}))
+    }
+    if (mapState.editorLayer === "territory") {
+      return JSON.parse(JSON.stringify(mapState.pendingTerritoryChanges || { add: {}, remove: {} }))
+    }
+    if (mapState.editorLayer === "path") {
+      return JSON.parse(JSON.stringify({
+        paths: mapState.pendingPathChanges || {},
+        layers: mapState.pendingPathLayerChanges || {},
+        selectedPathLayerId: mapState.selectedPathLayerId,
+        selectedPathId: mapState.selectedPathId,
+      }))
+    }
+    return null
+  },
+
+  _restoreActiveDraft(snapshot) {
+    if (mapState.editorLayer === "terrainOverlay") {
+      mapState.pendingTerrainOverlay = snapshot
+    } else if (mapState.editorLayer === "location") {
+      mapState.pendingLocationLayouts = snapshot?.layouts || {}
+      mapState.pendingBindings = snapshot?.bindings || {}
+      updateBindingPendingCount(Object.keys(mapState.pendingBindings).length)
+    } else if (mapState.editorLayer === "baseTerrain") {
+      mapState.pendingTerrainChanges = snapshot || {}
+      updatePendingCount(Object.keys(mapState.pendingTerrainChanges).length)
+    } else if (mapState.editorLayer === "territory") {
+      mapState.pendingTerritoryChanges = snapshot || { add: {}, remove: {} }
+    } else if (mapState.editorLayer === "path") {
+      mapState.pendingPathChanges = snapshot?.paths || {}
+      mapState.pendingPathLayerChanges = snapshot?.layers || {}
+      mapState.selectedPathLayerId = snapshot?.selectedPathLayerId || null
+      mapState.selectedPathId = snapshot?.selectedPathId || null
+      this._pathGeometryCache.clear()
+    }
+  },
+
+  _notifyEditingChanged() {
+    this._renderSubsetCache.clear()
+    const callback = this._mountContext?.onEditingChange
+    if (typeof callback === "function") {
+      callback({
+        editing: mapState.mode === "edit",
+        dirty: hasMapDraftChanges(),
+        editorLayer: mapState.editorLayer,
+      })
+    }
+  },
+
+  canLeave() {
+    return this._guardDirty()
+  },
+
+  selectInspectorObject(kind, item) {
+    if (!["fact", "observation", "path"].includes(kind) || !item) return
+    if (kind !== "path") this.clearPathFocus()
+    mapState.selectedMapObject = {
+      kind,
+      id: item.item_id || item.id || item.event_id || null,
+      data: item,
+    }
+  },
+
+  setTimelineProjection(projection = null) {
+    const nextSignature = projection ? timelineProjectionSignature(projection) : ""
+    if (nextSignature === this._timelineProjectionSignature && projection) return false
+    this._timelineProjection = projection
+    this._timelineProjectionSignature = nextSignature
+    this._renderSubsetCache.clear()
+    this._scheduleRedraw()
+    return true
+  },
+
+  clearTimelineProjection() {
+    return this.setTimelineProjection(null)
+  },
+
+  focusTimelineAnchor(anchor) {
+    const point = timelineAnchorPoint(anchor)
+    if (!point || !this._leaflet?.setView) return false
+    const size = this._state?.map?.hex_size || 30
+    const [x, y] = hexToPixel(point.q, point.r, size)
+    const currentZoom = Number(this._leaflet.getZoom?.() ?? 0)
+    this._leaflet.setView(window.L.latLng(-y, x), Math.max(1, currentZoom))
+    return true
+  },
+
+  timelineEntityOptions() {
+    return (this._allEntities || [])
+      .filter((item) => item?.id && item?.name)
+      .map((item) => ({ id: item.id, name: item.name, entityType: item.entity_type || null }))
+      .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"))
+  },
+
+  timelinePathOptions() {
+    return this._effectivePaths()
+      .filter((item) => item?.id && item?.name && item.status !== "archived")
+      .map((item) => ({ id: item.id, name: item.name, pathType: item.path_type || null }))
+      .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"))
+  },
+
+  focusPath(pathId, layerNodeId = null) {
+    const path = this._effectivePaths().find(
+      (item) => (item.id || item.client_id) === pathId,
+    )
+    if (!path) return false
+    const nodes = mapState.pendingLayerTree || this._layerTree?.nodes || []
+    const resolvedLayerNodeId = layerNodeId || this._layerNodeIdentity(
+      nodes.find((node) => (
+        node.path_layer_id === this._pathLayerId(path)
+        || node.path_layer_client_id === this._pathLayerId(path)
+      )),
+    )
+    this._mountContext = {
+      ...(this._mountContext || {}),
+      focusPathId: pathId,
+      focusLayerNodeId: resolvedLayerNodeId || null,
+    }
+    mapState.activeLayerChildIds = resolveLayerSelections({
+      nodes,
+      novelId: state.currentProjectId,
+      mapId: this._state?.map?.id,
+      focusNodeId: this._mountContext.focusLayerNodeId,
+      previous: mapState.activeLayerChildIds,
+    })
+    this._selectPath(path)
+    mapState.selectedMapObject = { kind: "path", id: pathId, data: path }
+    const point = representativePathPoint(path, this._pathState?.nodes || [])
+    if (point && this._leaflet?.setView) {
+      const [x, y] = hexToPixel(point.q, point.r, this._state?.map?.hex_size || 30)
+      this._leaflet.setView(window.L.latLng(-y, x), Math.max(1, this._leaflet.getZoom?.() || 0))
+    }
+    this._renderSubsetCache.clear()
+    this._scheduleRedraw()
+    return true
+  },
+
+  clearPathFocus({ preserveSelection = false } = {}) {
+    const focusedPathId = this._mountContext?.focusPathId || null
+    this._mountContext = {
+      ...(this._mountContext || {}),
+      focusPathId: null,
+      focusLayerNodeId: null,
+    }
+    if (!preserveSelection && (!focusedPathId || mapState.selectedPathId === focusedPathId)) {
+      mapState.selectedPathId = null
+      mapState.selectedPathNodeIndex = null
+    }
+    if (!preserveSelection && mapState.selectedMapObject?.kind === "path") {
+      mapState.selectedMapObject = null
+    }
+    this._renderSubsetCache.clear()
+    this._scheduleRedraw()
+  },
+
+  pathRevisionMismatch(anchor = {}) {
+    if (!anchor?.path_id || anchor.path_revision == null) return false
+    const path = this._effectivePaths().find(
+      (item) => (item.id || item.client_id) === anchor.path_id,
+    )
+    return path?.content_revision != null
+      && Number(path.content_revision) !== Number(anchor.path_revision)
+  },
+
+  _guardDirty() {
+    if (!hasMapDraftChanges() || this._ignoreDirtyGuard) return true
+    if (typeof window.confirm !== "function") return false
+    return window.confirm("地图仍有未保存修改，确定放弃并离开吗？")
+  },
+
+  _discardDrafts() {
+    mapState.pendingTerrainChanges = {}
+    mapState.pendingBindings = {}
+    mapState.pendingLocationLayouts = {}
+    mapState.pendingTerrainOverlay = null
+    mapState.pendingTerrainLayerDeletes = []
+    mapState.pendingMarkerChanges = {}
+    mapState.pendingLayerTree = null
+    mapState.pendingTerritoryChanges = { add: {}, remove: {} }
+    mapState.pendingPathChanges = {}
+    mapState.pendingPathLayerChanges = {}
+    mapState.editorHistory = {}
+    mapState.editorRedo = {}
+    if (this._state) {
+      this._state.markers = [...this._markerBaselineById.values()].map(
+        (marker) => ({ ...marker }),
+      )
+      this._rebuildIndexes()
+    }
+  },
+
+  _finalLocationBindingItems() {
+    const bindings = (this._state?.location_bindings || []).map((item) => ({ ...item }))
+    const layouts = new Map(
+      (this._state?.location_layouts || []).map((item) => [item.location_entity_id, item]),
+    )
+    for (const [locationId, next] of Object.entries(mapState.pendingLocationLayouts || {})) {
+      const previous = layouts.get(locationId)
+      if (!previous) continue
+      const deltaQ = next.center_hex_q - previous.center_hex_q
+      const deltaR = next.center_hex_r - previous.center_hex_r
+      for (const binding of bindings) {
+        if (binding.location_entity_id !== locationId) continue
+        binding.hex_q += deltaQ
+        binding.hex_r += deltaR
+      }
+    }
+    for (const change of Object.values(mapState.pendingBindings || {})) {
+      if (change.operation === "delete") {
+        const index = bindings.findIndex((item) => item.id === change.binding_id)
+        if (index >= 0) bindings.splice(index, 1)
+        continue
+      }
+      if (change.is_center) {
+        for (const binding of bindings) {
+          if (binding.location_entity_id === change.location_entity_id) {
+            binding.is_center = false
+          }
+        }
+      }
+      const existing = bindings.find((item) => (
+        item.location_entity_id === change.location_entity_id
+        && item.hex_q === change.hex_q
+        && item.hex_r === change.hex_r
+      ))
+      if (existing) Object.assign(existing, change)
+      else bindings.push({ ...change })
+    }
+    const grouped = new Map()
+    for (const binding of bindings) {
+      if (!grouped.has(binding.location_entity_id)) grouped.set(binding.location_entity_id, [])
+      grouped.get(binding.location_entity_id).push({
+        hex_q: binding.hex_q,
+        hex_r: binding.hex_r,
+        is_center: Boolean(binding.is_center),
+        label_override: binding.label_override || null,
+        style_override: binding.style_override || {},
+      })
+    }
+    return [...grouped.entries()].map(([location_entity_id, hexes]) => ({
+      location_entity_id,
+      hexes,
+    }))
+  },
+
+  _normalizedLocationLayouts(layouts) {
+    return (layouts || []).map((layout) => ({
+      location_entity_id: layout.location_entity_id,
+      center_hex_q: layout.center_hex_q,
+      center_hex_r: layout.center_hex_r,
+      occupy_radius: layout.occupy_radius || 1,
+      locked: Boolean(layout.locked),
+      layout_source: layout.layout_source || "user_drag",
+      layout_version: layout.layout_version || 1,
+      sync_geo_setting: Boolean(layout.sync_geo_setting),
+      meta: layout.meta || {},
+    })).sort((a, b) => String(a.location_entity_id).localeCompare(String(b.location_entity_id)))
+  },
+
+  _normalizedLocationBindingItems(items) {
+    return (items || []).map((item) => ({
+      location_entity_id: item.location_entity_id,
+      hexes: (item.hexes || []).map((hex) => ({
+        hex_q: hex.hex_q,
+        hex_r: hex.hex_r,
+        is_center: Boolean(hex.is_center),
+        label_override: hex.label_override || null,
+        style_override: hex.style_override || {},
+      })).sort((a, b) => (
+        a.hex_q - b.hex_q
+        || a.hex_r - b.hex_r
+        || Number(a.is_center) - Number(b.is_center)
+      )),
+    })).sort((a, b) => String(a.location_entity_id).localeCompare(String(b.location_entity_id)))
+  },
+
+  _persistedLocationBindingItems() {
+    const grouped = new Map()
+    for (const binding of this._state?.location_bindings || []) {
+      if (!grouped.has(binding.location_entity_id)) grouped.set(binding.location_entity_id, [])
+      grouped.get(binding.location_entity_id).push(binding)
+    }
+    return [...grouped.entries()].map(([location_entity_id, hexes]) => ({
+      location_entity_id,
+      hexes,
+    }))
+  },
+
+  _layerTreeCommandNodes({ includePendingResources = false } = {}) {
+    let sourceNodes = (mapState.pendingLayerTree || []).map((node) => ({ ...node }))
+    if (includePendingResources) {
+      const deletedTerrainIds = new Set(mapState.pendingTerrainLayerDeletes || [])
+      const deletedPathIds = new Set(
+        Object.values(mapState.pendingPathLayerChanges || {})
+          .filter((change) => change.operation === "delete")
+          .map((change) => change.id),
+      )
+      sourceNodes = sourceNodes.filter((node) => (
+        !deletedTerrainIds.has(node.terrain_layer_id)
+        && !deletedPathIds.has(node.path_layer_id)
+      ))
+
+      const appendResourceLeaf = ({
+        parentKey,
+        clientId,
+        resourceClientField,
+        resourceClientId,
+        name,
+        visible = true,
+        locked = false,
+        opacity = 1,
+      }) => {
+        const alreadyPresent = sourceNodes.some(
+          (node) => node[resourceClientField] === resourceClientId,
+        )
+        if (alreadyPresent) return
+        const parent = sourceNodes.find((node) => node.layer_key === parentKey)
+        if (!parent) return
+        const parentIdentity = this._layerNodeIdentity(parent)
+        const siblings = sourceNodes.filter(
+          (node) => (node.parent_id || node.parent_client_id || null) === parentIdentity,
+        )
+        const usedFloorLevels = new Set(
+          siblings
+            .map((node) => node.floor_level)
+            .filter((level) => level != null)
+            .map(Number),
+        )
+        const floorLevel = parent.selection_mode === "floor"
+          ? Array.from({ length: 2001 }, (_, index) => (
+            index === 0 ? 0 : index % 2 ? (index + 1) / 2 : -(index / 2)
+          )).find((level) => !usedFloorLevels.has(level))
+          : null
+        sourceNodes.push({
+          client_id: clientId,
+          ...(parent.id ? { parent_id: parent.id } : { parent_client_id: parent.client_id }),
+          [resourceClientField]: resourceClientId,
+          node_type: "leaf",
+          layer_key: null,
+          name,
+          visible,
+          locked,
+          opacity,
+          sort_order: siblings.length
+            ? Math.max(...siblings.map((node) => Number(node.sort_order || 0))) + 1
+            : 0,
+          min_zoom: null,
+          max_zoom: null,
+          selection_mode: "normal",
+          floor_level: floorLevel ?? null,
+          meta: {},
+        })
+      }
+
+      const terrainDraft = mapState.pendingTerrainOverlay
+      if (terrainDraft?.layerCreate) {
+        terrainDraft.leafClientId ||= crypto.randomUUID()
+        appendResourceLeaf({
+          parentKey: "terrainOverlay",
+          clientId: terrainDraft.leafClientId,
+          resourceClientField: "terrain_layer_client_id",
+          resourceClientId: terrainDraft.clientId,
+          name: terrainDraft.layerCreate.name,
+          visible: terrainDraft.layerCreate.visible !== false,
+          locked: Boolean(terrainDraft.layerCreate.locked),
+          opacity: Number(terrainDraft.layerCreate.opacity ?? 1),
+        })
+      }
+      for (const change of Object.values(mapState.pendingPathLayerChanges || {})) {
+        if (change.operation !== "create") continue
+        appendResourceLeaf({
+          parentKey: "path",
+          clientId: change.leaf_client_id,
+          resourceClientField: "path_layer_client_id",
+          resourceClientId: change.client_id,
+          name: change.data.display_name,
+        })
+      }
+    }
+    return sourceNodes.map((node) => ({
+      ...(node.id ? { id: node.id } : { client_id: node.client_id }),
+      ...(node.parent_id ? { parent_id: node.parent_id } : {}),
+      ...(node.parent_client_id ? { parent_client_id: node.parent_client_id } : {}),
+      ...(node.terrain_layer_id ? { terrain_layer_id: node.terrain_layer_id } : {}),
+      ...(node.terrain_layer_client_id
+        ? { terrain_layer_client_id: node.terrain_layer_client_id }
+        : {}),
+      ...(node.path_layer_id ? { path_layer_id: node.path_layer_id } : {}),
+      ...(node.path_layer_client_id
+        ? { path_layer_client_id: node.path_layer_client_id }
+        : {}),
+      node_type: node.node_type,
+      layer_key: node.layer_key || null,
+      name: node.name,
+      visible: node.visible !== false,
+      locked: Boolean(node.locked),
+      opacity: Number(node.opacity ?? 1),
+      sort_order: Number(node.sort_order || 0),
+      min_zoom: node.min_zoom ?? null,
+      max_zoom: node.max_zoom ?? null,
+      selection_mode: node.selection_mode || "normal",
+      floor_level: node.floor_level ?? null,
+      meta: node.meta || {},
+    }))
+  },
+
+  _reconcilePendingLayerTreeAfterPathLayerApply(commands, clientIdMap = {}) {
+    if (!mapState.pendingLayerTree) return
+    const pathCommands = (commands || []).filter(
+      (command) => ["path_layer_create", "path_layer_delete"].includes(command.type),
+    )
+    if (!pathCommands.length) return
+
+    let nodes = mapState.pendingLayerTree.map((node) => ({ ...node }))
+    nodes = nodes.map((node) => {
+      const next = { ...node }
+      if (next.client_id && clientIdMap[next.client_id]) {
+        next.id = clientIdMap[next.client_id]
+        delete next.client_id
+      }
+      if (next.parent_client_id && clientIdMap[next.parent_client_id]) {
+        next.parent_id = clientIdMap[next.parent_client_id]
+        delete next.parent_client_id
+      }
+      if (next.path_layer_client_id && clientIdMap[next.path_layer_client_id]) {
+        next.path_layer_id = clientIdMap[next.path_layer_client_id]
+        delete next.path_layer_client_id
+      }
+      return next
+    })
+
+    for (const command of pathCommands) {
+      if (command.type === "path_layer_delete") {
+        const layerId = command.ref?.id || clientIdMap[command.ref?.client_id]
+        nodes = nodes.filter((node) => node.path_layer_id !== layerId)
+        continue
+      }
+      const layerId = clientIdMap[command.client_id]
+      const leafId = clientIdMap[command.leaf_client_id]
+      if (!layerId || nodes.some((node) => node.path_layer_id === layerId)) continue
+      const persistedLeaf = (this._layerTree?.nodes || []).find(
+        (node) => node.id === leafId || node.path_layer_id === layerId,
+      )
+      const parent = nodes.find((node) => node.layer_key === "path")
+      if (!persistedLeaf || !parent) {
+        mapState.layerTreeBaselineStale = true
+        continue
+      }
+      const parentIdentity = this._layerNodeIdentity(parent)
+      const siblings = nodes.filter(
+        (node) => (node.parent_id || node.parent_client_id || null) === parentIdentity,
+      )
+      nodes.push({
+        ...persistedLeaf,
+        parent_id: parent.id || null,
+        parent_client_id: parent.client_id || null,
+        sort_order: siblings.length
+          ? Math.max(...siblings.map((node) => Number(node.sort_order || 0))) + 1
+          : 0,
+      })
+    }
+    mapState.pendingLayerTree = nodes
+    this._refreshLayerTreeDraft()
+  },
+
+  _baseTerrainCommandChanges() {
+    return Object.values(mapState.pendingTerrainChanges || {}).filter((change) => {
+      const persisted = this._tileByHex.get(`${change.hex_q},${change.hex_r}`)
+        || (this._state?.tiles || []).find((item) => (
+          item.hex_q === change.hex_q && item.hex_r === change.hex_r
+        ))
+      if (!persisted) return true
+      return persisted.terrain_type !== change.terrain_type
+        || Number(persisted.elevation || 0) !== Number(change.elevation || 0)
+    })
+  },
+
+  _territoryCommandHexes(factionId, draft) {
+    const byHex = new Map()
+    for (const item of this._state?.territories || []) {
+      if (item.faction_entity_id !== factionId || draft.remove?.[item.id]) continue
+      byHex.set(`${item.hex_q},${item.hex_r}`, {
+        hex_q: item.hex_q,
+        hex_r: item.hex_r,
+        style_override: item.style_override || {},
+      })
+    }
+    for (const item of Object.values(draft.add || {})) {
+      if (item.faction_entity_id !== factionId) continue
+      byHex.set(`${item.hex_q},${item.hex_r}`, {
+        hex_q: item.hex_q,
+        hex_r: item.hex_r,
+        style_override: item.style_override || {},
+      })
+    }
+    return [...byHex.values()]
+  },
+
+  _territoryHexesChanged(factionId, hexes) {
+    const persisted = (this._state?.territories || [])
+      .filter((item) => item.faction_entity_id === factionId)
+      .map((item) => `${item.hex_q},${item.hex_r}:${JSON.stringify(item.style_override || {})}`)
+      .sort()
+    const next = hexes
+      .map((item) => `${item.hex_q},${item.hex_r}:${JSON.stringify(item.style_override || {})}`)
+      .sort()
+    return persisted.length !== next.length || persisted.some((value, index) => value !== next[index])
+  },
+
+  _buildEditorCommands({ onlyLayer = false, onlyLayerTree = false } = {}) {
+    const activeLayer = mapState.editorLayer
+    const include = (layer) => !onlyLayerTree && (!onlyLayer || activeLayer === layer)
+    const commands = []
+    const terrainChanges = include("baseTerrain") ? this._baseTerrainCommandChanges() : []
+    if (terrainChanges.length) {
+      commands.push({
+        type: "base_terrain_replace",
+        changes: terrainChanges,
+      })
+    }
+    if (include("location")) {
+      const hasLayouts = Object.keys(mapState.pendingLocationLayouts).length > 0
+      const hasBindings = Object.keys(mapState.pendingBindings).length > 0
+      const layouts = this._normalizedLocationLayouts(this._effectiveLocationLayouts())
+      const layoutsChanged = hasLayouts && JSON.stringify(layouts) !== JSON.stringify(
+        this._normalizedLocationLayouts(this._state?.location_layouts),
+      )
+      const bindingItems = this._normalizedLocationBindingItems(this._finalLocationBindingItems())
+      const bindingsChanged = hasBindings && JSON.stringify(bindingItems) !== JSON.stringify(
+        this._normalizedLocationBindingItems(this._persistedLocationBindingItems()),
+      )
+      if (layoutsChanged) {
+        commands.push({
+          type: "location_layout_replace",
+          layouts,
+          sync_bindings: !bindingsChanged,
+        })
+      }
+      if (bindingsChanged) {
+        commands.push({
+          type: "location_binding_replace",
+          items: bindingItems,
+        })
+      }
+    }
+    if (include("terrainOverlay")) {
+      const draft = mapState.pendingTerrainOverlay
+      if (draft?.layerCreate) {
+        commands.push({
+          type: "terrain_layer_create",
+          client_id: draft.clientId,
+          data: { ...draft.layerCreate, ...(draft.layerUpdate || {}) },
+        })
+      } else if (draft?.layerUpdate) {
+        commands.push({
+          type: "terrain_layer_update",
+          ref: { id: draft.layerId },
+          data: draft.layerUpdate,
+        })
+      }
+      for (const layerId of mapState.pendingTerrainLayerDeletes || []) {
+        commands.push({ type: "terrain_layer_delete", ref: { id: layerId } })
+      }
+      if (draft) {
+        commands.push({
+          type: "terrain_patch_replace",
+          layer_ref: draft.layerCreate
+            ? { client_id: draft.clientId }
+            : { id: draft.layerId },
+          data: {
+            regions: draft.regions.map((region) => ({
+              id: region.id,
+              layer_id: draft.layerId,
+              name: region.name || "手绘区域",
+              region_status: region.region_status || "active",
+              meta: region.meta || {},
+            })),
+            patches: draft.patches.map((patch) => ({
+              region_id: patch.region_id,
+              hex_q: patch.hex_q,
+              hex_r: patch.hex_r,
+              strength: patch.strength ?? 1,
+              brush_source: patch.brush_source || mapState.overlayTool,
+            })),
+          },
+        })
+      }
+    }
+    if (include("path")) {
+      for (const change of Object.values(mapState.pendingPathLayerChanges || {})) {
+        if (change.operation === "create") {
+          commands.push({
+            type: "path_layer_create",
+            client_id: change.client_id,
+            leaf_client_id: change.leaf_client_id,
+            display_name: change.data.display_name,
+            category: change.data.category,
+            meta: change.data.meta || {},
+          })
+        } else if (change.operation === "delete") {
+          commands.push({ type: "path_layer_delete", ref: { id: change.id } })
+        }
+      }
+      for (const change of Object.values(mapState.pendingPathChanges || {})) {
+        if (change.operation === "create") {
+          const { path_layer_id: layerId, nodes = [], ...data } = change.data
+          commands.push({
+            type: "path_create",
+            client_id: change.client_id,
+            data: {
+              ...data,
+              layer_ref: mapState.pendingPathLayerChanges[layerId]?.operation === "create"
+                ? { client_id: layerId }
+                : { id: layerId },
+              nodes: nodes.map(({ q, r, width_scale, tension, segment_type }) => ({
+                q, r, width_scale, tension, ...(segment_type ? { segment_type } : {}),
+              })),
+            },
+          })
+        } else if (change.operation === "update") {
+          const { path_layer_id: layerId, nodes, ...data } = change.data || {}
+          commands.push({
+            type: "path_update",
+            ref: { id: change.id },
+            data: {
+              ...data,
+              ...(layerId ? {
+                layer_ref: mapState.pendingPathLayerChanges[layerId]?.operation === "create"
+                  ? { client_id: layerId }
+                  : { id: layerId },
+              } : {}),
+              ...(nodes ? {
+                nodes: nodes.map(({ q, r, width_scale, tension, segment_type }) => ({
+                  q, r, width_scale, tension, ...(segment_type ? { segment_type } : {}),
+                })),
+              } : {}),
+            },
+          })
+        } else if (["archive", "restore"].includes(change.operation)) {
+          commands.push({ type: `path_${change.operation}`, ref: { id: change.id } })
+        }
+      }
+    }
+    if (mapState.pendingLayerTree && (onlyLayerTree || !onlyLayer)) {
+      commands.push({
+        type: "layer_tree_replace",
+        nodes: this._layerTreeCommandNodes({
+          includePendingResources: !onlyLayerTree && !onlyLayer,
+        }),
+      })
+    }
+    if (include("marker")) {
+      for (const change of Object.values(mapState.pendingMarkerChanges || {})) {
+        if (change.operation === "create") {
+          commands.push({
+            type: "marker_create",
+            client_id: change.client_id,
+            data: change.data,
+          })
+        } else if (change.operation === "update") {
+          commands.push({
+            type: "marker_update",
+            ref: { id: change.id },
+            data: change.data,
+          })
+        } else if (change.operation === "delete") {
+          commands.push({ type: "marker_delete", ref: { id: change.id } })
+        }
+      }
+    }
+    if (include("territory")) {
+      const draft = mapState.pendingTerritoryChanges || { add: {}, remove: {} }
+      const affected = new Set(
+        Object.values(draft.add || {}).map((item) => item.faction_entity_id),
+      )
+      const byId = new Map((this._state?.territories || []).map((item) => [item.id, item]))
+      for (const territoryId of Object.keys(draft.remove || {})) {
+        const persisted = byId.get(territoryId)
+        if (persisted) affected.add(persisted.faction_entity_id)
+      }
+      for (const factionId of affected) {
+        const hexes = this._territoryCommandHexes(factionId, draft)
+        if (!this._territoryHexesChanged(factionId, hexes)) continue
+        commands.push({
+          type: "territory_replace",
+          faction_entity_id: factionId,
+          hexes,
+        })
+      }
+    }
+    return commands
+  },
+
+  _editorCommandLimitError(commands) {
+    if (commands.length > MAP_EDITOR_COMMAND_LIMIT) {
+      return `单次最多应用 ${MAP_EDITOR_COMMAND_LIMIT} 个编辑命令，请减少本次变更`
+    }
+    let changedPathNodes = 0
+    for (const command of commands) {
+      if (command.type === "base_terrain_replace" && command.changes.length > MAP_TILE_BATCH_LIMIT) {
+        return `单次最多应用 ${MAP_TILE_BATCH_LIMIT} 个地形变更，请撤销部分变更后分批保存`
+      }
+      if (command.type === "location_layout_replace" && command.layouts.length > MAP_LOCATION_ITEM_LIMIT) {
+        return `单次最多应用 ${MAP_LOCATION_ITEM_LIMIT} 个地点布局，请减少本次变更`
+      }
+      if (command.type === "location_binding_replace") {
+        if (command.items.length > MAP_LOCATION_ITEM_LIMIT) {
+          return `单次最多应用 ${MAP_LOCATION_ITEM_LIMIT} 个地点绑定组，请减少本次变更`
+        }
+        if (command.items.some((item) => item.hexes.length > MAP_LOCATION_BINDING_HEX_LIMIT)) {
+          return `单个地点单次最多绑定 ${MAP_LOCATION_BINDING_HEX_LIMIT} 个地图格，请减少选中范围`
+        }
+      }
+      if (command.type === "terrain_patch_replace") {
+        if (command.data.regions.length > MAP_TERRAIN_REGION_LIMIT) {
+          return `单个覆盖图层最多包含 ${MAP_TERRAIN_REGION_LIMIT} 个区域，请减少本次变更`
+        }
+        if (command.data.patches.length > MAP_TERRAIN_PATCH_LIMIT) {
+          return `单个覆盖图层最多包含 ${MAP_TERRAIN_PATCH_LIMIT} 个覆盖格，请减少本次变更`
+        }
+      }
+      if (command.type === "territory_replace" && command.hexes.length > MAP_TERRITORY_HEX_LIMIT) {
+        return `单个阵营单次最多应用 ${MAP_TERRITORY_HEX_LIMIT} 个领地格，请减少选中范围`
+      }
+      if (["path_create", "path_update"].includes(command.type) && command.data.nodes) {
+        changedPathNodes += command.data.nodes.length
+        if (command.data.nodes.length > MAP_PATH_NODE_LIMIT) {
+          return `每条线路最多包含 ${MAP_PATH_NODE_LIMIT} 个节点`
+        }
+      }
+      if (command.type === "layer_tree_replace") {
+        if (!command.nodes.length) return "图层树至少需要保留一个图层节点"
+        if (command.nodes.length > MAP_LAYER_NODE_LIMIT) {
+          return `图层树最多包含 ${MAP_LAYER_NODE_LIMIT} 个节点，请减少本次变更`
+        }
+      }
+    }
+    if (changedPathNodes > MAP_PATH_BATCH_NODE_LIMIT) {
+      return `单批最多变更 ${MAP_PATH_BATCH_NODE_LIMIT} 个线路节点，请分批保存`
+    }
+    return null
+  },
+
+  _clearAppliedDrafts({ onlyLayer = false, onlyLayerTree = false } = {}) {
+    const active = mapState.editorLayer
+    const clear = (layer) => !onlyLayerTree && (!onlyLayer || active === layer)
+    if (clear("baseTerrain")) mapState.pendingTerrainChanges = {}
+    if (clear("location")) {
+      mapState.pendingBindings = {}
+      mapState.pendingLocationLayouts = {}
+    }
+    if (clear("terrainOverlay")) {
+      mapState.pendingTerrainOverlay = null
+      mapState.pendingTerrainLayerDeletes = []
+    }
+    if (clear("marker")) mapState.pendingMarkerChanges = {}
+    if (clear("territory")) {
+      mapState.pendingTerritoryChanges = { add: {}, remove: {} }
+    }
+    if (clear("path")) {
+      mapState.pendingPathChanges = {}
+      mapState.pendingPathLayerChanges = {}
+    }
+    if (onlyLayerTree || !onlyLayer) {
+      mapState.pendingLayerTree = null
+      mapState.layerTreeBaselineStale = false
+    }
+    if (onlyLayerTree) {
+      mapState.editorHistory.layerTree = []
+      mapState.editorRedo.layerTree = []
+    } else if (!onlyLayer) {
+      mapState.editorHistory = {}
+      mapState.editorRedo = {}
+    } else {
+      mapState.editorHistory[active] = []
+      mapState.editorRedo[active] = []
+    }
+  },
+
+  async _applyAllChanges({ onlyLayer = false, onlyLayerTree = false } = {}) {
+    const commands = this._buildEditorCommands({ onlyLayer, onlyLayerTree })
+    if (!commands.length) {
+      toast("没有待应用的变更", "info")
+      return true
+    }
+    const limitError = this._editorCommandLimitError(commands)
+    if (limitError) {
+      toast(limitError, "error")
+      return false
+    }
+    const applyingMarkers = commands.some((command) => command.type.startsWith("marker_"))
+    const lifecycleEpoch = this._lifecycleEpoch
+    const mountContext = this._mountContext
+    const mapId = this._state?.map?.id
+    if (!mapId) return false
+    try {
+      const result = await api.world.applyMapEditor(mapId, {
+        expected_revision: Number(this._state.map.editor_revision || 0),
+        commands,
+      }, state.currentProjectId)
+      if (!this._isLifecycleCurrent(lifecycleEpoch, mountContext)) return true
+      this._state.map.editor_revision = result.editor_revision
+      const clientIdMap = result.client_id_map || {}
+      mapState.selectedTerrainLayerId = clientIdMap[mapState.selectedTerrainLayerId]
+        || mapState.selectedTerrainLayerId
+      mapState.selectedPathLayerId = clientIdMap[mapState.selectedPathLayerId]
+        || mapState.selectedPathLayerId
+      mapState.selectedPathId = clientIdMap[mapState.selectedPathId]
+        || mapState.selectedPathId
+      this._clearAppliedDrafts({ onlyLayer, onlyLayerTree })
+      await this._reloadMapStatePreservingSession(
+        mapId,
+        mapState.currentSceneId,
+        { preserveMarkers: !applyingMarkers },
+      )
+      if (!this._isLifecycleCurrent(lifecycleEpoch, mountContext)) return true
+      await this._loadLayerTree()
+      if (!this._isLifecycleCurrent(lifecycleEpoch, mountContext)) return true
+      this._reconcilePendingLayerTreeAfterPathLayerApply(commands, clientIdMap)
+      await this._loadPaths()
+      if (!this._isLifecycleCurrent(lifecycleEpoch, mountContext)) return true
+      updatePendingCount(Object.keys(mapState.pendingTerrainChanges).length)
+      updateBindingPendingCount(Object.keys(mapState.pendingBindings).length)
+      this._notifyEditingChanged()
+      if (mapState.mode === "edit") this._rerenderEditor()
+      else this._redraw()
+      toast(`已原子应用 ${commands.length} 个编辑命令`, "success")
+      return true
+    } catch (err) {
+      if (!this._isLifecycleCurrent(lifecycleEpoch, mountContext)) return false
+      const conflictCode = err.body?.error || err.body?.code
+      if (err.status === 409 && conflictCode === "map_editor_revision_conflict") {
+        await this._reloadMapStatePreservingSession(
+          this._state.map.id,
+          mapState.currentSceneId,
+        )
+        await this._loadLayerTree()
+        await this._loadPaths()
+        if (mapState.pendingLayerTree) mapState.layerTreeBaselineStale = true
+        this._redraw()
+        const current = this._state?.map?.editor_revision
+        toast(`地图已有新版本${current != null ? `（revision ${current}）` : ""}，已刷新基线，草稿已保留；检查后可再次应用`, "warning")
+      } else {
+        toast(`应用失败：${err.message}`, "error")
+      }
+      return false
     }
   },
 
@@ -1531,8 +5005,10 @@ const mapView = {
   async _applyBindings() {
     const bindings = Object.values(mapState.pendingBindings)
     if (bindings.length === 0) return
+    const deletions = bindings.filter((binding) => binding.operation === "delete")
+    const additions = bindings.filter((binding) => binding.operation !== "delete")
     const byEntity = {}
-    for (const b of bindings) {
+    for (const b of additions) {
       if (!byEntity[b.location_entity_id]) byEntity[b.location_entity_id] = []
       byEntity[b.location_entity_id].push({ hex_q: b.hex_q, hex_r: b.hex_r, is_center: b.is_center })
     }
@@ -1542,6 +5018,13 @@ const mapView = {
       throw new Error(`单个地点单次最多绑定 ${MAP_LOCATION_BINDING_HEX_LIMIT} 个地图格，请减少选中范围`)
     }
     try {
+      for (const binding of deletions) {
+        await api.world.deleteLocationBinding(
+          this._state.map.id,
+          binding.binding_id,
+          state.currentProjectId,
+        )
+      }
       for (const [entityId, hexes] of Object.entries(byEntity)) {
         await api.world.createLocationBindings(
           this._state.map.id,
@@ -1557,13 +5040,316 @@ const mapView = {
     }
   },
 
+  async _applyLocationLayouts() {
+    const layouts = this._effectiveLocationLayouts().map((layout) => ({
+      location_entity_id: layout.location_entity_id,
+      center_hex_q: layout.center_hex_q,
+      center_hex_r: layout.center_hex_r,
+      occupy_radius: layout.occupy_radius || 1,
+      locked: Boolean(layout.locked),
+      layout_source: layout.layout_source || "user_drag",
+      layout_version: layout.layout_version || 1,
+      sync_geo_setting: Boolean(layout.sync_geo_setting),
+      meta: layout.meta || {},
+    }))
+    await api.world.replaceLocationLayouts(this._state.map.id, {
+      layouts,
+      sync_bindings: true,
+    }, state.currentProjectId)
+    mapState.pendingLocationLayouts = {}
+  },
+
+  async _applyTerrainOverlay() {
+    const draft = mapState.pendingTerrainOverlay
+    if (!draft) return
+    if (draft.layerUpdate) {
+      await api.world.updateTerrainLayer(
+        this._state.map.id,
+        draft.layerId,
+        draft.layerUpdate,
+        state.currentProjectId,
+      )
+    }
+    await api.world.replaceTerrainLayerPatches(this._state.map.id, draft.layerId, {
+      regions: draft.regions.map((region) => ({
+        id: region.id,
+        layer_id: draft.layerId,
+        name: region.name || "手绘区域",
+        region_status: region.region_status || "active",
+        meta: region.meta || {},
+      })),
+      patches: draft.patches.map((patch) => ({
+        region_id: patch.region_id,
+        hex_q: patch.hex_q,
+        hex_r: patch.hex_r,
+        strength: patch.strength ?? 1,
+        brush_source: patch.brush_source || mapState.overlayTool,
+      })),
+    }, state.currentProjectId)
+    mapState.pendingTerrainOverlay = null
+  },
+
+  async _applyTerritoryChanges() {
+    const draft = mapState.pendingTerritoryChanges
+    const additionsByFaction = {}
+    for (const item of Object.values(draft.add || {})) {
+      if (!additionsByFaction[item.faction_entity_id]) additionsByFaction[item.faction_entity_id] = []
+      additionsByFaction[item.faction_entity_id].push({ hex_q: item.hex_q, hex_r: item.hex_r })
+    }
+    for (const [factionId, hexes] of Object.entries(additionsByFaction)) {
+      await api.world.createTerritories(
+        this._state.map.id,
+        { faction_entity_id: factionId, hexes },
+        state.currentProjectId,
+      )
+    }
+    for (const territoryId of Object.keys(draft.remove || {})) {
+      await api.world.deleteMapTerritory(
+        this._state.map.id,
+        territoryId,
+        state.currentProjectId,
+      )
+    }
+    mapState.pendingTerritoryChanges = { add: {}, remove: {} }
+  },
+
+  _ensureOverlayDraft() {
+    const layerId = mapState.selectedTerrainLayerId
+    const layer = (this._state?.terrain_layers || []).find((item) => item.id === layerId)
+    if (!layer) {
+      toast("请先新建或选择覆盖图层", "warning")
+      return null
+    }
+    if (this._effectiveLayerNode({ terrainLayerId: layerId }).locked) {
+      toast("覆盖图层受自身或父组锁定，请先在图层树中解锁", "warning")
+      return null
+    }
+    if (mapState.pendingTerrainOverlay?.layerId === layerId) {
+      mapState.pendingTerrainOverlay.layerUpdate = {
+        terrain_asset_key: mapState.selectedTerrainAssetKey,
+        meta: {
+          ...(layer.meta || {}),
+          pack_key: getTerrainAsset(mapState.selectedTerrainAssetKey).pack_key,
+          preset_key: mapState.selectedTerrainPreset,
+        },
+      }
+      return mapState.pendingTerrainOverlay
+    }
+    let regions = (this._state.terrain_regions || [])
+      .filter((region) => region.layer_id === layerId)
+      .map((region) => ({ ...region }))
+    if (!regions.length) {
+      regions = [{
+        id: crypto.randomUUID(),
+        layer_id: layerId,
+        name: "手绘区域",
+        region_status: "active",
+        meta: {},
+      }]
+    }
+    mapState.pendingTerrainOverlay = {
+      layerId,
+      regions,
+      patches: (this._state.terrain_patches || [])
+        .filter((patch) => patch.layer_id === layerId)
+        .map((patch) => ({ ...patch })),
+      layerUpdate: {
+        terrain_asset_key: mapState.selectedTerrainAssetKey,
+        meta: {
+          ...(layer.meta || {}),
+          pack_key: getTerrainAsset(mapState.selectedTerrainAssetKey).pack_key,
+          preset_key: mapState.selectedTerrainPreset,
+        },
+      },
+    }
+    return mapState.pendingTerrainOverlay
+  },
+
+  _stageOverlayBrush(q, r) {
+    const draft = this._ensureOverlayDraft()
+    if (!draft) return
+    const regionId = draft.regions[0].id
+    const radius = Math.max(1, Number(mapState.overlayBrushSize || 1)) - 1
+    const cfg = this._state.map
+    const cells = []
+    for (let dq = -radius; dq <= radius; dq += 1) {
+      for (let dr = -radius; dr <= radius; dr += 1) {
+        if (Math.max(Math.abs(dq), Math.abs(dr), Math.abs(dq + dr)) > radius) continue
+        const hexQ = q + dq
+        const hexR = r + dr
+        if (hexQ >= 0 && hexQ < cfg.grid_width && hexR >= 0 && hexR < cfg.grid_height) {
+          cells.push([hexQ, hexR])
+        }
+      }
+    }
+    const keys = new Set(cells.map(([hexQ, hexR]) => `${hexQ},${hexR}`))
+    if (mapState.overlayTool === "eraser") {
+      draft.patches = draft.patches.filter((patch) => !keys.has(`${patch.hex_q},${patch.hex_r}`))
+    } else {
+      const existing = new Set(draft.patches.map((patch) => `${patch.hex_q},${patch.hex_r}`))
+      for (const [hexQ, hexR] of cells) {
+        const key = `${hexQ},${hexR}`
+        if (existing.has(key)) continue
+        draft.patches.push({
+          layer_id: draft.layerId,
+          region_id: regionId,
+          hex_q: hexQ,
+          hex_r: hexR,
+          strength: 1,
+          brush_source: "brush",
+        })
+      }
+    }
+    this._notifyEditingChanged()
+  },
+
+  _handleOverlayBucket(q, r) {
+    const draft = this._ensureOverlayDraft()
+    if (!draft) return
+    const target = this._tileAt(q, r)?.terrain_type
+    if (!target) return
+    const changes = floodFillTerrain(
+      q,
+      r,
+      target,
+      target,
+      (hexQ, hexR) => this._tileAt(hexQ, hexR)?.terrain_type || null,
+    ).slice(0, 20000)
+    const regionId = draft.regions[0].id
+    const keys = new Set(changes.map((item) => `${item.hex_q},${item.hex_r}`))
+    const before = this._snapshotActiveDraft()
+    if (mapState.overlayTool === "eraser") {
+      draft.patches = draft.patches.filter((patch) => !keys.has(`${patch.hex_q},${patch.hex_r}`))
+    } else {
+      const existing = new Set(draft.patches.map((patch) => `${patch.hex_q},${patch.hex_r}`))
+      for (const item of changes) {
+        const key = `${item.hex_q},${item.hex_r}`
+        if (existing.has(key)) continue
+        draft.patches.push({
+          layer_id: draft.layerId,
+          region_id: regionId,
+          hex_q: item.hex_q,
+          hex_r: item.hex_r,
+          strength: 1,
+          brush_source: "bucket",
+        })
+      }
+    }
+    recordEditorCommand("terrainOverlay", { kind: "draft", before, after: this._snapshotActiveDraft() })
+    this._notifyEditingChanged()
+    this._redraw()
+  },
+
+  _showOverlayLayerCreate() {
+    if (this._effectiveLayerNode({ layerKey: "terrainOverlay" }).locked) {
+      toast("覆盖素材组受自身或父组锁定，请先在图层树中解锁", "warning")
+      return
+    }
+    const layerId = crypto.randomUUID()
+    const regionId = crypto.randomUUID()
+    const asset = getTerrainAsset(mapState.selectedTerrainAssetKey)
+    const form = `<div class="form-group"><label>图层名称</label><input id="map-overlay-new-name" class="form-input" value="${esc(asset.label)}层" /></div>`
+    showModalHtml("新建覆盖素材图层", form, [{
+      text: "创建",
+      class: "btn-primary",
+      handler: () => {
+        const name = document.getElementById("map-overlay-new-name")?.value?.trim() || `${asset.label}层`
+        const layerCreate = {
+          name,
+          terrain_asset_key: asset.asset_key,
+          opacity: asset.default_opacity,
+          z_index: 10 + (this._state.terrain_layers || []).length,
+          visible: true,
+          locked: false,
+          meta: { pack_key: asset.pack_key, preset_key: mapState.selectedTerrainPreset },
+        }
+        this._state.terrain_layers = [
+          ...(this._state.terrain_layers || []),
+          { id: layerId, map_id: this._state.map.id, ...layerCreate, __draft: true },
+        ]
+        mapState.pendingTerrainOverlay = {
+          layerId,
+          clientId: layerId,
+          leafClientId: crypto.randomUUID(),
+          layerCreate,
+          layerUpdate: null,
+          regions: [{
+            id: regionId,
+            layer_id: layerId,
+            name: `${name}区域`,
+            region_status: "active",
+            meta: {},
+          }],
+          patches: [],
+        }
+        closeModal()
+        mapState.selectedTerrainLayerId = layerId
+        this._notifyEditingChanged()
+        this._rerenderEditor()
+      },
+    }])
+  },
+
+  _showOverlayLayerSettings() {
+    const layer = (this._state?.terrain_layers || []).find((item) => item.id === mapState.selectedTerrainLayerId)
+    if (!layer) return
+    if (!this._guardEditorLayerWritable("terrainOverlay")) return
+    const form = `<div class="form-group"><label>名称</label><input id="map-overlay-edit-name" class="form-input" value="${esc(layer.name)}" /></div><div class="form-group"><label>透明度</label><input id="map-overlay-edit-opacity" class="form-input" type="number" min="0" max="1" step="0.05" value="${Number(layer.opacity)}" /></div><div class="form-group"><label>层级</label><input id="map-overlay-edit-z" class="form-input" type="number" value="${Number(layer.z_index)}" /></div><label class="map-checkbox"><input id="map-overlay-edit-visible" type="checkbox" ${layer.visible ? "checked" : ""}/> 显示</label><label class="map-checkbox"><input id="map-overlay-edit-locked" type="checkbox" ${layer.locked ? "checked" : ""}/> 锁定</label>`
+    showModalHtml("覆盖图层设置", form, [{
+      text: "保存",
+      class: "btn-primary",
+      handler: () => {
+        const update = {
+          name: document.getElementById("map-overlay-edit-name")?.value?.trim() || layer.name,
+          opacity: Number(document.getElementById("map-overlay-edit-opacity")?.value ?? layer.opacity),
+          z_index: Number(document.getElementById("map-overlay-edit-z")?.value ?? layer.z_index),
+          visible: Boolean(document.getElementById("map-overlay-edit-visible")?.checked),
+          locked: Boolean(document.getElementById("map-overlay-edit-locked")?.checked),
+        }
+        Object.assign(layer, update)
+        const draft = this._ensureOverlayDraft()
+        if (draft?.layerCreate) Object.assign(draft.layerCreate, update)
+        else if (draft) draft.layerUpdate = { ...(draft.layerUpdate || {}), ...update }
+        closeModal()
+        this._notifyEditingChanged()
+        this._rerenderEditor()
+      },
+    }])
+  },
+
+  _deleteOverlayLayer() {
+    const layer = (this._state?.terrain_layers || []).find((item) => item.id === mapState.selectedTerrainLayerId)
+    if (!layer) return
+    const regions = (this._state.terrain_regions || []).filter((item) => item.layer_id === layer.id)
+    const regionIds = new Set(regions.map((item) => item.id))
+    const patchCount = (this._state.terrain_patches || []).filter((item) => item.layer_id === layer.id).length
+    const bindingCount = (this._state.terrain_bindings || []).filter((item) => regionIds.has(item.region_id)).length
+    confirmAction(`删除「${esc(layer.name)}」将同时删除 ${regions.length} 个区域、${patchCount} 个 patch、${bindingCount} 个绑定。`, async () => {
+      if (!this._guardEditorLayerWritable("terrainOverlay")) return
+      if (!layer.__draft) mapState.pendingTerrainLayerDeletes.push(layer.id)
+      this._state.terrain_layers = (this._state.terrain_layers || [])
+        .filter((item) => item.id !== layer.id)
+      mapState.selectedTerrainLayerId = null
+      mapState.pendingTerrainOverlay = null
+      this._notifyEditingChanged()
+      this._rerenderEditor()
+    }, "删除图层")
+  },
+
   async _saveAndExit() {
     // 先应用未保存变更，再退出编辑
-    await this._applyAllChanges()
+    const lifecycleEpoch = this._lifecycleEpoch
+    const mountContext = this._mountContext
+    const saved = await this._applyAllChanges()
+    if (!saved) return false
+    if (!this._isLifecycleCurrent(lifecycleEpoch, mountContext)) return true
     this._teardownInteractiveSurface()
     mapState.mode = "browse"
+    setEditorLayer("none")
+    this._notifyEditingChanged()
     this._render(this._mountRootId || "map-root")
     toast("已保存", "success")
+    return true
   },
 
   _onCenterClick(entityId) {
@@ -1817,19 +5603,23 @@ const mapView = {
     return layers[layer] !== false
   },
 
-  _isMarkerLayerEnabled(marker) {
+  _isMarkerLayerEnabled(marker, zoom = this._leaflet?.getZoom?.() ?? null) {
+    const key = `marker.${marker.marker_type || "character"}`
+    if (!this._effectiveLayerNode({ layerKey: key, zoom }).visible) return false
     if (marker.marker_type === "event") return this._isLayerEnabled("events")
     if (marker.marker_type === "item") return this._isLayerEnabled("items")
     return this._isLayerEnabled("markers")
   },
 
-  _filteredMarkers() {
-    return (this._state?.markers || []).filter((marker) => this._isMarkerLayerEnabled(marker))
+  _filteredMarkers(zoom = this._leaflet?.getZoom?.() ?? null) {
+    return (this._state?.markers || []).filter((marker) => this._isMarkerLayerEnabled(marker, zoom))
   },
 
-  _candidateMarkers() {
+  _candidateMarkers(zoom = this._leaflet?.getZoom?.() ?? null) {
     if (!this._isLayerEnabled("candidate")) return []
-    return (this._state?.candidate_markers || []).filter((marker) => marker.visible !== false)
+    return (this._state?.candidate_markers || []).filter(
+      (marker) => marker.visible !== false && this._isMarkerLayerEnabled(marker, zoom),
+    )
   },
 
   _focusEntityHasTerritory(entityId) {
@@ -1909,6 +5699,37 @@ const mapView = {
     this._createTerritoryTile(factionId, q, r)
   },
 
+  _handleTerritoryEdit(q, r) {
+    const draft = mapState.pendingTerritoryChanges
+    const territory = this._effectiveTerritories().find((item) => (
+      item.hex_q === q
+      && item.hex_r === r
+      && (!mapState.selectedFactionId || item.faction_entity_id === mapState.selectedFactionId)
+    ))
+    if (mapState.territoryEraseMode) {
+      if (!territory) return
+      if (String(territory.id).startsWith("draft:")) delete draft.add[territory.id]
+      else draft.remove[territory.id] = { ...territory }
+    } else {
+      const factionId = mapState.selectedFactionId
+      if (!factionId) {
+        toast("请先选择组织", "warning")
+        return
+      }
+      if (territory?.faction_entity_id === factionId) return
+      const removed = Object.values(draft.remove).find((item) => (
+        item.hex_q === q && item.hex_r === r && item.faction_entity_id === factionId
+      ))
+      if (removed) delete draft.remove[removed.id]
+      else {
+        const id = `draft:${factionId}:${q},${r}`
+        draft.add[id] = { id, faction_entity_id: factionId, hex_q: q, hex_r: r }
+      }
+    }
+    this._notifyEditingChanged()
+    this._redraw()
+  },
+
   async _createTerritoryTile(factionId, q, r) {
     if (!this._state) return
     try {
@@ -1929,6 +5750,7 @@ const mapView = {
   },
 
   async _clearFactionTerritory() {
+    if (!this._guardEditorLayerWritable("territory")) return
     const factionId = mapState.selectedFactionId
     if (!factionId) {
       toast("请先选择组织", "warning")
@@ -1936,19 +5758,26 @@ const mapView = {
     }
     confirmAction(
       `确定清除该组织的全部势力范围？`,
-      async () => {
-        try {
-          await api.world.deleteTerritoriesByFaction(
-            this._state.map.id,
-            factionId,
-            state.currentProjectId
-          )
-          toast("势力范围已清除", "success")
-          await this._reloadMapStatePreservingSession(this._state.map.id)
-          this._redraw()
-        } catch (err) {
-          toast(`清除失败：${err.message}`, "error")
+      () => {
+        const before = this._snapshotActiveDraft()
+        const draft = mapState.pendingTerritoryChanges
+        for (const territory of this._effectiveTerritories().filter(
+          (item) => item.faction_entity_id === factionId,
+        )) {
+          if (String(territory.id).startsWith("draft:")) {
+            delete draft.add[territory.id]
+          } else {
+            draft.remove[territory.id] = { ...territory }
+          }
         }
+        recordEditorCommand("territory", {
+          kind: "draft",
+          before,
+          after: this._snapshotActiveDraft(),
+        })
+        this._notifyEditingChanged()
+        this._redraw()
+        toast("势力范围清除已加入草稿", "info")
       },
       "清除"
     )

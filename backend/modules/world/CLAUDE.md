@@ -18,4 +18,4 @@
 - 地点绑定只能绑定 `core_entities.entity_type = "location"` 的实体，由 `MapLocationBindingService` 校验
 - 同一地点在同一地图最多一个 `is_center=true` 中心点；DB 层 PG 部分唯一索引 + 业务层 `clear_center` 双重保证（SQLite 测试仅业务层）
 - 六边形第三坐标 `s = -q - r` 不在后端存储（ORM 无 `hex_s` 列），由前端计算；后端只存 `(q, r)`
-- 地图删除是硬 DELETE（demo 阶段允许），前端必须二次确认；不使用 status 软删除
+- 已采用地图及其视觉资产不硬删除；旧 DELETE 路由是整棵子树归档的兼容入口，前端仍必须二次确认

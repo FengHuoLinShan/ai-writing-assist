@@ -6,8 +6,10 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.world.map_models import MapLocationBinding
 from modules.world.models import CoreEntity
 from modules.world.tests.helpers import (
     _create_project,
@@ -121,10 +123,10 @@ class TestMapHTTPAPI:
         assert patch_resp.json()["name"] == "新名"
 
     @pytest.mark.asyncio
-    async def test_api_delete_map_cascades_bindings(
+    async def test_api_delete_map_archives_and_preserves_bindings(
         self, async_client: AsyncClient, db_session: AsyncSession
     ):
-        """删除地图后 bindings 随之清除（FK CASCADE）。"""
+        """兼容 DELETE 归档地图，但保留已采用地图资产。"""
         nid = uuid.uuid4().hex
         await _create_project(db_session, nid)
         # 建地图 + location
@@ -161,11 +163,22 @@ class TestMapHTTPAPI:
         )
         assert del_resp.status_code == 204
 
-        # 再查 state 应 404（地图已删）
+        # active state 不可见，但 archived 列表和资产仍保留。
         state_after = await async_client.get(
             f"/api/world/maps/{map_id}/state", params={"novel_id": nid}
         )
         assert state_after.status_code == 404
+        archived = await async_client.get(
+            "/api/world/maps",
+            params={"novel_id": nid, "status": "archived"},
+        )
+        assert archived.json()["total"] == 1
+        binding = await db_session.scalar(
+            select(MapLocationBinding).where(
+                MapLocationBinding.map_id == uuid.UUID(map_id)
+            )
+        )
+        assert binding is not None
 
     @pytest.mark.asyncio
     async def test_api_formal_map_layers_reject_pending_compatibility_shadows(
@@ -244,3 +257,84 @@ class TestMapHTTPAPI:
 
             assert response.status_code == 400, response.text
             assert response.json()["error"] == "unadopted_map_entity"
+
+    @pytest.mark.asyncio
+    async def test_api_terrain_layer_patch_lock_delete_and_novel_isolation(
+        self,
+        async_client: AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        novel_id = uuid.uuid4().hex
+        other_novel_id = uuid.uuid4().hex
+        await _create_project(db_session, novel_id)
+        await _create_project(db_session, other_novel_id)
+        map_resp = await async_client.post(
+            "/api/world/maps",
+            params={"novel_id": novel_id},
+            json={
+                "name": "覆盖层接口",
+                "map_type": "world",
+                "grid_width": 5,
+                "grid_height": 5,
+            },
+        )
+        assert map_resp.status_code == 201, map_resp.text
+        map_id = map_resp.json()["id"]
+        layer_id = uuid.uuid4().hex
+        region_id = uuid.uuid4().hex
+
+        create_layer = await async_client.put(
+            f"/api/world/maps/{map_id}/terrain/layers/{layer_id}/patches",
+            params={"novel_id": novel_id},
+            json={
+                "layer": {
+                    "name": "迷雾层",
+                    "terrain_asset_key": "fog",
+                    "opacity": 0.3,
+                    "meta": {"pack_key": "fantasy_crisis"},
+                },
+                "regions": [{"id": region_id, "layer_id": layer_id, "name": "北境迷雾"}],
+                "patches": [{"region_id": region_id, "hex_q": 1, "hex_r": 2}],
+            },
+        )
+        assert create_layer.status_code == 200, create_layer.text
+
+        lock_layer = await async_client.patch(
+            f"/api/world/maps/{map_id}/terrain/layers/{layer_id}",
+            params={"novel_id": novel_id},
+            json={"name": "北境迷雾", "locked": True},
+        )
+        assert lock_layer.status_code == 200, lock_layer.text
+        assert lock_layer.json()["name"] == "北境迷雾"
+        assert lock_layer.json()["opacity"] == 0.3
+
+        hidden_cross_novel = await async_client.patch(
+            f"/api/world/maps/{map_id}/terrain/layers/{layer_id}",
+            params={"novel_id": other_novel_id},
+            json={"visible": False},
+        )
+        assert hidden_cross_novel.status_code == 404
+
+        locked_delete = await async_client.delete(
+            f"/api/world/maps/{map_id}/terrain/layers/{layer_id}",
+            params={"novel_id": novel_id},
+        )
+        assert locked_delete.status_code == 409
+
+        unlock_layer = await async_client.patch(
+            f"/api/world/maps/{map_id}/terrain/layers/{layer_id}",
+            params={"novel_id": novel_id},
+            json={"locked": False},
+        )
+        assert unlock_layer.status_code == 200, unlock_layer.text
+        deleted = await async_client.delete(
+            f"/api/world/maps/{map_id}/terrain/layers/{layer_id}",
+            params={"novel_id": novel_id},
+        )
+        assert deleted.status_code == 200, deleted.text
+        assert deleted.json() == {
+            "deleted_layer_id": str(uuid.UUID(layer_id)),
+            "deleted_regions": 1,
+            "deleted_patches": 1,
+            "deleted_bindings": 0,
+        }

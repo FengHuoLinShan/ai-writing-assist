@@ -30,6 +30,7 @@ from modules.imports.entity_extraction.scene_entity_checkpoint import (
     merge_alias_relation_result,
     phase2_checkpoint_by_scene,
     scene_id,
+    scene_input_fingerprint,
     scene_overlaps_chapter_range,
     scene_provenance_key,
 )
@@ -127,6 +128,30 @@ PHASE2_SMALL_SAMPLE_SUPPLEMENT_TOTAL_CHAR_LIMIT = (
 
 class SceneEntityExtractionService:
     """Phase 2: coordinates scene entity, delta, alias, and relation extraction."""
+
+    async def prepare_alias_relation_task(self, db: AsyncSession, **kwargs) -> dict:
+        """Prepare the manual task's immutable inputs before provider I/O."""
+        from modules.imports.entity_extraction.scene_entity_alias_relation_task import (
+            AliasRelationTaskWorkflow,
+        )
+
+        return await AliasRelationTaskWorkflow(self).prepare(db, **kwargs)
+
+    async def execute_alias_relation_task(self, **kwargs) -> dict:
+        """Execute a prepared manual task without accepting a DB session."""
+        from modules.imports.entity_extraction.scene_entity_alias_relation_task import (
+            AliasRelationTaskWorkflow,
+        )
+
+        return await AliasRelationTaskWorkflow(self).execute(**kwargs)
+
+    async def finalize_alias_relation_task(self, db: AsyncSession, **kwargs) -> dict:
+        """Revalidate and stage the manual task's atomic final writes."""
+        from modules.imports.entity_extraction.scene_entity_alias_relation_task import (
+            AliasRelationTaskWorkflow,
+        )
+
+        return await AliasRelationTaskWorkflow(self).finalize(db, **kwargs)
 
     async def extract_alias_relations(
         self,
@@ -266,6 +291,7 @@ class SceneEntityExtractionService:
                 bulk_error_kind=f"unified_activation:{route.strategy}",
                 include_alias_relations=include_alias_relations,
                 existing_checkpoints=checkpoint_by_scene,
+                existing_alias_relation_checkpoints=existing_checkpoints,
                 visible_until_chapter=end_chapter,
             )
             return activated_result
@@ -372,22 +398,34 @@ class SceneEntityExtractionService:
                     bulk_result.setdefault("created_entity_ids", []).extend(
                         supplement_result["created_entity_ids"]
                     )
-                checkpoints = [
-                    self._build_scene_checkpoint(
-                        scene,
-                        status="done",
-                        workflow_id=workflow_id,
-                        scene_provenance_key=self._scene_provenance_key(
-                            workflow_id,
-                            scene,
-                        ),
-                        retry_count=0,
-                        created_entity_ids=bulk_result.get("created_entity_ids", []),
-                        created_relation_ids=bulk_result.get("created_relation_ids", []),
-                        created_delta_ids=bulk_result.get("created_delta_ids", []),
+                checkpoints = []
+                for scene in scenes:
+                    input_fingerprint = (bulk_result.get("input_fingerprints") or {}).get(
+                        self._scene_id(scene)
                     )
-                    for scene in scenes
-                ]
+                    if input_fingerprint is None:
+                        input_fingerprint = await self._current_scene_input_fingerprint(
+                            db,
+                            scene,
+                        )
+                    checkpoints.append(
+                        self._build_scene_checkpoint(
+                            scene,
+                            status="done",
+                            workflow_id=workflow_id,
+                            scene_provenance_key=self._scene_provenance_key(
+                                workflow_id,
+                                scene,
+                            ),
+                            retry_count=0,
+                            created_entity_ids=bulk_result.get("created_entity_ids", []),
+                            created_relation_ids=bulk_result.get(
+                                "created_relation_ids", []
+                            ),
+                            created_delta_ids=bulk_result.get("created_delta_ids", []),
+                            input_fingerprint=input_fingerprint,
+                        )
+                    )
                 if on_scene_progress is not None:
                     await on_scene_progress(total_scenes, total_scenes)
                 flush_status = await self._phase2_flush_with_timeout(db)
@@ -455,6 +493,7 @@ class SceneEntityExtractionService:
         for scene_idx, scene in enumerate(scenes):
             scene_id = self._scene_id(scene)
             scene_provenance_key = self._scene_provenance_key(workflow_id, scene)
+            input_fingerprint = await self._current_scene_input_fingerprint(db, scene)
             existing_checkpoint = checkpoint_by_scene.get(scene_id)
             existing_status = (
                 existing_checkpoint.get("status") if existing_checkpoint else None
@@ -462,7 +501,12 @@ class SceneEntityExtractionService:
             existing_retry_count = self._checkpoint_retry_count(existing_checkpoint)
             retry_count = 0
 
-            if existing_status == "done":
+            fingerprint_matches = bool(
+                input_fingerprint
+                and existing_checkpoint
+                and existing_checkpoint.get("input_fingerprint") == input_fingerprint
+            )
+            if existing_status in {"done", "skipped"} and fingerprint_matches:
                 skipped_scenes += 1
                 scene_checkpoints.append(
                     self._build_scene_checkpoint(
@@ -480,13 +524,14 @@ class SceneEntityExtractionService:
                         created_delta_ids=existing_checkpoint.get(
                             "created_delta_ids", []
                         ),
+                        input_fingerprint=input_fingerprint,
                     )
                 )
                 if on_scene_progress is not None:
                     await on_scene_progress(scene_idx + 1, total_scenes)
                 continue
 
-            if existing_status == "failed":
+            if existing_status == "failed" and fingerprint_matches:
                 if existing_retry_count >= MAX_PHASE2_SCENE_RETRIES:
                     skipped_scenes += 1
                     scene_checkpoints.append(
@@ -498,6 +543,7 @@ class SceneEntityExtractionService:
                             retry_count=existing_retry_count,
                             error="retry_exhausted",
                             error_kind="retry_exhausted",
+                            input_fingerprint=input_fingerprint,
                         )
                     )
                     if on_scene_progress is not None:
@@ -505,6 +551,8 @@ class SceneEntityExtractionService:
                     continue
                 rerun_scenes += 1
                 retry_count = existing_retry_count + 1
+            elif existing_status is not None:
+                rerun_scenes += 1
 
             try:
                 scene_result = await self._process_scene(
@@ -525,6 +573,9 @@ class SceneEntityExtractionService:
                 )
                 existing_context = scene_result["updated_context"]
                 accumulated_memory = scene_result["updated_memory"]
+                input_fingerprint = (
+                    scene_result.get("input_fingerprint") or input_fingerprint
+                )
                 completed_scenes += 1
                 consecutive_transport_failures = 0
                 scene_checkpoints.append(
@@ -537,6 +588,7 @@ class SceneEntityExtractionService:
                         created_entity_ids=scene_result.get("created_entity_ids", []),
                         created_relation_ids=scene_result.get("created_relation_ids", []),
                         created_delta_ids=scene_result.get("created_delta_ids", []),
+                        input_fingerprint=input_fingerprint,
                     )
                 )
             except Exception as exc:
@@ -558,6 +610,7 @@ class SceneEntityExtractionService:
                         retry_count=retry_count + 1,
                         error=error_message,
                         error_kind=error_kind,
+                        input_fingerprint=input_fingerprint,
                     )
                 )
                 logger.warning(
@@ -646,6 +699,7 @@ class SceneEntityExtractionService:
             scenes,
             workflow_id=workflow_id,
             include_alias_relations=include_alias_relations,
+            existing_checkpoints=existing_checkpoints,
         )
         return self._merge_alias_relation_result(phase2_result, alias_result)
 
@@ -806,6 +860,7 @@ class SceneEntityExtractionService:
         error_kind: str | None = None,
         activation_version: str | None = None,
         activation_source_count: int | None = None,
+        input_fingerprint: str | None = None,
     ) -> dict[str, Any]:
         return build_scene_checkpoint(
             self,
@@ -821,7 +876,28 @@ class SceneEntityExtractionService:
             error_kind=error_kind,
             activation_version=activation_version,
             activation_source_count=activation_source_count,
+            input_fingerprint=input_fingerprint,
         )
+
+    @staticmethod
+    def _scene_input_fingerprint(
+        scene: dict[str, Any],
+        scene_text: str,
+    ) -> str:
+        return scene_input_fingerprint(scene, scene_text)
+
+    async def _current_scene_input_fingerprint(
+        self,
+        db: AsyncSession,
+        scene: dict[str, Any],
+    ) -> str | None:
+        try:
+            scene_text = await self._load_scene_chapters(db, scene)
+        except Exception:
+            # A missing fingerprint is deliberately fail-safe: completed
+            # checkpoints cannot match and therefore cannot suppress work.
+            return None
+        return self._scene_input_fingerprint(scene, scene_text)
 
     async def _get_scenes(self, db: AsyncSession, nid) -> list[dict[str, Any]]:
         return await get_scenes(db, nid)
@@ -1099,6 +1175,7 @@ class SceneEntityExtractionService:
         for scene_idx, scene in enumerate(batch):
             scene_provenance_key = self._scene_provenance_key(workflow_id, scene)
             retry_count = 0
+            input_fingerprint = await self._current_scene_input_fingerprint(db, scene)
             try:
                 scene_result = await self._process_scene(
                     db,
@@ -1134,6 +1211,7 @@ class SceneEntityExtractionService:
                         retry_count=retry_count + 1,
                         error=error_message,
                         error_kind=error_kind_value,
+                        input_fingerprint=input_fingerprint,
                     )
                 )
             else:
@@ -1143,7 +1221,11 @@ class SceneEntityExtractionService:
                 local_context = scene_result.get("updated_context") or local_context
                 local_memory = scene_result.get("updated_memory") or local_memory
                 checkpoint = scene_result.get("checkpoint")
+                input_fingerprint = (
+                    scene_result.get("input_fingerprint") or input_fingerprint
+                )
                 if checkpoint is not None:
+                    checkpoint.setdefault("input_fingerprint", input_fingerprint)
                     checkpoints.append(checkpoint)
                 else:
                     checkpoints.append(
@@ -1165,6 +1247,7 @@ class SceneEntityExtractionService:
                                 "created_delta_ids",
                                 [],
                             ),
+                            input_fingerprint=input_fingerprint,
                         )
                     )
 
@@ -1316,6 +1399,7 @@ class SceneEntityExtractionService:
         bulk_error_kind: str | None,
         include_alias_relations: bool = True,
         existing_checkpoints: dict[str, dict[str, Any]] | None = None,
+        existing_alias_relation_checkpoints: dict[str, Any] | None = None,
         visible_until_chapter: int | None = None,
     ) -> dict[str, Any]:
         return await ParallelSceneEntityExtractor(self).run(
@@ -1328,6 +1412,7 @@ class SceneEntityExtractionService:
             bulk_error_kind=bulk_error_kind,
             include_alias_relations=include_alias_relations,
             existing_checkpoints=existing_checkpoints,
+            existing_alias_relation_checkpoints=existing_alias_relation_checkpoints,
             visible_until_chapter=visible_until_chapter,
         )
 
@@ -1670,6 +1755,7 @@ class SceneEntityExtractionService:
         *,
         workflow_id: str | None = None,
         include_alias_relations: bool = True,
+        existing_checkpoints: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not include_alias_relations:
             return self._skipped_alias_relation_result(
@@ -1681,6 +1767,7 @@ class SceneEntityExtractionService:
             nid,
             scenes,
             workflow_id=workflow_id,
+            existing_checkpoints=existing_checkpoints,
         )
 
     @staticmethod
@@ -1719,6 +1806,7 @@ class SceneEntityExtractionService:
         scenes: list[dict[str, Any]],
         *,
         workflow_id: str | None = None,
+        existing_checkpoints: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if _phase2_config.phase2_alias_relation_supplement_enabled():
             return await self._run_alias_relation_phase(
@@ -1726,6 +1814,7 @@ class SceneEntityExtractionService:
                 nid,
                 scenes,
                 workflow_id=workflow_id,
+                existing_checkpoints=existing_checkpoints,
             )
         return self._skipped_alias_relation_result(
             len(scenes),
@@ -1823,6 +1912,7 @@ class SceneEntityExtractionService:
         workflow_id: str | None = None,
         scene_id: str | None = None,
         result_refs: list[dict[str, str]] | None = None,
+        strict: bool = False,
     ) -> dict[str, int]:
         return await SceneEntityPersistenceGateway(self).persist_alias_relation_output(
             db,
@@ -1832,6 +1922,7 @@ class SceneEntityExtractionService:
             workflow_id=workflow_id,
             scene_id=scene_id,
             result_refs=result_refs,
+            strict=strict,
         )
 
     async def _persist_entities(

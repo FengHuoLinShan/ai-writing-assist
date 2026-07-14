@@ -146,6 +146,10 @@ class DeepImportWorkflow:
         project_settings: dict[str, Any] | None = None,
         on_progress: Callable[[DeepImportProgress, float], Awaitable[None]] | None = None,
         stop_after: DeepImportStep | None = None,
+        prepared_scene_phase0_result: Any | None = None,
+        scene_project_profile: dict[str, Any] | None = None,
+        before_scene_commit: Callable[[], Awaitable[None]] | None = None,
+        require_scene_provider_no_transaction: bool = False,
     ) -> DeepImportProgress:
         if progress.phase == "pending":
             self._agent_project_settings = (
@@ -154,8 +158,12 @@ class DeepImportWorkflow:
                 else await _project_settings_for_novel(db, novel_id)
             )
             self._deep_import_high_quality = bool(high_quality)
+            if require_scene_provider_no_transaction:
+                self._assert_no_active_transaction(db, "llm_health")
             if self._is_llm_health_required():
                 health = await self._check_llm_health(db, novel_id)
+                if require_scene_provider_no_transaction:
+                    self._assert_no_active_transaction(db, "llm_health")
                 progress.llm_health = health.model_dump()
                 if not health.ok:
                     progress.phase = "failed"
@@ -190,6 +198,12 @@ class DeepImportWorkflow:
                     on_progress=on_progress,
                     stop_after=stop_after,
                     replace_existing=replace_existing,
+                    prepared_phase0_result=prepared_scene_phase0_result,
+                    project_profile=scene_project_profile,
+                    before_scene_commit=before_scene_commit,
+                    require_provider_no_transaction=(
+                        require_scene_provider_no_transaction
+                    ),
                 )
             )
             if scene_outcome.stopped:
@@ -247,6 +261,13 @@ class DeepImportWorkflow:
     @staticmethod
     def _is_llm_health_required() -> bool:
         return get_settings().llm_health_required
+
+    @staticmethod
+    def _assert_no_active_transaction(db: AsyncSession, phase: str) -> None:
+        if db.in_transaction():
+            raise RuntimeError(
+                f"scene_auto_extraction {phase} cannot run inside a transaction"
+            )
 
     async def _check_llm_health(
         self,
@@ -379,24 +400,27 @@ class DeepImportWorkflow:
         candidates,
         *,
         chapters,
+        project_profile: dict[str, Any] | None = None,
         on_pair_progress: Callable[[int, int, str], Awaitable[None]] | None = None,
     ):
         from modules.imports.scene_fusion_phase1c import Phase1cSceneFusionService
-        from modules.project.facade import get_project_context
 
         project_settings = getattr(self, "_agent_project_settings", None)
         if project_settings is None:
             project_settings = await _project_settings_for_novel(db, novel_id)
-        context = await get_project_context(db, novel_id)
-        project_profile = (
-            {
-                "title": context.title,
-                "genre": context.genre,
-                "tone": context.tone,
-            }
-            if context is not None
-            else {}
-        )
+        if project_profile is None:
+            from modules.project.facade import get_project_context
+
+            context = await get_project_context(db, novel_id)
+            project_profile = (
+                {
+                    "title": context.title,
+                    "genre": context.genre,
+                    "tone": context.tone,
+                }
+                if context is not None
+                else {}
+            )
         return await Phase1cSceneFusionService(
             _Phase1cSceneFusionLLM(
                 project_settings=project_settings,

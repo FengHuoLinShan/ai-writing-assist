@@ -41,6 +41,7 @@ async def render_compiled_context_markdown(...) -> str
 async def confirm_context(...) -> ContextConfirmationContract
 async def require_confirmation(...) -> ContextConfirmationContract
 async def require_fresh_confirmation(...) -> ContextConfirmationContract
+async def prepare_confirmed_ai_action(..., for_update=False) -> ConfirmedAIActionContext
 async def attach_result_ref(...) -> ContextConfirmationContract
 async def mark_asset_context_changed(...) -> int
 async def open_context_snapshot(db, request: ContextSnapshotRequest) -> ContextSnapshotContract
@@ -126,6 +127,9 @@ revision/source/block hash、section/token metadata 和后续产物引用。
 `budget_events` 记录预算执行过程，包含 `section_key`、`event_type`、`reason`、`before_tokens`、`after_tokens`、`tier`。被 evict 的 section 不再返回正文，但会通过 `budget_events` 告知前端“已移除”；被 truncate 的 section 保留裁剪后的正文和裁剪原因。
 
 `context_confirmations` 仍只持久化摘要字段：`selected_asset_ids`、`compile_options`、`warnings`、`result_refs`、`stale_reasons` 等。`sections` 和 `budget_events` 是本次编译的实时展示结果，不写入确认记录。
+任务 finalize 需要消费当前 confirmation owner 时可使用 `for_update=True`；
+结果引用绑定本身也会锁定该行并刷新 identity map，避免并发 task/candidate
+回写相互覆盖 `result_refs`。
 
 ## 检索计划与运行健康
 
@@ -136,7 +140,9 @@ loader 按稳定 RRF 合并，然后统一回读 writing 正文并复核 source 
 `GET /api/context/evidence-health` 组合 Outline SceneSpan 覆盖、RAG 映射覆盖和近期 trace；
 `GET /api/context/retrieval-traces` 只返回隐私安全的运行摘要。无运行样本时 health 是
 `insufficient_data`，不伪装成绿色通过。trace 默认保留 30 天且每项目最多保留
-10,000 条，通过现有 snapshot maintenance 入口 dry-run/执行。
+10,000 条，通过现有 snapshot maintenance 入口 dry-run/执行。近期统计和清理都由
+数据库聚合/子查询执行，不用固定大 limit 加载 trace ORM，因此高于历史
+100,000 条时也不会截断计数或遗漏过期记录。
 
 snapshot stale 优先与 owner task 对账：owner 心跳新鲜则长时运行不算 stale；
 owner terminal 或 lease stale 则分别以 `owner_task_terminal` / `owner_task_stale` 关闭孤儿快照。
@@ -175,6 +181,26 @@ V1 复用 `excluded_asset_ids`，约定：
 - `MemoryRecordsLoader(get_memory_panorama_fn=...)`
 - `RagChunksLoader(retrieve_fn=...)`
 - `SceneLoader(get_scene_contract_fn=...)`
+
+`consumer_action=writing.generate` 使用写作专用加载顺序：先编译当前
+Scene、当前章活跃剧情线、篇章和 RAG 证据，再从这些资料的关联 ID
+选择人物与世界对象。显式 ID 优先，其次为 Scene、篇章、剧情线和
+RAG 候选顺序；人物最多 6 个，相关世界对象最多 16 个。没有可用关联
+ID 时，世界对象才回退到已采用对象的重要性排序。
+
+POV character reveal 在这一选择结果上继续分层：POV 人物得到
+完整的安全档案；其他相关人物只渲染外观和语言风格，不渲染
+身份、内心、渴望、恐惧、行为规则或隐藏关系。姓名只是供模型指代人物的
+作者侧标签，不代表 POV 角色知道其姓名。世界对象仍先经
+CharacterKnowledge 过滤。当前章活跃剧情线只向模型提供名称、公开目标和
+当前进展，并标为 `director_only`；`summary / hidden_truth /
+author_known_state` 不进入 character reveal section。
+
+`scope=generation_center` 供生成中心世界对象共创使用。它以最近作者
+意图作为确定性 RAG query，并先加载篇章、剧情线和证据，再让
+`WorldEntitiesLoader` / `CharactersLoader` 按关联 ID 取 Top-K。无关联 ID 时
+世界对象仍回退到已采用对象的重要性排序。快照只保存 focus hash，
+不把用户聊天原文复制到 `compile_options`。
 - `PlotThreadsLoader(get_active_threads_fn=...)`
 - `OutlineArcLoader(get_arc_by_chapter_fn=...)`
 

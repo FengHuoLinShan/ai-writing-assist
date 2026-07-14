@@ -173,6 +173,10 @@ export async function createEntity(novelId, data) {
   })
 }
 
+export async function listEntityTypes(novelId) {
+  return request(`/world/entity-types?novel_id=${encodeURIComponent(novelId)}`)
+}
+
 export async function createAlias(novelId, data) {
   return request(`/world/aliases?novel_id=${encodeURIComponent(novelId)}`, {
     method: "POST",
@@ -203,8 +207,34 @@ export async function seedEntityArchive(novelId, entityId, textContent, opts = {
 
 // ---- Map helpers ----
 
-export async function listMaps(novelId) {
-  return request(`/world/maps?novel_id=${encodeURIComponent(novelId)}`)
+export async function listMaps(novelId, params = {}) {
+  const query = new URLSearchParams({ novel_id: novelId })
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") query.set(key, String(value))
+  }
+  return request(`/world/maps?${query.toString()}`)
+}
+
+export async function applyMapEditor(novelId, mapId, data) {
+  return request(`/world/maps/${mapId}/editor/apply?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
+export async function getMapLayerTree(novelId, mapId) {
+  return request(`/world/maps/${mapId}/layer-tree?novel_id=${encodeURIComponent(novelId)}`)
+}
+
+export async function getMapPaths(novelId, mapId, status = "active") {
+  const query = new URLSearchParams({ novel_id: novelId, status })
+  return request(`/world/maps/${mapId}/paths?${query.toString()}`)
+}
+
+export async function getEntityMapPresence(novelId, entityId, includeCandidates = false) {
+  const query = new URLSearchParams({ novel_id: novelId })
+  if (includeCandidates) query.set("include_candidates", "true")
+  return request(`/world/entities/${entityId}/map-presence?${query.toString()}`)
 }
 
 export async function createMap(novelId, data) {
@@ -280,6 +310,13 @@ export async function createLocationBindings(novelId, mapId, data) {
 export async function createMapMarker(novelId, mapId, data) {
   return request(`/world/maps/${mapId}/markers?novel_id=${encodeURIComponent(novelId)}`, {
     method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updateMapTerrainLayer(novelId, mapId, layerId, data) {
+  return request(`/world/maps/${mapId}/terrain/layers/${layerId}?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "PATCH",
     body: JSON.stringify(data),
   })
 }

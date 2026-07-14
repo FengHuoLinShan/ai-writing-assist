@@ -306,7 +306,7 @@ async def test_get_chapter_panorama_no_snapshot_but_events_builds_from_empty(
     assert len(result.relations) == 0
 
 
-@mock.patch("modules.world.facade.get_full_state")
+@mock.patch("modules.world.facade.get_full_state", autospec=True)
 @pytest.mark.asyncio
 async def test_get_chapter_panorama_no_data_falls_back_to_world_state(
     mock_get_full_state, db_session, test_project_id
@@ -331,7 +331,7 @@ async def test_get_chapter_panorama_no_data_falls_back_to_world_state(
 # ============================================================
 
 
-@mock.patch("modules.world.facade.get_full_state")
+@mock.patch("modules.world.facade.get_full_state", autospec=True)
 @pytest.mark.asyncio
 async def test_capture_snapshot_creates_current_snapshot(
     mock_get_full_state, db_session, test_project_id
@@ -349,7 +349,7 @@ async def test_capture_snapshot_creates_current_snapshot(
     assert result.events_until == 0
 
 
-@mock.patch("modules.world.facade.get_full_state")
+@mock.patch("modules.world.facade.get_full_state", autospec=True)
 @pytest.mark.asyncio
 async def test_capture_snapshot_counts_events_correctly(
     mock_get_full_state, db_session, test_project_id
@@ -442,7 +442,7 @@ async def test_mark_stale_no_snapshots_returns_zero(db_session, test_project_id)
 # ============================================================
 
 
-@mock.patch("modules.world.facade.get_full_state")
+@mock.patch("modules.world.facade.get_full_state", autospec=True)
 @pytest.mark.asyncio
 async def test_full_rebuild_from_chapter_one_clears_all_and_rebuilds(
     mock_get_full_state, db_session, test_project_id
@@ -489,14 +489,27 @@ async def test_full_rebuild_from_chapter_one_clears_all_and_rebuilds(
     evt_repo = EventRepository()
     events = await evt_repo.get_by_chapter_range(db_session, nid, 1, 999999)
     assert len(events) >= 1
-    # stale 快照应被删除；chapter 1 的旧快照保留，重建会再创建一个
+    # 重建保留历史快照；被取代的 current 转为 stale，同章仅有一个 current。
     snaps = await snap_repo.list_for_novel(db_session, nid)
-    assert all(s.status == "current" for s in snaps)
-    assert len(snaps) == 2
-    assert sum(1 for s in snaps if s.chapter_index == 1) == 2
+    statuses_by_chapter: dict[int, list[str]] = {}
+    for snapshot in snaps:
+        assert snapshot.novel_id == nid
+        statuses_by_chapter.setdefault(snapshot.chapter_index, []).append(
+            snapshot.status
+        )
+
+    assert len(snaps) == 3
+    assert sorted(statuses_by_chapter[1]) == ["current", "stale"]
+    assert statuses_by_chapter[2] == ["stale"]
+    current_snapshots = [snapshot for snapshot in snaps if snapshot.status == "current"]
+    current_keys = [
+        (snapshot.novel_id, snapshot.chapter_index)
+        for snapshot in current_snapshots
+    ]
+    assert current_keys == [(nid, 1)]
 
 
-@mock.patch("modules.world.facade.get_full_state")
+@mock.patch("modules.world.facade.get_full_state", autospec=True)
 @pytest.mark.asyncio
 async def test_full_rebuild_from_middle_preserves_base_and_rebuilds(
     mock_get_full_state, db_session, test_project_id
@@ -547,7 +560,7 @@ async def test_full_rebuild_from_middle_preserves_base_and_rebuilds(
     assert any(s.chapter_index == 5 for s in snaps)
 
 
-@mock.patch("modules.world.facade.get_full_state")
+@mock.patch("modules.world.facade.get_full_state", autospec=True)
 @pytest.mark.asyncio
 async def test_full_rebuild_no_changes_still_creates_snapshot(
     mock_get_full_state, db_session, test_project_id

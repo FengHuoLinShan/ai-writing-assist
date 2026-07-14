@@ -29,6 +29,7 @@ project 模块负责小说项目基础元信息，是其他所有模块的根。
 | 表名 | 用途 |
 |------|------|
 | `projects` | 小说项目基础元信息 |
+| `smart_dedup_workbench_decisions` | 项目级去重工作台的 `keep_separate` 指纹裁决 |
 
 ### projects 表字段
 
@@ -66,6 +67,8 @@ async def get_project_context(db, novel_id: str) -> ProjectContext: ...
 
 async def require_active_project(db, novel_id: str) -> None: ...
 
+async def require_active_project_exclusive(db, novel_id: str) -> None: ...
+
 @asynccontextmanager
 async def open_project_llm_client(
     db, novel_id: str, *, timeout_override: int | None = None
@@ -94,6 +97,11 @@ def create_project_snapshot_llm_client(
 并发读取互不阻塞，但 `deleted_at` 更新必须等待已通过门禁的业务写入/入队先提交或回滚。
 软删除随后在自己的同一事务中取消刚提交的未完成任务，避免 guard 与业务
 操作之间的 TOCTOU。调用方不得在 guard 和受保护写入之间提前提交。
+`require_active_project_exclusive()` 是删除测试后仍必要的独立 seam：
+普通 `FOR SHARE` 无法阻止 Scene/正文/对象并发写入，而需重验多类来源的
+task finalizer 需要一个项目级短临界区。它在 PostgreSQL 上使用 `FOR UPDATE`，
+只允许在无 provider/网络 I/O 的最终 DB 事务中持有；普通请求和长工作流
+不得以它取代 `require_active_project()`。
 所有带 `novel_id` 的业务文本/结构化 LLM 调用通过
 `open_project_llm_client()` 获取 effective project profile。该 seam 统一执行
 项目存在性、Key/Base URL/模型 fail-closed 校验、字段来源物化、脱敏 runtime
@@ -113,7 +121,7 @@ client。
 只持久化 provider/model/非 secret 参数、字段来源、deep-import 设置、
 Base URL/extra 的 hash 和脱敏摘要，不保存 API Key、完整 URL/query
 或 extra values。`restore_project_llm_execution_settings()` 允许调用时使用
-当前轮换后的 Key，但会拒绝 endpoint 或 provider-specific extra 漂移，
+当前轮换后的 Key，但会拒绝 provider、endpoint 或 provider-specific extra 漂移，
 并继续使用任务提交时的 model/参数/字段来源。
 deep-import 快照在提交时已将项目值、环境覆盖和代码默认
 物化成显式字段，因此恢复期间的 env/default 变化不会改写已提交任务。
@@ -146,8 +154,11 @@ deep-import 快照在提交时已将项目值、环境覆盖和代码默认
 
 ## 智能去重
 
-`smart_dedup_scan` 是项目级聚合任务，只负责调用各模块 facade 并把建议写入
-`AsyncTask.result`。实际资产判断和写入规则仍属于资产拥有模块：
+`smart_dedup_scan` 是项目级聚合任务，提交时先保存不含密钥的
+LLM execution snapshot，worker 恢复冻结配置后调用各模块 facade。旧 pending
+任务在第一次 LLM 调用前补建并持久化 snapshot。结果以 `schema_version=2`
+返回 `groups`，同时保留 `suggestions` 供旧客户端降级展示。实际资产判断、
+语义/执行指纹和写入规则仍属于资产拥有模块：
 
 - `world_entity` 走 world 的实体融合建议和确认合并 / 别名登记逻辑。
 - `plot_thread`、`outline_arc`、`scene`、`foreshadowing_plan`、`reveal_plan`
@@ -155,8 +166,16 @@ deep-import 快照在提交时已将项目值、环境覆盖和代码默认
   其中 Scene 会跳过来源指纹仍有效的 Phase 1c pending、dismissed、adopted 融合决定的
   来源对，以及 adopted 融合结果与其来源的组合；Scene 工作台是唯一处理入口，来源变化后可再次参加全局扫描。
 
-LLM 只生成建议；`smart-dedup/apply` 必须 `confirmed=true`。正史对象到正史对象的
-世界对象合并仍需逐条 `allow_canonical_merge=true`。
+LLM 只生成建议；`smart-dedup/apply` 必须 `confirmed=true`。新 group 路径还必须
+携带同项目、已完成的 `scan_task_id`，服务端从任务结果重新校验成员、主对象、
+动作白名单和 execution fingerprint。每组在独立 savepoint 中原子执行，一组
+失败不会阻断其他组。`keep_separate` 只对相同 pair 和 semantic fingerprints
+生效；所属模块会在整组任何写入前校验所有当前 execution fingerprints，并在组内
+融合完成后重新生成最终 semantic fingerprints，再由 project 保存 disposition。
+同一组的 disposition 以一次项目锁和一次涉及 pair 的批量查询持久化，避免随历史裁决
+数量重复全表扫描。
+任一对象语义变化后旧裁决失效。正史融合与正史别名化分别需要
+`allow_canonical_merge` / `allow_canonical_alias`。
 
 ### LLM 配置安全规则
 

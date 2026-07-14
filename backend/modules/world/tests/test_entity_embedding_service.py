@@ -73,6 +73,7 @@ async def test_bge_unavailable_returns_zero(
     with patch(
         "modules.world.services.core.entity_embedding_service.BgeEmbeddingClient.get_instance",
         side_effect=RuntimeError("BGE not found"),
+        autospec=True,
     ):
         count = await embedding_service.backfill_embeddings(db, novel_id)
 
@@ -104,6 +105,7 @@ async def test_happy_path_backfills_in_batches(
     with patch(
         "modules.world.services.core.entity_embedding_service.BgeEmbeddingClient.get_instance",
         return_value=bge_mock,
+        autospec=True,
     ):
         count = await embedding_service.backfill_embeddings(db, novel_id, batch_size=4)
 
@@ -133,6 +135,7 @@ async def test_skips_empty_name_entities(
     with patch(
         "modules.world.services.core.entity_embedding_service.BgeEmbeddingClient.get_instance",
         return_value=bge_mock,
+        autospec=True,
     ):
         count = await embedding_service.backfill_embeddings(db, novel_id)
 
@@ -168,6 +171,7 @@ async def test_batch_failure_continues_to_next_batch(
     with patch(
         "modules.world.services.core.entity_embedding_service.BgeEmbeddingClient.get_instance",
         return_value=bge_mock,
+        autospec=True,
     ):
         count = await embedding_service.backfill_embeddings(db, novel_id, batch_size=2)
 

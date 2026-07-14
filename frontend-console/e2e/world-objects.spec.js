@@ -1,20 +1,20 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
 import { openWorkbench } from "./helpers/workbench.js"
-import { cleanupProject, createEntity, createProject, waitForBackend } from "./helpers/api-client.js"
+import { cleanupProject, createEntity, createProject, listEntityTypes, waitForBackend } from "./helpers/api-client.js"
 
 test.describe("世界对象入口", () => {
-  let testProjectId = null
+  let testProjectIds = []
 
   test.beforeAll(async () => {
     await waitForBackend(60000)
   })
 
   test.afterEach(async () => {
-    if (testProjectId) {
-      try { await cleanupProject(testProjectId) } catch {}
-      testProjectId = null
+    for (const projectId of testProjectIds) {
+      try { await cleanupProject(projectId) } catch {}
     }
+    testProjectIds = []
   })
 
   test("world objects entry stays on object management instead of forcing map", async ({ page }) => {
@@ -23,7 +23,7 @@ test.describe("世界对象入口", () => {
       genre: "fantasy",
       language: "zh",
     })
-    testProjectId = project.id
+    testProjectIds.push(project.id)
 
     await createEntity(project.id, {
       name: "沉钟港",
@@ -42,10 +42,16 @@ test.describe("世界对象入口", () => {
     await expect(page.locator(SEL.dataTable)).toContainText("沉钟港")
 
     const filterToggle = page.locator('[data-action="toggle-filter-panel"][data-filter-key="objects"]')
-    await expect(filterToggle).toContainText("收起筛选")
-    await filterToggle.click()
+    await expect(filterToggle).toContainText("展开筛选")
     await expect(filterToggle).toHaveAttribute("aria-expanded", "false")
     await expect(page.locator("#filter-q")).toBeHidden()
+    await filterToggle.click()
+    await expect(filterToggle).toHaveAttribute("aria-expanded", "true")
+    await expect(page.locator("#filter-q")).toBeVisible()
+
+    await page.reload()
+    await expect(filterToggle).toHaveAttribute("aria-expanded", "true")
+    await expect(page.locator("#filter-q")).toBeVisible()
 
     await page.locator('.bulk-toolbar__select-all input[data-action="bulk-toggle-all"]').check()
     const selectedRows = page.locator('tbody input[data-action="bulk-toggle-one"]')
@@ -74,5 +80,48 @@ test.describe("世界对象入口", () => {
     await expect(page.locator(SEL.subnavItem("objects"))).toHaveClass(/active/)
     await expect(page.locator(SEL.dataTable)).toContainText("沉钟港")
     await expect(page).not.toHaveURL(/\/map/)
+  })
+
+  test("candidate can be adopted as a custom type and filtered only in its project", async ({ page }) => {
+    const project = await createProject({
+      title: "世界对象自定义类型测试",
+      genre: "fantasy",
+      language: "zh",
+    })
+    const otherProject = await createProject({
+      title: "世界对象类型隔离测试",
+      genre: "fantasy",
+      language: "zh",
+    })
+    testProjectIds.push(project.id, otherProject.id)
+    const candidate = await createEntity(project.id, {
+      name: "月廷",
+      entity_type: "organization",
+      status: "candidate",
+      summary: "待确认的月神教团",
+    })
+
+    await openWorkbench(page, project, "world", "review-objects")
+    const row = page.locator(`tr[data-id="${candidate.id}"]`)
+    await expect(row).toContainText("月廷")
+    await row.getByRole("button", { name: "编辑后采用" }).click()
+    await page.locator("#edit-entity-type").selectOption("__custom_entity_type__")
+    await page.locator("#edit-custom-entity-type").fill("宗教/神祇")
+    await page.locator(SEL.modalFooter).getByRole("button", { name: "编辑后采用" }).click()
+
+    await page.locator(SEL.subnavItem("objects")).click()
+    await expect(page.locator(SEL.dataTable)).toContainText("月廷")
+    await expect(page.locator(SEL.dataTable)).toContainText("宗教/神祇")
+    const filterToggle = page.locator('[data-action="toggle-filter-panel"][data-filter-key="objects"]')
+    if (await page.locator("#filter-entity-type").isHidden()) await filterToggle.click()
+    await page.locator("#filter-entity-type").selectOption("宗教/神祇")
+    await page.getByRole("button", { name: "应用", exact: true }).click()
+    await expect(page).toHaveURL(/entity_type=%E5%AE%97%E6%95%99%2F%E7%A5%9E%E7%A5%87/)
+    await expect(page.locator(SEL.dataTable)).toContainText("月廷")
+
+    const ownCatalog = await listEntityTypes(project.id)
+    const otherCatalog = await listEntityTypes(otherProject.id)
+    expect(ownCatalog.items.some((item) => item.value === "宗教/神祇")).toBe(true)
+    expect(otherCatalog.items.some((item) => item.value === "宗教/神祇")).toBe(false)
   })
 })

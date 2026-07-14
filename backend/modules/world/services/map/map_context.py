@@ -45,12 +45,16 @@ class MapContext:
         db: AsyncSession,
         novel_id: str,
         map_id: str,
+        *,
+        allow_archived: bool = False,
     ) -> MapConfig:
         """校验 map 存在且属于指定 novel，返回 MapConfig；否则 404。"""
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
         config = await self._config_repo.get(db, mid)
         if config is None or config.novel_id != nid:
+            raise NotFoundError(f"地图 {map_id} 不存在", code="map_not_found")
+        if config.status != "active" and not allow_archived:
             raise NotFoundError(f"地图 {map_id} 不存在", code="map_not_found")
         if config.parent_entity_id is not None:
             owner = await self._entity_repo.get(db, config.parent_entity_id)

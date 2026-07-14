@@ -53,11 +53,15 @@ class TestCircuitBreaker:
     def test_allow_request_open_within_cooldown_returns_false(self):
         # Arrange
         cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=60.0)
-        with patch("modules.rag.circuit_breaker.time.monotonic", return_value=0.0):
+        with patch(
+            "modules.rag.circuit_breaker.time.monotonic", return_value=0.0, autospec=True
+        ):
             cb.record_failure()
 
         # Act
-        with patch("modules.rag.circuit_breaker.time.monotonic", return_value=30.0):
+        with patch(
+            "modules.rag.circuit_breaker.time.monotonic", return_value=30.0, autospec=True
+        ):
             allowed = cb.allow_request()
 
         # Assert
@@ -67,11 +71,15 @@ class TestCircuitBreaker:
     def test_allow_request_open_after_cooldown_transitions_half_open(self):
         # Arrange
         cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=10.0)
-        with patch("modules.rag.circuit_breaker.time.monotonic", return_value=0.0):
+        with patch(
+            "modules.rag.circuit_breaker.time.monotonic", return_value=0.0, autospec=True
+        ):
             cb.record_failure()
 
         # Act
-        with patch("modules.rag.circuit_breaker.time.monotonic", return_value=10.0):
+        with patch(
+            "modules.rag.circuit_breaker.time.monotonic", return_value=10.0, autospec=True
+        ):
             allowed = cb.allow_request()
 
         # Assert
@@ -81,9 +89,13 @@ class TestCircuitBreaker:
     def test_allow_request_half_open_returns_true(self):
         # Arrange
         cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=10.0)
-        with patch("modules.rag.circuit_breaker.time.monotonic", return_value=0.0):
+        with patch(
+            "modules.rag.circuit_breaker.time.monotonic", return_value=0.0, autospec=True
+        ):
             cb.record_failure()
-        with patch("modules.rag.circuit_breaker.time.monotonic", return_value=10.0):
+        with patch(
+            "modules.rag.circuit_breaker.time.monotonic", return_value=10.0, autospec=True
+        ):
             cb.allow_request()  # -> HALF_OPEN
 
         # Act
@@ -96,9 +108,13 @@ class TestCircuitBreaker:
     def test_record_success_half_open_closes_and_resets(self):
         # Arrange
         cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=10.0)
-        with patch("modules.rag.circuit_breaker.time.monotonic", return_value=0.0):
+        with patch(
+            "modules.rag.circuit_breaker.time.monotonic", return_value=0.0, autospec=True
+        ):
             cb.record_failure()
-        with patch("modules.rag.circuit_breaker.time.monotonic", return_value=10.0):
+        with patch(
+            "modules.rag.circuit_breaker.time.monotonic", return_value=10.0, autospec=True
+        ):
             cb.allow_request()
 
         # Act
@@ -136,9 +152,13 @@ class TestCircuitBreaker:
     def test_record_failure_half_open_returns_to_open(self):
         # Arrange
         cb = CircuitBreaker(failure_threshold=1, cooldown_seconds=10.0)
-        with patch("modules.rag.circuit_breaker.time.monotonic", return_value=0.0):
+        with patch(
+            "modules.rag.circuit_breaker.time.monotonic", return_value=0.0, autospec=True
+        ):
             cb.record_failure()
-        with patch("modules.rag.circuit_breaker.time.monotonic", return_value=10.0):
+        with patch(
+            "modules.rag.circuit_breaker.time.monotonic", return_value=10.0, autospec=True
+        ):
             cb.allow_request()
 
         # Act
@@ -219,7 +239,7 @@ class TestReranker:
     @pytest.fixture
     def mock_llm_client(self):
         def _make(scores, model_name="test-model"):
-            with patch("modules.rag.reranker.LLMClient") as mock_client:
+            with patch("modules.rag.reranker.LLMClient", autospec=True) as mock_client:
                 instance = mock_client.return_value
                 instance._settings.llm_model = model_name
                 instance.generate = AsyncMock(
@@ -702,7 +722,7 @@ class TestMetrics:
     def test_record_every_100_queries_logs_summary(self):
         # Arrange
         metrics = RagMetrics()
-        with patch("modules.rag.metrics.logger") as mock_logger:
+        with patch("modules.rag.metrics.logger", autospec=True) as mock_logger:
             # Act
             for _ in range(100):
                 metrics.record(latency_ms=10.0)

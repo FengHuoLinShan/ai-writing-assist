@@ -59,6 +59,9 @@ def test_outline_facade_reexports_subfacade_functions_by_identity() -> None:
     assert outline_facade.apply_structure_dedup is (
         structure_dedup_facade.apply_structure_dedup
     )
+    assert outline_facade.apply_structure_dedup_group is (
+        structure_dedup_facade.apply_structure_dedup_group
+    )
     assert outline_facade.ensure_deep_import_structure_outputs is (
         deep_import_repair_facade.ensure_deep_import_structure_outputs
     )

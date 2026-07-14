@@ -81,6 +81,13 @@ const WORLD_RELATION_FILTER_DEFAULTS = {
   strength_max: "",
 }
 
+const WORLD_FILTER_PANEL_DEFAULTS = {
+  objects: false,
+  "review-objects": false,
+  "review-aliases": false,
+  "review-relations": false,
+}
+
 const WORLD_SUGGESTED_ACTION_LABELS = {
   create_new: "创建新对象",
   link_to_existing: "设为别名",
@@ -100,6 +107,16 @@ const WORLD_OBJECT_QUERY_KEYS = [
   "needs_review",
   "auto_ingested",
 ]
+
+const CUSTOM_ENTITY_TYPE_SENTINEL = "__custom_entity_type__"
+const SYSTEM_ENTITY_TYPE_FALLBACK = [
+  ["character", "人物"], ["location", "地点"], ["faction", "势力/派系"],
+  ["organization", "组织"], ["species", "种族"], ["group", "群体"],
+  ["item", "物品"], ["object", "物体"], ["event", "事件"], ["rule", "规则"],
+  ["power_system", "力量体系"], ["secret", "秘密/真相"], ["legend", "传说/神话"],
+  ["resource", "资源/材料"], ["concept", "概念"], ["creature", "生物/怪物"],
+  ["skill", "技能"], ["ability", "能力"], ["artifact", "神器/遗物"], ["other", "其他"],
+].map(([value, label]) => ({ value, label, kind: "system" }))
 
 const WORLD_CANDIDATE_QUERY_KEYS = [
   "suggested_action",
@@ -137,26 +154,10 @@ const worldView = {
   _filters: { ...WORLD_FILTER_DEFAULTS },
 
   _advancedFiltersOpen: false,
-  _filterPanelsOpen: {
-    objects: true,
-    "review-objects": true,
-    "review-aliases": true,
-    "review-relations": true,
-  },
+  _filterPanelsOpen: { ...WORLD_FILTER_PANEL_DEFAULTS },
   _objectViewMode: "table",
 
-  _entityTypes: [
-    { value: "character", label: "人物" },
-    { value: "location", label: "地点" },
-    { value: "faction", label: "组织" },
-    { value: "item", label: "物品" },
-    { value: "event", label: "事件" },
-    { value: "rule", label: "规则" },
-    { value: "power_system", label: "能力体系" },
-    { value: "secret", label: "秘密" },
-    { value: "legend", label: "传说" },
-    { value: "resource", label: "资源" },
-  ],
+  _entityTypes: [...SYSTEM_ENTITY_TYPE_FALLBACK],
 
   _statuses: [
     { value: "active", label: "已采用" },
@@ -175,6 +176,7 @@ const worldView = {
   _fusionTaskId: null,
   _fusionProgress: null,
   _fusionPoller: null,
+  _lifecycleEpoch: 0,
 
   async onEnter() {
     this._entities = []
@@ -186,6 +188,7 @@ const worldView = {
     this._aliases = []
     this._aliasTotal = 0
     this._total = 0
+    this._loadFilterPanelState()
     clearAllBulkSelections(this)
 
     if (this._autoExtractTimer) {
@@ -200,6 +203,7 @@ const worldView = {
     this._recoverFusionWorkflow()
     this._eventsBound = false
 
+    await this._loadEntityTypes()
     await this._loadEntities()
     await this._loadCandidates()
 
@@ -210,6 +214,79 @@ const worldView = {
     } catch {
       this._batches = []
     }
+  },
+
+  async _loadEntityTypes() {
+    this._entityTypes = [...SYSTEM_ENTITY_TYPE_FALLBACK]
+    if (!state.currentProjectId) return
+    try {
+      const result = await api.world.listEntityTypes(state.currentProjectId)
+      if (Array.isArray(result?.items) && result.items.length) {
+        const byValue = new Map(
+          SYSTEM_ENTITY_TYPE_FALLBACK.map((item) => [item.value, item]),
+        )
+        for (const item of result.items) byValue.set(item.value, item)
+        this._entityTypes = Array.from(byValue.values())
+      }
+    } catch {
+      toast("类型目录加载失败，暂时使用系统类型", "warning")
+    }
+  },
+
+  _entityTypesWithCurrent(currentType = "") {
+    const items = [...this._entityTypes]
+    if (currentType && !items.some((item) => item.value === currentType)) {
+      items.push({ value: currentType, label: currentType, kind: "custom" })
+    }
+    return items
+  },
+
+  _entityTypeControlHtml(prefix, currentType = "") {
+    const items = this._entityTypesWithCurrent(currentType)
+    const renderOptions = (kind) => items
+      .filter((item) => (item.kind || "system") === kind)
+      .map((item) => `<option value="${esc(item.value)}" ${item.value === currentType ? "selected" : ""}>${esc(item.label)}</option>`)
+      .join("")
+    const systemOptions = renderOptions("system")
+    const customOptions = renderOptions("custom")
+    return `
+      <select class="form-select" id="${prefix}-entity-type">
+        <optgroup label="系统类型">${systemOptions}</optgroup>
+        ${customOptions ? `<optgroup label="项目自定义类型">${customOptions}</optgroup>` : ""}
+        <option value="${CUSTOM_ENTITY_TYPE_SENTINEL}">＋ 新建自定义类型…</option>
+      </select>
+      <div id="${prefix}-custom-type-wrap" hidden>
+        <input class="form-input" id="${prefix}-custom-entity-type" maxlength="64" placeholder="例如：宗教/神祇" />
+        <small>自定义类型使用通用对象档案，不自动获得地图、人物或事件等系统类型能力。</small>
+      </div>
+    `
+  },
+
+  _bindEntityTypeControl(prefix) {
+    const select = document.getElementById(`${prefix}-entity-type`)
+    const wrap = document.getElementById(`${prefix}-custom-type-wrap`)
+    if (!select || !wrap) return
+    const sync = () => { wrap.hidden = select.value !== CUSTOM_ENTITY_TYPE_SENTINEL }
+    select.addEventListener("change", sync)
+    sync()
+  },
+
+  _readEntityType(prefix) {
+    const selected = document.getElementById(`${prefix}-entity-type`)?.value || ""
+    if (selected !== CUSTOM_ENTITY_TYPE_SENTINEL) return selected
+    return document.getElementById(`${prefix}-custom-entity-type`)?.value?.trim() || ""
+  },
+
+  _showEntityTypeBlocker(err, targetId) {
+    if (err?.body?.error !== "entity_type_change_blocked") return false
+    const blockers = Array.isArray(err.body?.context?.blockers) ? err.body.context.blockers : []
+    const detail = blockers.map((item) => `${item.kind}（${item.count}）`).join("、")
+    const target = document.getElementById(targetId)
+    if (target) {
+      target.textContent = `类型变更被阻止：${detail || err.body.detail || "仍有专属依赖"}`
+      target.hidden = false
+    }
+    return true
   },
 
   _currentQuery() {
@@ -439,6 +516,7 @@ const worldView = {
   },
 
   onLeave() {
+    this._lifecycleEpoch += 1
     if (this._autoExtractTimer) {
       clearInterval(this._autoExtractTimer)
       this._autoExtractTimer = null
@@ -1009,7 +1087,7 @@ const worldView = {
   },
 
   _renderFilterPanel(key, content, hasActiveFilters = false) {
-    const open = this._filterPanelsOpen?.[key] !== false
+    const open = this._filterPanelsOpen?.[key] === true
     const panelId = `world-filter-panel-${key}`
     return `
       <section class="world-filter-panel" data-filter-panel="${esc(key)}">
@@ -1383,9 +1461,10 @@ const worldView = {
   },
 
   _isTargetedAliasCandidate(candidate) {
+    const targetId = this._candidateTargetId(candidate)
     return ["link_to_existing", "alias_of_existing"].includes(
       this._candidateAction(candidate),
-    ) && Boolean(this._candidateTargetId(candidate) || this._candidateTargetName(candidate))
+    ) && Boolean(targetId) && targetId !== this._entityId(candidate)
   },
 
   _candidateActionsHtml(candidate, { allowAlias = false, allowMerge = false } = {}) {
@@ -2492,11 +2571,27 @@ const worldView = {
     }
   },
 
+  async _finishEntityMutation(successMessage, lifecycleEpoch) {
+    if (lifecycleEpoch !== this._lifecycleEpoch) return true
+    try {
+      const refreshed = await router.refresh()
+      if (refreshed === false) throw new Error("当前页面未完成刷新")
+    } catch (err) {
+      if (lifecycleEpoch === this._lifecycleEpoch) {
+        toast(`${successMessage}，但列表刷新失败：${err.message || "未知错误"}`, "warning")
+      }
+      return true
+    }
+    if (lifecycleEpoch === this._lifecycleEpoch) toast(successMessage, "success")
+    return true
+  },
+
   editEntity(id) {
     const entity = this._findEntity(id)
     if (!entity) return
     const suggestionId = this._suggestionId(entity)
     const isPending = ["draft", "candidate"].includes(entity.status)
+    let submissionPending = false
 
     const formHtml = `
       <div class="form-group">
@@ -2505,14 +2600,13 @@ const worldView = {
       </div>
       <div class="form-group">
         <label>类型</label>
-        <select class="form-select" id="edit-entity-type">
-          ${this._entityTypes.map((t) => `<option value="${esc(t.value)}" ${entity.entity_type === t.value ? "selected" : ""}>${esc(t.label)}</option>`).join("")}
-        </select>
+        ${this._entityTypeControlHtml("edit", entity.entity_type)}
       </div>
       <div class="form-group">
         <label>概要</label>
         <textarea class="form-textarea" id="edit-entity-summary" rows="3">${esc(entity.summary || "")}</textarea>
       </div>
+      <div id="edit-entity-error" class="alert alert-error" hidden></div>
     `
 
     showModalHtml(isPending ? "编辑后采用世界对象" : "编辑世界对象", formHtml, [
@@ -2520,31 +2614,61 @@ const worldView = {
         text: isPending ? "编辑后采用" : "保存",
         class: "btn-primary",
         handler: async () => {
-          try {
-            const payload = {
-              name: document.getElementById("edit-entity-name")?.value,
-              entity_type: document.getElementById("edit-entity-type")?.value,
-              summary: document.getElementById("edit-entity-summary")?.value,
+          if (submissionPending) return false
+          const lifecycleEpoch = this._lifecycleEpoch
+          const projectId = state.currentProjectId
+          const payload = {
+            name: document.getElementById("edit-entity-name")?.value,
+            entity_type: this._readEntityType("edit"),
+            summary: document.getElementById("edit-entity-summary")?.value,
+          }
+          if (!payload.entity_type) {
+            const target = document.getElementById("edit-entity-error")
+            if (target) {
+              target.textContent = "请输入自定义类型名称"
+              target.hidden = false
             }
+            return false
+          }
+          if (!isPending && payload.entity_type !== entity.entity_type) {
+            const confirmed = window.confirm(
+              "更改类型会迁移对象档案；若仍有地图、人物或事件等专属依赖，保存将被阻止。是否继续？",
+            )
+            if (!confirmed) return false
+          }
+          submissionPending = true
+          try {
             if (suggestionId) {
               await api.world.editAndConfirmSuggestion(
                 suggestionId,
                 payload,
-                state.currentProjectId,
+                projectId,
               )
             } else if (isPending) {
-              await api.world.promoteEntity(id, state.currentProjectId, payload)
+              await api.world.promoteEntity(id, projectId, payload)
             } else {
-              await api.world.updateEntity(id, payload, state.currentProjectId)
+              await api.world.updateEntity(id, payload, projectId)
             }
-            toast(isPending ? "已编辑并采用" : "已保存", "success")
-            router.refresh()
           } catch (err) {
-            toast(`保存失败：${err.message}`, "error")
+            submissionPending = false
+            if (lifecycleEpoch !== this._lifecycleEpoch) return true
+            if (!this._showEntityTypeBlocker(err, "edit-entity-error")) {
+              const target = document.getElementById("edit-entity-error")
+              if (target) {
+                target.textContent = `保存失败：${err.message || "未知错误"}`
+                target.hidden = false
+              }
+            }
+            return false
           }
+          return this._finishEntityMutation(
+            isPending ? "已编辑并采用" : "已保存",
+            lifecycleEpoch,
+          )
         },
       },
     ])
+    this._bindEntityTypeControl("edit")
   },
 
   async _adoptEntity(entity) {
@@ -2937,6 +3061,7 @@ const worldView = {
     if (!this._filterPanelsOpen) this._filterPanelsOpen = {}
     const open = button.getAttribute("aria-expanded") !== "true"
     this._filterPanelsOpen[key] = open
+    this._saveFilterPanelState()
     button.setAttribute("aria-expanded", String(open))
     const panel = document.getElementById(button.getAttribute("aria-controls"))
     if (panel) panel.hidden = !open
@@ -2944,6 +3069,42 @@ const worldView = {
     if (icon) icon.textContent = open ? "▾" : "▸"
     const label = button.querySelector("[data-filter-toggle-label]")
     if (label) label.textContent = open ? "收起筛选" : "展开筛选"
+  },
+
+  _filterPanelStorageKey() {
+    if (!state.currentProjectId) return null
+    return `novel_world_filter_panels:${state.currentProjectId}`
+  },
+
+  _loadFilterPanelState() {
+    this._filterPanelsOpen = { ...WORLD_FILTER_PANEL_DEFAULTS }
+    const storageKey = this._filterPanelStorageKey()
+    if (!storageKey) return
+    try {
+      const saved = JSON.parse(localStorage.getItem(storageKey) || "null")
+      if (!saved || typeof saved !== "object" || Array.isArray(saved)) return
+      for (const key of Object.keys(WORLD_FILTER_PANEL_DEFAULTS)) {
+        if (typeof saved[key] === "boolean") this._filterPanelsOpen[key] = saved[key]
+      }
+    } catch {
+      try { localStorage.removeItem(storageKey) } catch {}
+    }
+  },
+
+  _saveFilterPanelState() {
+    const storageKey = this._filterPanelStorageKey()
+    if (!storageKey) return
+    try {
+      const stateToSave = Object.fromEntries(
+        Object.keys(WORLD_FILTER_PANEL_DEFAULTS).map((key) => [
+          key,
+          this._filterPanelsOpen?.[key] === true,
+        ]),
+      )
+      localStorage.setItem(storageKey, JSON.stringify(stateToSave))
+    } catch {
+      // localStorage 不可用时保留当前会话内状态。
+    }
   },
 
   _clearBulkScope(scope) {
@@ -3145,12 +3306,64 @@ const worldView = {
       return
     }
     try {
+      const entity = this._entities.find((item) => this._entityId(item) === entityId)
+      const includeCandidates = entity?.status === "candidate" || entity?.status === "draft"
+      const presence = await api.world.getEntityMapPresence(
+        entityId,
+        state.currentProjectId,
+        includeCandidates,
+      )
+      const items = presence?.items || []
+      const choices = items.flatMap((item) => (
+        item.path_refs?.length
+          ? item.path_refs.map((pathRef) => ({ ...item, _pathRef: pathRef }))
+          : [item]
+      ))
+      if (choices.length === 1) {
+        this._openEntityPresence(choices[0], entityId)
+        return
+      }
+      if (choices.length > 1) {
+        const roleLabels = {
+          location: "地点",
+          "marker.character": "人物标记",
+          "marker.event": "事件标记",
+          "marker.item": "物品标记",
+          territory: "领地",
+          terrain: "覆盖素材",
+          "path.start": "线路起点",
+          "path.end": "线路终点",
+        }
+        const body = `
+          <div class="world-map-presence-list">
+            ${choices.map((item, index) => `
+              <button class="world-map-presence-row" data-map-presence-index="${index}">
+                <strong>${esc(item.map_name)}${item._pathRef?.path_name ? ` · ${esc(item._pathRef.path_name)}` : ""}</strong>
+                <span>${esc((item._pathRef?.roles || item.roles || []).map((role) => roleLabels[role] || role).join("、") || "地图位置")} · ${Number(item.binding_count || 0)} 个空间绑定</span>
+                ${item.scene_index_min != null || item.scene_index_max != null
+                  ? `<small>Scene ${esc(item.scene_index_min ?? "?")}–${esc(item.scene_index_max ?? "?")}</small>`
+                  : ""}
+              </button>
+            `).join("")}
+          </div>
+        `
+        showModalHtml("选择关联地图", body, [{ text: "取消", class: "btn", handler: closeModal }])
+        document.querySelectorAll("[data-map-presence-index]").forEach((button) => {
+          button.onclick = () => {
+            closeModal()
+            this._openEntityPresence(choices[Number(button.dataset.mapPresenceIndex)], entityId)
+          }
+        })
+        return
+      }
       const target = await api.world.getMapOpenTarget(state.currentProjectId, { focusEntityId: entityId })
       const url = buildMapUrl({
         projectId: state.currentProjectId,
         mapId: target.map_id,
         sceneId: target.scene_id,
         focusEntityId: target.focus_entity_id || entityId,
+        focusPathId: target.focus_path_id,
+        focusLayerNodeId: target.focus_layer_node_id,
         mode: target.mode || (target.map_id ? "dashboard" : "overview"),
       })
       if (target.fallback_message) {
@@ -3162,7 +3375,30 @@ const worldView = {
     }
   },
 
+  _openEntityPresence(presence, entityId) {
+    const target = presence?.open_target || {}
+    const pathRef = presence?._pathRef || presence?.path_refs?.[0] || {}
+    const focusesPath = Boolean(pathRef.path_id || target.focus_path_id)
+    const url = buildMapUrl({
+      projectId: state.currentProjectId,
+      mapId: target.map_id || presence.map_id,
+      sceneId: target.scene_id,
+      focusEntityId: target.focus_entity_id || entityId,
+      focusHexQ: focusesPath
+        ? null
+        : presence.representative_world_q ?? presence.representative_hex_q,
+      focusHexR: focusesPath
+        ? null
+        : presence.representative_world_r ?? presence.representative_hex_r,
+      focusPathId: pathRef.path_id || target.focus_path_id,
+      focusLayerNodeId: pathRef.layer_node_id || target.focus_layer_node_id,
+      mode: target.mode || "live",
+    })
+    window.open(url, "_blank", "noopener")
+  },
+
   _showCreateForm() {
+    let submissionPending = false
     const formHtml = `
       <div class="form-group">
         <label>名称 *</label>
@@ -3170,9 +3406,7 @@ const worldView = {
       </div>
       <div class="form-group">
         <label>类型</label>
-        <select class="form-select" id="create-entity-type">
-          ${this._entityTypes.map((t) => `<option value="${esc(t.value)}">${esc(t.label)}</option>`).join("")}
-        </select>
+        ${this._entityTypeControlHtml("create", "character")}
       </div>
       <div class="form-group">
         <label>概要</label>
@@ -3185,46 +3419,69 @@ const worldView = {
         text: "创建",
         class: "btn-primary",
         handler: async () => {
+          if (submissionPending) return false
+          const lifecycleEpoch = this._lifecycleEpoch
+          const projectId = state.currentProjectId
           const name = document.getElementById("create-entity-name")?.value
           if (!name) {
             toast("请输入名称", "warning")
-            return
+            return false
           }
 
           const payload = {
             name,
-            entity_type: document.getElementById("create-entity-type")?.value || "item",
+            entity_type: this._readEntityType("create"),
             summary: document.getElementById("create-entity-summary")?.value || "",
           }
+          if (!payload.entity_type) {
+            toast("请输入自定义类型名称", "warning")
+            return false
+          }
 
+          submissionPending = true
           try {
-            await api.world.createEntity(payload, state.currentProjectId)
-            toast(`对象 "${name}" 已创建`, "success")
-            router.refresh()
+            await api.world.createEntity(payload, projectId)
           } catch (err) {
+            if (lifecycleEpoch !== this._lifecycleEpoch) return true
             const detail = this._createConflictDetail(err)
             if (detail?.requires_confirmation) {
               const similar = this._formatSimilarEntities(detail.similar_entities)
-                confirmAction(
-                  `发现相似对象：${similar || "已有对象"}。是否仍要创建？`,
-                  async () => {
-                    try {
-                      await api.world.createEntity({ ...payload, force_create: true }, state.currentProjectId)
-                      toast(`对象 "${name}" 已创建`, "success")
-                      router.refresh()
-                    } catch (err2) {
-                      toast(`创建失败：${err2.message}`, "error")
-                    }
-                  },
-                  "强制创建",
-                )
-                return
+              let forceSubmissionPending = false
+              confirmAction(
+                `发现相似对象：${similar || "已有对象"}。是否仍要创建？`,
+                async () => {
+                  if (forceSubmissionPending) return false
+                  if (lifecycleEpoch !== this._lifecycleEpoch) return true
+                  forceSubmissionPending = true
+                  try {
+                    await api.world.createEntity({ ...payload, force_create: true }, projectId)
+                  } catch (err2) {
+                    forceSubmissionPending = false
+                    if (lifecycleEpoch !== this._lifecycleEpoch) return true
+                    toast(`创建失败：${err2.message}`, "error")
+                    return false
+                  }
+                  return this._finishEntityMutation(
+                    `对象 "${name}" 已创建`,
+                    lifecycleEpoch,
+                  )
+                },
+                "强制创建",
+              )
+              return false
             }
+            submissionPending = false
             toast(`创建失败：${err.message}`, "error")
+            return false
           }
+          return this._finishEntityMutation(
+            `对象 "${name}" 已创建`,
+            lifecycleEpoch,
+          )
         },
       },
     ])
+    this._bindEntityTypeControl("create")
   },
 
   _createConflictDetail(err) {

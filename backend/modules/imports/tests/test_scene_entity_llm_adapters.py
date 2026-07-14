@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -72,6 +73,27 @@ async def test_phase2_llm_adapters_consume_project_snapshot_and_close(
     assert captured[0][1]["timeout_override"] > 0
     assert captured[0][1]["novel_id"] == "phase2-novel-id"
     assert fake.requests[0].model == "project-model"
+    fake.close.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_alias_relation_adapter_closes_snapshot_client_on_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _FakeClient()
+    fake.generate_structured = AsyncMock(side_effect=asyncio.CancelledError)
+    monkeypatch.setattr(
+        "modules.project.facade.create_project_snapshot_llm_client",
+        lambda *_args, **_kwargs: fake,
+    )
+
+    with phase2_project_settings_context(
+        {"llm": {"model": "project-model"}},
+        novel_id="phase2-novel-id",
+    ):
+        with pytest.raises(asyncio.CancelledError):
+            await call_alias_relation_extraction("text", "entities")
+
     fake.close.assert_awaited_once_with()
 
 
@@ -190,9 +212,7 @@ async def test_phase2_high_quality_keeps_selected_model_and_uses_max_reasoning(
         "deepseek-v4-flash",
         "deepseek-v4-flash",
     ]
-    assert all(
-        request.extra["reasoning_effort"] == "max" for request in fake.requests
-    )
+    assert all(request.extra["reasoning_effort"] == "max" for request in fake.requests)
 
 
 @pytest.mark.asyncio

@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +20,14 @@ from modules.writing.schemas import WritingDraftCreate, WritingDraftUpdate
 from modules.writing.source_hashing import hash_text
 
 WORKING_DRAFT_STATUSES = ("draft", "published", "canonical")
+AI_REVIEW_TASK_OWNER_KEY = "_ai_review_task_id"
+
+
+def public_conflict_summary(summary: dict | None) -> dict:
+    """Hide task fencing metadata from stable API/snapshot projections."""
+    projected = dict(summary or {})
+    projected.pop(AI_REVIEW_TASK_OWNER_KEY, None)
+    return projected
 
 
 class WritingDraftRepository:
@@ -198,6 +206,12 @@ class WritingDraftRepository:
                 update_values[field] = value
 
         if update_values:
+            if "content" in update_values:
+                await self.lock_version_chapters_for_revalidation(
+                    db,
+                    draft.novel_id,
+                    [draft.chapter_index],
+                )
             for field, value in update_values.items():
                 setattr(draft, field, value)
             if "content" in update_values:
@@ -545,6 +559,11 @@ class WritingDraftRepository:
         title: str | None,
         content: str,
     ) -> WritingDraft:
+        await self.lock_version_chapters_for_revalidation(
+            db,
+            novel_id,
+            [chapter_index],
+        )
         draft = await self.get_latest_by_chapter(db, novel_id, chapter_index)
         if draft is None:
             raise ValueError(f"No draft found for chapter {chapter_index}")
@@ -624,6 +643,11 @@ class WritingDraftRepository:
         chapter_index: int,
     ) -> int:
         """获取下一个版本号 = max(当前版本号) + 1"""
+        await self.lock_version_chapters_for_revalidation(
+            db,
+            novel_id,
+            [chapter_index],
+        )
         stmt = (
             select(WritingDraft.version_number)
             .where(
@@ -637,6 +661,27 @@ class WritingDraftRepository:
         result = await db.execute(stmt)
         max_ver = result.scalar_one_or_none() or 0
         return int(max_ver) + 1
+
+    async def lock_version_chapters_for_revalidation(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_indices: Sequence[int],
+    ) -> None:
+        """Serialize version/content writes with task final revalidation."""
+        get_bind = getattr(db, "get_bind", None)
+        if get_bind is None:
+            return
+        bind = get_bind()
+        if bind is None or bind.dialect.name != "postgresql":
+            return
+        for chapter_index in sorted(
+            {int(index) for index in chapter_indices if int(index) >= 1}
+        ):
+            await db.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                {"key": f"writing_versions:{novel_id}:{chapter_index}"},
+            )
 
 
 class WritingConflictCheckRepository:
@@ -714,6 +759,42 @@ class WritingConflictCheckRepository:
         if check is None:
             return None
         return check, await self.list_items(db, check.id, novel_id)
+
+    async def get_check_for_ai_review_update(
+        self,
+        db: AsyncSession,
+        check_id: uuid.UUID,
+        novel_id: uuid.UUID,
+    ) -> tuple[WritingConflictCheck, list[WritingConflictItem]] | None:
+        """Lock one check and its current items for a serialized AI review update."""
+        stmt = (
+            select(WritingConflictCheck)
+            .where(
+                WritingConflictCheck.id == check_id,
+                WritingConflictCheck.novel_id == novel_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        check = (await db.execute(stmt)).scalar_one_or_none()
+        if check is None:
+            return None
+        items_stmt = (
+            select(WritingConflictItem)
+            .where(
+                WritingConflictItem.check_id == check_id,
+                WritingConflictItem.novel_id == novel_id,
+            )
+            .order_by(
+                WritingConflictItem.severity,
+                WritingConflictItem.created_at,
+                WritingConflictItem.id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        items = list((await db.execute(items_stmt)).scalars().all())
+        return check, items
 
     async def list_checks(
         self,
@@ -908,6 +989,28 @@ class WritingConflictCheckRepository:
         check = result.scalar_one_or_none()
         if check is None:
             return None
+        return await self.update_loaded_ai_review(
+            db,
+            check,
+            status=status,
+            summary_json=summary_json,
+            confirmation_id=confirmation_id,
+            model=model,
+            error=error,
+        )
+
+    async def update_loaded_ai_review(
+        self,
+        db: AsyncSession,
+        check: WritingConflictCheck,
+        *,
+        status: str,
+        summary_json: dict | None = None,
+        confirmation_id: uuid.UUID | None = None,
+        model: str | None = None,
+        error: str | None = None,
+    ) -> WritingConflictCheck:
+        """Update an already loaded/locked check without re-querying it."""
         check.ai_review_enabled = True
         check.ai_review_status = status
         check.ai_review_confirmation_id = confirmation_id
@@ -990,7 +1093,7 @@ class WritingConflictCheckRepository:
             "check_id": str(check.id),
             "checked_at": check.created_at.isoformat() if check.created_at else None,
             "status": check.status,
-            "summary_json": check.summary_json,
+            "summary_json": public_conflict_summary(check.summary_json),
             "open_count": len(open_items),
             "open_high_count": len(high_items),
             "ai_review_status": check.ai_review_status,

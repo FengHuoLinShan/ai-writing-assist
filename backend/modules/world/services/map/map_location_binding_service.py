@@ -17,6 +17,8 @@ from modules.world.map_schemas import (
 from modules.world.repositories import CoreEntityRepository
 from modules.world.services.common import parse_uuid
 from modules.world.services.map.map_context import MapContext
+from modules.world.services.map.map_layer_tree import MapLayerTreeService
+from modules.world.services.map.map_revision import MapRevisionService
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,8 @@ class MapLocationBindingService:
         self._binding_repo = binding_repo or MapLocationBindingRepository()
         self._entity_repo = entity_repo or CoreEntityRepository()
         self._ctx = context or MapContext(entity_repo=self._entity_repo)
+        self._layer_tree = MapLayerTreeService(context=self._ctx)
+        self._revision = MapRevisionService()
 
     async def batch_create(
         self,
@@ -40,8 +44,16 @@ class MapLocationBindingService:
         novel_id: str,
         map_id: str,
         data: MapLocationBindingCreate,
+        *,
+        bump_revision: bool = True,
     ) -> list[MapLocationBindingResponse]:
-        return await self.batch_create_many(db, novel_id, map_id, [data])
+        return await self.batch_create_many(
+            db,
+            novel_id,
+            map_id,
+            [data],
+            bump_revision=bump_revision,
+        )
 
     async def batch_create_many(
         self,
@@ -49,10 +61,20 @@ class MapLocationBindingService:
         novel_id: str,
         map_id: str,
         items: list[MapLocationBindingCreate],
+        *,
+        bump_revision: bool = True,
     ) -> list[MapLocationBindingResponse]:
         if not items:
             return []
+        locked_config = (
+            await self._revision.lock_active(db, novel_id, map_id)
+            if bump_revision
+            else None
+        )
         config = await self._ctx.require_map(db, novel_id, map_id)
+        await self._layer_tree.assert_writable(
+            db, novel_id, map_id, layer_key="location"
+        )
         mid = parse_uuid(map_id, "map_id")
         nid = parse_uuid(novel_id, "novel_id")
         location_ids = [
@@ -88,6 +110,13 @@ class MapLocationBindingService:
         await self._binding_repo.clear_centers(db, mid, center_location_ids)
 
         objs = await self._binding_repo.bulk_create_many(db, nid, mid, bindings)
+        if bump_revision:
+            await self._revision.bump(
+                db,
+                novel_id,
+                map_id,
+                locked_config=locked_config,
+            )
         return [MapLocationBindingResponse.model_validate(o) for o in objs]
 
     async def clear_map(
@@ -95,11 +124,29 @@ class MapLocationBindingService:
         db: AsyncSession,
         novel_id: str,
         map_id: str,
+        *,
+        bump_revision: bool = True,
     ) -> int:
+        locked_config = (
+            await self._revision.lock_active(db, novel_id, map_id)
+            if bump_revision
+            else None
+        )
         await self._ctx.require_map(db, novel_id, map_id)
+        await self._layer_tree.assert_writable(
+            db, novel_id, map_id, layer_key="location"
+        )
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
-        return await self._binding_repo.delete_for_map(db, nid, mid)
+        deleted = await self._binding_repo.delete_for_map(db, nid, mid)
+        if bump_revision and deleted:
+            await self._revision.bump(
+                db,
+                novel_id,
+                map_id,
+                locked_config=locked_config,
+            )
+        return deleted
 
     async def update(
         self,
@@ -107,21 +154,42 @@ class MapLocationBindingService:
         novel_id: str,
         binding_id: str,
         data: MapLocationBindingUpdate,
+        *,
+        map_id: str | None = None,
+        bump_revision: bool = True,
     ) -> MapLocationBindingResponse:
         nid = parse_uuid(novel_id, "novel_id")
         bid = parse_uuid(binding_id, "binding_id")
 
-        binding = await self._binding_repo.get(db, bid)
+        binding = (
+            await self._binding_repo.get_in_map(
+                db,
+                nid,
+                parse_uuid(map_id, "map_id"),
+                bid,
+            )
+            if map_id
+            else await self._binding_repo.get(db, bid)
+        )
         if binding is None or binding.novel_id != nid:
             raise NotFoundError(
                 f"MapLocationBinding {binding_id} not found",
                 code="map_binding_not_found",
             )
+        resolved_map_id = map_id or str(binding.map_id)
+        locked_config = (
+            await self._revision.lock_active(db, novel_id, resolved_map_id)
+            if bump_revision
+            else None
+        )
         await self._ctx.require_canonical_entity(
             db,
             novel_id,
             str(binding.location_entity_id),
             allowed_types={"location"},
+        )
+        await self._layer_tree.assert_writable(
+            db, novel_id, resolved_map_id, layer_key="location"
         )
 
         # 切换中心点：清同 location 的其他中心
@@ -138,6 +206,13 @@ class MapLocationBindingService:
 
         updated = await self._binding_repo.update(db, binding, values)
         assert updated is not None
+        if bump_revision:
+            await self._revision.bump(
+                db,
+                novel_id,
+                resolved_map_id,
+                locked_config=locked_config,
+            )
         return MapLocationBindingResponse.model_validate(updated)
 
     async def delete(
@@ -145,14 +220,42 @@ class MapLocationBindingService:
         db: AsyncSession,
         novel_id: str,
         binding_id: str,
+        *,
+        map_id: str | None = None,
+        bump_revision: bool = True,
     ) -> None:
         nid = parse_uuid(novel_id, "novel_id")
         bid = parse_uuid(binding_id, "binding_id")
 
-        binding = await self._binding_repo.get(db, bid)
+        binding = (
+            await self._binding_repo.get_in_map(
+                db,
+                nid,
+                parse_uuid(map_id, "map_id"),
+                bid,
+            )
+            if map_id
+            else await self._binding_repo.get(db, bid)
+        )
         if binding is None or binding.novel_id != nid:
             raise NotFoundError(
                 f"MapLocationBinding {binding_id} not found",
                 code="map_binding_not_found",
             )
+        resolved_map_id = map_id or str(binding.map_id)
+        locked_config = (
+            await self._revision.lock_active(db, novel_id, resolved_map_id)
+            if bump_revision
+            else None
+        )
+        await self._layer_tree.assert_writable(
+            db, novel_id, resolved_map_id, layer_key="location"
+        )
         await self._binding_repo.delete(db, bid)
+        if bump_revision:
+            await self._revision.bump(
+                db,
+                novel_id,
+                resolved_map_id,
+                locked_config=locked_config,
+            )

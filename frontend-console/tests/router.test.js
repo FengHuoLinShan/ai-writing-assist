@@ -35,6 +35,31 @@ function registerBasicView(name) {
 }
 
 describe("renderCurrentView error handling", () => {
+  it("does not let an older async render overwrite the current route", async () => {
+    const content = addWorkspace()
+    let resolveOld
+    const oldRendered = vi.fn()
+    window.router.registerView("async-old-view", {
+      render: () => new Promise((resolve) => { resolveOld = resolve }),
+      onRendered: oldRendered,
+    })
+    window.router.registerView("async-new-view", {
+      async render() { return '<p id="new-route">new</p>' },
+    })
+
+    state.currentView = "async-old-view"
+    const oldRender = window.router.renderCurrentView()
+    await vi.waitFor(() => expect(resolveOld).toBeTypeOf("function"))
+    state.currentView = "async-new-view"
+    await window.router.renderCurrentView()
+    resolveOld('<p id="old-route">old</p>')
+
+    await expect(oldRender).resolves.toBe(false)
+    expect(content.querySelector("#new-route")).not.toBeNull()
+    expect(content.querySelector("#old-route")).toBeNull()
+    expect(oldRendered).not.toHaveBeenCalled()
+  })
+
   it("runs onRendered only after the fresh DOM has been committed", async () => {
     const content = addWorkspace()
     const order = []
@@ -190,6 +215,49 @@ describe("subview memory", () => {
 })
 
 describe("route guard and normalization", () => {
+  it("keeps the current route when its renderer rejects leaving", async () => {
+    addWorkspace()
+    const canLeave = vi.fn(() => false)
+    const onLeave = vi.fn()
+    window.router.registerView("map", {
+      canLeave,
+      onLeave,
+      async render() { return "<p>地图</p>" },
+    })
+    registerBasicView("project")
+    state.currentProjectId = "p1"
+    state.currentProject = { id: "p1", title: "项目一" }
+
+    await window.router.navigate("map", null, false)
+    const result = await window.router.navigate("project", null, false)
+
+    expect(result).toBe(false)
+    expect(canLeave).toHaveBeenCalledTimes(1)
+    expect(onLeave).not.toHaveBeenCalled()
+    expect(state.currentView).toBe("map")
+    expect(state.currentProjectId).toBe("p1")
+  })
+
+  it("restores the rendered hash when browser navigation is rejected", async () => {
+    addWorkspace()
+    const canLeave = vi.fn(() => false)
+    window.router.registerView("map", {
+      canLeave,
+      async render() { return "<p>地图</p>" },
+    })
+    registerBasicView("project")
+    state.currentProjectId = "p1"
+    state.currentProject = { id: "p1", title: "项目一" }
+    await window.router.navigate("map")
+
+    window.history.pushState(null, "", "#project")
+    window.dispatchEvent(new PopStateEvent("popstate"))
+    await vi.waitFor(() => expect(canLeave).toHaveBeenCalledTimes(1))
+
+    expect(window.location.hash).toBe("#workbench/p1/map")
+    expect(state.currentView).toBe("map")
+  })
+
   it("redirects active project-scoped navigation to projects when no project is selected", async () => {
     addWorkspace()
     registerBasicView("project")

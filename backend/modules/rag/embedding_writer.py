@@ -26,21 +26,45 @@ class EmbeddingWriter:
         llm_client: Any | None = None,
     ) -> None:
         self._repo = repo
+        self._owns_llm_client = llm_client is None
         if llm_client is None:
             from infrastructure.llm.client import LLMClient
 
             llm_client = LLMClient()
         self._llm = llm_client
 
+    async def __aenter__(self) -> EmbeddingWriter:
+        return self
+
+    async def __aexit__(self, *_exc_info: object) -> None:
+        await self.close()
+
+    async def close(self) -> None:
+        if not self._owns_llm_client:
+            return
+        close = getattr(self._llm, "close", None)
+        if callable(close):
+            await close()
+        self._owns_llm_client = False
+
     async def write_per_chunk(
         self,
         db: AsyncSession,
         chunks: list[RagChunk],
     ) -> EmbeddingWriteResult:
+        result = await self.embed_per_chunk(chunks)
+        await db.flush()
+        return result
+
+    async def embed_per_chunk(
+        self,
+        chunks: list[Any],
+    ) -> EmbeddingWriteResult:
+        """Generate and attach embeddings without opening a DB transaction."""
         failed_count = 0
         semaphore = asyncio.Semaphore(self._FALLBACK_CONCURRENCY)
 
-        async def _generate(chunk: RagChunk) -> tuple[RagChunk, object, Exception | None]:
+        async def _generate(chunk: Any) -> tuple[Any, object, Exception | None]:
             async with semaphore:
                 try:
                     return chunk, await self._llm.generate_embedding(chunk.text), None
@@ -66,7 +90,6 @@ class EmbeddingWriter:
                 chunk.embedding_error = error[:1000]
                 chunk.index_warnings = [f"embedding 生成失败: {error[:1000]}"]
                 failed_count += 1
-        await db.flush()
         warnings = []
         if failed_count > 0:
             warnings.append(
@@ -82,6 +105,17 @@ class EmbeddingWriter:
         *,
         warning_prefix: str,
     ) -> EmbeddingWriteResult:
+        result = await self.embed_batch(chunks, warning_prefix=warning_prefix)
+        await db.flush()
+        return result
+
+    async def embed_batch(
+        self,
+        chunks: list[Any],
+        *,
+        warning_prefix: str,
+    ) -> EmbeddingWriteResult:
+        """Generate and attach a batch without touching the database session."""
         if not chunks:
             return EmbeddingWriteResult()
         try:
@@ -99,12 +133,11 @@ class EmbeddingWriter:
                 chunk.embedding_status = "succeeded"
                 chunk.embedding_error = None
                 chunk.index_warnings = []
-            await db.flush()
             return EmbeddingWriteResult()
         except Exception as exc:
             error = str(exc)
             batch_warning = f"{warning_prefix}: {error}"
-            fallback_result = await self.write_per_chunk(db, chunks)
+            fallback_result = await self.embed_per_chunk(chunks)
             return EmbeddingWriteResult(
                 failed_count=fallback_result.failed_count,
                 warnings=[batch_warning, *fallback_result.warnings],

@@ -11,6 +11,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import NotFoundError
 from modules.settings.schemas import (
     EffectiveAuthorPrefsResponse,
     EffectiveLLMSettingsResponse,
@@ -34,7 +35,7 @@ async def get_effective_llm_settings(
 
     project = await get_project_by_id(db, project_id)
     if project is None:
-        raise LookupError(f"project {project_id} not found")
+        raise NotFoundError(f"Project {project_id} not found")
     return await _service.get_effective_llm_settings_for_project_settings(
         db,
         project.settings,

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import ConflictError
 from core.errors import ValidationError as DomainValidationError
 from modules.world.map_repositories import (
     MapConfigRepository,
@@ -16,7 +17,10 @@ from modules.world.map_schemas import (
     MapQuickCreateConfirmRequest,
     MapQuickCreatePreviewRequest,
 )
-from modules.world.repositories import CoreEntityRepository, EntityRelationRepository
+from modules.world.repositories import (
+    CoreEntityRepository,
+    EntityRelationRepository,
+)
 from modules.world.schemas import EntityRelationCreate
 from modules.world.services.map.map_location_binding_service import (
     MapLocationBindingService,
@@ -97,6 +101,120 @@ async def test_quick_create_preview_includes_candidates_when_enabled(
     layouts = {item.location_entity_id: item for item in preview.location_layouts}
     assert layouts[str(candidate.id)].meta == {"entity_status": "candidate"}
     assert layouts[str(draft.id)].meta == {"entity_status": "draft"}
+
+
+@pytest.mark.asyncio
+async def test_candidate_preview_does_not_move_canonical_locations(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    canonical_ids = []
+    for name in ("洛阳", "长安", "临安", "建康"):
+        entity = await _create_entity(
+            db_session,
+            novel_id,
+            entity_type="location",
+            name=name,
+            status="canonical",
+        )
+        canonical_ids.append(str(entity.id))
+    for name in ("候选港", "草稿城", "建议关"):
+        await _create_entity(
+            db_session,
+            novel_id,
+            entity_type="location",
+            name=name,
+            status="candidate",
+        )
+    service = MapQuickCreateService()
+
+    canonical_only = await service.preview(
+        db_session,
+        novel_id,
+        MapQuickCreatePreviewRequest(include_candidates=False),
+    )
+    with_candidates = await service.preview(
+        db_session,
+        novel_id,
+        MapQuickCreatePreviewRequest(include_candidates=True),
+    )
+
+    def positions(response):  # type: ignore[no-untyped-def]
+        return {
+            item.location_entity_id: (item.center_hex_q, item.center_hex_r)
+            for item in response.location_layouts
+            if item.location_entity_id in canonical_ids
+        }
+
+    assert positions(with_candidates) == positions(canonical_only)
+
+
+@pytest.mark.asyncio
+async def test_quick_create_detail_scopes_to_parent_direct_children_and_explicit_extra(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = uuid.uuid4().hex
+    await _create_project(db_session, novel_id)
+    parent = await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="location",
+        name="王都",
+        status="canonical",
+    )
+    child = await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="location",
+        name="内城",
+        status="canonical",
+    )
+    unrelated = await _create_entity(
+        db_session,
+        novel_id,
+        entity_type="location",
+        name="远港",
+        status="canonical",
+    )
+    await EntityRelationRepository().create(
+        db_session,
+        uuid.UUID(hex=novel_id),
+        EntityRelationCreate(
+            source_id=str(parent.id),
+            target_id=str(child.id),
+            relation_type="contains",
+            status="canonical",
+        ),
+    )
+
+    scoped = await MapQuickCreateService().preview(
+        db_session,
+        novel_id,
+        MapQuickCreatePreviewRequest(
+            target="detail",
+            parent_entity_id=str(parent.id),
+        ),
+    )
+    expanded = await MapQuickCreateService().preview(
+        db_session,
+        novel_id,
+        MapQuickCreatePreviewRequest(
+            target="detail",
+            parent_entity_id=str(parent.id),
+            location_entity_ids=[str(unrelated.id)],
+        ),
+    )
+
+    assert {item.location_entity_id for item in scoped.location_layouts} == {
+        str(parent.id),
+        str(child.id),
+    }
+    assert {item.location_entity_id for item in expanded.location_layouts} == {
+        str(parent.id),
+        str(child.id),
+        str(unrelated.id),
+    }
 
 
 @pytest.mark.asyncio
@@ -468,7 +586,7 @@ async def test_quick_create_confirm_rejects_layouts_outside_preview(
 
 
 @pytest.mark.asyncio
-async def test_quick_create_confirm_reuses_existing_map_and_replaces_outputs(
+async def test_quick_create_confirm_requires_explicit_existing_map_replacement(
     db_session: AsyncSession,
 ) -> None:
     novel_id = uuid.uuid4().hex
@@ -494,11 +612,20 @@ async def test_quick_create_confirm_reuses_existing_map_and_replaces_outputs(
         novel_id,
         MapQuickCreateConfirmRequest(name="快速创建世界地图"),
     )
+    with pytest.raises(ConflictError) as conflict:
+        await service.confirm(
+            db_session,
+            novel_id,
+            MapQuickCreateConfirmRequest(name="快速创建世界地图"),
+        )
+    assert conflict.value.code == "map_quick_create_name_conflict"
+
     second = await service.confirm(
         db_session,
         novel_id,
         MapQuickCreateConfirmRequest(
             name="快速创建世界地图",
+            replace_map_id=first.map.id,
             layouts=[
                 {
                     "location_entity_id": str(bay.id),

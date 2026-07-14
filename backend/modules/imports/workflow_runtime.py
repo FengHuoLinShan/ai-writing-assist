@@ -105,6 +105,7 @@ class DeepImportWorkflowRuntime(Protocol):
         candidates: Any,
         *,
         chapters: Any,
+        project_profile: dict[str, Any] | None = None,
         on_pair_progress: Callable[[int, int, str], Awaitable[None]] | None,
     ) -> Awaitable[Any]: ...
 

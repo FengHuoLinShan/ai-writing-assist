@@ -16,6 +16,7 @@ from infrastructure.embedding.client import (
     BgeEmbeddingClient,
     EmbeddingBatchQueueClosedError,
 )
+from infrastructure.embedding.worker import BgeOnnxWorker
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.providers import OpenAIProvider
 
@@ -23,7 +24,7 @@ from infrastructure.llm.providers import OpenAIProvider
 @pytest.fixture
 def mock_openai_client():
     """返回一个 mock AsyncOpenAI client"""
-    with patch("infrastructure.llm.providers.AsyncOpenAI") as mock:
+    with patch("infrastructure.llm.providers.AsyncOpenAI", autospec=True) as mock:
         client = MagicMock()
         client.embeddings = MagicMock()
         client.embeddings.create = AsyncMock()
@@ -112,7 +113,7 @@ async def test_generate_embedding_custom_model(provider, mock_openai_client):
 @pytest.mark.asyncio
 async def test_llm_client_generate_embedding_delegates_to_provider():
     """LLMClient 应公开 embedding 方法并委托 provider。"""
-    with patch("infrastructure.llm.client.get_provider") as get_provider:
+    with patch("infrastructure.llm.client.get_provider", autospec=True) as get_provider:
         provider = AsyncMock()
         provider.generate_embedding = AsyncMock(return_value=[0.1, 0.2])
         get_provider.return_value = provider
@@ -182,8 +183,16 @@ async def bge_client_context(
         embedding_batch_queue_max_items=max_items,
     )
     with (
-        patch("infrastructure.embedding.client.get_settings", return_value=settings),
-        patch("infrastructure.embedding.client.BgeOnnxWorker", return_value=worker),
+        patch(
+            "infrastructure.embedding.client.get_settings",
+            return_value=settings,
+            autospec=True,
+        ),
+        patch(
+            "infrastructure.embedding.client.BgeOnnxWorker",
+            return_value=worker,
+            autospec=True,
+        ),
     ):
         client = BgeEmbeddingClient()
 
@@ -283,3 +292,125 @@ async def test_bge_embedding_single_call_cancellation_does_not_cancel_batch():
 
     assert worker.calls == [(["cancel me", "keep me"], False)]
     assert kept_result == [7.0, 1.0, 0.0]
+
+
+def test_bge_worker_serializes_shared_result_queue_exchanges() -> None:
+    class AliveProcess:
+        @staticmethod
+        def is_alive() -> bool:
+            return True
+
+    class TaskQueue:
+        def __init__(self) -> None:
+            self.items: list[tuple[list[str], bool, str]] = []
+            self.put_called = threading.Event()
+
+        def put(self, item, *, timeout: float) -> None:
+            _ = timeout
+            self.items.append(item)
+            self.put_called.set()
+
+    class ResultQueue:
+        def __init__(self, task_queue: TaskQueue) -> None:
+            self.task_queue = task_queue
+            self.index = 0
+
+        def get(self, *, timeout: float):
+            _ = timeout
+            task = self.task_queue.items[self.index]
+            self.index += 1
+            return task[2], [[float(len(task[0][0]))]]
+
+    worker = object.__new__(BgeOnnxWorker)
+    task_queue = TaskQueue()
+    worker._process = AliveProcess()
+    worker._task_queue = task_queue
+    worker._result_queue = ResultQueue(task_queue)
+    worker._healthy = True
+    worker._request_counter = 0
+    worker._request_lock = threading.Lock()
+    worker._timeout = 1.0
+
+    worker._request_lock.acquire()
+    result: list[list[list[float]]] = []
+    started = threading.Event()
+
+    def encode() -> None:
+        started.set()
+        result.append(worker.encode(["serialized"]))
+
+    thread = threading.Thread(target=encode)
+    thread.start()
+    assert started.wait(timeout=1.0)
+    assert not task_queue.put_called.wait(timeout=0.05)
+
+    worker._request_lock.release()
+    thread.join(timeout=1.0)
+
+    assert not thread.is_alive()
+    assert result == [[[10.0]]]
+    assert len(task_queue.items) == 1
+
+
+def test_bge_worker_discards_late_result_after_previous_timeout() -> None:
+    class AliveProcess:
+        @staticmethod
+        def is_alive() -> bool:
+            return True
+
+    class TaskQueue:
+        def __init__(self) -> None:
+            self.items: list[tuple[list[str], bool, str]] = []
+
+        def put(self, item, *, timeout: float) -> None:
+            _ = timeout
+            self.items.append(item)
+
+    class ResultQueue:
+        def get(self, *, timeout: float):
+            _ = timeout
+            if not getattr(self, "returned_stale", False):
+                self.returned_stale = True
+                return "emb-1", [[1.0]]
+            return "emb-2", [[2.0]]
+
+    worker = object.__new__(BgeOnnxWorker)
+    worker._process = AliveProcess()
+    worker._task_queue = TaskQueue()
+    worker._result_queue = ResultQueue()
+    worker._healthy = True
+    worker._request_counter = 1
+    worker._request_lock = threading.Lock()
+    worker._timeout = 1.0
+
+    assert worker.encode(["fresh request"]) == [[2.0]]
+
+
+def test_bge_worker_healthcheck_discards_late_embedding_result() -> None:
+    class AliveProcess:
+        @staticmethod
+        def is_alive() -> bool:
+            return True
+
+    class TaskQueue:
+        def put(self, item, *, timeout: float) -> None:
+            _ = item, timeout
+
+    class ResultQueue:
+        def get(self, *, timeout: float):
+            _ = timeout
+            if not getattr(self, "returned_stale", False):
+                self.returned_stale = True
+                return "emb-1", [[1.0]]
+            return "health-2", "ok"
+
+    worker = object.__new__(BgeOnnxWorker)
+    worker._process = AliveProcess()
+    worker._task_queue = TaskQueue()
+    worker._result_queue = ResultQueue()
+    worker._healthy = False
+    worker._request_counter = 1
+    worker._request_lock = threading.Lock()
+
+    assert worker.healthcheck() is True
+    assert worker.healthy is True

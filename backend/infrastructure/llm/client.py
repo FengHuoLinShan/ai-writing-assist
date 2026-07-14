@@ -211,14 +211,42 @@ def _parse_structured_json(
 def _validation_error_summary(exc: ValidationError) -> list[dict[str, Any]]:
     summary: list[dict[str, Any]] = []
     for error in exc.errors():
+        location: list[int | str] = []
+        for part in error.get("loc", []):
+            if isinstance(part, int):
+                location.append(part)
+            else:
+                # Pydantic locations can contain dynamic mapping keys. Even a
+                # syntactically ordinary identifier may be private model output,
+                # so string segments are never copied into logs or exceptions.
+                location.append("[field]")
+        raw_type = error.get("type")
+        error_type = (
+            raw_type
+            if isinstance(raw_type, str)
+            and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", raw_type)
+            else "validation_error"
+        )
         summary.append(
             {
-                "loc": [str(part) for part in error.get("loc", [])],
-                "type": error.get("type"),
-                "msg": error.get("msg"),
+                "loc": location,
+                "type": error_type,
             }
         )
     return summary
+
+
+def _structured_error_detail(exc: Exception) -> str:
+    if isinstance(exc, ValidationError):
+        return json.dumps(
+            {
+                "error_count": exc.error_count(),
+                "errors": _validation_error_summary(exc)[:10],
+            },
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
+    return redact_diagnostic(exc, limit=500)
 
 
 def _append_structured_diagnostic(
@@ -635,15 +663,17 @@ class LLMClient:
             except ValidationError as e:
                 error_kind = "schema_validation"
                 last_error_kind = error_kind
+                validation_detail = _structured_error_detail(e)
                 last_error = LLMInvalidResponseError(
-                    f"Schema validation failed (attempt {attempt + 1}): {e}",
+                    "Schema validation failed "
+                    f"(attempt {attempt + 1}): {validation_detail}",
                     provider=self._provider.name,
                 )
                 logger.warning(
                     "Schema validation failed, attempt %d/%d: %s error_kind=%s",
                     attempt + 1,
                     max_fix_attempts + 1,
-                    e,
+                    validation_detail,
                     error_kind,
                 )
                 _append_structured_diagnostic(
@@ -805,13 +835,14 @@ class LLMClient:
                 return result
             except (_StructuredParseError, ValidationError) as exc:
                 last_error = exc
+                error_detail = _structured_error_detail(exc)
                 _append_structured_diagnostic(
                     diagnostics,
                     {
                         "kind": "format_repair",
                         "status": "failed",
                         "attempt": attempt,
-                        "error": str(exc)[:500],
+                        "error": error_detail,
                     },
                 )
                 if attempt < attempts:
@@ -824,7 +855,9 @@ class LLMClient:
                         await asyncio.sleep(delay)
 
         raise LLMInvalidResponseError(
-            f"Format repair failed after {attempts} attempts: {last_error}",
+            "Format repair failed after "
+            f"{attempts} attempts: "
+            f"{_structured_error_detail(last_error) if last_error else 'unknown'}",
             provider=self._provider.name,
             raw_response=last_raw_response,
         )

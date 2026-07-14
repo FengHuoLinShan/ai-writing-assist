@@ -35,7 +35,7 @@ class TestIndexChapterWithReport:
         db = AsyncMock(spec=AsyncSession)
         novel_id = "a" * 32
 
-        with patch("modules.rag.facade._indexing") as mock_indexing:
+        with patch("modules.rag.facade._indexing", autospec=True) as mock_indexing:
             mock_indexing.index_chapter_with_report = AsyncMock(return_value=expected)
 
             # Act
@@ -53,7 +53,7 @@ class TestIndexChapterWithReport:
         db = AsyncMock(spec=AsyncSession)
         novel_id = "b" * 32
 
-        with patch("modules.rag.facade._indexing") as mock_indexing:
+        with patch("modules.rag.facade._indexing", autospec=True) as mock_indexing:
             mock_indexing.index_chapter_with_report = AsyncMock(
                 side_effect=RuntimeError("indexing failed")
             )
@@ -70,7 +70,7 @@ class TestIndexChapterWithReport:
         expected_uuid = uuid.UUID(hex=novel_id)
         report = RagIndexReport(chapter_index=1)
 
-        with patch("modules.rag.facade._indexing") as mock_indexing:
+        with patch("modules.rag.facade._indexing", autospec=True) as mock_indexing:
             mock_indexing.index_chapter_with_report = AsyncMock(return_value=report)
 
             # Act
@@ -99,7 +99,7 @@ class TestIndexChapterIncremental:
         old_content = "旧内容"
         new_content = "新内容"
 
-        with patch("modules.rag.facade._indexing") as mock_indexing:
+        with patch("modules.rag.facade._indexing", autospec=True) as mock_indexing:
             mock_indexing.index_chapter_incremental = AsyncMock(return_value=expected)
 
             # Act
@@ -119,7 +119,7 @@ class TestIndexChapterIncremental:
         db = AsyncMock(spec=AsyncSession)
         novel_id = "d" * 32
 
-        with patch("modules.rag.facade._indexing") as mock_indexing:
+        with patch("modules.rag.facade._indexing", autospec=True) as mock_indexing:
             mock_indexing.index_chapter_incremental = AsyncMock(
                 side_effect=ValueError("content mismatch")
             )
@@ -136,7 +136,7 @@ class TestIndexChapterIncremental:
         expected_uuid = uuid.UUID(hex=novel_id)
         report = RagIndexReport(chapter_index=5)
 
-        with patch("modules.rag.facade._indexing") as mock_indexing:
+        with patch("modules.rag.facade._indexing", autospec=True) as mock_indexing:
             mock_indexing.index_chapter_incremental = AsyncMock(return_value=report)
 
             # Act

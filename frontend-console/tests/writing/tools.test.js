@@ -137,9 +137,24 @@ describe("createWritingTools", () => {
     expect(api.writing.splitChapter).toHaveBeenCalled()
   })
 
+  it("keeps tool button binding idempotent across incremental rerenders", async () => {
+    state.currentProjectId = "p1"
+    state._currentChapter = 1
+    confirmAiReference.mockResolvedValue({ id: "confirmation-1" })
+    api.writing.generate.mockResolvedValue({ task_id: "task-1" })
+    const tools = createTestTools()
+    document.body.innerHTML = tools.renderToolsMenu(true)
+
+    tools.bindEvents(document.body)
+    tools.bindEvents(document.body)
+    document.querySelector('[data-action="ai-generate-draft"]').click()
+    await vi.waitFor(() => expect(api.writing.generate).toHaveBeenCalledTimes(1))
+  })
+
   it("generates AI draft", async () => {
     state.currentProjectId = "p1"
     state._currentChapter = 1
+    state._scenes = [{ id: "scene-current", chapter_ids: ["1"] }]
     confirmAiReference.mockResolvedValue({ id: "conf-1", user_note: "加快速度" })
     api.writing.generate.mockResolvedValue({ task_id: "task-1" })
 
@@ -148,6 +163,7 @@ describe("createWritingTools", () => {
 
     expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({
       action: "writing.generate",
+      scene_id: "scene-current",
       include_pending_objects: false,
     }))
     expect(api.writing.generate).toHaveBeenCalledWith(expect.objectContaining({

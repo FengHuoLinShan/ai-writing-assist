@@ -59,6 +59,19 @@ async def test_domain_error_handler_maps_status_code_and_message(
     }
 
 
+@pytest.mark.asyncio
+async def test_domain_error_handler_adds_context_only_when_present() -> None:
+    error = ConflictError(
+        "blocked",
+        code="entity_type_change_blocked",
+        context={"blockers": [{"kind": "event_extension", "count": 1}]},
+    )
+
+    response = await domain_error_handler(None, error)
+
+    assert json.loads(response.body)["context"] == error.context
+
+
 def test_non_api_backend_code_has_no_fastapi_http_exception_dependency() -> None:
     offenders: list[str] = []
     for root in (Path("backend/core"), Path("backend/shared"), Path("backend/modules")):

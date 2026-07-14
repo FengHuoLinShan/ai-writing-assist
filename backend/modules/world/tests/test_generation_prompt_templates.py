@@ -7,6 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.schemas import LLMCallResponse
 from modules.world.models import CoreEntity
+from modules.world.services.worldbuilding.generation_prompt_template_service import (
+    BUILTIN_GENERATION_TEMPLATES,
+    TEMPLATE_ENTITY_TYPES,
+)
 
 
 class _FakeLLMClient:
@@ -82,6 +86,27 @@ async def _create_template(async_client: AsyncClient, novel_id: str) -> dict:
 async def _entity_count(db_session: AsyncSession) -> int:
     result = await db_session.execute(select(func.count(CoreEntity.id)))
     return int(result.scalar_one())
+
+
+def test_builtin_templates_are_creative_lenses_not_required_field_lists() -> None:
+    expected_focus = {
+        "none": ("概念建议", "采用前调整类型"),
+        "character": ("会作出选择", "行为逻辑"),
+        "event": ("状态变化", "巩固现状"),
+        "item": ("会被使用", "不要默认"),
+        "location": ("塑造行动", "不要强制"),
+        "faction": ("持续作出决策", "实际能够做什么"),
+        "rule": ("改变真实的选择空间", "故事实际需要"),
+    }
+
+    assert set(BUILTIN_GENERATION_TEMPLATES) == set(expected_focus)
+    for key, required_phrases in expected_focus.items():
+        prompt = BUILTIN_GENERATION_TEMPLATES[key]["prompt_text"]
+        assert all(phrase in prompt for phrase in required_phrases)
+        assert f"聚焦{BUILTIN_GENERATION_TEMPLATES[key]['name']}卡" not in prompt
+
+    assert TEMPLATE_ENTITY_TYPES["none"] == "concept"
+    assert "概念建议" in BUILTIN_GENERATION_TEMPLATES["none"]["description"]
 
 
 @pytest.mark.asyncio

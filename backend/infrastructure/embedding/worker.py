@@ -20,6 +20,8 @@ import logging
 import math
 import multiprocessing as mp
 import os
+import threading
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,15 @@ BGE_QUERY_PREFIX = "为这个句子生成表示以用于检索："
 
 _SHUTDOWN = "__SHUTDOWN__"
 _HEALTHCHECK = "__HEALTHCHECK__"
+
+
+def _request_sequence(value: object) -> int | None:
+    if not isinstance(value, str):
+        return None
+    prefix, separator, raw_sequence = value.rpartition("-")
+    if separator and prefix in {"emb", "health"} and raw_sequence.isdigit():
+        return int(raw_sequence)
+    return None
 
 
 def _l2_normalize(vec: list[float]) -> list[float]:
@@ -241,39 +252,80 @@ class BgeOnnxWorker:
         self._timeout = timeout
         self._queue_maxsize = max(1, queue_maxsize)
 
-        self._task_queue: mp.Queue = mp.Queue(maxsize=self._queue_maxsize)
-        self._result_queue: mp.Queue = mp.Queue()
+        # Queues own OS-level semaphores. Create them only when the worker starts
+        # so a configured-but-unused client does not allocate process resources.
+        self._task_queue: mp.Queue | None = None
+        self._result_queue: mp.Queue | None = None
         self._process: mp.Process | None = None
         self._healthy = False
         self._request_counter = 0
+        # The worker has one shared result queue. Keep each request/response
+        # exchange atomic so concurrent query/document batch loops cannot steal
+        # each other's correlated response.
+        # Lifecycle transitions share the same lock with request exchanges.
+        # RLock lets start cleanup a partial lifecycle without deadlocking on
+        # the public stop path.
+        self._request_lock = threading.RLock()
 
     @property
     def healthy(self) -> bool:
-        if not self._process or not self._process.is_alive():
-            return False
-        return self._healthy
+        return bool(
+            self._healthy
+            and self._task_queue is not None
+            and self._result_queue is not None
+            and self._process_is_alive(self._process)
+        )
 
     def start(self) -> None:
-        if self._process and self._process.is_alive():
-            return
-        self._process = mp.Process(
-            target=_worker_loop,
-            args=(
-                self._model_path,
-                self._device,
-                self._quantization,
-                self._max_batch,
-                self._task_queue,
-                self._result_queue,
-            ),
-            daemon=True,
-            name="bge-worker",
-        )
-        self._process.start()
+        with self._request_lock:
+            self._start_locked()
 
-        # 等待 worker 就绪信号（最多等 60 秒，首次需下载/验证 HF 缓存）
+    def _start_locked(self) -> None:
+        process_alive = self._process_is_alive(self._process)
+        if (
+            process_alive
+            and self._task_queue is not None
+            and self._result_queue is not None
+        ):
+            return
+
+        # A dead process or partially initialized start may still own queues.
+        # Release that lifecycle before allocating a fresh, independent pair.
+        if (
+            self._process is not None
+            or self._task_queue is not None
+            or self._result_queue is not None
+        ):
+            self._stop_locked(timeout=0.0)
+        if self._process_is_alive(self._process):
+            raise RuntimeError(
+                "BGE worker cannot restart while the previous process is alive"
+            )
+
         try:
-            ready_id, backend = self._result_queue.get(timeout=60.0)
+            self._open_queues()
+            task_queue = self._task_queue
+            result_queue = self._result_queue
+            if task_queue is None or result_queue is None:
+                raise RuntimeError("BGE worker queues failed to initialize")
+
+            self._process = mp.Process(
+                target=_worker_loop,
+                args=(
+                    self._model_path,
+                    self._device,
+                    self._quantization,
+                    self._max_batch,
+                    task_queue,
+                    result_queue,
+                ),
+                daemon=True,
+                name="bge-worker",
+            )
+            self._process.start()
+
+            # 等待 worker 就绪信号（最多等 60 秒，首次需下载/验证 HF 缓存）
+            ready_id, backend = result_queue.get(timeout=60.0)
             if ready_id == "__ready__":
                 self._healthy = True
                 logger.info(
@@ -284,52 +336,173 @@ class BgeOnnxWorker:
                 )
             elif ready_id == "__error__":
                 self._healthy = False
-                self.stop()
                 raise RuntimeError(f"BGE worker failed to initialize: {backend}") from (
                     backend if isinstance(backend, BaseException) else None
                 )
             else:
                 self._healthy = False
-                self.stop()
                 raise RuntimeError(f"BGE worker unexpected init message: {ready_id}")
         except RuntimeError:
+            self._stop_locked()
             raise
         except Exception as exc:
             self._healthy = False
-            try:
-                self.stop()
-            except Exception:
-                pass
+            self._stop_locked()
             raise RuntimeError("BGE worker failed to start within 60s") from exc
 
+    def _open_queues(self) -> None:
+        """Allocate one queue pair for a single worker process lifecycle."""
+        self._release_queues()
+        try:
+            self._task_queue = mp.Queue(maxsize=self._queue_maxsize)
+            self._result_queue = mp.Queue()
+        except BaseException:
+            self._release_queues()
+            raise
+
+    @staticmethod
+    def _close_queue(queue: mp.Queue | None) -> None:
+        if queue is None:
+            return
+        try:
+            queue.close()
+        except Exception:
+            logger.warning("Failed to close BGE worker queue", exc_info=True)
+        try:
+            queue.join_thread()
+        except Exception:
+            logger.warning("Failed to join BGE worker queue thread", exc_info=True)
+
+    def _release_queues(self) -> None:
+        task_queue = self._task_queue
+        result_queue = self._result_queue
+        # Clear ownership first so repeated stop or cleanup re-entry is safe.
+        self._task_queue = None
+        self._result_queue = None
+        self._close_queue(task_queue)
+        self._close_queue(result_queue)
+
+    @staticmethod
+    def _process_is_alive(process: mp.Process | None) -> bool:
+        if process is None:
+            return False
+        try:
+            return process.is_alive()
+        except Exception:
+            logger.debug("Failed to inspect BGE worker process", exc_info=True)
+            return False
+
+    @staticmethod
+    def _close_process(process: mp.Process | None) -> None:
+        if process is None:
+            return
+        try:
+            process.close()
+        except Exception:
+            logger.debug("Failed to close BGE worker process handle", exc_info=True)
+
     def stop(self, timeout: float = 5.0) -> None:
-        if self._process and self._process.is_alive():
-            try:
-                self._task_queue.put(_SHUTDOWN, timeout=1.0)
-            except Exception:
-                pass
-            self._process.join(timeout=timeout)
-            if self._process.is_alive():
-                self._process.terminate()
-                self._process.join(timeout=1.0)
+        with self._request_lock:
+            self._stop_locked(timeout=timeout)
+
+    def _stop_locked(self, timeout: float = 5.0) -> None:
+        process = self._process
+        task_queue = self._task_queue
+        self._process = None
         self._healthy = False
+
+        still_alive = self._process_is_alive(process)
+        if still_alive:
+            try:
+                if task_queue is not None:
+                    task_queue.put(_SHUTDOWN, timeout=1.0)
+            except Exception:
+                logger.debug("Failed to enqueue BGE worker shutdown", exc_info=True)
+            try:
+                process.join(timeout=timeout)
+            except Exception:
+                logger.warning("Failed to join BGE worker process", exc_info=True)
+            still_alive = self._process_is_alive(process)
+            if still_alive:
+                try:
+                    process.terminate()
+                except Exception:
+                    logger.warning(
+                        "Failed to terminate BGE worker process", exc_info=True
+                    )
+                try:
+                    process.join(timeout=1.0)
+                except Exception:
+                    logger.warning(
+                        "Failed to join terminated BGE worker process", exc_info=True
+                    )
+                still_alive = self._process_is_alive(process)
+
+        self._release_queues()
+        if still_alive:
+            # Do not create a second worker while a failed termination is alive.
+            self._process = process
+            logger.error("BGE worker process is still alive after termination")
+        else:
+            self._close_process(process)
         logger.info("BGE worker stopped")
 
     def healthcheck(self) -> bool:
-        if not self._process or not self._process.is_alive():
-            self._healthy = False
-            return False
-        try:
-            self._request_counter += 1
-            rid = f"health-{self._request_counter}"
-            self._task_queue.put((_HEALTHCHECK, rid), timeout=1.0)
-            result_id, status = self._result_queue.get(timeout=2.0)
-            ok = result_id == rid and status == "ok"
-            self._healthy = ok
-            return ok
-        except Exception:
-            self._healthy = False
-            return False
+        with self._request_lock:
+            if (
+                not self._process
+                or not self._process.is_alive()
+                or self._task_queue is None
+                or self._result_queue is None
+            ):
+                self._healthy = False
+                return False
+            try:
+                self._request_counter += 1
+                rid = f"health-{self._request_counter}"
+                self._task_queue.put((_HEALTHCHECK, rid), timeout=1.0)
+                status = self._wait_for_response(rid, timeout=2.0)
+                ok = status == "ok"
+                self._healthy = ok
+                return ok
+            except Exception:
+                self._healthy = False
+                return False
+
+    def _wait_for_response(self, request_id: str, *, timeout: float):
+        """Wait for one correlated result, discarding responses from timed-out calls."""
+        result_queue = self._result_queue
+        if result_queue is None:
+            raise RuntimeError("BGE worker process is not running")
+        deadline = time.monotonic() + timeout
+        expected_sequence = _request_sequence(request_id)
+        first_wait = True
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(f"BGE worker timed out after {timeout}s")
+            result_id, result = result_queue.get(
+                timeout=timeout if first_wait else remaining
+            )
+            first_wait = False
+            if result_id == request_id:
+                return result
+            received_sequence = _request_sequence(result_id)
+            if (
+                expected_sequence is None
+                or received_sequence is None
+                or received_sequence >= expected_sequence
+            ):
+                raise RuntimeError(
+                    "BGE worker response mismatch: "
+                    f"expected {request_id}, got {result_id}"
+                )
+            logger.warning(
+                "Discarding stale BGE worker response: "
+                "expected_sequence=%s received_sequence=%s",
+                expected_sequence,
+                received_sequence,
+            )
 
     def encode(
         self,
@@ -339,26 +512,34 @@ class BgeOnnxWorker:
         timeout: float | None = None,
     ) -> list[list[float]]:
         """编码文本为 embedding 向量（同步阻塞）。"""
-        if not self._process or not self._process.is_alive():
-            raise RuntimeError("BGE worker process is not running")
+        with self._request_lock:
+            if (
+                not self._process
+                or not self._process.is_alive()
+                or self._task_queue is None
+                or self._result_queue is None
+            ):
+                raise RuntimeError("BGE worker process is not running")
 
-        self._request_counter += 1
-        request_id = f"emb-{self._request_counter}"
+            self._request_counter += 1
+            request_id = f"emb-{self._request_counter}"
 
-        effective_timeout = timeout or self._timeout
-        self._task_queue.put((texts, is_query, request_id), timeout=2.0)
+            effective_timeout = timeout or self._timeout
+            self._task_queue.put((texts, is_query, request_id), timeout=2.0)
 
-        try:
-            result_id, result = self._result_queue.get(timeout=effective_timeout)
-        except Exception:
-            raise TimeoutError(f"BGE worker timed out after {effective_timeout}s")
+            try:
+                result = self._wait_for_response(
+                    request_id,
+                    timeout=effective_timeout,
+                )
+            except RuntimeError:
+                raise
+            except Exception as exc:
+                raise TimeoutError(
+                    f"BGE worker timed out after {effective_timeout}s"
+                ) from exc
 
-        if result_id != request_id:
-            raise RuntimeError(
-                f"BGE worker response mismatch: expected {request_id}, got {result_id}"
-            )
+            if isinstance(result, Exception):
+                raise result
 
-        if isinstance(result, Exception):
-            raise result
-
-        return result
+            return result

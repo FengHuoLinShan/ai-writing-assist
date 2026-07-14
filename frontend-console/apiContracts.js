@@ -153,6 +153,44 @@
       requiredParams: ["id"],
       requiredQuery: ["novel_id"],
     }),
+    "world.getEntityMapPresence": define("GET", ({ id }) => `/world/entities/${required(id, "id", "world.getEntityMapPresence")}/map-presence`, {
+      requiredParams: ["id"],
+      requiredQuery: ["novel_id"],
+    }),
+    "world.listMaps": define("GET", () => "/world/maps", {
+      requiredQuery: ["novel_id"],
+    }),
+    "world.getMapArchiveImpact": define("GET", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.getMapArchiveImpact")}/archive-impact`, {
+      requiredParams: ["mapId"],
+      requiredQuery: ["novel_id"],
+    }),
+    "world.archiveMap": define("POST", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.archiveMap")}/archive`, {
+      requiredParams: ["mapId"],
+      requiredQuery: ["novel_id"],
+    }),
+    "world.restoreMap": define("POST", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.restoreMap")}/restore`, {
+      requiredParams: ["mapId"],
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+    }),
+    "world.applyMapEditor": define("POST", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.applyMapEditor")}/editor/apply`, {
+      requiredParams: ["mapId"],
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+      requiredBody: ["expected_revision", "commands"],
+    }),
+    "world.getMapLayerTree": define("GET", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.getMapLayerTree")}/layer-tree`, {
+      requiredParams: ["mapId"],
+      requiredQuery: ["novel_id"],
+    }),
+    "world.getMapPaths": define("GET", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.getMapPaths")}/paths`, {
+      requiredParams: ["mapId"],
+      requiredQuery: ["novel_id"],
+    }),
+    "world.getMapPathArchiveImpact": define("GET", ({ mapId, pathId }) => `/world/maps/${required(mapId, "mapId", "world.getMapPathArchiveImpact")}/paths/${required(pathId, "pathId", "world.getMapPathArchiveImpact")}/archive-impact`, {
+      requiredParams: ["mapId", "pathId"],
+      requiredQuery: ["novel_id"],
+    }),
     "world.getMapState": define("GET", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.getMapState")}/state`, {
       requiredParams: ["mapId"],
       requiredQuery: ["novel_id"],
@@ -164,6 +202,14 @@
     "world.getMapPlayback": define("GET", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.getMapPlayback")}/playback`, {
       requiredParams: ["mapId"],
       requiredQuery: ["novel_id"],
+    }),
+    "world.getMapTimeline": define("GET", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.getMapTimeline")}/timeline`, {
+      requiredParams: ["mapId"],
+      requiredQuery: ["novel_id"],
+    }),
+    "world.getMapStateAt": define("GET", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.getMapStateAt")}/state-at`, {
+      requiredParams: ["mapId"],
+      requiredQuery: ["novel_id", "scene_index"],
     }),
     "world.listMapObservations": define("GET", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.listMapObservations")}/observations`, {
       requiredParams: ["mapId"],
@@ -177,6 +223,33 @@
       requiredParams: ["mapId", "factId"],
       requiredQuery: ["novel_id"],
       hasBody: true,
+    }),
+    "world.previewQuickCreateMap": define("POST", () => "/world/maps/quick-create/preview", {
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+    }),
+    "world.confirmQuickCreateMap": define("POST", () => "/world/maps/quick-create/confirm", {
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+    }),
+    "world.replaceLocationLayouts": define("PUT", ({ mapId }) => `/world/maps/${required(mapId, "mapId", "world.replaceLocationLayouts")}/location-layouts`, {
+      requiredParams: ["mapId"],
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+    }),
+    "world.replaceTerrainLayerPatches": define("PUT", ({ mapId, layerId }) => `/world/maps/${required(mapId, "mapId", "world.replaceTerrainLayerPatches")}/terrain/layers/${required(layerId, "layerId", "world.replaceTerrainLayerPatches")}/patches`, {
+      requiredParams: ["mapId", "layerId"],
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+    }),
+    "world.updateTerrainLayer": define("PATCH", ({ mapId, layerId }) => `/world/maps/${required(mapId, "mapId", "world.updateTerrainLayer")}/terrain/layers/${required(layerId, "layerId", "world.updateTerrainLayer")}`, {
+      requiredParams: ["mapId", "layerId"],
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+    }),
+    "world.deleteTerrainLayer": define("DELETE", ({ mapId, layerId }) => `/world/maps/${required(mapId, "mapId", "world.deleteTerrainLayer")}/terrain/layers/${required(layerId, "layerId", "world.deleteTerrainLayer")}`, {
+      requiredParams: ["mapId", "layerId"],
+      requiredQuery: ["novel_id"],
     }),
 
     "writing.publish": define("POST", () => "/writing/drafts", { hasBody: true }),

@@ -59,6 +59,19 @@ async def require_active_project(
     bind_validated_novel_id(novel_id)
 
 
+async def require_active_project_exclusive(
+    db: AsyncSession,
+    novel_id: str,
+) -> None:
+    """Exclusively fence a short DB-only finalizer for one active project.
+
+    Normal business operations must keep using ``require_active_project``.
+    This seam must never be held across LLM/provider I/O.
+    """
+    await _service.require_active_project_exclusive(db, novel_id)
+    bind_validated_novel_id(novel_id)
+
+
 async def get_project_by_id(
     db: AsyncSession,
     project_id: uuid.UUID | str,

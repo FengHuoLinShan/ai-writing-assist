@@ -1051,7 +1051,9 @@ class TestRetrievalService:
         chunk.embedding = [0.1] * 768  # type: ignore[assignment]
         await db_with_project.flush()
 
-        with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+        with patch(
+            "infrastructure.llm.client.LLMClient", autospec=True
+        ) as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.generate_embedding = AsyncMock(
                 side_effect=Exception("embedding down")
@@ -1064,12 +1066,14 @@ class TestRetrievalService:
             with patch(
                 "modules.rag.query_expansion._expand_query_with_project_terms",
                 side_effect=_no_expand,
+                autospec=True,
             ):
                 result = await retrieve(db_with_project, str(sample_novel_id), "灰雾")
 
         assert result.total == 1
         assert result.degraded is True
         assert result.warnings
+        mock_client.close.assert_awaited_once_with()
 
     @pytest.mark.asyncio
     async def test_retrieve_reports_degraded_when_returned_chunk_embedding_failed(
@@ -1101,6 +1105,7 @@ class TestRetrievalService:
         with patch(
             "modules.rag.query_expansion._expand_query_with_project_terms",
             side_effect=_no_expand,
+            autospec=True,
         ):
             result = await retrieve(db_with_project, str(sample_novel_id), "铜铃")
 
@@ -1397,7 +1402,7 @@ class TestRagFacade:
             embedding_model="bge-base-zh-v1.5",
             embedding_dim=1024,
         )
-        with patch("core.config.get_settings", return_value=settings):
+        with patch("core.config.get_settings", return_value=settings, autospec=True):
             status = await get_index_status(db_with_project, str(sample_novel_id))
 
         assert status["embedding_dim"] == 768

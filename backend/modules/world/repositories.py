@@ -247,6 +247,19 @@ class CoreEntityRepository:
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_for_update(
+        self,
+        db: AsyncSession,
+        entity_id: uuid.UUID,
+    ) -> CoreEntity | None:
+        result = await db.execute(
+            select(CoreEntity)
+            .where(CoreEntity.id == entity_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return result.scalar_one_or_none()
+
     def _entity_conditions(
         self,
         novel_id: uuid.UUID,
@@ -532,6 +545,19 @@ class CoreEntityRepository:
         result = await db.execute(stmt)
         items: Sequence[CoreEntity] = result.scalars().all()
         return list(items)
+
+    async def list_distinct_entity_types(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> list[str]:
+        result = await db.execute(
+            select(CoreEntity.entity_type)
+            .where(CoreEntity.novel_id == novel_id)
+            .distinct()
+            .order_by(CoreEntity.entity_type)
+        )
+        return [value for value in result.scalars().all() if value]
 
     async def update(
         self,
@@ -1565,6 +1591,25 @@ class EntityRelationRepository:
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_all_for_entities(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        entity_ids: list[uuid.UUID],
+    ) -> list[EntityRelation]:
+        """Batch-load relations touching any requested entity in one novel."""
+        unique_ids = list(dict.fromkeys(entity_ids))
+        if not unique_ids:
+            return []
+        stmt = select(EntityRelation).where(
+            EntityRelation.novel_id == novel_id,
+            or_(
+                EntityRelation.source_id.in_(unique_ids),
+                EntityRelation.target_id.in_(unique_ids),
+            ),
+        )
+        return list((await db.execute(stmt)).scalars().all())
 
     async def update_endpoint(
         self,

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Literal
+
+from pydantic import BaseModel
 
 RecoveryPolicy = Literal[
     "auto_requeue",
@@ -27,6 +30,7 @@ class TaskDefinition:
     handler: Any
     recovery_policy: RecoveryPolicy = "restart_origin"
     max_attempts: int = 1
+    generic_submit_schema: type[BaseModel] | None = None
 
 
 @dataclass(frozen=True)
@@ -51,3 +55,23 @@ class TaskOwnerContract:
     """Minimal owner projection for authorization checks outside tasks."""
 
     novel_id: str
+
+
+@dataclass(frozen=True)
+class CompletedTaskPayloadContract:
+    """Detached source payload for a novel-scoped completed task.
+
+    Business modules use this projection when an explicit apply operation must
+    validate the frozen task result without importing the task ORM. Only the
+    small, stable apply context below crosses the infrastructure boundary;
+    arbitrary task metadata remains private to the task subsystem.
+    """
+
+    task_id: str
+    task_type: str
+    novel_id: str
+    result: dict[str, Any] = field(default_factory=dict)
+    revision_token: datetime | None = None
+    context_confirmation_id: str | None = None
+    start_chapter: int | None = None
+    end_chapter: int | None = None

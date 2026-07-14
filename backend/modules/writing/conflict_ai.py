@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
 import logging
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from copy import deepcopy
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,8 +20,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.errors import NotFoundError, ValidationError
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.client import LLMClient
+from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
-from modules.writing.repositories import WritingConflictCheckRepository
+from modules.writing.repositories import (
+    AI_REVIEW_TASK_OWNER_KEY,
+    WritingConflictCheckRepository,
+    public_conflict_summary,
+)
 from modules.writing.schemas import (
     WritingConflictAiReviewIssue,
     WritingConflictAiReviewRawOutput,
@@ -25,6 +38,26 @@ logger = logging.getLogger(__name__)
 
 AI_REVIEW_ACTION = "writing.conflict_check.ai_review"
 AI_SUGGESTION_ACTION = "writing.conflict_check.ai_suggestion"
+_TASK_STALE_ERROR = (
+    "Conflict review inputs changed while the task was running; discarded stale result"
+)
+
+
+@dataclass(frozen=True)
+class _TaskCheckIdentity:
+    id: str
+
+
+@dataclass(frozen=True)
+class _ConflictReviewTaskPlan:
+    novel_id: str
+    check_id: str
+    confirmation_id: str
+    task_id: str
+    prompt: str
+    include_pending_objects: bool
+    source_fingerprint: str
+    check_identity: _TaskCheckIdentity
 
 
 def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
@@ -41,6 +74,38 @@ class ConflictCheckAiReviewService:
     ) -> None:
         self._repo = repo
         self._llm = llm_client
+
+    @asynccontextmanager
+    async def _open_task_llm_client(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        llm_execution_snapshot: dict[str, Any],
+    ) -> AsyncIterator[LLMClient]:
+        if self._llm is not None:
+            yield self._llm
+            return
+        if not isinstance(llm_execution_snapshot, dict) or not llm_execution_snapshot:
+            raise ValueError(
+                "llm_execution_snapshot is required for conflict review tasks"
+            )
+
+        from modules.project.facade import (
+            create_project_snapshot_llm_client,
+            restore_project_llm_execution_settings,
+        )
+
+        settings = await restore_project_llm_execution_settings(
+            db,
+            novel_id,
+            llm_execution_snapshot,
+        )
+        client = create_project_snapshot_llm_client(settings, novel_id=novel_id)
+        try:
+            yield client
+        finally:
+            await client.close()
 
     async def run(
         self,
@@ -61,7 +126,12 @@ class ConflictCheckAiReviewService:
             context_confirmation_id,
             "context_confirmation_id",
         )
-        existing = await self._repo.get_check(db, cid, nid)
+        # The synchronous endpoint deliberately keeps its historical
+        # single-transaction behavior.  Locking the review target up front
+        # makes request order deterministic: a later async enqueue cannot bind
+        # a new owner and then have this older request erase it from a stale
+        # identity-map snapshot.
+        existing = await self._repo.get_check_for_ai_review_update(db, cid, nid)
         if existing is None:
             raise NotFoundError("Conflict check not found")
         check, current_items = existing
@@ -96,6 +166,7 @@ class ConflictCheckAiReviewService:
             check_id=cid,
             novel_id=nid,
             status="running",
+            summary_json=_summary_without_task_runtime(check.summary_json),
             confirmation_id=confirmation_uuid,
             model=getattr(self._llm, "model_name", None),
             error=None,
@@ -197,6 +268,392 @@ class ConflictCheckAiReviewService:
             except ValueError:
                 logger.exception("Failed to attach AI review result ref")
             return updated or check, items
+
+    async def run_for_task(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        check_id: str,
+        context_confirmation_id: str,
+        task_id: str,
+        llm_execution_snapshot: dict[str, Any],
+        allow_unowned_legacy: bool = False,
+    ) -> tuple[object, list[object]]:
+        """Run task review with the provider wait outside any DB transaction."""
+        from infrastructure.tasks.facade import require_task_checkpoint_session
+
+        require_task_checkpoint_session(db)
+        prepared = await self._prepare_task_review(
+            db,
+            novel_id=novel_id,
+            check_id=check_id,
+            context_confirmation_id=context_confirmation_id,
+            task_id=task_id,
+            allow_unowned_legacy=allow_unowned_legacy,
+        )
+        if not isinstance(prepared, _ConflictReviewTaskPlan):
+            return prepared
+
+        model: str | None = None
+        try:
+            async with self._open_task_llm_client(
+                db,
+                novel_id=novel_id,
+                llm_execution_snapshot=llm_execution_snapshot,
+            ) as client:
+                model = getattr(client, "model_name", None)
+                await self._checkpoint_before_external_call(db)
+                output = await self._execute_task_review(client, prepared)
+        except asyncio.CancelledError:
+            await self._converge_cancelled_task(
+                db,
+                plan=prepared,
+                model=model,
+            )
+            raise
+        except Exception as exc:
+            safe_error = redact_diagnostic(
+                f"{type(exc).__name__}: {exc}",
+                limit=500,
+            )
+            logger.warning("AI conflict review task failed: %s", safe_error)
+            return await self._finalize_task_failure(
+                db,
+                plan=prepared,
+                model=model,
+                error=safe_error,
+            )
+
+        return await self._finalize_task_success(
+            db,
+            plan=prepared,
+            output=output,
+            model=model,
+        )
+
+    async def _prepare_task_review(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        check_id: str,
+        context_confirmation_id: str,
+        task_id: str,
+        allow_unowned_legacy: bool,
+    ) -> _ConflictReviewTaskPlan | tuple[object, list[object]]:
+        from modules.context.facade import prepare_confirmed_ai_action
+        from modules.project.facade import require_active_project
+
+        await require_active_project(db, novel_id)
+        try:
+            confirmed = await prepare_confirmed_ai_action(
+                db,
+                novel_id=novel_id,
+                action=AI_REVIEW_ACTION,
+                confirmation_id=context_confirmation_id,
+            )
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+
+        nid = _parse_uuid(novel_id, "novel_id")
+        cid = _parse_uuid(check_id, "check_id")
+        confirmation_uuid = _parse_uuid(
+            context_confirmation_id,
+            "context_confirmation_id",
+        )
+        existing = await self._repo.get_check_for_ai_review_update(db, cid, nid)
+        if existing is None:
+            raise NotFoundError("Conflict check not found")
+        check, items = existing
+        try:
+            _validate_confirmation_scope(confirmed.confirmation, check)
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+
+        owner = _task_owner(check.summary_json)
+        if (
+            owner is None
+            and allow_unowned_legacy
+            and check.ai_review_status == "running"
+            and str(check.ai_review_confirmation_id or "") == str(context_confirmation_id)
+        ):
+            summary = dict(check.summary_json or {})
+            summary[AI_REVIEW_TASK_OWNER_KEY] = str(task_id)
+            await self._repo.update_loaded_ai_review(
+                db,
+                check,
+                status="running",
+                summary_json=summary,
+                confirmation_id=confirmation_uuid,
+                model=None,
+                error=None,
+            )
+            owner = str(task_id)
+        if owner != str(task_id):
+            raise ValidationError("Conflict review task was superseded")
+
+        if check.ai_review_status in {"done", "partial", "failed"} and str(
+            check.ai_review_confirmation_id or ""
+        ) == str(context_confirmation_id):
+            return check, items
+
+        prompt = _build_ai_review_prompt(
+            check=check,
+            items=items,
+            context_markdown=str(confirmed.rendered_markdown),
+        )
+        return _ConflictReviewTaskPlan(
+            novel_id=str(novel_id),
+            check_id=str(check_id),
+            confirmation_id=str(context_confirmation_id),
+            task_id=str(task_id),
+            prompt=prompt,
+            include_pending_objects=bool(confirmed.confirmation.include_pending_objects),
+            source_fingerprint=_task_source_fingerprint(confirmed, check, items),
+            check_identity=_TaskCheckIdentity(id=str(check.id)),
+        )
+
+    @staticmethod
+    async def _checkpoint_before_external_call(db: AsyncSession) -> None:
+        await db.commit()
+        if db.in_transaction():
+            raise RuntimeError(
+                "conflict review task LLM execution requires a "
+                "transaction-free checkpoint"
+            )
+        db.expire_all()
+
+    @staticmethod
+    async def _execute_task_review(
+        client: LLMClient,
+        plan: _ConflictReviewTaskPlan,
+    ) -> WritingConflictAiReviewRawOutput:
+        return await run_managed_structured(
+            client,
+            LLMCallRequest(
+                model=getattr(client, "model_name", "deepseek-v4-flash"),
+                messages=[
+                    LLMMessage(role="system", content=_AI_REVIEW_SYSTEM_PROMPT),
+                    LLMMessage(role="user", content=plan.prompt),
+                ],
+                temperature=0.2,
+            ),
+            WritingConflictAiReviewRawOutput,
+            step_name="writing.conflict_check.ai_review.structured",
+        )
+
+    async def _finalize_task_success(
+        self,
+        db: AsyncSession,
+        *,
+        plan: _ConflictReviewTaskPlan,
+        output: WritingConflictAiReviewRawOutput,
+        model: str | None,
+    ) -> tuple[object, list[object]]:
+        from modules.context.facade import (
+            bind_confirmed_action_result,
+            prepare_confirmed_ai_action,
+        )
+        from modules.project.facade import require_active_project
+
+        await require_active_project(db, plan.novel_id)
+        try:
+            confirmed = await prepare_confirmed_ai_action(
+                db,
+                novel_id=plan.novel_id,
+                action=AI_REVIEW_ACTION,
+                confirmation_id=plan.confirmation_id,
+            )
+        except ValueError as exc:
+            return await self._finalize_task_failure(
+                db,
+                plan=plan,
+                model=model,
+                error=redact_diagnostic(str(exc), limit=500),
+            )
+
+        existing = await self._repo.get_check_for_ai_review_update(
+            db,
+            _parse_uuid(plan.check_id, "check_id"),
+            _parse_uuid(plan.novel_id, "novel_id"),
+        )
+        if existing is None:
+            raise NotFoundError("Conflict check not found")
+        check, current_items = existing
+        if _task_owner(check.summary_json) != plan.task_id:
+            raise ValidationError("Conflict review task was superseded")
+
+        try:
+            _validate_confirmation_scope(confirmed.confirmation, check)
+        except ValueError:
+            return await self._write_task_failure_locked(
+                db,
+                plan=plan,
+                check=check,
+                items=current_items,
+                model=model,
+                error=_TASK_STALE_ERROR,
+            )
+
+        current_fingerprint = _task_source_fingerprint(
+            confirmed,
+            check,
+            current_items,
+        )
+        if current_fingerprint != plan.source_fingerprint:
+            return await self._write_task_failure_locked(
+                db,
+                plan=plan,
+                check=check,
+                items=current_items,
+                model=model,
+                error=_TASK_STALE_ERROR,
+            )
+
+        confirmation_uuid = _parse_uuid(
+            plan.confirmation_id,
+            "context_confirmation_id",
+        )
+        ai_items, discarded_count = _ai_review_items(
+            output,
+            check=plan.check_identity,
+            confirmation_id=confirmation_uuid,
+            include_pending_objects=plan.include_pending_objects,
+        )
+        appended_items: list[object] = []
+        if ai_items:
+            appended_items = await self._repo.append_items(
+                db,
+                check_id=_parse_uuid(plan.check_id, "check_id"),
+                novel_id=_parse_uuid(plan.novel_id, "novel_id"),
+                items=ai_items,
+            )
+        items = _sort_conflict_items([*current_items, *appended_items])
+        status = "partial" if discarded_count else "done"
+        summary = _summary_with_ai_review(
+            items,
+            check.summary_json or {},
+            status=status,
+            discarded_count=discarded_count,
+        )
+        updated = await self._repo.update_loaded_ai_review(
+            db,
+            check,
+            status=status,
+            summary_json=summary,
+            confirmation_id=confirmation_uuid,
+            model=model,
+            error=None,
+        )
+        await bind_confirmed_action_result(
+            db,
+            confirmation_id=plan.confirmation_id,
+            result_type="writing_conflict_check",
+            result_id=plan.check_id,
+            status=status,
+        )
+        return updated, items
+
+    async def _finalize_task_failure(
+        self,
+        db: AsyncSession,
+        *,
+        plan: _ConflictReviewTaskPlan,
+        model: str | None,
+        error: str,
+    ) -> tuple[object, list[object]]:
+        from modules.project.facade import require_active_project
+
+        await require_active_project(db, plan.novel_id)
+        existing = await self._repo.get_check_for_ai_review_update(
+            db,
+            _parse_uuid(plan.check_id, "check_id"),
+            _parse_uuid(plan.novel_id, "novel_id"),
+        )
+        if existing is None:
+            raise NotFoundError("Conflict check not found")
+        check, items = existing
+        if _task_owner(check.summary_json) != plan.task_id:
+            raise ValidationError("Conflict review task was superseded")
+        return await self._write_task_failure_locked(
+            db,
+            plan=plan,
+            check=check,
+            items=items,
+            model=model,
+            error=error,
+        )
+
+    async def _write_task_failure_locked(
+        self,
+        db: AsyncSession,
+        *,
+        plan: _ConflictReviewTaskPlan,
+        check: object,
+        items: list[object],
+        model: str | None,
+        error: str,
+    ) -> tuple[object, list[object]]:
+        from modules.context.facade import bind_confirmed_action_result
+
+        safe_error = redact_diagnostic(error, limit=500)
+        summary = _summary_with_ai_review(
+            items,
+            getattr(check, "summary_json", None) or {},
+            status="failed",
+            discarded_count=0,
+        )
+        updated = await self._repo.update_loaded_ai_review(
+            db,
+            check,
+            status="failed",
+            summary_json=summary,
+            confirmation_id=_parse_uuid(
+                plan.confirmation_id,
+                "context_confirmation_id",
+            ),
+            model=model,
+            error=safe_error,
+        )
+        try:
+            await bind_confirmed_action_result(
+                db,
+                confirmation_id=plan.confirmation_id,
+                result_type="writing_conflict_check",
+                result_id=plan.check_id,
+                status="failed",
+            )
+        except ValueError:
+            logger.warning("Failed to attach conflict review task failure result")
+        return updated, items
+
+    async def _converge_cancelled_task(
+        self,
+        db: AsyncSession,
+        *,
+        plan: _ConflictReviewTaskPlan,
+        model: str | None,
+    ) -> None:
+        async def _persist() -> None:
+            try:
+                await self._finalize_task_failure(
+                    db,
+                    plan=plan,
+                    model=model,
+                    error="Conflict review task was cancelled",
+                )
+                await db.commit()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Deletion or supersession deliberately wins over stale cleanup.
+                await db.rollback()
+
+        try:
+            await asyncio.shield(_persist())
+        except asyncio.CancelledError:
+            pass
 
 
 class ConflictSuggestionService:
@@ -333,6 +790,151 @@ class ConflictSuggestionService:
             except ValueError:
                 logger.exception("Failed to attach AI suggestion result ref")
             return updated or item
+
+
+def _task_owner(summary: dict | None) -> str | None:
+    value = (summary or {}).get(AI_REVIEW_TASK_OWNER_KEY)
+    return str(value) if value else None
+
+
+def _summary_without_task_runtime(summary: dict | None) -> dict:
+    return public_conflict_summary(summary)
+
+
+def _stable_fingerprint(value: Any) -> str:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _compiled_context_fingerprint(compiled: object) -> dict[str, Any]:
+    sections: list[dict[str, Any]] = []
+    for section in getattr(compiled, "sections", []):
+        retrieval_metadata = dict(getattr(section, "retrieval_metadata", None) or {})
+        retrieval_metadata.pop("latency_metadata", None)
+        tier = getattr(section, "tier", 0)
+        try:
+            tier = int(tier)
+        except (TypeError, ValueError):
+            tier = str(tier)
+        sections.append(
+            {
+                "key": getattr(section, "key", None),
+                "tier": tier,
+                "content": getattr(section, "content", None),
+                "token_count": getattr(section, "token_count", None),
+                "status": getattr(section, "status", None),
+                "sources": deepcopy(getattr(section, "sources", None) or []),
+                "excluded": bool(getattr(section, "excluded", False)),
+                "truncated_reason": getattr(section, "truncated_reason", None),
+                "retrieval_metadata": deepcopy(retrieval_metadata),
+            }
+        )
+    budget_events: list[Any] = []
+    for event in getattr(compiled, "budget_events", []):
+        if hasattr(event, "model_dump"):
+            budget_events.append(event.model_dump(mode="json"))
+        else:
+            budget_events.append(deepcopy(event))
+    return {
+        "sections": sections,
+        "total_tokens": getattr(compiled, "total_tokens", None),
+        "budget_tokens": getattr(compiled, "budget_tokens", None),
+        "evicted_keys": list(getattr(compiled, "evicted_keys", []) or []),
+        "truncated_keys": list(getattr(compiled, "truncated_keys", []) or []),
+        "budget_events": budget_events,
+        "warnings": list(getattr(compiled, "warnings", []) or []),
+    }
+
+
+def _check_semantic_fingerprint(check: object, items: list[object]) -> dict[str, Any]:
+    summary = public_conflict_summary(getattr(check, "summary_json", None))
+    summary.pop("ai_review", None)
+    item_payloads = [
+        {
+            "id": str(getattr(item, "id", "")),
+            "check_id": str(getattr(item, "check_id", "")),
+            "novel_id": str(getattr(item, "novel_id", "")),
+            "kind": getattr(item, "kind", None),
+            "severity": getattr(item, "severity", None),
+            "source_module": getattr(item, "source_module", None),
+            "source_type": getattr(item, "source_type", None),
+            "source_id": getattr(item, "source_id", None),
+            "evidence_summary": getattr(item, "evidence_summary", None),
+            "location_json": deepcopy(getattr(item, "location_json", None)),
+            "is_ai_judgment": bool(getattr(item, "is_ai_judgment", False)),
+            "needs_review": bool(getattr(item, "needs_review", False)),
+            "confidence": getattr(item, "confidence", None),
+            "source_confirmation_id": str(
+                getattr(item, "source_confirmation_id", "") or ""
+            ),
+            "llm_rationale": getattr(item, "llm_rationale", None),
+            "status": getattr(item, "status", None),
+            "suggestion_status": getattr(item, "suggestion_status", None),
+            "suggestion_confirmation_id": str(
+                getattr(item, "suggestion_confirmation_id", "") or ""
+            ),
+            "ai_suggestion": getattr(item, "ai_suggestion", None),
+            "suggestion_error": getattr(item, "suggestion_error", None),
+        }
+        for item in items
+    ]
+    item_payloads.sort(key=lambda item: item["id"])
+    return {
+        "id": str(getattr(check, "id", "")),
+        "novel_id": str(getattr(check, "novel_id", "")),
+        "chapter_index": getattr(check, "chapter_index", None),
+        "scene_id": str(getattr(check, "scene_id", "") or ""),
+        "draft_id": str(getattr(check, "draft_id", "") or ""),
+        "version_number": getattr(check, "version_number", None),
+        "scope": deepcopy(getattr(check, "scope", None) or {}),
+        "include_candidates": bool(getattr(check, "include_candidates", False)),
+        "status": getattr(check, "status", None),
+        "summary_json": summary,
+        "items": item_payloads,
+    }
+
+
+def _task_source_fingerprint(
+    confirmed: object,
+    check: object,
+    items: list[object],
+) -> str:
+    confirmation = getattr(confirmed, "confirmation")
+    return _stable_fingerprint(
+        {
+            "confirmation": {
+                "id": str(getattr(confirmation, "id", "")),
+                "novel_id": str(getattr(confirmation, "novel_id", "")),
+                "action": getattr(confirmation, "action", None),
+                "task": getattr(confirmation, "task", None),
+                "scope": getattr(confirmation, "scope", None),
+                "context_mode": getattr(confirmation, "context_mode", None),
+                "include_pending_objects": bool(
+                    getattr(confirmation, "include_pending_objects", False)
+                ),
+                "compile_options": deepcopy(
+                    getattr(confirmed, "compile_options", None) or {}
+                ),
+                "selected_asset_ids": deepcopy(
+                    getattr(confirmation, "selected_asset_ids", None) or {}
+                ),
+                "excluded_asset_ids": deepcopy(
+                    getattr(confirmation, "excluded_asset_ids", None) or {}
+                ),
+                "user_note": getattr(confirmation, "user_note", None),
+                "warnings": list(getattr(confirmation, "warnings", []) or []),
+                "rendered_markdown": str(getattr(confirmed, "rendered_markdown", "")),
+                "compiled": _compiled_context_fingerprint(getattr(confirmed, "compiled")),
+            },
+            "conflict_check": _check_semantic_fingerprint(check, items),
+        }
+    )
 
 
 def _ai_review_items(

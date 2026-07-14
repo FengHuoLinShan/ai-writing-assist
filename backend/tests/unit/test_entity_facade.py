@@ -18,6 +18,7 @@ from modules.world import entity_facade, worldbuilding_facade
 from modules.world import facade as world_facade
 from modules.world.facade import (
     apply_entity_fusion,
+    apply_entity_fusion_group,
     backfill_entity_embeddings,
     create_relation,
     get_entity_relations,
@@ -45,8 +46,12 @@ async def test_root_world_facade_is_reexport_hub_without_async_functions():
     assert async_defs == []
     assert world_facade.suggest_entity_fusion is entity_facade.suggest_entity_fusion
     assert world_facade.apply_entity_fusion is entity_facade.apply_entity_fusion
+    assert (
+        world_facade.apply_entity_fusion_group is entity_facade.apply_entity_fusion_group
+    )
     assert suggest_entity_fusion is entity_facade.suggest_entity_fusion
     assert apply_entity_fusion is entity_facade.apply_entity_fusion
+    assert apply_entity_fusion_group is entity_facade.apply_entity_fusion_group
     assert (
         world_facade.preview_worldbuilding_activation
         is worldbuilding_facade.preview_worldbuilding_activation
@@ -132,7 +137,7 @@ def _relation_response(**overrides) -> EntityRelationResponse:
 # ===========================================================================
 
 
-@mock.patch("modules.world.entity_facade._relation_service")
+@mock.patch("modules.world.entity_facade._relation_service", autospec=True)
 async def test_create_relation_happy_path_returns_response(mock_relation_service):
     """Valid dict is converted to EntityRelationCreate and forwarded to service."""
     # Arrange
@@ -162,7 +167,7 @@ async def test_create_relation_happy_path_returns_response(mock_relation_service
     assert rel_create.strength == 0.9
 
 
-@mock.patch("modules.world.entity_facade._relation_service")
+@mock.patch("modules.world.entity_facade._relation_service", autospec=True)
 async def test_create_relation_missing_required_field_raises_validation_error(
     mock_relation_service,
 ):
@@ -183,7 +188,7 @@ async def test_create_relation_missing_required_field_raises_validation_error(
 # ===========================================================================
 
 
-@mock.patch("modules.world.entity_facade._relation_service")
+@mock.patch("modules.world.entity_facade._relation_service", autospec=True)
 async def test_get_entity_relations_happy_path_returns_list_and_total(
     mock_relation_service,
 ):
@@ -206,7 +211,7 @@ async def test_get_entity_relations_happy_path_returns_list_and_total(
     )
 
 
-@mock.patch("modules.world.entity_facade._relation_service")
+@mock.patch("modules.world.entity_facade._relation_service", autospec=True)
 async def test_get_entity_relations_custom_pagination_respects_skip_limit(
     mock_relation_service,
 ):
@@ -225,7 +230,7 @@ async def test_get_entity_relations_custom_pagination_respects_skip_limit(
     assert result == ([], 0)
 
 
-@mock.patch("modules.world.entity_facade._relation_service")
+@mock.patch("modules.world.entity_facade._relation_service", autospec=True)
 async def test_get_entity_relations_service_exception_propagates(mock_relation_service):
     """Exceptions from the underlying service bubble up unchanged."""
     # Arrange
@@ -242,7 +247,7 @@ async def test_get_entity_relations_service_exception_propagates(mock_relation_s
 # ===========================================================================
 
 
-@mock.patch("modules.world.entity_facade._relation_service")
+@mock.patch("modules.world.entity_facade._relation_service", autospec=True)
 async def test_upsert_relation_happy_path_returns_response(mock_relation_service):
     """All positional args and description are forwarded to service.upsert."""
     # Arrange
@@ -269,7 +274,7 @@ async def test_upsert_relation_happy_path_returns_response(mock_relation_service
     )
 
 
-@mock.patch("modules.world.entity_facade._relation_service")
+@mock.patch("modules.world.entity_facade._relation_service", autospec=True)
 async def test_upsert_relation_with_none_description_forwards_none(
     mock_relation_service,
 ):
@@ -291,7 +296,7 @@ async def test_upsert_relation_with_none_description_forwards_none(
     )
 
 
-@mock.patch("modules.world.entity_facade._relation_service")
+@mock.patch("modules.world.entity_facade._relation_service", autospec=True)
 async def test_upsert_relation_service_exception_propagates(mock_relation_service):
     """Exceptions from the underlying service bubble up unchanged."""
     # Arrange
@@ -308,7 +313,7 @@ async def test_upsert_relation_service_exception_propagates(mock_relation_servic
 # ===========================================================================
 
 
-@mock.patch("modules.world.entity_facade._dedup_service")
+@mock.patch("modules.world.entity_facade._dedup_service", autospec=True)
 async def test_merge_candidate_into_entity_happy_path_returns_merge_result(
     mock_dedup_service,
 ):
@@ -330,7 +335,7 @@ async def test_merge_candidate_into_entity_happy_path_returns_merge_result(
     )
 
 
-@mock.patch("modules.world.entity_facade._dedup_service")
+@mock.patch("modules.world.entity_facade._dedup_service", autospec=True)
 async def test_merge_candidate_into_entity_service_exception_propagates(
     mock_dedup_service,
 ):
@@ -351,7 +356,7 @@ async def test_merge_candidate_into_entity_service_exception_propagates(
 # ===========================================================================
 
 
-@mock.patch("modules.world.entity_facade._embedding_service")
+@mock.patch("modules.world.entity_facade._embedding_service", autospec=True)
 async def test_backfill_entity_embeddings_happy_path_returns_count(
     mock_embedding_service,
 ):
@@ -370,7 +375,7 @@ async def test_backfill_entity_embeddings_happy_path_returns_count(
     )
 
 
-@mock.patch("modules.world.entity_facade._embedding_service")
+@mock.patch("modules.world.entity_facade._embedding_service", autospec=True)
 async def test_backfill_entity_embeddings_custom_batch_size_forwards_value(
     mock_embedding_service,
 ):
@@ -389,7 +394,7 @@ async def test_backfill_entity_embeddings_custom_batch_size_forwards_value(
     )
 
 
-@mock.patch("modules.world.entity_facade._embedding_service")
+@mock.patch("modules.world.entity_facade._embedding_service", autospec=True)
 async def test_backfill_entity_embeddings_service_exception_propagates(
     mock_embedding_service,
 ):

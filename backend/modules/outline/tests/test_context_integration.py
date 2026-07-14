@@ -35,10 +35,12 @@ _CONTAINER_GET_PATCHES = [
     mock.patch(
         "core.container.get",
         side_effect=_mock_container_get,
+        autospec=True,
     ),
     mock.patch(
         "modules.rag.query_expansion._container_get",
         side_effect=_mock_container_get,
+        autospec=True,
     ),
 ]
 

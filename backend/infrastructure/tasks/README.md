@@ -55,8 +55,19 @@ await worker.run_once()      # 单次执行
 
 - `get_task_owner()` 只返回授权所需的 `TaskOwnerContract.novel_id`；查询不加载
   task meta/result，任务不存在或缺少 owner 时返回 `None`。
+- `get_completed_task_payload()` 仅在 `task_id + task_type + novel_id + done`
+  全部匹配时返回冻结的 apply 结果、revision token 与白名单上下文，
+  不暴露任意 task meta；可选 `FOR UPDATE` 串行化幂等采用。
+  `replace_completed_task_result()` 在同一严格范围内用 revision CAS 保存
+  采用结果，并与调用方的领域写入共享事务。业务模块据此校验异步
+  preview / scan 来源，不直接导入 tasks ORM。
 - `cancel_unfinished_tasks_for_novel()` 仅取消指定 `novel_id` 的
   `pending/running` 任务，不自行提交事务。
+- `list_running_task_types_for_novel()` 只返回指定项目、指定类型集中的
+  running task type，并必须显式排除当前 task id；它不加载 meta/result。
+  `require_running_task_attempt()` 则以
+  `task_id + task_type + novel_id + running + lease_id + attempt` 锁定当前 attempt，
+  仅供已按 project-first 锁序进入的短 finalizer 使用。
 - `delete_tasks_for_novel()` / `delete_tasks_for_novels()` 仅供项目永久删除后
   清理任务历史。
 
@@ -76,6 +87,12 @@ lease 不匹配而失败，worker 取消 runner，handler session 回滚，旧 r
 即使 handler 在下一次心跳前返回，finalize 发现 lease 已失效时也会回滚当前
 session，不会提交删除线性化之后的业务写入。
 
+Handler 可在确定性阶段边界显式 `db.commit()` 建立 checkpoint；该 commit 仍经过
+project/lease fence，不是绕过 worker 原子性的普通提交。任何 provider、LLM 或 embedding
+等慢外部 I/O，如果前面已发生 DB 读写，必须先通过这种可恢复 checkpoint 释放事务，
+并在入库前重验来源与权限。`rag.index_chapter_for_task` 是当前章节索引的窄实现；
+它不能从 API 或普通业务 session 调用。
+
 已 claim 任务使用 worker 专用 handler session。每次 handler `db.commit()` 前均在同一
 事务内按 `project FOR SHARE -> task running+lease` 的顺序执行 fence，并把与 session
 分离的 task 对象上 `progress/result/meta` 合并回 lifecycle row。fence 通过时，业务
@@ -85,6 +102,14 @@ session，不会提交删除线性化之后的业务写入。
 `TaskWorker(task_preflight=...)` 支持组合根注入执行前门禁。worker 本身不依赖任何
 业务模块；`run_worker.py` 统一注册业务 handler / DI，并仅对带 `meta.novel_id`
 的任务调用 project 活跃性门禁，无 `novel_id` 的全局任务直接放行。
+preflight 是严格只读契约；返回后若 handler session 存在 `new / dirty / deleted`
+状态，worker 会将 attempt 标记失败并回滚，不会静默丢弃门禁写入。成功的
+只读 preflight 产生的 autobegin 事务会在 handler 入场前回滚释放；已经验证后
+绑定的日志 `novel_id` 与脱离 session 的 task meta/progress 保留。该边界不替代
+handler checkpoint 和 finalize 的 project/lease fence。preflight 期间不允许 `commit()`，
+带 ORM 待写状态的显式 `flush()` 也会失败。SQLAlchemy Core/driver DML 不会进入
+`new / dirty / deleted`，因此不能仅凭 ORM 状态标记 attempt 失败；正常返回时
+边界 rollback 仍会丢弃这类 DML。preflight 实现不得使用 Core/driver 写入。
 `run_worker.py` 还会在注册 handler 前校验 LLM 运行配置；非
 `development/test/local` 环境必须设置正的 `LLM_RATE_LIMIT_PER_MINUTE`。`--reload`
 模式会在启动 watchfiles 监督进程前先执行同一校验，并由每个重载后的子进程再次校验，
@@ -109,13 +134,21 @@ handler 注册时声明四种冻结策略：
 
 `GET /api/tasks/{task_id}` 加性返回 `attempt / max_attempts / stale / lifecycle /
 available_actions`。前端只渲染后端返回的固定 action，不根据 heartbeat 或 task type
-自行推测恢复方式。
+自行推测恢复方式。`result` 顶层以下划线开头的键是 worker 私有 checkpoint：数据库与
+lifecycle 恢复路径保留原值，但 task status API 永不返回；非下划线公共结果保持原 wire
+shape。业务 handler 不得把前端所需字段放进私有键。
 
 task status/cancel/retry 在查询 task 前通过组合根注入的
 `project.require_active` 检查 query `novel_id`，回收站项目统一返回 404，
 不暴露 task meta/result。通用 submit 保留“模块专属类型/未知类型”的原有
-校验顺序；只在合法任务的 `meta.novel_id` 存在时执行项目门禁。
+校验顺序。所有业务任务默认只能通过所属模块 API 提交，不允许用
+`POST /api/tasks` 绕过业务 request schema、确认或授权。只有注册时显式提供
+`generic_submit_schema`（Pydantic `BaseModel` 类）的纯基础设施任务才能使用通用
+submit；其 `meta` 先按该 schema 重建，再在存在 `novel_id` 时执行项目门禁。校验失败的
+422 只返回受控字段位置与错误类型，不回显提交值或动态 mapping key。
 infrastructure 仅依赖 DI 容器键，不 import project 模块。
 
-其他业务模块只通过 `contracts.py` 和 `facade.py` 读取 lifecycle 投影，不跨模块
-import `models.py` 或 `lifecycle.py`。
+本轮已收敛或新增的跨模块 lifecycle 操作只通过 `contracts.py` 和 `facade.py`
+读取投影，不新增对 `models.py` 或 `lifecycle.py` 的依赖。deep-import orchestrator
+和 World Bible projection coalescing 仍有已登记的直接 ORM 边界债务；它们需要后续
+状态机/coalescing 设计迁移，不得作为新增调用的先例。

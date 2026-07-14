@@ -26,6 +26,9 @@ from modules.imports.entity_extraction.scene_entity_alias_relation import (
     _trim_phase2b_scene_text,
 )
 from modules.imports.entity_extraction.scene_entity_bulk import BulkSceneEntityExtractor
+from modules.imports.entity_extraction.scene_entity_checkpoint import (
+    scene_input_fingerprint,
+)
 from modules.imports.entity_extraction.scene_entity_extraction import (
     SceneEntityExtractionService,
 )
@@ -76,7 +79,7 @@ def _patched_phase2_summaries(svc: SceneEntityExtractionService):
             patch.object(
                 svc,
                 "_phase2_audit_summary",
-                new_callable=AsyncMock,
+                autospec=True,
                 return_value={},
             )
         )
@@ -84,7 +87,7 @@ def _patched_phase2_summaries(svc: SceneEntityExtractionService):
             patch.object(
                 svc,
                 "_phase2_snapshot_health_summary",
-                new_callable=AsyncMock,
+                autospec=True,
                 return_value={},
             )
         )
@@ -134,6 +137,122 @@ def test_phase2_strategy_selector_preserves_existing_boundaries(
     assert route.strategy == expected_strategy
     assert route.total_scenes == total_scenes
     assert route.has_checkpoints is has_checkpoints
+
+
+def test_phase2_result_merges_phase2b_checkpoints_into_common_checkpoint_tree() -> None:
+    svc = SceneEntityExtractionService()
+    phase2_checkpoint = {"scene_id": "scene-1", "status": "done"}
+    phase2b_checkpoint = {
+        "scene_id": "scene-1",
+        "status": "done",
+        "input_fingerprint": "fingerprint-1",
+    }
+
+    merged = svc._merge_alias_relation_result(
+        {
+            "total_relations": 0,
+            "checkpoints": {"phase2": {"scenes": [phase2_checkpoint]}},
+        },
+        {
+            "total_aliases": 0,
+            "total_relations": 0,
+            "alias_relation_checkpoints": {
+                "phase2b": {"scenes": [phase2b_checkpoint]}
+            },
+        },
+    )
+
+    assert merged["checkpoints"] == {
+        "phase2": {"scenes": [phase2_checkpoint]},
+        "phase2b": {"scenes": [phase2b_checkpoint]},
+    }
+
+
+@pytest.mark.asyncio
+async def test_parallel_phase2_skips_only_matching_completed_checkpoint() -> None:
+    svc = SceneEntityExtractionService()
+    scene = {"novel_id": "novel-1", "scene_index": 1, "chapter_ids": ["1"]}
+    scene_text = "Scene 正文"
+    fingerprint = scene_input_fingerprint(scene, scene_text)
+    db = Mock()
+    db.flush = AsyncMock()
+
+    with (
+        patch.object(svc, "_load_scene_chapters", autospec=True, return_value=scene_text),
+        patch.object(svc, "_call_llm_extraction", autospec=True) as call_llm,
+        patch.object(
+            svc,
+            "_phase2_flush_with_timeout",
+            autospec=True,
+            return_value={"degraded": False, "error_kind": None, "error_message": None},
+        ),
+        _patched_phase2_summaries(svc),
+    ):
+        result = await svc._process_scenes_parallel_llm(
+            db,
+            "00000000-0000-0000-0000-000000000001",
+            [scene],
+            "无已有对象",
+            workflow_id="wf-fingerprint",
+            on_scene_progress=None,
+            bulk_error_kind="test",
+            include_alias_relations=False,
+            existing_checkpoints={
+                "scene_index:1": {
+                    "status": "done",
+                    "input_fingerprint": fingerprint,
+                    "created_entity_ids": ["entity-1"],
+                }
+            },
+        )
+
+    call_llm.assert_not_awaited()
+    assert result["rerun_scenes"] == 0
+    checkpoint = result["checkpoints"]["phase2"]["scenes"][0]
+    assert checkpoint["status"] == "skipped"
+    assert checkpoint["input_fingerprint"] == fingerprint
+
+
+@pytest.mark.parametrize("previous_fingerprint", [None, "stale-fingerprint"])
+@pytest.mark.asyncio
+async def test_parallel_phase2_reruns_untrusted_completed_checkpoint(
+    previous_fingerprint: str | None,
+) -> None:
+    svc = SceneEntityExtractionService()
+    scene = {"novel_id": "novel-1", "scene_index": 1, "chapter_ids": ["1"]}
+    db = Mock()
+    db.flush = AsyncMock()
+
+    with (
+        patch.object(svc, "_load_scene_chapters", autospec=True, return_value=""),
+        patch.object(
+            svc,
+            "_phase2_flush_with_timeout",
+            autospec=True,
+            return_value={"degraded": False, "error_kind": None, "error_message": None},
+        ),
+        _patched_phase2_summaries(svc),
+    ):
+        result = await svc._process_scenes_parallel_llm(
+            db,
+            "00000000-0000-0000-0000-000000000001",
+            [scene],
+            "无已有对象",
+            workflow_id="wf-fingerprint",
+            on_scene_progress=None,
+            bulk_error_kind="test",
+            include_alias_relations=False,
+            existing_checkpoints={
+                "scene_index:1": {
+                    "status": "done",
+                    "input_fingerprint": previous_fingerprint,
+                }
+            },
+        )
+
+    assert result["rerun_scenes"] == 1
+    checkpoint = result["checkpoints"]["phase2"]["scenes"][0]
+    assert checkpoint["input_fingerprint"] == scene_input_fingerprint(scene, "")
 
 
 def test_llm_schema_normalizes_common_score_strings() -> None:
@@ -368,7 +487,7 @@ async def test_persist_entities_writes_auto_ingested_meta(
 
     with patch(
         "modules.world.facade.find_similar_entities",
-        new_callable=AsyncMock,
+        autospec=True,
         return_value={},
     ):
         created = await svc._persist_entities(
@@ -507,13 +626,13 @@ async def test_process_scene_creates_context_snapshot_and_links_entity_meta(
     extraction.delta_events = []
 
     with (
-        patch.object(svc, "_call_llm_extraction", new_callable=AsyncMock) as llm_call,
+        patch.object(svc, "_call_llm_extraction", autospec=True) as llm_call,
         patch(
             "modules.world.facade.find_similar_entities",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={},
         ),
-        patch("modules.memory.facade.capture_snapshot", new_callable=AsyncMock),
+        patch("modules.memory.facade.capture_snapshot", autospec=True),
     ):
         llm_call.return_value = extraction
         result = await svc._process_scene(
@@ -528,6 +647,10 @@ async def test_process_scene_creates_context_snapshot_and_links_entity_meta(
         )
 
     assert result["created"] == 1
+    assert result["input_fingerprint"] == scene_input_fingerprint(
+        scene,
+        llm_call.await_args.args[0],
+    )
     snapshots = await _snapshot_rows(db_session, novel_with_drafts)
     assert len(snapshots) == 1
     snapshot = snapshots[0]
@@ -573,7 +696,7 @@ async def test_process_scene_creates_failed_context_snapshot_on_llm_error(
     with patch.object(
         svc,
         "_call_llm_extraction",
-        new_callable=AsyncMock,
+        autospec=True,
         side_effect=LLMConnectionError("connection dropped"),
     ):
         with pytest.raises(LLMConnectionError):
@@ -758,13 +881,13 @@ async def test_process_scene_marks_snapshot_failed_on_persist_error(
         patch.object(
             svc,
             "_call_llm_extraction",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=extraction,
         ),
         patch.object(
             svc,
             "_persist_entities",
-            new_callable=AsyncMock,
+            autospec=True,
             side_effect=RuntimeError("entity persist failed"),
         ),
     ):
@@ -794,6 +917,18 @@ async def test_persist_entities_keeps_temporary_and_link_candidates(
     novel_with_drafts: str,
 ) -> None:
     svc = SceneEntityExtractionService()
+    from modules.world.facade import create_entity
+
+    canonical_target = await create_entity(
+        db_session,
+        novel_with_drafts,
+        {
+            "name": "林岚",
+            "entity_type": "character",
+            "status": "canonical",
+            "created_by": "user",
+        },
+    )
     temporary = ExtractedEntity(
         name="临时钥匙",
         entity_type="item",
@@ -810,7 +945,7 @@ async def test_persist_entities_keeps_temporary_and_link_candidates(
 
     with patch(
         "modules.world.facade.find_similar_entities",
-        new_callable=AsyncMock,
+        autospec=True,
         return_value={},
     ):
         created = await svc._persist_entities(
@@ -842,6 +977,44 @@ async def test_persist_entities_keeps_temporary_and_link_candidates(
     alias_meta = (by_name["岚姐"].content_json or {}).get("_meta", {})
     assert alias_meta.get("suggested_action") == "link_to_existing"
     assert alias_meta.get("suggested_existing_entity_name") == "林岚"
+    assert alias_meta.get("suggested_existing_entity_id") == canonical_target["id"]
+
+
+@pytest.mark.asyncio
+async def test_persist_entities_does_not_target_pending_entity_as_existing(
+    db_session: AsyncSession,
+    novel_with_drafts: str,
+) -> None:
+    svc = SceneEntityExtractionService()
+    pending = ExtractedEntity(
+        name="黑荆棘安保公司",
+        entity_type="faction",
+        suggested_action="link_to_existing",
+        suggested_existing_entity_name="黑荆棘安保公司",
+    )
+
+    created = await svc._persist_entities(
+        db_session,
+        novel_with_drafts,
+        [pending],
+        scene_index=20,
+        source_chapter_index=26,
+        workflow_id="wf-pending-target",
+    )
+
+    assert created == 1
+    from sqlalchemy import select
+
+    from modules.world.models import CoreEntity
+
+    result = await db_session.execute(
+        select(CoreEntity).where(CoreEntity.name == "黑荆棘安保公司")
+    )
+    stored = result.scalar_one()
+    meta = (stored.content_json or {}).get("_meta", {})
+    assert stored.status == "candidate"
+    assert meta.get("suggested_existing_entity_name") == "黑荆棘安保公司"
+    assert meta.get("suggested_existing_entity_id") is None
 
 
 @pytest.mark.asyncio
@@ -863,18 +1036,18 @@ async def test_persist_entities_skips_duplicate_names_in_phase() -> None:
     with (
         patch(
             "modules.world.facade.find_similar_entities",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={},
         ),
         patch(
             "modules.world.facade.create_entity",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={"id": "entity-1"},
         ) as create_entity,
         patch(
             "modules.imports.entity_extraction.scene_entity_persistence."
             "SceneEntityPersistenceGateway._record_quote_evidence",
-            new_callable=AsyncMock,
+            autospec=True,
         ),
     ):
         created = await svc._persist_entities(
@@ -920,12 +1093,13 @@ async def test_persist_entities_rolls_back_single_entity_failure(
     with (
         patch(
             "modules.world.facade.find_similar_entities",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={},
         ),
         patch(
             "modules.world.facade.create_entity",
             side_effect=create_entity_with_one_db_failure,
+            autospec=True,
         ),
     ):
         created = await svc._persist_entities(
@@ -1047,23 +1221,23 @@ async def test_persist_relations_resolves_entities_in_one_batch() -> None:
     with (
         patch(
             "modules.world.facade.find_working_entity_ids_by_names",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={"克莱恩": "entity-1", "梅丽莎": "entity-2"},
         ) as mock_batch_resolve,
         patch(
             "modules.world.facade.find_working_entity_id_by_name",
-            new_callable=AsyncMock,
+            autospec=True,
             side_effect=AssertionError("relations should batch entity name resolution"),
         ) as mock_single_resolve,
         patch(
             "modules.world.facade.create_or_merge_relation",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={"action": "created", "relation": Mock(id="relation-1")},
         ),
         patch(
             "modules.imports.entity_extraction.scene_entity_persistence."
             "SceneEntityPersistenceGateway._record_quote_evidence",
-            new_callable=AsyncMock,
+            autospec=True,
         ),
     ):
         created = await svc._persist_relations(
@@ -1094,18 +1268,18 @@ async def test_persist_relations_records_relation_merge_stats() -> None:
     with (
         patch(
             "modules.world.facade.find_working_entity_ids_by_names",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={"克莱恩": "entity-1", "梅丽莎": "entity-2"},
         ),
         patch(
             "modules.world.facade.create_or_merge_relation",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={"action": "merged", "relation": Mock(id="relation-1")},
         ),
         patch(
             "modules.imports.entity_extraction.scene_entity_persistence."
             "SceneEntityPersistenceGateway._record_quote_evidence",
-            new_callable=AsyncMock,
+            autospec=True,
         ),
     ):
         created = await svc._persist_relations(
@@ -1163,10 +1337,10 @@ async def test_process_scene_persists_phase2a_relation_output(
         patch.object(
             svc,
             "_call_llm_extraction",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=extraction,
         ),
-        patch("modules.memory.facade.capture_snapshot", new_callable=AsyncMock),
+        patch("modules.memory.facade.capture_snapshot", autospec=True),
     ):
         result = await svc._process_scene(
             db_session,
@@ -1313,28 +1487,28 @@ async def test_phase2b_persistence_resolves_working_entities_in_one_batch() -> N
     with (
         patch(
             "modules.world.facade.find_working_entity_ids_by_names",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={"克莱恩": "entity-1", "梅丽莎": "entity-2"},
         ) as mock_batch_resolve,
         patch(
             "modules.world.facade.find_working_entity_id_by_name",
-            new_callable=AsyncMock,
+            autospec=True,
             side_effect=AssertionError("phase2b should batch entity name resolution"),
         ) as mock_single_resolve,
         patch(
             "modules.world.facade.append_candidate_alias",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=True,
         ),
         patch(
             "modules.world.facade.create_or_merge_relation",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={"action": "created", "relation": relation},
         ),
         patch(
             "modules.imports.entity_extraction.scene_entity_persistence."
             "SceneEntityPersistenceGateway._record_quote_evidence",
-            new_callable=AsyncMock,
+            autospec=True,
         ),
     ):
         result = await svc._persist_alias_relation_output(
@@ -1463,25 +1637,25 @@ async def test_phase2b_scene_failure_degrades_without_raising(
         patch.object(
             svc,
             "_load_scene_chapters",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value="Scene 正文",
         ),
         patch.object(
             svc,
             "_build_alias_relation_entity_index",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value="## 可用对象索引",
         ),
         patch.object(
             svc,
             "_create_phase2b_snapshot",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=snapshot,
         ),
         patch.object(
             svc,
             "_call_alias_relation_extraction",
-            new_callable=AsyncMock,
+            autospec=True,
             side_effect=RuntimeError("schema mismatch"),
         ),
     ):
@@ -1523,25 +1697,25 @@ async def test_phase2b_total_timeout_budget_degrades_remaining_scenes(
         patch.object(
             svc,
             "_load_scene_chapters",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value="Scene 正文",
         ),
         patch.object(
             svc,
             "_build_alias_relation_entity_index",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value="## 可用对象索引",
         ),
         patch.object(
             svc,
             "_create_phase2b_snapshot",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=snapshot,
         ),
         patch.object(
             svc,
             "_call_alias_relation_extraction",
-            new_callable=AsyncMock,
+            autospec=True,
             side_effect=slow_alias_relation_call,
         ),
     ):
@@ -1598,30 +1772,31 @@ async def test_phase2b_runs_llm_calls_concurrently_before_serial_persistence(
         patch.object(
             svc,
             "_load_scene_chapters",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value="Scene 正文",
         ),
         patch.object(
             svc,
             "_build_alias_relation_entity_index",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value="## 可用对象索引",
         ) as build_entity_index,
         patch.object(
             svc,
             "_create_phase2b_snapshot",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=snapshot,
         ),
         patch.object(
             svc,
             "_call_alias_relation_extraction",
-            new=concurrent_alias_relation_call,
+            autospec=True,
+            side_effect=concurrent_alias_relation_call,
         ),
         patch.object(
             svc,
             "_persist_alias_relation_output",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={"aliases": 0, "relations": 0},
         ) as persist_output,
     ):
@@ -1661,35 +1836,40 @@ async def test_phase2b_records_checkpoints_and_progress(
         "phase2_alias_relation_total_timeout_seconds",
         lambda: 1,
     )
+    monkeypatch.setattr(
+        "modules.imports.entity_extraction.scene_entity_alias_relation."
+        "phase2_alias_relation_scene_char_limit",
+        lambda: 5,
+    )
     with (
         patch.object(
             svc,
             "_load_scene_chapters",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value="Scene 正文",
         ),
         patch.object(
             svc,
             "_build_alias_relation_entity_index",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value="## 可用对象索引",
         ),
         patch.object(
             svc,
             "_create_phase2b_snapshot",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=snapshot,
         ),
         patch.object(
             svc,
             "_call_alias_relation_extraction",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=AliasRelationExtractionOutput(aliases=[], relations=[]),
         ),
         patch.object(
             svc,
             "_persist_alias_relation_output",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={"aliases": 1, "relations": 2},
         ),
     ):
@@ -1699,25 +1879,42 @@ async def test_phase2b_records_checkpoints_and_progress(
             [{"scene_index": 7, "id": "scene-7"}],
             workflow_id="wf-phase2b",
             on_scene_progress=on_progress,
+            existing_checkpoints={
+                "phase2b": {
+                    "scenes": [
+                        {
+                            "scene_id": "scene-7",
+                            "status": "done",
+                            "input_fingerprint": "stale-fingerprint",
+                        }
+                    ]
+                }
+            },
         )
 
     assert progress_events[0] == (0, 1)
     assert progress_events[-1] == (1, 1)
     checkpoints = result["alias_relation_checkpoints"]["phase2b"]["scenes"]
-    assert checkpoints == [
-        {
-            "scene_id": "scene-7",
-            "scene_index": 7,
-            "position": 7,
-            "status": "done",
-            "aliases": 1,
-            "relations": 2,
-            "retry_count": 0,
-            "fallback": False,
-            "source": "deep_import",
-            "auto_ingested": True,
-        }
-    ]
+    assert len(checkpoints) == 1
+    assert checkpoints[0] | {"input_fingerprint": None} == {
+        "scene_id": "scene-7",
+        "scene_index": 7,
+        "position": 7,
+        "status": "done",
+        "aliases": 1,
+        "relations": 2,
+        "retry_count": 0,
+        "fallback": False,
+        "source": "deep_import",
+        "auto_ingested": True,
+        "input_fingerprint": None,
+    }
+    assert len(checkpoints[0]["input_fingerprint"]) == 64
+    assert checkpoints[0]["input_fingerprint"] == scene_input_fingerprint(
+        {"scene_index": 7, "id": "scene-7"},
+        _trim_phase2b_scene_text("Scene 正文"),
+    )
+    assert result["alias_relation_rerun_scenes"] == 1
 
 
 @pytest.mark.parametrize("checkpoint_status", ["done", "skipped"])
@@ -1733,15 +1930,25 @@ async def test_phase2b_existing_checkpoint_skips_scene(
     async def on_progress(completed: int, total: int) -> None:
         progress_events.append((completed, total))
 
-    with patch.object(
-        svc,
-        "_call_alias_relation_extraction",
-        new_callable=AsyncMock,
-    ) as call_alias_relation:
+    scene = {"scene_index": 7, "id": "new-scene-7"}
+    scene_text = "Scene 正文"
+    with (
+        patch.object(
+            svc,
+            "_load_scene_chapters",
+            autospec=True,
+            return_value=scene_text,
+        ),
+        patch.object(
+            svc,
+            "_call_alias_relation_extraction",
+            autospec=True,
+        ) as call_alias_relation,
+    ):
         result = await svc._run_alias_relation_phase(
             db_session,
             novel_with_drafts,
-            [{"scene_index": 7, "id": "new-scene-7"}],
+            [scene],
             workflow_id="wf-phase2b",
             existing_checkpoints={
                 "phase2b": {
@@ -1753,6 +1960,10 @@ async def test_phase2b_existing_checkpoint_skips_scene(
                             "aliases": 3,
                             "relations": 4,
                             "retry_count": 0,
+                            "input_fingerprint": scene_input_fingerprint(
+                                scene,
+                                scene_text,
+                            ),
                         }
                     ]
                 }
@@ -1785,25 +1996,25 @@ async def test_phase2b_invalid_json_falls_back_to_empty_result(
         patch.object(
             svc,
             "_load_scene_chapters",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value="Scene 正文",
         ),
         patch.object(
             svc,
             "_build_alias_relation_entity_index",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value="## 可用对象索引\n- 克莱恩 (character)",
         ),
         patch.object(
             svc,
             "_create_phase2b_snapshot",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=snapshot,
         ),
         patch.object(
             svc,
             "_call_alias_relation_extraction",
-            new_callable=AsyncMock,
+            autospec=True,
             side_effect=LLMInvalidResponseError("truncated json"),
         ),
     ):
@@ -1922,7 +2133,7 @@ async def test_optional_phase2b_skips_supplement_by_default(
     with patch.object(
         svc,
         "_run_alias_relation_phase",
-        new_callable=AsyncMock,
+        autospec=True,
     ) as run_alias_relation:
         result = await svc._run_optional_alias_relation_phase(
             Mock(),
@@ -1947,7 +2158,7 @@ async def test_phase2a_only_alias_relation_result_skips_phase2b_even_when_enable
     with patch.object(
         svc,
         "_run_alias_relation_phase",
-        new_callable=AsyncMock,
+        autospec=True,
     ) as run_alias_relation:
         result = await svc._phase2_alias_relation_result(
             Mock(),
@@ -1976,7 +2187,7 @@ async def test_optional_phase2b_runs_when_enabled(
     with patch.object(
         svc,
         "_run_alias_relation_phase",
-        new_callable=AsyncMock,
+        autospec=True,
         return_value={
             "total_aliases": 1,
             "total_relations": 1,
@@ -2018,20 +2229,25 @@ async def test_phase2b_snapshot_preparation_timeout_degrades_scene(
         patch.object(
             svc,
             "_load_scene_chapters",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value="Scene 正文",
         ),
         patch.object(
             svc,
             "_build_alias_relation_entity_index",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value="## 可用对象索引",
         ),
-        patch.object(svc, "_create_phase2b_snapshot", new=slow_snapshot),
+        patch.object(
+            svc,
+            "_create_phase2b_snapshot",
+            autospec=True,
+            side_effect=slow_snapshot,
+        ),
         patch.object(
             svc,
             "_call_alias_relation_extraction",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=AliasRelationExtractionOutput(aliases=[], relations=[]),
         ) as alias_call,
     ):
@@ -2193,14 +2409,15 @@ async def test_process_scene_captures_memory_snapshot(
                 relations=[],
                 delta_events=[],
             ),
+            autospec=True,
         ),
         patch(
             "modules.memory.facade.capture_snapshot",
-            new_callable=AsyncMock,
+            autospec=True,
         ) as mock_snapshot,
         patch(
             "modules.world.facade.find_similar_entities",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={},
         ),
     ):
@@ -2225,10 +2442,10 @@ async def test_extract_by_scenes_empty_route_skips_world_context() -> None:
     db = Mock()
 
     with (
-        patch.object(svc, "_get_scenes", new_callable=AsyncMock, return_value=[]),
+        patch.object(svc, "_get_scenes", autospec=True, return_value=[]),
         patch(
             "modules.world.facade.get_world_context",
-            new_callable=AsyncMock,
+            autospec=True,
         ) as world_context,
     ):
         result = await svc.extract_by_scenes(
@@ -2267,16 +2484,16 @@ async def test_extract_by_scenes_continues_after_single_transport_failure() -> N
         }
 
     with (
-        patch.object(svc, "_get_scenes", new_callable=AsyncMock, return_value=scenes),
+        patch.object(svc, "_get_scenes", autospec=True, return_value=scenes),
         patch(
             "modules.world.facade.get_world_context",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=Mock(entities=[]),
         ) as world_context,
         patch.object(
             svc,
             "_process_scene",
-            new_callable=AsyncMock,
+            autospec=True,
             side_effect=process_scene,
         ) as process_scene,
         _patched_phase2_summaries(svc),
@@ -2318,16 +2535,16 @@ async def test_extract_by_scenes_stops_after_repeated_transport_failures() -> No
     db.flush = AsyncMock()
 
     with (
-        patch.object(svc, "_get_scenes", new_callable=AsyncMock, return_value=scenes),
+        patch.object(svc, "_get_scenes", autospec=True, return_value=scenes),
         patch(
             "modules.world.facade.get_world_context",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=Mock(entities=[]),
         ),
         patch.object(
             svc,
             "_process_scene",
-            new_callable=AsyncMock,
+            autospec=True,
             side_effect=LLMConnectionError("connection failed"),
         ) as process_scene,
         _patched_phase2_summaries(svc),
@@ -2384,16 +2601,16 @@ async def test_phase2_records_checkpoint_for_each_successful_scene() -> None:
         }
 
     with (
-        patch.object(svc, "_get_scenes", new_callable=AsyncMock, return_value=scenes),
+        patch.object(svc, "_get_scenes", autospec=True, return_value=scenes),
         patch(
             "modules.world.facade.get_world_context",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=Mock(entities=[]),
         ),
         patch.object(
             svc,
             "_process_scene",
-            new_callable=AsyncMock,
+            autospec=True,
             side_effect=process_scene,
         ),
         _patched_phase2_summaries(svc),
@@ -2440,16 +2657,16 @@ async def test_phase2_small_sample_uses_bulk_extraction_with_scene_checkpoints()
     db.flush = AsyncMock()
 
     with (
-        patch.object(svc, "_get_scenes", new_callable=AsyncMock, return_value=scenes),
+        patch.object(svc, "_get_scenes", autospec=True, return_value=scenes),
         patch(
             "modules.world.facade.get_world_context",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=Mock(entities=[]),
         ),
         patch.object(
             svc,
             "_process_scenes_bulk",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={
                 "created": 2,
                 "relations": 1,
@@ -2459,7 +2676,7 @@ async def test_phase2_small_sample_uses_bulk_extraction_with_scene_checkpoints()
                 "created_delta_ids": ["delta-a"],
             },
         ) as bulk,
-        patch.object(svc, "_process_scene", new_callable=AsyncMock) as process_scene,
+        patch.object(svc, "_process_scene", autospec=True) as process_scene,
         _patched_phase2_summaries(svc),
     ):
         result = await svc.extract_by_scenes(
@@ -2514,19 +2731,19 @@ async def test_phase2_small_sample_prefers_parallel_scene_llm() -> None:
     }
 
     with (
-        patch.object(svc, "_get_scenes", new_callable=AsyncMock, return_value=scenes),
+        patch.object(svc, "_get_scenes", autospec=True, return_value=scenes),
         patch(
             "modules.world.facade.get_world_context",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=Mock(entities=[]),
         ),
         patch.object(
             svc,
             "_process_scenes_parallel_llm",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=parallel_result,
         ) as parallel,
-        patch.object(svc, "_process_scenes_bulk", new_callable=AsyncMock) as bulk,
+        patch.object(svc, "_process_scenes_bulk", autospec=True) as bulk,
     ):
         result = await svc.extract_by_scenes(
             db,
@@ -2572,24 +2789,24 @@ async def test_phase2_large_without_checkpoints_uses_batched_route() -> None:
     }
 
     with (
-        patch.object(svc, "_get_scenes", new_callable=AsyncMock, return_value=scenes),
+        patch.object(svc, "_get_scenes", autospec=True, return_value=scenes),
         patch(
             "modules.world.facade.get_world_context",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=Mock(entities=[]),
         ),
         patch.object(
             svc,
             "_process_scenes_batched",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=batched_result,
         ) as batched,
         patch.object(
             svc,
             "_process_scenes_parallel_llm",
-            new_callable=AsyncMock,
+            autospec=True,
         ) as parallel,
-        patch.object(svc, "_process_scenes_bulk", new_callable=AsyncMock) as bulk,
+        patch.object(svc, "_process_scenes_bulk", autospec=True) as bulk,
     ):
         result = await svc.extract_by_scenes(
             db,
@@ -2636,36 +2853,37 @@ async def test_phase2_bulk_failure_uses_parallel_llm_fallback() -> None:
     }
 
     with (
-        patch.object(svc, "_get_scenes", new_callable=AsyncMock, return_value=scenes),
+        patch.object(svc, "_get_scenes", autospec=True, return_value=scenes),
         patch(
             "modules.world.facade.get_world_context",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=Mock(entities=[]),
         ),
         patch.object(
             svc,
             "_process_scenes_bulk",
-            new_callable=AsyncMock,
+            autospec=True,
             side_effect=TimeoutError("bulk timeout"),
         ) as bulk,
         patch.object(
             svc,
             "_process_scenes_parallel_llm",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=parallel_result,
         ) as parallel,
         patch.object(
             svc,
             "_phase2_alias_relation_result",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={"total_aliases": 2},
         ) as alias_result,
         patch.object(
             svc,
             "_merge_alias_relation_result",
             return_value={**parallel_result, "total_aliases": 2},
+            autospec=True,
         ) as merge_alias,
-        patch.object(svc, "_process_scene", new_callable=AsyncMock) as process_scene,
+        patch.object(svc, "_process_scene", autospec=True) as process_scene,
     ):
         result = await svc.extract_by_scenes(
             db,
@@ -2713,22 +2931,38 @@ async def test_persistent_phase2_scene_threads_end_chapter_into_activation() -> 
     }
 
     with (
-        patch.object(svc, "_get_scenes", new_callable=AsyncMock, return_value=scenes),
+        patch.object(svc, "_get_scenes", autospec=True, return_value=scenes),
         patch.object(
             svc,
             "_process_scenes_parallel_llm",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=expected,
         ) as activated,
     ):
+        existing_checkpoints = {
+            "phase2b": {
+                "scenes": [
+                    {
+                        "scene_id": scene_id,
+                        "status": "done",
+                        "input_fingerprint": "phase2b-fingerprint",
+                    }
+                ]
+            }
+        }
         result = await svc.extract_by_scenes(
             Mock(),
             "00000000-0000-0000-0000-000000000001",
             end_chapter=80,
+            existing_checkpoints=existing_checkpoints,
         )
 
     assert result is expected
     assert activated.await_args.kwargs["visible_until_chapter"] == 80
+    assert (
+        activated.await_args.kwargs["existing_alias_relation_checkpoints"]
+        is existing_checkpoints
+    )
     assert activated.await_args.args[2] == scenes
 
 
@@ -2779,26 +3013,30 @@ async def test_parallel_llm_fallback_extracts_before_serial_persistence() -> Non
         return 1
 
     with (
-        patch.object(svc, "_load_scene_chapters", new=load_scene),
-        patch.object(svc, "_create_phase2_snapshot", new=create_snapshot),
-        patch.object(svc, "_call_llm_extraction", new=call_llm),
-        patch.object(svc, "_persist_entities", new=persist_entities),
+        patch.object(svc, "_load_scene_chapters", autospec=True, side_effect=load_scene),
+        patch.object(
+            svc, "_create_phase2_snapshot", autospec=True, side_effect=create_snapshot
+        ),
+        patch.object(svc, "_call_llm_extraction", autospec=True, side_effect=call_llm),
+        patch.object(
+            svc, "_persist_entities", autospec=True, side_effect=persist_entities
+        ),
         patch.object(
             svc,
             "_persist_relations",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=0,
         ),
         patch.object(
             svc,
             "_record_deltas",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=0,
         ),
         patch.object(
             svc,
             "_supplement_small_sample_entities",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={
                 "created": 0,
                 "created_entity_ids": [],
@@ -2808,8 +3046,8 @@ async def test_parallel_llm_fallback_extracts_before_serial_persistence() -> Non
             },
         ),
         _patched_phase2_summaries(svc),
-        patch("modules.context.facade.succeed_context_snapshot", AsyncMock()),
-        patch("modules.memory.facade.capture_snapshot", AsyncMock()),
+        patch("modules.context.facade.succeed_context_snapshot", autospec=True),
+        patch("modules.memory.facade.capture_snapshot", autospec=True),
     ):
         result = await svc._process_scenes_parallel_llm(
             db,
@@ -2852,7 +3090,7 @@ async def test_parallel_phase2_skips_unresolved_scene_without_failing_stage() ->
         patch.object(
             svc,
             "_load_scene_chapters",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value="",
         ),
         _patched_phase2_summaries(svc),
@@ -2911,11 +3149,19 @@ async def test_phase2_batched_progress_callback_uses_db_lock() -> None:
     async def on_scene_progress(_completed: int, _total: int) -> None:
         progress_lock_states.append(db_lock.locked())
 
-    with patch.object(
-        svc,
-        "_process_scene",
-        new_callable=AsyncMock,
-        side_effect=process_scene,
+    with (
+        patch.object(
+            svc,
+            "_process_scene",
+            autospec=True,
+            side_effect=process_scene,
+        ),
+        patch.object(
+            svc,
+            "_current_scene_input_fingerprint",
+            autospec=True,
+            return_value="batched-fingerprint",
+        ),
     ):
         result = await svc._process_scene_batch_serial(
             db,
@@ -2933,6 +3179,10 @@ async def test_phase2_batched_progress_callback_uses_db_lock() -> None:
 
     assert result["created"] == 2
     assert progress_lock_states == [True, True]
+    assert all(
+        checkpoint["input_fingerprint"] == "batched-fingerprint"
+        for checkpoint in result["checkpoints"]
+    )
 
 
 @pytest.mark.asyncio
@@ -2973,13 +3223,13 @@ async def test_phase2_batched_failed_batch_records_scene_ids_and_fallback_indice
         patch.object(
             svc,
             "_process_scene_batch_serial",
-            new_callable=AsyncMock,
+            autospec=True,
             side_effect=process_batch,
         ),
         patch.object(
             svc,
             "_run_boundary_supplements",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={
                 "phase2_boundary_windows_total": 1,
                 "phase2_boundary_windows_completed": 0,
@@ -2999,14 +3249,14 @@ async def test_phase2_batched_failed_batch_records_scene_ids_and_fallback_indice
         patch.object(
             svc,
             "_phase2_flush_with_timeout",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={"degraded": False, "error_kind": None, "error_message": None},
         ),
         _patched_phase2_summaries(svc),
         patch.object(
             svc,
             "_phase2_alias_relation_result",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=svc._skipped_alias_relation_result(13, reason="test"),
         ),
     ):
@@ -3047,7 +3297,7 @@ async def test_bulk_llm_extractions_keep_successful_groups_when_one_group_fails(
     with patch.object(
         svc,
         "_call_llm_extraction",
-        new_callable=AsyncMock,
+        autospec=True,
         side_effect=call_llm,
     ):
         results = await svc._call_bulk_llm_extractions(
@@ -3077,7 +3327,7 @@ async def test_bulk_llm_extractions_use_fast_no_retry_calls() -> None:
     with patch.object(
         svc,
         "_call_llm_extraction",
-        new_callable=AsyncMock,
+        autospec=True,
         side_effect=call_llm,
     ):
         await svc._call_bulk_llm_extractions(
@@ -3153,10 +3403,11 @@ async def test_bulk_scene_entity_extractor_prefetches_scene_drafts_once() -> Non
     with (
         patch(
             "modules.writing.facade.list_latest_drafts_for_chapters",
-            new=list_latest_drafts_for_chapters,
+            autospec=True,
+            side_effect=list_latest_drafts_for_chapters,
         ),
-        patch("modules.context.facade.succeed_context_snapshot", new=AsyncMock()),
-        patch("modules.memory.facade.capture_snapshot", new=AsyncMock()),
+        patch("modules.context.facade.succeed_context_snapshot", autospec=True),
+        patch("modules.memory.facade.capture_snapshot", autospec=True),
     ):
         result = await BulkSceneEntityExtractor(service).run(
             Mock(),
@@ -3208,12 +3459,13 @@ async def test_small_sample_bulk_supplements_low_entity_count() -> None:
     with (
         patch(
             "modules.world.facade.create_entity",
-            new=create_entity,
+            autospec=True,
+            side_effect=create_entity,
         ),
         patch.object(
             svc,
             "_supplement_small_sample_entities_with_llm",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={"created": 0, "created_entity_ids": []},
         ),
     ):
@@ -3257,7 +3509,7 @@ async def test_small_sample_bulk_uses_llm_supplement_before_fallback() -> None:
     with patch.object(
         svc,
         "_supplement_small_sample_entities_with_llm",
-        new_callable=AsyncMock,
+        autospec=True,
         return_value={
             "created": 13,
             "created_entity_ids": [f"llm-entity-{index}" for index in range(13)],
@@ -3290,7 +3542,8 @@ async def test_small_sample_supplement_includes_review_entities_for_dedup() -> N
 
     with patch(
         "modules.world.facade.get_world_context",
-        world_context,
+        autospec=True,
+        side_effect=world_context,
     ):
         result = await BulkSceneEntityExtractor(svc).supplement_with_llm(
             db,
@@ -3355,9 +3608,14 @@ async def test_small_sample_supplement_timeout_falls_back(monkeypatch) -> None:
         patch.object(
             svc,
             "_supplement_small_sample_entities_with_llm",
-            new=slow_supplement,
+            autospec=True,
+            side_effect=slow_supplement,
         ),
-        patch("modules.world.facade.create_entity", new=create_entity),
+        patch(
+            "modules.world.facade.create_entity",
+            autospec=True,
+            side_effect=create_entity,
+        ),
     ):
         result = await svc._supplement_small_sample_entities(
             db=FakeDb(),
@@ -3440,16 +3698,16 @@ async def test_phase2_recovery_skips_successful_scene_and_reruns_failed_scene() 
     db.flush = AsyncMock()
 
     with (
-        patch.object(svc, "_get_scenes", new_callable=AsyncMock, return_value=scenes),
+        patch.object(svc, "_get_scenes", autospec=True, return_value=scenes),
         patch(
             "modules.world.facade.get_world_context",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=Mock(entities=[]),
         ),
         patch.object(
             svc,
             "_process_scene",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value={
                 "created": 1,
                 "relations": 0,
@@ -3461,13 +3719,19 @@ async def test_phase2_recovery_skips_successful_scene_and_reruns_failed_scene() 
                 "updated_memory": [{"scene_index": 2, "entities": 1}],
             },
         ) as process_scene,
-        patch.object(svc, "_process_scenes_bulk", new_callable=AsyncMock) as bulk,
+        patch.object(
+            svc,
+            "_current_scene_input_fingerprint",
+            autospec=True,
+            return_value="current-fingerprint",
+        ),
+        patch.object(svc, "_process_scenes_bulk", autospec=True) as bulk,
         patch.object(
             svc,
             "_process_scenes_parallel_llm",
-            new_callable=AsyncMock,
+            autospec=True,
         ) as parallel,
-        patch.object(svc, "_process_scenes_batched", new_callable=AsyncMock) as batched,
+        patch.object(svc, "_process_scenes_batched", autospec=True) as batched,
         _patched_phase2_summaries(svc),
     ):
         result = await svc.extract_by_scenes(
@@ -3477,8 +3741,18 @@ async def test_phase2_recovery_skips_successful_scene_and_reruns_failed_scene() 
             existing_checkpoints={
                 "phase2": {
                     "scenes": [
-                        {"scene_id": "scene-a", "status": "done", "retry_count": 0},
-                        {"scene_id": "scene-b", "status": "failed", "retry_count": 0},
+                        {
+                            "scene_id": "scene-a",
+                            "status": "done",
+                            "retry_count": 0,
+                            "input_fingerprint": "current-fingerprint",
+                        },
+                        {
+                            "scene_id": "scene-b",
+                            "status": "failed",
+                            "retry_count": 0,
+                            "input_fingerprint": "current-fingerprint",
+                        },
                     ]
                 }
             },
@@ -3515,16 +3789,16 @@ async def test_phase2_failed_scene_checkpoint_contains_error_status() -> None:
     db.flush = AsyncMock()
 
     with (
-        patch.object(svc, "_get_scenes", new_callable=AsyncMock, return_value=scenes),
+        patch.object(svc, "_get_scenes", autospec=True, return_value=scenes),
         patch(
             "modules.world.facade.get_world_context",
-            new_callable=AsyncMock,
+            autospec=True,
             return_value=Mock(entities=[]),
         ),
         patch.object(
             svc,
             "_process_scene",
-            new_callable=AsyncMock,
+            autospec=True,
             side_effect=RuntimeError("phase2 boom"),
         ),
         _patched_phase2_summaries(svc),

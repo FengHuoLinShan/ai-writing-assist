@@ -24,6 +24,17 @@ describe("bindActionMenus", () => {
 
     expect(menu.classList.contains("open")).toBe(true)
   })
+
+  it("returns a cleanup that removes the active document listener", () => {
+    const container = document.getElementById("workspace-content")
+    const cleanup = bindActionMenus(container)
+    cleanup()
+    container.querySelector(".action-menu").classList.add("open")
+
+    document.body.click()
+
+    expect(container.querySelector(".action-menu").classList.contains("open")).toBe(true)
+  })
 })
 
 describe("renderLoadingSkeleton", () => {

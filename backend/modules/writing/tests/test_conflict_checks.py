@@ -22,7 +22,10 @@ from modules.writing.conflict_ai import (
     ConflictCheckAiReviewService,
     ConflictSuggestionService,
 )
-from modules.writing.repositories import WritingConflictCheckRepository
+from modules.writing.repositories import (
+    AI_REVIEW_TASK_OWNER_KEY,
+    WritingConflictCheckRepository,
+)
 from modules.writing.schemas import WritingConflictCheckCreate
 from modules.writing.services import WritingConflictCheckService
 
@@ -792,7 +795,11 @@ async def test_publish_without_scene_id_does_not_archive_scene_scoped_check(
 
 @pytest.mark.asyncio
 async def test_ai_review_service_uses_domain_not_found_error() -> None:
-    repo = type("Repo", (), {"get_check": AsyncMock(return_value=None)})()
+    repo = type(
+        "Repo",
+        (),
+        {"get_check_for_ai_review_update": AsyncMock(return_value=None)},
+    )()
     service = ConflictCheckAiReviewService(repo)  # type: ignore[arg-type]
 
     with pytest.raises(NotFoundError) as exc_info:
@@ -835,7 +842,7 @@ async def test_ai_review_reuses_loaded_items_after_append(
             self.append_items_calls = 0
             self.list_items_calls = 0
 
-        async def get_check(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+        async def get_check_for_ai_review_update(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
             return check, [current_item]
 
         async def update_ai_review(
@@ -1197,6 +1204,21 @@ async def test_ai_review_task_endpoint_marks_running_and_binds_task(
     assert task.meta["novel_id"] == novel_id
     assert task.meta["check_id"] == check["id"]
     assert task.meta["context_confirmation_id"] == confirmation_id
+    snapshot = task.meta["llm_execution_snapshot"]
+    assert snapshot["novel_id"] == novel_id
+    assert snapshot["profile_hash"]
+    assert "base_url" not in snapshot["profile"]
+    assert "extra" not in snapshot["profile"]
+    assert isinstance(snapshot["profile"]["api_key_configured"], bool)
+    assert AI_REVIEW_TASK_OWNER_KEY not in body["check"]["summary_json"]
+
+    stored_check = await WritingConflictCheckRepository().get_check(
+        db_session,
+        uuid.UUID(check["id"]),
+        uuid.UUID(novel_id),
+    )
+    assert stored_check is not None
+    assert stored_check[0].summary_json[AI_REVIEW_TASK_OWNER_KEY] == body["task_id"]
 
     confirmation_result = await db_session.execute(
         select(ContextConfirmation).where(

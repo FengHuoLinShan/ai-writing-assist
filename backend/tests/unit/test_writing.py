@@ -230,6 +230,7 @@ class TestWritingDraftRepository:
         db.add = MagicMock()
         db.flush = AsyncMock()
         db.execute = AsyncMock()
+        db.get_bind = MagicMock(return_value=None)
         # ScalarResult mock
         scalar_result = MagicMock()
         scalar_result.scalar_one_or_none.return_value = None
@@ -607,7 +608,7 @@ class TestWritingAPI:
 
     @pytest.fixture
     def mock_service(self):
-        with patch("modules.writing.api._service") as svc:
+        with patch("modules.writing.api._service", autospec=True) as svc:
             svc.get_draft = AsyncMock()
             svc.publish_draft = AsyncMock()
             svc.publish_draft_result = AsyncMock()
@@ -623,13 +624,13 @@ class TestWritingAPI:
 
     @pytest.fixture
     def mock_conflict_service(self):
-        with patch("modules.writing.api._conflict_service") as svc:
+        with patch("modules.writing.api._conflict_service", autospec=True) as svc:
             svc.latest_snapshot = AsyncMock(return_value=None)
             yield svc
 
     @pytest.fixture
     def mock_facade(self):
-        with patch("modules.writing.api._create_draft_only") as facade:
+        with patch("modules.writing.api._create_draft_only", autospec=True) as facade:
             facade.return_value = WritingDraftContract(
                 id=str(uuid.uuid4()),
                 novel_id=str(uuid.uuid4()),
@@ -641,7 +642,7 @@ class TestWritingAPI:
 
     @pytest.fixture
     def mock_enqueue(self):
-        with patch("modules.writing.api.enqueue_task") as enqueue:
+        with patch("modules.writing.api.enqueue_task", autospec=True) as enqueue:
             enqueue.return_value = str(uuid.uuid4())
             yield enqueue
 
@@ -649,7 +650,7 @@ class TestWritingAPI:
     def mock_request_chapter_index(self):
         with patch(
             "modules.rag.facade.request_chapter_index",
-            new_callable=AsyncMock,
+            autospec=True,
         ) as request:
             yield request
 
@@ -657,7 +658,7 @@ class TestWritingAPI:
     def mock_mark_chapter_index_dirty(self):
         with patch(
             "modules.rag.facade.mark_chapter_index_dirty",
-            new_callable=AsyncMock,
+            autospec=True,
         ) as mark_dirty:
             yield mark_dirty
 
@@ -917,6 +918,14 @@ class TestWritingAPI:
 class TestHandlePublishChapter:
     """handle_publish_chapter 任务处理器"""
 
+    @pytest.fixture(autouse=True)
+    def mock_project_guard(self):
+        with patch(
+            "modules.project.facade.require_active_project",
+            autospec=True,
+        ) as guard:
+            yield guard
+
     @pytest.fixture
     def mock_db(self) -> AsyncMock:
         db = AsyncMock()
@@ -930,21 +939,11 @@ class TestHandlePublishChapter:
         task.update_progress = MagicMock()
         return task
 
-    @pytest.fixture
-    def mock_index_state(self):
-        """Keep publish-task tests focused on retry orchestration, not RAG storage."""
-        with patch("modules.rag.index_state.RagIndexStateService") as state_class:
-            state = state_class.return_value
-            state.begin_direct = AsyncMock()
-            state.finish = AsyncMock()
-            state.fail = AsyncMock()
-            yield state
-
     async def test_success_path(
         self,
         mock_db: AsyncMock,
         mock_task: MagicMock,
-        mock_index_state,
+        mock_project_guard: AsyncMock,
     ):
         from core.container import register, reset
 
@@ -952,16 +951,27 @@ class TestHandlePublishChapter:
         mock_report = MagicMock()
         mock_report.chunks_created = 10
         mock_report.embedding_failed_count = 0
-        mock_rag_index = AsyncMock(return_value=mock_report)
+        mock_rag_index = AsyncMock(
+            return_value=MagicMock(report=mock_report, status="indexed")
+        )
 
         mock_snap_result = MagicMock()
         mock_snap_result.id = "snap-1"
-        mock_memory_svc = MagicMock()
-        mock_memory_svc.capture_snapshot = AsyncMock(
-            return_value=mock_snap_result,
+        events: list[str] = []
+        mock_project_guard.side_effect = lambda *_args, **_kwargs: events.append(
+            "project"
         )
 
-        register("rag.index_chapter", mock_rag_index)
+        async def _capture_snapshot(*_args, **_kwargs):
+            events.append("memory")
+            return mock_snap_result
+
+        mock_memory_svc = MagicMock()
+        mock_memory_svc.capture_snapshot = AsyncMock(
+            side_effect=_capture_snapshot,
+        )
+
+        register("rag.index_chapter_for_task", mock_rag_index)
         register("memory.service", mock_memory_svc)
         try:
             from modules.writing.tasks import handle_publish_chapter
@@ -975,6 +985,7 @@ class TestHandlePublishChapter:
             assert mock_memory_svc.capture_snapshot.await_count == 1
             assert mock_task.update_progress.call_count == 2
             mock_db.flush.assert_awaited()
+            assert events == ["project", "memory"]
         finally:
             reset()
 
@@ -982,7 +993,6 @@ class TestHandlePublishChapter:
         self,
         mock_db: AsyncMock,
         mock_task: MagicMock,
-        mock_index_state,
     ):
         from core.container import register, reset
 
@@ -994,7 +1004,7 @@ class TestHandlePublishChapter:
             side_effect=[
                 Exception("timeout"),
                 Exception("timeout"),
-                mock_report,
+                MagicMock(report=mock_report, status="indexed"),
             ],
         )
 
@@ -1005,7 +1015,7 @@ class TestHandlePublishChapter:
             return_value=mock_snap_result,
         )
 
-        register("rag.index_chapter", mock_rag_index)
+        register("rag.index_chapter_for_task", mock_rag_index)
         register("memory.service", mock_memory_svc)
         try:
             from modules.writing.tasks import handle_publish_chapter
@@ -1021,14 +1031,13 @@ class TestHandlePublishChapter:
         self,
         mock_db: AsyncMock,
         mock_task: MagicMock,
-        mock_index_state,
     ):
         from core.container import register, reset
 
         reset()
         mock_rag_index = AsyncMock(side_effect=Exception("always fails"))
 
-        register("rag.index_chapter", mock_rag_index)
+        register("rag.index_chapter_for_task", mock_rag_index)
         try:
             from modules.writing.tasks import handle_publish_chapter
 
@@ -1043,7 +1052,6 @@ class TestHandlePublishChapter:
         self,
         mock_db: AsyncMock,
         mock_task: MagicMock,
-        mock_index_state,
     ):
         from core.container import register, reset
 
@@ -1051,7 +1059,9 @@ class TestHandlePublishChapter:
         mock_report = MagicMock()
         mock_report.chunks_created = 3
         mock_report.embedding_failed_count = 0
-        mock_rag_index = AsyncMock(return_value=mock_report)
+        mock_rag_index = AsyncMock(
+            return_value=MagicMock(report=mock_report, status="indexed")
+        )
 
         mock_snap_result = MagicMock()
         mock_snap_result.id = "snap-retry-ok"
@@ -1064,7 +1074,7 @@ class TestHandlePublishChapter:
             ],
         )
 
-        register("rag.index_chapter", mock_rag_index)
+        register("rag.index_chapter_for_task", mock_rag_index)
         register("memory.service", mock_memory_svc)
         try:
             from modules.writing.tasks import handle_publish_chapter
@@ -1079,7 +1089,6 @@ class TestHandlePublishChapter:
         self,
         mock_db: AsyncMock,
         mock_task: MagicMock,
-        mock_index_state,
     ):
         from core.container import register, reset
 
@@ -1087,13 +1096,15 @@ class TestHandlePublishChapter:
         mock_report = MagicMock()
         mock_report.chunks_created = 3
         mock_report.embedding_failed_count = 0
-        mock_rag_index = AsyncMock(return_value=mock_report)
+        mock_rag_index = AsyncMock(
+            return_value=MagicMock(report=mock_report, status="indexed")
+        )
         mock_memory_svc = MagicMock()
         mock_memory_svc.capture_snapshot = AsyncMock(
             side_effect=Exception("snap always fails"),
         )
 
-        register("rag.index_chapter", mock_rag_index)
+        register("rag.index_chapter_for_task", mock_rag_index)
         register("memory.service", mock_memory_svc)
         try:
             from modules.writing.tasks import handle_publish_chapter

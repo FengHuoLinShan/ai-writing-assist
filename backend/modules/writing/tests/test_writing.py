@@ -56,10 +56,13 @@ def test_writing_facade_cold_import_does_not_cycle_through_worker() -> None:
             "-c",
             (
                 "from modules.writing.facade import "
-                "list_latest_drafts_for_chapters, get_project_writing_stats; "
+                "list_latest_drafts_for_chapters, get_project_writing_stats, "
+                "lock_chapter_versions_for_revalidation; "
                 "from infrastructure.tasks.worker import TaskWorker; "
                 "print(list_latest_drafts_for_chapters.__name__, "
-                "get_project_writing_stats.__name__, TaskWorker.__name__)"
+                "get_project_writing_stats.__name__, "
+                "lock_chapter_versions_for_revalidation.__name__, "
+                "TaskWorker.__name__)"
             ),
         ],
         cwd=backend_root,
@@ -70,9 +73,10 @@ def test_writing_facade_cold_import_does_not_cycle_through_worker() -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "list_latest_drafts_for_chapters get_project_writing_stats TaskWorker" in (
-        result.stdout
-    )
+    assert (
+        "list_latest_drafts_for_chapters get_project_writing_stats "
+        "lock_chapter_versions_for_revalidation TaskWorker"
+    ) in result.stdout
 
 
 def test_writing_facade_does_not_import_api_response_schema() -> None:
@@ -197,13 +201,46 @@ def test_pov_parser_repairs_common_json_wrapper() -> None:
 
     parsed = PovGenerationParser().parse(
         """```json
-        {"perception":"听见警报","draft_prose":"她停下脚步",}
+        {
+          "pov_state": {
+            "perceived_facts": ["听见警报"],
+            "interpretation": "有人触发了系统",
+            "current_intention": "先查看控制台",
+            "withheld_known_information": []
+          },
+          "draft_prose": "她停下脚步",
+          "uncertainties": [],
+        }
         ```"""
     )
 
     assert parsed.content == "她停下脚步"
-    assert parsed.pov_view["perception"] == "听见警报"
+    assert parsed.pov_view["pov_state"]["perceived_facts"] == ["听见警报"]
     assert "json_repaired" in parsed.warnings
+
+
+def test_pov_prompt_uses_limited_viewpoint_without_prose_templates() -> None:
+    from modules.writing.pov_generation import (
+        POV_SYSTEM_PROMPT,
+        build_pov_generation_prompt,
+    )
+
+    prompt = build_pov_generation_prompt(
+        chapter_index=3,
+        instruction="保持克制",
+        context_markdown="## POV 角色档案\n\n- 姓名: 秦岚",
+    )
+
+    assert "不等于必须使用第一人称" in POV_SYSTEM_PROMPT
+    assert "不是分步推理过程" in POV_SYSTEM_PROMPT
+    assert "不预设字数、段落" in POV_SYSTEM_PROMPT
+    assert "<writing_request>" in prompt
+    assert "<character_safe_context>" in prompt
+    assert '"pov_state"' in prompt
+    assert '"withheld_known_information"' in prompt
+    assert '"uncertainties"' in prompt
+    assert '"inner_monologue"' not in prompt
+    assert '"dialogue_candidates"' not in prompt
 
 
 def test_pov_parser_rejects_empty_response() -> None:
@@ -226,15 +263,17 @@ def test_character_reveal_guard_matches_normalized_hidden_text() -> None:
     )
     validation = CharacterRevealGuard().validate(
         pov_view={
-            "unsaid": "林澈　关闭了 安全协议",
-            "dialogue_candidates": [{"line": "别动。"}],
+            "pov_state": {"withheld_known_information": ["林澈　关闭了 安全协议"]},
+            "uncertainties": [],
         },
         draft_prose="正文",
         guard_terms=[term],
     )
 
     assert validation["status"] == "failed"
-    assert validation["findings"][0]["field_path"] == "pov_view.unsaid"
+    assert validation["findings"][0]["field_path"] == (
+        "pov_view.pov_state.withheld_known_information[0]"
+    )
     assert "林澈关闭了安全协议" not in validation["findings"][0]["source_label"]
 
 
@@ -2505,6 +2544,60 @@ async def test_writing_generation_creates_candidate_without_publish_task(
 
 
 @pytest.mark.asyncio
+async def test_default_writing_prompt_uses_scene_scope_and_delimited_context(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.context import facade as context_facade
+    from modules.writing.services import WritingGenerationService
+
+    novel_id = "00000000-0000-0000-0000-00000000a212"
+    confirmed = SimpleNamespace(
+        confirmation=SimpleNamespace(
+            action="writing.generate",
+            result_status="confirmed",
+            stale_reasons=[],
+        ),
+        compile_options={
+            "scene_id": "scene-current",
+            "reveal_mode": "author_safe",
+        },
+        rendered_markdown=(
+            "## 当前 Scene\n目标：取回密钥\n\n"
+            "## 剧情线\n逃离封锁\n\n"
+            "## 人物与物品\n林澈、铜制密钥"
+        ),
+        result_refs=[],
+    )
+
+    async def fake_prepare(*_args, **_kwargs):
+        return confirmed
+
+    monkeypatch.setattr(context_facade, "prepare_confirmed_ai_action", fake_prepare)
+    client = FakePovLLMClient("林澈握紧了铜制密钥。")
+    draft = await WritingGenerationService(llm_client=client).generate_candidate(
+        db_session,
+        novel_id=novel_id,
+        chapter_index=4,
+        title=None,
+        instruction="压低节奏",
+        context_confirmation_id="00000000-0000-0000-0000-00000000c212",
+    )
+
+    assert draft.content == "林澈握紧了铜制密钥。"
+    request = client.requests[0]
+    system_prompt = request.messages[0].content
+    user_prompt = request.messages[1].content
+    assert "共同创作者" in system_prompt
+    assert "不预设字数" in system_prompt
+    assert "保持人物动机、关系、状态、物品" in system_prompt
+    assert "写作范围：当前 Scene" in user_prompt
+    assert "<confirmed_context>" in user_prompt
+    assert "逃离封锁" in user_prompt
+    assert "林澈、铜制密钥" in user_prompt
+
+
+@pytest.mark.asyncio
 async def test_writing_generation_saves_secret_safe_managed_llm_provenance(
     db_session: AsyncSession,
 ) -> None:
@@ -2628,7 +2721,7 @@ async def test_writing_generate_task_records_task_provenance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """AI 正文生成任务创建的候选稿可追踪到确认记录与任务。"""
-    from modules.context.facade import confirm_context
+    from modules.context.facade import bind_confirmed_action_result, confirm_context
     from modules.project import llm_runtime
     from modules.project.models import Project
     from modules.writing.tasks import handle_writing_generate
@@ -2664,7 +2757,8 @@ async def test_writing_generate_task_records_task_provenance(
     )
     task = AsyncTask(
         task_type="writing_generate",
-        status="pending",
+        status="running",
+        lease_id=str(uuid.uuid4()),
         meta={
             "novel_id": novel_id,
             "chapter_index": 4,
@@ -2673,7 +2767,15 @@ async def test_writing_generate_task_records_task_provenance(
     )
     db_session.add(task)
     await db_session.flush()
+    confirmation = await bind_confirmed_action_result(
+        db_session,
+        confirmation_id=confirmation.id,
+        result_type="task",
+        result_id=str(task.id),
+        status="running",
+    )
 
+    db_session.task_checkpoint_enabled = True  # type: ignore[attr-defined]
     result = await handle_writing_generate(db_session, task)
 
     draft = await WritingDraftRepository().get(
@@ -2779,18 +2881,14 @@ async def test_writing_generation_pov_profile_saves_structured_view_and_validati
     llm = FakePovLLMClient(
         """
         {
-          "perception": "秦岚听见警报声。",
-          "interpretation": "她判断控制台被人动过。",
-          "inner_monologue": "她还不知道真正的幕后。",
-          "true_intention": "先稳住现场。",
-          "action": "她靠近控制台。",
-          "expression": "神色收紧。",
-          "dialogue_candidates": [
-            {"line": "别碰控制台。", "tone": "冷静", "subtext": "试探"}
-          ],
-          "subtext": "她在试探对方。",
-          "unsaid": "首领是国王",
-          "draft_prose": "秦岚听见警报声，抬手制止了靠近控制台的人。"
+          "pov_state": {
+            "perceived_facts": ["秦岚听见警报声。"],
+            "interpretation": "她判断控制台被人动过。",
+            "current_intention": "先稳住现场。",
+            "withheld_known_information": ["首领是国王"]
+          },
+          "draft_prose": "秦岚听见警报声，抬手制止了靠近控制台的人。",
+          "uncertainties": []
         }
         """
     )
@@ -2813,16 +2911,20 @@ async def test_writing_generation_pov_profile_saves_structured_view_and_validati
     assert provenance["viewpoint_character_id"] == str(char_id)
     assert provenance["prompt_name"] == "writing_pov_character"
     assert provenance["model"] == "fake-pov-model"
-    assert provenance["pov_view"]["unsaid"] == "首领是国王"
+    assert provenance["pov_view"]["pov_state"]["withheld_known_information"] == [
+        "首领是国王"
+    ]
     assert provenance["pov_validation"]["status"] == "failed"
     finding = provenance["pov_validation"]["findings"][0]
-    assert finding["field_path"] == "pov_view.unsaid"
+    assert finding["field_path"] == ("pov_view.pov_state.withheld_known_information[0]")
     assert finding["source_type"] == "core_entity"
     assert finding["source_id"] == str(target_id)
     assert finding["redacted"] is True
     assert "首领是国王" not in finding["source_label"]
     prompt_text = llm.requests[0].messages[1].content
     assert "首领是国王" not in prompt_text
+    assert "<character_safe_context>" in prompt_text
+    assert "不等于必须使用第一人称" in llm.requests[0].messages[0].content
 
 
 @pytest.mark.asyncio
@@ -2919,7 +3021,7 @@ async def test_publish_creates_rag_chunks(
     nid_uuid = uuid.UUID(hex=test_project_id)
     embed_exc = Exception("embedding down")
 
-    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.generate_embedding = AsyncMock(side_effect=embed_exc)
         mock_client_cls.return_value = mock_client
@@ -2936,6 +3038,8 @@ async def test_publish_creates_rag_chunks(
         task = await db_session.get(AsyncTask, _uuid.UUID(hex=task_id))
         assert task is not None
 
+        # Direct handler execution emulates TaskWorker's fenced session.
+        db_session.task_checkpoint_enabled = True  # type: ignore[attr-defined]
         result = await handle_publish_chapter(db_session, task)
         assert result["rag_chunks"] > 0
 
@@ -2944,7 +3048,7 @@ async def test_publish_creates_rag_chunks(
     assert all("一切都变得陌生" in c.text for c in first_chunks)
 
     # 重新发布同一章节
-    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.generate_embedding = AsyncMock(side_effect=embed_exc)
         mock_client_cls.return_value = mock_client
@@ -2964,3 +3068,86 @@ async def test_publish_creates_rag_chunks(
     assert len(second_chunks) == result_2["rag_chunks"]
     assert all("世界已经完全不同" in c.text for c in second_chunks)
     assert all("一切都变得陌生" not in c.text for c in second_chunks)
+
+
+@pytest.mark.asyncio
+async def test_writing_version_lock_uses_sorted_postgres_advisory_keys() -> None:
+    repo = WritingDraftRepository()
+    novel_id = uuid.uuid4()
+    db = MagicMock()
+    db.get_bind.return_value = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+    db.execute = AsyncMock()
+
+    await repo.lock_version_chapters_for_revalidation(
+        db,
+        novel_id,
+        [3, 1, 2, 3, 0],
+    )
+
+    assert [call.args[1]["key"] for call in db.execute.await_args_list] == [
+        f"writing_versions:{novel_id}:1",
+        f"writing_versions:{novel_id}:2",
+        f"writing_versions:{novel_id}:3",
+    ]
+    assert all(
+        "pg_advisory_xact_lock" in str(call.args[0])
+        for call in db.execute.await_args_list
+    )
+
+
+@pytest.mark.asyncio
+async def test_repository_content_mutations_take_writing_version_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = WritingDraftRepository()
+    novel_id = uuid.uuid4()
+    first = _make_draft(novel_id=novel_id, chapter_index=2, content="old")
+    second = _make_draft(novel_id=novel_id, chapter_index=3, content="old")
+    lock = AsyncMock()
+    monkeypatch.setattr(repo, "lock_version_chapters_for_revalidation", lock)
+    monkeypatch.setattr(
+        repo,
+        "get_latest_by_chapter",
+        AsyncMock(return_value=second),
+    )
+    db = MagicMock()
+    db.flush = AsyncMock()
+
+    await repo.update(db, first, WritingDraftUpdate(content="updated"))
+    await repo.update_latest_content(
+        db,
+        novel_id,
+        3,
+        title="third",
+        content="latest",
+    )
+
+    assert [call.args[2] for call in lock.await_args_list] == [[2], [3]]
+    assert first.content == "updated"
+    assert second.content == "latest"
+
+
+@pytest.mark.asyncio
+async def test_publish_content_replacement_takes_writing_version_lock() -> None:
+    novel_id = uuid.uuid4()
+    draft = _make_draft(novel_id=novel_id, chapter_index=4, content="old")
+    repo = MagicMock()
+    repo.lock_version_chapters_for_revalidation = AsyncMock()
+    service = WritingDraftService(repo=repo)
+    db = MagicMock()
+    db.flush = AsyncMock()
+
+    result = await service._promote_loaded_draft(  # noqa: SLF001
+        db,
+        draft,
+        title="fourth",
+        content="replacement",
+        replace_content=True,
+    )
+
+    repo.lock_version_chapters_for_revalidation.assert_awaited_once_with(
+        db,
+        novel_id,
+        [4],
+    )
+    assert result.content == "replacement"

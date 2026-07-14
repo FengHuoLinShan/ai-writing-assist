@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import re
 import uuid
-from collections import Counter
+from collections.abc import Mapping
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 
@@ -39,11 +40,10 @@ class RetrievalTraceService:
             candidate_count=max(0, int(payload.get("candidate_count") or 0)),
             unique_count=max(0, int(payload.get("unique_count") or 0)),
             hydrated_count=max(0, int(payload.get("hydrated_count") or 0)),
-            drop_counts={
-                str(key): max(0, int(value or 0))
-                for key, value in dict(payload.get("drop_counts") or {}).items()
-            },
-            safe_empty_reason=payload.get("safe_empty_reason"),
+            drop_counts=_normalize_drop_counts(payload.get("drop_counts")),
+            safe_empty_reason=_normalize_diagnostic_code(
+                payload.get("safe_empty_reason")
+            ),
             degraded=bool(payload.get("degraded")),
             warning_codes=list(dict.fromkeys(payload.get("warning_codes") or [])),
             latency_metadata={
@@ -80,35 +80,24 @@ class RetrievalTraceService:
         window_hours: int,
     ) -> dict:
         since = datetime.now(UTC) - timedelta(hours=window_hours)
-        records = await self._repo.list_for_novel(
+        summary = await self._repo.aggregate_for_novel(
             db,
             novel_id=uuid.UUID(str(novel_id)),
             content_mode=content_mode,
             since=since,
-            limit=100_000,
         )
-        drops: Counter[str] = Counter()
-        empty_reasons: Counter[str] = Counter()
-        for record in records:
-            drops.update(record.drop_counts or {})
-            if record.safe_empty_reason:
-                empty_reasons[record.safe_empty_reason] += 1
-        query_count = len(records)
+        query_count = summary["query_count"]
+        degraded_count = summary["degraded_count"]
         return {
             "query_count": query_count,
-            "degraded_count": sum(int(record.degraded) for record in records),
+            "degraded_count": degraded_count,
             "degraded_rate": (
-                round(sum(int(record.degraded) for record in records) / query_count, 4)
-                if query_count
-                else None
+                round(degraded_count / query_count, 4) if query_count else None
             ),
-            "empty_count": sum(int(record.hydrated_count == 0) for record in records),
-            "drop_counts": dict(sorted(drops.items())),
-            "safe_empty_reasons": dict(sorted(empty_reasons.items())),
-            "unclassified_empty_count": sum(
-                int(record.hydrated_count == 0 and not record.safe_empty_reason)
-                for record in records
-            ),
+            "empty_count": summary["empty_count"],
+            "drop_counts": dict(sorted(summary["drop_counts"].items())),
+            "safe_empty_reasons": dict(sorted(summary["safe_empty_reasons"].items())),
+            "unclassified_empty_count": summary["unclassified_empty_count"],
         }
 
     async def prune(
@@ -156,3 +145,30 @@ def _to_contract(record) -> ContextRetrievalTraceContract:
 
 def contract_dict(contract: ContextRetrievalTraceContract) -> dict:
     return asdict(contract)
+
+
+_DIAGNOSTIC_CODE_PATTERN = re.compile(r"^[a-z0-9_]{1,64}$")
+_MAX_DIAGNOSTIC_COUNT = 999_999_999_999_999_999
+
+
+def _normalize_diagnostic_code(value: object) -> str | None:
+    if not isinstance(value, str) or not _DIAGNOSTIC_CODE_PATTERN.fullmatch(value):
+        return None
+    return value
+
+
+def _normalize_drop_counts(value: object) -> dict[str, int]:
+    if not isinstance(value, Mapping):
+        return {}
+    normalized: dict[str, int] = {}
+    for raw_key, raw_count in value.items():
+        key = _normalize_diagnostic_code(str(raw_key))
+        if key is None:
+            continue
+        try:
+            count = int(raw_count or 0)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if 0 <= count <= _MAX_DIAGNOSTIC_COUNT:
+            normalized[key] = count
+    return normalized

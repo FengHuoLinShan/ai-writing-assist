@@ -9,11 +9,14 @@
 
 from __future__ import annotations
 
+import re
 import uuid
+from collections.abc import Mapping
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select
 
 from core.api_params import NovelIdQuery
@@ -28,6 +31,23 @@ from shared.enums import TaskStatus as TaskStatusEnum
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 _lifecycle = TaskLifecycleService()
+_VALIDATION_ERROR_TYPE_RE = re.compile(r"^[a-z][a-z0-9_]{0,79}$")
+
+
+def _public_task_result(value: Any) -> dict[str, Any]:
+    """Project task results without private top-level worker checkpoints.
+
+    Business handlers may persist resumable receipts under underscore-prefixed
+    keys.  Those values remain available to the worker and lifecycle service,
+    but are never part of the task status wire contract.
+    """
+    if not isinstance(value, Mapping):
+        return {}
+    return {
+        key: item
+        for key, item in value.items()
+        if isinstance(key, str) and not key.startswith("_")
+    }
 
 
 async def _require_active_project(db: DbSession, novel_id: str) -> None:
@@ -36,6 +56,7 @@ async def _require_active_project(db: DbSession, novel_id: str) -> None:
 
 
 _MODULE_API_ONLY_TASK_TYPES = {
+    "smart_dedup_scan",
     "deep_import",
     "deep_import_resume",
     "scene_auto_extraction",
@@ -43,12 +64,58 @@ _MODULE_API_ONLY_TASK_TYPES = {
     "plot_structure_auto_extraction",
     "world_entity_extraction",
     "world_alias_relation_extraction",
+    "world_entity_fusion_suggestions",
     "world_bible_projection_refresh",
     "world_bible_synopsis_refresh",
+    "plot_structure_generate",
+    "chapter_card_extraction",
+    "chapter_scene_generate",
+    "outline_analyze",
+    "outline_generate",
     "writing_generate",
+    "writing_conflict_ai_review",
+    "publish_chapter",
+    "rag_index_chapter",
+    "rag_reindex_novel",
+    "rag_retry_embeddings",
     "outline_structure_generation",
     "outline_chapter_scenes_extract",
 }
+
+
+def _generic_submit_validation_errors(
+    exc: PydanticValidationError,
+    schema: type[BaseModel],
+) -> list[dict[str, Any]]:
+    """Return useful schema errors without echoing submitted metadata."""
+    known_fields = set(schema.model_fields)
+    details: list[dict[str, Any]] = []
+    for error in exc.errors(
+        include_url=False,
+        include_context=False,
+        include_input=False,
+    ):
+        location: list[int | str] = []
+        for index, part in enumerate(error.get("loc", [])):
+            if isinstance(part, int):
+                location.append(part)
+            elif index == 0 and isinstance(part, str) and part in known_fields:
+                location.append(part)
+            else:
+                location.append("[field]")
+        raw_type = error.get("type")
+        details.append(
+            {
+                "loc": location,
+                "type": (
+                    raw_type
+                    if isinstance(raw_type, str)
+                    and _VALIDATION_ERROR_TYPE_RE.fullmatch(raw_type)
+                    else "validation_error"
+                ),
+            }
+        )
+    return details
 
 
 # ============================================================
@@ -136,16 +203,40 @@ async def submit_task(
             f"Registered types: {registered}",
         )
 
-    novel_id = (request.meta or {}).get("novel_id")
+    definition = registry.get_definition(request.task_type)
+    submit_schema = definition.generic_submit_schema if definition else None
+    if submit_schema is None:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Task type {request.task_type} must be submitted through module API"
+            ),
+        )
+    try:
+        validated_meta = submit_schema.model_validate(request.meta or {}).model_dump(
+            mode="json",
+            exclude_none=True,
+        )
+    except PydanticValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=_generic_submit_validation_errors(exc, submit_schema),
+        ) from exc
+    if not isinstance(validated_meta, dict):
+        raise HTTPException(
+            status_code=422,
+            detail="Generic task metadata schema must serialize to an object",
+        )
+
+    novel_id = validated_meta.get("novel_id")
     if novel_id is not None:
         await _require_active_project(db, str(novel_id))
 
-    definition = registry.get_definition(request.task_type)
     task = AsyncTask(
         id=uuid.uuid4(),
         task_type=request.task_type,
         status=TaskStatusEnum.pending.value,
-        meta=request.meta or {},
+        meta=validated_meta,
         progress=0.0,
         recovery_policy=(definition.recovery_policy if definition else "restart_origin"),
         max_attempts=definition.max_attempts if definition else 1,
@@ -192,7 +283,7 @@ async def get_task_status(
         status=task.status or "pending",
         progress=task.progress,
         meta=task.meta or {},
-        result=task.result or {},
+        result=_public_task_result(task.result),
         error_message=task.error_message,
         created_at=str(task.created_at) if task.created_at else None,
         started_at=str(task.started_at) if task.started_at else None,

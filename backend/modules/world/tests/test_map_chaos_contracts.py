@@ -9,6 +9,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.outline.facade import create_scene
 from modules.world.tests.helpers import _create_entity, _create_project
 
 UUID_RE = re.compile(
@@ -135,9 +136,19 @@ async def test_chaos_dataset_preserves_candidate_fact_boundaries_and_author_labe
     )
     assert binding.status_code == 201, binding.text
 
-    scene_a = uuid.uuid4()
-    scene_b = uuid.uuid4()
-    scene_c = uuid.uuid4()
+    scenes = [
+        await create_scene(
+            db_session,
+            novel_id,
+            {
+                "scene_index": index,
+                "title": f"Scene {index}",
+                "status": "canonical",
+            },
+        )
+        for index in (1, 2, 3)
+    ]
+    scene_a, scene_b, scene_c = (item["id"] for item in scenes)
     high_confidence = await _observation(
         async_client,
         novel_id,
@@ -146,7 +157,7 @@ async def test_chaos_dataset_preserves_candidate_fact_boundaries_and_author_labe
         target_name="沈砚",
         target_entity_type="character",
         dynamic_type="position_change",
-        scene_id=str(scene_a),
+        scene_id=scene_a,
         scene_index=1,
         confidence=0.91,
         spatial_anchor={"hex_q": 2, "hex_r": 2, "location_name": "洛阳外城"},
@@ -158,7 +169,7 @@ async def test_chaos_dataset_preserves_candidate_fact_boundaries_and_author_labe
         target_name="暗门传闻",
         target_entity_type="secret",
         dynamic_type="secret",
-        scene_id=str(scene_b),
+        scene_id=scene_b,
         scene_index=2,
         confidence=0.21,
     )
@@ -170,7 +181,7 @@ async def test_chaos_dataset_preserves_candidate_fact_boundaries_and_author_labe
         target_name="沈砚",
         target_entity_type="character",
         dynamic_type="position_change",
-        scene_id=str(scene_b),
+        scene_id=scene_b,
         scene_index=2,
         confidence=0.77,
         review_state="conflicted",
@@ -183,7 +194,7 @@ async def test_chaos_dataset_preserves_candidate_fact_boundaries_and_author_labe
         target_name="洛阳封锁",
         target_entity_type="location",
         dynamic_type="crisis",
-        scene_id=str(scene_c),
+        scene_id=scene_c,
         scene_index=3,
         confidence=0.66,
         spatial_anchor={"hex_q": 2, "hex_r": 2, "location_name": "洛阳外城"},
@@ -191,12 +202,12 @@ async def test_chaos_dataset_preserves_candidate_fact_boundaries_and_author_labe
 
     dashboard = await async_client.get(
         f"/api/world/maps/{map_id}/dashboard",
-        params={"novel_id": novel_id, "scene_id": str(scene_b)},
+        params={"novel_id": novel_id, "scene_id": scene_b},
     )
     assert dashboard.status_code == 200, dashboard.text
     scene_queue = dashboard.json()["dynamic_queue"]
     assert {item["title"] for item in scene_queue} == {"暗门传闻", "沈砚"}
-    assert all(item["debug_ref"]["scene_id"] == str(scene_b) for item in scene_queue)
+    assert all(item["debug_ref"]["scene_id"] == scene_b for item in scene_queue)
     assert "暗门传闻" in dashboard.text
     assert "scene_id" in dashboard.text
     visible_text = " ".join(

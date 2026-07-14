@@ -212,6 +212,36 @@ GET  /api/tasks/{id}       # 查询任务状态
 POST /api/tasks/{id}/cancel # 取消任务
 ```
 
+任务状态响应中的 `result` 只投影公开顶层字段。以下划线开头的顶层键属于 worker 的
+私有 checkpoint/receipt：数据库、重试和 lifecycle 恢复路径保留原值，但
+`GET /api/tasks/{id}` 不返回它们；业务 handler 不得把前端必需字段放入私有键。
+
+通用 `POST /api/tasks` 不能绕过模块 API 的 request schema、确认和授权。业务任务默认
+拒绝通用提交；只有注册时显式声明 Pydantic `generic_submit_schema` 的基础设施任务可走
+该入口。校验错误只返回受控字段位置和错误类型，不回显提交值、动态 key 或密钥。
+
+### 稳定 lifecycle seam 与提交 fence
+
+本轮已收敛或新增的跨模块 lifecycle 操作通过
+`infrastructure.tasks.contracts/facade` 使用窄接口，不新增对 `AsyncTask` ORM 的依赖。
+deep-import orchestrator 与 World Bible projection coalescing 仍有已登记的直接 ORM
+例外（见 2026-07-14 全量扫描报告 D-04 / D-07），后续应迁移且不得仿照扩张：
+
+- `get_task_owner()` 只读取授权所需的 `novel_id`；
+- `get_completed_task_payload()` 按 `task_id + task_type + novel_id + done` 返回冻结的
+  完整 result、白名单 apply context 和 revision，`replace_completed_task_result()`
+  以 revision CAS 保存采用结果；
+- `list_running_task_types_for_novel()` 只返回指定项目/类型的运行中任务；
+- `require_running_task_attempt()` 按 task type、owner、lease 与 attempt 锁定当前执行；
+- 取消和永久删除使用 novel-scoped facade，不跨项目扫描或写入。
+
+worker claim 使用 `FOR UPDATE SKIP LOCKED`，每次 attempt 生成新 `lease_id`。handler
+session 的每次显式 checkpoint commit 和最终 commit 都在同一事务内执行
+`project FOR SHARE -> running task + lease` fence；项目删除或 lease 丢失先线性化时，
+当前业务写入与 checkpoint 一起回滚。慢 LLM/embedding/provider I/O 前如已发生 DB
+读写，handler 必须先建立可恢复 checkpoint 释放事务，并在采用结果前重验适用来源。
+这些基础设施 fence 不替代各业务任务自己的 source/profile/confirmation 校验。
+
 ## 不做
 
 - 复杂分布式调度 / 优先级队列 / 任务 DAG / 定时任务系统

@@ -471,6 +471,7 @@ const writingView = {
       await this._versions?.load?.(chapterIndex)
       if (!isCurrentSelection()) return
       this._syncChapterMetaToTree(chapterIndex)
+      await this._scenePanel?.update?.(this._editor?.getCurrentSceneId?.(), chapterIndex)
       this._syncSharedStateToSubModules()
       await this._rerender()
       return
@@ -497,7 +498,7 @@ const writingView = {
       await this._versions?.load?.(chapterIndex)
       if (!isCurrentSelection()) return
       this._syncChapterMetaToTree(chapterIndex)
-      this._scenePanel?.update?.(this._editor?.getCurrentSceneId?.(), chapterIndex)
+      await this._scenePanel?.update?.(this._editor?.getCurrentSceneId?.(), chapterIndex)
       this._syncSharedStateToSubModules()
       await this._conflictCheck?.refresh?.(chapterIndex)
       this._editor?.updateWordcount?.()
@@ -771,6 +772,7 @@ const writingView = {
       const nextTreeEl = document.getElementById("writing-tree-container")
       if (nextTreeEl) nextTreeEl.scrollTop = treeScrollTop
       if (pageScroller) pageScroller.scrollTop = pageScrollTop
+      this._bindEvents()
       return
     }
 

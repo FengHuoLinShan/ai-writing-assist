@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from infrastructure.llm.profiles import sanitize_project_settings
 from shared.constants import DEFAULT_LLM_MAX_TOKENS
@@ -266,13 +266,46 @@ class SmartDedupApplyItem(BaseModel):
     target_asset_id: str
     alias: str | None = Field(None, max_length=255)
     allow_canonical_merge: bool = False
+    allow_canonical_alias: bool = False
+
+
+class SmartDedupGroupOperation(BaseModel):
+    source_asset_id: str
+    action: str = Field(
+        ..., pattern="^(merge|alias_only|deprecate_duplicate|keep_separate)$"
+    )
+    alias: str | None = Field(None, max_length=255)
+    expected_source_execution_fingerprint: str = Field(..., min_length=64, max_length=64)
+    expected_target_execution_fingerprint: str = Field(..., min_length=64, max_length=64)
+    allow_canonical_merge: bool = False
+    allow_canonical_alias: bool = False
+    scene_preview_confirmed: bool = False
+
+
+class SmartDedupApplyGroup(BaseModel):
+    group_id: str = Field(..., min_length=1, max_length=128)
+    asset_type: str = Field(..., max_length=64)
+    primary_asset_id: str
+    operations: list[SmartDedupGroupOperation] = Field(..., min_length=1)
 
 
 class SmartDedupApplyRequest(BaseModel):
     """Apply selected smart dedupe suggestions after user confirmation."""
 
     confirmed: bool = False
-    suggestions: list[SmartDedupApplyItem] = Field(..., min_length=1)
+    scan_task_id: str | None = None
+    suggestions: list[SmartDedupApplyItem] | None = None
+    groups: list[SmartDedupApplyGroup] | None = None
+
+    @model_validator(mode="after")
+    def validate_apply_mode(self) -> SmartDedupApplyRequest:
+        has_legacy = bool(self.suggestions)
+        has_groups = bool(self.groups)
+        if has_legacy == has_groups:
+            raise ValueError("exactly one of suggestions or groups is required")
+        if has_groups and not self.scan_task_id:
+            raise ValueError("scan_task_id is required for group apply")
+        return self
 
 
 class SmartDedupApplyResponse(BaseModel):
@@ -282,6 +315,7 @@ class SmartDedupApplyResponse(BaseModel):
     skipped: int = 0
     results: dict[str, Any] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
+    group_results: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class LLMFieldResetResponse(BaseModel):

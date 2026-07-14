@@ -298,8 +298,21 @@ class MapDynamicHelperMixin:
         if status == "ignored":
             return None
         from modules.world.asset_state import project_map_state
+        from modules.world.services.map.map_dynamic_projection import (
+            normalize_dynamic_value,
+        )
 
-        dynamic_type = self._normalize_dynamic_type(item.dynamic_type)
+        normalized = normalize_dynamic_value(
+            item.dynamic_type,
+            item.value_json,
+            item.spatial_anchor,
+        )
+        typed_observation = self._normalize_dynamic_type(item.dynamic_type)
+        track_dynamic_type = (
+            str(normalized.value["type"])
+            if normalized.value is not None
+            else typed_observation
+        )
         projection = project_map_state(
             status=status,
             source_ref=item.source_ref,
@@ -308,8 +321,8 @@ class MapDynamicHelperMixin:
         return MapPlaybackEvent(
             event_id=str(item.id),
             event_kind="observation" if kind == "observation" else "fact",
-            typed_observation=dynamic_type,
-            track=self._playback_track(dynamic_type),
+            typed_observation=typed_observation,
+            track=self._playback_track(track_dynamic_type),
             title=self._display_title(item),
             time_label=self._time_label(item),
             status_label=self._status_label(status),
@@ -319,7 +332,7 @@ class MapDynamicHelperMixin:
             scene_index=item.scene_index,
             source_chapter_index=item.source_chapter_index,
             risk_level=self._risk_level(
-                dynamic_type=dynamic_type,
+                dynamic_type=track_dynamic_type,
                 status=status,
                 confidence=item.confidence,
             ),
@@ -715,6 +728,8 @@ class MapDynamicHelperMixin:
 
     def _spatial_anchor_label(self, item: Any) -> str | None:
         anchor = item.spatial_anchor or {}
+        if anchor.get("path_name"):
+            return f"线路 {anchor['path_name']}"
         q = anchor.get("hex_q")
         r = anchor.get("hex_r")
         if q is not None and r is not None:
@@ -759,7 +774,7 @@ class MapDynamicHelperMixin:
             "target_name": data.target_name,
             "dynamic_type": self._normalize_dynamic_type(data.dynamic_type),
             "time_anchor": data.time_anchor or {},
-            "spatial_anchor": data.spatial_anchor or {},
+            "spatial_anchor": self._spatial_anchor_payload(data.spatial_anchor),
             "value_json": data.value_json or {},
             "confidence": data.confidence,
             "review_state": data.review_state,
@@ -804,7 +819,30 @@ class MapDynamicHelperMixin:
         if fact is None or fact.novel_id != novel_id or fact.map_id != map_id:
             raise NotFoundError(f"MapFact {fact_id} not found", code="map_fact_not_found")
 
-    def _assert_spatial_anchor_in_bounds(self, config: Any, spatial_anchor: dict) -> None:
+    @staticmethod
+    def _spatial_anchor_payload(spatial_anchor: Any) -> dict[str, Any]:
+        if spatial_anchor is None:
+            return {}
+        if isinstance(spatial_anchor, dict):
+            return spatial_anchor
+        model_dump = getattr(spatial_anchor, "model_dump", None)
+        if callable(model_dump):
+            payload = model_dump(mode="json", exclude_none=True)
+            if not isinstance(payload, dict):
+                return {}
+            for field in ("hex_q", "hex_r", "representative_q", "representative_r"):
+                value = payload.get(field)
+                if isinstance(value, float) and value.is_integer():
+                    payload[field] = int(value)
+            return payload
+        return {}
+
+    def _assert_spatial_anchor_in_bounds(
+        self,
+        config: Any,
+        spatial_anchor: Any,
+    ) -> None:
+        spatial_anchor = self._spatial_anchor_payload(spatial_anchor)
         if "hex_q" not in spatial_anchor or "hex_r" not in spatial_anchor:
             return
         self._ctx.assert_hex_in_bounds(

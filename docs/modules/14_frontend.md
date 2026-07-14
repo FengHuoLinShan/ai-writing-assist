@@ -38,7 +38,7 @@
 | `projectView` | 项目 CRUD、回收站、导入入口 |
 | `writingView` | Scene 树 + 工作稿编辑器 + AI 建议采用 + Scene 面板；版本历史；授权深度导入；Scene 地图摘要跳转 |
 | `worldView` | 对象库、统一待处理（对象/关系/别名）、历史筛选；世界书支持编辑、图鉴和筛选，并以“工作稿保存 → 明确发布”维护页面，展示只读作者版世界观简介及版本/自动维护状态；`map` 子标签现在只做兼容跳转 |
-| `mapWorkspaceView` | 地图一级工作台，总览、最近地图、地图树、图层开关、搜索、聚焦；世界动态总控台、活地图、叙事透镜切换、电影化播放 |
+| `mapWorkspaceView` | 地图一级工作台，总览、最近地图、地图树、图层开关、搜索、聚焦；世界动态总控台、活地图、叙事透镜、Scene 时间轴与连续性检查 |
 | `mapView` | 具体地图渲染与编辑：地形、地点绑定、标记、势力范围；浏览态地点标签避让与聚合 |
 | `outlineView` | 大纲子导航与结构生成；在 `scenes` 子标签组合 Scene 工作台，其余子标签管理剧情线、篇章纲、伏笔和揭示 |
 | `sceneWorkbenchView` | 由 `outline/scenes` 承载的 Scene 管理、筛选、拆分/合并、复核与深度导入 Scene 整理；旧 `scene` 路由仅作兼容重定向 |
@@ -64,13 +64,17 @@
 - `shared/workspaceRail.js` 统一渲染主题化辅助栏，并以 `项目 + 页面 + 栏位` 为 key 在 `sessionStorage` 保存折叠状态。辅助栏折叠不得重置选择、筛选、滚动位置或未保存编辑内容。
 - 写作专注模式高于普通辅助栏状态；中等宽度重排第三栏，`760px` 及以下使用单栏、抽屉或手风琴，不允许产生页面级横向溢出。
 - `shared/progressRenderer.js` 的任务卡默认可折叠：普通运行/完成态显示紧凑摘要，失败或调用方标记 `attentionRequired` 的恢复、重试和确认状态默认展开；用户保存状态优先于自动规则。
+- `shared/smartDedup.js` 对 schema v2 结果打开 `{size: "large", protectUnsaved: true}`
+  双栏工作台；队列、对比、主对象和逐成员动作共享同一个 group 草稿。
+  Scene merge 进入已就绪前必须调用现有 Scene merge preview 并由用户确认。
+  工作台不把 `needs_review` 或“稍后处理”发到 apply API，也不允许手填任意主对象 ID。
 - 折叠栏和进度摘要必须使用现有设计 token，并覆盖 hover、focus-visible、disabled、错误、暗色主题和 `prefers-reduced-motion`，不得暴露浏览器默认折叠标记。
 
 ## 开发与验证脚本
 
 - 开发服务器使用 Vite：`npm run dev`，默认端口 8080，可通过 `FRONTEND_PORT` 覆盖。
 - 单元测试使用 Vitest：`npm run test`；监听模式为 `npm run test:watch`。
-- 浏览器 E2E 使用 Playwright：`npm run test:e2e`；烟雾子集为 `npm run test:e2e:smoke`。默认本地可复用已有 8000/8080 服务；涉及数据库 schema 的 E2E 使用 `PW_REUSE_EXISTING_SERVER=0` 强制 fresh server，让后端启动前执行 `APP_ENV=test alembic upgrade head`。如端口被旧服务占用，使用 `BACKEND_PORT=8010 FRONTEND_PORT=8090 PW_REUSE_EXISTING_SERVER=0`。
+- 浏览器 E2E 使用 Playwright：`npm run test:e2e`；烟雾子集为 `npm run test:e2e:smoke`。默认启动 fresh 8000/8080 服务，只有 `PW_REUSE_EXISTING_SERVER=1` 才复用已有服务；后端启动前执行 `APP_ENV=test alembic upgrade head`。`APP_ENV=test` 不改写 `DATABASE_URL`；本机存在开发 worker 时应显式传入独立测试库。如端口被旧服务占用，使用 `BACKEND_PORT=8010 FRONTEND_PORT=8090 PW_REUSE_EXISTING_SERVER=0`。
 - `npm run test:all` 先跑 Vitest，再跑 Playwright。
 - 当前 `package.json` 未定义前端构建脚本，也没有独立 lint/format 依赖；前端静态约束以现有测试和 `git diff --check` 为主。
 - 当前已落地 vanilla JS 共享 API 契约校验第一阶段，覆盖项目、设置、导入、上下文、世界/地图、写作冲突检查和 RAG 的高风险 wrapper 子集；TypeScript / OpenAPI codegen 仍是未来设计项，当前说明见 `docs/frontend/typescript-api-contracts.md`。
@@ -118,6 +122,12 @@
 - 默认进入地图页时通过 `GET /api/world/maps/open-target` 打开最近/可用地图；世界对象行也通过该接口生成带 `focus_entity_id` 的地图 URL
 - 地图工作台消费同一套 dashboard / map state，支持“世界动态总控台 / 活地图 / 叙事透镜”三视图、上方语义气泡带、低动效模式
 - 地图工作台同时消费 `GET /api/world/maps/{map_id}/playback`，按 typed observation 展示人物旅程、势力变化、危机推进、资源控制和状态变化播放轨道
+- 地图工作台消费 `GET /api/world/maps/{map_id}/timeline` 与 `/state-at`，按真实 Scene stop
+  步进或播放类型化差分；正式状态、冲突和 candidate preview 分区展示，candidate 不进入
+  当前 Scene 的有效状态
+- 时间轴只读覆盖地点轨迹、范围变化、危机和线路状态，不写回 marker、territory、terrain
+  或 path。编辑开始、地图切换或请求失效时暂停播放并清理覆盖；连续性面板只报告缺失锚点、
+  路线未知/不通/阻断和线路版本变化，不把 Scene 顺序解释成旅行时长
 - 动态队列、语义气泡和播放事件可打开对象信息框；信息框展示名称、类型、时间、状态、来源、地点/空间锚点，并提供修改和打开检查器
 - observation 在界面统一显示为待处理，支持采用、忽略、标记冲突，并可在采用前编辑字段、来源引用和字段差异；fact 显示为已采用，支持回滚、废弃、恢复，并保持技术 ID 不进入可见文本
 - 写作冲突 AI 修复建议以可编辑草稿展示，用户显式插入当前正文编辑器后才影响草稿内容

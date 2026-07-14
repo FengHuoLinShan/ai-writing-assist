@@ -11,6 +11,8 @@ export const mapState = {
   currentMapId: null,
   /** 当前模式：browse（浏览）/ edit（编辑） */
   mode: "browse",
+  /** 当前编辑层；不复用工作台 route/view mode。 */
+  editorLayer: "none",
   /** 编辑工具：brush（地形画笔）/ bucket（油漆桶）/ bind（地点绑定）/ territory（势力范围） */
   activeTool: "brush",
   /** 画笔选中的地形（brush/bucket 工具用） */
@@ -21,6 +23,39 @@ export const mapState = {
   pendingTerrainChanges: {},
   /** 撤销栈：每个元素是一次 apply 的变更快照（用于 Ctrl+Z） */
   undoStack: [],
+  redoStack: [],
+  /** 各编辑层的逐操作历史。 */
+  editorHistory: {},
+  editorRedo: {},
+  /** 地点中心锚点草稿。 */
+  pendingLocationLayouts: {},
+  /** 覆盖素材图层草稿。 */
+  pendingTerrainOverlay: null,
+  pendingTerrainLayerDeletes: [],
+  pendingMarkerChanges: {},
+  /** 图层树拥有独立于内容编辑层的草稿和 layerTree history。 */
+  pendingLayerTree: null,
+  layerTreeBaselineStale: false,
+  collapsedLayerNodeIds: new Set(),
+  /** exclusive/floor 当前直接子层；仅会话状态，不写 revision。 */
+  activeLayerChildIds: {},
+  isolateLayerNodeId: null,
+  selectedTerrainLayerId: null,
+  selectedTerrainAssetKey: "forest",
+  selectedTerrainPreset: "standard",
+  overlayBrushSize: 1,
+  overlayTool: "brush",
+  territoryEraseMode: false,
+  /** 领地草稿：新增格与待删除持久化格。 */
+  pendingTerritoryChanges: { add: {}, remove: {} },
+  /** 连续道路/水系草稿。key 为正式 id 或 client id。 */
+  pendingPathChanges: {},
+  pendingPathLayerChanges: {},
+  selectedPathLayerId: null,
+  selectedPathId: null,
+  selectedPathNodeIndex: null,
+  selectedPathType: "major_road",
+  pathTool: "draw",
   /** 待应用的地点绑定变更（key=`q,r` → {location_entity_id,hex_q,hex_r,is_center}） */
   pendingBindings: {},
   /** 是否处于拖拽绘制状态 */
@@ -31,6 +66,8 @@ export const mapState = {
   hoveredHex: null,
   /** 当前选中的六边形 {hex_q,hex_r} */
   selectedHex: null,
+  /** 地图内类型化选择：location / marker / territory / terrain / baseTerrain / fact / observation。 */
+  selectedMapObject: null,
   /** 地点绑定是否为中心格模式 */
   bindCenterMode: false,
   /** 当前选中 scene id */
@@ -64,16 +101,44 @@ export const mapState = {
 export function resetMapState() {
   mapState.currentMapId = null
   mapState.mode = "browse"
+  mapState.editorLayer = "none"
   mapState.activeTool = "brush"
   mapState.selectedTerrain = "grassland"
   mapState.selectedLocationEntityId = null
   mapState.pendingTerrainChanges = {}
   mapState.undoStack = []
+  mapState.redoStack = []
+  mapState.editorHistory = {}
+  mapState.editorRedo = {}
+  mapState.pendingLocationLayouts = {}
+  mapState.pendingTerrainOverlay = null
+  mapState.pendingTerrainLayerDeletes = []
+  mapState.pendingMarkerChanges = {}
+  mapState.pendingLayerTree = null
+  mapState.layerTreeBaselineStale = false
+  mapState.collapsedLayerNodeIds = new Set()
+  mapState.activeLayerChildIds = {}
+  mapState.isolateLayerNodeId = null
+  mapState.selectedTerrainLayerId = null
+  mapState.selectedTerrainAssetKey = "forest"
+  mapState.selectedTerrainPreset = "standard"
+  mapState.overlayBrushSize = 1
+  mapState.overlayTool = "brush"
+  mapState.territoryEraseMode = false
+  mapState.pendingTerritoryChanges = { add: {}, remove: {} }
+  mapState.pendingPathChanges = {}
+  mapState.pendingPathLayerChanges = {}
+  mapState.selectedPathLayerId = null
+  mapState.selectedPathId = null
+  mapState.selectedPathNodeIndex = null
+  mapState.selectedPathType = "major_road"
+  mapState.pathTool = "draw"
   mapState.pendingBindings = {}
   mapState.dragDrawing = false
   mapState.lastDragHex = null
   mapState.hoveredHex = null
   mapState.selectedHex = null
+  mapState.selectedMapObject = null
   mapState.bindCenterMode = false
   mapState.currentSceneId = null
   mapState.sceneList = []
@@ -123,6 +188,54 @@ export function consumePendingChanges() {
 /** 弹出最近一次 apply 的变更（撤销）。返回 changes 数组或 null。 */
 export function popUndo() {
   return mapState.undoStack.pop() || null
+}
+
+export function setEditorLayer(layer) {
+  mapState.editorLayer = layer || "none"
+}
+
+export function recordEditorCommand(layer, command) {
+  const key = layer || mapState.editorLayer || "none"
+  if (!mapState.editorHistory[key]) mapState.editorHistory[key] = []
+  mapState.editorHistory[key].push(command)
+  if (mapState.editorHistory[key].length > 50) mapState.editorHistory[key].shift()
+  mapState.editorRedo[key] = []
+}
+
+export function popEditorUndo(layer = mapState.editorLayer) {
+  const history = mapState.editorHistory[layer] || []
+  const command = history.pop() || null
+  if (command) {
+    if (!mapState.editorRedo[layer]) mapState.editorRedo[layer] = []
+    mapState.editorRedo[layer].push(command)
+  }
+  return command
+}
+
+export function popEditorRedo(layer = mapState.editorLayer) {
+  const redo = mapState.editorRedo[layer] || []
+  const command = redo.pop() || null
+  if (command) {
+    if (!mapState.editorHistory[layer]) mapState.editorHistory[layer] = []
+    mapState.editorHistory[layer].push(command)
+  }
+  return command
+}
+
+export function hasMapDraftChanges() {
+  return Boolean(
+    Object.keys(mapState.pendingTerrainChanges).length
+    || Object.keys(mapState.pendingBindings).length
+    || Object.keys(mapState.pendingLocationLayouts).length
+    || mapState.pendingTerrainOverlay
+    || mapState.pendingTerrainLayerDeletes.length
+    || Object.keys(mapState.pendingMarkerChanges).length
+    || mapState.pendingLayerTree
+    || Object.keys(mapState.pendingPathChanges).length
+    || Object.keys(mapState.pendingPathLayerChanges).length
+    || Object.keys(mapState.pendingTerritoryChanges.add).length
+    || Object.keys(mapState.pendingTerritoryChanges.remove).length,
+  )
 }
 
 /**

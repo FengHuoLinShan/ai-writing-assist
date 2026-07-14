@@ -5,6 +5,9 @@ from types import SimpleNamespace
 import pytest
 
 from modules.imports.entity_extraction import scene_entity_text
+from modules.imports.entity_extraction.scene_entity_checkpoint import (
+    scene_input_fingerprint,
+)
 from modules.writing.contracts import WritingDraftContract
 
 
@@ -17,6 +20,113 @@ def _service() -> SimpleNamespace:
         _select_scene_text=scene_entity_text.select_scene_text,
         _scene_context_header=scene_entity_text.scene_context_header,
     )
+
+
+def test_select_scene_text_prefers_end_exclusive_offsets() -> None:
+    chapter_text = "第一段\n\n第二段\n\n第三段"
+    start = chapter_text.index("第二段")
+    end = start + len("第二段")
+
+    selected = scene_entity_text.select_scene_text(
+        chapter_text,
+        [
+            {
+                "start_offset": start,
+                "end_offset": end,
+                "start_paragraph": 0,
+                "end_paragraph": 0,
+            }
+        ],
+    )
+
+    assert selected == "第二段"
+
+
+def test_select_scene_text_uses_paragraph_fallback_for_invalid_offsets() -> None:
+    chapter_text = "第一段\n\n第二段\n\n第三段"
+
+    selected = scene_entity_text.select_scene_text(
+        chapter_text,
+        [
+            {
+                "start_offset": None,
+                "end_offset": None,
+                "start_paragraph": 1,
+                "end_paragraph": 2,
+            }
+        ],
+    )
+
+    assert selected == "第二段\n\n第三段"
+
+
+def test_select_scene_text_does_not_default_invalid_boundaries_to_first_paragraph() -> (
+    None
+):
+    chapter_text = "第一段\n\n第二段"
+
+    selected = scene_entity_text.select_scene_text(
+        chapter_text,
+        [{"start_offset": None, "end_offset": None}],
+    )
+
+    assert selected == chapter_text
+
+
+def test_select_scene_text_falls_back_to_whole_chapter_if_any_chunk_is_invalid() -> (
+    None
+):
+    chapter_text = "第一段\n\n第二段\n\n第三段"
+
+    selected = scene_entity_text.select_scene_text(
+        chapter_text,
+        [
+            {"start_offset": 0, "end_offset": 3},
+            {"start_offset": None, "end_offset": None},
+        ],
+    )
+
+    assert selected == chapter_text
+
+
+def test_select_scene_text_rejects_boolean_boundaries() -> None:
+    chapter_text = "第一段\n\n第二段"
+
+    selected = scene_entity_text.select_scene_text(
+        chapter_text,
+        [{"start_offset": True, "end_offset": 2}],
+    )
+
+    assert selected == chapter_text
+
+
+def test_scene_input_fingerprint_is_deterministic_and_tracks_source_and_text() -> None:
+    scene = {
+        "scene_index": 1,
+        "goal": "找到线索",
+        "scene_chunks": [
+            {
+                "chapter_index": 1,
+                "source_draft_id": "draft-1",
+                "source_content_hash": "hash-1",
+                "start_offset": 2,
+                "end_offset": 8,
+            }
+        ],
+    }
+    reordered = {
+        "scene_chunks": [dict(reversed(list(scene["scene_chunks"][0].items())))],
+        "goal": "找到线索",
+        "scene_index": 1,
+    }
+
+    fingerprint = scene_input_fingerprint(scene, "当前 Scene 正文")
+
+    assert fingerprint == scene_input_fingerprint(reordered, "当前 Scene 正文")
+    assert fingerprint != scene_input_fingerprint(scene, "变更后的 Scene 正文")
+    changed_source = {**scene, "scene_chunks": [{**scene["scene_chunks"][0]}]}
+    changed_source["scene_chunks"][0]["source_content_hash"] = "hash-2"
+    assert fingerprint != scene_input_fingerprint(changed_source, "当前 Scene 正文")
 
 
 @pytest.mark.asyncio

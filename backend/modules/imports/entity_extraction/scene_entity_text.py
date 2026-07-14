@@ -207,26 +207,44 @@ def select_scene_text(
 ) -> str:
     if not chunks:
         return chapter_text
-    paragraphs = [part.strip() for part in chapter_text.split("\n\n") if part.strip()]
-    if not paragraphs:
-        return chapter_text
-
     selected: list[str] = []
+    paragraphs: list[str] | None = None
     for chunk in chunks:
+        if not isinstance(chunk, dict):
+            return chapter_text
+        raw_start_offset = chunk.get("start_offset")
+        raw_end_offset = chunk.get("end_offset")
         try:
-            start = int(chunk.get("start_paragraph") or 0)
+            if isinstance(raw_start_offset, bool) or isinstance(raw_end_offset, bool):
+                raise ValueError("boolean offsets are not valid boundaries")
+            start_offset = int(raw_start_offset)
+            end_offset = int(raw_end_offset)
         except (TypeError, ValueError):
-            start = 0
+            start_offset = end_offset = -1
+        if 0 <= start_offset < end_offset <= len(chapter_text):
+            selected.append(chapter_text[start_offset:end_offset])
+            continue
+
+        if paragraphs is None:
+            paragraphs = [
+                part.strip() for part in chapter_text.split("\n\n") if part.strip()
+            ]
+        if not paragraphs:
+            continue
+        raw_start = chunk.get("start_paragraph")
         raw_end = chunk.get("end_paragraph")
         try:
-            end = int(raw_end) if raw_end is not None else start
+            if isinstance(raw_start, bool) or isinstance(raw_end, bool):
+                raise ValueError("boolean paragraph indices are not valid boundaries")
+            start = int(raw_start)
+            end = int(raw_end)
         except (TypeError, ValueError):
-            end = start
-        start = max(0, min(start, len(paragraphs) - 1))
-        end = max(start, min(end, len(paragraphs) - 1))
+            return chapter_text
+        if not (0 <= start <= end < len(paragraphs)):
+            return chapter_text
         selected.extend(paragraphs[start : end + 1])
 
-    compact = "\n\n".join(dict.fromkeys(selected))
+    compact = "\n\n".join(dict.fromkeys(part for part in selected if part))
     return compact or chapter_text
 
 

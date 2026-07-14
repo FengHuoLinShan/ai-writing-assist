@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import mapWorkspaceView from "../views/mapWorkspaceView.js"
 import mapView from "../views/mapView.js"
 import mapQuickCreateView from "../views/mapQuickCreateView.js"
-import { expectNoTechnicalIds, renderHtml, resetState, clearDocument, modalHtmlFromCall } from "./helpers.js"
+import { autoConfirm, expectNoTechnicalIds, renderHtml, resetState, clearDocument, modalHtmlFromCall } from "./helpers.js"
 
 beforeEach(() => {
   resetState({ currentProjectId: "p1" })
@@ -12,18 +12,81 @@ beforeEach(() => {
   vi.clearAllMocks()
   window.location.hash = ""
   mapWorkspaceView._maps = []
+  mapWorkspaceView._archivedMaps = []
   mapWorkspaceView._locations = []
   mapWorkspaceView._mode = "overview"
   mapWorkspaceView._message = null
   mapWorkspaceView._activeMapId = null
   mapWorkspaceView._activeSceneId = null
   mapWorkspaceView._focusEntityId = null
+  mapWorkspaceView._focusPathId = null
+  mapWorkspaceView._focusLayerNodeId = null
   mapWorkspaceView._focusedDynamicItemId = null
+  mapWorkspaceView._editingState = { editing: false, dirty: false, editorLayer: "none" }
   mapWorkspaceView._showHistory = false
+  mapWorkspaceView._showArchivedMaps = false
   mapWorkspaceView._rebuildMapIndexes?.()
   mapWorkspaceView._resetDynamicSummary?.()
   mapWorkspaceView._resetPlayback?.()
   mapWorkspaceView._clearPendingTimers?.()
+  mapWorkspaceView._unbindBeforeUnloadGuard?.()
+  mapWorkspaceView._dataLoadEpoch = 0
+  mapWorkspaceView._mountEpoch = 0
+  mapWorkspaceView._mountPromise = Promise.resolve()
+})
+
+describe("mapWorkspaceView dirty guard", () => {
+  it("exposes route leave confirmation without tearing down the map", () => {
+    const guard = vi.spyOn(mapView, "canLeave").mockReturnValue(false)
+    const unmount = vi.spyOn(mapView, "unmount")
+
+    expect(mapWorkspaceView.canLeave()).toBe(false)
+    expect(unmount).not.toHaveBeenCalled()
+    guard.mockRestore()
+    unmount.mockRestore()
+  })
+
+  it("marks browser unload when map edits are dirty", () => {
+    mapWorkspaceView._editingState = { editing: true, dirty: true, editorLayer: "location" }
+    mapWorkspaceView._bindBeforeUnloadGuard()
+    const event = new Event("beforeunload", { cancelable: true })
+
+    window.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  it("blocks switching to another map while edits are dirty", () => {
+    mapWorkspaceView._mode = "map"
+    mapWorkspaceView._activeMapId = "m1"
+    const guard = vi.spyOn(mapView, "canLeave").mockReturnValue(false)
+    const refresh = vi.spyOn(router, "refresh")
+
+    expect(mapWorkspaceView._openMap("m2")).toBe(false)
+
+    expect(mapWorkspaceView._activeMapId).toBe("m1")
+    expect(refresh).not.toHaveBeenCalled()
+    guard.mockRestore()
+    refresh.mockRestore()
+  })
+
+  it("clears the workspace dirty state after a confirmed map switch", () => {
+    mapWorkspaceView._mode = "map"
+    mapWorkspaceView._activeMapId = "m1"
+    mapWorkspaceView._editingState = { editing: true, dirty: true, editorLayer: "marker" }
+    const guard = vi.spyOn(mapView, "canLeave").mockReturnValue(true)
+    const refresh = vi.spyOn(router, "refresh").mockImplementation(() => {})
+
+    expect(mapWorkspaceView._openMap("m2")).toBe(true)
+
+    expect(mapWorkspaceView._editingState).toEqual({
+      editing: false,
+      dirty: false,
+      editorLayer: "none",
+    })
+    guard.mockRestore()
+    refresh.mockRestore()
+  })
 })
 
 describe("mapWorkspaceView overview", () => {
@@ -43,6 +106,90 @@ describe("mapWorkspaceView overview", () => {
     expect(html).toContain("打开最近地图")
     expect(html).toContain("九州世界")
     expect(html).toContain("洛阳")
+  })
+
+  it("renders only archived subtree roots and restores from a named root", async () => {
+    mapWorkspaceView._showArchivedMaps = true
+    mapWorkspaceView._archivedMaps = [
+      { id: "root", name: "旧世界", map_type: "world", parent_map_id: null },
+      { id: "child", name: "旧都", map_type: "city", parent_map_id: "root" },
+    ]
+
+    const html = mapWorkspaceView._renderOverview()
+
+    expect(html).toContain("旧世界")
+    expect(html).not.toContain("旧都")
+    mapWorkspaceView._showRestoreMapForm("root")
+    const buttons = showModalHtml.mock.calls.at(-1)[2]
+    document.body.innerHTML = '<input id="map-restore-root-name" value="复原世界" />'
+    api.world.restoreMap.mockResolvedValue({})
+    api.world.listMaps
+      .mockResolvedValueOnce({ items: [] })
+      .mockResolvedValueOnce({ items: [] })
+    api.world.listEntities.mockResolvedValue({ items: [] })
+
+    await buttons[0].handler()
+
+    expect(api.world.restoreMap).toHaveBeenCalledWith(
+      "root",
+      { root_name: "复原世界" },
+      "p1",
+    )
+  })
+
+  it("opens the archived list without resetting its local view state", async () => {
+    mapWorkspaceView._archivedMaps = [
+      { id: "root", name: "旧世界", map_type: "world", parent_map_id: null },
+    ]
+    document.body.innerHTML = `<main id="workspace-content">${mapWorkspaceView._renderOverview()}</main>`
+    mapWorkspaceView._bindEvents()
+
+    document.querySelector("[data-action='map-toggle-archived']").click()
+    await vi.waitFor(() => expect(router.renderCurrentView).toHaveBeenCalled())
+
+    expect(mapWorkspaceView._showArchivedMaps).toBe(true)
+    expect(router.refresh).not.toHaveBeenCalled()
+  })
+
+  it("keeps the restore form open after a name conflict", async () => {
+    mapWorkspaceView._archivedMaps = [
+      { id: "root", name: "旧世界", map_type: "world", parent_map_id: null },
+    ]
+    mapWorkspaceView._showRestoreMapForm("root")
+    const buttons = showModalHtml.mock.calls.at(-1)[2]
+    document.body.innerHTML = '<input id="map-restore-root-name" value="旧世界" />'
+    api.world.restoreMap.mockRejectedValue(new Error("同层同名冲突"))
+
+    const result = await buttons[0].handler()
+
+    expect(result).toBe(false)
+    expect(closeModal).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("恢复失败：同层同名冲突", "error")
+  })
+
+  it("loads archive impact before confirming subtree archive", async () => {
+    mapWorkspaceView._maps = [{ id: "m1", name: "九州", parent_map_id: null }]
+    mapWorkspaceView._rebuildMapIndexes()
+    api.world.getMapArchiveImpact.mockResolvedValue({
+      map_count: 2,
+      asset_counts: { tiles: 16, markers: 2 },
+    })
+    api.world.archiveMap.mockResolvedValue({ status: "archived" })
+    api.world.listMaps
+      .mockResolvedValueOnce({ items: [] })
+      .mockResolvedValueOnce({ items: [] })
+    api.world.listEntities.mockResolvedValue({ items: [] })
+    autoConfirm()
+
+    await mapWorkspaceView._archiveMap("m1")
+    await Promise.resolve()
+
+    expect(confirmAction).toHaveBeenCalledWith(
+      expect.stringContaining("18 个关联资产"),
+      expect.any(Function),
+      "归档子树",
+    )
+    expect(api.world.archiveMap).toHaveBeenCalledWith("m1", "p1")
   })
 
   it("uses map indexes for tree rendering and opening maps", () => {
@@ -148,7 +295,7 @@ describe("mapWorkspaceView overview", () => {
     expect(mountSpy).not.toHaveBeenCalled()
     document.body.innerHTML = `<main id="workspace-content">${html}</main>`
 
-    mapWorkspaceView.onRendered()
+    await mapWorkspaceView.onRendered()
 
     expect(document.getElementById("map-root")).not.toBeNull()
     expect(mountSpy).toHaveBeenCalledTimes(1)
@@ -250,6 +397,76 @@ describe("mapWorkspaceView overview", () => {
       skip: 50,
       limit: 50,
     }))
+  })
+
+  it("propagates load failures without replacing known data with empty lists", async () => {
+    mapWorkspaceView._maps = [{ id: "known-map" }]
+    mapWorkspaceView._archivedMaps = [{ id: "known-archive" }]
+    mapWorkspaceView._locations = [{ id: "known-location" }]
+    api.world.listMaps.mockRejectedValue(new Error("network down"))
+    api.world.listEntities.mockResolvedValue({ items: [] })
+
+    await expect(mapWorkspaceView._loadData()).rejects.toThrow("network down")
+
+    expect(mapWorkspaceView._maps).toEqual([{ id: "known-map" }])
+    expect(mapWorkspaceView._archivedMaps).toEqual([{ id: "known-archive" }])
+    expect(mapWorkspaceView._locations).toEqual([{ id: "known-location" }])
+  })
+
+  it("does not let an older project data load overwrite the current project", async () => {
+    let resolveOldActive
+    let resolveOldArchived
+    let resolveOldLocations
+    const listMaps = vi.spyOn(mapWorkspaceView, "_listAllMaps")
+      .mockImplementation((status, projectId) => {
+        if (projectId === "p1") {
+          return new Promise((resolve) => {
+            if (status === "active") resolveOldActive = resolve
+            else resolveOldArchived = resolve
+          })
+        }
+        return Promise.resolve([{ id: `${status}-${projectId}` }])
+      })
+    const listLocations = vi.spyOn(mapWorkspaceView, "_listAllLocations")
+      .mockImplementation((projectId) => {
+        if (projectId === "p1") {
+          return new Promise((resolve) => { resolveOldLocations = resolve })
+        }
+        return Promise.resolve([{ id: `location-${projectId}` }])
+      })
+
+    const oldLoad = mapWorkspaceView._loadData()
+    await vi.waitFor(() => {
+      expect(resolveOldActive).toBeTypeOf("function")
+      expect(resolveOldArchived).toBeTypeOf("function")
+      expect(resolveOldLocations).toBeTypeOf("function")
+    })
+    state.currentProjectId = "p2"
+    await expect(mapWorkspaceView._loadData()).resolves.toBe(true)
+
+    resolveOldActive([{ id: "active-p1" }])
+    resolveOldArchived([{ id: "archived-p1" }])
+    resolveOldLocations([{ id: "location-p1" }])
+    await expect(oldLoad).resolves.toBe(false)
+
+    expect(mapWorkspaceView._maps).toEqual([{ id: "active-p2" }])
+    expect(mapWorkspaceView._archivedMaps).toEqual([{ id: "archived-p2" }])
+    expect(mapWorkspaceView._locations).toEqual([{ id: "location-p2" }])
+    listMaps.mockRestore()
+    listLocations.mockRestore()
+  })
+
+  it("clears active and archived data when there is no current project", async () => {
+    state.currentProjectId = null
+    mapWorkspaceView._maps = [{ id: "active-old" }]
+    mapWorkspaceView._archivedMaps = [{ id: "archived-old" }]
+    mapWorkspaceView._locations = [{ id: "location-old" }]
+
+    await expect(mapWorkspaceView._loadData()).resolves.toBe(true)
+
+    expect(mapWorkspaceView._maps).toEqual([])
+    expect(mapWorkspaceView._archivedMaps).toEqual([])
+    expect(mapWorkspaceView._locations).toEqual([])
   })
 
   it("toggles layer visibility", () => {
@@ -559,6 +776,58 @@ describe("mapWorkspaceView overview", () => {
     expect(mapWorkspaceView._playback.playing).toBe(true)
     mapWorkspaceView._stopPlayback()
     expect(mapWorkspaceView._playback.playing).toBe(false)
+  })
+
+  it("播放带 path anchor 的事件时激活线路和楼层分支", () => {
+    const focus = vi.spyOn(mapView, "focusPath").mockReturnValue(true)
+    mapWorkspaceView._playback = {
+      playing: false,
+      activeIndex: 0,
+      playback: { events: [{
+        event_id: "event-1",
+        spatial_anchor: { path_id: "path-1", layer_node_id: "floor-1" },
+      }] },
+    }
+
+    mapWorkspaceView._startPlayback()
+
+    expect(focus).toHaveBeenCalledWith("path-1", "floor-1")
+    mapWorkspaceView._stopPlayback()
+    focus.mockRestore()
+  })
+
+  it("播放切到非 path 事件、停止或结束时清理旧线路高亮", () => {
+    const clear = vi.spyOn(mapView, "clearPathFocus").mockImplementation(() => {})
+    mapWorkspaceView._playback = {
+      playing: true,
+      activeIndex: 0,
+      playback: { events: [{ event_id: "event-plain", spatial_anchor: { q: 1, r: 1 } }] },
+    }
+
+    expect(mapWorkspaceView._syncPlaybackPathFocus()).toBe(false)
+    expect(clear).toHaveBeenCalledTimes(1)
+
+    mapWorkspaceView._stopPlayback()
+    expect(clear).toHaveBeenCalledTimes(2)
+    clear.mockRestore()
+  })
+
+  it("回放线路更新提示使用已加载 path revision 比较", () => {
+    const mismatch = vi.spyOn(mapView, "pathRevisionMismatch").mockReturnValue(true)
+    mapWorkspaceView._playback = {
+      loading: false,
+      error: null,
+      activeIndex: 0,
+      playback: { events: [{
+        event_id: "event-1",
+        title: "穿过旧桥",
+        spatial_anchor: { path_id: "path-1", path_revision: 2 },
+      }] },
+    }
+
+    expect(mapWorkspaceView._renderPlaybackPanel()).toContain("线路已更新")
+    expect(mismatch).toHaveBeenCalledWith({ path_id: "path-1", path_revision: 2 })
+    mismatch.mockRestore()
   })
 
   it("opens dynamic object info with edit and inspector actions", () => {
@@ -976,6 +1245,7 @@ describe("mapWorkspaceView overview", () => {
 
   it("requests focused dashboard for dynamic items without entity ids", async () => {
     mapWorkspaceView._activeMapId = "m1"
+    const selectInspectorObject = vi.spyOn(mapView, "selectInspectorObject")
     api.world.getMapDashboard.mockResolvedValue({
       dynamic_queue: [{ item_id: "obs1", item_kind: "observation", title: "东门密道" }],
       inspector: {
@@ -996,6 +1266,11 @@ describe("mapWorkspaceView overview", () => {
       "obs1",
     )
     expect(mapWorkspaceView._dynamicSummary.dashboard.inspector.title).toBe("东门密道")
+    expect(selectInspectorObject).toHaveBeenCalledWith(
+      "observation",
+      expect.objectContaining({ item_id: "obs1" }),
+    )
+    selectInspectorObject.mockRestore()
   })
 
   it("locally focuses inspector for dynamic items without entity ids", () => {
@@ -1170,6 +1445,20 @@ describe("mapWorkspaceView overview", () => {
     expect(timerSpy).not.toHaveBeenCalled()
     vi.useRealTimers()
   })
+
+  it("keeps an explicit overview route on the map list", async () => {
+    vi.useFakeTimers()
+    const timerSpy = vi.spyOn(globalThis, "setTimeout")
+    window.location.hash = "#workbench/p1/map?mode=overview"
+    mapWorkspaceView._mode = "overview"
+    mapWorkspaceView._activeMapId = null
+
+    const html = await mapWorkspaceView.render()
+
+    expect(html).toContain("空间总览")
+    expect(timerSpy).not.toHaveBeenCalled()
+    vi.useRealTimers()
+  })
 })
 
 describe("mapWorkspaceView map mounting", () => {
@@ -1183,18 +1472,63 @@ describe("mapWorkspaceView map mounting", () => {
     mapWorkspaceView._layers = { terrain: true, locations: true }
   })
 
-  it("_mountMap unmounts existing map view before mounting", () => {
+  it("_mountMap unmounts existing map view before mounting", async () => {
     const unmountSpy = vi.spyOn(mapView, "unmount").mockImplementation(() => {})
     const mountSpy = vi.spyOn(mapView, "mount").mockImplementation(() => {})
     const loadSpy = vi.spyOn(mapWorkspaceView, "_loadDynamicSummary").mockImplementation(() => {})
 
-    mapWorkspaceView._mountMap()
+    await mapWorkspaceView._mountMap()
 
     expect(unmountSpy).toHaveBeenCalled()
     expect(mountSpy).toHaveBeenCalled()
     expect(unmountSpy.mock.invocationCallOrder[0]).toBeLessThan(mountSpy.mock.invocationCallOrder[0])
     unmountSpy.mockRestore()
     mountSpy.mockRestore()
+    loadSpy.mockRestore()
+  })
+
+  it("serializes mounts and skips a superseded queued map", async () => {
+    let releaseFirst
+    const mountSpy = vi.spyOn(mapView, "mount").mockImplementationOnce(
+      () => new Promise((resolve) => { releaseFirst = resolve }),
+    ).mockResolvedValue()
+    const unmountSpy = vi.spyOn(mapView, "unmount").mockImplementation(() => {})
+    const loadSpy = vi.spyOn(mapWorkspaceView, "_loadDynamicSummary").mockImplementation(() => {})
+
+    const first = mapWorkspaceView._mountMap()
+    await vi.waitFor(() => expect(releaseFirst).toBeTypeOf("function"))
+    mapWorkspaceView._activeMapId = "m2"
+    const second = mapWorkspaceView._mountMap()
+    mapWorkspaceView._activeMapId = "m3"
+    const third = mapWorkspaceView._mountMap()
+    releaseFirst()
+
+    await Promise.all([first, second, third])
+    expect(mountSpy).toHaveBeenCalledTimes(2)
+    expect(mountSpy.mock.calls[1][1].mapId).toBe("m3")
+    mountSpy.mockRestore()
+    unmountSpy.mockRestore()
+    loadSpy.mockRestore()
+  })
+
+  it("unmounts a completed mount when its epoch was superseded", async () => {
+    let releaseMount
+    const mountSpy = vi.spyOn(mapView, "mount").mockImplementation(
+      () => new Promise((resolve) => { releaseMount = resolve }),
+    )
+    const unmountSpy = vi.spyOn(mapView, "unmount").mockImplementation(() => {})
+    const loadSpy = vi.spyOn(mapWorkspaceView, "_loadDynamicSummary").mockImplementation(() => {})
+
+    const pending = mapWorkspaceView._mountMap()
+    await vi.waitFor(() => expect(releaseMount).toBeTypeOf("function"))
+    mapWorkspaceView._mountEpoch += 1
+    releaseMount()
+
+    await expect(pending).resolves.toBe(false)
+    expect(unmountSpy).toHaveBeenCalledTimes(2)
+    expect(loadSpy).not.toHaveBeenCalled()
+    mountSpy.mockRestore()
+    unmountSpy.mockRestore()
     loadSpy.mockRestore()
   })
 })
@@ -1247,6 +1581,41 @@ describe("mapWorkspaceView dynamic summary cache", () => {
 
     expect(api.world.getMapDashboard).toHaveBeenCalledTimes(2)
   })
+
+  it("ignores a late summary response for an older context on the same map", async () => {
+    let resolveOldDashboard
+    let resolveOldPlayback
+    mapWorkspaceView._activeSceneId = "s1"
+    api.world.getMapDashboard.mockImplementation((_mapId, _projectId, sceneId) => {
+      if (sceneId === "s1") {
+        return new Promise((resolve) => { resolveOldDashboard = resolve })
+      }
+      return Promise.resolve({ marker: "new", dynamic_queue: [] })
+    })
+    api.world.getMapPlayback.mockImplementation((_mapId, _projectId, sceneId) => {
+      if (sceneId === "s1") {
+        return new Promise((resolve) => { resolveOldPlayback = resolve })
+      }
+      return Promise.resolve({ marker: "new", events: [], tracks: [] })
+    })
+
+    const oldLoad = mapWorkspaceView._loadDynamicSummary({ force: true })
+    await vi.waitFor(() => {
+      expect(resolveOldDashboard).toBeTypeOf("function")
+      expect(resolveOldPlayback).toBeTypeOf("function")
+    })
+    mapWorkspaceView._activeSceneId = "s2"
+    await mapWorkspaceView._loadDynamicSummary({ force: true })
+    resolveOldDashboard({ marker: "old", dynamic_queue: [] })
+    resolveOldPlayback({ marker: "old", events: [], tracks: [] })
+    await oldLoad
+
+    expect(mapWorkspaceView._dynamicSummary).toMatchObject({
+      sceneId: "s2",
+      dashboard: { marker: "new" },
+    })
+    expect(mapWorkspaceView._playback.playback).toMatchObject({ marker: "new" })
+  })
 })
 
 describe("mapWorkspaceView observation review", () => {
@@ -1275,5 +1644,341 @@ describe("mapWorkspaceView observation review", () => {
     expect(message).toContain("沈砚入城")
     expect(message).toContain("已忽略")
     expect(message).not.toContain("[object Object]")
+  })
+})
+
+describe("mapWorkspaceView Scene timeline", () => {
+  it("loads the latest non-contiguous Scene state and sends an explicit projection to mapView", async () => {
+    mapWorkspaceView._activeMapId = "m1"
+    api.world.getMapDashboard.mockResolvedValue({ dynamic_queue: [] })
+    api.world.getMapPlayback.mockResolvedValue({ events: [], tracks: [] })
+    api.world.getMapTimeline.mockResolvedValue({
+      scenes: [{ scene_index: 2 }, { scene_index: 9 }],
+      deltas: [{ delta_id: "d9", scene_index: 9, track: "journey" }],
+      candidates: [],
+      conflicts: [],
+      continuity_issues: [],
+    })
+    api.world.getMapStateAt.mockResolvedValue({
+      scene_index: 9,
+      items: [{
+        target_name: "沈砚",
+        track: "journey",
+        normalized_value: { schema_version: 1, type: "location", location_name: "内城" },
+        spatial_anchor: { hex_q: 3, hex_r: 4 },
+        source_fact_ids: ["fact-9"],
+      }],
+      conflicts: [],
+    })
+    const projection = vi.spyOn(mapView, "setTimelineProjection").mockReturnValue(true)
+
+    await mapWorkspaceView._loadDynamicSummary({ force: true })
+
+    expect(api.world.getMapTimeline).toHaveBeenCalledWith("m1", "p1", {
+      focusEntityId: null,
+      includeCandidates: undefined,
+      limit: 500,
+    })
+    expect(api.world.getMapStateAt).toHaveBeenCalledWith("m1", "p1", 9, {
+      focusEntityId: null,
+      limit: 500,
+    })
+    expect(mapWorkspaceView._timeline.sceneIndex).toBe(9)
+    expect(projection).toHaveBeenCalledWith(expect.objectContaining({
+      sceneIndex: 9,
+      includeCandidates: false,
+      stateItems: [expect.objectContaining({ target_name: "沈砚" })],
+    }))
+    projection.mockRestore()
+  })
+
+  it("ignores a late state-at response after the cursor moves to a newer Scene", async () => {
+    mapWorkspaceView._activeMapId = "m1"
+    mapWorkspaceView._timeline = {
+      ...mapWorkspaceView._timeline,
+      data: { scenes: [{ scene_index: 2 }, { scene_index: 9 }], deltas: [], candidates: [] },
+      activeIndex: 0,
+      sceneIndex: 2,
+    }
+    let resolveOld
+    api.world.getMapStateAt.mockImplementation((_mapId, _novelId, sceneIndex) => {
+      if (sceneIndex === 2) return new Promise((resolve) => { resolveOld = resolve })
+      return Promise.resolve({ scene_index: 9, items: [{ target_name: "新状态" }], conflicts: [] })
+    })
+    const projection = vi.spyOn(mapView, "setTimelineProjection").mockReturnValue(true)
+
+    const oldRequest = mapWorkspaceView._loadTimelineStateAt(2)
+    await vi.waitFor(() => expect(resolveOld).toBeTypeOf("function"))
+    await mapWorkspaceView._setTimelineScenePosition(1)
+    resolveOld({ scene_index: 2, items: [{ target_name: "旧状态" }], conflicts: [] })
+    await oldRequest
+
+    expect(mapWorkspaceView._timeline.sceneIndex).toBe(9)
+    expect(mapWorkspaceView._timeline.stateAt.items[0].target_name).toBe("新状态")
+    expect(projection.mock.calls.at(-1)[0]).toEqual(expect.objectContaining({ sceneIndex: 9 }))
+    projection.mockRestore()
+  })
+
+  it("steps through the returned Scene stops instead of inventing logical indexes", async () => {
+    mapWorkspaceView._activeMapId = "m1"
+    mapWorkspaceView._timeline = {
+      ...mapWorkspaceView._timeline,
+      data: { scenes: [{ scene_index: 2 }, { scene_index: 9 }], deltas: [], candidates: [] },
+      activeIndex: 0,
+      sceneIndex: 2,
+    }
+    api.world.getMapStateAt.mockResolvedValue({ scene_index: 9, items: [], conflicts: [] })
+
+    await mapWorkspaceView._stepTimeline(1)
+
+    expect(mapWorkspaceView._timeline.sceneIndex).toBe(9)
+    expect(api.world.getMapStateAt).toHaveBeenCalledWith("m1", "p1", 9, expect.any(Object))
+  })
+
+  it("renders canonical and candidate states separately, keeps candidates read-only, and escapes hostile text", () => {
+    mapWorkspaceView._timeline = {
+      ...mapWorkspaceView._timeline,
+      loaded: true,
+      includeCandidates: true,
+      activeIndex: 0,
+      sceneIndex: 4,
+      data: {
+        scenes: [{ scene_index: 4, delta_count: 1 }],
+        deltas: [],
+        candidates: [{
+          id: "candidate-1",
+          scene_index: 4,
+          target_name: '<img src=x onerror="alert(1)">',
+          dynamic_type: "status",
+          normalization_state: "untyped",
+          evidence_text: "<script>bad()</script>",
+        }],
+        conflicts: [],
+        continuity_issues: [],
+        undated_facts: [],
+      },
+      stateAt: {
+        scene_index: 4,
+        items: [{
+          target_name: "城门",
+          track: "status",
+          normalization_state: "typed",
+          normalized_value: { type: "status", field_key: "戒备", value: "加强" },
+        }],
+        conflicts: [],
+      },
+    }
+
+    const container = renderHtml(mapWorkspaceView._renderTimelinePanel())
+
+    expect(container.textContent).toContain("正式状态")
+    expect(container.textContent).toContain("只读预览")
+    expect(container.textContent).toContain("尚未结构化")
+    expect(container.textContent).toContain('<img src=x onerror="alert(1)">')
+    expect(container.querySelector("img")).toBeNull()
+    expect(container.querySelector("script")).toBeNull()
+    expect(container.querySelector(".is-candidate[data-action]")).toBeNull()
+  })
+
+  it("clears projection only when editing starts and preserves path focus on dirty updates", () => {
+    mapWorkspaceView._timeline = {
+      ...mapWorkspaceView._timeline,
+      playing: true,
+      sceneIndex: 3,
+      data: { scenes: [{ scene_index: 3 }], deltas: [], candidates: [] },
+      stateAt: { items: [], conflicts: [] },
+    }
+    const clear = vi.spyOn(mapView, "clearTimelineProjection").mockImplementation(() => true)
+    const clearPath = vi.spyOn(mapView, "clearPathFocus").mockImplementation(() => true)
+    const set = vi.spyOn(mapView, "setTimelineProjection").mockReturnValue(true)
+
+    mapWorkspaceView._onMapEditingChange({ editing: true, dirty: false, editorLayer: "location" })
+    expect(mapWorkspaceView._timeline.playing).toBe(false)
+    expect(clear).toHaveBeenCalledTimes(1)
+    expect(clearPath).toHaveBeenCalledTimes(1)
+    expect(clearPath).toHaveBeenCalledWith({ preserveSelection: true })
+
+    mapWorkspaceView._onMapEditingChange({ editing: true, dirty: true, editorLayer: "path" })
+    expect(clear).toHaveBeenCalledTimes(1)
+    expect(clearPath).toHaveBeenCalledTimes(1)
+
+    mapWorkspaceView._onMapEditingChange({ editing: false, dirty: false, editorLayer: "none" })
+    expect(set).toHaveBeenCalled()
+    clear.mockRestore()
+    clearPath.mockRestore()
+    set.mockRestore()
+  })
+
+  it("creates a user-authored movement explanation as a candidate observation", async () => {
+    mapWorkspaceView._activeMapId = "m1"
+    mapWorkspaceView._timeline = {
+      ...mapWorkspaceView._timeline,
+      data: {
+        scenes: [{ scene_index: 7 }],
+        deltas: [],
+        candidates: [],
+        continuity_issues: [{
+          issue_key: "issue-1",
+          issue_type: "blocked_route",
+          message: "东桥已封锁",
+          suggested_observation: {
+            target_entity_id: null,
+            target_entity_type: "character",
+            target_name: "沈砚",
+            dynamic_type: "movement_explanation",
+            time_anchor: { scene_index: 7 },
+            spatial_anchor: { hex_q: 2, hex_r: 3 },
+            value_json: {
+              schema_version: 1,
+              type: "semantic",
+              relation_type: "movement_explanation",
+              related_entity_ids: [],
+              summary: "",
+            },
+            review_state: "candidate",
+            source_ref: { source: "map_continuity", issue_key: "issue-1" },
+            evidence_text: "",
+            scene_index: 7,
+          },
+        }],
+      },
+    }
+    api.world.createMapObservation.mockResolvedValue({ id: "candidate-created" })
+    const reload = vi.spyOn(mapWorkspaceView, "_loadDynamicSummary").mockResolvedValue()
+
+    mapWorkspaceView._showContinuityExplanationForm("issue-1")
+    const call = showModal.mock.calls.at(-1)
+    document.body.innerHTML = modalHtmlFromCall(call)
+    document.getElementById("map-continuity-explanation").value = "角色使用城内密道"
+    document.getElementById("map-continuity-evidence").value = "第七幕正文已说明"
+    await call[2][0].handler()
+
+    expect(api.world.createMapObservation).toHaveBeenCalledWith(
+      "m1",
+      expect.objectContaining({
+        dynamic_type: "movement_explanation",
+        review_state: "candidate",
+        evidence_text: "第七幕正文已说明",
+        value_json: expect.objectContaining({
+          schema_version: 1,
+          type: "semantic",
+          relation_type: "movement_explanation",
+          summary: "角色使用城内密道",
+        }),
+      }),
+      "p1",
+    )
+    expect(mapWorkspaceView._timeline.includeCandidates).toBe(true)
+    reload.mockRestore()
+  })
+})
+
+describe("mapWorkspaceView typed dynamic candidate editor", () => {
+  it("offers all V1 dynamic forms while keeping legacy JSON behind an advanced section", () => {
+    mapWorkspaceView._showDynamicEditForm({
+      item_id: "obs-legacy",
+      item_kind: "observation",
+      title: "旧地图记录",
+      dynamic_type: "state_change",
+      review_state: "candidate",
+      normalization_state: "untyped",
+      value_json: { old: "东门", new: "内城" },
+    })
+
+    const body = modalHtmlFromCall(showModal.mock.calls.at(-1))
+    const container = renderHtml(body)
+    const valueTypes = [...container.querySelectorAll("#map-object-edit-value-type option")]
+      .map((option) => option.value)
+
+    expect(valueTypes).toEqual([
+      "",
+      "location",
+      "route_state",
+      "status",
+      "boundary",
+      "resource",
+      "terrain",
+      "crisis",
+      "semantic",
+    ])
+    expect(container.textContent).toContain("尚未结构化")
+    expect(container.textContent).toContain("高级 JSON")
+    expect(container.querySelector("#map-typed-location-state")).not.toBeNull()
+    expect(container.querySelector("#map-typed-route-state")).not.toBeNull()
+    expect(container.querySelector("#map-typed-boundary-hexes")).not.toBeNull()
+    expect(container.querySelector("#map-typed-resource-key")).not.toBeNull()
+    expect(container.querySelector("#map-typed-terrain-key")).not.toBeNull()
+    expect(container.querySelector("#map-typed-crisis-key")).not.toBeNull()
+    expect(container.querySelector("#map-typed-semantic-relation")).not.toBeNull()
+  })
+
+  it("builds a typed status payload from author-facing fields", () => {
+    mapWorkspaceView._showDynamicEditForm({
+      item_id: "obs-status",
+      item_kind: "observation",
+      title: "城门戒备",
+      target_name: "城门",
+      target_entity_type: "location",
+      dynamic_type: "status",
+      review_state: "candidate",
+      normalization_state: "typed",
+      normalized_value: {
+        schema_version: 1,
+        type: "status",
+        field_key: "戒备等级",
+        value: 2,
+      },
+      value_json: {
+        schema_version: 1,
+        type: "status",
+        field_key: "戒备等级",
+        value: 2,
+      },
+    })
+    document.body.innerHTML = modalHtmlFromCall(showModal.mock.calls.at(-1))
+    mapWorkspaceView._bindTypedDynamicValueEditor()
+    document.getElementById("map-typed-status-key").value = "戒备等级"
+    document.getElementById("map-typed-status-value-type").value = "number"
+    document.getElementById("map-typed-status-value").value = "4"
+
+    const payload = mapWorkspaceView._readObservationEditPayload("candidate")
+
+    expect(payload.dynamic_type).toBe("status")
+    expect(payload.value_json).toEqual({
+      schema_version: 1,
+      type: "status",
+      field_key: "戒备等级",
+      value: 4,
+    })
+  })
+
+  it("canonicalizes typed boundary hex input and never reads the advanced JSON instead", () => {
+    mapWorkspaceView._showDynamicEditForm({
+      item_id: "obs-boundary",
+      item_kind: "observation",
+      title: "旧城区控制范围",
+      target_entity_id: "123e4567-e89b-12d3-a456-426614174000",
+      dynamic_type: "boundary",
+      review_state: "candidate",
+      normalized_value: {
+        schema_version: 1,
+        type: "boundary",
+        controller_entity_id: "123e4567-e89b-12d3-a456-426614174000",
+        hexes: [],
+      },
+      value_json: { schema_version: 1, type: "boundary", invalid: "must-not-win" },
+    })
+    document.body.innerHTML = modalHtmlFromCall(showModal.mock.calls.at(-1))
+    mapWorkspaceView._bindTypedDynamicValueEditor()
+    document.getElementById("map-typed-boundary-hexes").value = "3,2\n1,1\n3,2"
+
+    const payload = mapWorkspaceView._readObservationEditPayload("candidate")
+
+    expect(payload.value_json).toEqual({
+      schema_version: 1,
+      type: "boundary",
+      controller_entity_id: "123e4567-e89b-12d3-a456-426614174000",
+      hexes: [{ hex_q: 1, hex_r: 1 }, { hex_q: 3, hex_r: 2 }],
+    })
   })
 })

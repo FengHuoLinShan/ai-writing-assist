@@ -2,10 +2,16 @@
 
 import uuid
 
+from sqlalchemy import select
+from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.memory.models import MemorySnapshot
-from modules.memory.repositories import EventRepository, SnapshotRepository
+from modules.memory.models import DeltaLog, MemorySnapshot
+from modules.memory.repositories import (
+    DeltaLogRepository,
+    EventRepository,
+    SnapshotRepository,
+)
 
 
 class TestEventRepository:
@@ -421,6 +427,150 @@ class TestEventRepository:
         assert result2[0].snapshot_after["n"] == "B"
 
 
+class TestDeltaLogRepository:
+    async def test_workflow_queries_filter_in_database_and_keep_novel_isolation(
+        self,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        other_novel_id = uuid.uuid4()
+        matching = DeltaLog(
+            id=uuid.UUID(int=1),
+            novel_id=sample_novel_id,
+            category="location_changed",
+            source="deep_import",
+            meta={"workflow_id": "wf-1", "auto_ingested": True},
+        )
+        explicit_false = DeltaLog(
+            id=uuid.UUID(int=2),
+            novel_id=sample_novel_id,
+            category="location_changed",
+            source="deep_import",
+            meta={
+                "workflow_id": "wf-1",
+                "auto_ingested": True,
+                "rolled_back": False,
+            },
+        )
+        non_boolean_rollback = DeltaLog(
+            id=uuid.UUID(int=3),
+            novel_id=sample_novel_id,
+            category="location_changed",
+            source="deep_import",
+            meta={
+                "workflow_id": "wf-1",
+                "auto_ingested": True,
+                "rolled_back": "true",
+            },
+        )
+        db_with_project.add_all(
+            [
+                matching,
+                explicit_false,
+                non_boolean_rollback,
+                DeltaLog(
+                    id=uuid.UUID(int=4),
+                    novel_id=sample_novel_id,
+                    category="location_changed",
+                    source="deep_import",
+                    meta={"workflow_id": "wf-2", "auto_ingested": True},
+                ),
+                DeltaLog(
+                    id=uuid.UUID(int=5),
+                    novel_id=sample_novel_id,
+                    category="location_changed",
+                    source="deep_import",
+                    meta={
+                        "workflow_id": "wf-1",
+                        "auto_ingested": True,
+                        "rolled_back": True,
+                    },
+                ),
+                DeltaLog(
+                    id=uuid.UUID(int=6),
+                    novel_id=sample_novel_id,
+                    category="location_changed",
+                    source="deep_import",
+                    meta={"workflow_id": "wf-1", "auto_ingested": "true"},
+                ),
+                DeltaLog(
+                    id=uuid.UUID(int=7),
+                    novel_id=sample_novel_id,
+                    category="location_changed",
+                    source="deep_import",
+                    meta={"workflow_id": "wf-1", "auto_ingested": 1},
+                ),
+                DeltaLog(
+                    id=uuid.UUID(int=8),
+                    novel_id=sample_novel_id,
+                    category="location_changed",
+                    source="deep_import",
+                    meta={"workflow_id": 123, "auto_ingested": True},
+                ),
+                DeltaLog(
+                    id=uuid.UUID(int=9),
+                    novel_id=other_novel_id,
+                    category="location_changed",
+                    source="deep_import",
+                    meta={"workflow_id": "wf-1", "auto_ingested": True},
+                ),
+            ]
+        )
+        await db_with_project.flush()
+        repository = DeltaLogRepository()
+
+        count = await repository.count_active_by_workflow(
+            db_with_project, sample_novel_id, "wf-1"
+        )
+        page = await repository.get_active_by_workflow_page_after(
+            db_with_project,
+            sample_novel_id,
+            "wf-1",
+            after_id=None,
+            limit=10,
+        )
+
+        assert count == 3
+        assert [item.id for item in page] == [
+            matching.id,
+            explicit_false.id,
+            non_boolean_rollback.id,
+        ]
+        assert (
+            await repository.count_active_by_workflow(
+                db_with_project,
+                sample_novel_id,
+                "123",
+            )
+            == 0
+        )
+
+    def test_workflow_filter_sql_preserves_json_types_in_both_dialects(self) -> None:
+        novel_id = uuid.uuid4()
+        repository = DeltaLogRepository()
+
+        sqlite_stmt = select(DeltaLog.id).where(
+            *repository._active_workflow_conditions(
+                novel_id,
+                "wf-1",
+                dialect_name="sqlite",
+            )
+        )
+        postgres_stmt = select(DeltaLog.id).where(
+            *repository._active_workflow_conditions(
+                novel_id,
+                "wf-1",
+                dialect_name="postgresql",
+            )
+        )
+
+        sqlite_sql = str(sqlite_stmt.compile(dialect=sqlite.dialect()))
+        postgres_sql = str(postgres_stmt.compile(dialect=postgresql.dialect()))
+        assert "json_type" in sqlite_sql
+        assert "json_typeof" in postgres_sql
+        assert "CASE WHEN" in postgres_sql
+
+
 class TestSnapshotRepository:
     """SnapshotRepository 数据访问层测试"""
 
@@ -446,6 +596,65 @@ class TestSnapshotRepository:
         assert snap.status == "current"
         assert snap.chapter_index == 5
         assert snap.events_until == 10
+
+    async def test_create_supersedes_only_same_novel_and_chapter_current(
+        self,
+        snapshot_repo: SnapshotRepository,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        from modules.project.models import Project
+
+        empty_state = {
+            "entities": [],
+            "relations": [],
+            "character_locations": {},
+            "character_knowledge": [],
+        }
+        other_novel_id = uuid.uuid4()
+        db_with_project.add(
+            Project(id=other_novel_id, title="另一项目", genre="奇幻")
+        )
+        await db_with_project.flush()
+        other = await snapshot_repo.create(
+            db_with_project,
+            novel_id=other_novel_id,
+            chapter_index=5,
+            full_state=empty_state,
+        )
+        first = await snapshot_repo.create(
+            db_with_project,
+            novel_id=sample_novel_id,
+            chapter_index=5,
+            full_state=empty_state,
+        )
+        unaffected_chapter = await snapshot_repo.create(
+            db_with_project,
+            novel_id=sample_novel_id,
+            chapter_index=4,
+            full_state=empty_state,
+        )
+        replacement = await snapshot_repo.create(
+            db_with_project,
+            novel_id=sample_novel_id,
+            chapter_index=5,
+            full_state=empty_state,
+        )
+
+        await db_with_project.refresh(first)
+        await db_with_project.refresh(other)
+        await db_with_project.refresh(unaffected_chapter)
+        assert first.status == "stale"
+        assert replacement.status == "current"
+        assert other.status == "current"
+        assert unaffected_chapter.status == "current"
+        latest = await snapshot_repo.get_latest(
+            db_with_project,
+            sample_novel_id,
+            5,
+        )
+        assert latest is not None
+        assert latest.id == replacement.id
 
     async def test_get_nearest(
         self,
@@ -510,6 +719,51 @@ class TestSnapshotRepository:
         assert len(result) == 2
         assert result[0].chapter_index == 5
         assert result[1].chapter_index == 10
+
+    async def test_get_status_summary_aggregates_in_database(
+        self,
+        snapshot_repo: SnapshotRepository,
+        db_with_project: AsyncSession,
+        sample_novel_id: uuid.UUID,
+    ) -> None:
+        from modules.project.models import Project
+
+        empty_state = {
+            "entities": [],
+            "relations": [],
+            "character_locations": {},
+            "character_knowledge": [],
+        }
+        await snapshot_repo.create(
+            db_with_project,
+            novel_id=sample_novel_id,
+            chapter_index=5,
+            full_state=empty_state,
+        )
+        stale = await snapshot_repo.create(
+            db_with_project,
+            novel_id=sample_novel_id,
+            chapter_index=10,
+            full_state=empty_state,
+        )
+        stale.status = "stale"
+        other_novel_id = uuid.uuid4()
+        db_with_project.add(
+            Project(id=other_novel_id, title="另一项目", genre="奇幻")
+        )
+        await db_with_project.flush()
+        other = await snapshot_repo.create(
+            db_with_project,
+            novel_id=other_novel_id,
+            chapter_index=99,
+            full_state=empty_state,
+        )
+        other.status = "stale"
+        await db_with_project.flush()
+
+        summary = await snapshot_repo.get_status_summary(db_with_project, sample_novel_id)
+
+        assert summary == (2, 10, 5, 10)
 
     async def test_mark_stale_from(
         self,

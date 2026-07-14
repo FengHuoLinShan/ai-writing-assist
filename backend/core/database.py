@@ -12,8 +12,11 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
+from ipaddress import ip_address
 
 from sqlalchemy import text
+from sqlalchemy.engine import URL, make_url
+from sqlalchemy.exc import ArgumentError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -118,11 +121,18 @@ class DatabaseManager:
 
 # 全局单例
 _manager: DatabaseManager | None = None
+_isolated_test_manager: DatabaseManager | None = None
 
 
 def get_manager() -> DatabaseManager:
     """获取全局 DatabaseManager 单例"""
     global _manager
+    if _isolated_test_manager is not None:
+        if _manager is not _isolated_test_manager:
+            raise RuntimeError(
+                "Global DatabaseManager changed during an isolated test scope"
+            )
+        return _isolated_test_manager
     if _manager is None:
         _manager = DatabaseManager()
         _manager.init()
@@ -144,4 +154,114 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 def reset_manager() -> None:
     """重置全局单例（测试用）"""
     global _manager
+    if _isolated_test_manager is not None:
+        raise RuntimeError("Cannot reset DatabaseManager during an isolated test scope")
     _manager = None
+
+
+def assert_database_target_for_testing(
+    expected_url: str | URL,
+    actual_url: str | URL,
+) -> None:
+    """Fail closed when two test URLs target different databases.
+
+    Only the normalized backend, host, port, and database name are compared.
+    Credentials are deliberately excluded from diagnostics.
+    """
+
+    try:
+        expected = _database_target_for_testing(expected_url)
+    except (ArgumentError, AttributeError, TypeError, ValueError):
+        raise RuntimeError("Expected test database URL is invalid") from None
+    try:
+        actual = _database_target_for_testing(actual_url)
+    except (ArgumentError, AttributeError, TypeError, ValueError):
+        raise RuntimeError("Actual test database URL is invalid") from None
+    if actual != expected:
+        raise RuntimeError(
+            "Test database target mismatch: "
+            f"expected={_format_database_target(expected)}, "
+            f"actual={_format_database_target(actual)}"
+        )
+
+
+@asynccontextmanager
+async def isolated_database_manager_for_testing(
+    settings: Settings,
+) -> AsyncIterator[DatabaseManager]:
+    """Install and close one explicit global manager for a test event loop.
+
+    This narrow test-only seam exists because ``reset_manager()`` cannot await
+    engine disposal, while mutating ``DATABASE_URL`` cannot replace an already
+    cached ``Settings`` instance safely. It must never replace an existing
+    manager: that instance may own connections bound to another event loop or
+    database, so the fixture fails closed instead.
+    """
+
+    global _isolated_test_manager, _manager
+    if _manager is not None or _isolated_test_manager is not None:
+        raise RuntimeError(
+            "Cannot install isolated test DatabaseManager while a global "
+            "manager already exists"
+        )
+
+    manager = DatabaseManager(settings)
+    manager.init()
+    _manager = manager
+    _isolated_test_manager = manager
+    try:
+        yield manager
+    finally:
+        installed_manager = _manager
+        _manager = None
+        try:
+            if installed_manager is not None and installed_manager is not manager:
+                await installed_manager.close()
+        finally:
+            try:
+                await manager.close()
+            finally:
+                _isolated_test_manager = None
+
+
+def _database_target_for_testing(
+    database_url: str | URL,
+) -> tuple[str, str, int | None, str]:
+    url = make_url(database_url) if isinstance(database_url, str) else database_url
+    backend = url.get_backend_name().strip().lower()
+    host = (url.host or "").strip().lower().rstrip(".")
+    if host:
+        try:
+            host = ip_address(host).compressed.lower()
+        except ValueError:
+            pass
+    port = url.port
+    if port is None and backend == "postgresql":
+        port = 5432
+    # ``URL.database`` is already the driver-facing name. Do not strip a
+    # leading slash or whitespace: PostgreSQL can treat those as distinct,
+    # quoted database names, and an isolation check must fail closed.
+    database = url.database or ""
+    return backend, host, port, database
+
+
+def _format_database_target(target: tuple[str, str, int | None, str]) -> str:
+    backend, host, port, database = target
+    return (
+        f"backend={_safe_database_target_component(backend)},"
+        f"host={_safe_database_target_component(host) if host else '<local>'},"
+        f"port={port if port is not None else '<default>'},"
+        "database="
+        f"{_safe_database_target_component(database) if database else '<none>'}"
+    )
+
+
+def _safe_database_target_component(value: str) -> str:
+    """Keep mismatch diagnostics useful without echoing malformed URL payloads."""
+
+    if len(value) > 128 or any(
+        not (character.isascii() and (character.isalnum() or character in ".:_-/%"))
+        for character in value
+    ):
+        return "<redacted>"
+    return value

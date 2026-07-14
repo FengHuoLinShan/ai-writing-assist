@@ -132,6 +132,12 @@ class SceneEntityExtractionRuntime(Protocol):
 
     def _build_scene_checkpoint(self, *args: Any, **kwargs: Any) -> dict[str, Any]: ...
 
+    def _scene_input_fingerprint(
+        self,
+        scene: dict[str, Any],
+        scene_text: str,
+    ) -> str: ...
+
     def _phase2_flush_with_timeout(
         self,
         *args: Any,

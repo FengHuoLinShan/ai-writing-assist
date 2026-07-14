@@ -8,13 +8,13 @@ import { worldAssetDisplay } from "../shared/assetDisplayState.js"
 import { renderWorkspaceRail, workspaceRailKey } from "../shared/workspaceRail.js"
 
 const BUILTIN_TEMPLATE_PROMPTS = {
-  none: "不预设对象类型，按用户聊天内容自由收束为一个有用的世界对象建议。",
-  character: "聚焦人物卡：动机、欲望、恐惧、秘密、能力边界、外貌、性格、关系钩子、声音风格和剧情用途。",
-  event: "聚焦事件卡：起因、参与方、过程、结果、隐性真相、影响范围、后续钩子和可揭示层级。",
-  item: "聚焦物品卡：外观、来源、能力或用途、限制代价、归属关系、秘密、失控风险和剧情钩子。",
-  location: "聚焦地点卡：地貌/空间、历史、势力归属、资源、危险、秘密区域、进入条件和剧情用途。",
-  faction: "聚焦组织卡：宗旨、结构、资源、关键成员、公开形象、隐藏目标、敌友关系和行动方式。",
-  rule: "聚焦规则设定：适用范围、运作机制、限制代价、例外、冲突点、已知误解和剧情可用性。",
+  none: "不预设固定创作框架。围绕作者真正想创造或解决的内容，找出这个对象最核心的概念、辨识度，以及它与现有世界和故事的关系。允许对象暂时跨越多个类别或尚未完成分类，不要套用人物、事件、物品等模板的固定维度。最终先收束为概念建议，作者可在采用前调整类型。",
+  character: "把人物设计成一个会作出选择、影响他人并改变局势的人，而不是属性集合。优先理解这个人物在当前故事中追求什么、受到什么阻力、如何作出选择，以及其行为逻辑和重要关系。外貌、能力、恐惧、秘密、声音风格、过去经历等，只发展对当前人物真正有帮助的部分。不要强制人物拥有悲惨过去、隐藏身份、反转或完整人物卡，也不要用性格标签代替具体的行为逻辑。",
+  event: "把事件设计成一次具有因果关系的状态变化，而不是静态事件说明。优先理解事件发生前后的差异、推动变化的力量、参与者作出的关键选择，以及它对相关人物和世界产生的实际影响。起因、过程、结果、公开解释、隐藏原因和后续影响只按当前事件需要发展。事件可以失败、中断、持续发酵或仅仅巩固现状；不要强制加入阴谋、隐藏真相、反转或后续钩子。",
+  item: "把物品设计成会被使用、保存、争夺、交换或传承的世界组成部分。优先理解人们为什么在意它、它能够或不能做什么、使用和持有它会带来什么，以及它与人物、地点、组织或历史的关系。外观、来源、能力、限制、代价、秘密和风险只按当前物品需要发展。不要默认物品具有超自然能力、诅咒、秘密来源或失控风险。",
+  location: "把地点设计成会塑造行动、生活和关系的空间，而不是景观资料表。优先理解空间如何组织、人在其中如何行动和感受、谁能够进入或控制它，以及它为什么在当前世界中存在。历史、资源、危险、势力归属、秘密区域和进入条件只按当前地点需要发展。不要强制每个地点都有危险、秘密区域、特殊资源或剧情任务。",
+  faction: "把组织设计成能够持续作出决策和采取行动的集体，而不是组织架构图。优先理解它为什么存在、如何获得资源和合法性、谁能够影响决策、内部如何合作或分裂，以及它实际能够做什么、不能做什么。成员、层级、公开形象、隐藏目标和外部关系只按当前组织需要发展。不要强制组织拥有秘密目标、宿敌、阴谋或完整层级体系。",
+  rule: "把规则设计成稳定影响世界运行、人物选择和行为后果的机制，而不是术语密集的说明书。优先理解它约束什么、角色如何认识或验证它、违反或利用它会发生什么，以及它如何改变真实的选择空间。适用范围、限制、代价、边界情况、例外和普遍误解只按当前规则需要发展。不要为了制造戏剧性而强行增加漏洞、例外、代价或伪科学解释；规则应当足够一致，但不要求解释超出故事实际需要的细节。",
 }
 
 const TEMPLATE_TYPE_OPTIONS = [
@@ -29,13 +29,13 @@ const TEMPLATE_TYPE_OPTIONS = [
 ]
 
 const OBJECT_TEMPLATES = [
-  { value: "none", label: "不带模板", hint: "不预设对象类型，按聊天内容自由收束", prompt: BUILTIN_TEMPLATE_PROMPTS.none },
-  { value: "character", label: "人物", hint: "反派、主角、配角、导师", prompt: BUILTIN_TEMPLATE_PROMPTS.character },
-  { value: "event", label: "事件", hint: "转折、事故、阴谋、仪式", prompt: BUILTIN_TEMPLATE_PROMPTS.event },
-  { value: "item", label: "物品", hint: "法器、信物、线索、资源", prompt: BUILTIN_TEMPLATE_PROMPTS.item },
-  { value: "location", label: "地点", hint: "城市、秘境、据点、禁区", prompt: BUILTIN_TEMPLATE_PROMPTS.location },
-  { value: "faction", label: "组织", hint: "宗门、公司、帮派、王朝", prompt: BUILTIN_TEMPLATE_PROMPTS.faction },
-  { value: "rule", label: "规则设定", hint: "能力体系、禁忌、代价", prompt: BUILTIN_TEMPLATE_PROMPTS.rule },
+  { value: "none", label: "不带模板", hint: "自由构思，先作为概念建议收束，采用前可调整类型", prompt: BUILTIN_TEMPLATE_PROMPTS.none },
+  { value: "character", label: "人物", hint: "具有欲望、选择与关系的人物", prompt: BUILTIN_TEMPLATE_PROMPTS.character },
+  { value: "event", label: "事件", hint: "改变局势或维持秩序的发生过程", prompt: BUILTIN_TEMPLATE_PROMPTS.event },
+  { value: "item", label: "物品", hint: "被使用、争夺、保存或传承的物品", prompt: BUILTIN_TEMPLATE_PROMPTS.item },
+  { value: "location", label: "地点", hint: "承载行动与生活的空间", prompt: BUILTIN_TEMPLATE_PROMPTS.location },
+  { value: "faction", label: "组织", hint: "能够持续行动与决策的集体", prompt: BUILTIN_TEMPLATE_PROMPTS.faction },
+  { value: "rule", label: "规则设定", hint: "约束世界运行与选择后果的机制", prompt: BUILTIN_TEMPLATE_PROMPTS.rule },
 ]
 
 function normalizeObjectTemplateType(value) {

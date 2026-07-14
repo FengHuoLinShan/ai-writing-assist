@@ -27,6 +27,7 @@ from modules.world.character_facade import (  # noqa: F401
 from modules.world.entity_facade import (  # noqa: F401
     append_candidate_alias,
     apply_entity_fusion,
+    apply_entity_fusion_group,
     backfill_entity_embeddings,
     count_entities,
     create_entity,
@@ -78,6 +79,7 @@ from modules.world.worldbuilding_facade import (  # noqa: F401
 __all__ = [
     "append_candidate_alias",
     "apply_entity_fusion",
+    "apply_entity_fusion_group",
     "backfill_entity_embeddings",
     "count_deep_import_map_observations_by_workflow",
     "count_entities",

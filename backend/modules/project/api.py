@@ -174,10 +174,17 @@ async def api_start_smart_dedup_scan(
 ) -> SmartDedupScanResponse:
     """提交项目级智能去重扫描任务。"""
     await _service.get_project(db, project_id)
+    from modules.project.facade import build_project_llm_execution_snapshot
+
+    llm_execution_snapshot = await build_project_llm_execution_snapshot(db, project_id)
     task_id = enqueue_task(
         db,
         "smart_dedup_scan",
-        meta={"novel_id": project_id, **data.model_dump(exclude_none=True)},
+        meta={
+            "novel_id": project_id,
+            "llm_execution_snapshot": llm_execution_snapshot,
+            **data.model_dump(exclude_none=True),
+        },
     )
     await db.flush()
     return SmartDedupScanResponse(task_id=task_id)
@@ -194,12 +201,23 @@ async def api_apply_smart_dedup(
 ) -> SmartDedupApplyResponse:
     """应用用户确认的项目级智能去重建议。"""
     await _service.get_project(db, project_id)
-    result = await _smart_dedup_service.apply(
-        db,
-        novel_id=project_id,
-        confirmed=data.confirmed,
-        suggestions=[item.model_dump(exclude_none=True) for item in data.suggestions],
-    )
+    if data.groups:
+        result = await _smart_dedup_service.apply_groups(
+            db,
+            novel_id=project_id,
+            scan_task_id=str(data.scan_task_id),
+            groups=[item.model_dump(exclude_none=True) for item in data.groups],
+            confirmed=data.confirmed,
+        )
+    else:
+        result = await _smart_dedup_service.apply(
+            db,
+            novel_id=project_id,
+            confirmed=data.confirmed,
+            suggestions=[
+                item.model_dump(exclude_none=True) for item in (data.suggestions or [])
+            ],
+        )
     return SmartDedupApplyResponse(**result)
 
 

@@ -17,7 +17,10 @@ from modules.outline.schemas import (
     SceneCreate,
     SceneFusionSaveRequest,
 )
-from modules.outline.structure_dedup import OutlineStructureDedupService
+from modules.outline.structure_dedup import (
+    OutlineStructureDedupService,
+    _asset_fingerprints,
+)
 
 pytestmark = [pytest.mark.asyncio]
 
@@ -161,6 +164,111 @@ async def test_structure_dedup_apply_deprecates_duplicate_thread(
     assert source.status == "deprecated"
     assert source.provenance_meta["merged_into_asset_id"] == target_id
     assert source.provenance_meta["dedup_source"] == "smart_dedup"
+
+
+async def test_scene_group_requires_confirmed_current_preview(
+    db_session: AsyncSession,
+    test_project_id: str,
+) -> None:
+    source_id = await _create_scene(
+        db_session,
+        test_project_id,
+        scene_index=0,
+        title="追击上",
+    )
+    target_id = await _create_scene(
+        db_session,
+        test_project_id,
+        scene_index=1,
+        title="追击下",
+    )
+    service = OutlineStructureDedupService()
+    scenes = await service._load_assets(
+        db_session,
+        novel_id=test_project_id,
+        limit=10,
+    )
+    by_id = {item.asset_id: item for item in scenes["scene"]}
+    source_fp = _asset_fingerprints(by_id[source_id])
+    target_fp = _asset_fingerprints(by_id[target_id])
+    operation = {
+        "source_asset_id": source_id,
+        "action": "merge",
+        "expected_source_execution_fingerprint": source_fp["execution_fingerprint"],
+        "expected_target_execution_fingerprint": target_fp["execution_fingerprint"],
+    }
+
+    with pytest.raises(ValueError, match="confirmation_required"):
+        await service.apply_group(
+            db_session,
+            novel_id=test_project_id,
+            primary_asset_id=target_id,
+            asset_type="scene",
+            operations=[operation],
+        )
+
+    result = await service.apply_group(
+        db_session,
+        novel_id=test_project_id,
+        primary_asset_id=target_id,
+        asset_type="scene",
+        operations=[{**operation, "scene_preview_confirmed": True}],
+    )
+
+    source = await SceneRepository().get(db_session, uuid.UUID(source_id))
+    assert result[0]["action"] == "merge"
+    assert source is not None and source.status == "deprecated"
+
+
+async def test_structure_dedup_group_validates_keep_separate_current_fingerprint(
+    db_session: AsyncSession,
+    test_project_id: str,
+) -> None:
+    source_id = await _create_scene(
+        db_session,
+        test_project_id,
+        scene_index=0,
+        title="旧场景",
+    )
+    target_id = await _create_scene(
+        db_session,
+        test_project_id,
+        scene_index=1,
+        title="主场景",
+    )
+    service = OutlineStructureDedupService()
+    assets = await service._load_assets(
+        db_session,
+        novel_id=test_project_id,
+        limit=10,
+    )
+    by_id = {item.asset_id: item for item in assets["scene"]}
+    source_fp = _asset_fingerprints(by_id[source_id])
+    target_fp = _asset_fingerprints(by_id[target_id])
+    source = await SceneRepository().get(db_session, uuid.UUID(source_id))
+    assert source is not None
+    source.goal = "扫描后改变的场景目标"
+    await db_session.flush()
+
+    with pytest.raises(ValueError, match="stale_suggestion"):
+        await service.apply_group(
+            db_session,
+            novel_id=test_project_id,
+            primary_asset_id=target_id,
+            asset_type="scene",
+            operations=[
+                {
+                    "source_asset_id": source_id,
+                    "action": "keep_separate",
+                    "expected_source_execution_fingerprint": source_fp[
+                        "execution_fingerprint"
+                    ],
+                    "expected_target_execution_fingerprint": target_fp[
+                        "execution_fingerprint"
+                    ],
+                }
+            ],
+        )
 
 
 @pytest.mark.parametrize("decision_status", ["pending", "dismissed", "adopted"])
@@ -364,9 +472,7 @@ async def test_current_fusion_decision_pairs_batch_load_sources(
     assert list_status_calls == [("pending", "dismissed", "adopted")]
     assert len(get_many_calls) == 1
     assert set(get_many_calls[0]) == {
-        uuid.UUID(scene_id)
-        for pair in expected_pairs
-        for scene_id in pair
+        uuid.UUID(scene_id) for pair in expected_pairs for scene_id in pair
     }
 
 

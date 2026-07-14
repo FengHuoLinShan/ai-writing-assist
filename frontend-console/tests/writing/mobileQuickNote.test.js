@@ -146,9 +146,11 @@ describe("createMobileQuickNote", () => {
     document.body.innerHTML = note.render()
     document.getElementById("mobile-note-editor").value = "新内容"
     note.bindEvents(document.body)
+    note.bindEvents(document.body)
     document.querySelector('[data-action="save-mobile-note"]').click()
     await flushPromises()
 
+    expect(api.writing.autosaveDraftOnly).toHaveBeenCalledTimes(1)
     expect(api.writing.autosaveDraftOnly).toHaveBeenCalledWith(expect.objectContaining({
       novel_id: "p1",
       chapter_index: 2,

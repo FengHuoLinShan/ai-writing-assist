@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 
 class DomainError(Exception):
     """Domain-level error that API adapters translate to HTTP responses."""
@@ -13,11 +15,13 @@ class DomainError(Exception):
         *,
         code: str | None = None,
         status_code: int | None = None,
+        context: dict[str, Any] | None = None,
     ) -> None:
         self.message = message
         self.detail = message
         self.code = code or self.code
         self.status_code = status_code or self.status_code
+        self.context = context
         super().__init__(message)
 
 

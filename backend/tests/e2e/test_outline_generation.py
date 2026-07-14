@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.e2e.seed_data import create_base_scene
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
+pytestmark = pytest.mark.e2e
 
 real_llm_required = pytest.mark.skipif(
     os.getenv("RUN_REAL_LLM_TESTS") != "1",
@@ -345,6 +345,8 @@ class TestOutputContractCoverage:
             ", ".join(sorted(TOP_LEVEL_SECTIONS)),
         )
 
+    @pytest.mark.real_llm
+    @real_llm_required
     async def test_outline_related_ids_in_db_are_empty_known_bug(
         self,
         db_session: AsyncSession,

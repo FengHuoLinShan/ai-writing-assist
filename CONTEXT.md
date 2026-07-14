@@ -69,7 +69,33 @@ README、ORM 模型与 Alembic migration。
 | 编译上下文 | CompiledContext | context 模块按 scope、视角、预算和候选模式选择、裁剪并解释资料的中间表示。 |
 | 地图观察 | `map_observations` | 带时间/空间锚点和证据的观察层；尚未转化为 Fact 的可操作 observation 在作者界面显示为待处理。 |
 | 地图事实 | `map_facts` | 经领域规则或作者采用后形成的时间化地图事实，作者界面显示为已采用。 |
-| 地图基础资产 | `map_configs`、tiles、地点布局/绑定、地形、标记、势力范围表 | world/map 子系统；完整表清单在 `docs/01_数据库设计.md`。 |
+| 地图差分 / 世界动态 | `MapDelta` / `WorldDynamic` 只读投影 | world/map 按 Scene 对 confirmed MapFact 做确定性归一化、冲突检测和前后差分；不是新的持久事实表。 |
+| 地图基础资产 | `map_configs`、tiles、地点布局/绑定、递归图层树、地形、连续线路、标记、势力范围表 | world/map 子系统；完整表清单在 `docs/01_数据库设计.md`。 |
+
+地图中的 `map_location_layouts.center_hex` 是可编辑锚点，实际显示范围仍以
+`map_location_bindings` 为权威；显式保存地点移动时整体平移该地点的全部 bindings，
+不得借地图拖动改写世界地理设定。`map_tiles` 是正式底图，
+`map_terrain_layers/regions/patches/bindings` 是可叠加覆盖素材，两者属于独立编辑层。
+`map_layer_nodes` 是图层局部显隐、锁定、透明度、排序和缩放范围的唯一权威，旧 terrain
+字段仅作兼容投影。`map_configs.editor_revision` 只覆盖视觉资产写入，统一编辑入口以 CAS
+和单事务防止多会话静默覆盖；observation/fact 审查不递增视觉 revision。已采用地图只归档
+完整子树，不硬删除资产；归档地图默认不参与地图树、presence、open-target 或编辑。
+
+`map_path_layers/map_paths/map_path_nodes` 保存道路与水系的连续轴向几何。线路图层的名称、
+显隐、锁定、透明度、顺序与 zoom 仍由对应 `map_layer_nodes` leaf 唯一管理；线路本体只归档，
+不因视觉删除破坏 observation/fact 中的稳定 `path_id`。Fact 确认时固化线路
+`content_revision`、名称与代表坐标，后续几何编辑不会反向改写既有事实。地图楼层和独占组的
+当前子层、临时 isolate 属于前端会话投影，不写入视觉 revision。
+
+世界对象到地图的反向导航复用 world/map 的只读 map presence 聚合；地图内对象选择继续按
+地点、marker、territory、terrain、fact 和 observation 分型，fact/observation 仍由现有
+dashboard inspector 解释，不新增第二套 inspector 领域模型。
+
+`MapFact` 是时间化地图动态的唯一持久化权威。类型化 `value_json`、旧事实的安全归一化、
+Scene 状态切片、`MapDelta`、连续性问题和 `WorldDynamic` 均为确定性只读投影；candidate 只能
+进入待处理预览，不能参与有效状态、差分或连续性结论。Scene `scene_index` 只表示逻辑顺序，
+不是经过时长；当前没有可靠时间预算和地图比例尺时，不产生移动速度或分钟级可达性结论。
+`map_configs.editor_revision` 仍只覆盖视觉资产，不能作为事实投影缓存的唯一失效键。
 
 RAG 通过 nullable `scene_span_id` 关联 Scene 物理片段，但不建跨模块硬 FK。context
 负责“选、裁、确认、追踪”，RAG 负责“找”；imports、writing 等模块只能通过 facade 或

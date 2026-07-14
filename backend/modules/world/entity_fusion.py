@@ -1,18 +1,22 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from collections import defaultdict
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import DomainError, ValidationError
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
-from modules.world.models import CoreEntity
+from modules.world.models import Character, CoreEntity, EntityRelation, Event
 from modules.world.repositories import CoreEntityRepository
 from modules.world.schemas import EntityFusionApplyItem
 from modules.world.services.common import normalize_name, parse_uuid
@@ -20,6 +24,55 @@ from modules.world.services.core.dedup_service import EntityDedupService
 from modules.world.services.core.entity_alias_service import EntityAliasService
 
 logger = logging.getLogger(__name__)
+
+_TASK_REVALIDATION_BATCH_SIZE = 12
+
+
+@dataclass(frozen=True)
+class _FusionEntityDTO:
+    """Detached entity fields used after the task releases its read transaction."""
+
+    id: str
+    name: str
+    entity_type: str
+    status: str
+    summary: str | None
+    aliases: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _PreparedFusionPair:
+    """Plain, fingerprinted inputs for one transaction-free decision."""
+
+    source: _FusionEntityDTO
+    target: _FusionEntityDTO
+    similarity_score: float
+    match_method: str
+    evidence: tuple[dict[str, Any], ...]
+    source_snapshot: dict[str, Any]
+    target_snapshot: dict[str, Any]
+    source_semantic_fingerprint: str
+    target_semantic_fingerprint: str
+    source_execution_fingerprint: str
+    target_execution_fingerprint: str
+    pair_fingerprint: str
+    disposition_fingerprint: str
+
+    @property
+    def match(self) -> dict[str, Any]:
+        return {
+            "similarity_score": self.similarity_score,
+            "match_method": self.match_method,
+        }
+
+
+@dataclass(frozen=True)
+class _FusionTaskPlan:
+    novel_id: str
+    total_entities_scanned: int
+    candidate_pair_count: int
+    max_suggestions: int
+    pairs: tuple[_PreparedFusionPair, ...]
 
 
 def _service_error_detail(exc: Exception) -> str | None:
@@ -65,7 +118,9 @@ class WorldEntityFusionService:
         status: str | None = None,
         limit: int = 200,
         max_suggestions: int = 50,
+        exclusions: list[dict[str, Any]] | None = None,
         progress_callback: Any | None = None,
+        group_before_budget: bool = False,
     ) -> dict[str, Any]:
         if self._llm_client is None:
             from modules.project.facade import open_project_llm_client
@@ -83,7 +138,9 @@ class WorldEntityFusionService:
                     status=status,
                     limit=limit,
                     max_suggestions=max_suggestions,
+                    exclusions=exclusions,
                     progress_callback=progress_callback,
+                    group_before_budget=group_before_budget,
                 )
         nid = parse_uuid(novel_id, "novel_id")
         statuses = [status] if status else ["candidate", "draft", "canonical"]
@@ -98,12 +155,51 @@ class WorldEntityFusionService:
             db,
             novel_id=novel_id,
             entities=entities,
-            max_pairs=max_suggestions * 3,
+            max_pairs=None if group_before_budget else max_suggestions * 3,
         )
+        fingerprint_inputs = await self._load_fingerprint_inputs(db, nid, entities)
+        fingerprint_cache: dict[str, dict[str, Any]] = {}
+
+        async def fingerprints(entity: CoreEntity) -> dict[str, Any]:
+            key = str(entity.id)
+            if key not in fingerprint_cache:
+                fingerprint_cache[key] = await self._entity_fingerprints(
+                    db,
+                    nid,
+                    entity,
+                    prefetched=fingerprint_inputs,
+                )
+            return fingerprint_cache[key]
+
+        active_exclusions = {
+            (
+                str(item.get("left_asset_id")),
+                str(item.get("right_asset_id")),
+                str(item.get("left_semantic_fingerprint")),
+                str(item.get("right_semantic_fingerprint")),
+            )
+            for item in exclusions or []
+        }
         suggestions: list[dict[str, Any]] = []
         for index, (source, target, match) in enumerate(pairs):
-            if len(suggestions) >= max_suggestions:
+            if not group_before_budget and len(suggestions) >= max_suggestions:
                 break
+            source_fp = await fingerprints(source)
+            target_fp = await fingerprints(target)
+            left, right = sorted((str(source.id), str(target.id)))
+            left_fp, right_fp = (
+                (source_fp, target_fp)
+                if left == str(source.id)
+                else (target_fp, source_fp)
+            )
+            exclusion_key = (
+                left,
+                right,
+                left_fp["semantic_fingerprint"],
+                right_fp["semantic_fingerprint"],
+            )
+            if exclusion_key in active_exclusions:
+                continue
             evidence = (
                 _entity_summary_evidence(source, target)
                 if match.get("match_method") == "summary_overlap"
@@ -125,6 +221,12 @@ class WorldEntityFusionService:
                     "recommended_primary_entity_id": str(primary.id),
                     "recommended_primary_entity_name": primary.name,
                     "entity_type": source.entity_type,
+                    "source_snapshot": _entity_snapshot(source, source_fp),
+                    "target_snapshot": _entity_snapshot(target, target_fp),
+                    "source_semantic_fingerprint": source_fp["semantic_fingerprint"],
+                    "target_semantic_fingerprint": target_fp["semantic_fingerprint"],
+                    "source_execution_fingerprint": source_fp["execution_fingerprint"],
+                    "target_execution_fingerprint": target_fp["execution_fingerprint"],
                     "confidence": round(decision.confidence, 3),
                     "reason": decision.reason[:500],
                     "alias": decision.alias or source.name,
@@ -145,6 +247,723 @@ class WorldEntityFusionService:
             "suggestion_count": len(suggestions),
             "suggestions": suggestions,
             "summary": f"生成 {len(suggestions)} 条世界对象合并建议",
+        }
+
+    async def suggest_for_task(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        entity_type: str | None = None,
+        status: str | None = None,
+        limit: int = 200,
+        max_suggestions: int = 50,
+        checkpoint_callback: Callable[[dict[str, Any], float], None],
+        llm_execution_snapshot: dict[str, Any] | None = None,
+        snapshot_callback: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
+        """Generate suggestions without holding a transaction during LLM calls.
+
+        This commit-owning entry point is intentionally limited to a fenced
+        TaskWorker handler session.  The normal ``suggest`` method keeps caller
+        transaction ownership and remains suitable for ordinary services.
+        """
+        from infrastructure.tasks.facade import require_task_checkpoint_session
+        from modules.project.facade import (
+            build_project_llm_execution_snapshot,
+            create_project_snapshot_llm_client,
+            require_active_project,
+            restore_project_llm_execution_settings,
+        )
+
+        require_task_checkpoint_session(db)
+        await require_active_project(db, novel_id)
+        snapshot = llm_execution_snapshot
+        if self._llm_client is None and not snapshot:
+            if snapshot_callback is None:
+                raise RuntimeError(
+                    "task LLM snapshot callback is required before external I/O"
+                )
+            snapshot = await build_project_llm_execution_snapshot(db, novel_id)
+            snapshot_callback(snapshot)
+        plan = await self._prepare_task_scan(
+            db,
+            novel_id=novel_id,
+            entity_type=entity_type,
+            status=status,
+            limit=limit,
+            max_suggestions=max_suggestions,
+        )
+
+        if self._llm_client is not None:
+            return await self._decide_task_plan(
+                db,
+                plan,
+                checkpoint_callback=checkpoint_callback,
+            )
+
+        if not snapshot:
+            raise RuntimeError("project LLM execution snapshot is required")
+        # Restore and validate the persisted, secret-free profile while the
+        # project guard is still held.  The resulting client is DB-independent.
+        project_settings = await restore_project_llm_execution_settings(
+            db,
+            novel_id,
+            snapshot,
+        )
+        client = create_project_snapshot_llm_client(
+            project_settings,
+            novel_id=novel_id,
+        )
+        try:
+            runner = WorldEntityFusionService(
+                entity_repo=self._entity_repo,
+                dedup_service=self._dedup,
+                alias_service=self._alias_service,
+                llm_client=client,
+            )
+            return await runner._decide_task_plan(
+                db,
+                plan,
+                checkpoint_callback=checkpoint_callback,
+            )
+        finally:
+            await client.close()
+
+    async def _prepare_task_scan(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        entity_type: str | None,
+        status: str | None,
+        limit: int,
+        max_suggestions: int,
+    ) -> _FusionTaskPlan:
+        """Copy every post-checkpoint input into detached, JSON-safe values."""
+        nid = parse_uuid(novel_id, "novel_id")
+        statuses = [status] if status else ["candidate", "draft", "canonical"]
+        entities = await self._entity_repo.get_by_type_and_status(
+            db,
+            nid,
+            entity_type=entity_type,
+            statuses=statuses,
+            limit=limit,
+        )
+        pairs = await self._candidate_pairs(
+            db,
+            novel_id=novel_id,
+            entities=entities,
+            max_pairs=max_suggestions * 3,
+        )
+        fingerprint_inputs = await self._load_fingerprint_inputs(db, nid, entities)
+        fingerprint_cache: dict[str, dict[str, Any]] = {}
+
+        async def fingerprints(entity: CoreEntity) -> dict[str, Any]:
+            key = str(entity.id)
+            if key not in fingerprint_cache:
+                fingerprint_cache[key] = await self._entity_fingerprints(
+                    db,
+                    nid,
+                    entity,
+                    prefetched=fingerprint_inputs,
+                )
+            return fingerprint_cache[key]
+
+        prepared: list[_PreparedFusionPair] = []
+        for source, target, raw_match in pairs:
+            source_fp = await fingerprints(source)
+            target_fp = await fingerprints(target)
+            # The task-only seam must reach its first lease-fenced commit before
+            # any provider call.  Context evidence retrieval can invoke both the
+            # embedding provider and the optional LLM reranker, so freeze the
+            # entity-owned evidence here.  Ordinary suggest() keeps the richer
+            # caller-owned RAG evidence path.
+            evidence = _entity_summary_evidence(source, target)
+            match = _normalized_match(raw_match)
+            source_dto = _detached_entity(source)
+            target_dto = _detached_entity(target)
+            prepared.append(
+                _PreparedFusionPair(
+                    source=source_dto,
+                    target=target_dto,
+                    similarity_score=match["similarity_score"],
+                    match_method=match["match_method"],
+                    evidence=tuple(_json_copy(evidence)),
+                    source_snapshot=_json_copy(_entity_snapshot(source, source_fp)),
+                    target_snapshot=_json_copy(_entity_snapshot(target, target_fp)),
+                    source_semantic_fingerprint=source_fp["semantic_fingerprint"],
+                    target_semantic_fingerprint=target_fp["semantic_fingerprint"],
+                    source_execution_fingerprint=source_fp["execution_fingerprint"],
+                    target_execution_fingerprint=target_fp["execution_fingerprint"],
+                    pair_fingerprint=_pair_fingerprint(
+                        source_dto,
+                        target_dto,
+                        match,
+                    ),
+                    disposition_fingerprint=_disposition_fingerprint(
+                        source_dto,
+                        target_dto,
+                    ),
+                )
+            )
+
+        return _FusionTaskPlan(
+            novel_id=novel_id,
+            total_entities_scanned=len(entities),
+            candidate_pair_count=len(pairs),
+            max_suggestions=max_suggestions,
+            pairs=tuple(prepared),
+        )
+
+    async def _decide_task_plan(
+        self,
+        db: AsyncSession,
+        plan: _FusionTaskPlan,
+        *,
+        checkpoint_callback: Callable[[dict[str, Any], float], None],
+    ) -> dict[str, Any]:
+        from modules.project.facade import require_active_project
+
+        suggestions: list[dict[str, Any]] = []
+        stale_pairs: list[dict[str, str]] = []
+        processed = 0
+        initial = self._task_result(
+            plan,
+            suggestions=suggestions,
+            processed_pair_count=processed,
+            stale_pairs=stale_pairs,
+        )
+        checkpoint_callback(initial, 0.15)
+        # This is the key lease/project-fenced boundary before external I/O.
+        await db.commit()
+
+        for offset in range(0, len(plan.pairs), _TASK_REVALIDATION_BATCH_SIZE):
+            if len(suggestions) >= plan.max_suggestions:
+                break
+            batch = plan.pairs[offset : offset + _TASK_REVALIDATION_BATCH_SIZE]
+            decisions: list[tuple[_PreparedFusionPair, EntityFusionDecision]] = []
+            for pair in batch:
+                if db.in_transaction():
+                    raise RuntimeError(
+                        "world fusion task cannot call the LLM inside a transaction"
+                    )
+                decision = await self._decide(
+                    pair.source,
+                    pair.target,
+                    pair.match,
+                    list(pair.evidence),
+                )
+                decisions.append((pair, decision))
+                processed += 1
+
+            # Every persistence batch starts in deletion-safe lock order.
+            await require_active_project(db, plan.novel_id)
+            fresh, stale = await self._revalidate_task_batch(
+                db,
+                novel_id=plan.novel_id,
+                decisions=decisions,
+            )
+            stale_pairs.extend(stale)
+            remaining = plan.max_suggestions - len(suggestions)
+            suggestions.extend(fresh[:remaining])
+            result = self._task_result(
+                plan,
+                suggestions=suggestions,
+                processed_pair_count=processed,
+                stale_pairs=stale_pairs,
+            )
+            progress = 0.15 + 0.85 * min(1.0, processed / len(plan.pairs))
+            checkpoint_callback(result, progress)
+            # Revalidation and the detached task result become durable under the
+            # same lease fence, then all world/project locks are released.
+            await db.commit()
+
+        result = self._task_result(
+            plan,
+            suggestions=suggestions,
+            processed_pair_count=processed,
+            stale_pairs=stale_pairs,
+        )
+        checkpoint_callback(result, 1.0)
+        return result
+
+    async def _revalidate_task_batch(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        decisions: list[tuple[_PreparedFusionPair, EntityFusionDecision]],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+        """Return only decisions whose pair, assets, and disposition stayed fresh."""
+        candidate_decisions = [
+            (pair, decision)
+            for pair, decision in decisions
+            if decision.action != "keep_separate"
+        ]
+        if not candidate_decisions:
+            return [], []
+
+        nid = parse_uuid(novel_id, "novel_id")
+        entity_ids = list(
+            dict.fromkeys(
+                parse_uuid(entity_id, "entity_id")
+                for pair, _decision in candidate_decisions
+                for entity_id in (pair.source.id, pair.target.id)
+            )
+        )
+        stmt = (
+            select(CoreEntity)
+            .where(
+                CoreEntity.novel_id == nid,
+                CoreEntity.id.in_(entity_ids),
+            )
+            .with_for_update(read=True)
+            .execution_options(populate_existing=True)
+        )
+        current_entities = list((await db.execute(stmt)).scalars().all())
+        current_by_id = {str(entity.id): entity for entity in current_entities}
+        fingerprint_inputs = await self._load_fingerprint_inputs(
+            db,
+            nid,
+            current_entities,
+            refresh=True,
+            lock=True,
+        )
+        fingerprints = {
+            str(entity.id): await self._entity_fingerprints(
+                db,
+                nid,
+                entity,
+                prefetched=fingerprint_inputs,
+            )
+            for entity in current_entities
+        }
+
+        fresh: list[dict[str, Any]] = []
+        stale: list[dict[str, str]] = []
+        for pair, decision in candidate_decisions:
+            source = current_by_id.get(pair.source.id)
+            target = current_by_id.get(pair.target.id)
+            reason: str | None = None
+            if source is None or target is None:
+                reason = "asset_missing"
+            else:
+                source_fp = fingerprints[pair.source.id]
+                target_fp = fingerprints[pair.target.id]
+                if (
+                    source_fp["semantic_fingerprint"] != pair.source_semantic_fingerprint
+                    or source_fp["execution_fingerprint"]
+                    != pair.source_execution_fingerprint
+                    or target_fp["semantic_fingerprint"]
+                    != pair.target_semantic_fingerprint
+                    or target_fp["execution_fingerprint"]
+                    != pair.target_execution_fingerprint
+                ):
+                    reason = "asset_changed"
+                elif (
+                    _disposition_fingerprint(source, target)
+                    != pair.disposition_fingerprint
+                ):
+                    reason = "disposition_changed"
+                else:
+                    current_match = await self._current_pair_match(
+                        db,
+                        novel_id=novel_id,
+                        source=source,
+                        target=target,
+                    )
+                    if (
+                        current_match is None
+                        or _pair_fingerprint(
+                            source,
+                            target,
+                            current_match,
+                        )
+                        != pair.pair_fingerprint
+                    ):
+                        reason = "pair_changed"
+
+            if reason is not None:
+                stale.append(
+                    {
+                        "source_entity_id": pair.source.id,
+                        "target_entity_id": pair.target.id,
+                        "reason": reason,
+                    }
+                )
+                continue
+            fresh.append(_task_suggestion(pair, decision))
+        return fresh, stale
+
+    async def _current_pair_match(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        source: CoreEntity,
+        target: CoreEntity,
+    ) -> dict[str, Any] | None:
+        if source.entity_type != target.entity_type:
+            return None
+        current_source, current_target = _source_target(source, target)
+        if current_source.id != source.id or current_target.id != target.id:
+            return None
+
+        score, method = _pair_similarity(source, target)
+        if score >= 0.84:
+            return _normalized_match({"similarity_score": score, "match_method": method})
+
+        for query, expected_id in ((source, target.id), (target, source.id)):
+            matches = await self._dedup.find_similar_entities(
+                db,
+                novel_id,
+                query.name,
+                aliases=_aliases(query),
+                entity_type=query.entity_type,
+            )
+            match = next(
+                (
+                    item
+                    for item in matches
+                    if str(item.existing_entity_id) == str(expected_id)
+                ),
+                None,
+            )
+            if match is not None:
+                return _normalized_match(
+                    {
+                        "similarity_score": match.similarity_score,
+                        "match_method": match.match_method,
+                    }
+                )
+        return None
+
+    @staticmethod
+    def _task_result(
+        plan: _FusionTaskPlan,
+        *,
+        suggestions: list[dict[str, Any]],
+        processed_pair_count: int,
+        stale_pairs: list[dict[str, str]],
+    ) -> dict[str, Any]:
+        warnings = []
+        if stale_pairs:
+            warnings.append(f"{len(stale_pairs)} 组对象在扫描期间发生变化，已跳过")
+        return {
+            "task_type": "world_entity_fusion_suggestions",
+            "novel_id": plan.novel_id,
+            "total_entities_scanned": plan.total_entities_scanned,
+            "candidate_pair_count": plan.candidate_pair_count,
+            "processed_pair_count": processed_pair_count,
+            "suggestion_count": len(suggestions),
+            "skipped_stale_count": len(stale_pairs),
+            "stale_pairs": list(stale_pairs),
+            "suggestions": list(suggestions),
+            "warnings": warnings,
+            "summary": f"生成 {len(suggestions)} 条世界对象合并建议",
+        }
+
+    async def apply_group(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        primary_entity_id: str,
+        operations: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Strict group apply. Any error is raised for the caller savepoint."""
+        nid = parse_uuid(novel_id, "novel_id")
+        ids = [parse_uuid(primary_entity_id, "primary_entity_id")]
+        ids.extend(
+            parse_uuid(item["source_entity_id"], "source_entity_id")
+            for item in operations
+        )
+        entities = await self._entity_repo.get_by_ids(db, nid, list(dict.fromkeys(ids)))
+        by_id = {str(item.id): item for item in entities}
+        target = by_id.get(primary_entity_id)
+        if target is None:
+            raise ValidationError("Primary entity not found")
+        if len({item["source_entity_id"] for item in operations}) != len(operations):
+            raise ValidationError("Duplicate source entity in group")
+
+        fingerprint_inputs = await self._load_fingerprint_inputs(
+            db,
+            nid,
+            entities,
+        )
+        fingerprints_by_id = {
+            entity.id: await self._entity_fingerprints(
+                db,
+                nid,
+                entity,
+                prefetched=fingerprint_inputs,
+            )
+            for entity in entities
+        }
+
+        prepared: list[tuple[dict[str, Any], CoreEntity]] = []
+        for item in operations:
+            source = by_id.get(str(item["source_entity_id"]))
+            if source is None or source.id == target.id:
+                raise ValidationError("Invalid source entity")
+            if source.entity_type != target.entity_type:
+                raise ValidationError("Entity fusion group must use one entity type")
+            source_fp = fingerprints_by_id[source.id]
+            target_fp = fingerprints_by_id[target.id]
+            if source_fp["execution_fingerprint"] != item.get(
+                "expected_source_execution_fingerprint"
+            ) or target_fp["execution_fingerprint"] != item.get(
+                "expected_target_execution_fingerprint"
+            ):
+                raise ValidationError("stale_suggestion")
+            action = str(item.get("action") or "")
+            if action not in {"merge", "alias_only", "keep_separate"}:
+                raise ValidationError("Unsupported world group action")
+            if (
+                action == "merge"
+                and source.status == "canonical"
+                and not item.get("allow_canonical_merge")
+            ):
+                raise ValidationError("confirmation_required")
+            if (
+                action == "alias_only"
+                and source.status == "canonical"
+                and not item.get("allow_canonical_alias")
+            ):
+                raise ValidationError("confirmation_required")
+            prepared.append((item, source))
+
+        results: list[dict[str, Any]] = []
+        for item, source in prepared:
+            if item["action"] == "keep_separate":
+                continue
+            if item["action"] == "alias_only":
+                result = await self._alias_service.resolve_candidate_as_alias(
+                    db,
+                    novel_id,
+                    str(source.id),
+                    target_entity_id=str(target.id),
+                    alias=str(item.get("alias") or source.name),
+                    allow_canonical_source=source.status == "canonical",
+                )
+                results.append({"action": "alias_only", **result})
+                continue
+            result = await self._dedup.merge_candidate_into_entity(
+                db,
+                novel_id,
+                str(source.id),
+                str(target.id),
+                allow_canonical_source=source.status == "canonical",
+            )
+            results.append(
+                {
+                    "action": "merge",
+                    "source_entity_id": result.candidate_entity_id,
+                    "target_entity_id": result.target_entity_id,
+                    "aliases_inherited": result.aliases_inherited,
+                    "relations_migrated": result.relations_migrated,
+                    "relations_deduplicated": result.relations_deduplicated,
+                }
+            )
+        await db.flush()
+        keep_sources = [
+            source for item, source in prepared if item["action"] == "keep_separate"
+        ]
+        if keep_sources:
+            await db.refresh(target)
+            refreshed_inputs = await self._load_fingerprint_inputs(
+                db,
+                nid,
+                [target, *keep_sources],
+            )
+            target_fp = await self._entity_fingerprints(
+                db,
+                nid,
+                target,
+                prefetched=refreshed_inputs,
+            )
+            for source in keep_sources:
+                await db.refresh(source)
+                source_fp = await self._entity_fingerprints(
+                    db, nid, source, prefetched=refreshed_inputs
+                )
+                left, right = sorted((str(source.id), str(target.id)))
+                left_fp, right_fp = (
+                    (source_fp, target_fp)
+                    if left == str(source.id)
+                    else (target_fp, source_fp)
+                )
+                results.append(
+                    {
+                        "action": "keep_separate",
+                        "left_asset_id": left,
+                        "right_asset_id": right,
+                        "left_semantic_fingerprint": left_fp["semantic_fingerprint"],
+                        "right_semantic_fingerprint": right_fp["semantic_fingerprint"],
+                    }
+                )
+        return results
+
+    async def _entity_fingerprints(
+        self,
+        db: AsyncSession,
+        novel_id: Any,
+        entity: CoreEntity,
+        *,
+        prefetched: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        relations = (
+            prefetched["relations_by_entity"].get(entity.id, [])
+            if prefetched is not None
+            else await self._dedup._relation_repo.get_all_for_entity(
+                db, novel_id, entity.id
+            )
+        )
+        extension: dict[str, Any] = {}
+        if entity.entity_type == "character":
+            character = (
+                prefetched["characters_by_id"].get(entity.id)
+                if prefetched is not None
+                else (
+                    await db.execute(
+                        select(Character).where(
+                            Character.entity_id == entity.id,
+                            Character.novel_id == novel_id,
+                        )
+                    )
+                ).scalar_one_or_none()
+            )
+            if character is not None:
+                extension["character"] = _mapped_payload(character)
+        if entity.entity_type == "event":
+            event = (
+                prefetched["events_by_id"].get(entity.id)
+                if prefetched is not None
+                else (
+                    await db.execute(
+                        select(Event).where(
+                            Event.entity_id == entity.id,
+                            Event.novel_id == novel_id,
+                        )
+                    )
+                ).scalar_one_or_none()
+            )
+            if event is not None:
+                extension["event"] = _mapped_payload(event)
+        semantic = {
+            "name": entity.name,
+            "entity_type": entity.entity_type,
+            "status": entity.status,
+            "summary": entity.summary,
+            "public_info": entity.public_info,
+            "hidden_truth": entity.hidden_truth,
+            "content": {
+                key: value
+                for key, value in (entity.content_json or {}).items()
+                if key != "_meta"
+            },
+            "aliases": sorted(_aliases(entity)),
+            "importance": entity.importance,
+            "importance_level": entity.importance_level,
+            "reveal_level": entity.reveal_level,
+            "extension": extension,
+        }
+        execution = {
+            **semantic,
+            "public_info": entity.public_info,
+            "hidden_truth": entity.hidden_truth,
+            "content_json": entity.content_json or {},
+            "importance": entity.importance,
+            "importance_level": entity.importance_level,
+            "reveal_level": entity.reveal_level,
+            "relations": sorted(
+                (
+                    str(item.id),
+                    str(item.source_id),
+                    str(item.target_id),
+                    item.relation_type,
+                    item.status,
+                    str(item.updated_at or ""),
+                )
+                for item in relations
+            ),
+        }
+        return {
+            "semantic_fingerprint": _hash_payload(semantic),
+            "execution_fingerprint": _hash_payload(execution),
+            "relation_count": len(relations),
+            "extension": extension,
+        }
+
+    async def _load_fingerprint_inputs(
+        self,
+        db: AsyncSession,
+        novel_id: Any,
+        entities: list[CoreEntity],
+        *,
+        refresh: bool = False,
+        lock: bool = False,
+    ) -> dict[str, Any]:
+        entity_ids = list(dict.fromkeys(entity.id for entity in entities))
+        if refresh or lock:
+            relation_stmt = select(EntityRelation).where(
+                EntityRelation.novel_id == novel_id,
+                or_(
+                    EntityRelation.source_id.in_(entity_ids),
+                    EntityRelation.target_id.in_(entity_ids),
+                ),
+            )
+            if lock:
+                relation_stmt = relation_stmt.with_for_update(read=True)
+            if refresh:
+                relation_stmt = relation_stmt.execution_options(populate_existing=True)
+            relations = list((await db.execute(relation_stmt)).scalars().all())
+        else:
+            relations = await self._dedup._relation_repo.get_all_for_entities(
+                db,
+                novel_id,
+                entity_ids,
+            )
+        relations_by_entity: dict[Any, list[Any]] = defaultdict(list)
+        requested = set(entity_ids)
+        for relation in relations:
+            if relation.source_id in requested:
+                relations_by_entity[relation.source_id].append(relation)
+            if (
+                relation.target_id in requested
+                and relation.target_id != relation.source_id
+            ):
+                relations_by_entity[relation.target_id].append(relation)
+
+        character_ids = [
+            entity.id for entity in entities if entity.entity_type == "character"
+        ]
+        event_ids = [entity.id for entity in entities if entity.entity_type == "event"]
+        character_stmt = select(Character).where(
+            Character.novel_id == novel_id,
+            Character.entity_id.in_(character_ids),
+        )
+        event_stmt = select(Event).where(
+            Event.novel_id == novel_id,
+            Event.entity_id.in_(event_ids),
+        )
+        if lock:
+            character_stmt = character_stmt.with_for_update(read=True)
+            event_stmt = event_stmt.with_for_update(read=True)
+        if refresh:
+            character_stmt = character_stmt.execution_options(populate_existing=True)
+            event_stmt = event_stmt.execution_options(populate_existing=True)
+        characters = (
+            list((await db.execute(character_stmt)).scalars().all())
+            if character_ids
+            else []
+        )
+        events = list((await db.execute(event_stmt)).scalars().all()) if event_ids else []
+        return {
+            "relations_by_entity": relations_by_entity,
+            "characters_by_id": {item.entity_id: item for item in characters},
+            "events_by_id": {item.entity_id: item for item in events},
         }
 
     async def apply(
@@ -291,11 +1110,23 @@ class WorldEntityFusionService:
         *,
         novel_id: str,
         entities: list[CoreEntity],
-        max_pairs: int,
+        max_pairs: int | None,
     ) -> list[tuple[CoreEntity, CoreEntity, dict[str, Any]]]:
         by_id = {str(entity.id): entity for entity in entities}
         pairs: dict[tuple[str, str], dict[str, Any]] = {}
         paired_sources: set[str] = set()
+
+        def record_pair(
+            source: CoreEntity,
+            target: CoreEntity,
+            match: dict[str, Any],
+        ) -> None:
+            key = (str(source.id), str(target.id))
+            existing = pairs.get(key)
+            if existing is None or float(match.get("similarity_score") or 0.0) > float(
+                existing.get("similarity_score") or 0.0
+            ):
+                pairs[key] = match
 
         exact_groups: dict[tuple[str, str], list[CoreEntity]] = defaultdict(list)
         for entity in entities:
@@ -317,14 +1148,18 @@ class WorldEntityFusionService:
             for source in group:
                 if source.id == target.id:
                     continue
-                pairs[(str(source.id), str(target.id))] = {
-                    "similarity_score": 1.0,
-                    "match_method": "normalized_exact_name",
-                }
+                record_pair(
+                    source,
+                    target,
+                    {
+                        "similarity_score": 1.0,
+                        "match_method": "normalized_exact_name",
+                    },
+                )
                 paired_sources.add(str(source.id))
-                if len(pairs) >= max_pairs:
+                if max_pairs is not None and len(pairs) >= max_pairs:
                     break
-            if len(pairs) >= max_pairs:
+            if max_pairs is not None and len(pairs) >= max_pairs:
                 break
 
         for source in entities:
@@ -339,10 +1174,14 @@ class WorldEntityFusionService:
                 score, method = _pair_similarity(source, target)
                 if score >= 0.84:
                     merge_source, merge_target = _source_target(source, target)
-                    pairs[(str(merge_source.id), str(merge_target.id))] = {
-                        "similarity_score": score,
-                        "match_method": method,
-                    }
+                    record_pair(
+                        merge_source,
+                        merge_target,
+                        {
+                            "similarity_score": score,
+                            "match_method": method,
+                        },
+                    )
             for suggestion in await self._dedup.find_similar_entities(
                 db,
                 novel_id,
@@ -354,11 +1193,15 @@ class WorldEntityFusionService:
                 if target is None or target.id == source.id:
                     continue
                 merge_source, merge_target = _source_target(source, target)
-                pairs[(str(merge_source.id), str(merge_target.id))] = {
-                    "similarity_score": suggestion.similarity_score,
-                    "match_method": suggestion.match_method,
-                }
-            if len(pairs) >= max_pairs:
+                record_pair(
+                    merge_source,
+                    merge_target,
+                    {
+                        "similarity_score": suggestion.similarity_score,
+                        "match_method": suggestion.match_method,
+                    },
+                )
+            if max_pairs is not None and len(pairs) >= max_pairs:
                 break
 
         ordered = sorted(
@@ -368,7 +1211,9 @@ class WorldEntityFusionService:
         )
         return [
             (by_id[source_id], by_id[target_id], match)
-            for (source_id, target_id), match in ordered[:max_pairs]
+            for (source_id, target_id), match in (
+                ordered if max_pairs is None else ordered[:max_pairs]
+            )
             if source_id in by_id and target_id in by_id
         ]
 
@@ -427,15 +1272,15 @@ class WorldEntityFusionService:
 
     async def _decide(
         self,
-        source: CoreEntity,
-        target: CoreEntity,
+        source: CoreEntity | _FusionEntityDTO,
+        target: CoreEntity | _FusionEntityDTO,
         match: dict[str, Any],
         evidence: list[dict[str, Any]],
     ) -> EntityFusionDecision:
         deterministic = _deterministic_decision(source, target, match)
         if deterministic.action == "merge" and deterministic.confidence >= 0.98:
             return deterministic
-        if deterministic.action in {"keep_separate", "needs_review", "alias_only"}:
+        if deterministic.action == "keep_separate":
             return deterministic
 
         client = self._llm_client
@@ -476,11 +1321,108 @@ class WorldEntityFusionService:
                 max_fix_attempts=1,
             )
         except Exception as exc:
-            logger.warning("World entity fusion LLM failed: %s", exc)
+            # Provider errors can contain request details.  Keep task/API logs
+            # secret-free and let the deterministic result provide degradation.
+            logger.warning(
+                "World entity fusion LLM failed: %s",
+                type(exc).__name__,
+            )
             return deterministic
 
 
-def _aliases(entity: CoreEntity) -> list[str]:
+def _detached_entity(entity: CoreEntity) -> _FusionEntityDTO:
+    return _FusionEntityDTO(
+        id=str(entity.id),
+        name=entity.name,
+        entity_type=entity.entity_type,
+        status=entity.status,
+        summary=entity.summary,
+        aliases=tuple(_aliases(entity)),
+    )
+
+
+def _json_copy(value: Any) -> Any:
+    return json.loads(json.dumps(value, ensure_ascii=False, default=str))
+
+
+def _normalized_match(match: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "similarity_score": round(float(match.get("similarity_score") or 0.0), 6),
+        "match_method": str(match.get("match_method") or ""),
+    }
+
+
+def _pair_fingerprint(
+    source: CoreEntity | _FusionEntityDTO,
+    target: CoreEntity | _FusionEntityDTO,
+    match: dict[str, Any],
+) -> str:
+    return _hash_payload(
+        {
+            "asset_ids": sorted((str(source.id), str(target.id))),
+            "match": _normalized_match(match),
+        }
+    )
+
+
+def _disposition_fingerprint(
+    source: CoreEntity | _FusionEntityDTO,
+    target: CoreEntity | _FusionEntityDTO,
+) -> str:
+    current_source, current_target = _source_target(source, target)
+    return _hash_payload(
+        {
+            "source_entity_id": str(current_source.id),
+            "source_status": current_source.status,
+            "target_entity_id": str(current_target.id),
+            "target_status": current_target.status,
+            "entity_type": current_source.entity_type,
+            "requires_canonical_confirmation": (
+                current_source.status == "canonical"
+                and current_target.status == "canonical"
+            ),
+        }
+    )
+
+
+def _task_suggestion(
+    pair: _PreparedFusionPair,
+    decision: EntityFusionDecision,
+) -> dict[str, Any]:
+    primary = (
+        pair.source if decision.recommended_primary_side == "source" else pair.target
+    )
+    return {
+        "action": decision.action,
+        "source_entity_id": pair.source.id,
+        "source_entity_name": pair.source.name,
+        "source_status": pair.source.status,
+        "target_entity_id": pair.target.id,
+        "target_entity_name": pair.target.name,
+        "target_status": pair.target.status,
+        "recommended_primary_entity_id": primary.id,
+        "recommended_primary_entity_name": primary.name,
+        "entity_type": pair.source.entity_type,
+        "source_snapshot": _json_copy(pair.source_snapshot),
+        "target_snapshot": _json_copy(pair.target_snapshot),
+        "source_semantic_fingerprint": pair.source_semantic_fingerprint,
+        "target_semantic_fingerprint": pair.target_semantic_fingerprint,
+        "source_execution_fingerprint": pair.source_execution_fingerprint,
+        "target_execution_fingerprint": pair.target_execution_fingerprint,
+        "confidence": round(decision.confidence, 3),
+        "reason": decision.reason[:500],
+        "alias": decision.alias or pair.source.name,
+        "match_method": pair.match_method,
+        "evidence_anchors": _json_copy(list(pair.evidence)),
+        "requires_canonical_confirmation": (
+            pair.source.status == "canonical" and pair.target.status == "canonical"
+        ),
+    }
+
+
+def _aliases(entity: CoreEntity | _FusionEntityDTO) -> list[str]:
+    if isinstance(entity, _FusionEntityDTO):
+        return list(entity.aliases)
     result: list[str] = []
     for item in (entity.content_json or {}).get("aliases", []):
         if isinstance(item, str):
@@ -490,7 +1432,10 @@ def _aliases(entity: CoreEntity) -> list[str]:
     return result
 
 
-def _lexical_similarity(left: CoreEntity, right: CoreEntity) -> tuple[float, str]:
+def _lexical_similarity(
+    left: CoreEntity | _FusionEntityDTO,
+    right: CoreEntity | _FusionEntityDTO,
+) -> tuple[float, str]:
     left_name = normalize_name(left.name)
     right_name = normalize_name(right.name)
     if left_name == right_name:
@@ -504,7 +1449,10 @@ def _lexical_similarity(left: CoreEntity, right: CoreEntity) -> tuple[float, str
     return 0.0, "none"
 
 
-def _pair_similarity(left: CoreEntity, right: CoreEntity) -> tuple[float, str]:
+def _pair_similarity(
+    left: CoreEntity | _FusionEntityDTO,
+    right: CoreEntity | _FusionEntityDTO,
+) -> tuple[float, str]:
     lexical_score, lexical_method = _lexical_similarity(left, right)
     if lexical_method in {"normalized_exact_name", "alias_name_match"}:
         return lexical_score, lexical_method
@@ -548,8 +1496,8 @@ def _char_ngrams(value: str, size: int) -> set[str]:
 
 
 def _deterministic_decision(
-    source: CoreEntity,
-    target: CoreEntity,
+    source: CoreEntity | _FusionEntityDTO,
+    target: CoreEntity | _FusionEntityDTO,
     match: dict[str, Any],
 ) -> EntityFusionDecision:
     score = float(match.get("similarity_score") or 0.0)
@@ -599,14 +1547,17 @@ def _deterministic_decision(
 _STATUS_RANK = {"canonical": 0, "draft": 1, "candidate": 2}
 
 
-def _source_target(left: CoreEntity, right: CoreEntity) -> tuple[CoreEntity, CoreEntity]:
+def _source_target(
+    left: CoreEntity | _FusionEntityDTO,
+    right: CoreEntity | _FusionEntityDTO,
+) -> tuple[CoreEntity | _FusionEntityDTO, CoreEntity | _FusionEntityDTO]:
     left_key = (_STATUS_RANK.get(left.status, 9), left.name, str(left.id))
     right_key = (_STATUS_RANK.get(right.status, 9), right.name, str(right.id))
     target, source = (left, right) if left_key <= right_key else (right, left)
     return source, target
 
 
-def _entity_payload(entity: CoreEntity) -> dict[str, Any]:
+def _entity_payload(entity: CoreEntity | _FusionEntityDTO) -> dict[str, Any]:
     return {
         "id": str(entity.id),
         "name": entity.name,
@@ -615,6 +1566,42 @@ def _entity_payload(entity: CoreEntity) -> dict[str, Any]:
         "summary": entity.summary,
         "aliases": _aliases(entity),
     }
+
+
+def _entity_snapshot(entity: CoreEntity, fingerprints: dict[str, Any]) -> dict[str, Any]:
+    meta = dict((entity.content_json or {}).get("_meta") or {})
+    return {
+        "asset_id": str(entity.id),
+        "title": entity.name,
+        "entity_type": entity.entity_type,
+        "status": entity.status,
+        "summary": entity.summary or "",
+        "public_info": entity.public_info or "",
+        "hidden_truth": entity.hidden_truth or "",
+        "aliases": _aliases(entity),
+        "importance": entity.importance,
+        "importance_level": entity.importance_level,
+        "reveal_level": entity.reveal_level,
+        "source": meta.get("source") or entity.created_by,
+        "workflow_id": meta.get("workflow_id"),
+        "updated_at": entity.updated_at.isoformat() if entity.updated_at else None,
+        "relation_count": fingerprints.get("relation_count", 0),
+        "details": fingerprints.get("extension") or {},
+    }
+
+
+def _hash_payload(value: Any) -> str:
+    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _mapped_payload(row: Any) -> dict[str, Any]:
+    payload = {
+        column.name: getattr(row, column.name, None)
+        for column in row.__table__.columns
+        if column.name not in {"embedding"}
+    }
+    return json.loads(json.dumps(payload, ensure_ascii=False, default=str))
 
 
 def _entity_summary_evidence(

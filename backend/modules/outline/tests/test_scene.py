@@ -11,6 +11,8 @@ from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.errors import NotFoundError as DomainNotFoundError
+from core.errors import ValidationError as DomainValidationError
 from modules.outline.models import Scene, SceneChapterLink, SceneSpan
 from modules.outline.schemas import SceneCreate, SceneUpdate
 
@@ -1148,12 +1150,87 @@ class TestSceneService:
         await db_session.rollback()
 
     @pytest.mark.asyncio
+    async def test_reorder_rejects_duplicate_incomplete_and_cross_novel_ids(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+        other_novel_id: str,
+    ) -> None:
+        from modules.outline.services import SceneService
+
+        svc = SceneService()
+        first = await svc.create(
+            db_session,
+            sample_novel_id,
+            SceneCreate(scene_index=0, title="A"),
+        )
+        second = await svc.create(
+            db_session,
+            sample_novel_id,
+            SceneCreate(scene_index=1, title="B"),
+        )
+        other = await svc.create(
+            db_session,
+            other_novel_id,
+            SceneCreate(scene_index=0, title="Other"),
+        )
+        archived = await svc.create(
+            db_session,
+            sample_novel_id,
+            SceneCreate(scene_index=2, title="Archived"),
+        )
+        await svc.delete(db_session, archived.id, novel_id=sample_novel_id)
+
+        with pytest.raises(DomainValidationError) as duplicate_error:
+            await svc.reorder(
+                db_session,
+                sample_novel_id,
+                [first.id, first.id],
+            )
+        assert duplicate_error.value.code == "scene_reorder_duplicate_ids"
+
+        with pytest.raises(DomainValidationError) as incomplete_error:
+            await svc.reorder(db_session, sample_novel_id, [first.id])
+        assert incomplete_error.value.code == "scene_reorder_incomplete"
+
+        with pytest.raises(DomainValidationError) as cross_novel_error:
+            await svc.reorder(
+                db_session,
+                sample_novel_id,
+                [first.id, second.id, other.id],
+            )
+        assert cross_novel_error.value.code == "scene_reorder_invalid_scene_ids"
+
+        with pytest.raises(DomainValidationError) as archived_error:
+            await svc.reorder(
+                db_session,
+                sample_novel_id,
+                [first.id, second.id, archived.id],
+            )
+        assert archived_error.value.code == "scene_reorder_invalid_scene_ids"
+
+        result = await svc.reorder(
+            db_session,
+            sample_novel_id,
+            [second.id, first.id],
+        )
+        assert result == {"updated": 2, "total": 2}
+
+        ordered = await svc.get_ordered(db_session, sample_novel_id)
+        assert [(scene.title, scene.scene_index) for scene in ordered] == [
+            ("B", 0),
+            ("A", 1),
+        ]
+        await db_session.rollback()
+
+    @pytest.mark.asyncio
     async def test_split_chapters(
         self,
         db_session: AsyncSession,
         sample_novel_id: str,
     ) -> None:
         from modules.outline.repositories import SceneRepository
+        from modules.outline.scene_workbench import SceneWorkbenchService
         from modules.outline.services import SceneService
 
         svc = SceneService()
@@ -1166,6 +1243,26 @@ class TestSceneService:
                 scene_index=0,
                 title="Source",
                 chapter_ids=["1", "2", "3"],
+                scene_chunks=[
+                    {
+                        "chapter_index": 1,
+                        "start_offset": 0,
+                        "end_offset": 10,
+                        "label": "source-1",
+                    },
+                    {
+                        "chapter_index": 2,
+                        "start_offset": 0,
+                        "end_offset": 20,
+                        "label": "source-2",
+                    },
+                    {
+                        "chapter_index": 3,
+                        "start_paragraph": 2,
+                        "end_paragraph": 3,
+                        "label": "source-3",
+                    },
+                ],
                 status="canonical",
             ),
         )
@@ -1175,31 +1272,354 @@ class TestSceneService:
             SceneCreate(
                 scene_index=1,
                 title="Target",
-                chapter_ids=[],
+                chapter_ids=["2", "3", "4"],
+                scene_chunks=[
+                    {
+                        "chapter_index": 2,
+                        "start_offset": 50,
+                        "end_offset": 60,
+                        "label": "target-2",
+                    },
+                    {
+                        "chapter_index": 3,
+                        "start_paragraph": 9,
+                        "end_paragraph": 10,
+                        "label": "target-3",
+                    },
+                    {
+                        "chapter_index": 4,
+                        "start_offset": 0,
+                        "end_offset": 40,
+                        "label": "target-4",
+                    },
+                ],
                 status="canonical",
             ),
         )
 
-        await svc.split_chapters(
+        responses = await SceneWorkbenchService().split_chapters_from_api(
             db_session,
             sample_novel_id,
             chapter_index=2,
             target_scene_id=target.id,
         )
+        assert [response.id for response in responses] == [source.id, target.id]
+        assert [response.chapter_ids for response in responses] == [
+            ["1"],
+            ["2", "3", "4"],
+        ]
 
         updated_source = await repo.get(
             db_session,
             uuid.UUID(source.id),
         )
         assert updated_source is not None
-        assert "2" not in (updated_source.chapter_ids or [])
+        assert updated_source.chapter_ids == ["1"]
+        assert [chunk["chapter_index"] for chunk in updated_source.scene_chunks] == [1]
 
         updated_target = await repo.get(
             db_session,
             uuid.UUID(target.id),
         )
         assert updated_target is not None
-        assert "2" in (updated_target.chapter_ids or [])
+        assert updated_target.chapter_ids == ["2", "3", "4"]
+        assert [chunk["label"] for chunk in updated_target.scene_chunks] == [
+            "source-2",
+            "target-2",
+            "source-3",
+            "target-3",
+            "target-4",
+        ]
+
+        nid = uuid.UUID(hex=sample_novel_id)
+        source_links = list(
+            (
+                await db_session.execute(
+                    select(SceneChapterLink)
+                    .where(SceneChapterLink.scene_id == uuid.UUID(source.id))
+                    .order_by(SceneChapterLink.chapter_index)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        target_links = list(
+            (
+                await db_session.execute(
+                    select(SceneChapterLink)
+                    .where(SceneChapterLink.scene_id == uuid.UUID(target.id))
+                    .order_by(SceneChapterLink.chapter_index)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert [link.chapter_index for link in source_links] == [1]
+        assert [link.chapter_index for link in target_links] == [2, 3, 4]
+
+        source_spans = await repo.get_scene_spans_for_scene(
+            db_session,
+            nid,
+            uuid.UUID(source.id),
+        )
+        target_spans = await repo.get_scene_spans_for_scene(
+            db_session,
+            nid,
+            uuid.UUID(target.id),
+        )
+        assert [span.chapter_index for span in source_spans] == [1]
+        assert [span.chapter_index for span in target_spans] == [2, 2, 3, 3, 4]
+
+        await db_session.rollback()
+
+    @pytest.mark.asyncio
+    async def test_split_chapters_validates_targets_before_mutating_source(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+        other_novel_id: str,
+    ) -> None:
+        from modules.outline.repositories import SceneRepository
+        from modules.outline.services import SceneService
+
+        svc = SceneService()
+        repo = SceneRepository()
+        source = await svc.create(
+            db_session,
+            sample_novel_id,
+            SceneCreate(
+                scene_index=0,
+                title="Source",
+                chapter_ids=["1", "2"],
+                scene_chunks=[
+                    {"chapter_index": 1, "start_offset": 0, "end_offset": 10},
+                    {"chapter_index": 2, "start_offset": 0, "end_offset": 20},
+                ],
+                status="canonical",
+            ),
+        )
+        archived = await svc.create(
+            db_session,
+            sample_novel_id,
+            SceneCreate(scene_index=1, title="Archived", status="canonical"),
+        )
+        await svc.delete(db_session, archived.id, novel_id=sample_novel_id)
+        cross_novel = await svc.create(
+            db_session,
+            other_novel_id,
+            SceneCreate(scene_index=0, title="Other", status="canonical"),
+        )
+
+        with pytest.raises(DomainNotFoundError) as missing_source:
+            await svc.split_chapters(db_session, sample_novel_id, chapter_index=99)
+        assert missing_source.value.code == "scene_split_source_not_found"
+        assert missing_source.value.status_code == 404
+
+        with pytest.raises(DomainValidationError) as same_target:
+            await svc.split_chapters(
+                db_session,
+                sample_novel_id,
+                chapter_index=2,
+                target_scene_id=source.id,
+            )
+        assert same_target.value.code == "scene_split_same_target"
+        assert same_target.value.status_code == 400
+
+        for target_id in (archived.id, cross_novel.id, uuid.uuid4().hex):
+            with pytest.raises(DomainNotFoundError) as missing_target:
+                await svc.split_chapters(
+                    db_session,
+                    sample_novel_id,
+                    chapter_index=2,
+                    target_scene_id=target_id,
+                )
+            assert missing_target.value.code == "scene_split_target_not_found"
+            assert missing_target.value.status_code == 404
+
+        unchanged = await repo.get(db_session, uuid.UUID(source.id))
+        assert unchanged is not None
+        assert unchanged.chapter_ids == ["1", "2"]
+        assert [chunk["chapter_index"] for chunk in unchanged.scene_chunks] == [1, 2]
+
+        nid = uuid.UUID(hex=sample_novel_id)
+        links = list(
+            (
+                await db_session.execute(
+                    select(SceneChapterLink)
+                    .where(SceneChapterLink.scene_id == uuid.UUID(source.id))
+                    .order_by(SceneChapterLink.chapter_index)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        spans = await repo.get_scene_spans_for_scene(
+            db_session,
+            nid,
+            uuid.UUID(source.id),
+        )
+        assert [link.chapter_index for link in links] == [1, 2]
+        assert [span.chapter_index for span in spans] == [1, 2]
+
+        await db_session.rollback()
+
+    @pytest.mark.asyncio
+    async def test_split_chapters_to_new_scene_shifts_indices_and_syncs_spans(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        from modules.outline.repositories import SceneRepository
+        from modules.outline.services import SceneService
+
+        svc = SceneService()
+        repo = SceneRepository()
+        source = await svc.create(
+            db_session,
+            sample_novel_id,
+            SceneCreate(
+                scene_index=0,
+                title="Source",
+                chapter_ids=["1", "2", "3"],
+                scene_chunks=[
+                    {"chapter_index": 1, "start_offset": 0, "end_offset": 10},
+                    {"chapter_index": 2, "start_offset": 0, "end_offset": 20},
+                    {"chapter_index": 3, "start_offset": 0, "end_offset": 30},
+                ],
+                status="canonical",
+            ),
+        )
+        await svc.create(
+            db_session,
+            sample_novel_id,
+            SceneCreate(scene_index=1, title="Later A"),
+        )
+        await svc.create(
+            db_session,
+            sample_novel_id,
+            SceneCreate(scene_index=2, title="Later B"),
+        )
+
+        await svc.split_chapters(
+            db_session,
+            sample_novel_id,
+            chapter_index=2,
+        )
+
+        nid = uuid.UUID(hex=sample_novel_id)
+        ordered = await repo.get_by_novel_ordered(db_session, nid)
+        assert [(scene.title, scene.scene_index) for scene in ordered] == [
+            ("Source", 0),
+            ("Scene (断章自 Ch.2)", 1),
+            ("Later A", 2),
+            ("Later B", 3),
+        ]
+        updated_source = ordered[0]
+        new_scene = ordered[1]
+        assert updated_source.chapter_ids == ["1"]
+        assert new_scene.chapter_ids == ["2", "3"]
+        assert [chunk["chapter_index"] for chunk in updated_source.scene_chunks] == [1]
+        assert [chunk["chapter_index"] for chunk in new_scene.scene_chunks] == [2, 3]
+        assert new_scene.status == "draft"
+        assert new_scene.structure_meta["split_from_scene_id"] == source.id
+        assert new_scene.structure_meta["split_at_chapter_index"] == 2
+
+        links = list(
+            (
+                await db_session.execute(
+                    select(SceneChapterLink)
+                    .where(
+                        SceneChapterLink.scene_id.in_([updated_source.id, new_scene.id])
+                    )
+                    .order_by(
+                        SceneChapterLink.scene_id,
+                        SceneChapterLink.chapter_index,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        links_by_scene: dict[uuid.UUID, list[int]] = {}
+        for link in links:
+            links_by_scene.setdefault(link.scene_id, []).append(link.chapter_index)
+        assert links_by_scene == {
+            updated_source.id: [1],
+            new_scene.id: [2, 3],
+        }
+
+        source_spans = await repo.get_scene_spans_for_scene(
+            db_session,
+            nid,
+            uuid.UUID(source.id),
+        )
+        new_spans = await repo.get_scene_spans_for_scene(
+            db_session,
+            nid,
+            new_scene.id,
+        )
+        assert [span.chapter_index for span in source_spans] == [1]
+        assert [span.chapter_index for span in new_spans] == [2, 3]
+
+        await db_session.rollback()
+
+    @pytest.mark.asyncio
+    async def test_split_chapters_builds_new_scene_before_mutating_source(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        from modules.outline.repositories import SceneRepository
+        from modules.outline.services import SceneService
+
+        svc = SceneService()
+        repo = SceneRepository()
+        source = await svc.create(
+            db_session,
+            sample_novel_id,
+            SceneCreate(
+                scene_index=0,
+                title="Source",
+                chapter_ids=["1", "2"],
+                scene_chunks=[
+                    {"chapter_index": 1, "start_offset": 0, "end_offset": 10},
+                    {"chapter_index": 2, "start_offset": 0, "end_offset": 20},
+                ],
+                status="canonical",
+            ),
+        )
+        later = await svc.create(
+            db_session,
+            sample_novel_id,
+            SceneCreate(scene_index=1, title="Later", status="canonical"),
+        )
+        source_model = await repo.get(db_session, uuid.UUID(source.id))
+        assert source_model is not None
+        source_model.narrative_tag = "x" * 33
+        db_session.add(source_model)
+        await db_session.flush()
+
+        with pytest.raises(PydanticValidationError):
+            await svc.split_chapters(
+                db_session,
+                sample_novel_id,
+                chapter_index=2,
+            )
+
+        unchanged_source = await repo.get(db_session, uuid.UUID(source.id))
+        unchanged_later = await repo.get(db_session, uuid.UUID(later.id))
+        assert unchanged_source is not None
+        assert unchanged_later is not None
+        assert unchanged_source.chapter_ids == ["1", "2"]
+        assert [
+            chunk["chapter_index"] for chunk in unchanged_source.scene_chunks
+        ] == [1, 2]
+        assert unchanged_later.scene_index == 1
+        ordered = await repo.get_by_novel_ordered(
+            db_session,
+            uuid.UUID(sample_novel_id),
+        )
+        assert len(ordered) == 2
 
         await db_session.rollback()
 
@@ -1273,6 +1693,77 @@ class TestSceneSplitChunk:
         assert new_orm.scene_chunks[0]["chapter_index"] == 6
         assert new_orm.scene_chunks[0]["end_pos"] == 60
         assert later_orm.scene_index == 3
+
+    @pytest.mark.asyncio
+    async def test_split_scene_chunk_supports_offset_contract_and_persists_spans(
+        self,
+        db_session: AsyncSession,
+        sample_novel_id: str,
+    ) -> None:
+        from modules.outline.repositories import SceneRepository
+        from modules.outline.services import SceneService
+
+        nid = uuid.UUID(hex=sample_novel_id)
+        repo = SceneRepository()
+        source = await repo.create(
+            db_session,
+            nid,
+            SceneCreate(
+                scene_index=1,
+                title="Offset source",
+                chapter_ids=["5"],
+                scene_chunks=[
+                    {
+                        "chapter_id": "5",
+                        "chapter_index": 5,
+                        "start_offset": 0,
+                        "end_offset": 100,
+                    }
+                ],
+                status="draft",
+            ),
+        )
+
+        result = await SceneService().split_scene_chunk_to_new_chapter(
+            db_session,
+            sample_novel_id,
+            source_scene_id=str(source.id),
+            source_chapter_id="5",
+            source_chapter_index=5,
+            new_chapter_id="6",
+            new_chapter_index=6,
+            split_pos=40,
+            new_chapter_length=60,
+        )
+
+        source_id = source.id
+        new_scene = next(scene for scene in result if scene.id != source_id)
+        new_scene_id = new_scene.id
+        db_session.expire_all()
+        stored_source = await repo.get(db_session, source_id)
+        stored_new = await repo.get(db_session, new_scene_id)
+        assert stored_source is not None
+        assert stored_new is not None
+        assert stored_source.scene_chunks[0]["end_offset"] == 40
+        assert stored_new.scene_chunks[0]["start_offset"] == 0
+        assert stored_new.scene_chunks[0]["end_offset"] == 60
+
+        source_spans = await repo.get_scene_spans_for_scene(
+            db_session,
+            nid,
+            source_id,
+        )
+        new_spans = await repo.get_scene_spans_for_scene(
+            db_session,
+            nid,
+            new_scene_id,
+        )
+        assert [(span.start_offset, span.end_offset) for span in source_spans] == [
+            (0, 40)
+        ]
+        assert [(span.start_offset, span.end_offset) for span in new_spans] == [
+            (0, 60)
+        ]
 
     @pytest.mark.parametrize(
         "source_chapter_id,source_chapter_index,split_pos,match",

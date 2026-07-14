@@ -13,6 +13,7 @@ export function createPublishManager({ state, api, toast, modal, esc, onStatusCh
   let _publishTaskId = null
   let _publishProgress = null
   let _publishTimer = null
+  let _publishClearTimer = null
   let _errorModalVisible = false
 
   let _lastContent = ""
@@ -66,6 +67,32 @@ export function createPublishManager({ state, api, toast, modal, esc, onStatusCh
     }
   }
 
+  async function _notifyPublished(result) {
+    onStatusChange("发布成功")
+    try {
+      await onPublished(result)
+    } catch {
+      toast("章节已发布，但写作台刷新失败，请手动刷新", "warning")
+      return
+    }
+    toast("已发布", "success")
+  }
+
+  function _cancelProgressClear() {
+    if (!_publishClearTimer) return
+    clearTimeout(_publishClearTimer)
+    _publishClearTimer = null
+  }
+
+  function _scheduleProgressClear() {
+    _cancelProgressClear()
+    _publishClearTimer = setTimeout(() => {
+      _publishClearTimer = null
+      _publishProgress = null
+      updateBar()
+    }, 3000)
+  }
+
   async function publish(content, title, chapterIndex, currentDraftId, currentScene, currentVersionNumber, currentUpdatedAt) {
     if (_publishProgress?.phase === "running" || _publishTaskId) {
       toast("发布任务正在进行中", "info")
@@ -76,6 +103,7 @@ export function createPublishManager({ state, api, toast, modal, esc, onStatusCh
       toast("工作稿内容不能为空", "warning")
       return
     }
+    _cancelProgressClear()
 
     _lastContent = content
     _lastTitle = title || `第 ${chapterIndex} 章`
@@ -111,14 +139,16 @@ export function createPublishManager({ state, api, toast, modal, esc, onStatusCh
       if (result.task_id) {
         _publishTaskId = result.task_id
         _publishProgress = { phase: "running", step: 0, message: "正在存入 RAG 系统...", showModal: false }
-        _startPublishPolling()
       } else {
         _publishProgress = { phase: "done", step: 1, message: "发布完成" }
       }
 
-      onStatusChange("发布成功")
-      toast("已发布", "success")
-      onPublished(result)
+      await _notifyPublished(result)
+      if (result.task_id) {
+        _startPublishPolling()
+      } else {
+        _scheduleProgressClear()
+      }
       return result
     } catch (err) {
       toast(err.message || "发布失败", "error")
@@ -128,6 +158,7 @@ export function createPublishManager({ state, api, toast, modal, esc, onStatusCh
 
   async function retry() {
     if (!_lastChapterIndex) return
+    _cancelProgressClear()
     _publishTaskId = null
     _publishProgress = { phase: "running", step: 0, message: "正在重试...", showModal: false }
     updateBar()
@@ -150,12 +181,14 @@ export function createPublishManager({ state, api, toast, modal, esc, onStatusCh
       }
       if (result.task_id) {
         _publishTaskId = result.task_id
-        _startPublishPolling()
       } else {
         _publishProgress = { phase: "done", step: 1, message: "发布完成" }
-        onStatusChange("发布成功")
-        toast("已发布", "success")
-        onPublished(result)
+      }
+      await _notifyPublished(result)
+      if (result.task_id) {
+        _startPublishPolling()
+      } else {
+        _scheduleProgressClear()
       }
       return result
     } catch (err) {
@@ -168,9 +201,11 @@ export function createPublishManager({ state, api, toast, modal, esc, onStatusCh
   function _startPublishPolling() {
     if (_publishTimer) clearInterval(_publishTimer)
     const poll = async () => {
-      if (!_publishTaskId) { _stopPublishPolling(); return }
+      const taskId = _publishTaskId
+      if (!taskId) { _stopPublishPolling(); return }
       try {
-        const task = await api.tasks.get(_publishTaskId, state.currentProjectId)
+        const task = await api.tasks.get(taskId, state.currentProjectId)
+        if (_publishTaskId !== taskId) return
         let needStatusUpdate = false
 
         if (task.progress !== undefined && task.progress !== null) {
@@ -192,10 +227,10 @@ export function createPublishManager({ state, api, toast, modal, esc, onStatusCh
           _publishProgress.phase = "done"
           _publishProgress.message = "发布完成"
           onStatusChange("发布成功")
-          toast("已发布", "success")
+          toast("发布后处理已完成", "success")
           updateBar()
           _stopPublishPolling()
-          setTimeout(() => { _publishProgress = null; onPublished({}) }, 3000)
+          _scheduleProgressClear()
           return
         }
 
@@ -219,6 +254,7 @@ export function createPublishManager({ state, api, toast, modal, esc, onStatusCh
           onStatusChange(_publishProgress.message)
         }
       } catch (err) {
+        if (_publishTaskId !== taskId) return
         if (_publishProgress) {
           const errMsg = sanitizeTaskErrorMessage(
             err?.message || "发布状态查询失败。工作稿已保存，请稍后重试。",
@@ -262,6 +298,7 @@ export function createPublishManager({ state, api, toast, modal, esc, onStatusCh
   }
 
   function dismissError() {
+    _cancelProgressClear()
     _publishProgress = null
     _publishTaskId = null
     _errorModalVisible = false
@@ -270,6 +307,7 @@ export function createPublishManager({ state, api, toast, modal, esc, onStatusCh
   }
 
   function dispose() {
+    _cancelProgressClear()
     _stopPublishPolling()
     _publishProgress = null
     _errorModalVisible = false

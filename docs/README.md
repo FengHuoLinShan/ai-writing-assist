@@ -69,10 +69,16 @@
 
 1. `prompts/Prompt体系设计.md` — Prompt 体系总览
 
+## 架构决策
+
+- [`adr/0005-core-entity-type-transition.md`](adr/0005-core-entity-type-transition.md) — CoreEntity 自定义类型、可逆 Profile snapshot 迁移与硬依赖门禁
+
 ## 参考与历史资料
 
 - `references/` — 当前实现可查阅但不构成契约的分析和历史设计依据；包括
   [`map-prd-v1.1.md`](references/map-prd-v1.1.md)、
+  [`2026-07-14-novalist-map-capability-analysis.md`](references/2026-07-14-novalist-map-capability-analysis.md)、
+  [`2026-07-14-novalist-sillytavern-worldbook-design-analysis.md`](references/2026-07-14-novalist-sillytavern-worldbook-design-analysis.md)、
   [`deep-import-progress-backend-query-analysis.md`](references/deep-import-progress-backend-query-analysis.md)
   与 Scene 健康标记参考。
 - `audit/` — 代码、性能、安全和文档审计的时间点记录。
@@ -124,6 +130,7 @@
 8. [`audit/2026-07-12-P1运行盲区收敛完成审计.md`](audit/2026-07-12-P1运行盲区收敛完成审计.md) — P1 工程闭环、context-planner 正式对比结果、放宽验收与仍未达的严格质量目标
 9. [`superpowers/plans/2026-07-12-p2-compatibility-surface-doc-drift.md`](superpowers/plans/2026-07-12-p2-compatibility-surface-doc-drift.md) — P2 文档同步、world contract 解耦、facade 公共面冻结和 legacy 删除计划
 10. [`audit/2026-07-12-P2兼容面与文档漂移收敛完成审计.md`](audit/2026-07-12-P2兼容面与文档漂移收敛完成审计.md) — P2 删除清单、稳定接口影响与仓库级验证结果
+11. [`audit/2026-07-14-全量代码扫描修复收敛报告.md`](audit/2026-07-14-全量代码扫描修复收敛报告.md) — 全量 bug / 低效路径分批修复、独立复核、全仓库验证，以及 9 项 P1 结构债务与 1 项 P2 性能优化暂留清单
 
 ## 当前状态
 

@@ -512,27 +512,34 @@ class TestRealWorkflowStep1:
                 workflow,
                 "_run_phase0_plan",
                 side_effect=_mock_phase0_plan,
+                autospec=True,
             ),
             mock.patch.object(
                 workflow,
                 "_run_phase1a_scene_slicing",
                 side_effect=_mock_phase1a_slicing,
+                autospec=True,
             ),
             mock.patch.object(
                 workflow,
                 "_run_phase1b_enrichment",
                 side_effect=_mock_phase1b_enrichment,
+                autospec=True,
             ),
-            mock.patch.object(workflow, "_commit_fused_scenes", side_effect=_mock_commit),
+            mock.patch.object(
+                workflow, "_commit_fused_scenes", side_effect=_mock_commit, autospec=True
+            ),
             mock.patch.object(
                 workflow,
                 "_extract_entities_by_scene",
                 side_effect=_mock_extract,
+                autospec=True,
             ),
             mock.patch.object(
                 workflow,
                 "_analyze_structure",
                 side_effect=_mock_analyze,
+                autospec=True,
             ),
         ):
             result = await workflow.run_step(

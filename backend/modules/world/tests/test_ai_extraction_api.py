@@ -35,6 +35,7 @@ async def test_entity_extraction_routes_new_assets_through_suggestion_queue(
             ]
         )
     )
+
     @asynccontextmanager
     async def _open_fake_project_llm_client(_db, actual_novel_id):
         assert actual_novel_id == novel_id
@@ -69,6 +70,7 @@ async def test_entity_extraction_routes_new_assets_through_suggestion_queue(
             )
         ),
     )
+
     class FakeLLM:
         model_name = "fake-model"
 
@@ -279,6 +281,8 @@ async def test_world_alias_relation_extract_enqueues_domain_task_after_confirmat
     assert task.meta["start_chapter"] == 1
     assert task.meta["end_chapter"] == 3
     assert task.meta["scene_ids"] == ["scene-a"]
+    assert task.meta["llm_execution_snapshot"]["novel_id"] == novel_id
+    assert task.meta["llm_execution_snapshot"]["profile_hash"]
 
 
 @pytest.mark.asyncio
@@ -362,96 +366,51 @@ async def test_world_entity_extraction_task_attaches_created_entity_refs(
 
 
 @pytest.mark.asyncio
-async def test_world_alias_relation_extraction_task_invokes_di_handler(
+async def test_world_alias_relation_extraction_task_rejects_ordinary_session(
     db_session: AsyncSession,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from modules.world import tasks as world_tasks
 
-    calls: list[dict] = []
-
-    async def fake_handler(db, novel_id, **kwargs):
-        calls.append({"novel_id": novel_id, **kwargs})
-        return {
-            "total_aliases": 2,
-            "total_relations": 1,
-            "alias_relation_scenes": 3,
-        }
-
-    monkeypatch.setattr(
-        world_tasks,
-        "_container_get",
-        lambda name: (
-            fake_handler if name == "world.run_alias_relation_extraction" else None
-        ),
-    )
-    snapshot = {
-        "version": "1",
-        "novel_id": "00000000-0000-0000-0000-000000000001",
-        "profile_hash": "snapshot-hash",
-    }
-    project_settings = {"llm": {"model": "project-model"}}
-    monkeypatch.setattr(
-        "modules.project.facade.build_project_llm_execution_snapshot",
-        AsyncMock(return_value=snapshot),
-    )
-    monkeypatch.setattr(
-        "modules.project.facade.restore_project_llm_execution_settings",
-        AsyncMock(return_value=project_settings),
-    )
-
     class FakeTask:
         id = uuid.uuid4()
+        task_type = "world_alias_relation_extraction"
+        status = "running"
+        attempt = 1
+        lease_id = str(uuid.uuid4())
         meta = {
             "novel_id": "00000000-0000-0000-0000-000000000001",
+            "context_confirmation_id": "00000000-0000-0000-0000-000000000002",
             "start_chapter": 1,
             "end_chapter": 3,
             "scene_ids": ["scene-a"],
         }
+        result = {}
 
-        def __init__(self) -> None:
-            self.progress: float | None = None
-
-        def update_progress(self, value: float) -> None:
-            self.progress = value
-
-    task = FakeTask()
-    result = await world_tasks.handle_world_alias_relation_extraction(db_session, task)
-
-    assert result["total_aliases"] == 2
-    assert result["total_relations"] == 1
-    assert task.progress == 1.0
-    assert calls == [
-        {
-            "novel_id": "00000000-0000-0000-0000-000000000001",
-            "workflow_id": str(task.id),
-            "scene_ids": ["scene-a"],
-            "start_chapter": 1,
-            "end_chapter": 3,
-            "project_settings": project_settings,
-        }
-    ]
-    assert task.meta["llm_execution_snapshot"] == snapshot
-    assert result["llm_execution_snapshot"] == snapshot
+    with pytest.raises(RuntimeError, match="fenced TaskWorker handler session"):
+        await world_tasks.handle_world_alias_relation_extraction(
+            db_session,
+            FakeTask(),
+        )
 
 
 @pytest.mark.asyncio
-async def test_world_alias_relation_extraction_task_requires_novel_id(
-    db_session: AsyncSession,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_world_alias_relation_extraction_task_requires_novel_id() -> None:
     from modules.world import tasks as world_tasks
 
-    handler = AsyncMock()
-    monkeypatch.setattr(
-        world_tasks,
-        "_container_get",
-        lambda name: handler if name == "world.run_alias_relation_extraction" else None,
-    )
+    db = SimpleNamespace(task_checkpoint_enabled=True)
 
     class FakeTask:
         id = uuid.uuid4()
-        meta = {"start_chapter": 1, "end_chapter": 3}
+        task_type = "world_alias_relation_extraction"
+        status = "running"
+        attempt = 1
+        lease_id = str(uuid.uuid4())
+        meta = {
+            "context_confirmation_id": "00000000-0000-0000-0000-000000000002",
+            "start_chapter": 1,
+            "end_chapter": 3,
+        }
+        result = {}
 
         def update_progress(self, value: float) -> None:
             raise AssertionError(f"progress should not update: {value}")
@@ -461,11 +420,9 @@ async def test_world_alias_relation_extraction_task_requires_novel_id(
         match="novel_id is required for world_alias_relation_extraction",
     ):
         await world_tasks.handle_world_alias_relation_extraction(
-            db_session,
+            db,
             FakeTask(),
         )
-
-    handler.assert_not_awaited()
 
 
 @pytest.mark.asyncio

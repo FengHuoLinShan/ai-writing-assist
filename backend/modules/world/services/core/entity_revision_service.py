@@ -114,7 +114,11 @@ class EntityRevisionService:
         rid = parse_uuid(revision_id, "revision_id")
         nid = parse_uuid(novel_id, "novel_id")
 
-        # 先对当前状态打快照
+        current = await self._entity_repo.get_for_update(db, eid)
+        if current is None or current.novel_id != nid:
+            raise NotFoundError(f"CoreEntity {entity_id} not found")
+
+        # 锁定当前实体后再打快照，避免并发类型修改保存过期状态。
         await self.create_snapshot(db, entity_id, novel_id, revision_reason="rollback")
 
         # 获取目标版本
@@ -138,9 +142,29 @@ class EntityRevisionService:
             status=snapshot.get("status"),
         )
 
-        entity = await self._entity_repo.update(db, eid, update_data)
+        target_type = update_data.entity_type
+        if target_type is not None and target_type != snapshot.get("entity_type"):
+            # Defensive only; the snapshot field above is the same source of truth.
+            target_type = snapshot.get("entity_type")
+        type_changed = target_type is not None and target_type != current.entity_type
+        if type_changed:
+            from modules.world.services.core.entity_type_transition_service import (
+                EntityTypeTransitionService,
+            )
+
+            await EntityTypeTransitionService().transition(
+                db,
+                entity=current,
+                new_type=target_type,
+                changed_by="rollback",
+            )
+
+        entity = await self._entity_repo.update(db, current, update_data)
         if entity is None:
             raise NotFoundError(f"CoreEntity {entity_id} not found after rollback")
+
+        if type_changed:
+            await self._invalidate_type_change(db, novel_id, entity_id)
 
         from modules.world.schemas import CoreEntityResponse
 
@@ -157,7 +181,7 @@ class EntityRevisionService:
         eid = parse_uuid(entity_id, "entity_id")
         nid = parse_uuid(novel_id, "novel_id")
 
-        entity = await self._entity_repo.get(db, eid)
+        entity = await self._entity_repo.get_for_update(db, eid)
         if entity is None or entity.novel_id != nid:
             raise NotFoundError(f"CoreEntity {entity_id} not found")
 
@@ -240,6 +264,19 @@ class EntityRevisionService:
                 reveal_level=snapshot.get("reveal_level"),
                 status=snapshot.get("status"),
             )
+            target_type = update_data.entity_type
+            if target_type is not None and target_type != entity.entity_type:
+                from modules.world.services.core.entity_type_transition_service import (
+                    EntityTypeTransitionService,
+                )
+
+                await EntityTypeTransitionService().transition(
+                    db,
+                    entity=entity,
+                    new_type=target_type,
+                    changed_by="rollback",
+                )
+                await self._invalidate_type_change(db, novel_id, entity_id)
             await self._entity_repo.update(db, entity, update_data)
             restored_fields = [
                 "summary",
@@ -275,6 +312,31 @@ class EntityRevisionService:
             "restored_fields": restored_fields,
             "warnings": warnings,
         }
+
+    @staticmethod
+    async def _invalidate_type_change(
+        db: AsyncSession,
+        novel_id: str,
+        entity_id: str,
+    ) -> None:
+        from modules.context.facade import mark_asset_context_changed
+        from modules.world.services.worldbuilding.synopsis_invalidation import (
+            mark_synopsis_source_changed,
+        )
+
+        await mark_asset_context_changed(
+            db,
+            novel_id=novel_id,
+            asset_type="world_entity",
+            asset_id=entity_id,
+            reason="entity_type_changed",
+        )
+        await mark_synopsis_source_changed(
+            db,
+            novel_id,
+            source_type="core_entity",
+            source_id=entity_id,
+        )
 
     async def seed_text_archive(
         self,

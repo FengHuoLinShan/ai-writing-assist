@@ -66,6 +66,9 @@ POST   /api/projects/{id}/restore              # 恢复项目
 DELETE /api/projects/{id}/permanent            # 永久删除（级联）
 ```
 
-项目级智能去重只聚合各资产模块的建议并写入任务结果；实体或结构资产的判断、确认和
-实际写入仍由 world / outline 拥有。应用接口必须显式确认，不能用项目 API 绕过待处理
-建议与已采用资产边界。
+项目级智能去重只聚合各资产模块的建议；`schema_version=2` 任务结果同时提供
+group 裁决和 legacy suggestions。group apply 必须引用原扫描任务，服务端以任务结果
+校验成员、动作和 execution fingerprint，并以每组 savepoint 保证组内原子、组间
+独立。实体或结构资产的判断、指纹和实际写入仍由 world / outline 拥有。
+`smart_dedup_workbench_decisions` 只保存当前 pair 和 semantic fingerprints 的
+`keep_separate`，不替代两个资产模块的领域权威。

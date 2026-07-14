@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.lifecycle import TaskLifecycleService, lifecycle_contract
@@ -44,6 +45,183 @@ async def test_get_owner_returns_none_for_missing_or_invalid_task() -> None:
     assert await service.get_owner(db, task_id=str(uuid.uuid4())) is None
     assert await service.get_owner(db, task_id="not-a-uuid") is None
     db.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_completed_payload_and_result_replace_are_strictly_scoped(
+    db_session: AsyncSession,
+) -> None:
+    service = TaskLifecycleService()
+    novel_id = str(uuid.uuid4())
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="outline_generate",
+        status="done",
+        meta={
+            "novel_id": novel_id,
+            "context_confirmation_id": "confirmed",
+            "start_chapter": "2",
+            "end_chapter": 8,
+            "private_task_metadata": {"must_not_cross_facade": True},
+        },
+        result={"requires_apply": True, "nested": {"value": 1}},
+    )
+    pending = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="outline_generate",
+        status="pending",
+        meta={"novel_id": novel_id},
+        result={"requires_apply": True},
+    )
+    db_session.add_all([task, pending])
+    await db_session.flush()
+    task_id = task.id
+
+    assert (
+        await service.get_completed_payload(
+            db_session,
+            task_id=str(task.id),
+            task_type="other_type",
+            novel_id=novel_id,
+        )
+        is None
+    )
+    assert (
+        await service.get_completed_payload(
+            db_session,
+            task_id=str(task.id),
+            task_type="outline_generate",
+            novel_id=str(uuid.uuid4()),
+        )
+        is None
+    )
+    assert (
+        await service.get_completed_payload(
+            db_session,
+            task_id=str(pending.id),
+            task_type="outline_generate",
+            novel_id=novel_id,
+        )
+        is None
+    )
+
+    payload = await service.get_completed_payload(
+        db_session,
+        task_id=str(task.id),
+        task_type="outline_generate",
+        novel_id=novel_id,
+        for_update=True,
+    )
+    assert payload is not None
+    assert payload.context_confirmation_id == "confirmed"
+    assert payload.start_chapter == 2
+    assert payload.end_chapter == 8
+    assert not hasattr(payload, "meta")
+    original_revision = payload.revision_token
+    payload.result["nested"]["value"] = 99
+    assert task.result["nested"]["value"] == 1
+
+    assert not await service.replace_completed_result(
+        db_session,
+        task_id=str(task.id),
+        task_type="other_type",
+        novel_id=novel_id,
+        expected_revision_token=original_revision,
+        result={"apply_status": "wrong type"},
+    )
+    assert not await service.replace_completed_result(
+        db_session,
+        task_id=str(pending.id),
+        task_type="outline_generate",
+        novel_id=novel_id,
+        expected_revision_token=pending.updated_at,
+        result={"apply_status": "pending overwrite"},
+    )
+    assert not await service.replace_completed_result(
+        db_session,
+        task_id=str(task.id),
+        task_type="outline_generate",
+        novel_id=str(uuid.uuid4()),
+        expected_revision_token=original_revision,
+        result={"apply_status": "applied"},
+    )
+    assert await service.replace_completed_result(
+        db_session,
+        task_id=str(task.id),
+        task_type="outline_generate",
+        novel_id=novel_id,
+        expected_revision_token=original_revision,
+        result={"apply_status": "applied"},
+    )
+    assert task.result == {"apply_status": "applied"}
+    assert task.updated_at != original_revision
+    assert not await service.replace_completed_result(
+        db_session,
+        task_id=str(task.id),
+        task_type="outline_generate",
+        novel_id=novel_id,
+        expected_revision_token=original_revision,
+        result={"apply_status": "stale overwrite"},
+    )
+    persisted = await db_session.get(AsyncTask, task_id)
+    assert persisted is not None
+    assert persisted.result == {"apply_status": "applied"}
+
+
+@pytest.mark.asyncio
+async def test_completed_payload_lock_query_compiles_for_both_databases() -> None:
+    service = TaskLifecycleService()
+    db = AsyncMock()
+    result = MagicMock()
+    result.mappings.return_value.one_or_none.return_value = None
+    db.execute.return_value = result
+
+    assert (
+        await service.get_completed_payload(
+            db,
+            task_id=str(uuid.uuid4()),
+            task_type="outline_generate",
+            novel_id=str(uuid.uuid4()),
+            for_update=True,
+        )
+        is None
+    )
+
+    statement = db.execute.await_args.args[0]
+    sqlite_sql = str(statement.compile(dialect=sqlite.dialect()))
+    postgres_sql = str(statement.compile(dialect=postgresql.dialect()))
+    assert "JSON_EXTRACT" in sqlite_sql
+    assert " ->> " in postgres_sql
+    assert "FOR UPDATE" in postgres_sql
+
+
+@pytest.mark.asyncio
+async def test_completed_payload_rejects_malformed_whitelisted_context(
+    db_session: AsyncSession,
+) -> None:
+    novel_id = str(uuid.uuid4())
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="outline_generate",
+        status="done",
+        meta={
+            "novel_id": novel_id,
+            "context_confirmation_id": {"unexpected": "mapping"},
+        },
+        result={"requires_apply": True},
+    )
+    db_session.add(task)
+    await db_session.flush()
+
+    assert (
+        await TaskLifecycleService().get_completed_payload(
+            db_session,
+            task_id=str(task.id),
+            task_type="outline_generate",
+            novel_id=novel_id,
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio

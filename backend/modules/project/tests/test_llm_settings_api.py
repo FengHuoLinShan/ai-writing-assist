@@ -330,6 +330,38 @@ async def test_effective_llm_settings_all_system_when_no_config(async_client, fa
 
 
 @pytest.mark.asyncio
+async def test_effective_llm_settings_missing_project_returns_404(
+    async_client: AsyncClient,
+) -> None:
+    response = await async_client.get(
+        f"/api/projects/{uuid.uuid4()}/effective-llm-settings"
+    )
+
+    assert response.status_code == 404
+    assert response.json()["error"] == "not_found"
+
+
+@pytest.mark.asyncio
+async def test_effective_llm_settings_deleted_project_returns_404(
+    async_client: AsyncClient,
+    factory,
+) -> None:
+    project_id = await factory.create_project()
+    deleted = await async_client.delete(
+        f"/api/projects/{project_id}",
+        headers=XHR_HEADERS,
+    )
+    assert deleted.status_code == 204
+
+    response = await async_client.get(
+        f"/api/projects/{project_id}/effective-llm-settings"
+    )
+
+    assert response.status_code == 404
+    assert response.json()["error"] == "not_found"
+
+
+@pytest.mark.asyncio
 async def test_effective_llm_settings_global_then_project(async_client, factory):
     pid = await factory.create_project()
     await async_client.put(

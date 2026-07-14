@@ -298,4 +298,94 @@ test.describe("智能去重", () => {
     await expect(page.getByRole("button", { name: "应用选中建议" })).toBeEnabled()
     expect(scanCount).toBe(2)
   })
+
+  test("schema v2 三人重复组在窄屏完成裁决并保留结果报告", async ({ page }) => {
+    const project = await createProject({ title: "智能去重组工作台", genre: "mystery", language: "zh" })
+    testProjectId = project.id
+    let applyPayload = null
+    const fp = (char) => char.repeat(64)
+    const group = {
+      group_id: "group-klein",
+      asset_type: "world_entity",
+      presentation: "cluster",
+      members: [
+        { asset_id: "zhou", title: "周明瑞", status: "draft", summary: "穿越前身份", relation_count: 2 },
+        { asset_id: "klein-moretti", title: "克莱恩·莫雷蒂", status: "canonical", summary: "主人公", relation_count: 8 },
+        { asset_id: "klein", title: "克莱恩", status: "candidate", summary: "简称", relation_count: 1 },
+      ],
+      eligible_primary_asset_ids: ["klein-moretti"],
+      recommended_primary_asset_id: "klein-moretti",
+      edges: [
+        {
+          source_asset_id: "zhou",
+          target_asset_id: "klein-moretti",
+          recommended_action: "merge",
+          allowed_actions: ["merge", "alias_only", "keep_separate"],
+          reason: "身份证据一致",
+          evidence_anchors: [{ snippet: "叙事中明确为同一人" }],
+          source_execution_fingerprint: fp("a"),
+          target_execution_fingerprint: fp("b"),
+        },
+        {
+          source_asset_id: "klein",
+          target_asset_id: "klein-moretti",
+          recommended_action: "alias_only",
+          allowed_actions: ["merge", "alias_only", "keep_separate"],
+          reason: "简称命中",
+          source_execution_fingerprint: fp("c"),
+          target_execution_fingerprint: fp("b"),
+        },
+      ],
+    }
+
+    await page.route("**/api/projects/*/smart-dedup/scan", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ task_id: "smart-dedup-group-task" }),
+    }))
+    await page.route("**/api/tasks/smart-dedup-group-task*", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        task_id: "smart-dedup-group-task",
+        task_type: "smart_dedup_scan",
+        status: "done",
+        progress: 100,
+        result: { schema_version: 2, total_assets_scanned: 3, groups: [group], suggestions: [] },
+      }),
+    }))
+    await page.route("**/api/projects/*/smart-dedup/apply", async (route) => {
+      applyPayload = route.request().postDataJSON()
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          applied: 2,
+          skipped: 0,
+          group_results: [{ group_id: group.group_id, status: "success", applied: 2 }],
+        }),
+      })
+    })
+
+    await page.setViewportSize({ width: 600, height: 900 })
+    await openWorkbench(page, project, "world")
+    await page.locator('[data-action="start-smart-dedup"]').click()
+
+    await expect(page.locator("#modal-title")).toHaveText("智能去重裁决工作台", { timeout: 10000 })
+    await expect(page.locator("#modal-content")).toHaveAttribute("data-modal-size", "large")
+    await expect(page.locator("#modal-body")).toContainText("周明瑞")
+    await expect(page.locator("#modal-body")).toContainText("只看差异")
+    await expect(page.locator("#modal-body")).not.toContainText("手动主体 ID")
+    await expect(page.getByRole("button", { name: "执行已就绪组 (1)" })).toBeEnabled()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+
+    await page.getByRole("button", { name: "执行已就绪组 (1)" }).click()
+    await expect(page.locator("#modal-body")).toContainText("执行成功")
+    await expect(page.locator("#modal-title")).toHaveText("智能去重裁决工作台")
+    expect(applyPayload).toMatchObject({
+      confirmed: true,
+      scan_task_id: "smart-dedup-group-task",
+      groups: [{ group_id: group.group_id, primary_asset_id: "klein-moretti" }],
+    })
+  })
 })

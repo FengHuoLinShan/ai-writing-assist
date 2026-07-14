@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,8 +12,128 @@ from infrastructure.tasks.enqueuer import enqueue_task
 from modules.rag.contracts import RagIndexReport
 from modules.rag.models import RagIndexState
 
+PreparedIndexClaim = Literal["claimed", "source_changed", "fresh"]
+PreparedIndexPreflight = Literal["ready", "source_changed", "fresh"]
+
 
 class RagIndexStateService:
+    async def preflight_prepared(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        chapter_index: int,
+        content_mode: str,
+        source_draft_id: str | None,
+        source_content_hash: str | None,
+        force: bool = False,
+    ) -> PreparedIndexPreflight:
+        """Skip expensive embedding when this exact prepared source is fresh."""
+        await self._lock_state_key(
+            db,
+            novel_id=novel_id,
+            chapter_index=chapter_index,
+            content_mode=content_mode,
+        )
+        source = await self._get_source(
+            db,
+            novel_id=novel_id,
+            chapter_index=chapter_index,
+            content_mode=content_mode,
+        )
+        current_source_id = str(source.id) if source and source.id else None
+        current_hash = source.content_hash if source else None
+        expected_source_id = str(source_draft_id) if source_draft_id else None
+        if current_source_id != expected_source_id or current_hash != source_content_hash:
+            return "source_changed"
+        if force or source is None or current_source_id is None:
+            return "ready"
+
+        state = await self._get(
+            db,
+            novel_id=novel_id,
+            chapter_index=chapter_index,
+            content_mode=content_mode,
+            lock=True,
+        )
+        if (
+            state is not None
+            and state.status == "succeeded"
+            and state.indexed_hash == current_hash
+            and state.indexed_source_id == uuid.UUID(current_source_id)
+        ):
+            return "fresh"
+        return "ready"
+
+    async def begin_prepared(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        chapter_index: int,
+        content_mode: str,
+        source_draft_id: str | None,
+        source_content_hash: str | None,
+        force: bool = False,
+    ) -> PreparedIndexClaim:
+        """Claim a precomputed index only while its source is still current.
+
+        The caller may spend significant time generating embeddings before this
+        method.  Source validation and the state claim therefore happen together
+        under the existing per-index-key transaction lock, immediately before
+        the prepared rows are persisted.
+        """
+        await self._lock_state_key(
+            db,
+            novel_id=novel_id,
+            chapter_index=chapter_index,
+            content_mode=content_mode,
+        )
+        source = await self._get_source(
+            db,
+            novel_id=novel_id,
+            chapter_index=chapter_index,
+            content_mode=content_mode,
+        )
+        current_source_id = str(source.id) if source and source.id else None
+        current_hash = source.content_hash if source else None
+        expected_source_id = str(source_draft_id) if source_draft_id else None
+        if current_source_id != expected_source_id or current_hash != source_content_hash:
+            return "source_changed"
+
+        state = await self._get(
+            db,
+            novel_id=novel_id,
+            chapter_index=chapter_index,
+            content_mode=content_mode,
+            lock=True,
+        )
+        if state is None:
+            state = RagIndexState(
+                novel_id=uuid.UUID(str(novel_id)),
+                chapter_index=chapter_index,
+                content_mode=content_mode,
+            )
+            db.add(state)
+        elif (
+            not force
+            and source is not None
+            and current_source_id is not None
+            and state.status == "succeeded"
+            and state.indexed_hash == current_hash
+            and state.indexed_source_id == uuid.UUID(current_source_id)
+        ):
+            return "fresh"
+
+        state.requested_source_id = (
+            uuid.UUID(expected_source_id) if expected_source_id else None
+        )
+        state.requested_hash = source_content_hash
+        state.status = "running"
+        state.error_message = None
+        await db.flush()
+        return "claimed"
+
     async def mark_dirty(
         self,
         db: AsyncSession,
@@ -292,7 +413,30 @@ class RagIndexStateService:
         chapter_index: int,
         content_mode: str,
         error: str,
-    ) -> None:
+        expected_source_id: str | None = None,
+        expected_source_hash: str | None = None,
+        match_expected_source: bool = False,
+    ) -> bool:
+        """Mark only the still-current failed attempt.
+
+        A provider failure is observed after the task released its source-read
+        transaction.  Another task may have indexed that source, or a publish
+        may have installed a newer source, before this method acquires the
+        state lock.  Expected-source fencing prevents the old failure from
+        overwriting either outcome.
+        """
+        await self._lock_state_key(
+            db,
+            novel_id=novel_id,
+            chapter_index=chapter_index,
+            content_mode=content_mode,
+        )
+        source = await self._get_source(
+            db,
+            novel_id=novel_id,
+            chapter_index=chapter_index,
+            content_mode=content_mode,
+        )
         state = await self._get(
             db,
             novel_id=novel_id,
@@ -300,10 +444,55 @@ class RagIndexStateService:
             content_mode=content_mode,
             lock=True,
         )
-        if state is not None:
-            state.status = "failed"
-            state.error_message = error[:1000]
-            await db.flush()
+        current_source_id = str(source.id) if source and source.id else None
+        current_hash = source.content_hash if source else None
+        normalized_expected_id = str(expected_source_id) if expected_source_id else None
+        if match_expected_source and (
+            current_source_id != normalized_expected_id
+            or current_hash != expected_source_hash
+        ):
+            return False
+
+        created_state = state is None
+        if created_state:
+            state = RagIndexState(
+                novel_id=uuid.UUID(str(novel_id)),
+                chapter_index=chapter_index,
+                content_mode=content_mode,
+            )
+            db.add(state)
+        elif match_expected_source:
+            expected_uuid = (
+                uuid.UUID(normalized_expected_id) if normalized_expected_id else None
+            )
+            if (
+                state.status in {"succeeded", "missing_source"}
+                and state.indexed_source_id == expected_uuid
+                and state.indexed_hash == expected_source_hash
+            ):
+                return False
+            if (
+                state.requested_source_id != expected_uuid
+                or state.requested_hash != expected_source_hash
+            ):
+                return False
+            if state.status not in {"pending", "running", "failed"}:
+                return False
+        elif state.status not in {"pending", "running", "failed"}:
+            # Legacy begin_direct()/fail() callers do not carry an explicit
+            # source fence. They may fail the row they already own, but must
+            # never turn a completed terminal state back into failed.
+            return False
+
+        if match_expected_source or created_state:
+            state.requested_source_id = (
+                uuid.UUID(str(source.id)) if source and source.id else None
+            )
+            state.requested_hash = source.content_hash if source else None
+        state.status = "failed"
+        state.error_message = error[:1000]
+        await db.flush()
+        return True
 
     async def summary(self, db: AsyncSession, novel_id: str) -> dict:
         stmt = select(RagIndexState).where(

@@ -128,3 +128,4 @@ async def test_outline_ai_apis_enqueue_domain_tasks_after_confirmation(
     assert task.task_type == task_type
     assert task.meta["novel_id"] == novel_id
     assert task.meta["context_confirmation_id"] == confirmation_id
+    assert task.meta["llm_execution_snapshot"]["profile_hash"]

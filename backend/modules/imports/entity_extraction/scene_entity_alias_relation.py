@@ -13,6 +13,9 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.errors import LLMInvalidResponseError
+from modules.imports.entity_extraction.scene_entity_checkpoint import (
+    scene_input_fingerprint,
+)
 from modules.imports.entity_extraction.scene_entity_config import (
     phase2_alias_relation_concurrency,
     phase2_alias_relation_entity_index_char_limit,
@@ -84,61 +87,38 @@ class AliasRelationExtractor:
                 existing_checkpoint.get("status") if existing_checkpoint else None
             )
             retry_count = _checkpoint_retry_count(existing_checkpoint)
-            if existing_status in {"done", "skipped"}:
-                skipped_scenes += 1
-                progress_completed += 1
-                scene_checkpoints.append(
-                    _build_phase2b_checkpoint(
-                        scene,
-                        scene_id=scene_id,
-                        scene_index=scene_index,
-                        status="skipped",
-                        retry_count=retry_count,
-                        aliases=existing_checkpoint.get("aliases", 0),
-                        relations=existing_checkpoint.get("relations", 0),
-                    )
-                )
-                if on_scene_progress is not None:
-                    await on_scene_progress(progress_completed, total_scenes)
-                continue
-            if existing_status == "failed":
-                rerun_scenes += 1
-                retry_count += 1
-
-            elapsed_s = time.monotonic() - started_at
-            remaining_s = total_timeout_seconds - elapsed_s
-            if remaining_s <= 0:
-                error_kind = "timeout"
-                error_message = (
-                    "Phase 2b alias/relation extraction exceeded total timeout "
-                    f"budget ({total_timeout_seconds}s)"
-                )
-                failed_scenes.extend(
-                    _scene_indices_for_failure(
-                        scenes[scene_position:],
-                        start_position=scene_position,
-                    )
-                )
-                for failed_scene in scenes[scene_position:]:
-                    failed_index = _scene_index_for_failure(
-                        failed_scene,
-                        fallback=progress_completed + 1,
-                    )
-                    scene_checkpoints.append(
-                        _build_phase2b_checkpoint(
-                            failed_scene,
-                            scene_id=service._scene_id(failed_scene),
-                            scene_index=failed_index,
-                            status="failed",
-                            retry_count=retry_count,
-                            error=error_message,
-                            error_kind=error_kind,
-                        )
-                    )
-                break
-
+            input_fingerprint: str | None = None
             try:
                 chapters_text = await service._load_scene_chapters(db, scene)
+                if chapters_text:
+                    chapters_text = _trim_phase2b_scene_text(chapters_text)
+                input_fingerprint = scene_input_fingerprint(scene, chapters_text)
+                fingerprint_matches = bool(
+                    existing_checkpoint
+                    and existing_checkpoint.get("input_fingerprint") == input_fingerprint
+                )
+                if existing_status in {"done", "skipped"} and fingerprint_matches:
+                    skipped_scenes += 1
+                    progress_completed += 1
+                    scene_checkpoints.append(
+                        _build_phase2b_checkpoint(
+                            scene,
+                            scene_id=scene_id,
+                            scene_index=scene_index,
+                            status="skipped",
+                            retry_count=retry_count,
+                            aliases=existing_checkpoint.get("aliases", 0),
+                            relations=existing_checkpoint.get("relations", 0),
+                            input_fingerprint=input_fingerprint,
+                        )
+                    )
+                    if on_scene_progress is not None:
+                        await on_scene_progress(progress_completed, total_scenes)
+                    continue
+                if existing_status is not None:
+                    rerun_scenes += 1
+                    if existing_status == "failed" and fingerprint_matches:
+                        retry_count += 1
                 if not chapters_text:
                     progress_completed += 1
                     scene_checkpoints.append(
@@ -150,12 +130,39 @@ class AliasRelationExtractor:
                             retry_count=retry_count,
                             error="empty_scene_text",
                             error_kind="empty_scene_text",
+                            input_fingerprint=input_fingerprint,
                         )
                     )
                     if on_scene_progress is not None:
                         await on_scene_progress(progress_completed, total_scenes)
                     continue
-                chapters_text = _trim_phase2b_scene_text(chapters_text)
+
+                elapsed_s = time.monotonic() - started_at
+                remaining_s = total_timeout_seconds - elapsed_s
+                if remaining_s <= 0:
+                    error_kind = "timeout"
+                    error_message = (
+                        "Phase 2b alias/relation extraction exceeded total timeout "
+                        f"budget ({total_timeout_seconds}s)"
+                    )
+                    failed_scenes.append(scene_index)
+                    progress_completed += 1
+                    scene_checkpoints.append(
+                        _build_phase2b_checkpoint(
+                            scene,
+                            scene_id=scene_id,
+                            scene_index=scene_index,
+                            status="failed",
+                            retry_count=retry_count,
+                            error=error_message,
+                            error_kind=error_kind,
+                            input_fingerprint=input_fingerprint,
+                        )
+                    )
+                    if on_scene_progress is not None:
+                        await on_scene_progress(progress_completed, total_scenes)
+                    continue
+
                 if entity_index is None:
                     entity_index = await _run_phase2b_preparation_step(
                         "entity_index",
@@ -189,6 +196,7 @@ class AliasRelationExtractor:
                         "chapters_text": chapters_text,
                         "entity_index": compact_entity_index,
                         "snapshot_id": getattr(snapshot, "id", None),
+                        "input_fingerprint": input_fingerprint,
                     }
                 )
             except Exception as exc:
@@ -205,6 +213,7 @@ class AliasRelationExtractor:
                         retry_count=retry_count,
                         error=error_message,
                         error_kind=error_kind,
+                        input_fingerprint=input_fingerprint,
                     )
                 )
                 logger.warning(
@@ -257,6 +266,7 @@ class AliasRelationExtractor:
                             fallback=True,
                             error=current_error_message,
                             error_kind=current_error_kind,
+                            input_fingerprint=item["input_fingerprint"],
                         )
                     )
                     logger.warning(
@@ -284,6 +294,7 @@ class AliasRelationExtractor:
                         retry_count=int(item.get("retry_count", 0) or 0),
                         error=error_message,
                         error_kind=error_kind,
+                        input_fingerprint=item["input_fingerprint"],
                     )
                 )
                 logger.warning(
@@ -321,6 +332,7 @@ class AliasRelationExtractor:
                         retry_count=int(item.get("retry_count", 0) or 0),
                         aliases=persisted["aliases"],
                         relations=persisted["relations"],
+                        input_fingerprint=item["input_fingerprint"],
                     )
                 )
                 if snapshot_id is not None:
@@ -344,6 +356,7 @@ class AliasRelationExtractor:
                         retry_count=int(item.get("retry_count", 0) or 0),
                         error=error_message,
                         error_kind=error_kind,
+                        input_fingerprint=item["input_fingerprint"],
                     )
                 )
                 logger.warning(
@@ -648,6 +661,7 @@ def _build_phase2b_checkpoint(
     fallback: bool = False,
     error: str | None = None,
     error_kind: str | None = None,
+    input_fingerprint: str | None = None,
 ) -> dict[str, Any]:
     checkpoint = {
         "scene_id": scene_id,
@@ -665,6 +679,8 @@ def _build_phase2b_checkpoint(
         checkpoint["error"] = error
     if error_kind is not None:
         checkpoint["error_kind"] = error_kind
+    if input_fingerprint is not None:
+        checkpoint["input_fingerprint"] = input_fingerprint
     return checkpoint
 
 

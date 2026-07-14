@@ -200,7 +200,8 @@ class TestGetPanorama:
 
         with patch(
             "modules.memory.api._service.get_panorama",
-            AsyncMock(return_value=expected),
+            autospec=True,
+            return_value=expected,
         ):
             result = await get_panorama(db, novel_id, chapter_index)
 
@@ -214,7 +215,8 @@ class TestGetPanorama:
 
         with patch(
             "modules.memory.api._service.get_panorama",
-            AsyncMock(side_effect=RuntimeError("service error")),
+            autospec=True,
+            side_effect=RuntimeError("service error"),
         ):
             with pytest.raises(RuntimeError, match="service error"):
                 await get_panorama(db, novel_id, 1)
@@ -234,11 +236,25 @@ class TestListEvents:
         novel_id = "c" * 32
         event = _make_event(novel_id)
 
-        with patch(
-            "modules.memory.repositories.EventRepository.get_by_chapter_range",
-            AsyncMock(return_value=[event]),
+        with (
+            patch(
+                "modules.memory.repositories.EventRepository.count_by_chapter_range",
+                autospec=True,
+                return_value=1,
+            ) as mock_count,
+            patch(
+                "modules.memory.repositories.EventRepository."
+                "get_by_chapter_range_page_after",
+                autospec=True,
+                return_value=[event],
+            ) as mock_page,
         ):
-            result = await list_events(db, novel_id)
+            result = await list_events(
+                db,
+                novel_id,
+                from_chapter=1,
+                to_chapter=999999,
+            )
 
         assert isinstance(result, EventListResponse)
         assert result.total == 1
@@ -246,6 +262,11 @@ class TestListEvents:
         assert result.items[0].event_type == "entity_created"
         assert result.items[0].entity_type == "character"
         assert result.items[0].snapshot_after == {"name": "Alice"}
+        count_args = mock_count.await_args.args
+        assert count_args[1:] == (db, uuid.UUID(hex=novel_id), 1, 999999)
+        page_args = mock_page.await_args.args
+        assert page_args[1:] == (db, uuid.UUID(hex=novel_id), 1, 999999)
+        assert mock_page.await_args.kwargs == {"after": None, "limit": 1}
 
     @pytest.mark.parametrize(
         "events,expected_total",
@@ -259,30 +280,52 @@ class TestListEvents:
         db = AsyncMock(spec=AsyncSession)
         novel_id = "d" * 32
 
-        with patch(
-            "modules.memory.repositories.EventRepository.get_by_chapter_range",
-            AsyncMock(return_value=events),
+        with (
+            patch(
+                "modules.memory.repositories.EventRepository.count_by_chapter_range",
+                autospec=True,
+                return_value=expected_total,
+            ),
+            patch(
+                "modules.memory.repositories.EventRepository."
+                "get_by_chapter_range_page_after",
+                autospec=True,
+                return_value=events,
+            ) as mock_page,
         ):
-            result = await list_events(db, novel_id)
+            result = await list_events(
+                db,
+                novel_id,
+                from_chapter=1,
+                to_chapter=999999,
+            )
 
         assert result.total == expected_total
         assert len(result.items) == expected_total
+        assert mock_page.await_count == (1 if expected_total else 0)
 
     async def test_from_chapter_to_chapter_passed_to_repository(self):
         db = AsyncMock(spec=AsyncSession)
         novel_id = "e" * 32
 
-        with patch(
-            "modules.memory.repositories.EventRepository.get_by_chapter_range",
-            AsyncMock(return_value=[]),
-        ) as mock_get:
+        with (
+            patch(
+                "modules.memory.repositories.EventRepository.count_by_chapter_range",
+                autospec=True,
+                return_value=0,
+            ) as mock_count,
+            patch(
+                "modules.memory.repositories.EventRepository."
+                "get_by_chapter_range_page_after",
+                autospec=True,
+            ) as mock_page,
+        ):
             await list_events(db, novel_id, from_chapter=3, to_chapter=7)
 
-        mock_get.assert_awaited_once()
-        args, _kwargs = mock_get.await_args
-        # positional: db, nid, from_chapter, to_chapter
-        assert args[2] == 3
-        assert args[3] == 7
+        count_args = mock_count.await_args.args
+        # autospec preserves the repository method's self argument.
+        assert count_args[1:] == (db, uuid.UUID(hex=novel_id), 3, 7)
+        mock_page.assert_not_awaited()
 
     async def test_default_chapter_range_explicit_values_are_valid(self):
         """验证明确的 from_chapter/to_chapter 值被传递到 repository"""
@@ -290,14 +333,78 @@ class TestListEvents:
         novel_id = "e" * 32
 
         with patch(
-            "modules.memory.repositories.EventRepository.get_by_chapter_range",
-            AsyncMock(return_value=[]),
-        ) as mock_get:
+            "modules.memory.repositories.EventRepository.count_by_chapter_range",
+            autospec=True,
+            return_value=0,
+        ) as mock_count:
             await list_events(db, novel_id, from_chapter=1, to_chapter=999999)
 
-        args, _kwargs = mock_get.await_args
-        assert args[2] == 1
-        assert args[3] == 999999
+        count_args = mock_count.await_args.args
+        assert count_args[1:] == (db, uuid.UUID(hex=novel_id), 1, 999999)
+
+    async def test_keyset_cursor_and_tail_page_keep_stable_order(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        db = AsyncMock(spec=AsyncSession)
+        novel_id = "f" * 32
+        first = _make_event(
+            novel_id,
+            id=uuid.UUID(int=1),
+            chapter_index=2,
+            sequence=1,
+        )
+        second = _make_event(
+            novel_id,
+            id=uuid.UUID(int=2),
+            chapter_index=2,
+            sequence=1,
+        )
+        tail = _make_event(
+            novel_id,
+            id=uuid.UUID(int=3),
+            chapter_index=3,
+            sequence=1,
+        )
+
+        monkeypatch.setattr(
+            "modules.memory.services.MEMORY_EVENT_LIST_BATCH_SIZE",
+            2,
+        )
+        with (
+            patch(
+                "modules.memory.repositories.EventRepository.count_by_chapter_range",
+                autospec=True,
+                return_value=3,
+            ),
+            patch(
+                "modules.memory.repositories.EventRepository."
+                "get_by_chapter_range_page_after",
+                autospec=True,
+                side_effect=[[first, second], [tail]],
+            ) as mock_page,
+        ):
+            result = await list_events(
+                db,
+                novel_id,
+                from_chapter=2,
+                to_chapter=3,
+            )
+
+        assert result.total == 3
+        assert [item.id for item in result.items] == [
+            str(first.id),
+            str(second.id),
+            str(tail.id),
+        ]
+        first_call, tail_call = mock_page.await_args_list
+        assert first_call.args[1:] == (db, uuid.UUID(hex=novel_id), 2, 3)
+        assert first_call.kwargs == {"after": None, "limit": 2}
+        assert tail_call.args[1:] == (db, uuid.UUID(hex=novel_id), 2, 3)
+        assert tail_call.kwargs == {
+            "after": (second.chapter_index, second.sequence, second.id),
+            "limit": 1,
+        }
 
 
 # ============================================================
@@ -317,7 +424,8 @@ class TestGetEntityTimeline:
 
         with patch(
             "modules.memory.repositories.EventRepository.get_by_entity",
-            AsyncMock(return_value=([event], 1)),
+            autospec=True,
+            return_value=([event], 1),
         ):
             result = await get_entity_timeline(db, novel_id, entity_id)
 
@@ -332,7 +440,8 @@ class TestGetEntityTimeline:
 
         with patch(
             "modules.memory.repositories.EventRepository.get_by_entity",
-            AsyncMock(return_value=([], 0)),
+            autospec=True,
+            return_value=([], 0),
         ):
             result = await get_entity_timeline(db, novel_id, entity_id)
 
@@ -346,7 +455,8 @@ class TestGetEntityTimeline:
 
         with patch(
             "modules.memory.repositories.EventRepository.get_by_entity",
-            AsyncMock(return_value=([], 0)),
+            autospec=True,
+            return_value=([], 0),
         ) as mock_get:
             await get_entity_timeline(db, novel_id, entity_id, skip=10, limit=20)
 
@@ -362,7 +472,8 @@ class TestGetEntityTimeline:
 
         with patch(
             "modules.memory.repositories.EventRepository.get_by_entity",
-            AsyncMock(return_value=([], 0)),
+            autospec=True,
+            return_value=([], 0),
         ) as mock_get:
             await get_entity_timeline(db, novel_id, entity_id, skip=0, limit=50)
 
@@ -393,7 +504,8 @@ class TestTriggerCapture:
 
         with patch(
             "modules.memory.api._service.capture_snapshot",
-            AsyncMock(return_value=expected),
+            autospec=True,
+            return_value=expected,
         ):
             result = await trigger_capture(db, novel_id, 5)
 
@@ -408,7 +520,8 @@ class TestTriggerCapture:
 
         with patch(
             "modules.memory.api._service.capture_snapshot",
-            AsyncMock(side_effect=ValueError("capture failed")),
+            autospec=True,
+            side_effect=ValueError("capture failed"),
         ):
             with pytest.raises(ValueError, match="capture failed"):
                 await trigger_capture(db, novel_id, 1)
@@ -430,7 +543,8 @@ class TestListSnapshots:
 
         with patch(
             "modules.memory.repositories.SnapshotRepository.list_for_novel",
-            AsyncMock(return_value=[snapshot]),
+            autospec=True,
+            return_value=[snapshot],
         ):
             result = await list_snapshots(db, novel_id)
 
@@ -460,7 +574,8 @@ class TestListSnapshots:
 
         with patch(
             "modules.memory.repositories.SnapshotRepository.list_for_novel",
-            AsyncMock(return_value=snapshots),
+            autospec=True,
+            return_value=snapshots,
         ):
             result = await list_snapshots(db, novel_id)
 
@@ -488,7 +603,8 @@ class TestTriggerRebuild:
 
         with patch(
             "modules.memory.api._service.full_rebuild",
-            AsyncMock(return_value=expected),
+            autospec=True,
+            return_value=expected,
         ):
             result = await trigger_rebuild(db, novel_id, 2)
 
@@ -502,7 +618,8 @@ class TestTriggerRebuild:
 
         with patch(
             "modules.memory.api._service.full_rebuild",
-            AsyncMock(side_effect=RuntimeError("rebuild failed")),
+            autospec=True,
+            side_effect=RuntimeError("rebuild failed"),
         ):
             with pytest.raises(RuntimeError, match="rebuild failed"):
                 await trigger_rebuild(db, novel_id, 1)
@@ -529,7 +646,8 @@ class TestGetStatus:
 
         with patch(
             "modules.memory.api._service.get_status",
-            AsyncMock(return_value=expected),
+            autospec=True,
+            return_value=expected,
         ):
             result = await get_status(db, novel_id)
 
@@ -551,7 +669,8 @@ class TestGetStatus:
 
         with patch(
             "modules.memory.api._service.get_status",
-            AsyncMock(return_value=expected),
+            autospec=True,
+            return_value=expected,
         ):
             result = await get_status(db, novel_id)
 
@@ -566,7 +685,8 @@ class TestGetStatus:
 
         with patch(
             "modules.memory.api._service.get_status",
-            AsyncMock(side_effect=RuntimeError("status error")),
+            autospec=True,
+            side_effect=RuntimeError("status error"),
         ):
             with pytest.raises(RuntimeError, match="status error"):
                 await get_status(db, novel_id)

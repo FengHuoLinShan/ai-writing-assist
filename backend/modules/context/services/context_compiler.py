@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,6 +42,15 @@ SCOPE_LOADERS: dict[str, list[str]] = {
     "project": ["project", "world_bible"],
     "world": ["project", "world_entities", "world_bible"],
     "world_character": ["project", "world_entities", "characters", "world_bible"],
+    "generation_center": [
+        "project",
+        "world_entities",
+        "characters",
+        "rag_chunks",
+        "plot_threads",
+        "outline_arc",
+        "world_bible",
+    ],
     "arc": [
         "scene",
         "project",
@@ -139,8 +148,23 @@ class ContextCompiler:
         loader_names = SCOPE_LOADERS.get(options.scope, ["project"])
         warnings: list[str] = []
 
-        prerequisite_names = [n for n in loader_names if n in _PREREQUISITE_LOADERS]
-        dependent_names = [n for n in loader_names if n not in _PREREQUISITE_LOADERS]
+        relevance_generation = options.consumer_action in {
+            "writing.generate",
+            "world.object_draft.chat",
+            "world.object_draft.generate",
+        }
+        if relevance_generation:
+            # Generation relevance is assembled before entity Top-K: Scene,
+            # active threads and RAG chunks contribute stable IDs.
+            prerequisite_names = [n for n in loader_names if n == "project"]
+            dependent_names = [
+                n
+                for n in loader_names
+                if n not in {"project", "plot_threads", "world_entities", "characters"}
+            ]
+        else:
+            prerequisite_names = [n for n in loader_names if n in _PREREQUISITE_LOADERS]
+            dependent_names = [n for n in loader_names if n not in _PREREQUISITE_LOADERS]
 
         for name in prerequisite_names:
             loader = self._loaders.get(name)
@@ -176,6 +200,36 @@ class ContextCompiler:
                     logger.warning(msg)
                     warnings.append(msg)
 
+        if relevance_generation:
+            if "plot_threads" in loader_names:
+                loader = self._loaders.get("plot_threads")
+                if loader is None:
+                    msg = "未知的加载器: plot_threads"
+                    logger.warning(msg)
+                    warnings.append(msg)
+                else:
+                    try:
+                        await loader.load(db, options, bundle)
+                    except Exception as exc:
+                        msg = f"加载 plot_threads 时出错: {exc}"
+                        logger.warning(msg)
+                        warnings.append(msg)
+            for name in ("world_entities", "characters"):
+                if name not in loader_names:
+                    continue
+                loader = self._loaders.get(name)
+                if loader is None:
+                    msg = f"未知的加载器: {name}"
+                    logger.warning(msg)
+                    warnings.append(msg)
+                    continue
+                try:
+                    await loader.load(db, options, bundle)
+                except Exception as exc:
+                    msg = f"加载 {name} 时出错: {exc}"
+                    logger.warning(msg)
+                    warnings.append(msg)
+
         bundle.warnings = list(dict.fromkeys([*bundle.warnings, *warnings]))
         return bundle
 
@@ -208,7 +262,7 @@ class ContextCompiler:
             sections=sections,
             total_tokens=total,
             budget_tokens=budget_tokens,
-            compiled_at=datetime.utcnow().isoformat(),
+            compiled_at=datetime.now(UTC).replace(tzinfo=None).isoformat(),
             warnings=warnings,
         )
         return ctx.enforce_budget()
@@ -639,6 +693,29 @@ class ContextCompiler:
                 )
             )
 
+            observed_characters = self._other_characters(
+                bundle.characters,
+                options,
+            )
+            if observed_characters:
+                sections.append(
+                    self._make_section(
+                        key="role_observed_characters",
+                        tier=Tier.P1,
+                        title="POV 可观察的相关人物",
+                        content=self._format_role_observed_characters(
+                            observed_characters
+                        ),
+                        status=status,
+                        activation_reason=("当前 Scene、篇章、剧情线或证据关联的人物"),
+                        sources=self._safe_sources_from_items(
+                            observed_characters,
+                            default_type="character",
+                            status=status,
+                        ),
+                    )
+                )
+
         visible_knowledge = self._format_role_visible_knowledge(bundle.world_entities)
         if visible_knowledge:
             sections.append(
@@ -671,6 +748,27 @@ class ContextCompiler:
                 sources=[],
             )
         )
+
+        safe_plotlines = self._format_safe_plotline_context(
+            bundle.plot_threads,
+            bundle.scene,
+        )
+        if safe_plotlines:
+            sections.append(
+                self._make_section(
+                    key="safe_plotline_context",
+                    tier=Tier.P1,
+                    title="当前剧情线导演摘要",
+                    content=safe_plotlines,
+                    status="director_only",
+                    activation_reason="当前章活跃剧情线的公开进展与 Scene 作用",
+                    sources=self._safe_sources_from_items(
+                        bundle.plot_threads,
+                        default_type="plot_thread",
+                        status="director_only",
+                    ),
+                )
+            )
 
         if bundle.scene:
             scene_perception = self._format_role_scene_perception(bundle.scene, options)
@@ -862,17 +960,106 @@ class ContextCompiler:
             fields = [
                 ("姓名", item.get("name")),
                 ("角色", item.get("role")),
+                ("外观", item.get("appearance")),
+                ("性格", item.get("personality")),
+                ("渴望", item.get("desire")),
+                ("恐惧", item.get("fear")),
+                ("弱点", item.get("weakness")),
                 ("当前目标", item.get("current_goal")),
                 ("当前状态", item.get("current_state")),
                 ("当前情绪", item.get("current_emotion")),
                 ("立场", item.get("stance")),
                 ("语气", item.get("voice_style")),
-                ("行为规则", ", ".join(item.get("behavior_rules") or [])),
+                (
+                    "行为规则",
+                    ContextCompiler._format_character_behavior_rules(
+                        item.get("behavior_rules")
+                    ),
+                ),
             ]
             profile_lines.extend(
                 f"- {label}: {value}" for label, value in fields if value
             )
         return "\n".join(profile_lines) or "未找到 POV 角色档案。"
+
+    @staticmethod
+    def _other_characters(
+        characters: list,
+        options: CompileOptions,
+    ) -> list[dict]:
+        result: list[dict] = []
+        for raw in characters or []:
+            item = raw if isinstance(raw, dict) else getattr(raw, "__dict__", {})
+            char_id = str(item.get("character_id") or item.get("entity_id") or "")
+            if (
+                options.viewpoint_character_id
+                and char_id == options.viewpoint_character_id
+            ):
+                continue
+            result.append(item)
+        return result
+
+    @staticmethod
+    def _format_role_observed_characters(characters: list[dict]) -> str:
+        lines = [
+            "以下姓名仅供模型指代人物，不代表 POV 角色知道其姓名；"
+            "其余仅是可观察的外在表现，不代表 POV 知道对方的身份、"
+            "真实动机或内心。"
+        ]
+        for item in characters:
+            name = item.get("name") or item.get("character_id") or "未命名人物"
+            observable_fields = [
+                ("外观", item.get("appearance")),
+                ("语言风格", item.get("voice_style")),
+            ]
+            details = "；".join(
+                f"{label}={value}" for label, value in observable_fields if value
+            )
+            lines.append(f"- {name}: {details}" if details else f"- {name}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_character_behavior_rules(value: Any) -> str:
+        if not value:
+            return ""
+        if not isinstance(value, list):
+            return str(value)
+        rendered: list[str] = []
+        for item in value:
+            if isinstance(item, dict):
+                text = item.get("rule") or item.get("description") or item.get("content")
+                if text:
+                    rendered.append(str(text))
+            elif item:
+                rendered.append(str(item))
+        return "、".join(rendered)
+
+    @staticmethod
+    def _format_safe_plotline_context(
+        plot_threads: list,
+        scene: dict | None,
+    ) -> str:
+        if not plot_threads:
+            return ""
+        lines = [
+            "DIRECTOR_ONLY: 以下只用于理解当前 Scene 在剧情线中的作用，"
+            "不是 POV 角色已知事实。"
+        ]
+        narrative_tag = scene.get("narrative_tag") if scene else None
+        if narrative_tag:
+            lines.append(f"- 当前 Scene 叙事标签: {narrative_tag}")
+        for raw in plot_threads:
+            item = raw if isinstance(raw, dict) else getattr(raw, "__dict__", {})
+            name = item.get("name") or item.get("id") or "未命名剧情线"
+            public_fields = [
+                ("公开目标", item.get("visible_goal")),
+                ("当前进展", item.get("current_stage")),
+            ]
+            details = "；".join(
+                f"{label}={value}" for label, value in public_fields if value
+            )
+            lines.append(f"- {name}: {details}" if details else f"- {name}")
+        return "\n".join(lines)
 
     @staticmethod
     def _format_reader_visible_world(world_entities: list) -> str:

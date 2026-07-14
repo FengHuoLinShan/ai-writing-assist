@@ -90,14 +90,17 @@ class TestAsyncTaskSubmission:
         project_id: str,
     ) -> None:
         created = await async_client.post(
-            "/api/tasks",
+            "/api/writing/drafts",
             json={
-                "task_type": "publish_chapter",
-                "meta": {"novel_id": project_id, "chapter_index": 1},
+                "novel_id": project_id,
+                "chapter_index": 1,
+                "title": "Module-owned publish",
+                "content": "Published through the writing schema.",
             },
         )
         assert created.status_code == 201, created.text
         task_id = created.json()["task_id"]
+        assert task_id
 
         status = await async_client.get(
             f"/api/tasks/{task_id}",
@@ -112,13 +115,17 @@ class TestAsyncTaskSubmission:
         project_id: str,
     ) -> None:
         created = await async_client.post(
-            "/api/tasks",
+            "/api/writing/drafts",
             json={
-                "task_type": "publish_chapter",
-                "meta": {"novel_id": project_id, "chapter_index": 1},
+                "novel_id": project_id,
+                "chapter_index": 1,
+                "title": "Pending publish",
+                "content": "Cancel the derived task, not schema validation.",
             },
         )
+        assert created.status_code == 201, created.text
         task_id = created.json()["task_id"]
+        assert task_id
         cancelled = await async_client.post(
             f"/api/tasks/{task_id}/cancel",
             params={"novel_id": project_id},
@@ -132,6 +139,20 @@ class TestAsyncTaskSubmission:
             json={"task_type": "not_a_task", "meta": {"novel_id": str(uuid.uuid4())}},
         )
         assert response.status_code == 400
+
+    async def test_module_owned_task_type_requires_module_api(
+        self,
+        async_client: AsyncClient,
+        project_id: str,
+    ) -> None:
+        response = await async_client.post(
+            "/api/tasks",
+            json={
+                "task_type": "publish_chapter",
+                "meta": {"novel_id": project_id, "chapter_index": 1},
+            },
+        )
+        assert response.status_code == 403
 
 
 class TestProjectUpdate:

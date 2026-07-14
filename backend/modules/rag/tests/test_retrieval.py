@@ -281,6 +281,7 @@ class TestRetrievalOrchestratorInjected:
         with patch(
             "modules.rag.retrieval.get_circuit_breaker",
             return_value=breaker,
+            autospec=True,
         ) as get_cb:
             orch = RetrievalOrchestrator(
                 repo=repo,  # type: ignore[arg-type]

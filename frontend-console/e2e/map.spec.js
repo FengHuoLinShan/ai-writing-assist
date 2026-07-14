@@ -4,7 +4,9 @@ import { installLeafletStub } from "./helpers/leaflet-stub.js"
 import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
 import { expectNoPageOverflow, expectWithinViewport, runResponsiveMatrix } from "./helpers/responsive.js"
 import {
+  applyMapEditor,
   cleanupProject,
+  createTerritories,
   createDraft,
   createEntity,
   createLocationBindings,
@@ -13,9 +15,12 @@ import {
   createProject,
   createScene,
   getFocusState,
+  getMapLayerTree,
+  getMapPaths,
   getMapState,
   listTerritories,
   listMaps,
+  updateMapTerrainLayer,
   waitForBackend,
 } from "./helpers/api-client.js"
 
@@ -40,6 +45,8 @@ async function openMapWorkspace(page, project, map, params = {}) {
   })
   if (params.sceneId) query.set("scene_id", params.sceneId)
   if (params.focusEntityId) query.set("focus_entity_id", params.focusEntityId)
+  if (params.focusPathId) query.set("focus_path_id", params.focusPathId)
+  if (params.focusLayerNodeId) query.set("focus_layer_node_id", params.focusLayerNodeId)
 
   await page.goto(`/#workbench/${project.id}/map?${query.toString()}`)
   await page.waitForFunction(() => !state.loading, { timeout: 10000 })
@@ -148,6 +155,268 @@ test.describe("地图一级工作台", () => {
     })
   })
 
+  test("should archive a complete subtree and rename its root on conflicting restore", async ({ page }) => {
+    const project = await createProject({
+      title: "地图归档 E2E",
+      genre: "fantasy",
+      language: "zh",
+    })
+    testProjectId = project.id
+    const root = await createMap(testProjectId, {
+      name: "旧九州",
+      map_type: "world",
+      grid_width: 5,
+      grid_height: 5,
+      template: "blank",
+    })
+    await createMap(testProjectId, {
+      name: "旧王都",
+      map_type: "city",
+      grid_width: 4,
+      grid_height: 4,
+      parent_map_id: root.id,
+      template: "blank",
+    })
+
+    await openWorkbench(page, project, "map")
+    const returnToOverview = page.getByRole("button", { name: "← 返回总览", exact: true })
+    if (await returnToOverview.isVisible()) await returnToOverview.click()
+    await page.getByRole("button", { name: "归档", exact: true }).first().click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("确认操作")
+    await page.locator(SEL.modalFooter).getByRole("button", { name: "归档子树" }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("地图子树已归档", {
+      timeout: 10000,
+    })
+    expect((await listMaps(testProjectId)).total).toBe(0)
+    expect((await listMaps(testProjectId, { status: "archived" })).total).toBe(2)
+
+    await createMap(testProjectId, {
+      name: "旧九州",
+      map_type: "world",
+      grid_width: 3,
+      grid_height: 3,
+      template: "blank",
+    })
+    await reloadWorkbench(page, "map")
+    if (await returnToOverview.isVisible()) await returnToOverview.click()
+    await page.getByRole("button", { name: /归档地图 2/ }).click()
+    await expect(page.getByText("旧九州", { exact: true })).toBeVisible()
+    await expect(page.getByText("旧王都", { exact: true })).toHaveCount(0)
+    await page.getByRole("button", { name: "恢复子树" }).click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("恢复归档地图")
+    await page.locator(SEL.modalFooter).getByRole("button", { name: "恢复子树" }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("恢复失败", {
+      timeout: 10000,
+    })
+    await page.locator("#map-restore-root-name").fill("复原九州")
+    await page.locator(SEL.modalFooter).getByRole("button", { name: "恢复子树" }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("地图子树已恢复", {
+      timeout: 10000,
+    })
+    const activeMaps = await listMaps(testProjectId)
+    expect(activeMaps.items.map((item) => item.name)).toEqual(
+      expect.arrayContaining(["旧九州", "复原九州", "旧王都"]),
+    )
+  })
+
+  test("should quick-create a draggable canonical location layout", async ({ page }) => {
+    const project = await createProject({
+      title: "地图快速创建 E2E",
+      genre: "fantasy",
+      language: "zh",
+    })
+    testProjectId = project.id
+    const location = await createEntity(testProjectId, {
+      name: "云中城",
+      entity_type: "location",
+      status: "canonical",
+    })
+
+    await openWorkbench(page, project, "map")
+    await page.getByRole("button", { name: "快速创建" }).first().click()
+    await expect(page.locator("#map-quick-canvas")).toBeVisible()
+    await page.locator("#map-quick-name").fill("云中世界图")
+    await page.locator('[data-action="map-quick-move"][data-id="' + location.id + '"][data-dq="1"]').click()
+    await page.getByRole("button", { name: "创建", exact: true }).last().click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("地图已快速创建", {
+      timeout: 10000,
+    })
+
+    await expect.poll(async () => {
+      const maps = (await listMaps(testProjectId)).items || []
+      return maps.find((item) => item.name === "云中世界图") || null
+    }).not.toBeNull()
+    const maps = (await listMaps(testProjectId)).items || []
+    const map = maps.find((item) => item.name === "云中世界图")
+    const persisted = await getMapState(testProjectId, map.id)
+    expect(persisted.location_layouts).toHaveLength(1)
+    expect(persisted.location_bindings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ location_entity_id: location.id, is_center: true }),
+    ]))
+  })
+
+  test("should choose among entity map presences and return to the world object", async ({ page }) => {
+    const project = await createProject({
+      title: "地图双向定位 E2E",
+      genre: "fantasy",
+      language: "zh",
+    })
+    testProjectId = project.id
+    const location = await createEntity(testProjectId, {
+      name: "双城关隘",
+      entity_type: "location",
+      status: "canonical",
+      summary: "同时出现在世界图和区域图。",
+    })
+    const worldMap = await createMap(testProjectId, {
+      name: "双向世界图",
+      map_type: "world",
+      grid_width: 6,
+      grid_height: 6,
+      template: "blank",
+    })
+    const regionMap = await createMap(testProjectId, {
+      name: "双向区域图",
+      map_type: "region",
+      grid_width: 6,
+      grid_height: 6,
+      template: "blank",
+    })
+    await createLocationBindings(testProjectId, worldMap.id, {
+      location_entity_id: location.id,
+      hexes: [{ hex_q: 1, hex_r: 1, is_center: true }],
+    })
+    await createLocationBindings(testProjectId, regionMap.id, {
+      location_entity_id: location.id,
+      hexes: [{ hex_q: 2, hex_r: 2, is_center: true }],
+    })
+
+    await openWorkbench(page, project, "world", "objects")
+    const entityRow = page.locator(SEL.tableRow(location.id))
+    await expect(entityRow).toContainText("双城关隘", { timeout: 10000 })
+    await entityRow.locator(".action-menu-btn").click()
+    await entityRow.getByRole("button", { name: "打开地图" }).click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("选择关联地图")
+
+    const popupPromise = page.waitForEvent("popup")
+    await page.locator(".world-map-presence-row", { hasText: "双向区域图" }).click()
+    const popup = await popupPromise
+    await popup.waitForFunction(() => typeof state !== "undefined" && !state.loading, {
+      timeout: 10000,
+    })
+    expect(popup.url()).toContain(`map_id=${regionMap.id}`)
+    expect(popup.url()).toContain(`focus_entity_id=${location.id}`)
+    await expect(popup.locator(SEL.mapCanvas)).toBeVisible({ timeout: 10000 })
+    await clickHex(popup, 2, 2)
+    await expect(popup.locator(SEL.mapDetailPanel)).toContainText("双城关隘")
+    await popup.locator(SEL.mapDetailPanel).getByRole("button", { name: "查看世界对象" }).click()
+    await expect(popup.locator(SEL.tableRow(location.id))).toContainText("双城关隘", {
+      timeout: 10000,
+    })
+    await popup.close()
+  })
+
+  test("should create and paint a terrain overlay layer", async ({ page }) => {
+    const project = await createProject({
+      title: "覆盖素材 E2E",
+      genre: "fantasy",
+      language: "zh",
+    })
+    testProjectId = project.id
+    const map = await createMap(testProjectId, {
+      name: "覆盖素材地图",
+      map_type: "world",
+      grid_width: 6,
+      grid_height: 6,
+      template: "blank",
+    })
+
+    await openMapWorkspace(page, project, map)
+    await page.getByRole("button", { name: "编辑" }).click()
+    await page.getByRole("button", { name: "覆盖素材", exact: true }).click()
+    await page.getByRole("button", { name: "新建" }).click()
+    await page.locator("#map-overlay-new-name").fill("风暴前线")
+    await page.getByRole("button", { name: "创建", exact: true }).last().click()
+    await expect(page.locator("#map-overlay-new-name")).toBeHidden()
+    await expect(page.locator("#map-overlay-layer")).not.toHaveValue("")
+    await page.locator("#map-overlay-asset").selectOption("storm")
+    await page.locator("#map-overlay-preset").selectOption("high_contrast")
+    await page.locator('[data-action="map-overlay-tool"][data-tool="brush"]').click()
+    await clickHex(page, 2, 2)
+    await page.getByRole("button", { name: "应用当前图层", exact: true }).click()
+
+    await expect.poll(async () => {
+      const state = await getMapState(testProjectId, map.id)
+      return {
+        layers: state.terrain_layers?.length || 0,
+        patches: state.terrain_patches?.length || 0,
+        asset: state.terrain_layers?.[0]?.terrain_asset_key,
+        preset: state.terrain_layers?.[0]?.meta?.preset_key,
+      }
+    }).toEqual({ layers: 1, patches: 1, asset: "storm", preset: "high_contrast" })
+  })
+
+  test("should draw, persist, reload, and focus a continuous path", async ({ page }) => {
+    const project = await createProject({
+      title: "连续线路 E2E",
+      genre: "fantasy",
+      language: "zh",
+    })
+    testProjectId = project.id
+    const map = await createMap(testProjectId, {
+      name: "道路与水系地图",
+      map_type: "world",
+      grid_width: 8,
+      grid_height: 8,
+      template: "blank",
+    })
+
+    await openMapWorkspace(page, project, map)
+    await page.getByRole("button", { name: "编辑" }).click()
+    await page.getByRole("button", { name: "线路", exact: true }).click()
+    await page.getByRole("button", { name: "+ 线路图层" }).click()
+    await page.locator("#map-path-layer-name").fill("王国公路")
+    await page.locator("#map-path-layer-category").selectOption("transport")
+    await page.locator(SEL.modalFooter).getByRole("button", { name: "创建" }).click()
+    await expect(page.locator("#map-path-layer")).not.toHaveValue("")
+
+    const canvas = page.locator(SEL.mapCanvas)
+    await canvas.scrollIntoViewIfNeeded()
+    const box = await canvas.boundingBox()
+    expect(box).not.toBeNull()
+    const start = hexPosition(1, 1)
+    const end = hexPosition(4, 2)
+    await page.mouse.move(box.x + start.x, box.y + start.y)
+    await page.mouse.down()
+    await page.mouse.move(box.x + end.x, box.y + end.y, { steps: 16 })
+    await page.mouse.up()
+
+    await expect(page.locator(".map-path-list-row.active")).toContainText("主干道")
+    await page.getByRole("button", { name: "应用当前图层", exact: true }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("已原子应用 2 个编辑命令", {
+      timeout: 10000,
+    })
+
+    await expect.poll(async () => {
+      const state = await getMapPaths(testProjectId, map.id)
+      return state.paths?.length ? state : null
+    }).not.toBeNull()
+    const pathState = await getMapPaths(testProjectId, map.id)
+    expect(pathState.layers).toHaveLength(1)
+    expect(pathState.paths[0].nodes.length).toBeGreaterThanOrEqual(2)
+    const tree = await getMapLayerTree(testProjectId, map.id)
+    const leaf = tree.nodes.find((node) => node.path_layer_id === pathState.layers[0].id)
+    expect(leaf).toBeTruthy()
+
+    await openMapWorkspace(page, project, map, {
+      focusPathId: pathState.paths[0].id,
+      focusLayerNodeId: leaf.id,
+    })
+    await page.getByRole("button", { name: "编辑" }).click()
+    await page.getByRole("button", { name: "线路", exact: true }).click()
+    await expect(page.locator(".map-path-list-row.active")).toContainText(pathState.paths[0].name)
+  })
+
   test("should validate the map name before creating backend records", async ({ page }) => {
     const project = await createProject({
       title: "地图校验 E2E",
@@ -167,6 +436,84 @@ test.describe("地图一级工作台", () => {
 
     const maps = await listMaps(testProjectId)
     expect(maps.total).toBe(0)
+  })
+
+  test("should keep 200x200 canvas rendering within the same-run uncropped baseline", async ({ page }, testInfo) => {
+    test.setTimeout(120000)
+    await page.setViewportSize({ width: 1280, height: 720 })
+    const project = await createProject({
+      title: "地图性能基线 E2E",
+      genre: "fantasy",
+      language: "zh",
+    })
+    testProjectId = project.id
+    const map = await createMap(testProjectId, {
+      name: "200×200 性能地图",
+      map_type: "world",
+      grid_width: 200,
+      grid_height: 200,
+      template: "blank",
+    })
+
+    await openMapWorkspace(page, project, map)
+    const loadMetrics = await page.evaluate(async () => {
+      const { default: mapView } = await import("/views/mapView.js")
+      return { ...mapView._performanceMetrics }
+    })
+
+    const sample = async (uncropped) => page.evaluate(async ({ uncropped }) => {
+      const { default: mapView } = await import("/views/mapView.js")
+      const originalPredicate = mapView._viewportPredicate
+      if (uncropped) mapView._viewportPredicate = () => () => true
+      mapView._renderSubsetCache.clear()
+      mapView._performanceFrameDurations = []
+      mapView._performanceMetrics.total_frames = 0
+      mapView._performanceMetrics.sampled_frames = 0
+      mapView._performanceMetrics.average_frame_ms = null
+      mapView._performanceMetrics.p95_frame_ms = null
+      try {
+        for (let frame = 0; frame < 120; frame += 1) {
+          await new Promise((resolve) => requestAnimationFrame(() => {
+            mapView._redraw()
+            resolve()
+          }))
+        }
+        return {
+          average_frame_ms: mapView._performanceMetrics.average_frame_ms,
+          p95_frame_ms: mapView._performanceMetrics.p95_frame_ms,
+          sampled_frames: mapView._performanceMetrics.sampled_frames,
+          queued_hex_items: mapView._renderMetrics.queued_hex_items,
+          total_hex_items: mapView._renderMetrics.total_hex_items,
+        }
+      } finally {
+        mapView._viewportPredicate = originalPredicate
+        mapView._renderSubsetCache.clear()
+      }
+    }, { uncropped })
+
+    const uncroppedBaseline = await sample(true)
+    const optimized = await sample(false)
+    const report = {
+      browser: "chromium",
+      viewport: { width: 1280, height: 720 },
+      grid: "200x200",
+      warmup_frames: 20,
+      sampled_frames: 100,
+      load: loadMetrics,
+      uncropped_baseline: uncroppedBaseline,
+      optimized,
+      relative_average: optimized.average_frame_ms / uncroppedBaseline.average_frame_ms,
+    }
+    await testInfo.attach("map-canvas-performance.json", {
+      body: Buffer.from(JSON.stringify(report, null, 2)),
+      contentType: "application/json",
+    })
+
+    expect(optimized.sampled_frames).toBe(100)
+    expect(optimized.queued_hex_items).toBeLessThan(uncroppedBaseline.queued_hex_items)
+    expect(optimized.average_frame_ms).toBeLessThanOrEqual(
+      uncroppedBaseline.average_frame_ms * 1.2,
+    )
   })
 
   test("should clear a stale recent map and show a fallback warning", async ({ page }) => {
@@ -231,10 +578,11 @@ test.describe("地图一级工作台", () => {
     await expect(page.locator(SEL.mapCanvas)).toBeVisible({ timeout: 10000 })
     await expectMapCanvasAligned(page)
 
+    await page.getByRole("button", { name: "底图地貌" }).click()
     await page.locator(SEL.mapTerrainSelect).selectOption("water")
     await clickHex(page, 1, 1)
-    await page.getByRole("button", { name: "应用" }).click()
-    await expect(page.locator(SEL.toastContainer)).toContainText("已应用 1 个变更", {
+    await page.getByRole("button", { name: "应用当前图层", exact: true }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("已原子应用 1 个编辑命令", {
       timeout: 10000,
     })
     await expect.poll(async () => {
@@ -242,12 +590,13 @@ test.describe("地图一级工作台", () => {
       return findTile(state, 1, 1)?.terrain_type
     }).toBe("water")
 
-    await page.getByRole("button", { name: "地点绑定" }).click()
+    await page.getByRole("button", { name: "地点", exact: true }).click()
+    await page.getByRole("button", { name: "编辑范围" }).click()
     await page.locator(SEL.mapBindSelect).selectOption(location.id)
     await page.locator(SEL.mapBindCenter).check()
     await clickHex(page, 1, 1)
-    await page.getByRole("button", { name: "应用" }).click()
-    await expect(page.locator(SEL.toastContainer)).toContainText("已应用 1 个变更", {
+    await page.getByRole("button", { name: "应用当前图层", exact: true }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("已原子应用 1 个编辑命令", {
       timeout: 10000,
     })
     await expect.poll(async () => {
@@ -260,12 +609,160 @@ test.describe("地图一级工作台", () => {
       )
     }).toBe(true)
 
-    await page.getByRole("button", { name: "保存并退出编辑" }).click()
+    await page.getByRole("button", { name: "保存全部并退出" }).click()
     await expect(page.locator(SEL.mapCanvas)).toBeVisible({ timeout: 10000 })
     await clickHex(page, 1, 1)
     await expect(page.locator(SEL.mapDetailPanel)).toContainText("洛阳外城")
     await expect(page.locator(SEL.mapDetailPanel)).toContainText("城门与市集所在的外城。")
     await expect(page.locator(SEL.mapDetailPanel)).toContainText("绑定格数")
+  })
+
+  test("should preserve the second session draft on an editor revision conflict", async ({ page }) => {
+    const project = await createProject({
+      title: "地图并发编辑 E2E",
+      genre: "fantasy",
+      language: "zh",
+    })
+    testProjectId = project.id
+    const map = await createMap(testProjectId, {
+      name: "并发地图",
+      map_type: "world",
+      grid_width: 6,
+      grid_height: 6,
+      template: "blank",
+    })
+    const secondPage = await page.context().newPage()
+    try {
+      await openMapWorkspace(page, project, map)
+      await openMapWorkspace(secondPage, project, map)
+      for (const currentPage of [page, secondPage]) {
+        await currentPage.getByRole("button", { name: "编辑" }).click()
+        await currentPage.getByRole("button", { name: "底图地貌" }).click()
+      }
+      await page.locator(SEL.mapTerrainSelect).selectOption("water")
+      await clickHex(page, 1, 1)
+      await secondPage.locator(SEL.mapTerrainSelect).selectOption("forest")
+      await clickHex(secondPage, 2, 2)
+
+      await Promise.all([
+        page.getByRole("button", { name: "应用当前图层" }).click(),
+        secondPage.getByRole("button", { name: "应用当前图层" }).click(),
+      ])
+      await expect.poll(async () => {
+        const messages = await Promise.all([
+          page.locator(SEL.toastContainer).innerText(),
+          secondPage.locator(SEL.toastContainer).innerText(),
+        ])
+        return {
+          success: messages.filter((message) => message.includes("已原子应用")).length,
+          conflict: messages.filter((message) => message.includes("草稿已保留")).length,
+        }
+      }, { timeout: 10000 }).toEqual({ success: 1, conflict: 1 })
+
+      const firstWon = (await page.locator(SEL.toastContainer).innerText())
+        .includes("已原子应用")
+      const losingPage = firstWon ? secondPage : page
+      await expect(losingPage.locator("#map-pending-count")).toContainText("1")
+
+      const persisted = await getMapState(testProjectId, map.id)
+      expect(findTile(persisted, 1, 1)?.terrain_type === "water").toBe(firstWon)
+      expect(findTile(persisted, 2, 2)?.terrain_type === "forest").toBe(!firstWon)
+    } finally {
+      await secondPage.close()
+    }
+  })
+
+  test("should enforce a recursive group lock on legacy visual write routes", async ({ page }) => {
+    const project = await createProject({
+      title: "地图递归锁 E2E",
+      genre: "fantasy",
+      language: "zh",
+    })
+    testProjectId = project.id
+    const character = await createEntity(testProjectId, {
+      name: "锁定角色",
+      entity_type: "character",
+      status: "canonical",
+    })
+    const organization = await createEntity(testProjectId, {
+      name: "锁定组织",
+      entity_type: "organization",
+      status: "canonical",
+    })
+    const map = await createMap(testProjectId, {
+      name: "递归锁地图",
+      map_type: "world",
+      grid_width: 6,
+      grid_height: 6,
+      template: "blank",
+    })
+    const created = await applyMapEditor(testProjectId, map.id, {
+      expected_revision: 0,
+      commands: [{
+        type: "terrain_layer_create",
+        client_id: "storm-layer",
+        data: { name: "风暴", terrain_asset_key: "storm" },
+      }],
+    })
+    const terrainLayerId = created.client_id_map["storm-layer"]
+    const tree = await getMapLayerTree(testProjectId, map.id)
+    const nodes = tree.nodes.map((node) => ({
+      id: node.id,
+      parent_id: node.parent_id,
+      terrain_layer_id: node.terrain_layer_id,
+      node_type: node.node_type,
+      layer_key: node.layer_key,
+      name: node.name,
+      visible: node.visible,
+      locked: node.locked,
+      opacity: node.opacity,
+      sort_order: node.sort_order,
+      min_zoom: node.min_zoom,
+      max_zoom: node.max_zoom,
+      meta: node.meta || {},
+    }))
+    for (const [sortOrder, layerKey] of ["marker", "territory", "terrainOverlay"].entries()) {
+      const node = nodes.find((item) => item.layer_key === layerKey)
+      node.parent_id = null
+      node.parent_client_id = "visual-group"
+      node.sort_order = sortOrder
+    }
+    nodes.push({
+      client_id: "visual-group",
+      node_type: "group",
+      name: "视觉锁定组",
+      visible: true,
+      locked: true,
+      opacity: 1,
+      sort_order: 2,
+      meta: {},
+    })
+    await applyMapEditor(testProjectId, map.id, {
+      expected_revision: tree.editor_revision,
+      commands: [{ type: "layer_tree_replace", nodes }],
+    })
+
+    await openMapWorkspace(page, project, map)
+    await page.getByRole("button", { name: "编辑" }).click()
+    const lockedTree = await getMapLayerTree(testProjectId, map.id)
+    for (const layerKey of ["marker", "territory", "terrainOverlay"]) {
+      const node = lockedTree.nodes.find((item) => item.layer_key === layerKey)
+      await expect(page.locator(`[data-layer-node-id="${node.id}"]`)).toContainText("继承锁定")
+    }
+
+    await expect(createMapMarker(testProjectId, map.id, {
+      entity_id: character.id,
+      marker_type: "character",
+      hex_q: 1,
+      hex_r: 1,
+    })).rejects.toThrow(/\(409\).*map_layer_locked/)
+    await expect(createTerritories(testProjectId, map.id, {
+      faction_entity_id: organization.id,
+      hexes: [{ hex_q: 1, hex_r: 1 }],
+    })).rejects.toThrow(/\(409\).*map_layer_locked/)
+    await expect(updateMapTerrainLayer(testProjectId, map.id, terrainLayerId, {
+      name: "不应改名",
+    })).rejects.toThrow(/\(409\).*map_(?:terrain_)?layer_locked/)
   })
 
   test("should create a generated detail map from a bound location", async ({ page }) => {
@@ -366,7 +863,7 @@ test.describe("地图一级工作台", () => {
     await expect(page.locator(SEL.mapSceneLabel)).toContainText("Scene 0: 抵达洛阳")
 
     await page.getByRole("button", { name: "编辑" }).click()
-    await page.getByRole("button", { name: "标记" }).click()
+    await page.getByRole("button", { name: "标记", exact: true }).click()
     await page.locator(SEL.mapMarkerType).selectOption("character")
     await page.locator(SEL.mapMarkerEntity).selectOption(character.id)
     await page.locator(SEL.mapMarkerLabel).fill("沈砚在城门")
@@ -374,7 +871,11 @@ test.describe("地图一级工作台", () => {
     await page.locator(SEL.mapMarkerSceneEnd).selectOption(firstScene.id)
     await clickHex(page, 2, 2)
 
-    await expect(page.locator(SEL.toastContainer)).toContainText("标记已添加", {
+    await expect(page.locator(SEL.toastContainer)).toContainText("标记已加入草稿", {
+      timeout: 10000,
+    })
+    await page.getByRole("button", { name: "应用当前图层" }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("已原子应用 1 个编辑命令", {
       timeout: 10000,
     })
     await expect.poll(async () => {
@@ -431,11 +932,13 @@ test.describe("地图一级工作台", () => {
 
     await openMapWorkspace(page, project, map)
     await page.getByRole("button", { name: "编辑" }).click()
+    await page.getByRole("button", { name: "领地", exact: true }).click()
     await page.locator(SEL.mapTerritoryFaction).selectOption(organization.id)
-    await page.getByRole("button", { name: "绘制" }).click()
+    await page.locator('[data-action="map-territory-mode"][data-mode="paint"]').click()
     await clickHex(page, 3, 2)
+    await page.getByRole("button", { name: "应用当前图层", exact: true }).click()
 
-    await expect(page.locator(SEL.toastContainer)).toContainText("势力范围已更新", {
+    await expect(page.locator(SEL.toastContainer)).toContainText("已原子应用 1 个编辑命令", {
       timeout: 10000,
     })
     await expect.poll(async () => {

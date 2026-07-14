@@ -5,8 +5,6 @@
 
 from __future__ import annotations
 
-from unittest import mock
-
 import pytest
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
@@ -121,7 +119,8 @@ class TestModelScore:
         dedup_svc: EntityDedupService,
         patched_proxy: DedupModelProxy,
     ) -> None:
-        with mock.patch(DEDUP_MODEL_ACTIVE_PATH, True):
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(DEDUP_MODEL_ACTIVE_PATH, True)
             signals = DedupSignals(
                 rapidfuzz_ratio=0.9,
                 pinyin_jaro=0.9,
@@ -140,7 +139,8 @@ class TestModelScore:
         dedup_svc: EntityDedupService,
         patched_proxy: DedupModelProxy,
     ) -> None:
-        with mock.patch(DEDUP_MODEL_ACTIVE_PATH, True):
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(DEDUP_MODEL_ACTIVE_PATH, True)
             signals = DedupSignals(
                 rapidfuzz_ratio=0.5,
                 pinyin_jaro=0.5,
@@ -159,7 +159,8 @@ class TestModelScore:
         dedup_svc: EntityDedupService,
         patched_proxy: DedupModelProxy,
     ) -> None:
-        with mock.patch(DEDUP_MODEL_ACTIVE_PATH, True):
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(DEDUP_MODEL_ACTIVE_PATH, True)
             signals = DedupSignals(
                 rapidfuzz_ratio=0.1,
                 pinyin_jaro=0.1,
@@ -196,7 +197,8 @@ class TestResolveScorePaths:
     def test_exact_name_skips_model(self, dedup_svc: EntityDedupService) -> None:
         # exact_name 路径在 find_similar_entities 中直接返回，不进入 _resolve_score
         signals = DedupSignals()
-        with mock.patch(DEDUP_MODEL_ACTIVE_PATH, True):
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(DEDUP_MODEL_ACTIVE_PATH, True)
             sim, method, action = dedup_svc._resolve_score(signals)
             # 无模型时回退到级联
             assert method in ("lr_model", "lexical_fusion")

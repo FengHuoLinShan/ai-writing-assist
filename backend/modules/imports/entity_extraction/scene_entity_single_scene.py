@@ -51,6 +51,7 @@ class SingleSceneEntityExtractor:
         source_chapter_index = service._scene_source_chapter_index(scene)
         async with _optional_lock(db_lock):
             chapters_text = await service._load_scene_chapters(db, scene)
+        input_fingerprint = service._scene_input_fingerprint(scene, chapters_text)
         if not chapters_text:
             return {
                 "created": 0,
@@ -61,6 +62,7 @@ class SingleSceneEntityExtractor:
                 "created_delta_ids": [],
                 "updated_context": existing_context,
                 "updated_memory": accumulated_memory,
+                "input_fingerprint": input_fingerprint,
             }
 
         memory_context = service._build_memory_context(accumulated_memory)
@@ -212,4 +214,5 @@ class SingleSceneEntityExtractor:
             "updated_context": updated_context,
             "updated_memory": updated_memory,
             "structured_format_diagnostics": format_diagnostics[:20],
+            "input_fingerprint": input_fingerprint,
         }

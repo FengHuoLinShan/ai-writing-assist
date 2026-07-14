@@ -5,7 +5,20 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete, select
+from sqlalchemy import (
+    BigInteger,
+    String,
+    and_,
+    case,
+    cast,
+    delete,
+    func,
+    literal,
+    or_,
+    select,
+    true,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.context.models import (
@@ -58,8 +71,18 @@ class ContextConfirmationRepository:
         self,
         db: AsyncSession,
         confirmation_id: uuid.UUID,
+        *,
+        for_update: bool = False,
     ) -> ContextConfirmation | None:
-        return await db.get(ContextConfirmation, confirmation_id)
+        if not for_update:
+            return await db.get(ContextConfirmation, confirmation_id)
+        stmt = (
+            select(ContextConfirmation)
+            .where(ContextConfirmation.id == confirmation_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return (await db.execute(stmt)).scalar_one_or_none()
 
     async def update_tracking(
         self,
@@ -378,6 +401,118 @@ class ContextRetrievalTraceRepository:
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
+    async def aggregate_for_novel(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: uuid.UUID,
+        content_mode: str,
+        since: datetime,
+    ) -> dict:
+        conditions = (
+            ContextRetrievalTrace.novel_id == novel_id,
+            ContextRetrievalTrace.content_mode == content_mode,
+            ContextRetrievalTrace.created_at >= since,
+        )
+        totals_stmt = select(
+            func.count(ContextRetrievalTrace.id).label("query_count"),
+            func.coalesce(
+                func.sum(case((ContextRetrievalTrace.degraded.is_(True), 1), else_=0)),
+                0,
+            ).label("degraded_count"),
+            func.coalesce(
+                func.sum(case((ContextRetrievalTrace.hydrated_count == 0, 1), else_=0)),
+                0,
+            ).label("empty_count"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            (ContextRetrievalTrace.hydrated_count == 0)
+                            & or_(
+                                ContextRetrievalTrace.safe_empty_reason.is_(None),
+                                ContextRetrievalTrace.safe_empty_reason == "",
+                            ),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("unclassified_empty_count"),
+        ).where(*conditions)
+        totals = (await db.execute(totals_stmt)).one()
+
+        reasons_stmt = (
+            select(
+                ContextRetrievalTrace.safe_empty_reason,
+                func.count(ContextRetrievalTrace.id),
+            )
+            .where(
+                *conditions,
+                ContextRetrievalTrace.safe_empty_reason.is_not(None),
+                ContextRetrievalTrace.safe_empty_reason != "",
+            )
+            .group_by(ContextRetrievalTrace.safe_empty_reason)
+        )
+        reason_rows = (await db.execute(reasons_stmt)).all()
+
+        bind = db.get_bind()
+        dialect_name = bind.dialect.name if bind is not None else ""
+        if dialect_name == "postgresql":
+            drop_counts_json = cast(ContextRetrievalTrace.drop_counts, JSONB)
+            safe_drop_counts = case(
+                (func.jsonb_typeof(drop_counts_json) == "object", drop_counts_json),
+                else_=cast(literal("{}"), JSONB),
+            )
+            entries = func.jsonb_each(safe_drop_counts).table_valued("key", "value")
+            entry_json = cast(entries.c.value, JSONB)
+            entry_text = cast(entry_json, String)
+            valid_numeric = and_(
+                func.jsonb_typeof(entry_json) == "number",
+                entry_text.op("~")(r"^[0-9]{1,18}$"),
+            )
+            numeric_value = cast(entry_text, BigInteger)
+        else:
+            safe_drop_counts = case(
+                (
+                    func.json_type(ContextRetrievalTrace.drop_counts) == "object",
+                    ContextRetrievalTrace.drop_counts,
+                ),
+                else_=literal("{}"),
+            )
+            entries = func.json_each(safe_drop_counts).table_valued(
+                "key", "value", "type"
+            )
+            numeric_value = cast(entries.c.value, BigInteger)
+            valid_numeric = and_(
+                entries.c.type == "integer",
+                numeric_value >= 0,
+                numeric_value <= 999_999_999_999_999_999,
+            )
+        drops_stmt = (
+            select(
+                entries.c.key,
+                func.sum(numeric_value),
+            )
+            .select_from(ContextRetrievalTrace)
+            .join(entries, true())
+            .where(*conditions, valid_numeric)
+            .group_by(entries.c.key)
+        )
+        drop_rows = (await db.execute(drops_stmt)).all()
+
+        return {
+            "query_count": int(totals.query_count or 0),
+            "degraded_count": int(totals.degraded_count or 0),
+            "empty_count": int(totals.empty_count or 0),
+            "unclassified_empty_count": int(totals.unclassified_empty_count or 0),
+            "drop_counts": {str(key): int(value or 0) for key, value in drop_rows},
+            "safe_empty_reasons": {
+                str(reason): int(count or 0) for reason, count in reason_rows
+            },
+        }
+
     async def prune(
         self,
         db: AsyncSession,
@@ -388,29 +523,30 @@ class ContextRetrievalTraceRepository:
         dry_run: bool,
     ) -> int:
         cutoff = datetime.now(UTC) - timedelta(days=retention_days)
-        records = await self.list_for_novel(
-            db,
-            novel_id=novel_id,
-            since=None,
-            limit=100_000,
+        beyond_retention_cap = (
+            select(ContextRetrievalTrace.id)
+            .where(ContextRetrievalTrace.novel_id == novel_id)
+            .order_by(
+                ContextRetrievalTrace.created_at.desc(),
+                ContextRetrievalTrace.id.desc(),
+            )
+            .offset(retain_latest)
         )
-        stale_ids = {
-            record.id
-            for index, record in enumerate(records)
-            if self._is_before(record.created_at, cutoff) or index >= retain_latest
-        }
-        if stale_ids and not dry_run:
+        stale_condition = or_(
+            ContextRetrievalTrace.created_at < cutoff,
+            ContextRetrievalTrace.id.in_(beyond_retention_cap),
+        )
+        count_stmt = select(func.count(ContextRetrievalTrace.id)).where(
+            ContextRetrievalTrace.novel_id == novel_id,
+            stale_condition,
+        )
+        stale_count = int((await db.execute(count_stmt)).scalar_one() or 0)
+        if stale_count and not dry_run:
             await db.execute(
                 delete(ContextRetrievalTrace).where(
                     ContextRetrievalTrace.novel_id == novel_id,
-                    ContextRetrievalTrace.id.in_(stale_ids),
+                    stale_condition,
                 )
             )
             await db.flush()
-        return len(stale_ids)
-
-    @staticmethod
-    def _is_before(value: datetime, cutoff: datetime) -> bool:
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=UTC)
-        return value < cutoff
+        return stale_count

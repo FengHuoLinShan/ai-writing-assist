@@ -358,6 +358,112 @@ async def test_execution_snapshot_freezes_model_and_rejects_endpoint_drift(
 
 
 @pytest.mark.asyncio
+async def test_execution_snapshot_rejects_provider_drift(
+    db_session: AsyncSession,
+    test_project_id: str,
+) -> None:
+    await _set_llm_profile(
+        db_session,
+        test_project_id,
+        {
+            "provider_id": "openai-compatible",
+            "api_key": "sk-first",
+            "base_url": "https://same-endpoint.example.test/v1",
+            "model": "snapshot-model",
+        },
+    )
+    snapshot = await build_project_llm_execution_snapshot(
+        db_session,
+        test_project_id,
+    )
+
+    await _set_llm_profile(
+        db_session,
+        test_project_id,
+        {
+            "provider_id": "anthropic",
+            "api_key": "sk-rotated",
+            "base_url": "https://same-endpoint.example.test/v1",
+            "model": "snapshot-model",
+        },
+    )
+
+    with pytest.raises(ProjectLLMConfigurationError, match="provider changed"):
+        await restore_project_llm_execution_settings(
+            db_session,
+            test_project_id,
+            snapshot,
+        )
+
+
+@pytest.mark.asyncio
+async def test_execution_snapshot_checks_effective_inherited_provider(
+    db_session: AsyncSession,
+    test_project_id: str,
+) -> None:
+    initial_test_key = "unit-test-placeholder-before-key-rotation"
+    rotated_test_key = "unit-test-placeholder-after-key-rotation"
+    service = SettingsService()
+    await service.upsert_global_llm_defaults(
+        db_session,
+        {
+            "provider_id": "openai-compatible",
+            "base_url": "https://inherited.example.test/v1",
+            "model": "inherited-model",
+        },
+    )
+    await _set_llm_profile(
+        db_session,
+        test_project_id,
+        {"api_key": initial_test_key},
+    )
+    snapshot = await build_project_llm_execution_snapshot(
+        db_session,
+        test_project_id,
+    )
+    assert snapshot["profile"]["provider_id"] == "openai-compatible"
+    assert snapshot["sources"]["provider_id"] == "global"
+
+    await service.upsert_global_llm_defaults(
+        db_session,
+        {
+            "provider_id": "openai-compatible",
+            "base_url": "https://inherited.example.test/v1",
+            "model": "new-global-model",
+        },
+    )
+    await _set_llm_profile(
+        db_session,
+        test_project_id,
+        {"api_key": rotated_test_key},
+    )
+    restored = await restore_project_llm_execution_settings(
+        db_session,
+        test_project_id,
+        snapshot,
+    )
+    assert restored["llm"]["provider_id"] == "openai-compatible"
+    assert restored["llm"]["model"] == "inherited-model"
+    assert restored["llm"]["api_key"] == rotated_test_key
+    assert restored["llm"]["api_key"] != initial_test_key
+
+    await service.upsert_global_llm_defaults(
+        db_session,
+        {
+            "provider_id": "kimi",
+            "base_url": "https://inherited.example.test/v1",
+            "model": "inherited-model",
+        },
+    )
+    with pytest.raises(ProjectLLMConfigurationError, match="provider changed"):
+        await restore_project_llm_execution_settings(
+            db_session,
+            test_project_id,
+            snapshot,
+        )
+
+
+@pytest.mark.asyncio
 async def test_execution_snapshot_rejects_missing_original_key_before_db_lookup(
     db_session: AsyncSession,
     test_project_id: str,
@@ -378,7 +484,8 @@ async def test_execution_snapshot_rejects_missing_original_key_before_db_lookup(
     with (
         patch(
             "modules.project.llm_runtime._resolve_project_runtime_profile",
-            new=AsyncMock(side_effect=AssertionError("must not query project")),
+            autospec=True,
+            side_effect=AssertionError("must not query project"),
         ),
         pytest.raises(ProjectLLMConfigurationError, match="was not configured"),
     ):

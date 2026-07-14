@@ -87,7 +87,13 @@ test.describe("世界对象模块", () => {
 
     await page.locator("#edit-entity-name").fill("编辑后名称")
     await page.locator("#edit-entity-type").selectOption("faction")
-    await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
+    const dialogPromise = page.waitForEvent("dialog")
+    const savePromise = page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
+    const dialog = await dialogPromise
+    expect(dialog.type()).toBe("confirm")
+    expect(dialog.message()).toContain("更改类型")
+    await dialog.accept()
+    await savePromise
 
     // Then: 保存成功，刷新后列表更新
     await expect(page.locator(SEL.toastContainer)).toContainText("已保存", { timeout: 10000 })
@@ -140,6 +146,15 @@ test.describe("世界对象模块", () => {
         suggested_existing_entity_name: target.name,
       } },
     })
+    const unresolvedAlias = await createEntity(testProjectId, {
+      name: "黑荆棘安保公司",
+      entity_type: "faction",
+      status: "candidate",
+      content_json: { _meta: {
+        suggested_action: "link_to_existing",
+        suggested_existing_entity_name: "黑荆棘安保公司",
+      } },
+    })
     await createEntity(testProjectId, {
       name: "克莱恩",
       entity_type: "character",
@@ -159,6 +174,10 @@ test.describe("世界对象模块", () => {
     await expect(aliasGroup).toContainText("已有对象")
     await expect(aliasGroup).toContainText("林岚")
     await expect(aliasGroup).toContainText("岚姐")
+    await expect(aliasGroup).not.toContainText("黑荆棘安保公司")
+    await expect(page.locator(`tr[data-id="${unresolvedAlias.id}"]`)).toContainText(
+      "黑荆棘安保公司",
+    )
 
     const similarGroup = page.locator(".world-candidate-similar-group")
     await expect(similarGroup).toContainText("克莱恩")
@@ -260,11 +279,18 @@ test.describe("世界对象模块", () => {
     }
 
     await reloadWorkbench(page, "world", "candidates")
-    await expect(page.locator(SEL.dataTable)).toContainText("同名候选 01")
-    await expect(page.locator(SEL.dataTable)).toContainText("同名候选 02")
+    const candidateItem = (id) => page.locator(
+      `.world-candidate-alias-item[data-id="${id}"], tr[data-id="${id}"]`,
+    )
+    const visibleCandidateItems = page.locator(
+      ".world-candidate-alias-item[data-id], .data-table tbody tr[data-id]",
+    )
+    await expect(candidateItem(candidates[0].id)).toBeVisible()
+    await expect(candidateItem(candidates[1].id)).toBeVisible()
     await expect(page.getByText("共 21 条")).toBeVisible()
+    await expect(visibleCandidateItems).toHaveCount(20)
 
-    await page.locator(SEL.tableRow(candidates[0].id)).locator('[data-action="merge-entity"]').click()
+    await candidateItem(candidates[0].id).locator('[data-action="merge-entity"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("合并对象")
     await page.locator("#merge-target-query").fill("同名目标")
     await page.locator("#merge-target-search").click()
@@ -273,10 +299,11 @@ test.describe("世界对象模块", () => {
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
 
     await expect(page.locator(SEL.toastContainer)).toContainText("实体已合并", { timeout: 10000 })
-    await expect(page.locator(SEL.dataTable)).not.toContainText("同名候选 01")
-    await expect(page.locator(SEL.dataTable)).toContainText("同名候选 02")
-    await expect(page.getByText("共 21 条")).toHaveCount(0)
-    await expect(page.locator(`${SEL.dataTable} tbody tr`)).toHaveCount(20)
+    await expect(candidateItem(candidates[0].id)).toHaveCount(0)
+    await expect(candidateItem(candidates[1].id)).toBeVisible()
+    await expect(page.locator(".view-header__count")).toHaveText("共 20 个")
+    await expect(visibleCandidateItems).toHaveCount(20)
+    await expect(page.locator(".world-pagination")).toHaveCount(0)
   })
 
   test("回滚实体到指定场景索引", async ({ page }) => {
@@ -345,6 +372,11 @@ test.describe("世界对象模块", () => {
     await expect(page.locator(SEL.dataTable)).toContainText("测试地点")
     await expect(page.locator(SEL.dataTable)).toContainText("测试组织")
 
+    const filterToggle = page.locator(
+      '[data-action="toggle-filter-panel"][data-filter-key="objects"]',
+    )
+    await filterToggle.click()
+    await expect(page.locator("#filter-entity-type")).toBeVisible()
     await page.locator("#filter-entity-type").selectOption("location")
     await page.locator('[data-action="apply-filters"]').click()
 
@@ -359,6 +391,11 @@ test.describe("世界对象模块", () => {
     await reloadWorkbench(page, "world", "objects")
     await expect(page.locator(SEL.dataTable)).toContainText("搜索目标")
 
+    const filterToggle = page.locator(
+      '[data-action="toggle-filter-panel"][data-filter-key="objects"]',
+    )
+    await filterToggle.click()
+    await expect(page.locator("#filter-q")).toBeVisible()
     await page.locator("#filter-q").fill("搜索目标")
     await page.locator('[data-action="apply-filters"]').click()
 

@@ -613,15 +613,18 @@ class TestConstraintEngine:
         with (
             patch(
                 "modules.outline.facade.get_scene_contract",
-                AsyncMock(side_effect=AssertionError("must not load Scene card")),
+                autospec=True,
+                side_effect=AssertionError("must not load Scene card"),
             ),
             patch(
                 "modules.outline.facade.get_active_foreshadowing",
-                AsyncMock(side_effect=AssertionError("must not load future plan")),
+                autospec=True,
+                side_effect=AssertionError("must not load future plan"),
             ),
             patch(
                 "modules.world.facade.get_character_knowledge_entries",
-                AsyncMock(side_effect=AssertionError("must not load all knowledge")),
+                autospec=True,
+                side_effect=AssertionError("must not load all knowledge"),
             ),
         ):
             sections = await engine.compile_constraints(
@@ -651,15 +654,18 @@ class TestConstraintEngine:
         with (
             patch(
                 "modules.outline.facade.get_active_foreshadowing",
-                AsyncMock(return_value=plans),
+                autospec=True,
+                return_value=plans,
             ),
             patch(
                 "modules.outline.facade.get_scene_contract",
-                AsyncMock(return_value=None),
+                autospec=True,
+                return_value=None,
             ),
             patch(
                 "modules.world.facade.get_character_knowledge_entries",
-                AsyncMock(return_value=[]),
+                autospec=True,
+                return_value=[],
             ),
         ):
             sections = await engine.compile_constraints(
@@ -688,15 +694,18 @@ class TestConstraintEngine:
         with (
             patch(
                 "modules.outline.facade.get_active_foreshadowing",
-                AsyncMock(return_value=plans),
+                autospec=True,
+                return_value=plans,
             ),
             patch(
                 "modules.outline.facade.get_scene_contract",
-                AsyncMock(return_value=None),
+                autospec=True,
+                return_value=None,
             ),
             patch(
                 "modules.world.facade.get_character_knowledge_entries",
-                AsyncMock(return_value=[]),
+                autospec=True,
+                return_value=[],
             ),
         ):
             sections = await engine.compile_constraints(
@@ -721,15 +730,18 @@ class TestConstraintEngine:
         with (
             patch(
                 "modules.outline.facade.get_active_foreshadowing",
-                AsyncMock(return_value=plans),
+                autospec=True,
+                return_value=plans,
             ),
             patch(
                 "modules.outline.facade.get_scene_contract",
-                AsyncMock(return_value=None),
+                autospec=True,
+                return_value=None,
             ),
             patch(
                 "modules.world.facade.get_character_knowledge_entries",
-                AsyncMock(return_value=[]),
+                autospec=True,
+                return_value=[],
             ),
         ):
             sections = await engine.compile_constraints(db, novel_id, chapter_index=5)
@@ -749,15 +761,18 @@ class TestConstraintEngine:
         with (
             patch(
                 "modules.outline.facade.get_scene_contract",
-                AsyncMock(return_value=scene),
+                autospec=True,
+                return_value=scene,
             ),
             patch(
                 "modules.outline.facade.get_active_foreshadowing",
-                AsyncMock(return_value=[]),
+                autospec=True,
+                return_value=[],
             ),
             patch(
                 "modules.world.facade.get_character_knowledge_entries",
-                AsyncMock(return_value=[]),
+                autospec=True,
+                return_value=[],
             ),
         ):
             sections = await engine.compile_constraints(
@@ -791,15 +806,18 @@ class TestConstraintEngine:
         with (
             patch(
                 "modules.world.facade.get_character_knowledge_entries",
-                AsyncMock(return_value=entries),
+                autospec=True,
+                return_value=entries,
             ),
             patch(
                 "modules.outline.facade.get_scene_contract",
-                AsyncMock(return_value=None),
+                autospec=True,
+                return_value=None,
             ),
             patch(
                 "modules.outline.facade.get_active_foreshadowing",
-                AsyncMock(return_value=[]),
+                autospec=True,
+                return_value=[],
             ),
         ):
             sections = await engine.compile_constraints(db, novel_id)
@@ -1008,7 +1026,8 @@ class TestWorldEntitiesLoader:
 
         with patch(
             "modules.outline.facade.get_reader_reveal_decision",
-            AsyncMock(return_value=decision),
+            autospec=True,
+            return_value=decision,
         ):
             await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
@@ -1051,19 +1070,27 @@ class TestCharactersLoader:
     @pytest.mark.asyncio
     async def test_load_without_ids_returns_empty(self) -> None:
         """未指定 character_ids 且没有推断来源时应返回空"""
-        loader = CharactersLoader()
-        bundle = StructureContextBundle(novel_id="id", task="t", scope="world_character")
-        options = MagicMock(
-            novel_id="id",
-            reveal_mode="author_safe",
-            character_ids=None,
-            scene_id=None,
+        get_characters_context = AsyncMock()
+        loader = CharactersLoader(
+            get_characters_context_fn=get_characters_context,
+        )
+        novel_id = str(uuid.uuid4())
+        bundle = StructureContextBundle(
+            novel_id=novel_id,
+            task="t",
+            scope="world_character",
+        )
+        options = CompileOptions(
+            novel_id=novel_id,
+            task="t",
             scope="world_character",
         )
 
         await loader.load(db=MagicMock(), options=options, bundle=bundle)
 
         assert bundle.characters == []
+        assert bundle.budget_used["characters"] == 0
+        get_characters_context.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_infer_prefers_existing_bundle_scene_pov(self) -> None:
@@ -1633,7 +1660,8 @@ class TestFacade:
         with patch.object(
             ctx_facade._compiler,
             "compile",
-            AsyncMock(return_value=mock_bundle),
+            autospec=True,
+            return_value=mock_bundle,
         ) as mock_compile:
             result = await compile_structure_context(
                 db=MagicMock(),
@@ -1888,7 +1916,8 @@ class TestContextApi:
 
         with patch(
             "modules.context.api.compile_with_tiers",
-            AsyncMock(return_value=mock_ctx),
+            autospec=True,
+            return_value=mock_ctx,
         ):
             from modules.context.api import compile_context
 
@@ -1969,11 +1998,13 @@ class TestContextApi:
         with (
             patch(
                 "modules.context.api.render_compiled_context",
-                MagicMock(return_value="# 渲染结果\n"),
+                autospec=True,
+                return_value="# 渲染结果\n",
             ),
             patch(
                 "modules.context.api.compile_with_tiers",
-                AsyncMock(return_value=mock_ctx),
+                autospec=True,
+                return_value=mock_ctx,
             ),
         ):
             from modules.context.api import render_context

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -75,6 +76,7 @@ class OutlineStructureDedupService:
         limit: int = 1000,
         max_suggestions: int = 80,
         progress_callback: Any | None = None,
+        exclusions: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if self._llm_client is None:
             from modules.project.facade import open_project_llm_client
@@ -89,6 +91,7 @@ class OutlineStructureDedupService:
                     limit=limit,
                     max_suggestions=max_suggestions,
                     progress_callback=progress_callback,
+                    exclusions=exclusions,
                 )
         selected_types = set(asset_types or _SUPPORTED_ASSET_TYPES)
         assets = await self._load_assets(db, novel_id=novel_id, limit=limit)
@@ -102,6 +105,15 @@ class OutlineStructureDedupService:
         )
         suggestions: list[dict[str, Any]] = []
         scanned_counts: dict[str, int] = {}
+        active_exclusions = {
+            (
+                str(item.get("left_asset_id")),
+                str(item.get("right_asset_id")),
+                str(item.get("left_semantic_fingerprint")),
+                str(item.get("right_semantic_fingerprint")),
+            )
+            for item in exclusions or []
+        }
 
         for asset_type, items in assets.items():
             if asset_type not in selected_types:
@@ -110,13 +122,26 @@ class OutlineStructureDedupService:
             pairs = self._candidate_pairs(
                 items,
                 max_pairs=max_suggestions * 2,
-                excluded_pairs=(
-                    managed_scene_pairs if asset_type == "scene" else None
-                ),
+                excluded_pairs=(managed_scene_pairs if asset_type == "scene" else None),
             )
             for pair_index, (source, target, match) in enumerate(pairs):
                 if len(suggestions) >= max_suggestions:
                     break
+                source_fp = _asset_fingerprints(source)
+                target_fp = _asset_fingerprints(target)
+                left, right = sorted((source.asset_id, target.asset_id))
+                left_fp, right_fp = (
+                    (source_fp, target_fp)
+                    if left == source.asset_id
+                    else (target_fp, source_fp)
+                )
+                if (
+                    left,
+                    right,
+                    left_fp["semantic_fingerprint"],
+                    right_fp["semantic_fingerprint"],
+                ) in active_exclusions:
+                    continue
                 evidence = await self._evidence(db, novel_id, source, target)
                 decision = await self._decide(source, target, match, evidence)
                 if decision.action == "keep_separate":
@@ -138,6 +163,16 @@ class OutlineStructureDedupService:
                         "recommended_primary_title": primary.title,
                         "source_workflow_id": _workflow_id_for_asset(source),
                         "target_workflow_id": _workflow_id_for_asset(target),
+                        "source_snapshot": _asset_snapshot(source),
+                        "target_snapshot": _asset_snapshot(target),
+                        "source_semantic_fingerprint": source_fp["semantic_fingerprint"],
+                        "target_semantic_fingerprint": target_fp["semantic_fingerprint"],
+                        "source_execution_fingerprint": source_fp[
+                            "execution_fingerprint"
+                        ],
+                        "target_execution_fingerprint": target_fp[
+                            "execution_fingerprint"
+                        ],
                         "confidence": round(decision.confidence, 3),
                         "reason": decision.reason[:500],
                         "match_method": match.get("match_method"),
@@ -161,6 +196,109 @@ class OutlineStructureDedupService:
             "suggestions": suggestions,
             "summary": f"生成 {len(suggestions)} 条结构资产去重建议",
         }
+
+    async def apply_group(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        primary_asset_id: str,
+        asset_type: str,
+        operations: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Strict outline group apply; failures propagate to caller savepoint."""
+        nid = parse_uuid(novel_id, "novel_id")
+        assets = await self._load_assets(db, novel_id=novel_id, limit=5000)
+        by_id = {item.asset_id: item for item in assets.get(asset_type, [])}
+        target = by_id.get(primary_asset_id)
+        if target is None:
+            raise ValueError("invalid_group")
+        if len({str(item.get("source_asset_id")) for item in operations}) != len(
+            operations
+        ):
+            raise ValueError("invalid_group")
+        prepared: list[tuple[dict[str, Any], _StructureAsset]] = []
+        for operation in operations:
+            source = by_id.get(str(operation.get("source_asset_id")))
+            if source is None or source.asset_id == target.asset_id:
+                raise ValueError("invalid_group")
+            expected_action = {"scene": "merge"}.get(asset_type, "deprecate_duplicate")
+            if operation.get("action") not in {expected_action, "keep_separate"}:
+                raise ValueError("invalid_group")
+            if (
+                asset_type == "scene"
+                and operation.get("action") == "merge"
+                and not operation.get("scene_preview_confirmed")
+            ):
+                raise ValueError("confirmation_required")
+            source_fp = _asset_fingerprints(source)
+            target_fp = _asset_fingerprints(target)
+            if source_fp["execution_fingerprint"] != operation.get(
+                "expected_source_execution_fingerprint"
+            ) or target_fp["execution_fingerprint"] != operation.get(
+                "expected_target_execution_fingerprint"
+            ):
+                raise ValueError("stale_suggestion")
+            prepared.append((operation, source))
+        results: list[dict[str, Any]] = []
+        for operation, source in prepared:
+            if operation["action"] == "keep_separate":
+                continue
+            results.append(
+                await self._apply_one(
+                    db,
+                    novel_id=novel_id,
+                    novel_uuid=nid,
+                    asset_type=asset_type,
+                    source_id=source.asset_id,
+                    target_id=target.asset_id,
+                    action=str(operation["action"]),
+                )
+            )
+        await db.flush()
+        keep_sources = {
+            source.asset_id
+            for operation, source in prepared
+            if operation["action"] == "keep_separate"
+        }
+        if keep_sources:
+            refreshed_assets = await self._load_assets(
+                db,
+                novel_id=novel_id,
+                limit=5000,
+            )
+            refreshed_by_id = {
+                item.asset_id: item for item in refreshed_assets.get(asset_type, [])
+            }
+            refreshed_target = refreshed_by_id.get(primary_asset_id)
+            if refreshed_target is None:
+                raise ValueError("stale_suggestion")
+            for source_id in sorted(keep_sources):
+                refreshed_source = refreshed_by_id.get(source_id)
+                if refreshed_source is None:
+                    raise ValueError("stale_suggestion")
+                source_fp = _asset_fingerprints(refreshed_source)
+                target_fp = _asset_fingerprints(refreshed_target)
+                left, right = sorted((source_id, primary_asset_id))
+                left_fp, right_fp = (
+                    (source_fp, target_fp)
+                    if left == source_id
+                    else (target_fp, source_fp)
+                )
+                results.append(
+                    {
+                        "action": "keep_separate",
+                        "left_asset_id": left,
+                        "right_asset_id": right,
+                        "left_semantic_fingerprint": left_fp[
+                            "semantic_fingerprint"
+                        ],
+                        "right_semantic_fingerprint": right_fp[
+                            "semantic_fingerprint"
+                        ],
+                    }
+                )
+        return results
 
     async def apply(
         self,
@@ -716,6 +854,66 @@ def _asset_payload(item: _StructureAsset) -> dict[str, Any]:
         "chapter_span": [item.chapter_start, item.chapter_end],
         "summary": _clip(item.summary, 800),
     }
+
+
+def _asset_snapshot(item: _StructureAsset) -> dict[str, Any]:
+    details = {
+        column.name: getattr(item.raw, column.name, None)
+        for column in item.raw.__table__.columns
+        if column.name
+        not in {
+            "id",
+            "novel_id",
+            "embedding",
+            "created_at",
+            "updated_at",
+        }
+    }
+    return {
+        "asset_id": item.asset_id,
+        "title": item.title,
+        "asset_type": item.asset_type,
+        "status": item.status,
+        "summary": item.summary,
+        "chapter_span": [item.chapter_start, item.chapter_end],
+        "source": getattr(item.raw, "source", None),
+        "workflow_id": _workflow_id_for_asset(item),
+        "details": json.loads(json.dumps(details, ensure_ascii=False, default=str)),
+        "updated_at": (
+            item.raw.updated_at.isoformat()
+            if getattr(item.raw, "updated_at", None)
+            else None
+        ),
+    }
+
+
+def _asset_fingerprints(item: _StructureAsset) -> dict[str, str]:
+    semantic = {
+        column.name: getattr(item.raw, column.name, None)
+        for column in item.raw.__table__.columns
+        if column.name
+        not in {
+            "id",
+            "novel_id",
+            "embedding",
+            "created_at",
+            "updated_at",
+        }
+    }
+    execution = {
+        column.name: getattr(item.raw, column.name, None)
+        for column in item.raw.__table__.columns
+        if column.name not in {"embedding"}
+    }
+    return {
+        "semantic_fingerprint": _hash_payload(semantic),
+        "execution_fingerprint": _hash_payload(execution),
+    }
+
+
+def _hash_payload(value: Any) -> str:
+    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _asset_summary_evidence(

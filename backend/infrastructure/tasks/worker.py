@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from time import monotonic
 from typing import Any
 
@@ -49,6 +49,7 @@ from shared.constants import (
 logger = logging.getLogger(__name__)
 
 _TASK_DB_ERROR_MESSAGE = "后台任务遇到数据库临时错误，请稍后重试。"
+_TASK_PREFLIGHT_WRITE_ERROR = "Task preflight must be read-only"
 _TASK_TYPE_LOG_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 
 
@@ -58,6 +59,7 @@ class _TaskHandlerSession(AsyncSession):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._task_commit_hook: Callable[[], Awaitable[bool]] | None = None
+        self._task_preflight_active = False
 
     def set_task_commit_hook(
         self,
@@ -68,11 +70,29 @@ class _TaskHandlerSession(AsyncSession):
     def disable_task_commit_hook(self) -> None:
         self._task_commit_hook = None
 
+    def begin_task_preflight(self) -> None:
+        self._task_preflight_active = True
+
+    def end_task_preflight(self) -> None:
+        self._task_preflight_active = False
+
+    @property
+    def task_checkpoint_enabled(self) -> bool:
+        """Whether commit-owning task-only services may checkpoint this session."""
+        return self._task_commit_hook is not None
+
     async def commit(self) -> None:
+        if self._task_preflight_active:
+            raise RuntimeError(_TASK_PREFLIGHT_WRITE_ERROR)
         if self._task_commit_hook is not None and not await self._task_commit_hook():
             await super().rollback()
             raise asyncio.CancelledError
         await super().commit()
+
+    async def flush(self, objects: Sequence[Any] | None = None) -> None:
+        if self._task_preflight_active and (self.new or self.dirty or self.deleted):
+            raise RuntimeError(_TASK_PREFLIGHT_WRITE_ERROR)
+        await super().flush(objects)
 
 
 def _public_task_error_message(exc: Exception) -> str:
@@ -371,7 +391,14 @@ class TaskWorker:
                     )
 
                 if self._task_preflight is not None:
-                    await self._task_preflight(session, task)
+                    if isinstance(session, _TaskHandlerSession):
+                        session.begin_task_preflight()
+                    try:
+                        await self._task_preflight(session, task)
+                        await self._finish_task_preflight(session)
+                    finally:
+                        if isinstance(session, _TaskHandlerSession):
+                            session.end_task_preflight()
 
                 logger.info(
                     "Executing task %s (type=%s, novel_id=%s) with handler %s",
@@ -493,6 +520,14 @@ class TaskWorker:
                     except asyncio.CancelledError:
                         pass
         return attempt_accepted
+
+    @staticmethod
+    async def _finish_task_preflight(session: AsyncSession) -> None:
+        """Reject preflight writes and release any read-only autobegin transaction."""
+        if session.new or session.dirty or session.deleted:
+            raise RuntimeError(_TASK_PREFLIGHT_WRITE_ERROR)
+        if session.in_transaction():
+            await session.rollback()
 
     async def _finalize_task(
         self,

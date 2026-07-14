@@ -22,4 +22,10 @@ README、ORM `models.py` 与 Alembic migration 为准。
 | `reports/` | 审计与 QA 记录 | 用于追溯发现和验证范围，不代表当前缺陷或实现状态。 |
 | `acceptance/` | 验收基线与历史结果 | 可用于回归对照；新的验收应新增带日期的记录。 |
 
+## 当前提案入口
+
+- [`specs/2026-07-14-world-bible-module-v2-design.md`](specs/2026-07-14-world-bible-module-v2-design.md)
+  — 基于 Novalist/SillyTavern 对比和当前 world/context 实现形成的世界书 V2 提案；状态为
+  Proposed，实施前仍需用户确认与 ADR。
+
 分类只说明文档角色，不对任何计划是否已实现作推断。

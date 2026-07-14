@@ -196,17 +196,17 @@ async def evaluate_weights(
     r5_sum = 0.0
     total_latency = 0.0
     valid = 0
-    failure_log_state = (
-        _embedding_failure_log_state or _EmbeddingFailureLogState()
-    )
+    failure_log_state = _embedding_failure_log_state or _EmbeddingFailureLogState()
 
     for eq in queries:
         t0 = time.monotonic()
 
         # 生成查询 embedding
         query_embedding = None
+        embedding_client = None
         try:
-            emb = await LLMClient().generate_embedding(eq.query, is_query=True)
+            embedding_client = LLMClient()
+            emb = await embedding_client.generate_embedding(eq.query, is_query=True)
             if isinstance(emb, list) and emb and isinstance(emb[0], float):
                 query_embedding = emb  # type: ignore[assignment]
         except Exception:
@@ -220,6 +220,11 @@ async def evaluate_weights(
                     exc_info=True,
                 )
                 failure_log_state.warning_emitted = True
+        finally:
+            if embedding_client is not None:
+                close = getattr(embedding_client, "close", None)
+                if callable(close):
+                    await close()
 
         scored = await retrieval.hybrid_search(
             db,

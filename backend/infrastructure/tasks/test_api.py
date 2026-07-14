@@ -7,12 +7,21 @@ from datetime import UTC, datetime
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.main import app
 from core.dependencies import get_db
 from infrastructure.tasks.models import AsyncTask
+from infrastructure.tasks.registry import TaskRegistry
 from modules.project.models import Project
+
+
+class _GenericSubmitMeta(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    novel_id: uuid.UUID
+    key: str
 
 
 async def _add_project(
@@ -107,6 +116,42 @@ async def test_task_status_requires_matching_novel_id(
     )
     assert ok.status_code == 200
     assert ok.json()["meta"]["secret"] == "only-owner"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["running", "failed", "done"])
+async def test_task_status_hides_private_top_level_result_checkpoints(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    status: str,
+) -> None:
+    novel_id = str(uuid.uuid4())
+    await _add_project(db_session, novel_id)
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="world_alias_relation_extraction",
+        status=status,
+        meta={"novel_id": novel_id},
+        result={
+            "_alias_relation_task_v1": {
+                "stage": "llm_complete",
+                "receipt": {"quote": "private-provider-receipt"},
+            },
+            "public_summary": {"total_aliases": 1},
+        },
+    )
+    db_session.add(task)
+    await db_session.flush()
+
+    response = await async_client.get(
+        f"/api/tasks/{task.id}",
+        params={"novel_id": novel_id},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["result"] == {"public_summary": {"total_aliases": 1}}
+    assert "private-provider-receipt" not in response.text
+    assert "_alias_relation_task_v1" in (task.result or {})
 
 
 @pytest.mark.asyncio
@@ -236,7 +281,7 @@ async def test_generic_submit_validates_type_before_optional_project_guard(
 
 
 @pytest.mark.asyncio
-async def test_generic_submit_guards_known_novel_scoped_task(
+async def test_generic_submit_rejects_known_module_task_before_project_guard(
     async_client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
@@ -251,4 +296,64 @@ async def test_generic_submit_guards_known_novel_scoped_task(
         },
     )
 
-    assert response.status_code == 404
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_generic_submit_keeps_explicit_custom_task_available_and_guarded(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    active_novel_id = str(uuid.uuid4())
+    deleted_novel_id = str(uuid.uuid4())
+    await _add_project(db_session, active_novel_id)
+    await _add_project(db_session, deleted_novel_id, deleted=True)
+
+    async def handler(db, task):
+        return {"ok": True}
+
+    registry = TaskRegistry()
+    registry.register(
+        "test_generic_submit",
+        handler,
+        generic_submit_schema=_GenericSubmitMeta,
+    )
+    try:
+        private_key = "PRIVATE_DYNAMIC_META_KEY"
+        invalid = await async_client.post(
+            "/api/tasks",
+            json={
+                "task_type": "test_generic_submit",
+                "meta": {
+                    "novel_id": active_novel_id,
+                    "key": "safe",
+                    private_key: "must-not-echo",
+                },
+            },
+        )
+        assert invalid.status_code == 422
+        assert private_key not in invalid.text
+        assert "must-not-echo" not in invalid.text
+
+        accepted = await async_client.post(
+            "/api/tasks",
+            json={
+                "task_type": "test_generic_submit",
+                "meta": {"novel_id": active_novel_id, "key": "safe"},
+            },
+        )
+        assert accepted.status_code == 201, accepted.text
+        task = await db_session.get(AsyncTask, uuid.UUID(accepted.json()["task_id"]))
+        assert task is not None
+        assert task.meta == {"novel_id": active_novel_id, "key": "safe"}
+
+        guarded = await async_client.post(
+            "/api/tasks",
+            json={
+                "task_type": "test_generic_submit",
+                "meta": {"novel_id": deleted_novel_id, "key": "safe"},
+            },
+        )
+        assert guarded.status_code == 404
+    finally:
+        registry.unregister("test_generic_submit")

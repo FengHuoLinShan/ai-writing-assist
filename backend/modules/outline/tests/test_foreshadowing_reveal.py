@@ -19,10 +19,13 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.api]
 
 
 def _mock_client(generate_structured: mock.AsyncMock) -> mock.MagicMock:
-    return mock.MagicMock(
-        model_name="test-model",
-        generate_structured=generate_structured,
-    )
+    client = mock.MagicMock(model_name="test-model")
+
+    async def bound_generate(*args, **kwargs):
+        return await generate_structured(client, *args, **kwargs)
+
+    client.generate_structured = mock.AsyncMock(side_effect=bound_generate)
+    return client
 
 
 class _FakeSession:
@@ -730,10 +733,13 @@ class TestPlotStructureGenerateDuplicateRange:
 
         with (
             mock.patch(
-                "modules.context.facade.compile_structure_context", return_value=bundle
+                "modules.context.facade.compile_structure_context",
+                return_value=bundle,
+                autospec=True,
             ),
             mock.patch(
-                "infrastructure.llm.client.LLMClient.generate_structured"
+                "infrastructure.llm.client.LLMClient.generate_structured",
+                autospec=True,
             ) as mock_llm,
         ):
             mock_llm.return_value = _mock_llm_return_value()
@@ -768,10 +774,13 @@ class TestPlotStructureGenerateDuplicateRange:
 
         with (
             mock.patch(
-                "modules.context.facade.compile_structure_context", return_value=bundle
+                "modules.context.facade.compile_structure_context",
+                return_value=bundle,
+                autospec=True,
             ),
             mock.patch(
-                "infrastructure.llm.client.LLMClient.generate_structured"
+                "infrastructure.llm.client.LLMClient.generate_structured",
+                autospec=True,
             ) as mock_llm,
         ):
             mock_llm.return_value = _mock_llm_return_value()
@@ -821,14 +830,18 @@ class TestPlotStructureGenerateDuplicateRange:
 
         with (
             mock.patch(
-                "modules.context.facade.compile_structure_context", return_value=bundle
+                "modules.context.facade.compile_structure_context",
+                return_value=bundle,
+                autospec=True,
             ),
             mock.patch(
-                "infrastructure.llm.client.LLMClient.generate_structured"
+                "infrastructure.llm.client.LLMClient.generate_structured",
+                autospec=True,
             ) as mock_llm,
             mock.patch(
                 "modules.outline.generation.persister.PlotStructurePersister.persist",
                 side_effect=RuntimeError("persist failed"),
+                autospec=True,
             ),
         ):
             mock_llm.return_value = _mock_llm_return_value()
@@ -867,10 +880,13 @@ class TestPlotStructureGenerateDuplicateRange:
 
         with (
             mock.patch(
-                "modules.context.facade.compile_structure_context", return_value=bundle
+                "modules.context.facade.compile_structure_context",
+                return_value=bundle,
+                autospec=True,
             ),
             mock.patch(
-                "infrastructure.llm.client.LLMClient.generate_structured"
+                "infrastructure.llm.client.LLMClient.generate_structured",
+                autospec=True,
             ) as mock_llm,
         ):
             mock_llm.return_value = _mock_llm_return_value()

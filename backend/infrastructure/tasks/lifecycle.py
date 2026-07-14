@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -10,14 +12,204 @@ from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.tasks.contracts import (
+    CompletedTaskPayloadContract,
     TaskAction,
     TaskLifecycleContract,
     TaskOwnerContract,
 )
 from infrastructure.tasks.models import AsyncTask
 
+_INVALID_TASK_META = object()
+
 
 class TaskLifecycleService:
+    async def list_running_types_for_novel(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        task_types: set[str],
+        exclude_task_id: str,
+    ) -> list[str]:
+        """Return only conflicting running task types for one novel."""
+        if not task_types:
+            return []
+        try:
+            excluded_id = uuid.UUID(str(exclude_task_id))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("exclude_task_id must be a UUID") from exc
+        stmt = (
+            select(AsyncTask.task_type)
+            .where(
+                AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+                AsyncTask.status == "running",
+                AsyncTask.task_type.in_(sorted(task_types)),
+                AsyncTask.id != excluded_id,
+            )
+            .order_by(AsyncTask.task_type, AsyncTask.id)
+        )
+        return list((await db.execute(stmt)).scalars().all())
+
+    async def require_running_attempt(
+        self,
+        db: AsyncSession,
+        *,
+        task_id: str,
+        task_type: str,
+        novel_id: str,
+        lease_id: str,
+        attempt: int,
+    ) -> None:
+        """Lock and validate the exact running task attempt in caller order."""
+        try:
+            parsed_id = uuid.UUID(str(task_id))
+        except (TypeError, ValueError):
+            raise asyncio.CancelledError from None
+        stmt = (
+            select(AsyncTask.id)
+            .where(
+                AsyncTask.id == parsed_id,
+                AsyncTask.task_type == task_type,
+                AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+                AsyncTask.status == "running",
+                AsyncTask.lease_id == str(lease_id),
+                AsyncTask.attempt == int(attempt),
+            )
+            .with_for_update()
+        )
+        if (await db.execute(stmt)).scalar_one_or_none() is None:
+            raise asyncio.CancelledError
+
+    async def get_completed_payload(
+        self,
+        db: AsyncSession,
+        *,
+        task_id: str,
+        task_type: str,
+        novel_id: str,
+        for_update: bool = False,
+    ) -> CompletedTaskPayloadContract | None:
+        """Return one exactly scoped completed task payload.
+
+        The optional row lock serializes idempotent apply operations without
+        exposing ``AsyncTask`` outside the infrastructure module.
+        """
+        try:
+            parsed_task_id = uuid.UUID(str(task_id))
+        except (TypeError, ValueError):
+            return None
+        stmt = select(
+            AsyncTask.id,
+            AsyncTask.task_type,
+            AsyncTask.meta,
+            AsyncTask.result,
+            AsyncTask.updated_at,
+        ).where(
+            AsyncTask.id == parsed_task_id,
+            AsyncTask.task_type == str(task_type),
+            AsyncTask.status == "done",
+            AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+        )
+        if for_update:
+            stmt = stmt.with_for_update()
+        row = (await db.execute(stmt)).mappings().one_or_none()
+        if row is None:
+            return None
+        meta = dict(row["meta"] or {})
+        context_confirmation_id = meta.get("context_confirmation_id")
+        if context_confirmation_id is not None and not isinstance(
+            context_confirmation_id, str
+        ):
+            return None
+        start_chapter = self._optional_task_integer(meta, "start_chapter")
+        end_chapter = self._optional_task_integer(meta, "end_chapter")
+        if start_chapter is _INVALID_TASK_META or end_chapter is _INVALID_TASK_META:
+            return None
+        return CompletedTaskPayloadContract(
+            task_id=str(row["id"]),
+            task_type=str(row["task_type"]),
+            novel_id=str(novel_id),
+            result=deepcopy(dict(row["result"] or {})),
+            revision_token=row["updated_at"],
+            context_confirmation_id=context_confirmation_id,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter,
+        )
+
+    async def replace_completed_result(
+        self,
+        db: AsyncSession,
+        *,
+        task_id: str,
+        task_type: str,
+        novel_id: str,
+        expected_revision_token: datetime | None,
+        result: dict[str, Any],
+    ) -> bool:
+        """CAS a completed task result within the caller's transaction."""
+        try:
+            parsed_task_id = uuid.UUID(str(task_id))
+        except (TypeError, ValueError):
+            return False
+        if expected_revision_token is not None and not isinstance(
+            expected_revision_token, datetime
+        ):
+            return False
+        revision_clause = (
+            AsyncTask.updated_at.is_(None)
+            if expected_revision_token is None
+            else AsyncTask.updated_at == expected_revision_token
+        )
+        next_revision = self._next_revision(expected_revision_token)
+        updated = await db.execute(
+            update(AsyncTask)
+            .where(
+                AsyncTask.id == parsed_task_id,
+                AsyncTask.task_type == str(task_type),
+                AsyncTask.status == "done",
+                AsyncTask.meta["novel_id"].as_string() == str(novel_id),
+                revision_clause,
+            )
+            .values(
+                result=deepcopy(dict(result)),
+                updated_at=next_revision,
+            )
+            .execution_options(synchronize_session="fetch")
+        )
+        await db.flush()
+        return bool(updated.rowcount)
+
+    @staticmethod
+    def _optional_task_integer(
+        meta: dict[str, Any],
+        key: str,
+    ) -> int | None | object:
+        value = meta.get(key)
+        if value is None or value == "":
+            return None
+        if isinstance(value, bool):
+            return _INVALID_TASK_META
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            try:
+                return int(value)
+            except ValueError:
+                return _INVALID_TASK_META
+        return _INVALID_TASK_META
+
+    @staticmethod
+    def _next_revision(expected_revision_token: datetime | None) -> datetime:
+        if expected_revision_token is None:
+            return datetime.now(UTC)
+        if expected_revision_token.tzinfo is None:
+            now = datetime.now(UTC).replace(tzinfo=None)
+        else:
+            now = datetime.now(UTC)
+        if now <= expected_revision_token:
+            return expected_revision_token + timedelta(microseconds=1)
+        return now
+
     async def get_owner(
         self,
         db: AsyncSession,

@@ -509,6 +509,10 @@ const api = {
       return contractFetch("world.listEntities", {}, params)
     },
 
+    async listEntityTypes(novelId) {
+      return request(withQuery("/world/entity-types", { novel_id: novelId }))
+    },
+
     async listCharacters(params = {}) {
       return request(withQuery("/world/characters", params))
     },
@@ -788,7 +792,7 @@ const api = {
     // ============================================================
 
     async listMaps(params = {}) {
-      return request(withQuery("/world/maps", params))
+      return contractFetch("world.listMaps", {}, params)
     },
     async getMap(mapId, novelId) {
       return request(withQuery(`/world/maps/${mapId}`, { novel_id: novelId }))
@@ -801,6 +805,38 @@ const api = {
     },
     async deleteMap(mapId, novelId) {
       return deleteRequest(withQuery(`/world/maps/${mapId}`, { novel_id: novelId }))
+    },
+    async getMapArchiveImpact(mapId, novelId) {
+      return contractFetch("world.getMapArchiveImpact", { mapId }, { novel_id: novelId })
+    },
+    async archiveMap(mapId, novelId) {
+      return contractJson("world.archiveMap", { mapId }, { novel_id: novelId })
+    },
+    async restoreMap(mapId, payload, novelId) {
+      return contractJson("world.restoreMap", { mapId }, { novel_id: novelId }, payload || {})
+    },
+    async applyMapEditor(mapId, payload, novelId) {
+      return contractJson("world.applyMapEditor", { mapId }, { novel_id: novelId }, payload)
+    },
+    async getMapLayerTree(mapId, novelId) {
+      return contractFetch("world.getMapLayerTree", { mapId }, { novel_id: novelId })
+    },
+    async getMapPaths(mapId, novelId, status = "active") {
+      return contractFetch("world.getMapPaths", { mapId }, {
+        novel_id: novelId,
+        status,
+      })
+    },
+    async getMapPathArchiveImpact(mapId, pathId, novelId) {
+      return contractFetch("world.getMapPathArchiveImpact", { mapId, pathId }, {
+        novel_id: novelId,
+      })
+    },
+    async getEntityMapPresence(entityId, novelId, includeCandidates = false) {
+      return contractFetch("world.getEntityMapPresence", { id: entityId }, {
+        novel_id: novelId,
+        include_candidates: includeCandidates || undefined,
+      })
     },
     async generateMap(mapId, novelId) {
       return post(withQuery(`/world/maps/${mapId}/generate`, { novel_id: novelId }))
@@ -833,6 +869,34 @@ const api = {
       }
       return contractFetch("world.getMapPlayback", { mapId }, params)
     },
+    async getMapTimeline(mapId, novelId, options = {}) {
+      const tracks = Array.isArray(options.tracks)
+        ? options.tracks.join(",")
+        : options.tracks
+      return contractFetch("world.getMapTimeline", { mapId }, {
+        novel_id: novelId,
+        from_scene_index: options.fromSceneIndex ?? options.from_scene_index,
+        to_scene_index: options.toSceneIndex ?? options.to_scene_index,
+        focus_entity_id: options.focusEntityId ?? options.focus_entity_id,
+        tracks: tracks || undefined,
+        include_candidates: options.includeCandidates ?? options.include_candidates ?? undefined,
+        skip: options.skip,
+        limit: options.limit,
+      })
+    },
+    async getMapStateAt(mapId, novelId, sceneIndex, options = {}) {
+      const tracks = Array.isArray(options.tracks)
+        ? options.tracks.join(",")
+        : options.tracks
+      return contractFetch("world.getMapStateAt", { mapId }, {
+        novel_id: novelId,
+        scene_index: sceneIndex,
+        focus_entity_id: options.focusEntityId ?? options.focus_entity_id,
+        tracks: tracks || undefined,
+        skip: options.skip,
+        limit: options.limit,
+      })
+    },
     async getMapOpenTarget(novelId, { sceneId = null, focusEntityId = null } = {}) {
       return request(withQuery("/world/maps/open-target", {
         novel_id: novelId,
@@ -853,16 +917,16 @@ const api = {
       }))
     },
     async previewQuickCreateMap(payload, novelId) {
-      return post(withQuery("/world/maps/quick-create/preview", { novel_id: novelId }), payload)
+      return contractJson("world.previewQuickCreateMap", {}, { novel_id: novelId }, payload)
     },
     async confirmQuickCreateMap(payload, novelId) {
-      return post(withQuery("/world/maps/quick-create/confirm", { novel_id: novelId }), payload)
+      return contractJson("world.confirmQuickCreateMap", {}, { novel_id: novelId }, payload)
     },
     async listLocationLayouts(mapId, novelId) {
       return request(withQuery(`/world/maps/${mapId}/location-layouts`, { novel_id: novelId }))
     },
     async replaceLocationLayouts(mapId, payload, novelId) {
-      return put(withQuery(`/world/maps/${mapId}/location-layouts`, { novel_id: novelId }), payload)
+      return contractJson("world.replaceLocationLayouts", { mapId }, { novel_id: novelId }, payload)
     },
     async getMapTerrain(mapId, novelId, includeCandidates = false) {
       return request(withQuery(`/world/maps/${mapId}/terrain`, {
@@ -871,7 +935,13 @@ const api = {
       }))
     },
     async replaceTerrainLayerPatches(mapId, layerId, payload, novelId) {
-      return put(withQuery(`/world/maps/${mapId}/terrain/layers/${layerId}/patches`, { novel_id: novelId }), payload)
+      return contractJson("world.replaceTerrainLayerPatches", { mapId, layerId }, { novel_id: novelId }, payload)
+    },
+    async updateTerrainLayer(mapId, layerId, payload, novelId) {
+      return contractJson("world.updateTerrainLayer", { mapId, layerId }, { novel_id: novelId }, payload)
+    },
+    async deleteTerrainLayer(mapId, layerId, novelId) {
+      return contractFetch("world.deleteTerrainLayer", { mapId, layerId }, { novel_id: novelId })
     },
     async createTerrainBinding(mapId, regionId, payload, novelId) {
       return post(withQuery(`/world/maps/${mapId}/terrain/regions/${regionId}/bindings`, { novel_id: novelId }), payload)
@@ -888,7 +958,7 @@ const api = {
     async updateLocationBinding(mapId, bindingId, payload, novelId) {
       return patch(withQuery(`/world/maps/${mapId}/location-bindings/${bindingId}`, { novel_id: novelId }), payload)
     },
-    async deleteLocationBinding(bindingId, mapId, novelId) {
+    async deleteLocationBinding(mapId, bindingId, novelId) {
       return deleteRequest(withQuery(`/world/maps/${mapId}/location-bindings/${bindingId}`, { novel_id: novelId }))
     },
     async listMapMarkers(mapId, novelId, sceneId = null) {
@@ -913,6 +983,9 @@ const api = {
     },
     async deleteTerritoriesByFaction(mapId, factionEntityId, novelId) {
       return deleteRequest(withQuery(`/world/maps/${mapId}/territories`, { novel_id: novelId, faction_entity_id: factionEntityId }))
+    },
+    async deleteMapTerritory(mapId, territoryId, novelId) {
+      return deleteRequest(withQuery(`/world/maps/${mapId}/territories/${territoryId}`, { novel_id: novelId }))
     },
     async listMapObservations(mapId, novelId, reviewState = null) {
       return contractFetch("world.listMapObservations", { mapId }, { novel_id: novelId, review_state: reviewState })

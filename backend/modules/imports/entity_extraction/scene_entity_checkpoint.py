@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 from infrastructure.llm.errors import (
@@ -60,6 +62,15 @@ def merge_alias_relation_result(
         "alias_relation_format_diagnostics",
         [],
     )
+    alias_checkpoints = alias_result.get("alias_relation_checkpoints")
+    if not isinstance(alias_checkpoints, dict):
+        # Compatibility for older adapters/tests that returned the common key.
+        alias_checkpoints = alias_result.get("checkpoints")
+    if isinstance(alias_checkpoints, dict):
+        merged["checkpoints"] = {
+            **(merged.get("checkpoints") or {}),
+            **alias_checkpoints,
+        }
     if alias_result.get("degraded"):
         merged["degraded"] = True
         merged["error_kind"] = merged.get("error_kind") or alias_result.get("error_kind")
@@ -96,6 +107,54 @@ def checkpoint_retry_count(checkpoint: dict[str, Any] | None) -> int:
         return max(0, int(checkpoint.get("retry_count") or 0))
     except (TypeError, ValueError):
         return 0
+
+
+_SCENE_FINGERPRINT_FIELDS = (
+    "id",
+    "scene_id",
+    "novel_id",
+    "scene_index",
+    "title",
+    "summary",
+    "goal",
+    "core_conflict",
+    "conflict",
+    "emotional_beat",
+    "narrative_purpose",
+    "narrative_tag",
+    "pov_character_id",
+    "must_happen",
+    "must_not_happen",
+    "chapter_ids",
+    "scene_chunks",
+    "structure_meta",
+    "source",
+    "status",
+)
+
+
+def scene_input_fingerprint(
+    scene: dict[str, Any],
+    scene_text: str,
+) -> str:
+    """Hash the semantic Scene input and exact text consumed by Phase 2."""
+    payload = {
+        "version": 1,
+        "scene": {
+            field: scene.get(field)
+            for field in _SCENE_FINGERPRINT_FIELDS
+            if field in scene
+        },
+        "scene_text": scene_text,
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def phase2_checkpoint_by_scene(
@@ -139,6 +198,7 @@ def build_scene_checkpoint(
     error_kind: str | None = None,
     activation_version: str | None = None,
     activation_source_count: int | None = None,
+    input_fingerprint: str | None = None,
 ) -> dict[str, Any]:
     checkpoint = {
         "scene_id": service._scene_id(scene),
@@ -161,6 +221,8 @@ def build_scene_checkpoint(
         checkpoint["activation_version"] = activation_version
     if activation_source_count is not None:
         checkpoint["activation_source_count"] = activation_source_count
+    if input_fingerprint is not None:
+        checkpoint["input_fingerprint"] = input_fingerprint
     return checkpoint
 
 

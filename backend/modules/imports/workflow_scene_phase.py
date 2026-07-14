@@ -111,6 +111,12 @@ class ScenePhaseRunner:
         replace_existing = request.replace_existing
         workflow = self.workflow
 
+        def _assert_provider_window(phase: str) -> None:
+            if request.require_provider_no_transaction and db.in_transaction():
+                raise RuntimeError(
+                    f"scene_auto_extraction {phase} cannot run inside a transaction"
+                )
+
         # Phase 0: deterministic Scene import plan.
         progress.current_step = DeepImportStep.scene_segmentation
         progress.current_phase = "phase0_plan"
@@ -128,12 +134,14 @@ class ScenePhaseRunner:
         )
         await workflow._emit_progress(progress, 0.0, on_progress)
 
-        phase0_result = await workflow._run_phase0_plan(
-            db,
-            novel_id,
-            start_chapter,
-            end_chapter,
-        )
+        phase0_result = request.prepared_phase0_result
+        if phase0_result is None:
+            phase0_result = await workflow._run_phase0_plan(
+                db,
+                novel_id,
+                start_chapter,
+                end_chapter,
+            )
         progress.quality_stats["phase0"] = phase0_result.quality_stats
         if phase0_diagnostics := workflow._diagnostic_samples(phase0_result.diagnostics):
             progress.quality_stats["phase0_diagnostics"] = phase0_diagnostics
@@ -229,7 +237,9 @@ class ScenePhaseRunner:
             }
             value = min(0.2, 0.1 + 0.1 * (completed / total)) if total else 0.1
             await workflow._emit_progress(progress, value, on_progress)
+            _assert_provider_window("phase1a progress")
 
+        _assert_provider_window("phase1a")
         phase1a_result = await workflow._run_phase1a_scene_slicing(
             db,
             novel_id,
@@ -238,6 +248,7 @@ class ScenePhaseRunner:
             phase0_result,
             on_batch_progress=_on_phase1a_batch,
         )
+        _assert_provider_window("phase1a")
         progress.quality_stats["phase1a"] = phase1a_result.quality_stats
         if phase1a_diagnostics := workflow._diagnostic_samples(
             phase1a_result.diagnostics
@@ -365,7 +376,9 @@ class ScenePhaseRunner:
             }
             value = min(0.3, 0.2 + 0.1 * (completed / total)) if total else 0.2
             await workflow._emit_progress(progress, value, on_progress)
+            _assert_provider_window("phase1b progress")
 
+        _assert_provider_window("phase1b")
         phase1b_result = await workflow._run_phase1b_enrichment(
             db,
             novel_id,
@@ -375,6 +388,7 @@ class ScenePhaseRunner:
             chapters=phase0_result.chapters,
             on_batch_progress=_on_phase1b_batch,
         )
+        _assert_provider_window("phase1b")
         progress.quality_stats["phase1b"] = phase1b_result.quality_stats
         if phase1b_diagnostics := workflow._diagnostic_samples(
             phase1b_result.diagnostics
@@ -507,14 +521,18 @@ class ScenePhaseRunner:
                     0.30 + 0.05 * fraction,
                     on_progress,
                 )
+                _assert_provider_window("phase1c progress")
 
+            _assert_provider_window("phase1c")
             phase1c_result = await workflow._run_phase1c_scene_fusion(
                 db,
                 novel_id,
                 final_candidates,
                 chapters=phase0_result.chapters,
+                project_profile=request.project_profile,
                 on_pair_progress=_on_phase1c_pair,
             )
+            _assert_provider_window("phase1c")
             final_candidates = phase1c_result.candidates
             fusion_suggestions = phase1c_result.suggestions
             progress.quality_stats["phase1c"] = phase1c_result.quality_stats
@@ -601,6 +619,8 @@ class ScenePhaseRunner:
             )
         if fusion_suggestions:
             commit_kwargs["fusion_suggestions"] = fusion_suggestions
+        if request.before_scene_commit is not None:
+            await request.before_scene_commit()
         commit_result = await workflow._commit_fused_scenes(
             db,
             novel_id,

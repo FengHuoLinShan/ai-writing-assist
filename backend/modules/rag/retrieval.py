@@ -38,10 +38,14 @@ async def _default_embedder(query: str, *, is_query: bool = False) -> list[float
     """默认 embedding 函数：通过 LLMClient 生成。"""
     from infrastructure.llm.client import LLMClient
 
-    embedding = await LLMClient().generate_embedding(query, is_query=is_query)
-    if isinstance(embedding, list) and embedding and isinstance(embedding[0], float):
-        return embedding
-    return []
+    client = LLMClient()
+    try:
+        embedding = await client.generate_embedding(query, is_query=is_query)
+        if isinstance(embedding, list) and embedding and isinstance(embedding[0], float):
+            return embedding
+        return []
+    finally:
+        await client.close()
 
 
 def _is_rerank_enabled(mode: str) -> bool:

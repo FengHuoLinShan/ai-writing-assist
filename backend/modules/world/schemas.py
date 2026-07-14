@@ -34,11 +34,17 @@ def _optional_uuid_validator(v: object) -> str | None:
     return _uuid_validator(v)
 
 
-def _normalize_entity_type(v: str) -> str:
+def _normalize_system_entity_type(v: str) -> str:
     """Lazy import to avoid schemas <-> services package initialization cycles."""
-    from modules.world.services.core.entity_types import normalize_entity_type
+    from modules.world.services.core.entity_types import normalize_system_entity_type
 
-    return normalize_entity_type(v)
+    return normalize_system_entity_type(v)
+
+
+def _normalize_author_entity_type(v: str) -> str:
+    from modules.world.services.core.entity_types import normalize_author_entity_type
+
+    return normalize_author_entity_type(v)
 
 
 # ============================================================
@@ -75,7 +81,7 @@ class ExtractedEntity(BaseModel):
     @field_validator("entity_type")
     @classmethod
     def normalize_entity_type_field(cls, v: str) -> str:
-        return _normalize_entity_type(v)
+        return _normalize_system_entity_type(v)
 
 
 class ExtractedRelationship(BaseModel):
@@ -347,7 +353,7 @@ class ObjectDraftChatResponse(BaseModel):
 
 
 class ObjectDraftGenerateRequest(BaseModel):
-    """将生成中心共创内容收束为数据库草稿对象。"""
+    """将生成中心共创内容收束为待处理世界对象建议。"""
 
     novel_id: str
     template: ObjectDraftTemplate = "none"
@@ -464,6 +470,11 @@ class CoreEntityDraftSuggestionPayload(BaseModel):
     reveal_level: str = Field(default="author_only", max_length=16)
     source_refs: list[WorldBibleSourceRef] = Field(default_factory=list)
 
+    @field_validator("entity_type")
+    @classmethod
+    def normalize_author_entity_type_field(cls, value: str) -> str:
+        return _normalize_author_entity_type(value)
+
 
 class EntityRelationSuggestionPayload(BaseModel):
     """待处理关系建议；确认后由 world 创建已采用关系。"""
@@ -577,7 +588,7 @@ class CoreEntityCreate(BaseModel):
     @field_validator("entity_type")
     @classmethod
     def normalize_entity_type_field(cls, v: str) -> str:
-        return _normalize_entity_type(v)
+        return _normalize_author_entity_type(v)
 
 
 class CoreEntityUpdate(BaseModel):
@@ -603,7 +614,7 @@ class CoreEntityUpdate(BaseModel):
     def normalize_entity_type_field(cls, v: str | None) -> str | None:
         if v is None:
             return None
-        return _normalize_entity_type(v)
+        return _normalize_author_entity_type(v)
 
 
 class CoreEntityResponse(BaseModel):
@@ -668,6 +679,16 @@ class CoreEntityListResponse(BaseModel):
     total: int
 
 
+class EntityTypeOption(BaseModel):
+    value: str
+    label: str
+    kind: Literal["system", "custom"]
+
+
+class EntityTypeCatalogResponse(BaseModel):
+    items: list[EntityTypeOption]
+
+
 class EntityPromoteRequest(BaseModel):
     """采用兼容 draft/candidate 实体的请求。
 
@@ -688,7 +709,7 @@ class EntityPromoteRequest(BaseModel):
     def normalize_optional_entity_type(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        return _normalize_entity_type(value)
+        return _normalize_author_entity_type(value)
 
 
 class EntityPromoteResponse(BaseModel):
@@ -2044,7 +2065,7 @@ class CoreEntitySuggestionEditConfirmRequest(BaseModel):
     def normalize_optional_entity_type(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        return _normalize_entity_type(value)
+        return _normalize_author_entity_type(value)
 
 
 class SuggestionDecisionResponse(BaseModel):

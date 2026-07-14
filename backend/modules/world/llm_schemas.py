@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -15,12 +15,31 @@ class GeneratedObjectDraftOutput(BaseModel):
         max_length=5000,
         description="对象概要，必须能直接显示在对象库列表和编辑弹窗中。",
     )
-    public_info: str | None = None
-    hidden_truth: str | None = None
-    importance_level: str = Field(default="normal", max_length=16)
-    reveal_level: str = Field(default="author_only", max_length=16)
-    details: dict[str, Any] = Field(default_factory=dict)
-    character_card: dict[str, Any] = Field(default_factory=dict)
+    public_info: str | None = Field(
+        default=None,
+        description="项目世界中的人物或读者当前可以知道的信息。",
+    )
+    hidden_truth: str | None = Field(
+        default=None,
+        description="只有对象确实存在隐藏层时填写，否则为 null。",
+    )
+    importance_level: Literal["core", "important", "normal", "temporary"] = (
+        "normal"
+    )
+    reveal_level: Literal[
+        "author_only",
+        "hinted",
+        "revealed",
+        "fully_known",
+    ] = "author_only"
+    details: dict[str, Any] = Field(
+        default_factory=dict,
+        description="只保留与对象类型和本次设计相关的扩展内容。",
+    )
+    character_card: dict[str, Any] = Field(
+        default_factory=dict,
+        description="仅人物对象使用，不为完整度填充无依据字段。",
+    )
 
     @field_validator("summary")
     @classmethod

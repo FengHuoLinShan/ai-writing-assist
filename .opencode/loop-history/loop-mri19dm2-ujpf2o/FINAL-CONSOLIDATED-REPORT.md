@@ -5,7 +5,40 @@
 **代码级核对**: 2026-07-14（7 个并行 explorer 子代理逐项打开当前代码验证，47 项中 41 项确认、6 项部分不符、0 项完全不符）  
 **来源**: 20 轮审计（R1-R20 完成）  
 **累计发现**: ~1,700 项（CRITICAL: ~81, HIGH: ~242, MEDIUM: ~414, LOW: ~421 + ~500 i18n）  
-**验证状态**: 全部 P0/P1 已由并行 sub-agent 验证，8 项原报告误差已修正（详见文末）
+**验证状态**: 2026-07-14 当前工作树合并门禁已复验通过；下方原始表格保留为历史证据
+
+---
+
+## 当前工作树复核与修复结果（2026-07-14）
+
+原“当前适合修复 0 项”结论在本轮开始时已经失效：当时后端 fast/coverage 有
+12 项失败，前端有 1 项地图编辑历史失败，lint 有 2 个 migration E501，
+`effective-llm-settings` 对不存在项目返回 500，且初始 AST 清单中的 627 个
+`unittest.mock.patch` / `patch.object` 调用只有 49 个显式使用
+`autospec=True`。
+
+上述合并阻塞与硬约束现已收口，最终复验如下：
+
+| 门禁/事实 | 当前结果 |
+|---|---|
+| 后端 fast + coverage | **3,630/3,630 通过**；生产代码覆盖率 **85.97%**（门禁 85%） |
+| 前端 Vitest | **1,183/1,183 通过** |
+| lint / secret hygiene / diff | `make lint`、`make secret-hygiene`、`git diff --check` 均通过 |
+| effective LLM settings | 不存在及已软删除项目均返回既有 DomainError **404 envelope**；成功 schema 与前端 wire shape 不变 |
+| patch 硬约束 | 当前工作树 **638/638** 个 import-aware `unittest.mock.patch` / `patch.object` 调用均为字面量 `autospec=True`；AST 门禁覆盖 decorator、context manager、`patch.object` 与别名导入 |
+| #16 骨架屏 | 应用首屏、全局工作区、写作、大纲和 Scene 工作台均使用共享可访问骨架屏 |
+| #15 地图删除 | 顶层地图改为软归档，提供 impact/restore；marker、terrain layer、binding、territory 等可重建局部素材仍保留显式删除 |
+| 外部门禁 | GitHub CI 已存在；公开仓库 `main` 分支保护仍需远端设置授权 |
+
+后端复验仅报告 1 条 SQLAlchemy/SQLite connection `ResourceWarning`；本轮要求的
+`RuntimeWarning` 严格门禁、退出码和 coverage 门禁均通过。它不是当前合并阻塞，
+可按真实复现路径另行治理。
+
+EbookLib [上游仓库](https://github.com/aerkalov/ebooklib)明确标示 AGPL-3.0，
+并在 README 说明使用 AGPL；本轮不替换依赖，仅登记为正式分发前的许可证评估门禁。
+
+> 以下“复核修订摘要”及各轮表格保留 2026-07-13 至本轮修复前的审计历史。
+> 若其状态或计数与本节冲突，以本节及当前代码/测试为准。
 
 ---
 
@@ -18,7 +51,7 @@
 | **已修复** | 30 | #1、#3、#4、#5、#6、#7、#10、#12、#13、#16；S3、S4、S5、S8；T1、T2、T3、T5、T6；D2；U1–U7；O1、O2、O4 |
 | **不成立、过时或未立证** | 10 | #9、#11、#14、#15；S1、S6、S7；T4；D4、D5 |
 | **合理暂缓** | 7 | #2（仅远端分支保护）、#8、S2、D1、D3、O3、O5 |
-| **当前适合修复** | 0 | 无 |
+| **当前适合修复** | 0 | **历史快照；本轮开始复核证明该判断已失效，相关代码项现已修复** |
 
 > 详细分诊与逐项收口证据见同目录 `P0-P1-ISSUES.md`。下文各表在原条目右侧标注当前状态：✅已修复 / ⏸合理暂缓 / ❌不成立或过时 / ⏳未变（仍为 backlog）。
 
@@ -43,9 +76,9 @@
 |---|--------|---------|------|
 | #2 | ⏸仓库侧已完成 | CI 配置比描述更完整（Python 3.12+uv lock+lint+fast-test+RuntimeWarning 全覆盖），分支保护确实未启用 | 状态标签准确，补充说明 CI 完整度 |
 | #11 | ❌未立证为阻塞 | `showModalHtml` 仍无内置转义，但全体 100+ 调用方一致使用 `esc()`；属约定安全而非纵深防御 | 状态合理，标注单点遗漏风险 |
-| #15 | ❌描述已过时 | Writing/Scene 确为软废弃；但**地图删除仍是硬 DELETE**（`map_api.py:213-220`，CLAUDE.md 声明 demo 阶段允许） | 补充地图硬删除例外 |
-| #16 | ✅已修复主加载边界 | **仅首屏**（index.html）使用骨架屏；写作/大纲/Scene 工作台视图内加载态未使用骨架屏 | 降级为⚠️部分修复 |
-| S7 | ❌论证未成立 | Alembic 与 runtime 默认读同一 `DATABASE_URL`，**无独立迁移用户配置项**；可手动通过环境变量区分但非一等支持 | 安全关注点有合理性，改为⚠️部分成立 |
+| #15 | ❌描述已过时 | Writing/Scene 为软废弃；顶层地图现也为软归档并支持 impact/restore，可重建局部地图素材仍有显式删除 | 不建立全局 undo；区分权威对象归档与局部素材删除 |
+| #16 | ✅已修复主加载边界 | 应用首屏、全局工作区、写作、大纲和 Scene 工作台均使用共享可访问骨架屏 | 保持✅已修复 |
+| S7 | ❌论证未成立 | 当前代码不强制迁移与 runtime 共用账号，缺少的是正式部署最小权限 runbook 与验收证据 | 转为⏸正式部署门禁，不描述成代码强制共用账号 |
 | T4 | ❌描述已失效 | `memory/tests/test_api.py`（44 行 7 路由）和 `rag/tests/test_api.py`（82 行 chunk CRUD/retrieve/rebuild/metrics）均存在且有真实测试 | 升级为✅已修复 |
 
 ---
@@ -75,16 +108,16 @@
 | 12 | **LLM 生成 API 前端 15s 超时 — 必然失败** | 前端 `api.js` 调用 | AI 生成需 60-120s，前端超时设置远低于实际耗时 | 1h | ✅ 已修复：当前 LLM 请求使用 90 秒 timeout |
 | 13 | **2 个 API 端点接受未经类型验证的 dict body** | `imports/api.py:281,308` | `body: dict = Body(...)` 绕过所有 Pydantic 校验 | 2h | ✅ 已修复：`DeepImportRecoveryRequest` 共享 typed request model，保持 `{task_id: string}`、缺失/空值 400、错误类型 422 语义 |
 | 14 | **嵌入缓存 key 缺模型名** | `embedding/cache.py:28-30` | 切换模型后最多 1h 返回旧模型结果 | 1h | ❌ 路径不成立：BGE client 与内存 cache 同属进程内单例，模型路径构造时固定，无热切换入口，进程退出清空 cache；原报告旧向量路径无法复现 |
-| 15 | **无删除撤销系统 — 所有删除操作不可逆** | 全局（除 project 回收站） | 章节/场景/剧情线/伏笔/揭示硬删除 | 12h | ⚠️ 部分过时：Writing/Scene 已为软废弃（`status="deprecated"`）；但**地图删除仍是硬 DELETE**（`map_api.py:213-220`，CLAUDE.md 声明 demo 阶段允许+二次确认） |
-| 16 | **CSS 骨架屏已定义但零使用** | `styles.css` + 各视图 | 5 个视图还在用"加载中..."文本，骨架屏 CSS 完全浪费 | 2h | ⚠️ 部分修复：**仅首屏**（`index.html:136-142`）使用骨架屏（含 `role=status`/`aria-live=polite`）；写作/大纲/Scene 工作台视图内加载态未使用骨架屏 |
+| 15 | **无删除撤销系统 — 所有删除操作不可逆** | 全局（除 project 回收站） | 章节/场景/剧情线/伏笔/揭示硬删除 | 12h | ✅ 原始描述过时：Writing/Scene 使用软废弃；顶层地图使用软归档并支持 impact/restore；可重建局部地图素材仍有显式删除 |
+| 16 | **CSS 骨架屏已定义但零使用** | `styles.css` + 各视图 | 5 个视图还在用"加载中..."文本，骨架屏 CSS 完全浪费 | 2h | ✅ 已修复：应用首屏、全局工作区、写作、大纲和 Scene 工作台使用共享可访问骨架屏 |
 
 ### P2-MEDIUM
 
 | # | 标题 | 位置 | 为什么现在修复 | 工作量 | 复核状态 |
 |---|------|------|---------------|--------|---------|
-| 17 | **`autospec=True` 零使用 — mock 不验证 API 形状** | 246 处 `@patch`/`@mock.patch` 调用 | 签名变化时 mock 不失败，测试假阳性 | 6h | ⏳ 未变：保留为 backlog，按真实回归风险逐步添加 |
+| 17 | **`autospec=True` 零使用 — mock 不验证 API 形状** | 原报告旧计数 246 处 | 签名变化时 mock 不失败，测试假阳性 | 6h | ✅ 已修复：初始 AST 清单 627 个调用中 578 个缺失；当前工作树 638/638 合规，并有 import-aware AST 门禁防回归 |
 | 18 | **项目列表（入口页面）无 loading/错误状态** | `projectView.js:280-295` | 用户看到的第一个页面，API 失败只显示空数组 | 1h | ✅ 已修复（随 U1/U3 批次）：项目列表加载与错误状态已补齐 |
-| 19 | **`settings/facade.py` `LookupError` 抛 500 而非 404** | `settings/facade.py:37` | 不存在的 project_id 请求 effective-llm-settings 返回 500→应 404 | 0.5h | ⏳ 未变：保留为 backlog |
+| 19 | **`settings/facade.py` `LookupError` 抛 500 而非 404** | `settings/facade.py` | 不存在的 project_id 请求 effective-llm-settings 返回 500→应 404 | 0.5h | ✅ 已修复：不存在和已软删除项目统一返回既有 DomainError 404 envelope |
 | 20 | **无请求日志中间件 — 无访问日志/审计轨迹** | `main.py` | 零请求日志，无法审计或排障 | 2h | ✅ 已修复（O2）：最外层 ASGI access log 中间件，记录受控 method/route template/status/duration |
 
 ---
@@ -101,7 +134,7 @@
 | 4 | `LLM_RATE_LIMIT_PER_MINUTE=0` 默认无限 | `config.py` | HIGH | 0.5h | ✅ 已修复：本地/测试可显式设 0；其他环境必须正 RPM，API/worker/reload 监督进程均 fail closed |
 | 5 | `Bearer Token` 明文存 sessionStorage 通过 HTTP 发送 | 前端认证 | HIGH | 4h | ✅ 已修复：封闭测试 token 只存当前页面 module memory，刷新丢失；fetch/上传/错误上报共用同一认证路径 |
 | 6 | `rag/api.py:143` `/metrics` 端点无认证 | `rag/api.py` | HIGH | 1h | ❌ 已由全局 access-token 中间件在配置 `APP_ACCESS_TOKEN` 时覆盖；是否需额外路由级限制取决于未来指标暴露策略 |
-| 7 | 数据库单用户运行迁移和运行时（DDL+DML 共用） | `alembic.ini` + config | MEDIUM | 2h | ⚠️ 部分成立：Alembic 与 runtime 默认读同一 `DATABASE_URL`，无独立迁移用户配置项；可手动通过环境变量区分但非一等支持，安全关注点有合理性 |
+| 7 | 数据库单用户运行迁移和运行时（DDL+DML 共用） | `alembic.ini` + config | MEDIUM | 2h | ⏸ 正式部署门禁：当前代码不强制共用账号；正式部署 runbook 需定义迁移/运行时最小权限并保存验收证据 |
 | 8 | `backend/.env` 环境变量名不匹配：`APP_DEBUG` vs `DEBUG` | `config.py` + `.env.example` | HIGH | 0.5h | ✅ 已修复：`.env.example`、Settings 与 FastAPI 启动统一使用 `DEBUG`，默认 false，旧 `APP_DEBUG` 不再生效 |
 
 ### 🧪 测试质量（5-8 项）
@@ -137,7 +170,7 @@
 | 5 | 编辑器中无脏状态保护（关闭/取消时丢失输入） | 各 View.js | MEDIUM | 4h | ✅ 已修复共享模态路径：打开时记录控件基线，关闭/取消/遮罩/Escape 对真实可编辑差异确认放弃；成功 action 免确认 |
 | 6 | `router.js:276-306` A→B→A 快速导航时慢请求覆盖为新项目 | `router.js` | CRITICAL | 3h | ✅ 已修复：AbortSignal + 请求代次 + 应用内 no-store；过期导航不提交 metadata/view/hash/渲染 |
 | 7 | `generateView:1093-1150` 聊天历史写 localStorage 无大小限制 | `generateView.js` | CRITICAL | 2h | ✅ 已修复：单项目 512 KiB 上限、最多 5 项目 LRU、超限先丢弃预览再收敛为最近 40 条；项目隔离 + 损坏去重警告 |
-| 8 | EbookLib AGPLv3+ 许可证需评估替代方案 | 依赖管理 | HIGH | 4h | ⏳ 未变：保留为 backlog |
+| 8 | EbookLib AGPLv3+ 许可证需评估替代方案 | 依赖管理 | HIGH | 4h | ⏸ 上游 AGPL-3.0 声明属实；登记为正式分发前许可证评估门禁，本轮不擅自替换依赖 |
 
 ### ⚙️ 运维（3-5 项）
 
@@ -185,15 +218,17 @@
 | 分类 | 已修复 | 合理暂缓 | 不成立/过时/未立证 | 部分不符/部分修复 | 待修 |
 |------|--------|---------|-------------------|------------------|------|
 | P0-CRITICAL（8） | #1、#3、#4、#5、#6、#7（6） | #2、#8（2） | 0 | 0 | 0 |
-| P1 Top 20（8） | #10、#12、#13（3） | 0 | #9、#14（2） | #11⚠️、#15⚠️、#16⚠️（3） | 0 |
-| 安全 P1（8） | S3、S4、S5、S8（4） | S2（1） | S1、S6（2） | S7⚠️（1） | 0 |
+| P1 Top 20（8） | #10、#12、#13、#16（4） | 0 | #9、#14、#15（3） | #11⚠️（1） | 0 |
+| 安全 P1（8） | S3、S4、S5、S8（4） | S2、S7（2） | S1、S6（2） | 0 | 0 |
 | 测试 P1（6） | T1、T2、T3、T4、T5、T6（6） | 0 | 0 | 0 | 0 |
 | 部署 P1（5） | D2（1） | D1、D3（2） | D4、D5（2） | 0 | 0 |
 | UX P1（7） | U1–U7（7） | 0 | 0 | 0 | 0 |
 | 运维 P1（5） | O1、O2、O4（3） | O3、O5（2） | 0 | 0 | 0 |
-| **合计** | **30** | **7** | **6** | **4** | **0** |
+| **合计** | **31** | **8** | **7** | **1** | **0** |
 
-> 代码级核对将 T4 从"不成立"升级为"已修复"（test_api.py 确实存在）；#11、#15、#16、S7 标记为⚠️部分不符，状态标签需细化但不改变"当前无阻塞待修项"的结论。
+> 此表仍以 47 个原始 P0/P1 条目为范围；本轮另行修复的 P2 #17/#19 不计入
+> 47 项。T4 保持已验证；#15 的全局撤销描述已过时，#16 已修复；S7 转为正式
+> 部署 runbook/最小权限验收门禁。#11 保留为非阻塞的纵深防御关注点。
 
 ### 按模块的严重程度分布（原始审计口径）
 
@@ -236,18 +271,18 @@
 
 | 维度 | 原始评分 | 复核评分 | 变化说明 |
 |------|---------|---------|---------|
-| **安全** | 3/10 | 5.5/10 | 已修复：安全响应头、速率限制（单 worker 边界）、上传内容验证、LLM RPM fail closed、token 不再入 Web Storage、DEBUG 配置统一、凭据防回归门禁；暂缓：CSP 收紧；部分成立：S7 DB 单用户无独立迁移配置；不成立：CSRF/metrics 认证 |
+| **安全** | 3/10 | 5.5/10 | 已修复：安全响应头、速率限制（单 worker 边界）、上传内容验证、LLM RPM fail closed、token 不再入 Web Storage、DEBUG 配置统一、凭据防回归门禁；暂缓：CSP 收紧；部署前：S7 最小权限 runbook/验收；不成立：CSRF/metrics 认证 |
 | **数据完整性** | 5/10 | 6.5/10 | 已修复：pg_trgm savepoint 恢复、dict body typed 化、静默降级补日志；不成立：删除撤销（已为软废弃） |
 | **可部署性** | 1/10 | 3/10 | 已修复：CI workflow、start.sh 含 worker；暂缓：Dockerfile/多 worker/反向代理须由正式部署目标决定 |
 | **代码质量** | 6/10 | 7/10 | 已修复：Mock-in-production 移除、Scene workbench 异常泄露收口、dict body typed；不成立：领域事件/showModalHtml 未立证为阻塞 |
-| **用户体验** | 4/10 | 6.5/10 | U1–U7 全部修复：409 映射、setTimeout 绑定竞态、大纲错误状态、模态 ARIA、脏状态保护、router 竞态、localStorage 限制；#16 骨架屏仅首屏覆盖，视图级未用（⚠️部分修复） |
-| **测试质量** | 7/10 | 8/10 | 已修复：core/shared 覆盖、async fixture、xdist/timeout、跨模块串行场景、coverage 85% 门禁、Memory/RAG API 测试（T4 经代码核对确认已存在） |
+| **用户体验** | 4/10 | 6.5/10 | U1–U7 全部修复；#16 的应用首屏、全局工作区、写作、大纲和 Scene 工作台均使用共享可访问骨架屏 |
+| **测试质量** | 7/10 | 8/10 | 已修复：core/shared 覆盖、async fixture、xdist/timeout、跨模块串行场景、coverage 85% 门禁、Memory/RAG API 测试，以及 638/638 patch autospec 静态门禁 |
 | **运维** | 2/10 | 5/10 | 已修复：access log、novel_id 上下文、DomainError 日志；暂缓：外部指标系统、备份策略 |
 | **文档** | 5/10 | 5/10 | 未变 |
 | **API 设计** | 6/10 | 6.5/10 | 已修复：dict body typed、Scene workbench 异常泄露；剩余 21 处 `detail=str(...)` 均在显式 4xx 分支 |
 | **性能** | 5/10 | 5/10 | 未变（进程内同步嵌入、O(n²) 回退、N+1 仍为 backlog） |
 | **治理** | 2/10 | 4/10 | 已修复：CI workflow、凭据防回归门禁；待授权：main 分支保护；`make format` 因 27 个存量未格式化文件暂未入 CI |
-| **综合** | 4.5/10 | **5.5/10** | 第一轮修复收口 30/47 P0/P1 项；代码级核对确认 41/47 项声称属实，6 项部分不符已细化；架构设计优秀，工程化短板已部分补齐；剩余短板集中在正式部署方案、视图级骨架屏覆盖与外部运维 |
+| **综合** | 4.5/10 | **5.5/10** | 当前合并门禁已恢复；剩余短板集中在正式部署方案、远端分支保护、许可证评估与外部运维 |
 
 ---
 
@@ -260,6 +295,8 @@
 - ✅ T1 core/shared 覆盖 + T2 async fixture + T3 xdist/timeout + T4 Memory/RAG API 测试（代码核对确认） + T5 跨模块串行场景 + T6 coverage 85% 门禁
 - ✅ D2 start.sh 含 worker + U1–U7 全部 UX 修复 + O1 novel_id 上下文 + O2 access log + O4 DomainError 日志
 - ✅ #2 仓库侧 CI workflow（GitHub main 分支保护待远端授权）
+- ✅ #15 顶层地图软归档/impact/restore（局部可重建素材保留显式删除）+ #16 共享骨架屏主加载边界
+- ✅ #17 当前工作树 638/638 patch autospec + AST 门禁 + #19 effective settings active-project 404
 
 ### 待外部授权或正式部署目标触发（合理暂缓，7 项）
 1. #2 GitHub `main` 分支保护 — 需远端设置授权后把 CI job 设为必需检查
@@ -275,18 +312,16 @@
 - D4 Compose 密码 — 本地开发凭据 `novel_dev_pass`（代码确认：`docker-compose.yml:11`）
 - D5 .dockerignore — 无 Dockerfile，无构建消费者（代码确认：全局搜索零结果）
 
-### 部分不符/部分修复（4 项，需细化状态但不阻塞）
+### 纵深防御或部署前门禁（2 项，不阻塞当前合并）
 - #11 showModalHtml — 仍无内置转义，但全体 100+ 调用方一致使用 `esc()`；属约定安全，有单点遗漏风险
-- #15 删除撤销 — Writing/Scene 已软废弃；地图删除仍是硬 DELETE（demo 阶段允许+二次确认）
-- #16 骨架屏 — 仅首屏使用，写作/大纲/Scene 工作台视图内加载态未覆盖
-- S7 DB 单用户 — 无独立迁移用户配置项，安全关注点有合理性，可手动通过环境变量区分
+- S7 DB 最小权限 — 当前代码不强制迁移与运行时共用账号；正式部署 runbook 必须定义分离权限并保存验收证据
 
 ### 剩余 backlog（不标为 P0，按真实故障/反馈/部署目标触发）
-1. #16 骨架屏视图级覆盖（首屏已用，写作/大纲/Scene 工作台视图内加载态未覆盖）
-2. #19 settings LookupError 500→404、#17 autospec 逐步添加、246 处冗余 asyncio mark 清理
+1. 246 处冗余 asyncio mark 的低优先级机械清理
 2. 结构化日志深化、领域事件机制、模块拆分（2000+ 行文件）
-3. API 版本化、i18n 国际化、WebSocket 替代轮询、AGPLv3 依赖评估
-4. `make format` 干净基线建立后启用 CI 格式门禁
+3. API 版本化、i18n 国际化、WebSocket 替代轮询
+4. EbookLib AGPL-3.0 正式分发前许可证评估
+5. `make format` 干净基线建立后启用 CI 格式门禁
 
 ---
 
@@ -330,7 +365,7 @@
 |---|--------|-------------|
 | #2 | ⏸仓库侧已完成 | CI 比描述更完整，状态标签准确 |
 | #11 | ❌未立证为阻塞 | ⚠️ 约定安全有单点遗漏风险，状态合理但需标注 |
-| #15 | ❌描述已过时 | ⚠️ 地图删除仍是硬 DELETE（demo 允许） |
-| #16 | ✅已修复主加载边界 | ⚠️ 仅首屏覆盖，视图级未用骨架屏 |
-| S7 | ❌论证未成立 | ⚠️ 无独立迁移用户配置，关注点有合理性 |
+| #15 | ❌描述已过时 | ✅ 顶层地图已改为软归档并支持 impact/restore；局部可重建素材仍可显式删除 |
+| #16 | ✅已修复主加载边界 | ✅ 首屏、全局工作区、写作、大纲和 Scene 工作台均使用共享骨架屏 |
+| S7 | ❌论证未成立 | ⏸ 转为正式部署 runbook/最小权限验收门禁，不声称代码强制共用账号 |
 | T4 | ❌描述已失效 | ✅ 升级为已修复，test_api.py 确实存在 |

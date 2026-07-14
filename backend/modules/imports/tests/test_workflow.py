@@ -264,9 +264,15 @@ async def test_workflow_spine_uses_injected_phase_runner_protocols() -> None:
     with (
         patch(
             "modules.imports.workflow._project_settings_for_novel",
-            new=AsyncMock(return_value={}),
+            autospec=True,
+            return_value={},
         ),
-        patch.object(DeepImportWorkflow, "_is_llm_health_required", return_value=False),
+        patch.object(
+            DeepImportWorkflow,
+            "_is_llm_health_required",
+            return_value=False,
+            autospec=True,
+        ),
     ):
         progress = await workflow.run_step(
             None,
@@ -1992,6 +1998,7 @@ class TestDeepImportWorkflowAutoRun:
         with patch(
             "modules.imports.workflow._container_get",
             return_value=broken_handler,
+            autospec=True,
         ):
             with pytest.raises(RuntimeError, match="phase2 boom"):
                 await workflow._extract_entities_by_scene(
@@ -2012,10 +2019,15 @@ class TestDeepImportWorkflowAutoRun:
         handler = AsyncMock(return_value=expected)
 
         with (
-            patch("modules.imports.workflow._container_get", return_value=handler),
+            patch(
+                "modules.imports.workflow._container_get",
+                return_value=handler,
+                autospec=True,
+            ),
             patch(
                 "modules.imports.workflow._project_settings_for_novel",
-                new=AsyncMock(return_value={}),
+                autospec=True,
+                return_value={},
             ),
         ):
             result = await workflow._extract_entities_by_scene(
@@ -2114,6 +2126,7 @@ class TestDeepImportWorkflowAutoRun:
         with patch(
             "modules.imports.workflow_scene_phase._enqueue_rag_reindex_after_scene_commit",
             return_value="task-rag-reindex",
+            autospec=True,
         ) as enqueue_rag:
             result = await workflow.run_step(
                 db=db,
@@ -2443,7 +2456,7 @@ class TestDeepImportWorkflowAutoRun:
     async def test_count_world_objects_includes_candidate_context(self):
         with patch(
             "modules.world.facade.count_entities",
-            new_callable=AsyncMock,
+            autospec=True,
         ) as count:
             count.return_value = 3
 
@@ -3033,6 +3046,7 @@ class TestDeepImportWorkflowAutoRun:
         with patch(
             "modules.imports.workflow._container_get",
             side_effect=lambda name: services[name],
+            autospec=True,
         ):
             updated = await ensure_minimum_structure_outputs(
                 db=Mock(),
@@ -3166,6 +3180,7 @@ class TestDeepImportWorkflowAutoRun:
         with patch(
             "modules.imports.workflow._container_get",
             side_effect=lambda name: services[name],
+            autospec=True,
         ):
             updated = await ensure_minimum_structure_outputs(
                 db=Mock(),
@@ -3253,6 +3268,7 @@ class TestDeepImportWorkflowAutoRun:
         with patch(
             "modules.imports.workflow._container_get",
             side_effect=lambda name: services[name],
+            autospec=True,
         ):
             updated = await ensure_minimum_structure_outputs(
                 db=Mock(),
@@ -3773,9 +3789,7 @@ class TestDeepImportOrchestrator:
     ):
         task = await _create_recoverable_deep_import_task(db_session)
 
-        result = await _unit_orchestrator().resume_interrupted(
-            db_session, str(task.id)
-        )
+        result = await _unit_orchestrator().resume_interrupted(db_session, str(task.id))
 
         assert result["task_id"] == str(task.id)
         assert result["workflow_id"] == str(task.id)
@@ -4625,7 +4639,11 @@ class TestDeepImportOrchestrator:
         )
         db = AsyncMock()
 
-        with patch("modules.imports.workflow._container_get", return_value=generate):
+        with patch(
+            "modules.imports.workflow._container_get",
+            return_value=generate,
+            autospec=True,
+        ):
             await workflow._analyze_structure(
                 db,
                 "novel-1",
@@ -4885,8 +4903,8 @@ class TestSceneSegmentationProgress:
         assert exc_info.value.model == "deepseek-v4-flash"
 
     @pytest.mark.asyncio
-    @patch("modules.outline.facade.create_scene", new_callable=AsyncMock)
-    @patch("modules.outline.facade.get_next_scene_index", return_value=0)
+    @patch("modules.outline.facade.create_scene", autospec=True)
+    @patch("modules.outline.facade.get_next_scene_index", return_value=0, autospec=True)
     async def test_segment_chapters_reports_batch_progress(
         self,
         mock_get_next,
@@ -5017,7 +5035,7 @@ class TestSceneEntityExtractionProgress:
     @pytest.mark.asyncio
     @patch(
         "modules.world.facade.get_world_context",
-        new_callable=AsyncMock,
+        autospec=True,
     )
     async def test_extract_by_scenes_reports_scene_progress(self, mock_ctx):
         mock_ctx.return_value = Mock(entities=[])
@@ -5057,7 +5075,7 @@ class TestSceneEntityExtractionProgress:
         assert "total_relations" in result
 
     @pytest.mark.asyncio
-    @patch("modules.world.facade.get_world_context", new_callable=AsyncMock)
+    @patch("modules.world.facade.get_world_context", autospec=True)
     async def test_phase2_runs_batches_in_parallel_but_scenes_serial_within_batch(
         self,
         mock_ctx,
@@ -5170,7 +5188,7 @@ class TestSceneEntityExtractionProgress:
         assert progress_calls[-1] == (24, 24)
 
     @pytest.mark.asyncio
-    @patch("modules.world.facade.get_world_context", new_callable=AsyncMock)
+    @patch("modules.world.facade.get_world_context", autospec=True)
     async def test_phase2_batched_result_reports_env_override(
         self,
         mock_ctx,
@@ -5417,15 +5435,19 @@ class TestSceneEntityExtractionProgress:
         service._run_alias_relation_phase.assert_not_awaited()
 
     @pytest.mark.asyncio
-    @patch("modules.world.facade.find_similar_entities", new_callable=AsyncMock)
-    @patch("modules.world.facade.create_entity", new_callable=AsyncMock)
+    @patch("modules.world.facade.find_similar_entities", autospec=True)
+    @patch("modules.world.facade.create_entity", autospec=True)
+    @patch("modules.world.facade.find_entity_id_by_name", autospec=True)
     async def test_phase2_persist_entities_collects_action_and_dedup_stats(
         self,
+        mock_find_entity_id,
         mock_create,
         mock_find_similar,
     ):
         service = SceneEntityExtractionService()
         target_id = str(uuid.uuid4())
+        existing_id = str(uuid.uuid4())
+        mock_find_entity_id.return_value = existing_id
         mock_find_similar.return_value = [
             Mock(
                 similarity_score=0.96,
@@ -5479,14 +5501,16 @@ class TestSceneEntityExtractionProgress:
             ),
         ]
 
+        fake_db = FakeDb()
+        novel_id = uuid.uuid4()
         with patch(
             "modules.imports.entity_extraction.scene_entity_persistence."
             "SceneEntityPersistenceGateway._record_quote_evidence",
-            new_callable=AsyncMock,
+            autospec=True,
         ):
             created = await service._persist_entities(
-                FakeDb(),
-                uuid.uuid4(),
+                fake_db,
+                novel_id,
                 entities,
                 scene_index=1,
                 source_chapter_index=1,
@@ -5500,6 +5524,17 @@ class TestSceneEntityExtractionProgress:
         assert (
             high_confidence_payload["content_json"]["_meta"]["suggested_target_entity_id"]
             == target_id
+        )
+        linked_payload = mock_create.await_args_list[1].args[2]
+        assert (
+            linked_payload["content_json"]["_meta"]["suggested_existing_entity_id"]
+            == existing_id
+        )
+        mock_find_entity_id.assert_awaited_once_with(
+            fake_db,
+            str(novel_id),
+            "廷根",
+            entity_type="location",
         )
         assert stats["action_counts"] == {
             "create_new": 1,
@@ -5554,19 +5589,19 @@ class TestHandleDeepImportTaskResult:
             patch.object(
                 DeepImportWorkflow,
                 "_extract_entities_by_scene",
-                new_callable=AsyncMock,
+                autospec=True,
                 return_value={"total_created": 3, "total_deltas": 2},
             ),
             patch.object(
                 DeepImportWorkflow,
                 "_analyze_structure",
-                new_callable=AsyncMock,
+                autospec=True,
                 return_value={"total_threads": 2, "total_arcs": 4},
             ),
             patch.object(
                 DeepImportWorkflow,
                 "_refresh_snapshot_health_summary",
-                new_callable=AsyncMock,
+                autospec=True,
             ),
         ):
             result = await handle_deep_import(db=mock_db, task=task)

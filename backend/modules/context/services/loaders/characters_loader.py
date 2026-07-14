@@ -76,7 +76,16 @@ class CharactersLoader(Loader):
         char_limit = CONTEXT_BUDGET.get("characters", 6)
 
         if options.character_ids:
-            limited_ids = options.character_ids[:char_limit]
+            limited_ids = list(dict.fromkeys(options.character_ids))
+            if options.consumer_action == "writing.generate":
+                inferred_ids = await self._infer_character_ids(
+                    db,
+                    options,
+                    bundle,
+                    char_limit,
+                )
+                limited_ids = list(dict.fromkeys([*limited_ids, *inferred_ids]))
+            limited_ids = limited_ids[:char_limit]
         else:
             limited_ids = await self._infer_character_ids(db, options, bundle, char_limit)
 
@@ -179,7 +188,17 @@ class CharactersLoader(Loader):
     ) -> list[str]:
         ids: list[str] = []
 
-        # 1. Scene POV character
+        def extend(values: object) -> None:
+            if not isinstance(values, list | tuple | set):
+                return
+            for value in values:
+                character_id = str(value or "").strip()
+                if character_id and character_id not in ids:
+                    ids.append(character_id)
+
+        # 1. Explicit POV and Scene POV character.
+        if options.viewpoint_character_id:
+            ids.append(options.viewpoint_character_id)
         scene = (
             bundle.scene
             if isinstance(bundle.scene, dict)
@@ -188,7 +207,7 @@ class CharactersLoader(Loader):
             else None
         )
         pov = scene.get("pov_character_id") if scene else None
-        if pov:
+        if pov and pov not in ids:
             ids.append(pov)
         elif options.scene_id:
             scene_contract = await self._get_scene_contract(
@@ -204,17 +223,29 @@ class CharactersLoader(Loader):
                 else None
             )
             pov = scene.get("pov_character_id") if scene else None
-            if pov:
+            if pov and pov not in ids:
                 ids.append(pov)
 
-        # 2. World entities of type character
-        if not ids and bundle.world_entities:
-            for ent in bundle.world_entities:
-                if ent.get("entity_type") == "character":
-                    eid = ent.get("entity_id") or ent.get("id")
-                    if eid and eid not in ids:
-                        ids.append(eid)
-                if len(ids) >= limit:
-                    break
+        # 2. Current Scene, arc, active threads and RAG evidence references.
+        scene_meta = scene.get("structure_meta") if scene else None
+        if isinstance(scene_meta, dict):
+            extend(scene_meta.get("related_character_ids"))
+        arc = bundle.outline_arc if isinstance(bundle.outline_arc, dict) else {}
+        extend(arc.get("related_character_ids"))
+        for thread in bundle.plot_threads:
+            if isinstance(thread, dict):
+                extend(thread.get("related_character_ids"))
+        for chunk in bundle.rag_chunks:
+            if isinstance(chunk, dict):
+                extend(chunk.get("character_ids"))
+
+        # 3. Character-shaped world entities already selected for this request.
+        for ent in bundle.world_entities:
+            if ent.get("entity_type") == "character":
+                eid = ent.get("entity_id") or ent.get("id")
+                if eid and eid not in ids:
+                    ids.append(eid)
+            if len(ids) >= limit:
+                break
 
         return ids[:limit]

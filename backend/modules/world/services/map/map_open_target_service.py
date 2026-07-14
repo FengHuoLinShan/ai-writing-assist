@@ -94,4 +94,7 @@ class MapOpenTargetService:
             )
             if territory is not None:
                 return territory.map_id
+        path = await owner._path_repo.find_any_for_endpoint(db, novel_id, entity_id)
+        if path is not None:
+            return path.map_id
         return None

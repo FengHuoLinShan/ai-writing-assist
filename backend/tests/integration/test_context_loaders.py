@@ -501,6 +501,7 @@ async def test_memory_records_loader_exception_returns_empty(
     with mock.patch(
         "modules.memory.services.MemoryService.get_panorama",
         side_effect=RuntimeError("DB error"),
+        autospec=True,
     ):
         # Act
         await loader.load(db_session, options, bundle)

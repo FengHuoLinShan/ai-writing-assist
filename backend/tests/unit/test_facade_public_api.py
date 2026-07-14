@@ -10,6 +10,7 @@ from modules.world import facade as world_facade
 WORLD_FACADE_API = {
     "append_candidate_alias",
     "apply_entity_fusion",
+    "apply_entity_fusion_group",
     "backfill_entity_embeddings",
     "count_deep_import_map_observations_by_workflow",
     "count_entities",
@@ -63,6 +64,7 @@ WORLD_FACADE_API = {
 
 OUTLINE_FACADE_API = {
     "apply_structure_dedup",
+    "apply_structure_dedup_group",
     "batch_create_scenes",
     "bind_scene_spans_to_source",
     "count_scenes_by_novel",
@@ -110,6 +112,7 @@ WORLD_CONTRACT_API = {
     "WorldBackgroundBundleContract",
     "WorldBackgroundEntryContract",
     "WorldBibleSynopsisContextContract",
+    "WorldAliasRelationTaskPort",
 }
 
 

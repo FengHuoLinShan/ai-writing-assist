@@ -9,7 +9,7 @@
 - 当前前端主入口是一级路由 `map`（`mapWorkspaceView`）
 - `world` 里的 `map` 子标签只保留兼容跳转
 
-**设计来源**：[`map-prd-v1.1.md`](../references/map-prd-v1.1.md)；当前代码已覆盖地图基础 P0-P2、世界动态 P0/P1，并提供世界动态 P2/P3 的前端与只读派生脚手架。
+**设计来源**：[`map-prd-v1.1.md`](../references/map-prd-v1.1.md)；当前代码已覆盖地图基础 P0-P2、世界动态 P0/P1，并提供类型化 Scene 状态、差分、连续性检查和 P3 只读播放。
 
 ---
 
@@ -23,6 +23,8 @@
 | P0 | 地图聚合状态（map + breadcrumbs + tiles + bindings） | ✅ | `MapConfigService.get_state` | 主视图 |
 | P0 | 详图快速生成（中心 city + 外 road） | ✅ | `MapConfigService.generate` | 编辑工具栏 |
 | P0 | 快速创建地图预览与地点多选落库 | ✅ | `MapQuickCreateService` | `mapQuickCreateView.js` |
+| P0 | 地图子树归档/恢复与 active 名称唯一 | ✅ | `MapArchiveService` | 地图总览归档列表 |
+| P0 | 视觉 revision CAS 与原子批量保存 | ✅ | `MapEditorApplyService` | 应用当前图层 / 保存全部 |
 | P0 | 地图 Observation/Fact 证据与事实底座 | ✅ | `MapDynamicFactService` | 待处理/已采用动态事实摘要 |
 | P1 | 世界动态总控台（首屏层 / 动态队列 / 检查器 / 批量分组） | ✅ | `MapDynamicFactService.get_dashboard` | 工作台右侧总控台 |
 | P1 | 统一地图打开目标（写作页 / 世界对象页 / 默认地图入口） | ✅ | `GET /open-target` | `writingView.js` / `worldView.js` / `mapWorkspaceView.js` |
@@ -34,9 +36,13 @@
 | P2 | 写作页 Scene 地图摘要 | ✅ | `GET /scene-summary` | `writingView.js` |
 | P2 | 自动布局、避让、聚合簇 | 部分实现 | 复用 dashboard / state 契约 | `mapLayoutEngine.js` + `mapView.js`；仍缺少路线/危机区等高级避让 |
 | P2 | 总控台 / 活地图 / 叙事透镜三视图 | 部分实现 | 同一套地图事实 | `mapWorkspaceView.js`；当前是视图模式入口和焦点权重 |
+| P2 | 递归图层树与继承显隐/锁定/透明度/缩放 | ✅ | `MapLayerTreeService` | 递归图层面板 |
+| P2 | 独占组、楼层组与临时隔离 | ✅ | 图层树保存模式/楼层结构 | route + localStorage 会话选择 / isolate |
+| P2 | 连续道路与水系、端点吸附和节点精修 | ✅ | `MapPathService` | `mapPathRenderer.js` + path 编辑层 |
+| P2 | 世界对象多地图 presence 与双向定位 | ✅ | `MapEntityPresenceService` | 地图选择器 / typed selection |
 | P2 | 上方语义气泡带与低动效模式 | 部分实现 | 同一套动态队列 | `mapWorkspaceView.js` + `mapLayoutEngine.js` |
-| P3 | typed observations 播放派生 | 部分实现 | `GET /{map_id}/playback` | 电影化播放面板；当前基于 observation/fact 的只读派生 |
-| P3 | 人物旅程 / 势力变化 / 危机推进 / 资源控制 / 状态变化轨道 | 部分实现 | `MapDynamicFactService.get_playback` | 轨道归类列表；仍缺少完整差分模型 |
+| P3 | typed observations、Scene 状态与确定性差分 | ✅ | `GET /{map_id}/timeline`、`/{map_id}/state-at` | Scene 游标、正式状态、candidate 预览与冲突分区 |
+| P3 | 人物旅程 / 势力变化 / 危机推进 / 资源控制 / 状态变化轨道 | ✅ | `MapTimelineService` + 兼容 playback | 差分轨道、只读 Canvas 覆盖与空间连续性面板 |
 | P3 | AI 位置建议 | ❌ | 未建表 | 未实现 |
 | P4 | 地图缩略图 / 图片底图 / 伪 3D | ❌ | 未规划 | 未实现 |
 
@@ -62,11 +68,13 @@
 | `parent_map_id` | UUID FK → map_configs | 自引用层级，`NULL` 为顶层 |
 | `parent_entity_id` | UUID FK → core_entities | 详图对应的 location 实体 |
 | `sort_order` | INT | 同层级排序 |
+| `status` / `archived_at` | VARCHAR / TIMESTAMPTZ | `active` / `archived` 与归档时间 |
+| `editor_revision` | INT | 地图视觉资产的乐观锁版本 |
 
 **约束**：
-- `UNIQUE(novel_id, parent_map_id, name)` 防止同层级重名；顶层地图另有 PostgreSQL 部分唯一索引 `(novel_id, name) WHERE parent_map_id IS NULL`，避免 `NULL` 使唯一约束失效。
+- active 子地图使用 partial unique `(novel_id, parent_map_id, name) WHERE status='active' AND parent_map_id IS NOT NULL`；active 根地图使用 `(novel_id, name) WHERE status='active' AND parent_map_id IS NULL`。归档历史可与新地图同名。
 - `parent_entity_id` 必须是同 novel 的 `location` 类型实体。
-- 删除地图时，`tiles` / `bindings` / `markers` / `territories` 级联删除；子地图 `parent_map_id` 置 `NULL`（FK `ON DELETE SET NULL`）。
+- 作者入口不硬删除已采用地图。归档/恢复锁定整棵子树并在单事务修改状态，资产和父子关系保持不变。
 
 ### `map_tiles` — 六边形地形
 
@@ -127,6 +135,39 @@
 地形绑定的正式写入与更新必须关联已采用地点；默认读取只返回
 `review_state="confirmed"` 且 owner 为 canonical 的绑定，显式
 `include_candidates=true` 才返回 `candidate_bindings`。
+
+`map_tiles` 是 `baseTerrain` 正式底图；上述四表是 `terrainOverlay` 覆盖层。
+覆盖层按 `(z_index, created_at, id)` 升序渲染，高层后绘制。锁定层拒绝绘制、
+覆盖保存和删除；素材包只写覆盖层 metadata，不修改底图 tile。
+
+### `map_layer_nodes` — 递归图层树
+
+`map_layer_nodes` 是图层局部 `visible/locked/opacity/sort_order/min_zoom/max_zoom`
+的唯一权威。允许多个顶层 group，最大深度 8；底图、地点、人物/事件/物品标记、
+领地、覆盖素材组、连续线路组和待处理预览是必须且唯一的 singleton，每个 terrain layer
+和 path layer 必须且只能对应一个 leaf。
+
+有效显隐取祖先逻辑与，锁定取祖先逻辑或，透明度沿祖先链相乘，zoom 取区间交集；
+空交集不可见。`map_terrain_layers.visible/locked/opacity/z_index` 只是兼容投影，
+树写入后按 DFS 顺序在同一事务内重算。
+
+group 可设置 `selection_mode=normal|exclusive|floor`；floor 的直接子节点使用唯一
+`floor_level`。当前 active child 与 isolate 不入库：路由值优先于按 novel/map 隔离的
+localStorage，嵌套组沿全部祖先选择共同决定会话有效可见性。隐藏、zoom 外或锁定的当前子层
+不会被自动替换，前端会解释空画布原因。
+
+### 连续线路
+
+| 表 | 用途 |
+|---|---|
+| `map_path_layers` | transport / water 线路容器；显示名称与图层属性由对应 tree leaf 拥有。 |
+| `map_paths` | 道路/水系、样式、起止地点、active/archived 生命周期与 `content_revision`。 |
+| `map_path_nodes` | 有序浮点轴向坐标、逐节点宽度、张力和出向分段类型。 |
+
+线路使用 Canvas 连续覆盖层，hex 仍是地图范围和地点吸附权威。每条线路 2–500 个节点，
+每张地图最多 500 条线路和 20,000 个节点；起止地点只能关联同项目 canonical location，
+但地点未布置时可保持 unresolved 语义端点。地点移动不静默改写线路，用户必须显式重新吸附。
+线路本体只归档，含 active 或 archived 线路的 layer 不可删除。
 
 ### `map_markers` — 动态标记（P1）
 
@@ -205,20 +246,34 @@
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/?novel_id={}&parent_map_id={}` | 地图列表；`parent_map_id` 为空表示顶层 |
+| GET | `/?novel_id={}&parent_map_id={}&status={}&skip={}&limit={}` | 分页地图列表；默认只返回 active |
 | POST | `/?novel_id={}` | 创建地图，同时按模板生成初始 tiles |
 | GET | `/scene-summary?novel_id={}&scene_id={}` | 写作页 Scene 地图摘要 |
 | GET | `/open-target?novel_id={}&scene_id={}&focus_entity_id={}` | 统一地图打开目标；返回 `map_id` / `scene_id` / `focus_entity_id` 和 fallback 文案 |
 | GET | `/{map_id}?novel_id={}` | 地图详情 |
 | PATCH | `/{map_id}?novel_id={}` | 更新地图配置（name / description / default_center_x / default_center_y / default_zoom / sort_order） |
-| DELETE | `/{map_id}?novel_id={}` | 硬删地图（前端需二次确认） |
+| DELETE | `/{map_id}?novel_id={}` | 兼容入口：归档整棵子树，保留旧 204 响应 |
+| GET | `/{map_id}/archive-impact?novel_id={}` | 返回子树地图数与各类关联资产数量 |
+| POST | `/{map_id}/archive?novel_id={}` | 单事务归档完整子树 |
+| POST | `/{map_id}/restore?novel_id={}` | 单事务恢复完整子树；`root_name` 只重命名恢复根 |
+| POST | `/{map_id}/editor/apply?novel_id={}` | 按 `expected_revision` 原子执行视觉命令 |
+| GET | `/{map_id}/layer-tree?novel_id={}` | DFS 图层树与继承后的有效属性 |
 | POST | `/{map_id}/generate?novel_id={}` | 快速生成详图地形（仅 `city/region/dungeon`） |
 | GET | `/{map_id}/state?novel_id={}&scene_id={}&filter_types={}` | 聚合状态 |
 | GET | `/{map_id}/dashboard?novel_id={}&scene_id={}&focus_entity_id={}` | 世界动态总控台：首屏层、动态队列、检查器、批量分组 |
 | GET | `/{map_id}/playback?novel_id={}&scene_id={}&focus_entity_id={}&include_candidates={}` | 世界动态播放：typed observation 轨道和播放事件 |
+| GET | `/{map_id}/timeline?novel_id={}&from_scene_index={}&to_scene_index={}&focus_entity_id={}&include_candidates={}&skip={}&limit={}` | Scene 时间线：正式差分、冲突、候选预览、未定时间事实与连续性问题 |
+| GET | `/{map_id}/state-at?novel_id={}&scene_index={}&focus_entity_id={}&skip={}&limit={}` | 指定 Scene 的正式有效状态和未解决冲突 |
 | GET | `/{map_id}/focus?novel_id={}&faction_entity_id={}` | 聚焦模式（仅返回该组织势力范围） |
 
-`dashboard` 和 `playback` 是作者可见的只读派生视图。深度导入接入的通用 `delta_event` 必须在这里归一化为对象名、关系名、可读类型和来源摘要，不能把 `entity_created`、`entities[4]` 或原始 JSON 结构暴露给前端。
+`dashboard`、`playback`、`timeline` 和 `state-at` 是作者可见的只读派生视图。
+`MapFact` 仍是唯一持久化动态事实；`MapDelta`、冲突、连续性问题和 `WorldDynamic` 不回写
+数据库。深度导入接入的通用 `delta_event` 必须在这里归一化为对象名、关系名、可读类型和
+来源摘要，不能把 `entity_created`、`entities[4]` 或原始 JSON 结构暴露给前端。
+
+`timeline` 默认不包含 candidate，未给范围时使用最近 50 个存在 confirmed fact 的 Scene stop；
+显式范围最多跨 500 个 Scene。`timeline/state-at` 默认每页 100、最大 500 条，并通过
+`total/has_more` 明示后续数据。旧 `playback` 保持 `include_candidates=true` 的兼容默认值。
 
 ### 快速创建
 
@@ -226,7 +281,35 @@
 |------|------|------|
 | GET | `/quick-create/context?novel_id={}&include_candidates={}` | 获取快速创建上下文，默认只含 canonical/draft 地点，显式开启后包含 candidate |
 | POST | `/quick-create/preview?novel_id={}` | 生成可调整预览，不落库、不识别正文、不创建世界对象 |
-| POST | `/quick-create/confirm?novel_id={}` | 确认创建或复用一张地图；未传 `layouts` 时写入完整预览，传 `layouts` 时只写入选中地点，`layouts=[]` 不写地点布局、绑定或 quick-create facts |
+| POST | `/quick-create/confirm?novel_id={}` | 确认创建地图；同层同名默认 409，只有显式 `replace_map_id` 才替换目标地图的布局、bindings 与 quick-create facts |
+
+world 默认加载全部 canonical 地点；detail/drilldown 默认只加载父地点及通过
+canonical `contains/contained_in/located_in` 关系关联的直接子地点，调用方可通过
+`location_entity_ids` 显式加入其他 canonical 地点。candidate 只读预览，不得确认保存。
+替换复用目标地图类型、网格和父层级，并保留底图、覆盖层、标记与领地。
+
+### 原子编辑命令
+
+`POST /{map_id}/editor/apply` 接受 `base_terrain_replace`、地点 layout/binding replace、
+terrain layer create/update/delete、terrain patch replace、marker create/update/delete、
+territory replace、path layer create/delete、path create/update/archive/restore 和
+`layer_tree_replace`。创建命令通过请求级唯一 `client_id` 被后续命令引用，正式 UUID 始终由
+服务端生成；每批最多一个 layer-tree replace，涉及图层创建/删除时必须排在这些命令之后。
+响应返回正式 ID 映射。单批最多 200 个命令、展开后最多 20,000 个 hex；服务先锁
+active map row 并比较 revision，任一命令失败则 savepoint 回滚整批，成功后 revision
+只递增一次。旧视觉写入口每次成功也递增 revision。
+
+### 连续线路
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/{map_id}/paths?novel_id={}&status=active|archived|all` | 读取线路图层、线路和节点，并返回 editor revision |
+| GET | `/{map_id}/paths/{path_id}?novel_id={}` | 读取单条 active 或 archived 线路 |
+| GET | `/{map_id}/paths/{path_id}/archive-impact?novel_id={}` | 归档前查询 Observation / Fact 引用数 |
+
+线路创建、修改、归档、恢复和空图层删除只通过 editor apply。路径节点使用连续 `q/r`，
+必须为有限数且落在地图网格范围；单批最多变更 2,000 个路径节点。锁定线路只允许单独解锁，
+祖先图层锁定继续阻断全部内容写入。
 
 ### 地形编辑
 
@@ -246,8 +329,10 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET/PUT | `/{map_id}/location-layouts?novel_id={}` | 读取或替换地点布局节点 |
+| GET/PUT | `/{map_id}/location-layouts?novel_id={}` | 读取或替换地点布局；PUT 可用 `sync_bindings=true` 同步平移完整 footprint |
 | GET | `/{map_id}/terrain?novel_id={}&include_candidates={false|true}` | 读取图层、区域、patch 与绑定；默认只含 active 绑定 |
+| PATCH | `/{map_id}/terrain/layers/{layer_id}?novel_id={}` | 只更新请求明确提供的覆盖图层属性 |
+| DELETE | `/{map_id}/terrain/layers/{layer_id}?novel_id={}` | 删除已解锁覆盖层并返回级联计数 |
 | PUT | `/{map_id}/terrain/layers/{layer_id}/patches?novel_id={}` | 替换一层的 patch 集合 |
 | POST | `/{map_id}/terrain/regions/{region_id}/bindings?novel_id={}` | 创建区域与地点绑定 |
 | PATCH | `/{map_id}/terrain/bindings/{binding_id}?novel_id={}` | 修改区域绑定复核/metadata |
@@ -284,6 +369,19 @@
 | POST | `/{map_id}/observations/{observation_id}/ignore?novel_id={}` | 忽略 observation，不生成正式事实 |
 | GET | `/{map_id}/facts?novel_id={}&fact_status={}` | 已采用地图事实列表 |
 | PATCH | `/{map_id}/facts/{fact_id}?novel_id={}` | 软更新 fact 状态：`confirmed` / `rolled_back` / `deprecated` |
+
+`spatial_anchor` 使用类型化 `MapSpatialAnchor`。带 `path_id` 时必须解析到当前
+`novel_id + map_id`；deep import 的非法或跨图 path 引用会被移除并记录
+`invalid_spatial_anchor`。确认 Fact 时固化 path revision、名称和代表点，后续线路变化不
+改写旧 Fact；Playback 可读取 archived 几何并提示“线路已更新”。
+
+`value_json.schema_version=1` 支持 `location`、`route_state`、`status`、`boundary`、
+`resource`、`terrain`、`crisis` 和 `semantic` 类型化值。服务端生成稳定
+`dimension_key`；响应附加
+`normalized_value` 与 `normalization_state=typed|legacy_normalized|untyped|invalid`。
+同一 Scene、对象和维度的相同值合并证据，不同值产生 conflict，不按创建时间覆盖。
+candidate 即使通过 `include_candidates=true` 返回，也只进入独立预览，不参与有效状态、差分、
+连续性问题或 canonical projection token。
 
 ### `MapStateResponse` 结构
 
@@ -369,19 +467,23 @@
 - 传 `focus_entity_id` 时按地点绑定、动态 marker、组织势力范围查找代表地图；找不到时返回 `mode="recent"` 与可见 fallback 文案。
 - 不传上下文时返回首个可用地图；项目没有地图时返回 `mode="overview"` 与空状态文案。
 
-### 删除地图
+`GET /api/world/entities/{entity_id}/map-presence` 返回对象在全部 active 地图上的
+layout/binding/marker/territory/terrain presence，并给出代表坐标、角色、绑定数、Scene
+范围和 `open_target`，但不返回完整 territory hex。candidate 仅在显式
+`include_candidates=true` 时返回，并标记 `display_state="review"`。
 
-- 硬删除（demo 阶段不使用 status 软删除）。
-- 级联删除：`map_tiles`、`map_location_bindings`、`map_markers`、`map_territory_tiles`。
-- 子地图 `parent_map_id` 置 `NULL`，不会级联删除子地图。
-- 前端必须二次确认。
+### 归档与恢复地图
+
+- 归档确认展示整棵子树与关联资产数；归档后地图不参与地图树、presence、open-target 或编辑。
+- 恢复要求外部祖先 active，并在写入前检查完整子树名称冲突；后代不能单独恢复。
+- 已采用地图与视觉资产不提供作者可见硬删除入口。
 
 ## 前端实现现状
 
 - `mapWorkspaceView`：总览、最近地图、地图树、搜索、图层开关、打开具体地图；具体地图默认进入世界动态总控台，并提供“总控台 / 活地图 / 叙事透镜”切换、上方语义气泡带、低动效开关、电影化播放面板和动态对象信息框。
-- `worldView`：人物、地点、组织、事件等对象行提供“打开地图”，通过 `open-target` 生成含 `focus_entity_id` 的地图 URL；无地图上下文时显示 fallback。
+- `worldView`：对象行先读取全部 map presence；一张时直接定位，多张时展示地图角色与绑定数量选择器，无 presence 时回退 `open-target`。
 - `writingView`：Scene 面板展示地图摘要、危机、风险和 warning，并通过 `open_target` 打开地图工作台。
-- `mapView`：地图编辑器本体；浏览模式下地点中心标签消费布局引擎，密集时自动偏移、缩短、图标化或聚合。
+- `mapView`：浏览模式以 typed selection 区分地点、marker、territory、terrain 与底图，fact/observation 仍走 dashboard inspector。Canvas 使用单 RAF、视口裁剪和 revision/viewport 缓存，隐藏、zoom 外和视口外节点不进入绘制队列。
 - `mapLayoutEngine.js`：纯前端布局引擎，根据视图模式、焦点、风险、待处理/已采用状态和视口空间，派生标签、聚合簇、语义气泡与低动效状态。
 - `mapRouteContext.js`：处理从写作页或其他工作流带入的 `map_id` / `scene_id` / `focus_entity_id`
 
@@ -405,6 +507,8 @@
 | 地图 / 绑定 / 标记 / 势力不存在 | 404 | 包括跨 novel 情况 |
 | 父地图 / 父实体不存在 | 404 | 创建地图时 |
 | 同层级同名地图 | 409 | 业务层校验 |
+| `expected_revision` 过期 | 409 | 返回当前 revision，前端保留本地草稿 |
+| 图层或祖先锁定 | 409 | 新旧视觉写入口统一拒绝 |
 
 ---
 
@@ -419,8 +523,8 @@
 - [ ] 同层级同名地图返回 409。
 - [ ] 用跨 novel 的 `parent_map_id` 创建子地图返回 404。
 - [ ] 用非 location 实体作为 `parent_entity_id` 返回 400。
-- [ ] 删除父地图后，子地图 `parent_map_id` 变为 `NULL`，但子地图本身仍存在。
-- [ ] 删除地图后，关联的 tiles / bindings / markers / territories 全部不可查。
+- [ ] 归档父地图后完整子树从 active 列表隐藏，资产和父子关系仍保留。
+- [ ] 同名新地图创建后恢复冲突；只重命名恢复根可恢复完整子树。
 
 ### 地形编辑
 
@@ -437,7 +541,11 @@
 - [ ] 绑定非 location 实体（如 character）返回 400。
 - [ ] 跨 novel 绑定实体返回 404。
 - [ ] 同一地点重复绑定同一格返回 409（DB 唯一约束）。
-- [ ] 删除地图后绑定随之删除（FK CASCADE）。
+- [ ] 兼容 DELETE 返回 204 且只归档，binding/marker/terrain/territory 不被删除。
+- [ ] 两个相同 revision 的编辑请求只能一个成功；失败 batch 的数据和 revision 全部回滚。
+- [ ] group 锁定阻断旧 marker/territory/terrain 写入口，显式解锁后恢复可写。
+- [ ] 图层树拒绝循环、深度超限、漏 singleton 和 terrain leaf 重复，并正确计算 zoom 空交集。
+- [ ] presence 合并 layout/binding，默认排除 archived map 与 candidate。
 
 ### 详图生成
 
@@ -483,12 +591,16 @@
 
 ## 已知限制与前端行为
 
-- **撤销**：仅撤销当前未应用的 pending 地形变更（清空 `pendingTerrainChanges`），已应用变更不可撤销。
-- **地点绑定提交**：前端当前即时调用 API 创建/更新绑定，非 stage→apply 批量模式（与 PRD 路径 2 有偏差）。
-- **标记与势力范围**：前端即时创建，非 stage→apply 模式。
-- **Scene 时间轴 UI**：简化为前后导航按钮 + 下拉选择器，无连续滑块。
+- **编辑分层**：前端内部使用 `editorLayer = none | location | baseTerrain | terrainOverlay | marker | territory`；不改变工作台 `dashboard/live/lens` 或路由 `mode`。
+- **撤销**：每个编辑层保存独立 session 历史；新操作清空该层 redo。已经成功提交到后端的操作不提供跨会话历史回滚。
+- **地点锚点**：旧地图读取时按 layout → center binding → footprint 质心最近格确定锚点但不写库；首次显式保存才物化缺失 layout/center binding。
+- **内置素材**：仅支持自然环境、城市交通、奇幻危机三个程序化素材包和三套预设，不支持用户上传。
+- **全量 state wire**：本批保持完整 tile wire shape；前端记录 payload、请求/解析、首绘和 total/queued hex 指标并做视口裁剪。Playwright 使用固定 Chromium 1280×720、200×200 地图、20 帧预热和 100 帧采样，附加 `map-canvas-performance.json`；相对同轮未裁剪基线退化超过 20% 才失败。
+- **Scene 时间轴 UI**：按后端返回的 Scene stop 使用前后按钮、下拉与游标导航；Scene 序号
+  是逻辑顺序，不是经过时长，播放节奏也不代表人物移动速度。
 - **聚焦模式**：仅按组织过滤势力范围；人物 / 事件聚焦未实现。
-- **世界动态持久层**：P3 的 `MapDelta` / `WorldDynamic` 持久表未实现；当前 playback 仍由 observation/fact 只读派生。
+- **世界动态事实边界**：有意不建立 `MapDelta` / `WorldDynamic` 持久表；它们连同 Scene
+  状态和连续性问题均从 confirmed `map_facts` 确定性派生，避免形成第二事实源。
 - **AI 位置建议**：P3 未实现，`map_position_suggestions` 表未建。
 - **hex_s**：后端不存储，第三坐标由前端计算。
 - **前端安全**：所有动态文本经 `esc()` 转义后入 DOM，不直接写入 `innerHTML`。
@@ -504,11 +616,19 @@
 | `backend/modules/world/map_repositories.py` | 数据访问层 |
 | `backend/modules/world/services/map_service.py` | 历史兼容导出层（Config / Tile / Binding / Marker / Territory / DynamicFact） |
 | `backend/modules/world/services/map/` | 地图业务服务实现子包 |
+| `backend/modules/world/services/map/map_editor_apply.py` | revision CAS 与原子 command batch |
+| `backend/modules/world/services/map/map_layer_tree.py` | 递归图层树、继承属性与 terrain 兼容投影 |
+| `backend/modules/world/services/map/map_archive.py` | 地图子树归档/恢复 |
+| `backend/modules/world/services/map/map_entity_presence.py` | 世界对象多地图 presence |
+| `backend/modules/world/services/map/map_dynamic_projection.py` | 类型化动态值与 legacy 安全归一化 |
+| `backend/modules/world/services/map/map_timeline_service.py` | Scene 状态、差分、冲突与空间连续性只读投影 |
 | `backend/modules/world/services/map/map_context.py` | 共享上下文守卫（novel 隔离 / hex 越界 / entity 类型校验） |
 | `backend/modules/world/map_api.py` | FastAPI 路由 |
 | `backend/modules/world/map_facade.py` | 跨模块地图动态入口（deep import delta → observation） |
 | `backend/modules/world/tests/test_map_*.py` | 测试套件 |
 | `backend/alembic/versions/20260703_squashed_current_schema.py` | 当前 demo schema 初始化（含 P0/P1 地图表、P2 势力范围、世界动态 observation/fact 表） |
+| `backend/alembic/versions/20260714_map_editor_layer_tree.py` | 地图归档/revision partial unique 与图层树回填 |
+| `backend/alembic/versions/20260714_map_dynamic_timeline.py` | observation/fact Scene 时间线组合索引 |
 | `frontend-console/views/mapView.js` | 主视图 |
 | `frontend-console/views/mapLayoutEngine.js` | P2 自动布局、避让、聚合簇、语义气泡带派生 |
 | `frontend-console/views/mapState.js` | 前端会话状态 |

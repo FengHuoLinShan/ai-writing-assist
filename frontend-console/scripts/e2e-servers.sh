@@ -1,7 +1,7 @@
 #!/bin/bash
 # E2E test server starter: backend + frontend.
-# This entrypoint owns test-database migration; the general backend dev server
-# intentionally remains a plain app server.
+# This entrypoint migrates the configured DATABASE_URL in test app mode; it does
+# not select a separate database. The general dev server remains a plain server.
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

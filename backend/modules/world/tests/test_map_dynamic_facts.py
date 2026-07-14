@@ -10,8 +10,37 @@ from httpx import AsyncClient
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.outline.facade import create_scene
 from modules.world.services.map.map_open_target_service import MapOpenTargetService
 from modules.world.tests.helpers import _create_entity, _create_project
+
+
+@pytest.mark.asyncio
+async def test_observation_values_serialize_validated_spatial_anchor() -> None:
+    from modules.world.map_schemas import MapObservationCreate
+    from modules.world.services.map_service import MapDynamicFactService
+
+    service = MapDynamicFactService()
+    values = service._observation_values(
+        MapObservationCreate(
+            dynamic_type="location",
+            spatial_anchor={"hex_q": 2, "hex_r": 3, "location_name": "东门"},
+        ),
+        map_id=None,
+    )
+    empty_values = service._observation_values(
+        MapObservationCreate(dynamic_type="location"),
+        map_id=None,
+    )
+
+    assert values["spatial_anchor"] == {
+        "hex_q": 2,
+        "hex_r": 3,
+        "location_name": "东门",
+    }
+    assert type(values["spatial_anchor"]["hex_q"]) is int
+    assert type(values["spatial_anchor"]["hex_r"]) is int
+    assert empty_values["spatial_anchor"] == {}
 
 
 @pytest.mark.asyncio
@@ -726,12 +755,20 @@ async def test_dashboard_scene_filter_and_object_labels_are_author_facing(
         json={"name": "九州", "map_type": "world", "grid_width": 6, "grid_height": 6},
     )
     map_id = map_resp.json()["id"]
-    scene_a = uuid.uuid4()
-    scene_b = uuid.uuid4()
+    scene_a = await create_scene(
+        db_session,
+        nid,
+        {"scene_index": 1, "title": "东门封锁", "status": "canonical"},
+    )
+    scene_b = await create_scene(
+        db_session,
+        nid,
+        {"scene_index": 2, "title": "北境叛乱", "status": "canonical"},
+    )
 
     for scene_id, name, scene_index in [
-        (scene_a, "东门封锁", 1),
-        (scene_b, "北境叛乱", 2),
+        (scene_a["id"], "东门封锁", 1),
+        (scene_b["id"], "北境叛乱", 2),
     ]:
         resp = await async_client.post(
             f"/api/world/maps/{map_id}/observations",
@@ -752,7 +789,7 @@ async def test_dashboard_scene_filter_and_object_labels_are_author_facing(
 
     dashboard = await async_client.get(
         f"/api/world/maps/{map_id}/dashboard",
-        params={"novel_id": nid, "scene_id": str(scene_a)},
+        params={"novel_id": nid, "scene_id": scene_a["id"]},
     )
 
     assert dashboard.status_code == 200, dashboard.text

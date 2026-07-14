@@ -31,7 +31,8 @@ def mock_world_background() -> None:
     """Keep prompt-rendering tests independent from world aggregation storage."""
     with mock.patch(
         "modules.world.facade.get_world_background",
-        new=mock.AsyncMock(return_value=SimpleNamespace(entries=[])),
+        autospec=True,
+        return_value=SimpleNamespace(entries=[]),
     ):
         yield
 
@@ -121,10 +122,12 @@ async def test_build_renders_markdown_and_name_maps(
         mock.patch(
             "modules.outline.generation.context_builder.context_facade.compile_structure_context",
             return_value=sample_bundle,
+            autospec=True,
         ) as mock_compile,
         mock.patch(
             "modules.outline.generation.context_builder.writing_facade.list_latest_drafts_for_chapters",
             return_value=[],
+            autospec=True,
         ) as mock_drafts,
     ):
         ctx = await builder.build(
@@ -169,10 +172,12 @@ async def test_build_loads_chapter_texts_via_facade(
         mock.patch(
             "modules.outline.generation.context_builder.context_facade.compile_structure_context",
             return_value=sample_bundle,
+            autospec=True,
         ),
         mock.patch(
             "modules.outline.generation.context_builder.writing_facade.list_latest_drafts_for_chapters",
             return_value=[draft],
+            autospec=True,
         ) as mock_drafts,
     ):
         ctx = await builder.build(
@@ -211,10 +216,12 @@ async def test_long_chapter_text_uses_extra_char_only_for_truncation_check(
         mock.patch(
             "modules.outline.generation.context_builder.context_facade.compile_structure_context",
             return_value=sample_bundle,
+            autospec=True,
         ),
         mock.patch(
             "modules.outline.generation.context_builder.writing_facade.list_latest_drafts_for_chapters",
             return_value=[draft],
+            autospec=True,
         ) as mock_drafts,
     ):
         ctx = await builder.build(
@@ -264,10 +271,12 @@ async def test_dynamic_text_is_truncated_per_entry(
         mock.patch(
             "modules.outline.generation.context_builder.context_facade.compile_structure_context",
             return_value=bundle,
+            autospec=True,
         ),
         mock.patch(
             "modules.outline.generation.context_builder.writing_facade.list_latest_drafts_for_chapters",
             return_value=[],
+            autospec=True,
         ),
     ):
         ctx = await builder.build(
@@ -305,10 +314,12 @@ async def test_injection_patterns_append_context_warnings(
         mock.patch(
             "modules.outline.generation.context_builder.context_facade.compile_structure_context",
             return_value=bundle,
+            autospec=True,
         ),
         mock.patch(
             "modules.outline.generation.context_builder.writing_facade.list_latest_drafts_for_chapters",
             return_value=[],
+            autospec=True,
         ),
     ):
         ctx = await builder.build(
@@ -353,10 +364,12 @@ async def test_backticks_and_fake_headings_stay_inside_dynamic_boundary(
         mock.patch(
             "modules.outline.generation.context_builder.context_facade.compile_structure_context",
             return_value=sample_bundle,
+            autospec=True,
         ),
         mock.patch(
             "modules.outline.generation.context_builder.writing_facade.list_latest_drafts_for_chapters",
             return_value=[draft],
+            autospec=True,
         ),
     ):
         ctx = await builder.build(

@@ -50,6 +50,7 @@ from modules.outline.scene_facade import (  # noqa: F401
 )
 from modules.outline.structure_dedup_facade import (  # noqa: F401
     apply_structure_dedup,
+    apply_structure_dedup_group,
     suggest_structure_dedup,
 )
 
@@ -57,6 +58,7 @@ from modules.outline.structure_dedup_facade import (  # noqa: F401
 # update, and an explicit change to the public-surface regression test.
 __all__ = [
     "apply_structure_dedup",
+    "apply_structure_dedup_group",
     "bind_scene_spans_to_source",
     "batch_create_scenes",
     "count_scenes_by_novel",

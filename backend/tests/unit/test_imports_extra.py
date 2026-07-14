@@ -158,7 +158,9 @@ class TestDetectEncoding:
     def test_missing_encoding_falls_back_to_utf8(self):
         """chardet 缺失 encoding 时应回退到 utf-8"""
         data = b"\x80\x81\x82"
-        with patch("modules.imports.parsers.chardet.detect") as mock_detect:
+        with patch(
+            "modules.imports.parsers.chardet.detect", autospec=True
+        ) as mock_detect:
             mock_detect.return_value = {"encoding": None, "confidence": 0.99}
             enc = detect_encoding(data)
 
@@ -712,7 +714,7 @@ class TestImportServiceErrors:
         test_project_id: str,
     ):
         """解析出零章节应抛出 400"""
-        with patch("modules.imports.services.parse_file", return_value=[]):
+        with patch("modules.imports.services.parse_file", return_value=[], autospec=True):
             with pytest.raises(DomainValidationError) as exc:
                 await service.upload_and_import(
                     db_session,
@@ -734,6 +736,7 @@ class TestImportServiceErrors:
         with patch(
             "modules.imports.services.parse_file",
             side_effect=ValueError("bad format"),
+            autospec=True,
         ):
             with pytest.raises(DomainValidationError) as exc:
                 await service.upload_and_import(
@@ -756,6 +759,7 @@ class TestImportServiceErrors:
         with patch(
             "modules.imports.services.parse_file",
             side_effect=RuntimeError("OOM"),
+            autospec=True,
         ):
             with pytest.raises(DomainError) as exc:
                 await service.upload_and_import(
@@ -779,6 +783,7 @@ class TestImportServiceErrors:
             service,
             "_validate_file",
             side_effect=DomainValidationError("custom error"),
+            autospec=True,
         ):
             with pytest.raises(DomainValidationError) as exc:
                 await service.upload_and_import(
@@ -817,7 +822,9 @@ class TestImportFacadeDeepImportCompatibility:
         }
         novel_id = str(uuid.uuid4())
 
-        with patch("modules.imports.facade._orchestrator") as mock_orchestrator:
+        with patch(
+            "modules.imports.facade._orchestrator", autospec=True
+        ) as mock_orchestrator:
             mock_orchestrator.start = AsyncMock(return_value=expected)
 
             result = await start_deep_import(
@@ -859,7 +866,9 @@ class TestImportFacadeDeepImportCompatibility:
             "message": "深度导入任务已提交（第1-5章）",
         }
 
-        with patch("modules.imports.facade._orchestrator") as mock_orchestrator:
+        with patch(
+            "modules.imports.facade._orchestrator", autospec=True
+        ) as mock_orchestrator:
             mock_orchestrator.start = AsyncMock(return_value=expected)
 
             result = await start_deep_import(
@@ -980,7 +989,7 @@ class TestImportApi:
             imported_chapters=3,
             status="done",
         )
-        with patch("modules.imports.api._service") as mock_svc:
+        with patch("modules.imports.api._service", autospec=True) as mock_svc:
             mock_svc.upload_and_import = AsyncMock(return_value=mock_response)
 
             resp = await async_client.post(
@@ -1170,7 +1179,9 @@ class TestImportTaskHandlers:
             "degraded_batches": [],
         }
 
-        with patch("modules.imports.tasks.DeepImportOrchestrator") as mock_cls:
+        with patch(
+            "modules.imports.tasks.DeepImportOrchestrator", autospec=True
+        ) as mock_cls:
             mock_orchestrator = MagicMock()
             mock_orchestrator.run_task = AsyncMock(return_value=expected)
             mock_cls.return_value = mock_orchestrator
@@ -1238,7 +1249,9 @@ class TestImportTaskHandlers:
             "degraded_batches": [],
         }
 
-        with patch("modules.imports.tasks.DeepImportOrchestrator") as mock_cls:
+        with patch(
+            "modules.imports.tasks.DeepImportOrchestrator", autospec=True
+        ) as mock_cls:
             mock_orchestrator = MagicMock()
             mock_orchestrator.run_task = AsyncMock(return_value=expected)
             mock_cls.return_value = mock_orchestrator
@@ -1277,7 +1290,9 @@ class TestImportTaskHandlers:
             "degraded_batches": [],
         }
 
-        with patch("modules.imports.tasks.DeepImportOrchestrator") as mock_cls:
+        with patch(
+            "modules.imports.tasks.DeepImportOrchestrator", autospec=True
+        ) as mock_cls:
             mock_orchestrator = MagicMock()
             mock_orchestrator.run_stage_task = AsyncMock(return_value=expected)
             mock_cls.return_value = mock_orchestrator

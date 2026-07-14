@@ -95,6 +95,14 @@ beforeEach(() => {
   resetMapState()
   mapView._maps = []
   mapView._mapsLoadError = null
+  mapView._layerTree = null
+  mapView._renderSubsetCache.clear()
+  mapView._renderMetrics = null
+  mapView._dragLocationId = null
+  mapView._dragMarkerId = null
+  mapView._suppressNextCanvasClick = false
+  mapView._lifecycleEpoch = 0
+  mapView._mountContext = {}
   document.getElementById("leaflet-css-dynamic")?.remove()
   document.getElementById("leaflet-js-dynamic")?.remove()
   delete window.L
@@ -555,7 +563,12 @@ describe("mapView 列表渲染", () => {
 
     await mapView._loadMaps()
 
-    expect(api.world.listMaps).toHaveBeenCalledWith({ novel_id: "p1" })
+    expect(api.world.listMaps).toHaveBeenCalledWith({
+      novel_id: "p1",
+      status: "active",
+      skip: 0,
+      limit: 500,
+    })
     expect(mapView._maps).toHaveLength(1)
     expect(mapView._maps[0].name).toBe("九州")
   })
@@ -1015,48 +1028,52 @@ describe("mapView 地图设置", () => {
   })
 })
 
-describe("mapView 删除地图", () => {
-  it("_renderList 显示删除按钮", () => {
+describe("mapView 归档地图", () => {
+  it("_renderList 显示归档按钮", () => {
     mapView._maps = [{ id: "m1", name: "九州", map_type: "world", grid_width: 30, grid_height: 20 }]
     const html = mapView._renderList()
     expect(html).toContain("data-action=\"map-delete\"")
-    expect(html).toContain("删除")
+    expect(html).toContain("归档")
   })
 
-  it("_deleteMap 显示确认信息并包含地图名", () => {
+  it("_deleteMap 显示归档影响并包含转义后的地图名", async () => {
     globalThis.state.currentProjectId = "p1"
-    mapView._maps = [{ id: "m1", name: "九州", map_type: "world", grid_width: 30, grid_height: 20 }]
-    mapView._deleteMap("m1")
+    mapView._maps = [{ id: "m1", name: "九州<img>", map_type: "world", grid_width: 30, grid_height: 20 }]
+    api.world.getMapArchiveImpact.mockResolvedValue({ map_count: 3 })
+    await mapView._deleteMap("m1")
     expect(confirmAction).toHaveBeenCalled()
     const message = confirmAction.mock.calls[0][0]
     expect(message).toContain("九州")
+    expect(message).toContain("3 张地图")
     expect(message).not.toContain("<img")
   })
 
-  it("_deleteMap 确认后调用 API 并刷新列表", async () => {
+  it("_deleteMap 确认后归档子树并刷新列表", async () => {
     globalThis.state.currentProjectId = "p1"
     mapView._maps = [{ id: "m1", name: "九州", map_type: "world", grid_width: 30, grid_height: 20 }]
-    api.world.deleteMap.mockResolvedValue({})
+    api.world.getMapArchiveImpact.mockResolvedValue({ map_count: 1 })
+    api.world.archiveMap.mockResolvedValue({})
     api.world.listMaps.mockResolvedValue({ items: [], total: 0 })
-    mapView._deleteMap("m1")
+    await mapView._deleteMap("m1")
     const callback = confirmAction.mock.calls[0][1]
     await callback()
-    expect(api.world.deleteMap).toHaveBeenCalledWith("m1", "p1")
+    expect(api.world.archiveMap).toHaveBeenCalledWith("m1", "p1")
     expect(api.world.listMaps).toHaveBeenCalled()
-    expect(toast).toHaveBeenCalledWith("地图已删除", "success")
+    expect(toast).toHaveBeenCalledWith("地图子树已归档", "success")
   })
 
-  it("_deleteMap 失败时 toast 错误", async () => {
+  it("_deleteMap 归档失败时 toast 错误", async () => {
     globalThis.state.currentProjectId = "p1"
     mapView._maps = [{ id: "m1", name: "九州", map_type: "world", grid_width: 30, grid_height: 20 }]
-    api.world.deleteMap.mockRejectedValue(new Error("网络失败"))
-    mapView._deleteMap("m1")
+    api.world.getMapArchiveImpact.mockResolvedValue({ map_count: 1 })
+    api.world.archiveMap.mockRejectedValue(new Error("网络失败"))
+    await mapView._deleteMap("m1")
     const callback = confirmAction.mock.calls[0][1]
     await callback()
-    expect(toast).toHaveBeenCalledWith("删除失败：网络失败", "error")
+    expect(toast).toHaveBeenCalledWith("归档失败：网络失败", "error")
   })
 
-  it("_deleteMap 删除最后一张地图后清空状态并回到列表", async () => {
+  it("_deleteMap 归档最后一张地图后清空状态并回到列表", async () => {
     globalThis.state.currentProjectId = "p1"
     mapView._maps = [{ id: "m1", name: "九州", map_type: "world", grid_width: 30, grid_height: 20 }]
     mapView._state = {
@@ -1064,7 +1081,8 @@ describe("mapView 删除地图", () => {
       tiles: [],
       location_bindings: [],
     }
-    api.world.deleteMap.mockResolvedValue({})
+    api.world.getMapArchiveImpact.mockResolvedValue({ map_count: 1 })
+    api.world.archiveMap.mockResolvedValue({})
     api.world.listMaps.mockResolvedValue({ items: [], total: 0 })
     const unmountSpy = vi.spyOn(mapView, "unmount").mockImplementation(() => {
       mapView._state = null
@@ -1072,11 +1090,11 @@ describe("mapView 删除地图", () => {
     })
     const renderSpy = vi.spyOn(mapView, "_render").mockImplementation(() => {})
 
-    mapView._deleteMap("m1")
+    await mapView._deleteMap("m1")
     const callback = confirmAction.mock.calls[0][1]
     await callback()
 
-    expect(api.world.deleteMap).toHaveBeenCalledWith("m1", "p1")
+    expect(api.world.archiveMap).toHaveBeenCalledWith("m1", "p1")
     expect(unmountSpy).toHaveBeenCalled()
     expect(renderSpy).toHaveBeenCalledWith("map-root")
     expect(mapView._state).toBeNull()
@@ -1265,7 +1283,7 @@ describe("mapView 拖拽绘制", () => {
     expect(mapState.pendingTerrainChanges["2,2"].terrain_type).toBe("water")
   })
 
-  it("bind 拖拽加入 pending", () => {
+  it("bind 中心拖拽同步为唯一 layout 锚点", () => {
     mapState.mode = "edit"
     mapState.activeTool = "bind"
     mapState.selectedLocationEntityId = "loc1"
@@ -1278,9 +1296,37 @@ describe("mapView 拖拽绘制", () => {
     startDragDraw()
     mapView._handleDragDraw(1, 1)
     mapView._handleDragDraw(1, 2)
-    expect(Object.keys(mapState.pendingBindings)).toHaveLength(2)
+    expect(mapState.pendingBindings).toEqual({})
+    expect(mapState.pendingLocationLayouts.loc1).toMatchObject({
+      location_entity_id: "loc1", center_hex_q: 1, center_hex_r: 2,
+      layout_source: "binding_center_edit",
+    })
+  })
+
+  it("bind 范围点击已有格会进入删除草稿而不是重复新增", () => {
+    mapState.mode = "edit"
+    mapState.editorLayer = "location"
+    mapState.activeTool = "bind"
+    mapState.selectedLocationEntityId = "loc1"
+    mapState.bindCenterMode = false
+    mapView._state = {
+      map: { id: "m1", hex_size: 30, grid_width: 5, grid_height: 5 },
+      tiles: [],
+      location_bindings: [{
+        id: "binding-1",
+        location_entity_id: "loc1",
+        hex_q: 1,
+        hex_r: 1,
+        is_center: false,
+      }],
+    }
+    startDragDraw()
+
+    mapView._handleDragDraw(1, 1)
+
     expect(mapState.pendingBindings["1,1"]).toMatchObject({
-      location_entity_id: "loc1", hex_q: 1, hex_r: 1, is_center: true,
+      binding_id: "binding-1",
+      operation: "delete",
     })
   })
 
@@ -1324,6 +1370,28 @@ describe("mapView 批量绑定保存", () => {
       "p1"
     )
     expect(mapState.pendingBindings).toEqual({})
+  })
+
+  it("_applyBindings 删除已有范围格", async () => {
+    globalThis.state.currentProjectId = "p1"
+    mapView._state = { map: { id: "m1" } }
+    api.world.deleteLocationBinding.mockResolvedValue(undefined)
+    mapState.pendingBindings = {
+      "1,2": {
+        location_entity_id: "loc1",
+        hex_q: 1,
+        hex_r: 2,
+        operation: "delete",
+        binding_id: "binding-1",
+      },
+    }
+
+    await mapView._applyBindings()
+
+    expect(api.world.deleteLocationBinding).toHaveBeenCalledWith(
+      "m1", "binding-1", "p1",
+    )
+    expect(api.world.createLocationBindings).not.toHaveBeenCalled()
   })
 
   it("_applyBindings 空 pending 直接返回", async () => {
@@ -1385,6 +1453,167 @@ describe("mapView 批量绑定保存", () => {
     expect(Object.keys(mapState.pendingBindings)).toHaveLength(5001)
   })
 
+})
+
+describe("mapView 领地分层草稿", () => {
+  it("连续绘制先进入草稿，保存时按组织批量提交", async () => {
+    globalThis.state.currentProjectId = "p1"
+    mapView._state = { map: { id: "m1" }, territories: [] }
+    mapState.selectedFactionId = "f1"
+    mapState.territoryEraseMode = false
+
+    mapView._handleTerritoryEdit(1, 2)
+    mapView._handleTerritoryEdit(2, 2)
+
+    expect(api.world.createTerritories).not.toHaveBeenCalled()
+    expect(Object.keys(mapState.pendingTerritoryChanges.add)).toHaveLength(2)
+
+    api.world.createTerritories.mockResolvedValue([])
+    await mapView._applyTerritoryChanges()
+
+    expect(api.world.createTerritories).toHaveBeenCalledWith(
+      "m1",
+      {
+        faction_entity_id: "f1",
+        hexes: expect.arrayContaining([
+          { hex_q: 1, hex_r: 2 },
+          { hex_q: 2, hex_r: 2 },
+        ]),
+      },
+      "p1",
+    )
+    expect(mapState.pendingTerritoryChanges).toEqual({ add: {}, remove: {} })
+  })
+
+  it("擦除持久化领地先进入待删除草稿", () => {
+    mapView._state = {
+      map: { id: "m1" },
+      territories: [{ id: "t1", faction_entity_id: "f1", hex_q: 3, hex_r: 4 }],
+    }
+    mapState.selectedFactionId = "f1"
+    mapState.territoryEraseMode = true
+
+    mapView._handleTerritoryEdit(3, 4)
+
+    expect(mapState.pendingTerritoryChanges.remove.t1).toMatchObject({ id: "t1" })
+    expect(mapView._effectiveTerritories()).toEqual([])
+    expect(api.world.deleteMapTerritory).not.toHaveBeenCalled()
+  })
+})
+
+describe("mapView 覆盖图层草稿保护", () => {
+  it("只切换素材也会形成可撤销草稿，且未应用时不能切层", () => {
+    mapState.mode = "edit"
+    mapState.editorLayer = "terrainOverlay"
+    mapState.selectedTerrainLayerId = "layer-1"
+    mapState.selectedTerrainAssetKey = "forest"
+    mapView._state = {
+      map: { id: "m1", grid_width: 8, grid_height: 8 },
+      terrain_layers: [
+        { id: "layer-1", name: "森林", terrain_asset_key: "forest", meta: {}, locked: false },
+        { id: "layer-2", name: "道路", terrain_asset_key: "road", meta: {}, locked: false },
+      ],
+      terrain_regions: [],
+      terrain_patches: [],
+    }
+    document.body.innerHTML = `<main id="workspace-content">${renderEditPanel({
+      terrainLayers: mapView._state.terrain_layers,
+    })}</main>`
+    mapView._bindMapEvents()
+    const asset = document.getElementById("map-overlay-asset")
+    asset.value = "road"
+
+    asset.dispatchEvent(new Event("change"))
+
+    expect(mapState.pendingTerrainOverlay.layerUpdate.terrain_asset_key).toBe("road")
+    expect(mapState.editorHistory.terrainOverlay).toHaveLength(1)
+    const layer = document.getElementById("map-overlay-layer")
+    layer.value = "layer-2"
+    layer.dispatchEvent(new Event("change"))
+    expect(mapState.selectedTerrainLayerId).toBe("layer-1")
+    expect(layer.value).toBe("layer-1")
+    expect(toast).toHaveBeenCalledWith(
+      "当前覆盖图层有未应用修改，请先应用或撤销后再切换",
+      "warning",
+    )
+    mapView.unmount()
+  })
+})
+
+describe("mapView 编辑生命周期", () => {
+  it("在进入编辑的异步加载期间 unmount 不会复活编辑态", async () => {
+    mapView._state = { map: { id: "m1" } }
+    const onEditingChange = vi.fn()
+    mapView._mountContext = { onEditingChange }
+    let releaseLocations
+    const locations = vi.spyOn(mapView, "_loadLocations").mockImplementation(
+      () => new Promise((resolve) => { releaseLocations = resolve }),
+    )
+    const entities = vi.spyOn(mapView, "_loadAllEntities").mockResolvedValue()
+    const tree = vi.spyOn(mapView, "_loadLayerTree").mockResolvedValue()
+    const paths = vi.spyOn(mapView, "_loadPaths").mockResolvedValue()
+    const render = vi.spyOn(mapView, "_render").mockImplementation(() => {})
+
+    const pending = mapView._enterEdit()
+    await vi.waitFor(() => expect(releaseLocations).toBeTypeOf("function"))
+    mapView.unmount()
+    releaseLocations()
+
+    await expect(pending).resolves.toBe(false)
+    expect(mapState.mode).toBe("browse")
+    expect(onEditingChange).not.toHaveBeenCalled()
+    expect(render).not.toHaveBeenCalled()
+    locations.mockRestore()
+    entities.mockRestore()
+    tree.mockRestore()
+    paths.mockRestore()
+    render.mockRestore()
+  })
+
+  it("保存等待期间 unmount 后不重新渲染或发送过期成功提示", async () => {
+    mapView._state = { map: { id: "m1" } }
+    mapView._mountContext = { mapId: "m1" }
+    mapState.mode = "edit"
+    let releaseApply
+    const apply = vi.spyOn(mapView, "_applyAllChanges").mockImplementation(
+      () => new Promise((resolve) => { releaseApply = resolve }),
+    )
+    const render = vi.spyOn(mapView, "_render").mockImplementation(() => {})
+
+    const pending = mapView._saveAndExit()
+    await vi.waitFor(() => expect(releaseApply).toBeTypeOf("function"))
+    mapView.unmount()
+    releaseApply(true)
+
+    await expect(pending).resolves.toBe(true)
+    expect(mapState.mode).toBe("browse")
+    expect(render).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalledWith("已保存", "success")
+    apply.mockRestore()
+    render.mockRestore()
+  })
+
+  it("旧地图的延迟图层树响应不会覆盖新 mount", async () => {
+    state.currentProjectId = "p1"
+    mapView._state = { map: { id: "m1" } }
+    mapView._mountContext = { mapId: "m1" }
+    let resolveTree
+    api.world.getMapLayerTree.mockImplementation(() => new Promise((resolve) => {
+      resolveTree = resolve
+    }))
+
+    const pending = mapView._loadLayerTree()
+    await vi.waitFor(() => expect(resolveTree).toBeTypeOf("function"))
+    mapView.unmount()
+    mapView._state = { map: { id: "m2" } }
+    mapView._mountContext = { mapId: "m2" }
+    mapView._layerTree = { nodes: [{ id: "new-tree" }] }
+    resolveTree({ nodes: [{ id: "old-tree" }] })
+
+    await expect(pending).resolves.toBe(false)
+    expect(mapView._layerTree).toEqual({ nodes: [{ id: "new-tree" }] })
+    expect(toast).not.toHaveBeenCalledWith(expect.stringContaining("图层树加载失败"), "warning")
+  })
 })
 
 describe("mapView 撤销", () => {
@@ -1556,6 +1785,484 @@ describe("mapView marker 提示", () => {
   })
 })
 
+describe("mapView marker 编辑历史", () => {
+  it("创建标记可以撤销并重做", async () => {
+    globalThis.state.currentProjectId = "p1"
+    mapState.mode = "edit"
+    mapState.editorLayer = "marker"
+    mapState.selectedMarkerEntityId = "entity-1"
+    mapState.selectedMarkerType = "character"
+    mapView._state = {
+      map: { id: "m1", grid_width: 10, grid_height: 10 },
+      markers: [],
+      location_bindings: [],
+      tiles: [],
+    }
+    await mapView._handleMarkerClick(2, 3)
+    const draftId = mapView._state.markers[0].id
+    expect(draftId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(mapState.pendingMarkerChanges[draftId]).toMatchObject({
+      operation: "create",
+      client_id: draftId,
+    })
+    expect(api.world.createMapMarker).not.toHaveBeenCalled()
+
+    await mapView._undo()
+    expect(mapView._state.markers).toEqual([])
+    expect(api.world.deleteMapMarker).not.toHaveBeenCalled()
+
+    await mapView._redo()
+    expect(mapView._state.markers.map((marker) => marker.id)).toEqual([draftId])
+    expect(mapState.pendingMarkerChanges[draftId].operation).toBe("create")
+  })
+
+  it("拖动后重建命中索引并抑制随后的 click", async () => {
+    globalThis.state.currentProjectId = "p1"
+    mapState.mode = "edit"
+    mapState.editorLayer = "marker"
+    const marker = {
+      id: "marker-1",
+      entity_id: "entity-1",
+      marker_type: "character",
+      hex_q: 2,
+      hex_r: 2,
+      visible: true,
+    }
+    mapView._state = {
+      map: { id: "m1", grid_width: 10, grid_height: 10 },
+      markers: [marker],
+      location_bindings: [],
+      tiles: [],
+    }
+    mapView._rebuildIndexes()
+    mapView._dragMarkerId = marker.id
+    mapView._pointerStartSnapshot = { ...marker }
+    mapView._dragMoved = true
+    marker.hex_q = 4
+    marker.hex_r = 5
+    api.world.updateMapMarker.mockResolvedValue({ ...marker })
+
+    await mapView._handleCanvasMouseUp({ pointerId: 1 })
+
+    expect(mapView._markerAt(2, 2)).toBeNull()
+    expect(mapView._markerAt(4, 5)).toBe(marker)
+    const create = vi.spyOn(mapView, "_handleMarkerClick")
+    mapView._canvas = {}
+    vi.spyOn(mapView, "_eventToHex").mockReturnValue([4, 5])
+    mapView._handleCanvasClick({})
+    expect(create).not.toHaveBeenCalled()
+    create.mockRestore()
+    mapView._eventToHex.mockRestore()
+  })
+})
+
+describe("mapView 原子保存与渲染裁剪", () => {
+  it("递归图层面板展示继承值并折叠子树", () => {
+    mapState.collapsedLayerNodeIds.add("group")
+    const html = renderEditPanel({
+      locations: [],
+      allEntities: [],
+      scenes: [],
+      terrainLayers: [],
+      territoryTools: "",
+      layerTree: [
+        {
+          id: "group",
+          node_type: "group",
+          layer_key: null,
+          name: "自定义组",
+          depth: 1,
+          visible: true,
+          locked: true,
+          opacity: 0.5,
+          effective_visible: true,
+          effective_locked: true,
+          effective_opacity: 0.5,
+          effective_min_zoom: -1,
+          effective_max_zoom: 2,
+        },
+        {
+          id: "child",
+          parent_id: "group",
+          node_type: "leaf",
+          name: "子图层",
+          depth: 2,
+          visible: true,
+          locked: false,
+          opacity: 1,
+        },
+      ],
+    })
+
+    expect(html).toContain("自定义组")
+    expect(html).toContain("继承锁定 · 50% · -1~2")
+    expect(html).not.toContain("子图层")
+  })
+
+  it("工具区明确展示当前图层的继承锁定状态", () => {
+    mapState.editorLayer = "marker"
+    mapState.selectedMarkerType = "character"
+    const html = renderEditPanel({
+      locations: [],
+      allEntities: [],
+      scenes: [],
+      terrainLayers: [],
+      territoryTools: "",
+      layerTree: [{
+        id: "marker-character",
+        node_type: "leaf",
+        layer_key: "marker.character",
+        name: "人物",
+        visible: true,
+        locked: false,
+        effective_locked: true,
+        opacity: 1,
+      }],
+    })
+
+    expect(html).toContain('data-editor-locked="true"')
+    expect(html).toContain("画布工具已停用")
+  })
+
+  it("revision 冲突时保留当前图层草稿", async () => {
+    state.currentProjectId = "p1"
+    mapView._state = {
+      map: { id: "m1", editor_revision: 3, grid_width: 10, grid_height: 10 },
+      tiles: [],
+      location_bindings: [],
+      markers: [],
+      territories: [],
+      terrain_layers: [],
+      terrain_regions: [],
+      terrain_patches: [],
+    }
+    mapState.editorLayer = "baseTerrain"
+    mapState.pendingTerrainChanges = {
+      "1,1": { hex_q: 1, hex_r: 1, terrain_type: "water" },
+    }
+    const error = new Error("conflict")
+    error.status = 409
+    error.body = {
+      error: "map_editor_revision_conflict",
+      context: { current_revision: 4 },
+    }
+    api.world.applyMapEditor
+      .mockRejectedValueOnce(error)
+      .mockResolvedValueOnce({ editor_revision: 5, command_results: [], client_id_map: {} })
+    api.world.getMapState.mockResolvedValue({
+      ...mapView._state,
+      map: { ...mapView._state.map, editor_revision: 4 },
+      markers: [{ id: "remote-marker", label: "其他会话的新标签" }],
+    })
+    api.world.getMapLayerTree.mockResolvedValue({ editor_revision: 4, nodes: [] })
+
+    expect(await mapView._applyAllChanges({ onlyLayer: true })).toBe(false)
+
+    expect(mapState.pendingTerrainChanges["1,1"].terrain_type).toBe("water")
+    expect(toast).toHaveBeenCalledWith(
+      expect.stringContaining("草稿已保留"),
+      "warning",
+    )
+    expect(mapView._state.map.editor_revision).toBe(4)
+    expect(mapView._state.markers[0].label).toBe("其他会话的新标签")
+
+    expect(await mapView._applyAllChanges({ onlyLayer: true })).toBe(true)
+    expect(api.world.applyMapEditor.mock.calls[1][1].expected_revision).toBe(4)
+  })
+
+  it("filters unchanged terrain and territory commands before apply", () => {
+    mapView._state = {
+      map: { id: "m1", editor_revision: 1 },
+      tiles: [{ hex_q: 1, hex_r: 1, terrain_type: "water", elevation: 0 }],
+      territories: [{ id: "t1", faction_entity_id: "f1", hex_q: 2, hex_r: 2, style_override: {} }],
+    }
+    mapView._tileByHex = new Map()
+    mapState.pendingTerrainChanges = {
+      "1,1": { hex_q: 1, hex_r: 1, terrain_type: "water", elevation: null },
+    }
+    mapState.pendingTerritoryChanges = {
+      add: { duplicate: { faction_entity_id: "f1", hex_q: 2, hex_r: 2, style_override: {} } },
+      remove: {},
+    }
+
+    expect(mapView._buildEditorCommands()).toEqual([])
+  })
+
+  it("filters unchanged location layout and binding drafts before apply", () => {
+    const layout = {
+      location_entity_id: "loc-1",
+      center_hex_q: 1,
+      center_hex_r: 2,
+      occupy_radius: 1,
+      locked: false,
+      layout_source: "user_drag",
+      layout_version: 1,
+      sync_geo_setting: false,
+      meta: {},
+    }
+    mapView._state = {
+      map: { id: "m1", editor_revision: 1 },
+      location_layouts: [layout],
+      location_bindings: [{
+        id: "binding-1",
+        location_entity_id: "loc-1",
+        hex_q: 1,
+        hex_r: 2,
+        is_center: true,
+        label_override: null,
+        style_override: {},
+      }],
+    }
+    mapState.pendingLocationLayouts = { "loc-1": { ...layout } }
+    mapState.pendingBindings = {
+      same: {
+        location_entity_id: "loc-1",
+        hex_q: 1,
+        hex_r: 2,
+        is_center: true,
+      },
+    }
+
+    expect(mapView._buildEditorCommands()).toEqual([])
+  })
+
+  it("rejects oversized unified editor drafts before API submission", async () => {
+    mapView._state = { map: { id: "m1", editor_revision: 1 }, tiles: [], territories: [] }
+    mapView._tileByHex = new Map()
+    mapState.editorLayer = "baseTerrain"
+    mapState.pendingTerrainChanges = Object.fromEntries(
+      Array.from({ length: 10001 }, (_, index) => [
+        `${index},0`,
+        { hex_q: index, hex_r: 0, terrain_type: "water" },
+      ]),
+    )
+
+    expect(await mapView._applyAllChanges({ onlyLayer: true })).toBe(false)
+    expect(api.world.applyMapEditor).not.toHaveBeenCalled()
+    expect(Object.keys(mapState.pendingTerrainChanges)).toHaveLength(10001)
+
+    mapState.editorLayer = "territory"
+    mapState.pendingTerritoryChanges = {
+      add: Object.fromEntries(Array.from({ length: 5001 }, (_, index) => [
+        `draft:f1:${index},0`,
+        { faction_entity_id: "f1", hex_q: index, hex_r: 0 },
+      ])),
+      remove: {},
+    }
+    expect(await mapView._applyAllChanges({ onlyLayer: true })).toBe(false)
+    expect(api.world.applyMapEditor).not.toHaveBeenCalled()
+    expect(Object.keys(mapState.pendingTerritoryChanges.add)).toHaveLength(5001)
+
+    mapState.editorLayer = "location"
+    mapView._state = {
+      map: { id: "m1", editor_revision: 1 },
+      location_layouts: [],
+      location_bindings: Array.from({ length: 5000 }, (_, index) => ({
+        id: `binding-${index}`,
+        location_entity_id: "loc-1",
+        hex_q: index,
+        hex_r: 0,
+        is_center: index === 0,
+        style_override: {},
+      })),
+    }
+    mapState.pendingBindings = {
+      extra: {
+        location_entity_id: "loc-1",
+        hex_q: 5000,
+        hex_r: 0,
+        is_center: false,
+      },
+    }
+    expect(await mapView._applyAllChanges({ onlyLayer: true })).toBe(false)
+    expect(api.world.applyMapEditor).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith(
+      "单个地点单次最多绑定 5000 个地图格，请减少选中范围",
+      "error",
+    )
+
+    mapState.editorLayer = "marker"
+    mapState.pendingMarkerChanges = Object.fromEntries(
+      Array.from({ length: 201 }, (_, index) => [
+        `marker-${index}`,
+        { operation: "update", id: `marker-${index}`, data: { label: `标记 ${index}` } },
+      ]),
+    )
+    expect(await mapView._applyAllChanges({ onlyLayer: true })).toBe(false)
+    expect(api.world.applyMapEditor).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith(
+      "单次最多应用 200 个编辑命令，请减少本次变更",
+      "error",
+    )
+  })
+
+  it("applying the current layer preserves another layer tree draft", async () => {
+    state.currentProjectId = "p1"
+    mapView._state = { map: { id: "m1", editor_revision: 1 }, tiles: [], territories: [] }
+    mapState.editorLayer = "marker"
+    mapState.pendingMarkerChanges = {
+      marker1: { operation: "update", id: "marker1", data: { label: "新标签" } },
+    }
+    mapState.pendingLayerTree = [{ id: "tree1", node_type: "leaf", name: "地形", visible: true }]
+    mapState.pendingLayerTreeLayer = "baseTerrain"
+    api.world.applyMapEditor.mockResolvedValue({ editor_revision: 2 })
+    vi.spyOn(mapView, "_reloadMapStatePreservingSession").mockResolvedValue()
+    vi.spyOn(mapView, "_loadLayerTree").mockResolvedValue()
+    vi.spyOn(mapView, "_redraw").mockImplementation(() => {})
+
+    expect(await mapView._applyAllChanges({ onlyLayer: true })).toBe(true)
+    expect(api.world.applyMapEditor.mock.calls[0][1].commands).toEqual([
+      { type: "marker_update", ref: { id: "marker1" }, data: { label: "新标签" } },
+    ])
+    expect(mapState.pendingLayerTree).toEqual([
+      { id: "tree1", node_type: "leaf", name: "地形", visible: true },
+    ])
+    expect(mapState.pendingLayerTreeLayer).toBe("baseTerrain")
+  })
+
+  it("触控 Pointer 拖动地点时暂停并恢复 Leaflet 平移", async () => {
+    const disable = vi.fn()
+    const enable = vi.fn()
+    const setPointerCapture = vi.fn()
+    const releasePointerCapture = vi.fn()
+    mapView._state = {
+      map: { id: "m1", grid_width: 10, grid_height: 10 },
+      location_layouts: [{
+        location_entity_id: "loc-1",
+        center_hex_q: 1,
+        center_hex_r: 1,
+        locked: false,
+      }],
+      location_bindings: [],
+      markers: [],
+    }
+    mapView._canvas = { setPointerCapture, releasePointerCapture }
+    mapView._leaflet = { dragging: { disable, enable } }
+    mapState.mode = "edit"
+    mapState.editorLayer = "location"
+    mapState.activeTool = "locationMove"
+    const eventToHex = vi.spyOn(mapView, "_eventToHex")
+      .mockReturnValueOnce([1, 1])
+      .mockReturnValueOnce([2, 2])
+    const preventDefault = vi.fn()
+
+    mapView._handleCanvasMouseDown({
+      pointerId: 7,
+      pointerType: "touch",
+      type: "pointerdown",
+      preventDefault,
+    })
+    mapView._handleCanvasMouseMove({ pointerId: 7, pointerType: "touch" })
+    await mapView._handleCanvasMouseUp({ pointerId: 7, type: "pointerup" })
+
+    expect(setPointerCapture).toHaveBeenCalledWith(7)
+    expect(disable).toHaveBeenCalledTimes(1)
+    expect(mapState.pendingLocationLayouts["loc-1"]).toMatchObject({
+      center_hex_q: 2,
+      center_hex_r: 2,
+    })
+    expect(releasePointerCapture).toHaveBeenCalledWith(7)
+    expect(enable).toHaveBeenCalledTimes(1)
+    expect(preventDefault).toHaveBeenCalledTimes(1)
+    eventToHex.mockRestore()
+  })
+
+  it("编辑态仍复用按 revision 缓存的视口绘制队列", () => {
+    mapView._renderSubsetCache.clear()
+    mapView._canvas = { width: 300, height: 240 }
+    mapView._state = {
+      map: { id: "m1", editor_revision: 7 },
+      tiles: [
+        { id: "near", hex_q: 1, hex_r: 1, terrain_type: "grassland" },
+        { id: "far", hex_q: 199, hex_r: 199, terrain_type: "water" },
+      ],
+      location_bindings: [],
+      markers: [],
+      territories: [],
+      terrain_layers: [],
+      terrain_regions: [],
+      terrain_patches: [],
+      candidate_location_bindings: [],
+      candidate_markers: [],
+      candidate_territories: [],
+    }
+    mapState.pendingTerrainChanges = {
+      "2,2": { hex_q: 2, hex_r: 2, terrain_type: "forest" },
+    }
+
+    const first = mapView._visibleRenderSubset(30, { x: 0, y: 0 }, 1, 0)
+    const cached = mapView._visibleRenderSubset(30, { x: 0, y: 0 }, 1, 0)
+
+    expect(first.tiles.map((tile) => tile.id)).toEqual(["near"])
+    expect(cached).toBe(first)
+    expect(mapView._renderMetrics).toMatchObject({
+      editor_revision: 7,
+      total_hex_items: 2,
+      queued_hex_items: 1,
+    })
+
+    mapView._state.map.editor_revision = 8
+    const invalidated = mapView._visibleRenderSubset(30, { x: 0, y: 0 }, 1, 0)
+    expect(invalidated).not.toBe(first)
+
+    mapView._layerTree = {
+      nodes: [{
+        id: "base",
+        layer_key: "baseTerrain",
+        visible: false,
+        locked: false,
+        opacity: 1,
+      }],
+    }
+    mapView._state.map.editor_revision = 9
+    const hidden = mapView._visibleRenderSubset(30, { x: 0, y: 0 }, 1, 0)
+    expect(hidden.tiles).toEqual([])
+    expect(mapView._renderMetrics.queued_hex_items).toBe(0)
+    expect(mapView._renderMetrics.culled_hex_items).toBe(2)
+  })
+
+  it("场景动态数据更新会失效视口缓存并重建 marker 索引", () => {
+    mapView._state = {
+      map: { id: "m1", editor_revision: 1 },
+      markers: [{ id: "old", hex_q: 1, hex_r: 1, visible: true }],
+      territories: [],
+      location_bindings: [],
+    }
+    mapView._rebuildIndexes()
+    mapView._renderSubsetCache.set("stale", { markers: [{ id: "old" }] })
+
+    mapView._applyDynamicState({
+      markers: [{ id: "new", hex_q: 2, hex_r: 2, visible: true }],
+      territories: [],
+      candidate_location_bindings: [],
+      candidate_markers: [],
+      candidate_territories: [],
+    })
+
+    expect(mapView._renderSubsetCache.size).toBe(0)
+    expect(mapView._markerAt(1, 1)).toBeNull()
+    expect(mapView._markerAt(2, 2)).toMatchObject({ id: "new" })
+  })
+
+  it("类型化选择优先区分 marker、territory、terrain 与 location", () => {
+    mapView._state = {
+      map: { id: "m1" },
+      tiles: [{ id: "tile", hex_q: 1, hex_r: 1, terrain_type: "city" }],
+      location_bindings: [{ id: "binding", location_entity_id: "loc", hex_q: 1, hex_r: 1 }],
+      markers: [{ id: "marker", entity_id: "char", marker_type: "character", hex_q: 1, hex_r: 1, visible: true }],
+      territories: [{ id: "territory", faction_entity_id: "org", hex_q: 2, hex_r: 2 }],
+      terrain_layers: [{ id: "layer", visible: true, opacity: 1 }],
+      terrain_regions: [],
+      terrain_patches: [{ id: "patch", layer_id: "layer", hex_q: 3, hex_r: 3 }],
+    }
+    mapView._rebuildIndexes()
+
+    expect(mapView._typedSelectionAt(1, 1).kind).toBe("marker")
+    expect(mapView._typedSelectionAt(2, 2).kind).toBe("territory")
+    expect(mapView._typedSelectionAt(3, 3).kind).toBe("terrain")
+  })
+})
+
 
 describe("mapView P2 势力范围", () => {
   const orgEntities = [{ id: "o1", entity_type: "organization", name: "青龙会" }]
@@ -1700,6 +2407,7 @@ describe("mapHexRenderer P2 drawTerritories", () => {
   it.each([
     { name: "空数组不绘制", territories: [], colorMap: {}, expectBeginPath: false },
     { name: "绘制势力范围", territories: [{ faction_id: "f1", hexes: [{ hex_q: 1, hex_r: 1 }] }], colorMap: { f1: "#FF0000" }, expectBeginPath: true, fillStyleContains: "FF0000" },
+    { name: "绘制后端 flat 领地格", territories: [{ faction_entity_id: "f2", hex_q: 2, hex_r: 3 }], colorMap: { f2: "#00FF00" }, expectBeginPath: true, fillStyleContains: "00FF00" },
   ])("drawTerritories $name", ({ territories, colorMap, expectBeginPath, fillStyleContains }) => {
     const ctx = createCanvasMock()
     drawTerritories(ctx, territories, 30, 0, 0, colorMap)
@@ -1759,11 +2467,11 @@ describe("mapHexRenderer candidate and context layers", () => {
 })
 
 describe("mapView 批量地图操作", () => {
-  it("批量删除地图调用现有删除 API", async () => {
+  it("批量归档地图调用归档 API", async () => {
     state.currentProjectId = "p1"
     mapView._maps = [{ id: "m1", name: "主地图" }, { id: "m2", name: "地下城" }]
     mapView._bulkSelections = { "map-list": new Set(["m1", "m2"]) }
-    api.world.deleteMap.mockResolvedValue({})
+    api.world.archiveMap.mockResolvedValue({})
     vi.spyOn(mapView, "_loadMaps").mockResolvedValue()
     vi.spyOn(mapView, "_render").mockImplementation(() => {})
     autoConfirm()
@@ -1771,9 +2479,507 @@ describe("mapView 批量地图操作", () => {
     await mapView._runMapBulkAction("delete-maps")
 
     await vi.waitFor(() => {
-      expect(api.world.deleteMap).toHaveBeenCalledWith("m1", "p1")
-      expect(api.world.deleteMap).toHaveBeenCalledWith("m2", "p1")
+      expect(api.world.archiveMap).toHaveBeenCalledWith("m1", "p1")
+      expect(api.world.archiveMap).toHaveBeenCalledWith("m2", "p1")
       expect(toast).toHaveBeenCalledWith(expect.stringContaining("成功 2 / 2"), "success")
     })
+  })
+})
+
+describe("图层会话与连续线路纵切", () => {
+  it("应用当前内容层不携带图层树草稿", () => {
+    mapView._state = {
+      map: { id: "m1", editor_revision: 1 },
+      tiles: [], location_layouts: [], location_bindings: [], territories: [], markers: [],
+    }
+    mapState.editorLayer = "baseTerrain"
+    mapState.pendingTerrainChanges = {
+      "1,1": { hex_q: 1, hex_r: 1, terrain_type: "forest" },
+    }
+    mapState.pendingLayerTree = [{
+      id: "base", node_type: "leaf", layer_key: "baseTerrain", name: "底图",
+      visible: true, locked: false, opacity: 1, sort_order: 0,
+    }]
+
+    expect(mapView._buildEditorCommands({ onlyLayer: true }).map((item) => item.type))
+      .toEqual(["base_terrain_replace"])
+    expect(mapView._buildEditorCommands({ onlyLayerTree: true }).map((item) => item.type))
+      .toEqual(["layer_tree_replace"])
+  })
+
+  it("路径图层与手绘路径在同一 batch 通过 client ref 引用", () => {
+    mapView._state = { map: { id: "m1", editor_revision: 1 }, territories: [], markers: [] }
+    mapState.mode = "edit"
+    mapState.editorLayer = "path"
+    mapState.pendingPathLayerChanges = {
+      layerClient: {
+        operation: "create",
+        client_id: "layerClient",
+        leaf_client_id: "leafClient",
+        data: { display_name: "水系", category: "water", meta: {} },
+      },
+    }
+    mapState.pendingPathChanges = {
+      pathClient: {
+        operation: "create",
+        client_id: "pathClient",
+        data: {
+          path_layer_id: "layerClient",
+          name: "长河",
+          path_type: "river",
+          nodes: [
+            { q: 1, r: 1, width_scale: 1, tension: 0.5 },
+            { q: 2, r: 2, width_scale: 1, tension: 0.5 },
+          ],
+        },
+      },
+    }
+
+    const commands = mapView._buildEditorCommands({ onlyLayer: true })
+    expect(commands.map((item) => item.type)).toEqual(["path_layer_create", "path_create"])
+    expect(commands[1].data.layer_ref).toEqual({ client_id: "layerClient" })
+    expect(commands[1].data.nodes[0]).not.toHaveProperty("sort_order")
+  })
+
+  it("保存全部时将新路径图层 leaf 合并进完整图层树", () => {
+    mapView._state = { map: { id: "m1", editor_revision: 1 }, territories: [], markers: [] }
+    mapState.pendingLayerTree = [
+      {
+        id: "path-root", node_type: "group", layer_key: "path", name: "线路",
+        visible: true, locked: false, opacity: 1, sort_order: 0, selection_mode: "floor",
+      },
+      {
+        id: "old-leaf", parent_id: "path-root", node_type: "leaf",
+        path_layer_id: "old-layer", name: "旧线路", visible: true,
+        locked: false, opacity: 1, sort_order: 0, floor_level: -1,
+      },
+      {
+        id: "kept-leaf", parent_id: "path-root", node_type: "leaf",
+        path_layer_id: "kept-layer", name: "保留线路", visible: true,
+        locked: false, opacity: 1, sort_order: 1, floor_level: 0,
+      },
+    ]
+    mapState.pendingPathLayerChanges = {
+      newLayer: {
+        operation: "create",
+        client_id: "newLayer",
+        leaf_client_id: "newLeaf",
+        data: { display_name: "新水系", category: "water", meta: {} },
+      },
+      oldLayer: { operation: "delete", id: "old-layer" },
+    }
+
+    const commands = mapView._buildEditorCommands()
+    const tree = commands.find((command) => command.type === "layer_tree_replace")
+
+    expect(commands.map((command) => command.type)).toEqual([
+      "path_layer_create", "path_layer_delete", "layer_tree_replace",
+    ])
+    expect(tree.nodes).not.toContainEqual(expect.objectContaining({ path_layer_id: "old-layer" }))
+    expect(tree.nodes).toContainEqual(expect.objectContaining({
+      client_id: "newLeaf",
+      parent_id: "path-root",
+      path_layer_client_id: "newLayer",
+      name: "新水系",
+      floor_level: 1,
+    }))
+  })
+
+  it("应用成功后将新路径选中项从 client id 替换为正式 id", async () => {
+    state.currentProjectId = "p1"
+    mapView._state = { map: { id: "m1", editor_revision: 1 }, territories: [], markers: [] }
+    mapState.mode = "edit"
+    mapState.editorLayer = "path"
+    mapState.selectedPathLayerId = "layerClient"
+    mapState.selectedPathId = "pathClient"
+    mapState.pendingPathLayerChanges = {
+      layerClient: {
+        operation: "create",
+        client_id: "layerClient",
+        leaf_client_id: "leafClient",
+        data: { display_name: "道路", category: "transport", meta: {} },
+      },
+    }
+    mapState.pendingPathChanges = {
+      pathClient: {
+        operation: "create",
+        client_id: "pathClient",
+        data: {
+          path_layer_id: "layerClient",
+          name: "大路",
+          path_type: "major_road",
+          nodes: [{ q: 0, r: 0 }, { q: 1, r: 1 }],
+        },
+      },
+    }
+    api.world.applyMapEditor.mockResolvedValue({
+      editor_revision: 2,
+      client_id_map: { layerClient: "layer-real", pathClient: "path-real" },
+    })
+    const reloadSpy = vi.spyOn(mapView, "_reloadMapStatePreservingSession").mockResolvedValue()
+    const treeSpy = vi.spyOn(mapView, "_loadLayerTree").mockResolvedValue()
+    const pathsSpy = vi.spyOn(mapView, "_loadPaths").mockResolvedValue()
+    const redrawSpy = vi.spyOn(mapView, "_redraw").mockImplementation(() => {})
+    const rerenderSpy = vi.spyOn(mapView, "_rerenderEditor").mockImplementation(() => {})
+
+    expect(await mapView._applyAllChanges({ onlyLayer: true })).toBe(true)
+    expect(mapState.selectedPathLayerId).toBe("layer-real")
+    expect(mapState.selectedPathId).toBe("path-real")
+    expect(rerenderSpy).toHaveBeenCalled()
+    reloadSpy.mockRestore()
+    treeSpy.mockRestore()
+    pathsSpy.mockRestore()
+    redrawSpy.mockRestore()
+    rerenderSpy.mockRestore()
+  })
+
+  it("并行加载路径安全兼容嵌入 nodes 响应", async () => {
+    state.currentProjectId = "n1"
+    mapView._state = { map: { id: "m1" } }
+    api.world.getMapPaths.mockResolvedValue({
+      editor_revision: 3,
+      layers: [{ id: "l1", name: "道路", category: "transport" }],
+      paths: [{ id: "p1", path_layer_id: "l1", nodes: [{ id: "n1", q: 1, r: 1 }] }],
+    })
+
+    await mapView._loadPaths()
+
+    expect(api.world.getMapPaths).toHaveBeenCalledWith("m1", "n1", "all")
+    expect(mapView._pathState.nodes).toHaveLength(1)
+    expect(mapState.selectedPathLayerId).toBe("l1")
+  })
+
+  it("线路端点可绑定地点并重新吸附到当前锚点", () => {
+    mapView._state = {
+      map: { id: "m1" },
+      location_layouts: [{
+        location_entity_id: "loc-1",
+        center_hex_q: 4,
+        center_hex_r: 5,
+      }],
+      location_bindings: [],
+    }
+    mapView._pathState = {
+      path_layers: [{ id: "l1", category: "transport" }],
+      paths: [{
+        id: "p1",
+        path_layer_id: "l1",
+        path_type: "street",
+        nodes: [{ q: 1, r: 1 }, { q: 2, r: 2 }],
+      }],
+      nodes: [],
+    }
+    mapState.editorLayer = "path"
+    mapState.selectedPathId = "p1"
+    mapState.selectedPathLayerId = "l1"
+
+    expect(mapView._stageSelectedPathEndpoint("start", "loc-1", true)).toBe(true)
+
+    expect(mapState.pendingPathChanges.p1).toMatchObject({
+      operation: "update",
+      data: {
+        start_location_entity_id: "loc-1",
+        nodes: [{ q: 4, r: 5 }, { q: 2, r: 2 }],
+      },
+    })
+    expect(mapState.editorHistory.path).toHaveLength(1)
+  })
+
+  it("楼层会话选择直接影响 path leaf 有效可见性", () => {
+    mapState.activeLayerChildIds = { floors: "f0" }
+    mapView._layerTree = { nodes: [
+      { id: "floors", node_type: "group", selection_mode: "floor", visible: true },
+      { id: "f0", parent_id: "floors", node_type: "group", selection_mode: "normal", floor_level: 0, visible: true },
+      { id: "f1", parent_id: "floors", node_type: "group", selection_mode: "normal", floor_level: 1, visible: true },
+      { id: "p0", parent_id: "f0", node_type: "leaf", path_layer_id: "l0", visible: true },
+      { id: "p1", parent_id: "f1", node_type: "leaf", path_layer_id: "l1", visible: true },
+    ] }
+
+    expect(mapView._effectiveLayerNode({ pathLayerId: "l0" }).visible).toBe(true)
+    expect(mapView._effectiveLayerNode({ pathLayerId: "l1" })).toMatchObject({
+      visible: false,
+      sessionReason: "非当前楼层",
+    })
+  })
+
+  it("详情与 typed selection 不会命中结构隐藏或 isolate 背景层", () => {
+    mapView._state = {
+      map: { id: "m1" },
+      tiles: [{ id: "tile", hex_q: 0, hex_r: 0, terrain_type: "plain" }],
+      location_bindings: [{ id: "binding", location_entity_id: "loc", hex_q: 1, hex_r: 0 }],
+      territories: [{ id: "territory", faction_entity_id: "f1", hex_q: 2, hex_r: 0 }],
+      terrain_layers: [{ id: "terrain-layer", visible: true }],
+      terrain_patches: [{ id: "patch", layer_id: "terrain-layer", hex_q: 3, hex_r: 0 }],
+      terrain_regions: [], markers: [],
+    }
+    mapView._mountContext = { layers: {} }
+    mapView._layerTree = { nodes: [
+      { id: "base", node_type: "leaf", layer_key: "baseTerrain", visible: true },
+      { id: "location", node_type: "leaf", layer_key: "location", visible: false },
+      { id: "territory", node_type: "leaf", layer_key: "territory", visible: false },
+      { id: "overlay", node_type: "group", layer_key: "terrainOverlay", visible: true },
+      { id: "patch-leaf", parent_id: "overlay", node_type: "leaf", terrain_layer_id: "terrain-layer", visible: false },
+    ] }
+    mapState.isolateLayerNodeId = "location"
+
+    expect(mapView._effectiveLayerNode({ layerKey: "baseTerrain" })).toMatchObject({
+      visible: true,
+      interactiveVisible: false,
+    })
+    expect(mapView._typedSelectionAt(0, 0)).toBeNull()
+    expect(mapView._typedSelectionAt(1, 0)).toBeNull()
+    expect(mapView._typedSelectionAt(2, 0)).toBeNull()
+    expect(mapView._typedSelectionAt(3, 0)).toBeNull()
+    expect(mapView._renderDetailPanel(0, 0)).toContain("点击地图查看详情")
+  })
+
+  it("归档不覆盖未保存线路编辑，再次点击取消已 staging 的归档", async () => {
+    mapView._state = { map: { id: "m1" } }
+    mapView._pathState = {
+      path_layers: [{ id: "l1", category: "transport" }],
+      paths: [{ id: "p1", path_layer_id: "l1", path_type: "street", status: "active" }],
+      nodes: [],
+    }
+    mapState.editorLayer = "path"
+    mapState.pendingPathChanges = {
+      p1: { operation: "update", id: "p1", data: { name: "未保存新名" } },
+    }
+
+    await mapView._togglePathArchive("p1")
+
+    expect(mapState.pendingPathChanges.p1).toMatchObject({ operation: "update" })
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining("未保存编辑"), "warning")
+    expect(api.world.getMapPathArchiveImpact).not.toHaveBeenCalled()
+
+    mapState.pendingPathChanges.p1 = { operation: "archive", id: "p1" }
+    vi.spyOn(mapView, "_rerenderEditor").mockImplementationOnce(() => {})
+    await mapView._togglePathArchive("p1")
+    expect(mapState.pendingPathChanges.p1).toBeUndefined()
+    expect(api.world.getMapPathArchiveImpact).not.toHaveBeenCalled()
+  })
+
+  it("地图 action delegation 绑定在局部 map root，不会被工作台委派覆盖", async () => {
+    document.body.innerHTML = `
+      <div id="workspace-content">
+        <div id="map-root"><button data-action="map-path-archive" data-id="p1">归档</button></div>
+      </div>
+    `
+    mapView._mountRootId = "map-root"
+    const archive = vi.spyOn(mapView, "_togglePathArchive").mockResolvedValue()
+
+    mapView._bindMapEvents()
+    document.querySelector("[data-action='map-path-archive']").click()
+    await Promise.resolve()
+
+    expect(document.getElementById("map-root").__delegation_click).toEqual(expect.any(Function))
+    expect(archive).toHaveBeenCalledWith("p1")
+    archive.mockRestore()
+  })
+
+  it("当 path-only 保存创建图层时将后端自动 leaf 合并回图层树草稿", () => {
+    mapView._state = { map: { id: "m1" } }
+    mapState.pendingLayerTree = [{
+      id: "path-root", node_type: "group", layer_key: "path", name: "线路",
+      visible: true, locked: false, opacity: 1, sort_order: 0,
+    }]
+    mapView._layerTree = { nodes: [
+      mapState.pendingLayerTree[0],
+      {
+        id: "leaf-real", parent_id: "path-root", node_type: "leaf",
+        path_layer_id: "layer-real", name: "水系", visible: true,
+        locked: false, opacity: 1, sort_order: 0,
+      },
+    ] }
+
+    mapView._reconcilePendingLayerTreeAfterPathLayerApply([{
+      type: "path_layer_create",
+      client_id: "layer-client",
+      leaf_client_id: "leaf-client",
+    }], {
+      "layer-client": "layer-real",
+      "leaf-client": "leaf-real",
+    })
+
+    expect(mapState.pendingLayerTree).toContainEqual(expect.objectContaining({
+      id: "leaf-real",
+      parent_id: "path-root",
+      path_layer_id: "layer-real",
+    }))
+  })
+
+  it("可从编辑面板 staging 删除空线路图层", () => {
+    mapView._state = { map: { id: "m1" } }
+    mapView._pathState = {
+      path_layers: [{ id: "l1", name: "旧交通", category: "transport" }],
+      paths: [], nodes: [],
+    }
+    mapView._layerTree = { nodes: [{
+      id: "leaf", node_type: "leaf", path_layer_id: "l1", visible: true, locked: false,
+    }] }
+    mapState.editorLayer = "path"
+    mapState.selectedPathLayerId = "l1"
+    autoConfirm()
+    vi.spyOn(mapView, "_rerenderEditor").mockImplementationOnce(() => {})
+
+    mapView._deleteSelectedPathLayer()
+
+    expect(mapState.pendingPathLayerChanges.l1).toEqual({ operation: "delete", id: "l1" })
+    expect(mapView._buildEditorCommands({ onlyLayer: true })).toContainEqual({
+      type: "path_layer_delete",
+      ref: { id: "l1" },
+    })
+  })
+
+  it("线路按图层树 DFS 顺序而非 path layer id 渲染", () => {
+    mapView._layerTree = { nodes: [
+      { id: "root", node_type: "group", layer_key: "path", sort_order: 0 },
+      { id: "z-leaf", parent_id: "root", node_type: "leaf", path_layer_id: "z-layer", sort_order: 0 },
+      { id: "a-leaf", parent_id: "root", node_type: "leaf", path_layer_id: "a-layer", sort_order: 1 },
+    ] }
+    mapView._pathState = {
+      path_layers: [], nodes: [],
+      paths: [
+        { id: "a-path", path_layer_id: "a-layer", sort_order: 0 },
+        { id: "z-path", path_layer_id: "z-layer", sort_order: 0 },
+      ],
+    }
+
+    expect(mapView._effectivePaths().map((path) => path.id)).toEqual(["z-path", "a-path"])
+  })
+
+  it("聚焦 path 可由 path layer 反查 leaf 并激活对应楼层", () => {
+    mapView._state = { map: { id: "m1", hex_size: 30 } }
+    mapView._pathState = {
+      path_layers: [{ id: "l1", category: "water" }],
+      paths: [{ id: "p1", path_layer_id: "l1", path_type: "river", nodes: [{ q: 1, r: 1 }, { q: 2, r: 2 }] }],
+      nodes: [],
+    }
+    mapView._layerTree = { nodes: [
+      { id: "floors", node_type: "group", selection_mode: "floor", visible: true },
+      { id: "f0", parent_id: "floors", node_type: "group", floor_level: 0, visible: true },
+      { id: "f1", parent_id: "floors", node_type: "group", floor_level: 1, visible: true },
+      { id: "path-leaf", parent_id: "f1", node_type: "leaf", path_layer_id: "l1", visible: true },
+    ] }
+    mapState.activeLayerChildIds = { floors: "f0" }
+
+    expect(mapView.focusPath("p1")).toBe(true)
+
+    expect(mapView._mountContext.focusLayerNodeId).toBe("path-leaf")
+    expect(mapState.activeLayerChildIds.floors).toBe("f1")
+    expect(mapState.selectedPathLayerId).toBe("l1")
+    expect(mapState.selectedPathType).toBe("river")
+  })
+
+  it("清除路由 path 聚焦时可保留编辑器内的 path 选择", () => {
+    mapView._mountContext = { focusPathId: "p1", focusLayerNodeId: "leaf-1" }
+    mapState.selectedPathId = "p1"
+    mapState.selectedPathNodeIndex = 2
+    mapState.selectedMapObject = { kind: "path", id: "p1" }
+
+    mapView.clearPathFocus({ preserveSelection: true })
+
+    expect(mapView._mountContext.focusPathId).toBeNull()
+    expect(mapView._mountContext.focusLayerNodeId).toBeNull()
+    expect(mapState.selectedPathId).toBe("p1")
+    expect(mapState.selectedPathNodeIndex).toBe(2)
+    expect(mapState.selectedMapObject).toEqual({ kind: "path", id: "p1" })
+  })
+
+  it("根据已加载 path content_revision 判断事实快照是否过期", () => {
+    mapView._pathState = {
+      path_layers: [], nodes: [],
+      paths: [{ id: "p1", content_revision: 4 }],
+    }
+
+    expect(mapView.pathRevisionMismatch({ path_id: "p1", path_revision: 3 })).toBe(true)
+    expect(mapView.pathRevisionMismatch({ path_id: "p1", path_revision: 4 })).toBe(false)
+  })
+
+  it("pointercancel 回滚 path 节点草稿并恢复 Leaflet 平移", () => {
+    mapView._state = { map: { id: "m1" } }
+    mapState.editorLayer = "path"
+    mapState.pendingPathChanges = {
+      p1: { operation: "update", id: "p1", data: { nodes: [{ q: 1, r: 1 }, { q: 2, r: 2 }] } },
+    }
+    mapView._pointerStartSnapshot = mapView._snapshotActiveDraft()
+    mapState.pendingPathChanges.p1.data.nodes[0] = { q: 9, r: 9 }
+    mapView._dragPathNode = { pathId: "p1", index: 0 }
+    mapView._canvas = { releasePointerCapture: vi.fn() }
+    mapView._leaflet = { dragging: { enable: vi.fn() } }
+    vi.spyOn(mapView, "_rerenderEditor").mockImplementationOnce(() => {})
+
+    mapView._handlePathPointerUp({ type: "pointercancel", pointerId: 7 })
+
+    expect(mapState.pendingPathChanges.p1.data.nodes[0]).toEqual({ q: 1, r: 1 })
+    expect(mapState.editorHistory.path || []).toHaveLength(0)
+    expect(mapView._canvas.releasePointerCapture).toHaveBeenCalledWith(7)
+    expect(mapView._leaflet.dragging.enable).toHaveBeenCalled()
+  })
+
+  it("path pointerdown 统一 capture pointer 并暂停 Leaflet 平移", () => {
+    mapView._state = { map: { id: "m1", grid_width: 8, grid_height: 8 } }
+    mapState.editorLayer = "path"
+    mapState.pathTool = "draw"
+    mapState.selectedPathLayerId = "l1"
+    mapView._canvas = { setPointerCapture: vi.fn() }
+    mapView._leaflet = { dragging: { disable: vi.fn() } }
+    vi.spyOn(mapView, "_eventToAxial").mockReturnValue([1, 1])
+    const event = { pointerId: 9, preventDefault: vi.fn() }
+
+    mapView._handlePathPointerDown(event)
+
+    expect(mapView._canvas.setPointerCapture).toHaveBeenCalledWith(9)
+    expect(mapView._leaflet.dragging.disable).toHaveBeenCalled()
+    expect(event.preventDefault).toHaveBeenCalled()
+  })
+
+  it("选中既有 path 同步图层与类型，跨类别移动时清理无效 segment type", () => {
+    mapView._state = { map: { id: "m1" } }
+    mapView._pathState = {
+      path_layers: [
+        { id: "roads", category: "transport" },
+        { id: "water", category: "water" },
+      ],
+      paths: [{
+        id: "p1", path_layer_id: "roads", path_type: "street", status: "active",
+        nodes: [{ q: 1, r: 1, segment_type: "street" }, { q: 2, r: 2 }],
+      }],
+      nodes: [],
+    }
+    mapState.editorLayer = "path"
+    mapView._selectPath(mapView._pathState.paths[0])
+
+    expect(mapState.selectedPathLayerId).toBe("roads")
+    expect(mapState.selectedPathType).toBe("street")
+    expect(mapView._stageSelectedPathClassification({ layerId: "water", pathType: "street" })).toBe(true)
+    expect(mapState.pendingPathChanges.p1).toMatchObject({
+      operation: "update",
+      data: { path_layer_id: "water", path_type: "river" },
+    })
+    expect(mapState.pendingPathChanges.p1.data.nodes[0]).not.toHaveProperty("segment_type")
+  })
+
+  it("既有 path 移入当批新建图层时使用 client ref", () => {
+    mapView._state = { map: { id: "m1" }, territories: [], markers: [] }
+    mapState.editorLayer = "path"
+    mapState.pendingPathLayerChanges = {
+      newLayer: {
+        operation: "create",
+        client_id: "newLayer",
+        leaf_client_id: "newLeaf",
+        data: { display_name: "新水系", category: "water", meta: {} },
+      },
+    }
+    mapState.pendingPathChanges = {
+      p1: {
+        operation: "update",
+        id: "p1",
+        data: { path_layer_id: "newLayer", path_type: "river" },
+      },
+    }
+
+    const update = mapView._buildEditorCommands({ onlyLayer: true })
+      .find((command) => command.type === "path_update")
+    expect(update.data.layer_ref).toEqual({ client_id: "newLayer" })
   })
 })

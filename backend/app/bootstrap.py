@@ -28,6 +28,7 @@ from modules.rag.facade import (
     get_ordered_chapter_chunks as _rag_get_chunks,
     index_chapter_with_report as _rag_index,
 )
+from modules.rag.indexing import IndexingService as _RagIndexingService
 from modules.project.facade import require_active_project as _project_require_active
 from modules.writing.facade import (
     get_latest_draft_for_chapter as _writing_get_draft,
@@ -56,6 +57,7 @@ def _container_services() -> Iterable[tuple[str, Any]]:
     """Build app/worker process-singleton service registrations."""
     scene_extraction = _SceneExtractSvc()
     memory = MemoryService()
+    rag_indexing = _RagIndexingService()
 
     return (
         ("world.list_characters", _world_list_characters),
@@ -64,11 +66,12 @@ def _container_services() -> Iterable[tuple[str, Any]]:
         ("world.run_scene_entity_extraction", scene_extraction.extract_by_scenes),
         (
             "world.run_alias_relation_extraction",
-            scene_extraction.extract_alias_relations,
+            scene_extraction,
         ),
         ("world.create_character", _world_create_char),
         ("world.get_character_id_by_world_entity", _world_get_char_id),
         ("rag.index_chapter", _rag_index),
+        ("rag.index_chapter_for_task", rag_indexing.index_chapter_for_task),
         ("rag.get_ordered_chapter_chunks", _rag_get_chunks),
         ("writing.list_chapter_indices", _writing_list_indices),
         ("writing.get_latest_draft_for_chapter", _writing_get_draft),

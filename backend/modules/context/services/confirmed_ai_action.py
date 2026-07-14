@@ -30,12 +30,18 @@ class ConfirmedAIActionService:
         novel_id: str,
         action: str,
         confirmation_id: str,
+        for_update: bool = False,
     ) -> ConfirmedAIActionContext:
+        confirmation_kwargs = {
+            "novel_id": novel_id,
+            "action": action,
+            "confirmation_id": confirmation_id,
+        }
+        if for_update:
+            confirmation_kwargs["for_update"] = True
         confirmation = await self._confirmation.require_fresh_confirmation(
             db,
-            novel_id=novel_id,
-            action=action,
-            confirmation_id=confirmation_id,
+            **confirmation_kwargs,
         )
         compiled = await self._confirmation.compile_from_confirmation(
             db,

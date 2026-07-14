@@ -182,6 +182,13 @@ class TestMapMarkerCRUD:
         assert updated.hex_q == 5
         assert updated.hex_r == 6
         assert updated.label == "更新标签"
+        cleared = await marker_svc.update(
+            db_session,
+            world_map.novel_id,
+            created_marker.id,
+            MapMarkerUpdate(label=None),
+        )
+        assert cleared.label is None
 
     @pytest.mark.asyncio
     async def test_update_marker_out_of_bounds_rejected(

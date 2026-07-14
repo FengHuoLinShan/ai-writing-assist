@@ -32,10 +32,14 @@ from sqlalchemy.orm import aliased
 from modules.world.map_models import (
     MapConfig,
     MapFact,
+    MapLayerNode,
     MapLocationBinding,
     MapLocationLayout,
     MapMarker,
     MapObservation,
+    MapPath,
+    MapPathLayer,
+    MapPathNode,
     MapTerrainBinding,
     MapTerrainLayer,
     MapTerrainPatch,
@@ -102,6 +106,20 @@ class MapEntityRepository[ModelT]:
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_in_map(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        entity_id: uuid.UUID,
+    ) -> ModelT | None:
+        stmt = select(self.model_class).where(
+            self.model_class.id == entity_id,
+            self.model_class.novel_id == novel_id,
+            self.model_class.map_id == map_id,
+        )
+        return (await db.execute(stmt)).scalar_one_or_none()
+
     async def update(
         self,
         db: AsyncSession,
@@ -141,6 +159,22 @@ class MapEntityRepository[ModelT]:
 class MapConfigRepository:
     """地图配置数据访问。"""
 
+    async def lock_hierarchy(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> None:
+        """Serialize map-tree create/archive/restore for one project."""
+        if db.get_bind().dialect.name != "postgresql":
+            return
+        await db.execute(
+            select(
+                func.pg_advisory_xact_lock(
+                    func.hashtextextended(str(novel_id), 0)
+                )
+            )
+        )
+
     @staticmethod
     def _active_parent_condition():
         return or_(
@@ -164,14 +198,17 @@ class MapConfigRepository:
         novel_id: uuid.UUID,
         *,
         parent_map_id: uuid.UUID | None = None,
+        status: str = "active",
         skip: int = 0,
         limit: int = 100,
     ) -> tuple[list[MapConfig], int]:
         """列出地图，可按 parent_map_id 过滤（None 表顶层）。"""
         conditions: list[Any] = [
             MapConfig.novel_id == novel_id,
-            self._active_parent_condition(),
+            MapConfig.status == status,
         ]
+        if status == "active":
+            conditions.append(self._active_parent_condition())
         if parent_map_id is not None:
             conditions.append(MapConfig.parent_map_id == parent_map_id)
 
@@ -198,6 +235,7 @@ class MapConfigRepository:
         """返回当前排序下的第一张地图，不执行分页总数查询。"""
         conditions: list[Any] = [
             MapConfig.novel_id == novel_id,
+            MapConfig.status == "active",
             self._active_parent_condition(),
         ]
         if parent_map_id is not None:
@@ -220,7 +258,11 @@ class MapConfigRepository:
         parent_map_id: uuid.UUID | None = None,
     ) -> MapConfig | None:
         """按同一父地图和名称精确查找地图。"""
-        conditions: list[Any] = [MapConfig.novel_id == novel_id, MapConfig.name == name]
+        conditions: list[Any] = [
+            MapConfig.novel_id == novel_id,
+            MapConfig.name == name,
+            MapConfig.status == "active",
+        ]
         if parent_map_id is None:
             conditions.append(MapConfig.parent_map_id.is_(None))
         else:
@@ -228,6 +270,94 @@ class MapConfigRepository:
         stmt = select(MapConfig).where(*conditions).limit(1)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_in_novel(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        *,
+        status: str | None = None,
+        for_update: bool = False,
+    ) -> MapConfig | None:
+        conditions: list[Any] = [
+            MapConfig.id == map_id,
+            MapConfig.novel_id == novel_id,
+        ]
+        if status is not None:
+            conditions.append(MapConfig.status == status)
+        stmt = select(MapConfig).where(*conditions)
+        if for_update:
+            stmt = stmt.with_for_update()
+        return (await db.execute(stmt)).scalar_one_or_none()
+
+    async def get_many_active_in_novel(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_ids: list[uuid.UUID],
+    ) -> list[MapConfig]:
+        """Load active maps for one novel in one query, preserving isolation."""
+        unique_ids = list(dict.fromkeys(map_ids))
+        if not unique_ids:
+            return []
+        stmt = select(MapConfig).where(
+            MapConfig.novel_id == novel_id,
+            MapConfig.id.in_(unique_ids),
+            MapConfig.status == "active",
+            self._active_parent_condition(),
+        )
+        return list((await db.execute(stmt)).scalars().all())
+
+    async def lock_subtree(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        root_map_id: uuid.UUID,
+    ) -> list[MapConfig]:
+        """Lock a complete map subtree in deterministic order."""
+        all_maps = list(
+            (
+                await db.execute(
+                    select(MapConfig).where(MapConfig.novel_id == novel_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        by_parent: dict[uuid.UUID | None, list[MapConfig]] = {}
+        for config in all_maps:
+            by_parent.setdefault(config.parent_map_id, []).append(config)
+        subtree_ids: list[uuid.UUID] = []
+        pending = [root_map_id]
+        while pending:
+            current = pending.pop()
+            if current in subtree_ids:
+                continue
+            subtree_ids.append(current)
+            pending.extend(child.id for child in by_parent.get(current, []))
+        if not any(config.id == root_map_id for config in all_maps):
+            return []
+        stmt = (
+            select(MapConfig)
+            .where(
+                MapConfig.novel_id == novel_id,
+                MapConfig.id.in_(subtree_ids),
+            )
+            .order_by(MapConfig.id)
+            .with_for_update()
+        )
+        return list((await db.execute(stmt)).scalars().all())
+
+    async def bump_revision(
+        self,
+        db: AsyncSession,
+        config: MapConfig,
+    ) -> int:
+        config.editor_revision += 1
+        db.add(config)
+        await db.flush()
+        return config.editor_revision
 
     async def create(
         self,
@@ -306,6 +436,148 @@ class MapConfigRepository:
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
+
+
+class MapPresenceRepository:
+    """Read-only entity-to-map placement query used by world object details."""
+
+    async def list_for_entity(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        entity_id: uuid.UUID,
+        *,
+        include_candidates: bool = False,
+    ) -> dict[str, list[Any]]:
+        async def rows(model, entity_column):
+            stmt = (
+                select(model)
+                .join(MapConfig, MapConfig.id == model.map_id)
+                .where(
+                    model.novel_id == novel_id,
+                    entity_column == entity_id,
+                    MapConfig.novel_id == novel_id,
+                    MapConfig.status == "active",
+                )
+            )
+            return list((await db.execute(stmt)).scalars().all())
+
+        terrain_review_states = (
+            {"confirmed", "candidate", "needs_review"}
+            if include_candidates
+            else {"confirmed"}
+        )
+
+        path_starts = list(
+            (
+                await db.execute(
+                    select(MapPath)
+                    .join(MapConfig, MapConfig.id == MapPath.map_id)
+                    .where(
+                        MapPath.novel_id == novel_id,
+                        MapPath.start_location_entity_id == entity_id,
+                        MapPath.status == "active",
+                        MapConfig.novel_id == novel_id,
+                        MapConfig.status == "active",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        path_ends = list(
+            (
+                await db.execute(
+                    select(MapPath)
+                    .join(MapConfig, MapConfig.id == MapPath.map_id)
+                    .where(
+                        MapPath.novel_id == novel_id,
+                        MapPath.end_location_entity_id == entity_id,
+                        MapPath.status == "active",
+                        MapConfig.novel_id == novel_id,
+                        MapConfig.status == "active",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        path_ids = list(
+            dict.fromkeys(path.id for path in [*path_starts, *path_ends])
+        )
+        path_nodes = (
+            list(
+                (
+                    await db.execute(
+                        select(MapPathNode)
+                        .where(
+                            MapPathNode.novel_id == novel_id,
+                            MapPathNode.path_id.in_(path_ids),
+                        )
+                        .order_by(
+                            MapPathNode.path_id,
+                            MapPathNode.sort_order,
+                            MapPathNode.id,
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if path_ids
+            else []
+        )
+
+        return {
+            "bindings": await rows(
+                MapLocationBinding, MapLocationBinding.location_entity_id
+            ),
+            "layouts": await rows(
+                MapLocationLayout, MapLocationLayout.location_entity_id
+            ),
+            "markers": await rows(MapMarker, MapMarker.entity_id),
+            "territories": await rows(
+                MapTerritoryTile, MapTerritoryTile.faction_entity_id
+            ),
+            "terrain_bindings": [
+                binding
+                for binding in await rows(
+                    MapTerrainBinding, MapTerrainBinding.location_entity_id
+                )
+                if binding.review_state in terrain_review_states
+            ],
+            "terrain_patches": list(
+                (
+                    await db.execute(
+                        select(MapTerrainPatch)
+                        .join(
+                            MapTerrainBinding,
+                            and_(
+                                MapTerrainBinding.region_id
+                                == MapTerrainPatch.region_id,
+                                MapTerrainBinding.map_id == MapTerrainPatch.map_id,
+                                MapTerrainBinding.novel_id
+                                == MapTerrainPatch.novel_id,
+                            ),
+                        )
+                        .join(MapConfig, MapConfig.id == MapTerrainPatch.map_id)
+                        .where(
+                            MapTerrainPatch.novel_id == novel_id,
+                            MapTerrainBinding.location_entity_id == entity_id,
+                            MapTerrainBinding.review_state.in_(terrain_review_states),
+                            MapConfig.novel_id == novel_id,
+                            MapConfig.status == "active",
+                        )
+                    )
+                )
+                .scalars()
+                .unique()
+                .all()
+            ),
+            "path_starts": path_starts,
+            "path_ends": path_ends,
+            "path_nodes": path_nodes,
+        }
 
 
 # ============================================================
@@ -598,6 +870,25 @@ class MapLocationBindingRepository(MapEntityRepository[MapLocationBinding]):
         await db.flush()
         return result.rowcount
 
+    async def delete_for_locations(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        location_entity_ids: list[uuid.UUID],
+    ) -> int:
+        unique_ids = list(dict.fromkeys(location_entity_ids))
+        if not unique_ids:
+            return 0
+        stmt = delete(MapLocationBinding).where(
+            MapLocationBinding.novel_id == novel_id,
+            MapLocationBinding.map_id == map_id,
+            MapLocationBinding.location_entity_id.in_(unique_ids),
+        )
+        result = await db.execute(stmt)
+        await db.flush()
+        return result.rowcount
+
     async def bulk_create(
         self,
         db: AsyncSession,
@@ -706,6 +997,27 @@ class MapTerrainLayerRepository(MapEntityRepository[MapTerrainLayer]):
 
     model_class = MapTerrainLayer
 
+    async def get_by_map(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+    ) -> list[MapTerrainLayer]:
+        stmt = (
+            select(MapTerrainLayer)
+            .where(
+                MapTerrainLayer.novel_id == novel_id,
+                MapTerrainLayer.map_id == map_id,
+            )
+            .order_by(
+                MapTerrainLayer.z_index,
+                MapTerrainLayer.created_at,
+                MapTerrainLayer.id,
+            )
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
     async def get_in_map(
         self,
         db: AsyncSession,
@@ -720,6 +1032,300 @@ class MapTerrainLayerRepository(MapEntityRepository[MapTerrainLayer]):
         )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
+
+
+class MapLayerNodeRepository(MapEntityRepository[MapLayerNode]):
+    """Recursive map-layer tree persistence."""
+
+    model_class = MapLayerNode
+
+    async def get_by_map(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+    ) -> list[MapLayerNode]:
+        stmt = (
+            select(MapLayerNode)
+            .where(
+                MapLayerNode.novel_id == novel_id,
+                MapLayerNode.map_id == map_id,
+            )
+            .order_by(MapLayerNode.sort_order, MapLayerNode.created_at, MapLayerNode.id)
+        )
+        return list((await db.execute(stmt)).scalars().all())
+
+    async def get_by_maps(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_ids: list[uuid.UUID],
+    ) -> list[MapLayerNode]:
+        """Load multiple map trees in one novel-scoped query."""
+        if not map_ids:
+            return []
+        stmt = (
+            select(MapLayerNode)
+            .where(
+                MapLayerNode.novel_id == novel_id,
+                MapLayerNode.map_id.in_(map_ids),
+            )
+            .order_by(
+                MapLayerNode.map_id,
+                MapLayerNode.sort_order,
+                MapLayerNode.created_at,
+                MapLayerNode.id,
+            )
+        )
+        return list((await db.execute(stmt)).scalars().all())
+
+    async def get_existing_by_ids(
+        self,
+        db: AsyncSession,
+        node_ids: list[uuid.UUID],
+    ) -> list[MapLayerNode]:
+        if not node_ids:
+            return []
+        stmt = select(MapLayerNode).where(MapLayerNode.id.in_(node_ids))
+        return list((await db.execute(stmt)).scalars().all())
+
+    async def get_by_layer_key(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        layer_key: str,
+    ) -> MapLayerNode | None:
+        stmt = select(MapLayerNode).where(
+            MapLayerNode.novel_id == novel_id,
+            MapLayerNode.map_id == map_id,
+            MapLayerNode.layer_key == layer_key,
+        )
+        return (await db.execute(stmt)).scalar_one_or_none()
+
+    async def get_by_terrain_layer(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        terrain_layer_id: uuid.UUID,
+    ) -> MapLayerNode | None:
+        stmt = select(MapLayerNode).where(
+            MapLayerNode.novel_id == novel_id,
+            MapLayerNode.map_id == map_id,
+            MapLayerNode.terrain_layer_id == terrain_layer_id,
+        )
+        return (await db.execute(stmt)).scalar_one_or_none()
+
+    async def get_by_path_layer(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        path_layer_id: uuid.UUID,
+    ) -> MapLayerNode | None:
+        stmt = select(MapLayerNode).where(
+            MapLayerNode.novel_id == novel_id,
+            MapLayerNode.map_id == map_id,
+            MapLayerNode.path_layer_id == path_layer_id,
+        )
+        return (await db.execute(stmt)).scalar_one_or_none()
+
+    async def delete_for_map(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+    ) -> int:
+        result = await db.execute(
+            delete(MapLayerNode).where(
+                MapLayerNode.novel_id == novel_id,
+                MapLayerNode.map_id == map_id,
+            )
+        )
+        await db.flush()
+        return result.rowcount
+
+    async def create_many(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        values: list[dict[str, Any]],
+    ) -> list[MapLayerNode]:
+        nodes = [
+            MapLayerNode(novel_id=novel_id, map_id=map_id, **item)
+            for item in values
+        ]
+        db.add_all(nodes)
+        await db.flush()
+        return nodes
+
+
+class MapPathLayerRepository(MapEntityRepository[MapPathLayer]):
+    """Continuous path layer persistence with strict map ownership queries."""
+
+    model_class = MapPathLayer
+
+    async def get_by_map(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+    ) -> list[MapPathLayer]:
+        stmt = (
+            select(MapPathLayer)
+            .where(
+                MapPathLayer.novel_id == novel_id,
+                MapPathLayer.map_id == map_id,
+            )
+            .order_by(MapPathLayer.created_at, MapPathLayer.id)
+        )
+        return list((await db.execute(stmt)).scalars().all())
+
+
+class MapPathRepository(MapEntityRepository[MapPath]):
+    """Archived-safe map path persistence."""
+
+    model_class = MapPath
+
+    async def get_by_map(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        *,
+        status: str = "active",
+    ) -> list[MapPath]:
+        conditions: list[Any] = [
+            MapPath.novel_id == novel_id,
+            MapPath.map_id == map_id,
+        ]
+        if status != "all":
+            conditions.append(MapPath.status == status)
+        stmt = (
+            select(MapPath)
+            .where(*conditions)
+            .order_by(MapPath.path_layer_id, MapPath.sort_order, MapPath.id)
+        )
+        return list((await db.execute(stmt)).scalars().all())
+
+    async def count_by_layer(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        path_layer_id: uuid.UUID,
+    ) -> int:
+        stmt = select(func.count(MapPath.id)).where(
+            MapPath.novel_id == novel_id,
+            MapPath.map_id == map_id,
+            MapPath.path_layer_id == path_layer_id,
+        )
+        return int((await db.execute(stmt)).scalar() or 0)
+
+    async def count_for_map(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+    ) -> int:
+        stmt = select(func.count(MapPath.id)).where(
+            MapPath.novel_id == novel_id,
+            MapPath.map_id == map_id,
+        )
+        return int((await db.execute(stmt)).scalar() or 0)
+
+    async def find_any_for_endpoint(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        entity_id: uuid.UUID,
+    ) -> MapPath | None:
+        stmt = (
+            select(MapPath)
+            .join(MapConfig, MapConfig.id == MapPath.map_id)
+            .where(
+                MapPath.novel_id == novel_id,
+                MapPath.status == "active",
+                MapConfig.novel_id == novel_id,
+                MapConfig.status == "active",
+                or_(
+                    MapPath.start_location_entity_id == entity_id,
+                    MapPath.end_location_entity_id == entity_id,
+                ),
+            )
+            .order_by(MapPath.sort_order, MapPath.created_at, MapPath.id)
+            .limit(1)
+        )
+        return (await db.execute(stmt)).scalar_one_or_none()
+
+
+class MapPathNodeRepository(MapEntityRepository[MapPathNode]):
+    """Ordered path control-point persistence."""
+
+    model_class = MapPathNode
+
+    async def get_by_paths(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        path_ids: list[uuid.UUID],
+    ) -> list[MapPathNode]:
+        if not path_ids:
+            return []
+        stmt = (
+            select(MapPathNode)
+            .where(
+                MapPathNode.novel_id == novel_id,
+                MapPathNode.map_id == map_id,
+                MapPathNode.path_id.in_(path_ids),
+            )
+            .order_by(MapPathNode.path_id, MapPathNode.sort_order, MapPathNode.id)
+        )
+        return list((await db.execute(stmt)).scalars().all())
+
+    async def replace_for_path(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        path_id: uuid.UUID,
+        nodes: list[dict[str, Any]],
+    ) -> list[MapPathNode]:
+        await db.execute(
+            delete(MapPathNode).where(
+                MapPathNode.novel_id == novel_id,
+                MapPathNode.map_id == map_id,
+                MapPathNode.path_id == path_id,
+            )
+        )
+        rows = [
+            MapPathNode(
+                novel_id=novel_id,
+                map_id=map_id,
+                path_id=path_id,
+                sort_order=index,
+                **node,
+            )
+            for index, node in enumerate(nodes)
+        ]
+        db.add_all(rows)
+        await db.flush()
+        return rows
+
+    async def count_for_map(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+    ) -> int:
+        stmt = select(func.count(MapPathNode.id)).where(
+            MapPathNode.novel_id == novel_id,
+            MapPathNode.map_id == map_id,
+        )
+        return int((await db.execute(stmt)).scalar() or 0)
 
 
 class MapTerrainRegionRepository(MapEntityRepository[MapTerrainRegion]):
@@ -738,7 +1344,7 @@ class MapTerrainRegionRepository(MapEntityRepository[MapTerrainRegion]):
         if region_id:
             existing = await self.get_in_map(db, novel_id, map_id, region_id)
             if existing is not None:
-                for field in ("layer_id", "name", "region_status", "meta"):
+                for field in ("name", "region_status", "meta"):
                     if field in values:
                         setattr(existing, field, values[field])
                 await db.flush()
@@ -771,7 +1377,7 @@ class MapTerrainRegionRepository(MapEntityRepository[MapTerrainRegion]):
             region_id = values.get("id")
             existing = existing_by_id.get(region_id) if region_id else None
             if existing is not None:
-                for field in ("layer_id", "name", "region_status", "meta"):
+                for field in ("name", "region_status", "meta"):
                     if field in values:
                         setattr(existing, field, values[field])
                 regions.append(existing)
@@ -1306,6 +1912,39 @@ class MapObservationRepository:
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
+    async def list_timeline_candidates(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        map_id: uuid.UUID,
+        from_scene_index: int,
+        to_scene_index: int,
+        focus_entity_id: uuid.UUID | None = None,
+        limit: int = 501,
+    ) -> list[MapObservation]:
+        conditions: list[Any] = [
+            MapObservation.novel_id == novel_id,
+            MapObservation.map_id == map_id,
+            MapObservation.review_state.in_(["candidate", "conflicted"]),
+            MapObservation.scene_index >= from_scene_index,
+            MapObservation.scene_index <= to_scene_index,
+        ]
+        if focus_entity_id is not None:
+            conditions.append(MapObservation.target_entity_id == focus_entity_id)
+        stmt = (
+            select(MapObservation)
+            .where(*conditions)
+            .order_by(
+                MapObservation.scene_index,
+                MapObservation.source_chapter_index.nulls_last(),
+                MapObservation.created_at,
+                MapObservation.id,
+            )
+            .limit(limit)
+        )
+        return list((await db.execute(stmt)).scalars().all())
+
     async def list_for_scene_summary(
         self,
         db: AsyncSession,
@@ -1519,6 +2158,102 @@ class MapFactRepository:
         result = await db.execute(stmt)
         return list(result.scalars().all()), total
 
+    async def latest_scene_indices(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        map_id: uuid.UUID,
+        focus_entity_id: uuid.UUID | None = None,
+        limit: int = 50,
+    ) -> list[int]:
+        conditions: list[Any] = [
+            MapFact.novel_id == novel_id,
+            MapFact.map_id == map_id,
+            MapFact.fact_status == "confirmed",
+            MapFact.scene_index.isnot(None),
+        ]
+        if focus_entity_id is not None:
+            conditions.append(MapFact.target_entity_id == focus_entity_id)
+        stmt = (
+            select(MapFact.scene_index)
+            .where(*conditions)
+            .distinct()
+            .order_by(MapFact.scene_index.desc())
+            .limit(limit)
+        )
+        return [int(value) for value in (await db.execute(stmt)).scalars().all()]
+
+    async def list_for_projection(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        map_id: uuid.UUID,
+        to_scene_index: int,
+        focus_entity_id: uuid.UUID | None = None,
+        context_dynamic_types: set[str] | frozenset[str] | None = None,
+        limit: int = 20001,
+    ) -> list[MapFact]:
+        conditions: list[Any] = [
+            MapFact.novel_id == novel_id,
+            MapFact.map_id == map_id,
+            MapFact.fact_status == "confirmed",
+            MapFact.scene_index.isnot(None),
+            MapFact.scene_index <= to_scene_index,
+        ]
+        if focus_entity_id is not None:
+            focus_condition = MapFact.target_entity_id == focus_entity_id
+            if context_dynamic_types:
+                focus_condition = or_(
+                    focus_condition,
+                    func.lower(MapFact.dynamic_type).in_(
+                        sorted(context_dynamic_types)
+                    ),
+                )
+            conditions.append(focus_condition)
+        stmt = (
+            select(MapFact)
+            .where(*conditions)
+            .order_by(
+                MapFact.scene_index,
+                MapFact.source_chapter_index.nulls_last(),
+                MapFact.created_at,
+                MapFact.id,
+            )
+            .limit(limit)
+        )
+        return list((await db.execute(stmt)).scalars().all())
+
+    async def list_undated_for_projection(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        map_id: uuid.UUID,
+        focus_entity_id: uuid.UUID | None = None,
+        limit: int = 100,
+    ) -> list[MapFact]:
+        conditions: list[Any] = [
+            MapFact.novel_id == novel_id,
+            MapFact.map_id == map_id,
+            MapFact.fact_status == "confirmed",
+            MapFact.scene_index.is_(None),
+        ]
+        if focus_entity_id is not None:
+            conditions.append(MapFact.target_entity_id == focus_entity_id)
+        stmt = (
+            select(MapFact)
+            .where(*conditions)
+            .order_by(
+                MapFact.source_chapter_index.nulls_last(),
+                MapFact.created_at,
+                MapFact.id,
+            )
+            .limit(limit)
+        )
+        return list((await db.execute(stmt)).scalars().all())
+
     async def find_map_for_scene(
         self,
         db: AsyncSession,
@@ -1618,6 +2353,46 @@ class MapFactRepository:
         ]
         for fact in facts:
             await db.delete(fact)
+        await db.flush()
+        return len(facts)
+
+    async def deprecate_quick_create_location_facts(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        map_id: uuid.UUID,
+        *,
+        location_entity_ids: list[uuid.UUID] | None = None,
+        reason: str,
+    ) -> int:
+        conditions = [
+            MapFact.novel_id == novel_id,
+            MapFact.map_id == map_id,
+            MapFact.dynamic_type == "location",
+            MapFact.fact_status == "confirmed",
+        ]
+        if location_entity_ids is not None:
+            unique_ids = list(dict.fromkeys(location_entity_ids))
+            if not unique_ids:
+                return 0
+            conditions.append(MapFact.target_entity_id.in_(unique_ids))
+        result = await db.execute(select(MapFact).where(*conditions))
+        facts = [
+            fact
+            for fact in result.scalars().all()
+            if (fact.source_ref or {}).get("source") == "map_quick_create"
+        ]
+        for fact in facts:
+            fact.fact_status = "deprecated"
+            fact.source_ref = {
+                **(fact.source_ref or {}),
+                "superseded_reason": reason,
+            }
+            fact.value_json = {
+                **(fact.value_json or {}),
+                "superseded_reason": reason,
+            }
+            db.add(fact)
         await db.flush()
         return len(facts)
 

@@ -4,8 +4,12 @@ TB1: RAG 章节索引 — 测试
 
 from __future__ import annotations
 
+import asyncio
 import uuid
+from collections.abc import Awaitable, Callable
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +21,29 @@ from modules.rag.schemas import RagChunkCreate
 @pytest.fixture
 def repo() -> RagChunkRepository:
     return RagChunkRepository()
+
+
+def _new_task_handler_session(
+    db_session: AsyncSession,
+    checkpoint: Callable[[], Awaitable[bool]] | None = None,
+) -> AsyncSession:
+    from infrastructure.tasks.worker import _TaskHandlerSession
+
+    bind = db_session.bind
+    assert bind is not None
+    session = _TaskHandlerSession(
+        bind=bind,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    )
+
+    if checkpoint is None:
+
+        async def checkpoint() -> bool:
+            return True
+
+    session.set_task_commit_hook(checkpoint)
+    return session
 
 
 @pytest.mark.asyncio
@@ -38,7 +65,11 @@ async def test_index_state_coalesces_requests_and_requeues_latest_source(
     )
     service = RagIndexStateService()
     enqueue = MagicMock(side_effect=["task-1", "task-2"])
-    with patch("modules.rag.index_state.enqueue_task", enqueue):
+    with patch(
+        "modules.rag.index_state.enqueue_task",
+        autospec=True,
+        side_effect=enqueue,
+    ):
         first = await service.request(
             db_session,
             novel_id=test_project_id,
@@ -113,7 +144,11 @@ async def test_queued_index_claim_refreshes_source_changed_before_execution(
     )
     service = RagIndexStateService()
     enqueue = MagicMock(return_value="task-1")
-    with patch("modules.rag.index_state.enqueue_task", enqueue):
+    with patch(
+        "modules.rag.index_state.enqueue_task",
+        autospec=True,
+        side_effect=enqueue,
+    ):
         requested = await service.request(
             db_session,
             novel_id=test_project_id,
@@ -179,7 +214,11 @@ async def test_mark_index_dirty_records_publish_source_without_extra_task(
         content="新发布正文",
     )
     enqueue = MagicMock()
-    with patch("modules.rag.index_state.enqueue_task", enqueue):
+    with patch(
+        "modules.rag.index_state.enqueue_task",
+        autospec=True,
+        side_effect=enqueue,
+    ):
         state = await RagIndexStateService().mark_dirty(
             db_session,
             novel_id=test_project_id,
@@ -307,6 +346,753 @@ async def test_legacy_queued_index_claim_creates_missing_state(
 
 
 @pytest.mark.asyncio
+async def test_prepared_index_claim_rejects_a_changed_source_before_writes(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from modules.rag.index_state import RagIndexStateService
+    from modules.writing.facade import create_draft_only
+
+    source = await create_draft_only(
+        db_session,
+        test_project_id,
+        24,
+        content="最新工作稿",
+    )
+    service = RagIndexStateService()
+
+    stale_claim = await service.begin_prepared(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=24,
+        content_mode="working",
+        source_draft_id=source.id,
+        source_content_hash="0" * 64,
+    )
+
+    assert stale_claim == "source_changed"
+    assert (
+        await service._get(  # noqa: SLF001 - verify no stale running owner is left
+            db_session,
+            novel_id=test_project_id,
+            chapter_index=24,
+            content_mode="working",
+            lock=False,
+        )
+        is None
+    )
+
+    current_claim = await service.begin_prepared(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=24,
+        content_mode="working",
+        source_draft_id=source.id,
+        source_content_hash=source.content_hash,
+    )
+    assert current_claim == "claimed"
+
+    # In the task-only protocol a legitimate owner never commits "running":
+    # it commits running + chunks + finish together. A visible running row is
+    # therefore an orphan from the legacy path and must be reclaimable.
+    await db_session.commit()
+    orphan_reclaim = await service.begin_prepared(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=24,
+        content_mode="working",
+        source_draft_id=source.id,
+        source_content_hash=source.content_hash,
+    )
+    assert orphan_reclaim == "claimed"
+
+
+@pytest.mark.asyncio
+async def test_failed_index_state_can_be_requeued(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from modules.rag.index_state import RagIndexStateService
+    from modules.writing.facade import create_draft_only
+
+    source = await create_draft_only(
+        db_session,
+        test_project_id,
+        28,
+        content="失败状态必须允许后续重试。",
+    )
+    service = RagIndexStateService()
+    enqueue = MagicMock(side_effect=["task-1", "task-2"])
+    with patch(
+        "modules.rag.index_state.enqueue_task",
+        autospec=True,
+        side_effect=enqueue,
+    ):
+        first = await service.request(
+            db_session,
+            novel_id=test_project_id,
+            chapter_index=28,
+            content_mode="working",
+        )
+        await service.fail(
+            db_session,
+            novel_id=test_project_id,
+            chapter_index=28,
+            content_mode="working",
+            error="provider unavailable",
+            expected_source_id=source.id,
+            expected_source_hash=source.content_hash,
+            match_expected_source=True,
+        )
+        failed = await service._get(  # noqa: SLF001 - verify retry transition
+            db_session,
+            novel_id=test_project_id,
+            chapter_index=28,
+            content_mode="working",
+            lock=False,
+        )
+        assert failed is not None
+        assert failed.status == "failed"
+
+        retried = await service.request(
+            db_session,
+            novel_id=test_project_id,
+            chapter_index=28,
+            content_mode="working",
+        )
+
+    assert first["task_id"] == "task-1"
+    assert retried["task_id"] == "task-2"
+    assert retried["status"] == "pending"
+    assert enqueue.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_legacy_direct_index_failure_transitions_running_to_failed(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from modules.rag.index_state import RagIndexStateService
+    from modules.writing.facade import create_draft_only
+
+    await create_draft_only(
+        db_session,
+        test_project_id,
+        32,
+        content="legacy eval indexing source",
+    )
+    service = RagIndexStateService()
+    claimed = await service.begin_direct(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=32,
+        content_mode="working",
+    )
+
+    changed = await service.fail(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=32,
+        content_mode="working",
+        error="legacy indexing failed",
+    )
+    stored = await service._get(  # noqa: SLF001 - verify legacy transition
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=32,
+        content_mode="working",
+        lock=False,
+    )
+
+    assert claimed is True
+    assert changed is True
+    assert stored is not None
+    assert stored.status == "failed"
+    assert stored.error_message == "legacy indexing failed"
+
+
+@pytest.mark.asyncio
+async def test_old_failure_cannot_overwrite_fresh_success(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from modules.rag.contracts import RagIndexReport
+    from modules.rag.index_state import RagIndexStateService
+    from modules.writing.facade import create_draft_only
+
+    source = await create_draft_only(
+        db_session,
+        test_project_id,
+        30,
+        content="并发成功不能被旧失败覆盖。",
+    )
+    service = RagIndexStateService()
+    assert (
+        await service.begin_prepared(
+            db_session,
+            novel_id=test_project_id,
+            chapter_index=30,
+            content_mode="working",
+            source_draft_id=source.id,
+            source_content_hash=source.content_hash,
+        )
+        == "claimed"
+    )
+    await service.finish(
+        db_session,
+        novel_id=test_project_id,
+        report=RagIndexReport(
+            chapter_index=30,
+            content_mode="working",
+            source_draft_id=source.id,
+            source_content_hash=source.content_hash,
+        ),
+    )
+
+    changed = await service.fail(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=30,
+        content_mode="working",
+        error="late provider failure",
+        expected_source_id=source.id,
+        expected_source_hash=source.content_hash,
+        match_expected_source=True,
+    )
+    stored = await service._get(  # noqa: SLF001 - verify fenced transition
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=30,
+        content_mode="working",
+        lock=False,
+    )
+
+    assert changed is False
+    assert stored is not None
+    assert stored.status == "succeeded"
+    assert stored.error_message is None
+
+
+@pytest.mark.asyncio
+async def test_old_failure_cannot_overwrite_new_source_pending(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from modules.rag.index_state import RagIndexStateService
+    from modules.writing.facade import create_draft_only
+
+    old_source = await create_draft_only(
+        db_session,
+        test_project_id,
+        31,
+        content="旧源",
+    )
+    service = RagIndexStateService()
+    with patch(
+        "modules.rag.index_state.enqueue_task",
+        autospec=True,
+        return_value="task-1",
+    ):
+        await service.request(
+            db_session,
+            novel_id=test_project_id,
+            chapter_index=31,
+            content_mode="working",
+        )
+        new_source = await create_draft_only(
+            db_session,
+            test_project_id,
+            31,
+            content="新源",
+        )
+        await service.request(
+            db_session,
+            novel_id=test_project_id,
+            chapter_index=31,
+            content_mode="working",
+        )
+
+    changed = await service.fail(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=31,
+        content_mode="working",
+        error="old attempt failed",
+        expected_source_id=old_source.id,
+        expected_source_hash=old_source.content_hash,
+        match_expected_source=True,
+    )
+    stored = await service._get(  # noqa: SLF001 - verify fenced transition
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=31,
+        content_mode="working",
+        lock=False,
+    )
+
+    assert changed is False
+    assert stored is not None
+    assert stored.status == "pending"
+    assert str(stored.requested_source_id) == new_source.id
+    assert stored.requested_hash == new_source.content_hash
+    assert stored.error_message is None
+
+
+@pytest.mark.asyncio
+async def test_task_index_rejects_an_ordinary_session(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+    repo: RagChunkRepository,
+) -> None:
+    from modules.rag.indexing import IndexingService
+
+    with pytest.raises(RuntimeError, match="fenced TaskWorker handler session"):
+        await IndexingService(repo=repo).index_chapter_for_task(
+            db_session,
+            uuid.UUID(test_project_id),
+            1,
+        )
+
+
+@pytest.mark.asyncio
+async def test_task_index_releases_transaction_before_embedding(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+    repo: RagChunkRepository,
+) -> None:
+    from modules.rag.indexing import IndexingService
+    from modules.writing.facade import create_published_draft_only
+
+    await create_published_draft_only(
+        db_session,
+        test_project_id,
+        25,
+        content="任务索引必须在无数据库事务时等待 embedding。" * 80,
+    )
+    embedding_transaction_states: list[bool] = []
+    checkpoint_count = 0
+
+    from infrastructure.tasks.worker import _TaskHandlerSession
+
+    bind = db_session.bind
+    assert bind is not None
+    task_session = _TaskHandlerSession(
+        bind=bind,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    )
+
+    async def _checkpoint() -> bool:
+        nonlocal checkpoint_count
+        checkpoint_count += 1
+        return True
+
+    task_session.set_task_commit_hook(_checkpoint)
+
+    async def _generate_embedding(texts):  # type: ignore[no-untyped-def]
+        embedding_transaction_states.append(task_session.in_transaction())
+        return [[0.1] * 768 for _text in texts]
+
+    try:
+        with patch("infrastructure.llm.client.LLMClient", autospec=True) as client_cls:
+            client_cls.return_value.generate_embedding = AsyncMock(
+                side_effect=_generate_embedding
+            )
+            outcome = await IndexingService(repo=repo).index_chapter_for_task(
+                task_session,
+                uuid.UUID(test_project_id),
+                25,
+            )
+
+        assert embedding_transaction_states == [False]
+        assert checkpoint_count == 2
+        assert outcome.status == "indexed"
+        assert outcome.report.chunks_created > 0
+        chunks = await repo.find_by_chapter(
+            task_session,
+            uuid.UUID(test_project_id),
+            25,
+            content_mode="canonical",
+        )
+        assert len(chunks) == outcome.report.chunks_created
+        assert all(chunk.embedding_status == "succeeded" for chunk in chunks)
+    finally:
+        await task_session.close()
+
+
+@pytest.mark.asyncio
+async def test_task_index_revalidates_same_source_row_after_embedding_checkpoint(
+    tmp_path: Path,
+) -> None:
+    """A checkpoint must not let expire_on_commit=False reuse a stale draft."""
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from core.base import Base
+    from infrastructure.tasks.worker import _TaskHandlerSession
+    from modules.project.models import Project
+    from modules.rag.index_state import RagIndexStateService
+    from modules.rag.indexing import IndexingService, _ChapterIndexPlan
+    from modules.writing.models import WritingDraft
+    from modules.writing.source_hashing import hash_text
+
+    database_path = tmp_path / "rag-identity-map.sqlite3"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+    project_id = uuid.uuid4()
+    draft_id = uuid.uuid4()
+    old_content = "checkpoint 前的旧正文。" * 80
+    new_content = "embedding 期间并发更新的新正文。" * 80
+    checkpoint_count = 0
+    mutation_count = 0
+    embedding_transaction_states: list[bool] = []
+    retained_drafts: list[WritingDraft] = []
+
+    class RetainingIndexingService(IndexingService):
+        async def _prepare_chapter_index(
+            self,
+            db: AsyncSession,
+            novel_id: uuid.UUID,
+            chapter_index: int,
+            *,
+            content_mode: str,
+        ) -> _ChapterIndexPlan:
+            plan = await super()._prepare_chapter_index(
+                db,
+                novel_id,
+                chapter_index,
+                content_mode=content_mode,
+            )
+            loaded_draft = await db.get(WritingDraft, draft_id)
+            assert loaded_draft is not None
+            retained_drafts.append(loaded_draft)
+            return plan
+
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+        async with AsyncSession(engine, expire_on_commit=False) as setup_session:
+            setup_session.add(Project(id=project_id, title="identity map revalidation"))
+            setup_session.add(
+                WritingDraft(
+                    id=draft_id,
+                    novel_id=project_id,
+                    chapter_index=1,
+                    title="第一章",
+                    content=old_content,
+                    content_hash=hash_text(old_content),
+                    version_number=1,
+                    status="published",
+                )
+            )
+            await setup_session.commit()
+
+        task_session = _TaskHandlerSession(
+            bind=engine,
+            expire_on_commit=False,
+            autoflush=False,
+        )
+
+        async def _checkpoint() -> bool:
+            nonlocal checkpoint_count
+            checkpoint_count += 1
+            return True
+
+        task_session.set_task_commit_hook(_checkpoint)
+
+        async def _generate_embedding(texts):  # type: ignore[no-untyped-def]
+            nonlocal mutation_count
+            embedding_transaction_states.append(task_session.in_transaction())
+            if mutation_count == 0:
+                async with AsyncSession(
+                    engine,
+                    expire_on_commit=False,
+                ) as concurrent_session:
+                    concurrent_draft = await concurrent_session.get(
+                        WritingDraft,
+                        draft_id,
+                    )
+                    assert concurrent_draft is not None
+                    concurrent_draft.content = new_content
+                    concurrent_draft.content_hash = hash_text(new_content)
+                    await concurrent_session.commit()
+                mutation_count += 1
+            return [[0.1] * 768 for _text in texts]
+
+        try:
+            with patch(
+                "infrastructure.llm.client.LLMClient",
+                autospec=True,
+            ) as client_cls:
+                client_cls.return_value.generate_embedding = AsyncMock(
+                    side_effect=_generate_embedding
+                )
+                outcome = await RetainingIndexingService().index_chapter_for_task(
+                    task_session,
+                    project_id,
+                    1,
+                )
+                assert retained_drafts[0].content == new_content
+        finally:
+            await task_session.close()
+
+        async with AsyncSession(engine, expire_on_commit=False) as verify_session:
+            chunks = await RagChunkRepository().find_by_chapter(
+                verify_session,
+                project_id,
+                1,
+                content_mode="canonical",
+            )
+            state = await RagIndexStateService()._get(  # noqa: SLF001
+                verify_session,
+                novel_id=str(project_id),
+                chapter_index=1,
+                content_mode="canonical",
+                lock=False,
+            )
+
+        assert mutation_count == 1
+        assert len(retained_drafts) == 2
+        assert embedding_transaction_states == [False, False]
+        assert checkpoint_count == 3
+        assert outcome.report.source_draft_id == str(draft_id)
+        assert outcome.report.source_content_hash == hash_text(new_content)
+        assert chunks
+        assert all("新正文" in chunk.text for chunk in chunks)
+        assert all("旧正文" not in chunk.text for chunk in chunks)
+        assert state is not None
+        assert state.indexed_source_id == draft_id
+        assert state.indexed_hash == hash_text(new_content)
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_task_index_uses_project_first_lock_order_and_two_checkpoints() -> None:
+    from modules.rag.contracts import RagIndexReport
+    from modules.rag.embedding_writer import EmbeddingWriteResult
+    from modules.rag.indexing import (
+        IndexingService,
+        _ChapterIndexPlan,
+        _EmbeddingTarget,
+    )
+
+    novel_id = uuid.uuid4()
+    source_id = str(uuid.uuid4())
+    source_hash = "a" * 64
+    plan = _ChapterIndexPlan(
+        chapter_index=26,
+        content_mode="canonical",
+        source_draft_id=source_id,
+        source_content_hash=source_hash,
+        items=[],
+    )
+    target = _EmbeddingTarget(chunk_index=0, text="预计算")
+    report = RagIndexReport(
+        chapter_index=26,
+        source_draft_id=source_id,
+        source_content_hash=source_hash,
+    )
+    events: list[str] = []
+    db = AsyncMock()
+    db.task_checkpoint_enabled = True
+    db.expire_all = MagicMock(side_effect=lambda: events.append("expire"))
+
+    async def _record_commit() -> None:
+        events.append("commit")
+
+    async def _record_guard(*_args, **_kwargs) -> object:
+        events.append("project")
+        return object()
+
+    async def _record_prepare(*_args, **_kwargs) -> _ChapterIndexPlan:
+        events.append("prepare")
+        return plan
+
+    async def _record_embed(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        events.append("embed")
+        return [target], EmbeddingWriteResult()
+
+    async def _record_claim(*_args, **_kwargs) -> str:
+        events.append("claim")
+        return "claimed"
+
+    async def _record_preflight(*_args, **_kwargs) -> str:
+        events.append("preflight")
+        return "ready"
+
+    async def _record_persist(*_args, **_kwargs) -> RagIndexReport:
+        events.append("persist")
+        return report
+
+    async def _record_finish(*_args, **_kwargs) -> None:
+        events.append("finish")
+
+    db.commit = AsyncMock(side_effect=_record_commit)
+    service = IndexingService(repo=MagicMock(spec=RagChunkRepository))
+    with (
+        patch(
+            "modules.project.facade.require_active_project",
+            autospec=True,
+            side_effect=_record_guard,
+        ),
+        patch(
+            "modules.rag.index_state.RagIndexStateService",
+            autospec=True,
+        ) as state_class,
+        patch.object(
+            IndexingService,
+            "_prepare_chapter_index",
+            autospec=True,
+            side_effect=_record_prepare,
+        ),
+        patch.object(
+            IndexingService,
+            "_embed_plan",
+            autospec=True,
+            side_effect=_record_embed,
+        ),
+        patch.object(
+            IndexingService,
+            "_persist_preembedded_plan",
+            autospec=True,
+            side_effect=_record_persist,
+        ),
+    ):
+        state_class.return_value.begin_prepared = AsyncMock(side_effect=_record_claim)
+        state_class.return_value.preflight_prepared = AsyncMock(
+            side_effect=_record_preflight
+        )
+        state_class.return_value.finish = AsyncMock(side_effect=_record_finish)
+
+        outcome = await service.index_chapter_for_task(db, novel_id, 26)
+
+    assert outcome.status == "indexed"
+    assert events == [
+        "project",
+        "prepare",
+        "preflight",
+        "commit",
+        "expire",
+        "embed",
+        "project",
+        "claim",
+        "persist",
+        "finish",
+        "commit",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_task_index_skips_embedding_when_prepared_source_is_fresh() -> None:
+    from modules.rag.indexing import IndexingService, _ChapterIndexPlan
+
+    novel_id = uuid.uuid4()
+    plan = _ChapterIndexPlan(
+        chapter_index=27,
+        content_mode="canonical",
+        source_draft_id=str(uuid.uuid4()),
+        source_content_hash="b" * 64,
+        items=[],
+    )
+    db = AsyncMock()
+    db.task_checkpoint_enabled = True
+    db.expire_all = MagicMock()
+    service = IndexingService(repo=MagicMock(spec=RagChunkRepository))
+    with (
+        patch(
+            "modules.project.facade.require_active_project",
+            autospec=True,
+        ),
+        patch(
+            "modules.rag.index_state.RagIndexStateService",
+            autospec=True,
+        ) as state_class,
+        patch.object(
+            IndexingService,
+            "_prepare_chapter_index",
+            autospec=True,
+            return_value=plan,
+        ),
+        patch.object(
+            IndexingService,
+            "_embed_plan",
+            autospec=True,
+        ) as embed_plan,
+    ):
+        state_class.return_value.preflight_prepared = AsyncMock(return_value="fresh")
+
+        outcome = await service.index_chapter_for_task(db, novel_id, 27)
+
+    assert outcome.status == "coalesced"
+    db.commit.assert_awaited_once_with()
+    db.expire_all.assert_called_once_with()
+    embed_plan.assert_not_awaited()
+    state_class.return_value.begin_prepared.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_task_index_marks_failed_after_repeated_source_changes() -> None:
+    from modules.rag.indexing import IndexingService, _ChapterIndexPlan
+
+    novel_id = uuid.uuid4()
+    plan = _ChapterIndexPlan(
+        chapter_index=29,
+        content_mode="canonical",
+        source_draft_id=str(uuid.uuid4()),
+        source_content_hash="c" * 64,
+        items=[],
+    )
+    db = AsyncMock()
+    db.task_checkpoint_enabled = True
+    service = IndexingService(repo=MagicMock(spec=RagChunkRepository))
+    with (
+        patch(
+            "modules.project.facade.require_active_project",
+            autospec=True,
+        ) as project_guard,
+        patch(
+            "modules.rag.index_state.RagIndexStateService",
+            autospec=True,
+        ) as state_class,
+        patch.object(
+            IndexingService,
+            "_prepare_chapter_index",
+            autospec=True,
+            return_value=plan,
+        ) as prepare,
+        patch.object(
+            IndexingService,
+            "_embed_plan",
+            autospec=True,
+        ) as embed_plan,
+    ):
+        state = state_class.return_value
+        state.preflight_prepared = AsyncMock(return_value="source_changed")
+        state.fail = AsyncMock()
+
+        with pytest.raises(RuntimeError, match="持续变化"):
+            await service.index_chapter_for_task(db, novel_id, 29)
+
+    assert prepare.await_count == 3
+    assert state.preflight_prepared.await_count == 3
+    embed_plan.assert_not_awaited()
+    state.begin_prepared.assert_not_awaited()
+    state.fail.assert_awaited_once_with(
+        db,
+        novel_id=str(novel_id),
+        chapter_index=29,
+        content_mode="canonical",
+        error="source changed repeatedly during task indexing",
+        expected_source_id=plan.source_draft_id,
+        expected_source_hash=plan.source_content_hash,
+        match_expected_source=True,
+    )
+    assert project_guard.await_count == 4
+    assert db.rollback.await_count == 4
+    db.commit.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
 async def test_embedding_writer_updates_loaded_chunks_without_refetching() -> None:
     """Embedding writer 已持有 chunk，不应每个 embedding 再按 id 查询。"""
     from modules.rag.embedding_writer import EmbeddingWriter
@@ -421,6 +1207,61 @@ async def test_embedding_writer_falls_back_per_chunk_after_batch_failure() -> No
     assert failed_chunk.embedding_status == "failed"
     assert failed_chunk.embedding_error == "single down"
     assert failed_chunk.index_warnings == ["embedding 生成失败: single down"]
+
+
+@pytest.mark.asyncio
+async def test_embedding_writer_closes_only_the_client_it_owns() -> None:
+    from modules.rag.embedding_writer import EmbeddingWriter
+
+    repo = SimpleNamespace()
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as client_cls:
+        owned_client = client_cls.return_value
+        writer = EmbeddingWriter(repo)  # type: ignore[arg-type]
+        await writer.close()
+        await writer.close()
+
+    owned_client.close.assert_awaited_once_with()
+
+    injected_client = AsyncMock()
+    writer = EmbeddingWriter(repo, injected_client)  # type: ignore[arg-type]
+    await writer.close()
+    injected_client.close.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_embedding_writer_closes_owned_client_on_body_error() -> None:
+    from modules.rag.embedding_writer import EmbeddingWriter
+
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as client_cls:
+        writer = EmbeddingWriter(SimpleNamespace())  # type: ignore[arg-type]
+        with pytest.raises(RuntimeError, match="body failed"):
+            async with writer:
+                raise RuntimeError("body failed")
+
+    client_cls.return_value.close.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_embedding_writer_closes_owned_client_when_cancelled() -> None:
+    from modules.rag.embedding_writer import EmbeddingWriter
+
+    entered = asyncio.Event()
+    blocker = asyncio.Event()
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as client_cls:
+        writer = EmbeddingWriter(SimpleNamespace())  # type: ignore[arg-type]
+
+        async def _run() -> None:
+            async with writer:
+                entered.set()
+                await blocker.wait()
+
+        task = asyncio.create_task(_run())
+        await entered.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    client_cls.return_value.close.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
@@ -594,7 +1435,7 @@ async def test_index_chapter_bulk_creates_chunks(
         assert isinstance(texts, list)
         return [fake_embedding for _ in texts]
 
-    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.generate_embedding = AsyncMock(side_effect=_fake_batch_embedding)
         mock_client_cls.return_value = mock_client
@@ -612,6 +1453,90 @@ async def test_index_chapter_bulk_creates_chunks(
     chunks = await repo.find_by_chapter(db_session, nid_uuid, 1)
     assert len(chunks) == report.chunks_created
     assert [str(chunk.id) for chunk in chunks] == report.chunks_created_ids
+
+
+@pytest.mark.asyncio
+async def test_manual_upsert_loads_existing_rows_in_one_query() -> None:
+    repo = RagChunkRepository()
+    novel_id = uuid.uuid4()
+    first = repo._chunk_row(  # noqa: SLF001 - focused repository regression
+        novel_id,
+        RagChunkCreate(
+            source_type="chapter_text",
+            content_mode="working",
+            chapter_index=1,
+            chunk_index=0,
+            text="updated first",
+            index_version="cn-novel-v1",
+        ),
+    )
+    second = repo._chunk_row(  # noqa: SLF001 - focused repository regression
+        novel_id,
+        RagChunkCreate(
+            source_type="chapter_text",
+            content_mode="working",
+            chapter_index=1,
+            chunk_index=1,
+            text="new second",
+            index_version="cn-novel-v1",
+        ),
+    )
+    existing = SimpleNamespace(id=uuid.uuid4(), **{**first, "text": "old first"})
+    scalar_result = MagicMock()
+    scalar_result.scalars.return_value.all.return_value = [existing]
+    db = AsyncMock()
+    db.execute.return_value = scalar_result
+    db.add = MagicMock()
+
+    await repo._manual_upsert_chapter_chunk_rows(  # noqa: SLF001
+        db,
+        [first, second],
+    )
+
+    assert db.execute.await_count == 1
+    assert existing.text == "updated first"
+    added = db.add.call_args.args[0]
+    assert added.chunk_index == 1
+    assert added.text == "new second"
+
+
+@pytest.mark.asyncio
+async def test_manual_upsert_duplicate_input_key_keeps_last_row(
+    db_session: AsyncSession,
+    test_project_id: str,
+) -> None:
+    repo = RagChunkRepository()
+    novel_id = uuid.UUID(test_project_id)
+    items = [
+        RagChunkCreate(
+            source_type="chapter_text",
+            content_mode="working",
+            chapter_index=1,
+            chunk_index=0,
+            text="first duplicate",
+            index_version="cn-novel-v1",
+        ),
+        RagChunkCreate(
+            source_type="chapter_text",
+            content_mode="working",
+            chapter_index=1,
+            chunk_index=0,
+            text="last duplicate",
+            index_version="cn-novel-v1",
+        ),
+    ]
+
+    chunks = await repo.replace_chapter_chunks(
+        db_session,
+        novel_id,
+        source_type="chapter_text",
+        chapter_index=1,
+        content_mode="working",
+        items=items,
+    )
+
+    assert len(chunks) == 1
+    assert chunks[0].text == "last duplicate"
 
 
 @pytest.mark.asyncio
@@ -744,7 +1669,7 @@ async def test_deleted_rag_data_can_be_fully_rebuilt_from_writing(
         6,
         content=content,
     )
-    with patch("infrastructure.llm.client.LLMClient") as client_cls:
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as client_cls:
         client = AsyncMock()
         client.generate_embedding = AsyncMock(side_effect=Exception("offline"))
         client_cls.return_value = client
@@ -767,7 +1692,7 @@ async def test_deleted_rag_data_can_be_fully_rebuilt_from_writing(
         == []
     )
 
-    with patch("infrastructure.llm.client.LLMClient") as client_cls:
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as client_cls:
         client = AsyncMock()
         client.generate_embedding = AsyncMock(side_effect=Exception("offline"))
         client_cls.return_value = client
@@ -948,7 +1873,7 @@ async def test_index_chapter_with_embeddings(
         assert isinstance(texts, list), "应接收文本列表（批量 embedding）"
         return [fake_embedding for _ in texts]
 
-    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.generate_embedding = AsyncMock(side_effect=_fake_batch_embedding)
         mock_client_cls.return_value = mock_client
@@ -1010,7 +1935,7 @@ async def test_incremental_index_replaces_chunks_with_current_version_binding(
         content="完全相同",
     )
 
-    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.generate_embedding = AsyncMock(side_effect=Exception("offline"))
         mock_client_cls.return_value = mock_client
@@ -1134,7 +2059,7 @@ async def test_index_chapter_uses_cn_novel_index_and_project_terms(
     )
     await db_session.flush()
 
-    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.generate_embedding = AsyncMock(
             side_effect=Exception("embedding down")
@@ -1192,6 +2117,7 @@ async def test_index_chapter_embedding_empty_when_no_llm(
 
     with patch(
         "infrastructure.llm.client.LLMClient",
+        autospec=True,
     ) as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.generate_embedding = AsyncMock(side_effect=Exception("API 不可用"))
@@ -1245,8 +2171,10 @@ async def test_reindex_novel_task_rebuilds_all_chapters_with_report(
     )
     db_session.add(task)
     await db_session.flush()
+    # Direct handler execution emulates TaskWorker's fenced session.
+    db_session.task_checkpoint_enabled = True  # type: ignore[attr-defined]
 
-    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.generate_embedding = AsyncMock(
             side_effect=Exception("embedding down")
@@ -1309,7 +2237,7 @@ async def test_index_chapter_replaces_stale_chunks_on_update(
     await db_session.flush()
 
     fake_embedding = [0.1] * 768
-    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.generate_embedding = AsyncMock(return_value=fake_embedding)
         mock_client_cls.return_value = mock_client
@@ -1338,7 +2266,7 @@ async def test_index_chapter_replaces_stale_chunks_on_update(
     )
     await db_session.flush()
 
-    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.generate_embedding = AsyncMock(return_value=fake_embedding)
         mock_client_cls.return_value = mock_client
@@ -1385,7 +2313,7 @@ async def test_index_chapter_with_report_marks_failed_embeddings(
     )
     await db_session.flush()
 
-    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.generate_embedding = AsyncMock(
             side_effect=Exception("embedding down"),
@@ -1454,7 +2382,7 @@ async def test_index_chapter_annotates_scene_id(
     await db_session.flush()
 
     embed_exc = Exception("embedding down")
-    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.generate_embedding = AsyncMock(side_effect=embed_exc)
         mock_client_cls.return_value = mock_client
@@ -1526,7 +2454,7 @@ async def test_index_chapter_does_not_attribute_chapter_only_scene_span(
     )
     await db_session.flush()
 
-    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.generate_embedding = AsyncMock(side_effect=Exception("offline"))
         mock_client_cls.return_value = mock_client
@@ -1584,9 +2512,11 @@ async def test_rebuild_novel_with_chapter_range(
     )
     db_session.add(task)
     await db_session.flush()
+    # Direct handler execution emulates TaskWorker's fenced session.
+    db_session.task_checkpoint_enabled = True  # type: ignore[attr-defined]
 
     embed_exc = Exception("embedding down")
-    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.generate_embedding = AsyncMock(side_effect=embed_exc)
         mock_client_cls.return_value = mock_client
@@ -1600,6 +2530,441 @@ async def test_rebuild_novel_with_chapter_range(
 
 
 @pytest.mark.asyncio
+async def test_retry_embeddings_task_rejects_an_ordinary_session(
+    db_session: AsyncSession,
+    repo: RagChunkRepository,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from modules.rag.indexing import IndexingService
+
+    with pytest.raises(RuntimeError, match="fenced TaskWorker handler session"):
+        await IndexingService(repo=repo).retry_embeddings_for_task(
+            db_session,
+            test_project_id,
+        )
+
+
+@pytest.mark.asyncio
+async def test_retry_embeddings_normal_seam_keeps_caller_transaction(
+    db_session: AsyncSession,
+    repo: RagChunkRepository,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    """The existing API/service seam must not take transaction ownership."""
+    from modules.rag.indexing import IndexingService
+
+    await repo.create(
+        db_session,
+        uuid.UUID(test_project_id),
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=1,
+            text="普通调用方仍拥有事务",
+            embedding_status="failed",
+        ),
+    )
+    transaction_states: list[bool] = []
+
+    async def _generate(texts):  # type: ignore[no-untyped-def]
+        transaction_states.append(db_session.in_transaction())
+        return [[0.1] * 768 for _text in texts]
+
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as client_cls:
+        client_cls.return_value.generate_embedding = AsyncMock(side_effect=_generate)
+        result = await IndexingService(repo=repo).retry_embeddings(
+            db_session,
+            uuid.UUID(test_project_id),
+        )
+
+    assert result["succeeded"] == 1
+    assert transaction_states == [True]
+    assert db_session.in_transaction()
+
+
+@pytest.mark.asyncio
+async def test_retry_embeddings_task_checkpoints_around_transaction_free_embedding(
+    db_session: AsyncSession,
+    repo: RagChunkRepository,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from modules.rag.indexing import IndexingService
+
+    await repo.create(
+        db_session,
+        uuid.UUID(test_project_id),
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=1,
+            text="provider 等待时不应持有事务",
+            embedding_status="failed",
+        ),
+    )
+    checkpoint_count = 0
+    transaction_states: list[bool] = []
+
+    async def _checkpoint() -> bool:
+        nonlocal checkpoint_count
+        checkpoint_count += 1
+        return True
+
+    task_session = _new_task_handler_session(db_session, _checkpoint)
+
+    async def _generate(texts):  # type: ignore[no-untyped-def]
+        transaction_states.append(task_session.in_transaction())
+        return [[0.1] * 768 for _text in texts]
+
+    try:
+        with patch("infrastructure.llm.client.LLMClient", autospec=True) as client_cls:
+            client_cls.return_value.generate_embedding = AsyncMock(side_effect=_generate)
+            result = await IndexingService(repo=repo).retry_embeddings_for_task(
+                task_session,
+                test_project_id,
+            )
+    finally:
+        await task_session.close()
+
+    assert result == {
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "remaining_retryable_count": 0,
+        "warnings": [],
+    }
+    assert transaction_states == [False]
+    assert checkpoint_count == 3
+
+
+@pytest.mark.asyncio
+async def test_retry_embeddings_task_replans_stale_text_without_double_counting(
+    db_session: AsyncSession,
+    repo: RagChunkRepository,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    """A stale successful vector is skipped; the new text is counted only once."""
+    from modules.rag.indexing import IndexingService
+
+    chunk = await repo.create(
+        db_session,
+        uuid.UUID(test_project_id),
+        RagChunkCreate(
+            source_type="chapter_text",
+            source_id=str(uuid.uuid4()),
+            source_content_hash="a" * 64,
+            content_mode="working",
+            chapter_index=2,
+            chunk_index=0,
+            index_version="retry-v1",
+            text="旧版本文本",
+            embedding_status="failed",
+        ),
+    )
+    first_embedding = [0.1] * 768
+    second_embedding = [0.2] * 768
+    provider_calls = 0
+    task_session = _new_task_handler_session(db_session)
+
+    async def _generate(texts):  # type: ignore[no-untyped-def]
+        nonlocal provider_calls
+        provider_calls += 1
+        assert not task_session.in_transaction()
+        if provider_calls == 1:
+            chunk.text = "并发更新后的新文本"
+            chunk.source_content_hash = "b" * 64
+            await db_session.flush()
+            return [first_embedding for _text in texts]
+        assert texts == ["并发更新后的新文本"]
+        return [second_embedding for _text in texts]
+
+    try:
+        with patch("infrastructure.llm.client.LLMClient", autospec=True) as client_cls:
+            client_cls.return_value.generate_embedding = AsyncMock(side_effect=_generate)
+            result = await IndexingService(repo=repo).retry_embeddings_for_task(
+                task_session,
+                test_project_id,
+            )
+    finally:
+        await task_session.close()
+
+    await db_session.refresh(chunk)
+    assert provider_calls == 2
+    assert result["total"] == 1
+    assert result["succeeded"] == 1
+    assert result["failed"] == 0
+    assert chunk.text == "并发更新后的新文本"
+    assert chunk.source_content_hash == "b" * 64
+    assert list(chunk.embedding) == second_embedding
+
+
+@pytest.mark.asyncio
+async def test_retry_embeddings_task_does_not_overwrite_concurrent_success(
+    db_session: AsyncSession,
+    repo: RagChunkRepository,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from modules.rag.indexing import IndexingService
+
+    chunk = await repo.create(
+        db_session,
+        uuid.UUID(test_project_id),
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=3,
+            text="同一片段由另一个任务先完成",
+            embedding_status="failed",
+        ),
+    )
+    concurrent_embedding = [0.8] * 768
+    stale_embedding = [0.1] * 768
+    task_session = _new_task_handler_session(db_session)
+
+    async def _generate(texts):  # type: ignore[no-untyped-def]
+        assert not task_session.in_transaction()
+        chunk.embedding = concurrent_embedding  # type: ignore[assignment]
+        chunk.embedding_status = "succeeded"
+        chunk.embedding_error = None
+        chunk.index_warnings = ["并发任务已完成"]
+        await db_session.flush()
+        return [stale_embedding for _text in texts]
+
+    try:
+        with patch("infrastructure.llm.client.LLMClient", autospec=True) as client_cls:
+            client_cls.return_value.generate_embedding = AsyncMock(side_effect=_generate)
+            result = await IndexingService(repo=repo).retry_embeddings_for_task(
+                task_session,
+                test_project_id,
+            )
+    finally:
+        await task_session.close()
+
+    await db_session.refresh(chunk)
+    assert result["succeeded"] == 1
+    assert list(chunk.embedding) == concurrent_embedding
+    assert chunk.index_warnings == ["并发任务已完成"]
+
+
+@pytest.mark.asyncio
+async def test_retry_embeddings_task_counts_deleted_chunk_as_resolved_once(
+    db_session: AsyncSession,
+    repo: RagChunkRepository,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    """A chunk deleted during provider wait is resolved without stale write-back."""
+    from modules.rag.indexing import IndexingService
+
+    chunk = await repo.create(
+        db_session,
+        uuid.UUID(test_project_id),
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=3,
+            text="provider 返回前被删除",
+            embedding_status="failed",
+        ),
+    )
+    task_session = _new_task_handler_session(db_session)
+
+    async def _generate(texts):  # type: ignore[no-untyped-def]
+        assert not task_session.in_transaction()
+        await db_session.delete(chunk)
+        await db_session.flush()
+        return [[0.1] * 768 for _text in texts]
+
+    try:
+        with patch("infrastructure.llm.client.LLMClient", autospec=True) as client_cls:
+            client_cls.return_value.generate_embedding = AsyncMock(side_effect=_generate)
+            result = await IndexingService(repo=repo).retry_embeddings_for_task(
+                task_session,
+                test_project_id,
+            )
+    finally:
+        await task_session.close()
+
+    assert result == {
+        "total": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "remaining_retryable_count": 0,
+        "warnings": [],
+    }
+    assert await repo.get(db_session, chunk.id) is None
+
+
+@pytest.mark.asyncio
+async def test_retry_embeddings_task_deduplicates_same_id_revectorization(
+    db_session: AsyncSession,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    """One chunk re-entering retry state is processed again but counted once."""
+    from sqlalchemy import update
+
+    from modules.rag.indexing import IndexingService
+    from modules.rag.models import RagChunk
+
+    chunk_id: uuid.UUID | None = None
+
+    class RevectorizingRepo(RagChunkRepository):
+        candidate_reads = 0
+
+        async def find_embedding_retry_candidate_values(self, db, novel_id, **kwargs):  # type: ignore[no-untyped-def]
+            self.candidate_reads += 1
+            if self.candidate_reads == 2:
+                assert chunk_id is not None
+                await db.execute(
+                    update(RagChunk)
+                    .where(
+                        RagChunk.id == chunk_id,
+                        RagChunk.novel_id == novel_id,
+                    )
+                    .values(
+                        embedding=None,
+                        embedding_status="pending_vectorization",
+                    )
+                )
+                await db.flush()
+            return await super().find_embedding_retry_candidate_values(
+                db,
+                novel_id,
+                **kwargs,
+            )
+
+    repo = RevectorizingRepo()
+    chunk = await repo.create(
+        db_session,
+        uuid.UUID(test_project_id),
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=3,
+            text="同一 ID 再次进入向量化",
+            embedding_status="failed",
+        ),
+    )
+    chunk_id = chunk.id
+    task_session = _new_task_handler_session(db_session)
+    provider_calls = 0
+
+    async def _generate(texts):  # type: ignore[no-untyped-def]
+        nonlocal provider_calls
+        provider_calls += 1
+        return [[0.1 * provider_calls] * 768 for _text in texts]
+
+    try:
+        with patch("infrastructure.llm.client.LLMClient", autospec=True) as client_cls:
+            client_cls.return_value.generate_embedding = AsyncMock(side_effect=_generate)
+            result = await IndexingService(repo=repo).retry_embeddings_for_task(
+                task_session,
+                test_project_id,
+            )
+    finally:
+        await task_session.close()
+
+    await db_session.refresh(chunk)
+    assert provider_calls == 2
+    assert result["total"] == 1
+    assert result["succeeded"] == 1
+    assert result["failed"] == 0
+    assert list(chunk.embedding) == [0.2] * 768
+
+
+@pytest.mark.asyncio
+async def test_retry_embeddings_task_rechecks_project_after_provider_wait(
+    db_session: AsyncSession,
+    repo: RagChunkRepository,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from datetime import UTC, datetime
+
+    from core.errors import NotFoundError
+    from modules.project.models import Project
+    from modules.rag.indexing import IndexingService
+
+    chunk = await repo.create(
+        db_session,
+        uuid.UUID(test_project_id),
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=4,
+            text="项目回收后不得写回",
+            embedding_status="failed",
+        ),
+    )
+    project = await db_session.get(Project, uuid.UUID(test_project_id))
+    assert project is not None
+    task_session = _new_task_handler_session(db_session)
+
+    async def _generate(texts):  # type: ignore[no-untyped-def]
+        assert not task_session.in_transaction()
+        project.deleted_at = datetime.now(UTC)
+        await db_session.flush()
+        return [[0.1] * 768 for _text in texts]
+
+    try:
+        with (
+            patch("infrastructure.llm.client.LLMClient", autospec=True) as client_cls,
+            pytest.raises(NotFoundError),
+        ):
+            client_cls.return_value.generate_embedding = AsyncMock(side_effect=_generate)
+            await IndexingService(repo=repo).retry_embeddings_for_task(
+                task_session,
+                test_project_id,
+            )
+    finally:
+        await task_session.close()
+
+    await db_session.refresh(chunk)
+    assert chunk.embedding_status == "failed"
+    assert chunk.embedding is None
+
+
+@pytest.mark.asyncio
+async def test_retry_embeddings_task_lease_loss_rolls_back_batch_write(
+    db_session: AsyncSession,
+    repo: RagChunkRepository,
+    test_project_id: str,  # noqa: F811
+) -> None:
+    from modules.rag.indexing import IndexingService
+
+    chunk = await repo.create(
+        db_session,
+        uuid.UUID(test_project_id),
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=5,
+            text="lease 丢失后不得提交",
+            embedding_status="failed",
+        ),
+    )
+    checkpoint_count = 0
+
+    async def _checkpoint() -> bool:
+        nonlocal checkpoint_count
+        checkpoint_count += 1
+        return checkpoint_count == 1
+
+    task_session = _new_task_handler_session(db_session, _checkpoint)
+    mock_client = None
+    try:
+        with (
+            patch("infrastructure.llm.client.LLMClient", autospec=True) as client_cls,
+            pytest.raises(asyncio.CancelledError),
+        ):
+            mock_client = client_cls.return_value
+            mock_client.generate_embedding = AsyncMock(return_value=[[0.1] * 768])
+            await IndexingService(repo=repo).retry_embeddings_for_task(
+                task_session,
+                test_project_id,
+            )
+    finally:
+        await task_session.close()
+
+    await db_session.refresh(chunk)
+    assert checkpoint_count == 2
+    assert chunk.embedding_status == "failed"
+    assert chunk.embedding is None
+    assert mock_client is not None
+    mock_client.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_retry_embeddings_task_updates_failed_chunks(
     db_session: AsyncSession,
     repo: RagChunkRepository,
@@ -1609,6 +2974,7 @@ async def test_retry_embeddings_task_updates_failed_chunks(
     from unittest.mock import AsyncMock, patch
 
     from infrastructure.tasks.models import AsyncTask
+    from modules.project.models import Project
     from modules.rag.tasks import handle_rag_retry_embeddings
 
     nid_uuid = uuid.UUID(hex=test_project_id)
@@ -1633,6 +2999,19 @@ async def test_retry_embeddings_task_updates_failed_chunks(
             embedding_status="failed",
         ),
     )
+    other_novel_id = uuid.uuid4()
+    db_session.add(Project(id=other_novel_id, title="其他项目"))
+    await db_session.flush()
+    other_chunk = await repo.create(
+        db_session,
+        other_novel_id,
+        RagChunkCreate(
+            source_type="chapter_text",
+            chapter_index=1,
+            text="其他项目的失败片段",
+            embedding_status="failed",
+        ),
+    )
     task = AsyncTask(
         id=uuid.uuid4(),
         task_type="rag_retry_embeddings",
@@ -1642,9 +3021,10 @@ async def test_retry_embeddings_task_updates_failed_chunks(
     )
     db_session.add(task)
     await db_session.flush()
+    db_session.task_checkpoint_enabled = True  # type: ignore[attr-defined]
 
     fake_embedding = [0.1] * 768
-    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.generate_embedding = AsyncMock(return_value=[fake_embedding])
         mock_client_cls.return_value = mock_client
@@ -1657,10 +3037,13 @@ async def test_retry_embeddings_task_updates_failed_chunks(
     assert task.progress == 1.0
     refreshed = await repo.get(db_session, retry_chunk.id)
     skipped = await repo.get(db_session, skipped_chunk.id)
+    other = await repo.get(db_session, other_chunk.id)
     assert refreshed.embedding_status == "succeeded"
     assert refreshed.embedding is not None
     assert refreshed.embedding_error is None
     assert skipped.embedding_status == "failed"
+    assert other.embedding_status == "failed"
+    assert other.embedding is None
 
 
 @pytest.mark.asyncio
@@ -1713,6 +3096,7 @@ async def test_retry_embeddings_task_counts_partial_batch_fallback(
     )
     db_session.add(task)
     await db_session.flush()
+    db_session.task_checkpoint_enabled = True  # type: ignore[attr-defined]
 
     fake_embedding = [0.1] * 768
 
@@ -1723,7 +3107,7 @@ async def test_retry_embeddings_task_counts_partial_batch_fallback(
             return fake_embedding
         raise RuntimeError("single down")
 
-    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.generate_embedding = AsyncMock(side_effect=_fake_embedding)
         mock_client_cls.return_value = mock_client
@@ -1785,6 +3169,7 @@ async def test_retry_embeddings_task_keeps_batch_warning_after_full_fallback_suc
     )
     db_session.add(task)
     await db_session.flush()
+    db_session.task_checkpoint_enabled = True  # type: ignore[attr-defined]
 
     fake_embedding = [0.1] * 768
 
@@ -1793,7 +3178,7 @@ async def test_retry_embeddings_task_keeps_batch_warning_after_full_fallback_suc
             raise RuntimeError("batch down")
         return fake_embedding
 
-    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.generate_embedding = AsyncMock(side_effect=_fake_embedding)
         mock_client_cls.return_value = mock_client
@@ -1848,13 +3233,14 @@ async def test_retry_embeddings_task_processes_more_than_one_batch(
     )
     db_session.add(task)
     await db_session.flush()
+    db_session.task_checkpoint_enabled = True  # type: ignore[attr-defined]
 
     fake_embedding = [0.1] * 768
 
     async def _fake_embedding(texts):
         return [fake_embedding for _ in texts]
 
-    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.generate_embedding = AsyncMock(side_effect=_fake_embedding)
         mock_client_cls.return_value = mock_client
@@ -1906,8 +3292,9 @@ async def test_retry_embeddings_task_marks_batch_failure(
     )
     db_session.add(task)
     await db_session.flush()
+    db_session.task_checkpoint_enabled = True  # type: ignore[attr-defined]
 
-    with patch("infrastructure.llm.client.LLMClient") as mock_client_cls:
+    with patch("infrastructure.llm.client.LLMClient", autospec=True) as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.generate_embedding = AsyncMock(side_effect=Exception("x" * 1200))
         mock_client_cls.return_value = mock_client

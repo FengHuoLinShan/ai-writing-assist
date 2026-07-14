@@ -7,7 +7,7 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import DomainError
+from core.errors import DomainError, NotFoundError
 from modules.world.map_repositories import MapTileRepository
 from modules.world.map_schemas import (
     MapConfigCreate,
@@ -191,3 +191,56 @@ class TestMapTileService:
         )
         by_pos = {(t.hex_q, t.hex_r): t.terrain_type for t in result}
         assert by_pos[(1, 1)] == "mountain"
+
+    @pytest.mark.asyncio
+    async def test_batch_update_lock_failure_does_not_mutate_session(
+        self,
+        db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        nid = uuid.uuid4().hex
+        await _create_project(db_session, nid)
+        created = await MapConfigService().create(
+            db_session,
+            nid,
+            MapConfigCreate(name="m", map_type="world", grid_width=3, grid_height=3),
+        )
+        repo = MapTileRepository()
+        before = {
+            (tile.hex_q, tile.hex_r): (tile.terrain_type, tile.elevation)
+            for tile in await repo.get_by_map(
+                db_session,
+                uuid.UUID(hex=nid),
+                uuid.UUID(created.id),
+            )
+        }
+        service = MapTileService()
+
+        async def fail_lock(*_args: object, **_kwargs: object) -> None:
+            raise NotFoundError("map disappeared", code="map_not_found")
+
+        monkeypatch.setattr(service._revision, "lock_active", fail_lock)
+        with pytest.raises(NotFoundError, match="map disappeared"):
+            await service.batch_update(
+                db_session,
+                nid,
+                created.id,
+                MapTileBatchUpdate(
+                    changes=[
+                        {"hex_q": 0, "hex_r": 0, "terrain_type": "mountain"}
+                    ]
+                ),
+            )
+
+        assert not db_session.new
+        assert not db_session.dirty
+        assert not db_session.deleted
+        after = {
+            (tile.hex_q, tile.hex_r): (tile.terrain_type, tile.elevation)
+            for tile in await repo.get_by_map(
+                db_session,
+                uuid.UUID(hex=nid),
+                uuid.UUID(created.id),
+            )
+        }
+        assert after == before

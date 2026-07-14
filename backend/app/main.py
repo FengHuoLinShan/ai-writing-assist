@@ -472,14 +472,17 @@ async def domain_error_handler(request: Request, exc: DomainError) -> JSONRespon
         code,
         current_novel_id_for_log(),
     )
+    content = {
+        "error": exc.code,
+        "detail": exc.message,
+        "message": exc.message,
+        "status_code": exc.status_code,
+    }
+    if exc.context:
+        content["context"] = exc.context
     return JSONResponse(
         status_code=exc.status_code,
-        content={
-            "error": exc.code,
-            "detail": exc.message,
-            "message": exc.message,
-            "status_code": exc.status_code,
-        },
+        content=content,
     )
 
 

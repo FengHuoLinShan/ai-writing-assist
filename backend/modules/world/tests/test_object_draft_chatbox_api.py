@@ -99,6 +99,11 @@ async def test_object_draft_chat_does_not_create_entity(
     assert "旧怨" in resp.json()["reply"]
     assert fake.models == ["deepseek-v4-flash"]
     assert await _entity_count(db_session) == before
+    request = fake.requests[0]
+    assert "世界设定共创搭档" in request.messages[0].content
+    assert "不要每轮固定提问" in request.messages[0].content
+    assert "不强迫每个对象" in request.messages[0].content
+    assert "<AUTHOR_TEMPLATE_INSTRUCTION>" in request.messages[1].content
 
 
 @pytest.mark.asyncio
@@ -153,12 +158,17 @@ async def test_object_draft_chat_returns_actual_world_synopsis_usage(
     )
     assert snapshot is not None
     assert snapshot.status == "succeeded"
+    assert snapshot.compile_options["scope"] == "generation_center"
+    assert snapshot.compile_options["retrieval_purpose"] == (
+        "world_object_generation"
+    )
     assert snapshot.compile_options["include_world_synopsis"] is True
     assert snapshot.section_metadata["world_bible_synopsis"]["retrieval_metadata"][
         "source_hash"
     ] == usage["source_hash"]
     prompt = "\n".join(message.content for message in fake.requests[0].messages)
     assert "<WORLD_BIBLE_SYNOPSIS_DATA>" in prompt
+    assert "<PROJECT_BACKGROUND_DATA>" in prompt
     assert "星海帝国建立于长夜之后" in prompt
 
 
@@ -230,8 +240,11 @@ async def test_generate_object_draft_creates_draft_entity_with_pro_model(
     structured_prompt = "\n".join(
         message.content for message in fake.requests[0].messages
     )
-    assert "summary 字段必填" in structured_prompt
-    assert "可直接显示在对象库摘要列" in structured_prompt
+    assert "<AUTHOR_CONVERSATION_JSON>" in structured_prompt
+    assert "作者较新的明确选择" in structured_prompt
+    assert "不要为满足固定长度而填充" in structured_prompt
+    assert "80-180" not in structured_prompt
+    assert "只有设计确实存在隐藏层时才填写" in structured_prompt
 
 
 @pytest.mark.asyncio
@@ -308,6 +321,42 @@ async def test_generate_object_draft_accepts_custom_template_prompt(
     assert "<AUTHOR_TEMPLATE_INSTRUCTION>" in fake.requests[0].messages[1].content
 
 
+def test_selected_chapter_excerpt_prefers_focus_and_keeps_head_tail_fallback() -> None:
+    from modules.world.services.worldbuilding.object_draft_generation_service import (
+        ObjectDraftGenerationService,
+    )
+
+    content = "开场" + "甲" * 700 + "黑曜钥匙在塔顶裂开" + "乙" * 700 + "结尾"
+    focused = ObjectDraftGenerationService._excerpt(
+        content,
+        limit=300,
+        focus_text="设计黑曜钥匙的代价",
+    )
+    fallback = ObjectDraftGenerationService._excerpt(
+        content,
+        limit=300,
+        focus_text="不存在的对象",
+    )
+
+    assert "黑曜钥匙在塔顶裂开" in focused
+    assert "开场" in fallback
+    assert "结尾" in fallback
+
+
+def test_generated_object_draft_schema_rejects_unknown_enum_values() -> None:
+    from pydantic import ValidationError as PydanticValidationError
+
+    from modules.world.llm_schemas import GeneratedObjectDraftOutput
+
+    with pytest.raises(PydanticValidationError):
+        GeneratedObjectDraftOutput(
+            name="黑曜钥匙",
+            summary="一枚可以打开长夜之门的古老钥匙。",
+            importance_level="very_important",
+            reveal_level="secret",
+        )
+
+
 @pytest.mark.asyncio
 async def test_generate_object_draft_rejects_other_project_chapter(
     async_client: AsyncClient,
@@ -375,7 +424,9 @@ async def test_generate_object_draft_with_builtin_template_id(
     assert meta["template_id"] == "builtin:character"
     assert meta["template_version"] == 1
     assert meta["template_name"] == "人物"
-    assert "聚焦人物卡" in fake.requests[0].messages[1].content
+    rendered_prompt = fake.requests[0].messages[1].content
+    assert "会作出选择" in rendered_prompt
+    assert "不是属性集合" in rendered_prompt
 
 
 @pytest.mark.asyncio

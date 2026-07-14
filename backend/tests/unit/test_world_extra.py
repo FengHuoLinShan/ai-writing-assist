@@ -182,9 +182,9 @@ class TestEntityTypeSchemaValidation:
         model = CoreEntityCreate(entity_type=" CHARACTER ", name="Hero")
         assert model.entity_type == "character"
 
-    def test_core_entity_create_rejects_invalid_type(self) -> None:
-        with pytest.raises(PydanticValidationError):
-            CoreEntityCreate(entity_type="corgi", name="Hero")
+    def test_core_entity_create_accepts_safe_author_custom_type(self) -> None:
+        model = CoreEntityCreate(entity_type=" Corgi ", name="Hero")
+        assert model.entity_type == "corgi"
 
     def test_core_entity_update_allows_none_entity_type(self) -> None:
         model = CoreEntityUpdate(entity_type=None)
@@ -194,9 +194,9 @@ class TestEntityTypeSchemaValidation:
         model = CoreEntityUpdate(entity_type="character_ref")
         assert model.entity_type == "character"
 
-    def test_core_entity_update_rejects_invalid_type(self) -> None:
-        with pytest.raises(PydanticValidationError):
-            CoreEntityUpdate(entity_type="corgi")
+    def test_core_entity_update_accepts_safe_author_custom_type(self) -> None:
+        model = CoreEntityUpdate(entity_type=" Corgi ")
+        assert model.entity_type == "corgi"
 
     def test_extracted_entity_normalizes_type(self) -> None:
         model = ExtractedEntity(entity_type="能力", name="Magic")
@@ -257,9 +257,7 @@ class TestEntityServiceList:
     async def test_forwards_filters_to_repo(self) -> None:
         db = MagicMock()
         nid = str(uuid.uuid4())
-        with patch.object(
-            WorldEntityService, "repo", new_callable=MagicMock
-        ) as mock_repo:
+        with patch.object(WorldEntityService, "repo", autospec=True) as mock_repo:
             mock_repo.get_by_novel = AsyncMock(return_value=([], 0))
             svc = WorldEntityService()
             await svc.list(
@@ -274,9 +272,7 @@ class TestEntityServiceList:
 
     async def test_clamps_limit_to_max(self) -> None:
         db = MagicMock()
-        with patch.object(
-            WorldEntityService, "repo", new_callable=MagicMock
-        ) as mock_repo:
+        with patch.object(WorldEntityService, "repo", autospec=True) as mock_repo:
             mock_repo.get_by_novel = AsyncMock(return_value=([], 0))
             svc = WorldEntityService()
             await svc.list(db, str(uuid.uuid4()), limit=9999)
@@ -286,9 +282,7 @@ class TestEntityServiceList:
 
     async def test_returns_list_response(self) -> None:
         db = MagicMock()
-        with patch.object(
-            WorldEntityService, "repo", new_callable=MagicMock
-        ) as mock_repo:
+        with patch.object(WorldEntityService, "repo", autospec=True) as mock_repo:
             mock_repo.get_by_novel = AsyncMock(return_value=([_mock_entity()], 1))
             svc = WorldEntityService()
             result = await svc.list(db, str(uuid.uuid4()))
@@ -301,9 +295,7 @@ class TestEntityServiceList:
         db = MagicMock()
         nid = str(uuid.uuid4())
         duplicate = _mock_entity(name="Hero")
-        with patch.object(
-            WorldEntityService, "repo", new_callable=MagicMock
-        ) as mock_repo:
+        with patch.object(WorldEntityService, "repo", autospec=True) as mock_repo:
             mock_repo.find_similar_by_search_text = AsyncMock(
                 return_value=[(duplicate, 0.96)]
             )
@@ -327,10 +319,8 @@ class TestEntityServiceList:
         entity_id = str(uuid.uuid4())
         existing = _mock_entity(id=uuid.UUID(entity_id), novel_id=uuid.UUID(nid))
         existing.status = "draft"
-        with patch.object(
-            WorldEntityService, "repo", new_callable=MagicMock
-        ) as mock_repo:
-            mock_repo.get = AsyncMock(return_value=existing)
+        with patch.object(WorldEntityService, "repo", autospec=True) as mock_repo:
+            mock_repo.get_for_update = AsyncMock(return_value=existing)
             mock_repo.update = AsyncMock()
             svc = WorldEntityService()
 
@@ -351,15 +341,13 @@ class TestEntityServiceList:
         nid = str(uuid.uuid4())
         entity_id = str(uuid.uuid4())
         existing = _mock_entity(id=uuid.UUID(entity_id), novel_id=uuid.UUID(nid))
-        with patch.object(
-            WorldEntityService, "repo", new_callable=MagicMock
-        ) as mock_repo:
-            mock_repo.get = AsyncMock(return_value=existing)
+        with patch.object(WorldEntityService, "repo", autospec=True) as mock_repo:
+            mock_repo.get_for_update = AsyncMock(return_value=existing)
             mock_repo.update = AsyncMock(return_value=existing)
             with patch(
                 "modules.world.services.core.entity_revision_service."
                 "EntityRevisionService.create_snapshot",
-                new_callable=AsyncMock,
+                autospec=True,
             ):
                 svc = WorldEntityService()
                 result = await svc.update(
@@ -382,10 +370,8 @@ class TestEntityServiceList:
             novel_id=uuid.UUID(nid),
             status="canonical",
         )
-        with patch.object(
-            WorldEntityService, "repo", new_callable=MagicMock
-        ) as mock_repo:
-            mock_repo.get = AsyncMock(return_value=existing)
+        with patch.object(WorldEntityService, "repo", autospec=True) as mock_repo:
+            mock_repo.get_for_update = AsyncMock(return_value=existing)
             mock_repo.update = AsyncMock()
             svc = WorldEntityService()
 
@@ -410,10 +396,8 @@ class TestEntityServiceList:
             novel_id=uuid.UUID(nid),
             status="candidate",
         )
-        with patch.object(
-            WorldEntityService, "repo", new_callable=MagicMock
-        ) as mock_repo:
-            mock_repo.get = AsyncMock(return_value=existing)
+        with patch.object(WorldEntityService, "repo", autospec=True) as mock_repo:
+            mock_repo.get_for_update = AsyncMock(return_value=existing)
             mock_repo.update = AsyncMock(return_value=existing)
             svc = WorldEntityService()
 
@@ -442,7 +426,7 @@ class TestEntityContextServiceGetEntityContext:
         nid = str(uuid.uuid4())
         eid = str(uuid.uuid4())
         svc = EntityContextService()
-        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(svc, "_repo", autospec=True) as mock_repo:
             mock_repo.get_by_ids = AsyncMock(return_value=[_mock_entity()])
             result = await svc.get_entity_context(db, nid, entity_ids=[eid])
             assert result.total_count == 1
@@ -451,7 +435,7 @@ class TestEntityContextServiceGetEntityContext:
     async def test_without_entity_ids_uses_status_filtered_query(self) -> None:
         db = MagicMock()
         svc = EntityContextService()
-        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(svc, "_repo", autospec=True) as mock_repo:
             mock_repo.get_by_type_and_status = AsyncMock(return_value=[])
             result = await svc.get_entity_context(db, str(uuid.uuid4()), entity_ids=None)
             assert result.total_count == 0
@@ -465,7 +449,7 @@ class TestEntityContextServiceGetEntityContext:
         db = MagicMock()
         ent = _mock_entity(hidden_truth="deep secret")
         svc = EntityContextService()
-        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(svc, "_repo", autospec=True) as mock_repo:
             mock_repo.get_by_type_and_status = AsyncMock(return_value=[ent])
             result = await svc.get_entity_context(
                 db,
@@ -478,7 +462,7 @@ class TestEntityContextServiceGetEntityContext:
         db = MagicMock()
         ent = _mock_entity(hidden_truth="secret")
         svc = EntityContextService()
-        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(svc, "_repo", autospec=True) as mock_repo:
             mock_repo.get_by_type_and_status = AsyncMock(return_value=[ent])
             result = await svc.get_entity_context(
                 db,
@@ -495,7 +479,7 @@ class TestEntityContextServiceGetEntityContext:
             content_json={"_meta": {"temporary": True, "source_chapter_index": 1}},
         )
         svc = EntityContextService()
-        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(svc, "_repo", autospec=True) as mock_repo:
             mock_repo.get_by_type_and_status = AsyncMock(return_value=[old_temp])
             result = await svc.get_entity_context(
                 db,
@@ -510,7 +494,7 @@ class TestEntityContextServiceGetEntityContext:
         db.execute.return_value.scalar_one_or_none = MagicMock(return_value=None)
         normal = _mock_entity(content_json={"_meta": {}})
         svc = EntityContextService()
-        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(svc, "_repo", autospec=True) as mock_repo:
             mock_repo.get_by_type_and_status = AsyncMock(return_value=[normal])
             result = await svc.get_entity_context(
                 db,
@@ -526,7 +510,7 @@ class TestEntityContextServiceListEntitySummaries:
         nid = str(uuid.uuid4())
         ent = _mock_entity(name="Sword", entity_type="item")
         svc = EntityContextService()
-        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(svc, "_repo", autospec=True) as mock_repo:
             mock_repo.get_by_type_and_status = AsyncMock(return_value=[ent])
             result = await svc.list_entity_summaries(
                 db, nid, entity_type="item", limit=50
@@ -546,7 +530,7 @@ class TestEntityContextServiceListEntitySummaries:
         nid = str(uuid.uuid4())
         ent = _mock_entity(name="Sword", entity_type="item")
         svc = EntityContextService()
-        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(svc, "_repo", autospec=True) as mock_repo:
             mock_repo.get_by_type_and_status = AsyncMock(return_value=[ent])
             await svc.list_entity_summaries(
                 db,
@@ -571,7 +555,7 @@ class TestEntityContextServiceListEntityTerms:
         draft = _mock_entity(name="Sidekick", status="draft")
         merged = _mock_entity(name="Gone", status="merged")
         svc = EntityContextService()
-        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(svc, "_repo", autospec=True) as mock_repo:
             mock_repo.list_by_novel = AsyncMock(return_value=[canonical, draft, merged])
             result = await svc.list_entity_terms(db, str(uuid.uuid4()))
             assert len(result) == 1
@@ -590,7 +574,7 @@ class TestEntityContextServiceListEntityTerms:
             content_json={"aliases": []},
         )
         svc = EntityContextService()
-        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(svc, "_repo", autospec=True) as mock_repo:
             mock_repo.list_by_novel = AsyncMock(return_value=[ent1, ent2])
             result = await svc.list_entity_terms(db, str(uuid.uuid4()))
 
@@ -608,7 +592,7 @@ class TestEntityContextServiceFindByName:
         db = MagicMock()
         eid = str(uuid.uuid4())
         svc = EntityContextService()
-        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(svc, "_repo", autospec=True) as mock_repo:
             mock_repo.find_entity_by_name = AsyncMock(return_value=eid)
             result = await svc.find_by_name(db, str(uuid.uuid4()), "Arthur")
             assert result == eid
@@ -616,7 +600,7 @@ class TestEntityContextServiceFindByName:
     async def test_not_found_returns_none(self) -> None:
         db = MagicMock()
         svc = EntityContextService()
-        with patch.object(svc, "_repo", new_callable=MagicMock) as mock_repo:
+        with patch.object(svc, "_repo", autospec=True) as mock_repo:
             mock_repo.find_entity_by_name = AsyncMock(return_value=None)
             result = await svc.find_by_name(db, str(uuid.uuid4()), "Nobody")
             assert result is None
@@ -647,7 +631,8 @@ class TestEntityEmbeddingServiceBackfillEmbeddings:
         assert result == 0
 
     @patch(
-        "modules.world.services.core.entity_embedding_service.BgeEmbeddingClient.get_instance"
+        "modules.world.services.core.entity_embedding_service.BgeEmbeddingClient.get_instance",
+        autospec=True,
     )
     async def test_bge_unavailable_returns_zero(self, mock_get_instance) -> None:
         mock_get_instance.side_effect = RuntimeError("BGE not available")
@@ -656,7 +641,8 @@ class TestEntityEmbeddingServiceBackfillEmbeddings:
         assert result == 0
 
     @patch(
-        "modules.world.services.core.entity_embedding_service.BgeEmbeddingClient.get_instance"
+        "modules.world.services.core.entity_embedding_service.BgeEmbeddingClient.get_instance",
+        autospec=True,
     )
     async def test_happy_path_backfills_in_batches(self, mock_get_instance) -> None:
         bge = AsyncMock()
@@ -675,7 +661,8 @@ class TestEntityEmbeddingServiceBackfillEmbeddings:
             assert e.embedding_text == e.name
 
     @patch(
-        "modules.world.services.core.entity_embedding_service.BgeEmbeddingClient.get_instance"
+        "modules.world.services.core.entity_embedding_service.BgeEmbeddingClient.get_instance",
+        autospec=True,
     )
     async def test_skips_empty_name_entities(self, mock_get_instance) -> None:
         bge = AsyncMock()
@@ -693,7 +680,8 @@ class TestEntityEmbeddingServiceBackfillEmbeddings:
         assert valid.embedding == [0.5]
 
     @patch(
-        "modules.world.services.core.entity_embedding_service.BgeEmbeddingClient.get_instance"
+        "modules.world.services.core.entity_embedding_service.BgeEmbeddingClient.get_instance",
+        autospec=True,
     )
     async def test_batch_failure_continues_to_next_batch(self, mock_get_instance) -> None:
         bge = AsyncMock()
@@ -1250,7 +1238,10 @@ class TestDedupSyncCharacterOnMerge:
         char_repo = MagicMock()
         char_repo.get = AsyncMock(return_value=None)
         with patch.object(
-            svc, "_sync_character_on_merge", wraps=svc._sync_character_on_merge
+            svc,
+            "_sync_character_on_merge",
+            wraps=svc._sync_character_on_merge,
+            autospec=True,
         ) as _:
             # Cannot easily mock CharacterRepository directly since it's created inside
             pass
@@ -1262,6 +1253,7 @@ class TestDedupSyncCharacterOnMerge:
         with patch(
             "modules.world.services.core.dedup_service.CharacterRepository",
             return_value=char_repo,
+            autospec=True,
         ):
             result = await svc._sync_character_on_merge(
                 MagicMock(),
@@ -1304,6 +1296,7 @@ class TestDedupSyncCharacterOnMerge:
         with patch(
             "modules.world.services.core.dedup_service.CharacterRepository",
             return_value=char_repo,
+            autospec=True,
         ):
             result = await svc._sync_character_on_merge(
                 MagicMock(),
@@ -1789,6 +1782,7 @@ class TestHandleWorldEntityExtraction:
 
         with patch(
             "modules.world.tasks.EntityExtractionService",
+            autospec=True,
         ) as mock_svc_cls:
             mock_svc = AsyncMock()
             mock_svc_cls.return_value = mock_svc
@@ -1822,6 +1816,7 @@ class TestHandleWorldEntityExtraction:
 
         with patch(
             "modules.world.tasks.EntityExtractionService",
+            autospec=True,
         ) as mock_svc_cls:
             mock_svc = AsyncMock()
             mock_svc_cls.return_value = mock_svc
@@ -1852,18 +1847,20 @@ class TestHandleWorldEntityExtraction:
         mock_result.items = [{"id": "entity-1"}, {"id": "entity-2"}]
 
         with (
-            patch("modules.world.tasks.EntityExtractionService") as mock_svc_cls,
+            patch(
+                "modules.world.tasks.EntityExtractionService", autospec=True
+            ) as mock_svc_cls,
             patch(
                 "modules.world.tasks.context_facade.compile_from_confirmation",
-                new_callable=AsyncMock,
+                autospec=True,
             ),
             patch(
                 "modules.world.tasks.context_facade.attach_result_refs",
-                new_callable=AsyncMock,
+                autospec=True,
             ) as mock_attach_refs,
             patch(
                 "modules.world.tasks.context_facade.attach_result_ref",
-                new_callable=AsyncMock,
+                autospec=True,
             ) as mock_attach_ref,
         ):
             mock_svc = AsyncMock()

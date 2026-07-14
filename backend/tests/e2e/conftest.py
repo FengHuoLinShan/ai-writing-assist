@@ -24,7 +24,12 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from tests.e2e.config import DATABASE_URL
+from core.config import Settings
+from core.database import (
+    assert_database_target_for_testing,
+    isolated_database_manager_for_testing,
+)
+from tests.e2e.config import DATABASE_URL, require_e2e_database_url
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -51,7 +56,8 @@ _E2E_DIR = Path(__file__).resolve().parent
 
 
 async def _validate_e2e_database() -> None:
-    engine = create_async_engine(DATABASE_URL, echo=False, pool_size=1, max_overflow=0)
+    database_url = require_e2e_database_url(DATABASE_URL)
+    engine = create_async_engine(database_url, echo=False, pool_size=1, max_overflow=0)
     try:
         async with engine.connect() as connection:
             migration_config = Config(str(_BACKEND_DIR / "alembic.ini"))
@@ -95,17 +101,35 @@ def pytest_collection_modifyitems(config, items) -> None:  # noqa: ANN001
             item.add_marker(pytest.mark.e2e)
 
 
+@pytest_asyncio.fixture(autouse=True)
+async def isolated_global_database_manager() -> AsyncGenerator[None, None]:
+    """Bind every global DB path to the explicit E2E database and event loop."""
+
+    database_url = require_e2e_database_url(DATABASE_URL)
+    settings = Settings(
+        database_url=database_url,
+        pool_size=1,
+        max_overflow=0,
+    )
+    async with isolated_database_manager_for_testing(settings) as manager:
+        assert_database_target_for_testing(database_url, manager.engine.url)
+        yield
+
+
 # ============================================================
 # Per-test database session（独立连接，事务回滚）
 # ============================================================
 
 
 @pytest_asyncio.fixture
-async def db_session() -> AsyncGenerator[AsyncSession, None]:
+async def db_session(
+    isolated_global_database_manager: None,
+) -> AsyncGenerator[AsyncSession, None]:
     """
     每个测试函数使用独立 engine + 连接，连接级别事务回滚隔离。
     """
-    engine = create_async_engine(DATABASE_URL, echo=False, pool_size=1, max_overflow=0)
+    database_url = require_e2e_database_url(DATABASE_URL)
+    engine = create_async_engine(database_url, echo=False, pool_size=1, max_overflow=0)
     conn = await engine.connect()
     try:
         await conn.begin()

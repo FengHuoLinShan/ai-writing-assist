@@ -139,6 +139,19 @@ async def list_chapter_indices(
     return await _service.list_chapter_indices(db, novel_id)
 
 
+async def lock_chapter_versions_for_revalidation(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_indices: list[int],
+) -> None:
+    """Lock chapter version/content writes until the current transaction ends."""
+    await _service.lock_chapter_versions_for_revalidation(
+        db,
+        novel_id,
+        chapter_indices,
+    )
+
+
 async def get_project_writing_stats(
     db: AsyncSession,
     novel_id: str,

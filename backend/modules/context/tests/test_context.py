@@ -77,6 +77,204 @@ async def _add_active_project(db_session: AsyncSession, novel_id: str) -> None:
 
 
 @pytest.mark.asyncio
+async def test_writing_context_loads_relevance_before_character_and_entity_topk(
+    db_session: AsyncSession,
+) -> None:
+    from modules.context.services.context_compiler import ContextCompiler
+
+    calls: list[str] = []
+
+    class FakeLoader:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        async def load(self, _db, _options, bundle) -> None:
+            calls.append(self.name)
+            if self.name == "scene":
+                bundle.scene = {"id": "scene-1"}
+            elif self.name == "outline_arc":
+                bundle.outline_arc = {"related_thread_ids": ["thread-1"]}
+            elif self.name == "plot_threads":
+                assert bundle.outline_arc == {"related_thread_ids": ["thread-1"]}
+                bundle.plot_threads = [{"id": "thread-1"}]
+            elif self.name == "rag_chunks":
+                bundle.rag_chunks = [{"entity_ids": ["item-1"]}]
+
+    names = [
+        "project",
+        "scene",
+        "plot_threads",
+        "outline_arc",
+        "rag_chunks",
+        "world_entities",
+        "characters",
+    ]
+    compiler = ContextCompiler([FakeLoader(name) for name in names])
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="生成正文",
+        scope="chapter",
+        consumer_action="writing.generate",
+        chapter_index=3,
+        scene_id="scene-1",
+    )
+
+    await compiler.compile(db_session, options)
+
+    assert calls.index("world_entities") > calls.index("scene")
+    assert calls.index("world_entities") > calls.index("plot_threads")
+    assert calls.index("world_entities") > calls.index("rag_chunks")
+    assert calls.index("characters") > calls.index("world_entities")
+
+
+@pytest.mark.asyncio
+async def test_generation_center_loads_relevance_before_object_topk(
+    db_session: AsyncSession,
+) -> None:
+    from modules.context.services.context_compiler import ContextCompiler
+
+    calls: list[str] = []
+
+    class FakeLoader:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        async def load(self, _db, _options, bundle) -> None:
+            calls.append(self.name)
+            if self.name == "outline_arc":
+                bundle.outline_arc = {"related_thread_ids": ["thread-1"]}
+            elif self.name == "plot_threads":
+                assert bundle.outline_arc == {"related_thread_ids": ["thread-1"]}
+                bundle.plot_threads = [{"id": "thread-1"}]
+            elif self.name == "rag_chunks":
+                bundle.rag_chunks = [{"entity_ids": ["entity-1"]}]
+
+    names = [
+        "project",
+        "world_bible",
+        "outline_arc",
+        "rag_chunks",
+        "plot_threads",
+        "world_entities",
+        "characters",
+    ]
+    compiler = ContextCompiler([FakeLoader(name) for name in names])
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="设计黑曜钥匙",
+        scope="generation_center",
+        consumer_action="world.object_draft.generate",
+    )
+
+    await compiler.compile(db_session, options)
+
+    assert calls.index("plot_threads") > calls.index("outline_arc")
+    assert calls.index("world_entities") > calls.index("rag_chunks")
+    assert calls.index("world_entities") > calls.index("plot_threads")
+    assert calls.index("characters") > calls.index("world_entities")
+
+
+@pytest.mark.asyncio
+async def test_writing_entity_and_character_selection_uses_relevance_topk(
+    db_session: AsyncSession,
+) -> None:
+    from modules.context.services.loaders.characters_loader import CharactersLoader
+    from modules.context.services.loaders.world_entities_loader import (
+        WorldEntitiesLoader,
+    )
+
+    seen_entity_ids: list[str] = []
+    seen_character_ids: list[str] = []
+
+    async def fake_world_context(*_args, **kwargs):
+        nonlocal seen_entity_ids
+        seen_entity_ids = list(kwargs.get("entity_ids") or [])
+        return SimpleNamespace(
+            entities=[
+                SimpleNamespace(
+                    model_dump=lambda entity_id=entity_id: {
+                        "id": entity_id,
+                        "entity_id": entity_id,
+                        "entity_type": "item",
+                        "name": entity_id,
+                        "status": "canonical",
+                    }
+                )
+                for entity_id in seen_entity_ids
+            ]
+        )
+
+    async def fake_character_context(*_args, **kwargs):
+        nonlocal seen_character_ids
+        seen_character_ids = list(kwargs.get("character_ids") or [])
+        return SimpleNamespace(
+            characters=[
+                SimpleNamespace(
+                    model_dump=lambda character_id=character_id: {
+                        "id": character_id,
+                        "name": character_id,
+                    }
+                )
+                for character_id in seen_character_ids
+            ]
+        )
+
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="生成正文",
+        scope="chapter",
+        consumer_action="writing.generate",
+        entity_ids=["explicit-item"],
+        character_ids=["explicit-character"],
+    )
+    bundle = StructureContextBundle(
+        novel_id=options.novel_id,
+        task=options.task,
+        scope=options.scope,
+        scene={
+            "pov_character_id": "pov-character",
+            "structure_meta": {
+                "related_entity_ids": ["scene-item"],
+                "related_character_ids": ["scene-character"],
+            },
+        },
+        outline_arc={
+            "related_entity_ids": ["arc-item"],
+            "related_character_ids": ["arc-character"],
+        },
+        plot_threads=[
+            {
+                "related_entity_ids": [f"thread-item-{index}" for index in range(20)],
+                "related_character_ids": [
+                    f"thread-character-{index}" for index in range(20)
+                ],
+            }
+        ],
+        rag_chunks=[
+            {
+                "entity_ids": ["rag-item"],
+                "character_ids": ["rag-character"],
+            }
+        ],
+        budget_used={key: 0 for key in CONTEXT_BUDGET},
+    )
+
+    await WorldEntitiesLoader(fake_world_context).load(db_session, options, bundle)
+    await CharactersLoader(
+        get_characters_context_fn=fake_character_context
+    ).load(db_session, options, bundle)
+
+    assert seen_entity_ids[:3] == ["explicit-item", "scene-item", "arc-item"]
+    assert len(seen_entity_ids) == 16
+    assert seen_character_ids[:3] == [
+        "explicit-character",
+        "pov-character",
+        "scene-character",
+    ]
+    assert len(seen_character_ids) == 6
+
+
+@pytest.mark.asyncio
 async def test_world_bible_loader_pins_actual_synopsis_provenance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -186,14 +384,11 @@ class TestConfirmedAiAction:
             total_tokens=8,
             budget_tokens=1200,
         )
+        fresh_calls: list[dict[str, object]] = []
 
         class FakeConfirmationService:
             async def require_fresh_confirmation(self, db, **kwargs):
-                assert kwargs == {
-                    "novel_id": "novel-1",
-                    "action": "writing.generate",
-                    "confirmation_id": "conf-1",
-                }
+                fresh_calls.append(dict(kwargs))
                 return confirmation
 
             async def compile_from_confirmation(self, db, **kwargs):
@@ -208,12 +403,32 @@ class TestConfirmedAiAction:
             action="writing.generate",
             confirmation_id="conf-1",
         )
+        await service.prepare(
+            object(),
+            novel_id="novel-1",
+            action="writing.generate",
+            confirmation_id="conf-1",
+            for_update=True,
+        )
 
         assert result.confirmation is confirmation
         assert result.compiled is compiled
         assert "确认后的上下文" in result.rendered_markdown
         assert result.compile_options == {"budget_tokens": 1200}
         assert result.result_refs == [{"type": "task", "id": "old-task"}]
+        assert fresh_calls == [
+            {
+                "novel_id": "novel-1",
+                "action": "writing.generate",
+                "confirmation_id": "conf-1",
+            },
+            {
+                "novel_id": "novel-1",
+                "action": "writing.generate",
+                "confirmation_id": "conf-1",
+                "for_update": True,
+            },
+        ]
 
     @pytest.mark.asyncio
     async def test_prepare_confirmed_ai_action_rejects_stale_confirmation(self) -> None:
@@ -2604,6 +2819,27 @@ class TestContextCompiler:
                     "name": "秦岚",
                     "role": "调查员",
                     "current_goal": "确认警报来源",
+                },
+                {
+                    "character_id": str(uuid.uuid4()),
+                    "name": "林澈",
+                    "role": "工程师",
+                    "appearance": "袖口沾着黑色机油。",
+                    "personality": "内心极度猜疑。",
+                    "desire": "想夺取王位。",
+                    "relationship_summary": "他是秦岚失散多年的兄长。",
+                    "voice_style": "话少，常用短句。",
+                }
+            ],
+            plot_threads=[
+                {
+                    "id": "thread-1",
+                    "name": "警报调查线",
+                    "summary": "作者完整谋划：林澈是真凶。",
+                    "visible_goal": "找出警报的公开原因。",
+                    "current_stage": "初步排查。",
+                    "hidden_truth": "林澈故意触发警报。",
+                    "author_known_state": "作者已知真凶。",
                 }
             ],
             world_entities=[
@@ -2665,8 +2901,10 @@ class TestContextCompiler:
         keys = {section.key for section in sections}
         assert {
             "role_profile",
+            "role_observed_characters",
             "role_visible_knowledge",
             "role_relationship_context",
+            "safe_plotline_context",
             "role_scene_perception",
             "scene_director_constraints",
             "scene_time_boundary",
@@ -2686,6 +2924,20 @@ class TestContextCompiler:
         assert "必须发生" not in role_text
         assert "未来 Scene 泄漏内容" not in role_text
         assert "无 Scene 标注的章节 fallback 内容" not in role_text
+        assert "袖口沾着黑色机油" in role_text
+        assert "内心极度猜疑" not in role_text
+        assert "想夺取王位" not in role_text
+        assert "失散多年的兄长" not in role_text
+        assert "工程师" not in role_text
+
+        plotline = next(s for s in sections if s.key == "safe_plotline_context")
+        assert plotline.status == "director_only"
+        assert "警报调查线" in plotline.content
+        assert "找出警报的公开原因" in plotline.content
+        assert "初步排查" in plotline.content
+        assert "林澈是真凶" not in plotline.content
+        assert "林澈故意触发警报" not in plotline.content
+        assert "作者已知真凶" not in plotline.content
 
         director = next(s for s in sections if s.key == "scene_director_constraints")
         assert director.status == "director_only"

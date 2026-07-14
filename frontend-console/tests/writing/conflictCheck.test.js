@@ -112,10 +112,11 @@ describe("createConflictCheck", () => {
     await checker.refresh(1)
     document.body.innerHTML = checker.renderStrip()
     checker.bindEvents(document.body)
+    checker.bindEvents(document.body)
 
     document.querySelector('[data-action="open-conflict-check"]').click()
 
-    expect(showModalHtml).toHaveBeenCalled()
+    expect(showModalHtml).toHaveBeenCalledTimes(1)
     const call = showModalHtml.mock.calls.find(([title]) => title === "剧情设定冲突检查")
     expect(call).toBeDefined()
     expect(call[1]).toContain("c1")

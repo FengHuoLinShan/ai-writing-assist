@@ -7,7 +7,7 @@ to keep these tests fast and isolated.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -40,7 +40,7 @@ async def test_create_event_success_returns_event_context_dict(
 
     with patch(
         "modules.world.event_facade._event_service.create",
-        new_callable=AsyncMock,
+        autospec=True,
     ) as mock_create:
         mock_create.return_value = mock_event
 
@@ -79,7 +79,7 @@ async def test_create_event_with_none_time_label_returns_dict(
 
     with patch(
         "modules.world.event_facade._event_service.create",
-        new_callable=AsyncMock,
+        autospec=True,
     ) as mock_create:
         mock_create.return_value = mock_event
 
@@ -136,7 +136,7 @@ async def test_get_events_context_success_returns_bundle_with_events(
 
     with patch(
         "modules.world.event_facade._event_service.get_events_in_order",
-        new_callable=AsyncMock,
+        autospec=True,
     ) as mock_get:
         mock_get.return_value = [mock_ev1, mock_ev2]
 
@@ -160,7 +160,7 @@ async def test_get_events_context_empty_returns_empty_bundle(
     # Arrange
     with patch(
         "modules.world.event_facade._event_service.get_events_in_order",
-        new_callable=AsyncMock,
+        autospec=True,
     ) as mock_get:
         mock_get.return_value = []
 
@@ -193,7 +193,7 @@ async def test_get_entity_revisions_success_returns_revisions_dict(
 
     with patch(
         "modules.world.event_facade._revision_service.get_revisions",
-        new_callable=AsyncMock,
+        autospec=True,
     ) as mock_get:
         mock_get.return_value = expected
 
@@ -219,7 +219,7 @@ async def test_get_entity_revisions_defaults_skip_and_limit(
 
     with patch(
         "modules.world.event_facade._revision_service.get_revisions",
-        new_callable=AsyncMock,
+        autospec=True,
     ) as mock_get:
         mock_get.return_value = expected
 
@@ -247,7 +247,7 @@ async def test_rollback_to_revision_success_returns_dict(
 
     with patch(
         "modules.world.event_facade._revision_service.rollback_to_revision",
-        new_callable=AsyncMock,
+        autospec=True,
     ) as mock_rollback:
         mock_rollback.return_value = expected
 

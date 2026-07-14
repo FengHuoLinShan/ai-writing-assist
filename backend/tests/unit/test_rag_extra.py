@@ -435,7 +435,7 @@ class TestApiRoutes:
         """GREEN: POST /api/rag/chunks 调用 facade.create_chunk"""
         from modules.rag.schemas import RagChunkCreate
 
-        with patch("modules.rag.api.create_chunk", new_callable=AsyncMock) as mock_create:
+        with patch("modules.rag.api.create_chunk", autospec=True) as mock_create:
             mock_create.return_value = MagicMock(id="new-id", novel_id="n", text="t")
 
             from modules.rag.api import create_rag_chunk
@@ -457,10 +457,8 @@ class TestApiRoutes:
         ]
 
         with (
-            patch("modules.rag.api.list_chunks", new_callable=AsyncMock) as mock_list,
-            patch(
-                "modules.rag.api.get_index_status", new_callable=AsyncMock
-            ) as mock_status,
+            patch("modules.rag.api.list_chunks", autospec=True) as mock_list,
+            patch("modules.rag.api.get_index_status", autospec=True) as mock_status,
         ):
             mock_list.return_value = (mock_chunks, 1)
             mock_status.return_value = {"index_version": "v1", "total_chunks": 1}
@@ -513,7 +511,7 @@ class TestApiRoutes:
             degraded=False,
         )
 
-        with patch("modules.rag.api.retrieve", new_callable=AsyncMock) as mock_retrieve:
+        with patch("modules.rag.api.retrieve", autospec=True) as mock_retrieve:
             mock_retrieve.return_value = mock_bundle
 
             from modules.rag.api import retrieve_chunks
@@ -540,7 +538,7 @@ class TestApiRoutes:
 
         mock_bundle = RagResultBundle(chunks=[], total=0, query="empty")
 
-        with patch("modules.rag.api.retrieve", new_callable=AsyncMock) as mock_retrieve:
+        with patch("modules.rag.api.retrieve", autospec=True) as mock_retrieve:
             mock_retrieve.return_value = mock_bundle
 
             from modules.rag.api import retrieve_chunks
@@ -556,8 +554,12 @@ class TestApiRoutes:
     async def test_get_rag_metrics_returns_snapshot(self):
         """GREEN: GET /api/rag/metrics 返回指标 + 熔断器状态"""
         with (
-            patch("modules.rag.metrics.get_metrics") as mock_metrics_getter,
-            patch("modules.rag.circuit_breaker.get_circuit_breaker") as mock_cb_getter,
+            patch(
+                "modules.rag.metrics.get_metrics", autospec=True
+            ) as mock_metrics_getter,
+            patch(
+                "modules.rag.circuit_breaker.get_circuit_breaker", autospec=True
+            ) as mock_cb_getter,
         ):
             mock_metrics = MagicMock()
             mock_metrics.snapshot = {
@@ -632,7 +634,7 @@ class TestTasks:
     @pytest.mark.asyncio
     async def test_handle_rag_index_chapter_success(self):
         """GREEN: 章节索引任务正常执行"""
-        from modules.rag.contracts import RagIndexReport
+        from modules.rag.contracts import RagIndexReport, RagTaskIndexOutcome
 
         report = RagIndexReport(
             chapter_index=3,
@@ -642,18 +644,10 @@ class TestTasks:
             chunks_created_ids=["c1", "c2"],
         )
 
-        with (
-            patch(
-                "modules.rag.facade.index_chapter_with_report",
-                new_callable=AsyncMock,
-            ) as mock_index,
-            patch("modules.rag.index_state.RagIndexStateService") as state_class,
-        ):
-            mock_index.return_value = report
-            state_class.return_value.mark_running = AsyncMock()
-            state_class.return_value.finish = AsyncMock(return_value=None)
-            state_class.return_value.fail = AsyncMock()
-
+        mock_index = AsyncMock(return_value=RagTaskIndexOutcome(report=report))
+        reset()
+        register("rag.index_chapter_for_task", mock_index)
+        try:
             from modules.rag.tasks import handle_rag_index_chapter
 
             db = AsyncMock()
@@ -663,6 +657,8 @@ class TestTasks:
             assert result["chapter_index"] == 3
             assert result["chunks_created"] == 5
             assert result["embedding_failed_count"] == 0
+        finally:
+            reset()
 
     @pytest.mark.asyncio
     async def test_handle_rag_index_chapter_missing_novel_id_raises(self):
@@ -700,7 +696,7 @@ class TestTasks:
     @pytest.mark.asyncio
     async def test_handle_rag_reindex_novel_success(self):
         """GREEN: 全量重建任务正常执行"""
-        from modules.rag.contracts import RagIndexReport
+        from modules.rag.contracts import RagIndexReport, RagTaskIndexOutcome
 
         report = RagIndexReport(
             chapter_index=1, chunks_created=3, warnings=[], embedding_failed_count=0
@@ -708,18 +704,10 @@ class TestTasks:
 
         reset()
         register("writing.list_chapter_indices", AsyncMock(return_value=[1, 2]))
+        mock_index = AsyncMock(return_value=RagTaskIndexOutcome(report=report))
+        register("rag.index_chapter_for_task", mock_index)
 
-        with (
-            patch(
-                "modules.rag.facade.index_chapter_with_report",
-                new_callable=AsyncMock,
-            ) as mock_index,
-            patch("modules.rag.index_state.RagIndexStateService") as state_cls,
-        ):
-            mock_index.return_value = report
-            state_cls.return_value.begin_direct = AsyncMock(return_value=True)
-            state_cls.return_value.finish = AsyncMock()
-
+        try:
             from modules.rag.tasks import handle_rag_reindex_novel
 
             db = AsyncMock()
@@ -732,24 +720,25 @@ class TestTasks:
             assert result["chunks_created"] == 6
             assert len(result["chapters"]) == 2
             task.update_progress.assert_called()
-
-        reset()
+        finally:
+            reset()
 
     @pytest.mark.asyncio
     async def test_handle_rag_reindex_novel_coalesces_running_chapter(self):
         """A rebuild must not execute beside an indexer that already owns the row."""
+        from modules.rag.contracts import RagIndexReport, RagTaskIndexOutcome
+
         reset()
         register("writing.list_chapter_indices", AsyncMock(return_value=[1]))
+        mock_index = AsyncMock(
+            return_value=RagTaskIndexOutcome(
+                report=RagIndexReport(chapter_index=1),
+                status="coalesced",
+            )
+        )
+        register("rag.index_chapter_for_task", mock_index)
 
-        with (
-            patch(
-                "modules.rag.facade.index_chapter_with_report",
-                new_callable=AsyncMock,
-            ) as mock_index,
-            patch("modules.rag.index_state.RagIndexStateService") as state_cls,
-        ):
-            state_cls.return_value.begin_direct = AsyncMock(return_value=False)
-
+        try:
             from modules.rag.tasks import handle_rag_reindex_novel
 
             db = AsyncMock()
@@ -757,12 +746,12 @@ class TestTasks:
             task.update_progress = MagicMock()
 
             result = await handle_rag_reindex_novel(db, task)
-
-        assert result["chunks_created"] == 0
-        assert result["chapters"][0]["coalesced"] is True
-        assert "已合并" in result["warnings"][0]
-        mock_index.assert_not_awaited()
-        reset()
+            assert result["chunks_created"] == 0
+            assert result["chapters"][0]["coalesced"] is True
+            assert "已合并" in result["warnings"][0]
+            mock_index.assert_awaited_once()
+        finally:
+            reset()
 
     @pytest.mark.asyncio
     async def test_handle_rag_reindex_novel_missing_novel_id_raises(self):
@@ -778,7 +767,7 @@ class TestTasks:
     @pytest.mark.asyncio
     async def test_handle_rag_reindex_novel_with_range(self):
         """GREEN: 指定起止章节范围"""
-        from modules.rag.contracts import RagIndexReport
+        from modules.rag.contracts import RagIndexReport, RagTaskIndexOutcome
 
         report = RagIndexReport(
             chapter_index=2, chunks_created=4, warnings=[], embedding_failed_count=0
@@ -786,18 +775,10 @@ class TestTasks:
 
         reset()
         register("writing.list_chapter_indices", AsyncMock(return_value=[1, 2, 3, 4, 5]))
+        mock_index = AsyncMock(return_value=RagTaskIndexOutcome(report=report))
+        register("rag.index_chapter_for_task", mock_index)
 
-        with (
-            patch(
-                "modules.rag.facade.index_chapter_with_report",
-                new_callable=AsyncMock,
-            ) as mock_index,
-            patch("modules.rag.index_state.RagIndexStateService") as state_cls,
-        ):
-            mock_index.return_value = report
-            state_cls.return_value.begin_direct = AsyncMock(return_value=True)
-            state_cls.return_value.finish = AsyncMock()
-
+        try:
             from modules.rag.tasks import handle_rag_reindex_novel
 
             db = AsyncMock()
@@ -814,8 +795,8 @@ class TestTasks:
 
             assert result["total_chapters"] == 3
             assert mock_index.await_count == 3
-
-        reset()
+        finally:
+            reset()
 
     @pytest.mark.asyncio
     async def test_handle_rag_reindex_novel_empty_chapters(self):
@@ -1129,9 +1110,7 @@ class TestTuningExtra:
         """EDGE: 评估集为空返回空报告"""
         from modules.rag.tuning import TuningReport
 
-        with patch(
-            "modules.rag.tuning.build_eval_set", new_callable=AsyncMock
-        ) as mock_build:
+        with patch("modules.rag.tuning.build_eval_set", autospec=True) as mock_build:
             mock_build.return_value = []
 
             from modules.rag.tuning import run_tuning

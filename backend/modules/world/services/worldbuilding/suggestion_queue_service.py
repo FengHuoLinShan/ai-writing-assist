@@ -84,6 +84,15 @@ class SuggestionQueueService:
         while the queue remains the owner of adoption.  Confirmation promotes
         that same shadow, so no second entity is created.
         """
+        from modules.world.services.core.entity_types import (
+            normalize_system_entity_type,
+        )
+
+        payload = payload.model_copy(
+            update={
+                "entity_type": normalize_system_entity_type(payload.entity_type),
+            }
+        )
         if compatibility_status not in {None, "draft", "candidate"}:
             raise ValidationError(
                 "compatibility_status must be draft or candidate for a pending "
@@ -152,6 +161,14 @@ class SuggestionQueueService:
             data.target_type,
             data.payload_json,
         )
+        if data.target_type in {"core_entity", "core_entity_draft"}:
+            from modules.world.services.core.entity_types import (
+                normalize_system_entity_type,
+            )
+
+            payload_json["entity_type"] = normalize_system_entity_type(
+                payload_json["entity_type"]
+            )
         suggestion = CreationSuggestion(
             novel_id=parse_uuid(data.novel_id, "novel_id"),
             source_module=data.source_module,

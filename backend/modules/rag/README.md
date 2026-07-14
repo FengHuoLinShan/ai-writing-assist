@@ -39,6 +39,17 @@ RAG P@5/MRR/R@10 语义质量评测。
 必须指向实际执行时选中的 draft。working 来源只读取 writing 已采用版本；未采用 AI
 `candidate` 不进入 latest working 或 RAG 索引。
 
+TaskWorker 中的章节索引不在 PostgreSQL 事务内等待 embedding provider 或本地
+embedding 队列。它在每个短事务开始时先取 `Project FOR SHARE`：先读取并切分
+source，通过 lease/project fence checkpoint 释放读事务并立即过期 session
+identity map，再生成 embedding；入库前重新取 project lock，并在同一索引状态锁下
+校验 source ID/hash。成功替换 chunk 和
+完成 index state 后立即 fenced commit，不把 state/chunk 锁带入下一章或 memory 阶段。
+预计算期间若产生新 source，旧计划不入库，最多重新读取 3 次；同一 source 的
+重复任务在入库前合并；最终索引延迟统计包含同一任务中废弃计划的重读与
+embedding 时间。这只改变内部事务切分，不改变 RAG API、chunk schema、
+`novel_id` 隔离或 source hash 契约。
+
 ## 检索类型
 
 | 检索类型 | 方法 | 说明 |
@@ -87,6 +98,19 @@ score = 0.45 × vector_score
 
 索引版本 `cn-novel-v1` 使用正文 offset、chunk_index 和 embedding_status 记录索引质量。embedding 失败不阻塞索引，但会写入 warnings 并让前端提示“结果可能不准确”。失败或待重新向量化的 chunk 可通过 `rag_retry_embeddings` 任务重试 embedding；该任务不重新切段、不删除 chunk，也不修改来源元数据。
 
+TaskWorker 重试向量时也不在数据库事务内等待 embedding provider。
+每批先获取 `Project FOR SHARE` 再读取候选，复制 chunk ID、
+text、待重试状态和 source/version 指纹后执行 lease-fenced checkpoint；
+provider 返回后重新获取 project lock，再按同一 `novel_id + chunk IDs`
+锁定重读，所有短事务都保持 project 先于 chunk 的锁顺序。
+只有 text、状态和来源/版本指纹全部未变的候选才写回；已被并发任务
+成功推进、删除或移出请求范围的 chunk 计入已解决但不覆盖，其他仍可重试的
+过期计划会跳过并按新值重读。计数按 chunk ID 去重，避免同一行在并发状态
+推进中被重复累计。
+每批写回后立即 checkpoint，批内 provider 失败则持久化仍匹配的失败结果并
+终止本次任务循环。普通 `retry_embeddings()` 仍由 API/service 调用方拥有事务，
+不自主 commit。
+
 ## 对外契约
 
 其他模块可通过 `contracts.py` 和 `facade.py` 使用本模块：
@@ -116,6 +140,22 @@ from modules.rag.facade import retrieve, split_text_into_chunks, get_ordered_cha
   - 给抽取链路提供有序正文材料
 - `split_text_into_chunks(text, method, **kwargs) -> list[str]`
   - 文本分割工具
+
+### Task-only seams
+
+`rag.index_chapter_for_task` 注册为组合根 DI port，不是 RAG facade 公开契约。
+它严格依赖 TaskWorker 的 commit hook；普通 API/service session 由调用方拥有
+事务，调用该 port 会直接拒绝。Deletion test：删除该 port 并让 task 复用
+`index_chapter_with_report` 会重新在 embedding 期间持有事务；反过来让现有
+入口自主 commit，会破坏 API、world draft provider 和 eval 等调用方拥有
+事务的契约。因此该 DI seam 承载不同的事务所有权，不是 pass-through
+重复接口。
+
+`rag_retry_embeddings` 由 RAG 自己的 task handler 消费，因此使用模块内部
+`retry_embeddings_for_task()` seam，不额外注册跨模块 DI port。它同样要求
+TaskWorker commit hook，普通 session 会直接拒绝。Deletion test：让 task handler
+回用普通 `retry_embeddings()` 会再次在 provider 等待期间持有 chunk/project
+读事务；反向替换普通入口则会破坏调用方的事务所有权。
 
 ## API 路由
 

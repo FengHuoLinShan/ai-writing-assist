@@ -153,9 +153,7 @@ async def restore_project_llm_execution_settings(
             "Project LLM API key was not configured when the task started"
         )
     if not public_profile.get("model") or not public_profile.get("base_url_hash"):
-        raise ProjectLLMConfigurationError(
-            "Project LLM base_url and model are required"
-        )
+        raise ProjectLLMConfigurationError("Project LLM base_url and model are required")
 
     (
         materialized,
@@ -165,8 +163,10 @@ async def restore_project_llm_execution_settings(
     if not current_profile.api_key:
         raise ProjectLLMConfigurationError("Project LLM API key is not configured")
     if not current_profile.base_url or not public_profile.get("model"):
+        raise ProjectLLMConfigurationError("Project LLM base_url and model are required")
+    if current_profile.provider_id != public_profile.get("provider_id"):
         raise ProjectLLMConfigurationError(
-            "Project LLM base_url and model are required"
+            "Project LLM provider changed after the task started"
         )
     if _stable_hash(current_profile.base_url) != public_profile.get("base_url_hash"):
         raise ProjectLLMConfigurationError(

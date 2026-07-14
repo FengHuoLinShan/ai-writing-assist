@@ -53,9 +53,9 @@ make test-fast-coverage TEST_WORKERS=2  # CI-equivalent fast layer with 85% cove
 make test-v                      # Fast layer, verbose, stop on first failure
 make test ARGS="-k test_create"  # Filter by test name
 make test-integration            # SQLite cross-module integration tests
-make test-e2e                    # PostgreSQL E2E; database and Alembic head are required
+E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e  # Explicit test DB at Alembic head
 make test-real-llm               # Explicit SQLite real-model acceptance
-make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt  # Real corpus + PostgreSQL/model acceptance
+E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt  # Real corpus + PostgreSQL/model acceptance
 make test-frontend FRONTEND_ARGS="stateTopbarHelp.test.js"  # Frontend Vitest
 make test-all                    # Fast backend layer, then frontend tests
 make secret-hygiene              # Scan tracked/indexed files for credential regressions

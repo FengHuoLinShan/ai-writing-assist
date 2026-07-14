@@ -600,6 +600,15 @@ _TIER_HEADERS: dict[str, str] = {
     "style_assets": "七、风格素材",
     "hard_constraints": "八、必须遵守的硬约束",
     "compiler_warnings": "九、编译器警告",
+    "role_profile": "POV 角色档案",
+    "role_observed_characters": "POV 可观察的相关人物",
+    "role_visible_knowledge": "角色可见知识",
+    "role_relationship_context": "角色可见关系",
+    "safe_plotline_context": "当前剧情线导演摘要",
+    "role_scene_perception": "当前 Scene 可感知信息",
+    "scene_director_constraints": "Scene 导演约束",
+    "scene_time_boundary": "Scene 时间边界",
+    "current_scene_evidence": "当前 Scene 证据",
 }
 
 

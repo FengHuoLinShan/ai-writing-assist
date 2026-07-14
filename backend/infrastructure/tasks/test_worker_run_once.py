@@ -3,9 +3,13 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, insert, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from core.logging_context import (
+    bind_validated_novel_id,
+    current_novel_id_for_log,
+)
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import TaskRegistry
 from infrastructure.tasks.worker import TaskWorker
@@ -73,3 +77,312 @@ async def test_run_once_returns_reloaded_terminal_task(
         registry.unregister(task_type)
         async with sessions.begin() as cleanup_db:
             await cleanup_db.execute(delete(AsyncTask).where(AsyncTask.id == task_id))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "opens_transaction",
+    [False, True],
+    ids=["no-transaction", "read-transaction"],
+)
+async def test_successful_preflight_leaves_handler_without_transaction(
+    test_engine,
+    caplog,
+    opens_transaction: bool,
+) -> None:
+    """A real handler session starts outside the preflight read transaction."""
+    sessions = async_sessionmaker(
+        test_engine,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+    task_id = uuid.uuid4()
+    task_type = f"run-once-preflight-read-{uuid.uuid4()}"
+    novel_id = str(uuid.uuid4())
+    expected_meta = {"novel_id": novel_id, "payload": "preserved"}
+    registry = TaskRegistry()
+    observed: dict[str, object] = {}
+
+    class TestManager:
+        def __init__(self) -> None:
+            self.engine = test_engine
+            self.session_factory = sessions
+
+    async def preflight(db, task):
+        if opens_transaction:
+            await db.execute(select(1))
+        assert db.in_transaction() is opens_transaction
+        assert bind_validated_novel_id(novel_id) is True
+
+    async def handler(*, db, task):
+        observed["in_transaction"] = db.in_transaction()
+        observed["meta"] = dict(task.meta or {})
+        observed["progress"] = task.progress
+        observed["log_novel_id"] = current_novel_id_for_log()
+        return {"ok": True}
+
+    registry.register(task_type, handler)
+    try:
+        async with sessions.begin() as setup_db:
+            setup_db.add(
+                AsyncTask(
+                    id=task_id,
+                    task_type=task_type,
+                    status="pending",
+                    progress=0.25,
+                    meta=expected_meta,
+                )
+            )
+
+        worker = TaskWorker(
+            db_manager=TestManager(),
+            heartbeat_interval=60.0,
+            task_preflight=preflight,
+        )
+        with caplog.at_level("INFO", logger="infrastructure.tasks.worker"):
+            returned = await worker.run_once()
+
+        assert returned is not None
+        assert returned.status == "done"
+        assert observed == {
+            "in_transaction": False,
+            "meta": expected_meta,
+            "progress": 0.25,
+            "log_novel_id": novel_id,
+        }
+        assert f"novel_id={novel_id}" in "\n".join(caplog.messages)
+        assert current_novel_id_for_log() == "<none>"
+    finally:
+        registry.unregister(task_type)
+        async with sessions.begin() as cleanup_db:
+            await cleanup_db.execute(delete(AsyncTask).where(AsyncTask.id == task_id))
+
+
+@pytest.mark.asyncio
+async def test_preflight_exception_rolls_back_and_skips_handler(test_engine) -> None:
+    sessions = async_sessionmaker(
+        test_engine,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+    task_id = uuid.uuid4()
+    task_type = f"run-once-preflight-error-{uuid.uuid4()}"
+    novel_id = str(uuid.uuid4())
+    registry = TaskRegistry()
+    handler_called = False
+
+    class TestManager:
+        def __init__(self) -> None:
+            self.engine = test_engine
+            self.session_factory = sessions
+
+    async def preflight(db, _task):
+        await db.execute(select(1))
+        bind_validated_novel_id(novel_id)
+        raise RuntimeError("expected preflight rejection")
+
+    async def handler(*, db, task):
+        nonlocal handler_called
+        handler_called = True
+        return {"unexpected": True}
+
+    registry.register(task_type, handler)
+    try:
+        async with sessions.begin() as setup_db:
+            setup_db.add(
+                AsyncTask(
+                    id=task_id,
+                    task_type=task_type,
+                    status="pending",
+                    meta={"novel_id": novel_id},
+                )
+            )
+
+        returned = await TaskWorker(
+            db_manager=TestManager(),
+            heartbeat_interval=60.0,
+            task_preflight=preflight,
+        ).run_once()
+
+        assert returned is not None
+        assert returned.status == "failed"
+        assert returned.error_message == "RuntimeError: expected preflight rejection"
+        assert handler_called is False
+        assert current_novel_id_for_log() == "<none>"
+    finally:
+        registry.unregister(task_type)
+        async with sessions.begin() as cleanup_db:
+            await cleanup_db.execute(delete(AsyncTask).where(AsyncTask.id == task_id))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "write_mode",
+    ["new", "dirty", "deleted", "flush", "commit"],
+)
+async def test_preflight_orm_write_fails_task_and_is_rolled_back(
+    test_engine,
+    write_mode: str,
+) -> None:
+    """A real preflight cannot smuggle an ORM write into the handler attempt."""
+    sessions = async_sessionmaker(
+        test_engine,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+    task_id = uuid.uuid4()
+    staged_task_id = uuid.uuid4()
+    task_type = f"run-once-preflight-write-{uuid.uuid4()}"
+    registry = TaskRegistry()
+    handler_called = False
+
+    class TestManager:
+        def __init__(self) -> None:
+            self.engine = test_engine
+            self.session_factory = sessions
+
+    async def preflight(db, _task):
+        if write_mode in {"dirty", "deleted"}:
+            staged = await db.get(AsyncTask, staged_task_id)
+            assert staged is not None
+            if write_mode == "dirty":
+                staged.progress = 0.75
+            else:
+                await db.delete(staged)
+        else:
+            db.add(
+                AsyncTask(
+                    id=staged_task_id,
+                    task_type="forbidden-preflight-write",
+                    status="done",
+                    meta={},
+                )
+            )
+        if write_mode == "flush":
+            await db.flush()
+        elif write_mode == "commit":
+            await db.commit()
+
+    async def handler(*, db, task):
+        nonlocal handler_called
+        handler_called = True
+        return {"unexpected": True}
+
+    registry.register(task_type, handler)
+    try:
+        async with sessions.begin() as setup_db:
+            setup_db.add(
+                AsyncTask(
+                    id=task_id,
+                    task_type=task_type,
+                    status="pending",
+                    meta={},
+                )
+            )
+            if write_mode in {"dirty", "deleted"}:
+                setup_db.add(
+                    AsyncTask(
+                        id=staged_task_id,
+                        task_type="existing-preflight-write-target",
+                        status="done",
+                        progress=0.1,
+                        meta={},
+                    )
+                )
+
+        worker = TaskWorker(
+            db_manager=TestManager(),
+            heartbeat_interval=60.0,
+            task_preflight=preflight,
+        )
+        returned = await worker.run_once()
+
+        assert returned is not None
+        assert returned.status == "failed"
+        assert returned.error_message == (
+            "RuntimeError: Task preflight must be read-only"
+        )
+        assert handler_called is False
+        async with sessions() as verify_db:
+            staged = await verify_db.get(AsyncTask, staged_task_id)
+            if write_mode in {"dirty", "deleted"}:
+                assert staged is not None
+                assert staged.progress == 0.1
+            else:
+                assert staged is None
+    finally:
+        registry.unregister(task_type)
+        async with sessions.begin() as cleanup_db:
+            await cleanup_db.execute(
+                delete(AsyncTask).where(AsyncTask.id.in_((task_id, staged_task_id)))
+            )
+
+
+@pytest.mark.asyncio
+async def test_preflight_core_dml_is_rolled_back_before_handler(test_engine) -> None:
+    """Core DML is not in ORM state sets, but the boundary still discards it."""
+    sessions = async_sessionmaker(
+        test_engine,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+    task_id = uuid.uuid4()
+    staged_task_id = uuid.uuid4()
+    task_type = f"run-once-preflight-core-dml-{uuid.uuid4()}"
+    registry = TaskRegistry()
+    handler_called = False
+
+    class TestManager:
+        def __init__(self) -> None:
+            self.engine = test_engine
+            self.session_factory = sessions
+
+    async def preflight(db, _task):
+        await db.execute(
+            insert(AsyncTask).values(
+                id=staged_task_id,
+                task_type="discarded-preflight-core-dml",
+                status="done",
+                progress=1.0,
+                meta={},
+            )
+        )
+        assert not db.new and not db.dirty and not db.deleted
+
+    async def handler(*, db, task):
+        nonlocal handler_called
+        handler_called = True
+        assert db.in_transaction() is False
+        assert await db.get(AsyncTask, staged_task_id) is None
+        return {"ok": True}
+
+    registry.register(task_type, handler)
+    try:
+        async with sessions.begin() as setup_db:
+            setup_db.add(
+                AsyncTask(
+                    id=task_id,
+                    task_type=task_type,
+                    status="pending",
+                    meta={},
+                )
+            )
+
+        worker = TaskWorker(
+            db_manager=TestManager(),
+            heartbeat_interval=60.0,
+            task_preflight=preflight,
+        )
+        returned = await worker.run_once()
+
+        assert returned is not None
+        assert returned.status == "done"
+        assert handler_called is True
+        async with sessions() as verify_db:
+            assert await verify_db.get(AsyncTask, staged_task_id) is None
+    finally:
+        registry.unregister(task_type)
+        async with sessions.begin() as cleanup_db:
+            await cleanup_db.execute(
+                delete(AsyncTask).where(AsyncTask.id.in_((task_id, staged_task_id)))
+            )

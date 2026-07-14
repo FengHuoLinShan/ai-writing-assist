@@ -8,6 +8,7 @@ RAG 数据访问层
 from __future__ import annotations
 
 import uuid
+from collections import defaultdict
 from collections.abc import Sequence
 
 from sqlalchemy import Float, and_, case, delete, exists, func, or_, select, text
@@ -230,19 +231,30 @@ class RagChunkRepository:
         db: AsyncSession,
         rows: list[dict],
     ) -> None:
+        if not rows:
+            return
+
+        # Preserve the old row-by-row/autoflush behavior for duplicate input
+        # keys: the last item updates the row created or matched by the first.
+        rows_by_key: dict[tuple, dict] = {}
         for row in rows:
-            conditions = [
-                RagChunk.novel_id == row["novel_id"],
-                RagChunk.source_type == row["source_type"],
-                RagChunk.chapter_index == row["chapter_index"],
-                RagChunk.chunk_index == row["chunk_index"],
-                RagChunk.index_version == row["index_version"],
-                RagChunk.content_mode == row["content_mode"],
-            ]
-            if row["source_type"] != "chapter_text":
-                conditions.append(RagChunk.source_id == row["source_id"])
-            result = await db.execute(select(RagChunk).where(*conditions))
-            matches = list(result.scalars().all())
+            rows_by_key[self._manual_upsert_key_from_row(row)] = row
+
+        stmt = select(RagChunk).where(
+            RagChunk.novel_id.in_({row["novel_id"] for row in rows}),
+            RagChunk.source_type.in_({row["source_type"] for row in rows}),
+            RagChunk.chapter_index.in_({row["chapter_index"] for row in rows}),
+            RagChunk.index_version.in_({row["index_version"] for row in rows}),
+            RagChunk.content_mode.in_({row["content_mode"] for row in rows}),
+        )
+        result = await db.execute(stmt)
+        existing_by_key: dict[tuple, list[RagChunk]] = defaultdict(list)
+        for chunk in result.scalars().all():
+            existing_by_key[self._manual_upsert_key_from_chunk(chunk)].append(chunk)
+
+        duplicate_ids: list[uuid.UUID] = []
+        for key, row in rows_by_key.items():
+            matches = existing_by_key.pop(key, [])
             if not matches:
                 db.add(RagChunk(**row))
                 continue
@@ -250,9 +262,36 @@ class RagChunkRepository:
             for field, value in row.items():
                 if field != "id":
                     setattr(existing, field, value)
-            duplicate_ids = [chunk.id for chunk in matches[1:]]
-            if duplicate_ids:
-                await self.delete_many(db, duplicate_ids)
+            duplicate_ids.extend(chunk.id for chunk in matches[1:])
+        if duplicate_ids:
+            await db.execute(delete(RagChunk).where(RagChunk.id.in_(duplicate_ids)))
+
+    @staticmethod
+    def _manual_upsert_key_from_row(row: dict) -> tuple:
+        source_id = row["source_id"] if row["source_type"] != "chapter_text" else None
+        return (
+            row["novel_id"],
+            row["source_type"],
+            source_id,
+            row["chapter_index"],
+            row["chunk_index"],
+            row["index_version"],
+            row["content_mode"],
+        )
+
+    @classmethod
+    def _manual_upsert_key_from_chunk(cls, chunk: RagChunk) -> tuple:
+        return cls._manual_upsert_key_from_row(
+            {
+                "novel_id": chunk.novel_id,
+                "source_type": chunk.source_type,
+                "source_id": chunk.source_id,
+                "chapter_index": chunk.chapter_index,
+                "chunk_index": chunk.chunk_index,
+                "index_version": chunk.index_version,
+                "content_mode": chunk.content_mode,
+            }
+        )
 
     async def get(
         self,
@@ -1004,6 +1043,79 @@ class RagChunkRepository:
                 RagChunk.id.asc(),
             )
             .limit(limit)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def find_embedding_retry_candidate_values(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        statuses: list[str],
+        start_chapter: int | None = None,
+        end_chapter: int | None = None,
+        limit: int = 500,
+    ) -> list:
+        """Read the scalar fields needed by task-only embedding retry plans.
+
+        Returning row projections keeps the plan independent of the session
+        identity map after the task checkpoint and avoids loading stale vectors
+        or unrelated JSON metadata for provider calls.
+        """
+        stmt = (
+            select(
+                RagChunk.id,
+                RagChunk.novel_id,
+                RagChunk.text,
+                RagChunk.embedding_status,
+                RagChunk.source_type,
+                RagChunk.source_id,
+                RagChunk.source_content_hash,
+                RagChunk.content_mode,
+                RagChunk.chapter_index,
+                RagChunk.chunk_index,
+                RagChunk.index_version,
+            )
+            .where(
+                and_(
+                    *self._embedding_retry_conditions(
+                        novel_id,
+                        statuses,
+                        start_chapter,
+                        end_chapter,
+                    )
+                )
+            )
+            .order_by(
+                RagChunk.chapter_index.asc(),
+                RagChunk.chunk_index.asc(),
+                RagChunk.id.asc(),
+            )
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        return list(result.all())
+
+    async def find_embedding_retry_rows_by_ids_for_update(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chunk_ids: Sequence[uuid.UUID],
+    ) -> list[RagChunk]:
+        """Reload one retry batch under same-novel row locks before write-back."""
+        unique_ids = sorted(set(chunk_ids), key=str)
+        if not unique_ids:
+            return []
+        stmt = (
+            select(RagChunk)
+            .where(
+                RagChunk.novel_id == novel_id,
+                RagChunk.id.in_(unique_ids),
+            )
+            .order_by(RagChunk.id.asc())
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())

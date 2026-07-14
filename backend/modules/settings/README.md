@@ -57,6 +57,9 @@ refresh 不绑定单个项目，不使用该门禁。
 - `GET /api/projects/{id}/effective-author-preferences` — 合并视图
 - `DELETE /api/projects/{id}/llm-settings/field/{field_name}` — LLM 字段恢复继承
 
+上述 effective 接口同样以 active project 为边界；项目不存在或已进入回收站时返回
+标准 DomainError 404，不回退到系统默认，也不暴露普通 Python 异常。
+
 ## 跨模块边界
 
 - `modules.settings.services` 拥有 effective settings 计算规则，接收 raw project settings dict，不直接读取 project 模块。

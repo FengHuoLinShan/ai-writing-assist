@@ -32,6 +32,70 @@ class _DeterministicWritingClient:
         return None
 
 
+async def _run_handler_as_task_worker(
+    db_session: AsyncSession,
+    task: AsyncTask,
+    handler,
+):
+    """Execute one queued task with the same detached lease fence as TaskWorker."""
+    from infrastructure.tasks.lifecycle import TaskLifecycleService
+    from infrastructure.tasks.worker import TaskWorker, _TaskHandlerSession
+    from run_worker import (
+        _guard_active_task_project_finalize,
+        _require_active_task_project,
+    )
+
+    lease_id = str(uuid.uuid4())
+    task.mark_running(lease_id=lease_id)
+    # The API test dependency shares this session and only flushes.  Release its
+    # savepoint before opening the worker-like session, as a real claim does.
+    await db_session.commit()
+    db_session.expunge(task)
+
+    bind = db_session.bind
+    assert bind is not None
+    lifecycle = TaskLifecycleService()
+    task_session = _TaskHandlerSession(
+        bind=bind,
+        expire_on_commit=False,
+        autoflush=False,
+        join_transaction_mode="create_savepoint",
+    )
+
+    async def _checkpoint() -> bool:
+        if not await _guard_active_task_project_finalize(task_session, task):
+            return False
+        return await lifecycle.checkpoint_running_attempt(
+            task_session,
+            task=task,
+            lease_id=lease_id,
+        )
+
+    task_session.set_task_commit_hook(_checkpoint)
+    try:
+        task_session.begin_task_preflight()
+        try:
+            await _require_active_task_project(task_session, task)
+            await TaskWorker._finish_task_preflight(task_session)
+        finally:
+            task_session.end_task_preflight()
+
+        result = await handler(task_session, task)
+        task_session.disable_task_commit_hook()
+        assert await _guard_active_task_project_finalize(task_session, task)
+        accepted = await lifecycle.finalize(
+            task_session,
+            task_id=task.id,
+            lease_id=lease_id,
+            status="done",
+            result_data=result,
+        )
+        assert accepted is True
+        return result
+    finally:
+        await task_session.close()
+
+
 async def test_import_generate_publish_and_retrieve_serial_flow(
     async_client: AsyncClient,
     db_session: AsyncSession,
@@ -117,7 +181,11 @@ async def test_import_generate_publish_and_retrieve_serial_flow(
     )
     assert [task.meta["chapter_index"] for task in import_tasks] == [1, 2]
     for import_task in import_tasks:
-        import_publish_result = await handle_publish_chapter(db_session, import_task)
+        import_publish_result = await _run_handler_as_task_worker(
+            db_session,
+            import_task,
+            handle_publish_chapter,
+        )
         assert import_publish_result["rag_chunks"] >= 1
         assert import_publish_result["snapshot_id"]
 
@@ -142,7 +210,11 @@ async def test_import_generate_publish_and_retrieve_serial_flow(
         uuid.UUID(other_published.json()["task_id"]),
     )
     assert other_publish_task is not None
-    await handle_publish_chapter(db_session, other_publish_task)
+    await _run_handler_as_task_worker(
+        db_session,
+        other_publish_task,
+        handle_publish_chapter,
+    )
 
     confirmation = await async_client.post(
         "/api/context/confirm",
@@ -174,7 +246,11 @@ async def test_import_generate_publish_and_retrieve_serial_flow(
     )
     assert generation_task is not None
 
-    generation_result = await handle_writing_generate(db_session, generation_task)
+    generation_result = await _run_handler_as_task_worker(
+        db_session,
+        generation_task,
+        handle_writing_generate,
+    )
     candidate_id = generation_result["draft_id"]
     assert len(writing_client.requests) == 1
     generation_prompt = writing_client.requests[0].messages[-1].content
@@ -215,7 +291,11 @@ async def test_import_generate_publish_and_retrieve_serial_flow(
         uuid.UUID(publish_payload["task_id"]),
     )
     assert publish_task is not None
-    publish_result = await handle_publish_chapter(db_session, publish_task)
+    publish_result = await _run_handler_as_task_worker(
+        db_session,
+        publish_task,
+        handle_publish_chapter,
+    )
     assert publish_result["rag_chunks"] >= 1
     assert publish_result["snapshot_id"]
 

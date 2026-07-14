@@ -57,7 +57,7 @@ test-v:  ## Run the fast backend layer verbosely and stop on the first failure
 test-integration:  ## Run the SQLite cross-module integration layer
 	cd $(BACKEND_DIR) && pytest tests/integration -m "not e2e and not real_llm and not external_data" $(ARGS)
 
-test-e2e:  ## Run PostgreSQL E2E tests; database and migrations are required
+test-e2e:  ## Run PostgreSQL E2E tests; explicit dedicated E2E_DATABASE_URL required
 	cd $(BACKEND_DIR) && RUN_E2E_TESTS=1 pytest tests/e2e -m "not real_llm and not external_data" $(ARGS)
 
 test-real-llm:  ## Run SQLite real-LLM acceptance tests explicitly

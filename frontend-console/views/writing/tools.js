@@ -71,16 +71,16 @@ export function createWritingTools({
 
   function bindEvents(container) {
     container.querySelectorAll('[data-action="export-chapter"]').forEach((btn) => {
-      btn.addEventListener("click", () => exportChapter())
+      btn.onclick = () => exportChapter()
     })
     container.querySelectorAll('[data-action="ai-generate-draft"]').forEach((btn) => {
-      btn.addEventListener("click", () => generateDraft())
+      btn.onclick = () => generateDraft()
     })
     container.querySelectorAll('[data-action="ai-generate-pov-draft"]').forEach((btn) => {
-      btn.addEventListener("click", () => generatePovDraft())
+      btn.onclick = () => generatePovDraft()
     })
     container.querySelectorAll('[data-action="split-scene"]').forEach((btn) => {
-      btn.addEventListener("click", () => showSplitSceneForm())
+      btn.onclick = () => showSplitSceneForm()
     })
   }
 
@@ -172,12 +172,14 @@ export function createWritingTools({
       return
     }
     try {
+      const currentScene = findCurrentScene()
       const confirmation = await confirmAiReference({
         novel_id: projectId,
         action: "writing.generate",
         task: "生成正文建议预览",
         scope: "chapter",
         chapter_index: currentChapter,
+        scene_id: currentScene?.id,
         include_pending_objects: false,
       })
       const result = await api.writing.generate({

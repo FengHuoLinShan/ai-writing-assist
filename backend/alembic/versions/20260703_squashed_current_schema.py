@@ -8,22 +8,18 @@ This project is still in demo-stage schema development. The historical
 step-by-step migrations were intentionally squashed into this current-schema
 initializer. Intermediate demo databases should be recreated instead of
 upgraded through removed historical revisions.
+
+The checked-in DDL snapshots were compiled from the final metadata immediately
+before the first post-squash revision (commit e06868bbd).  Never regenerate
+them from live ORM metadata: later revisions exclusively own subsequent schema
+changes.
 """
 
+import hashlib
 from collections.abc import Sequence
+from pathlib import Path
 
-import infrastructure.tasks.models  # noqa: F401
-import modules.context.models  # noqa: F401
-import modules.imports.models  # noqa: F401
-import modules.memory.models  # noqa: F401
-import modules.outline.models  # noqa: F401
-import modules.project.models  # noqa: F401
-import modules.rag.models  # noqa: F401
-import modules.world.map_models  # noqa: F401
-import modules.world.models  # noqa: F401
-import modules.writing.models  # noqa: F401
-from alembic import op
-from core.base import Base
+from alembic import context, op
 from core.config import Settings
 
 revision: str = "20260703_scene_chapter_links"
@@ -47,6 +43,74 @@ _ALLOWED_VECTOR_INDEX_TARGETS = {
     ),
 }
 
+_FROZEN_SCHEMA_FILES = {
+    "postgresql": "20260703_postgresql.sql",
+    "sqlite": "20260703_sqlite.sql",
+}
+_FROZEN_SCHEMA_SHA256 = {
+    "postgresql": "cf05b126b4733d4dbc6a887f34c8d1c4e3d327c06374d4d2ce471c399ed888ba",
+    "sqlite": "51d251bffd15a297cc8b23bd827f7e9d8361832cebf8b99fbcc3b7445dc5d436",
+}
+_FROZEN_TABLES_IN_CREATE_ORDER = (
+    "async_tasks",
+    "projects",
+    "conflict_check_queue",
+    "context_confirmations",
+    "context_snapshots",
+    "core_entities",
+    "creation_suggestion_queue",
+    "delta_log",
+    "entity_profile_templates",
+    "foreshadowing_plans",
+    "import_records",
+    "knowledge_tags",
+    "knowledge_visibility_policies",
+    "memory_events",
+    "memory_snapshots",
+    "outline_arcs",
+    "plot_threads",
+    "rag_chunks",
+    "reader_reveal_policies",
+    "reveal_plans",
+    "scenes",
+    "text_archive",
+    "world_bible_pages",
+    "writing_drafts",
+    "asset_knowledge_tags",
+    "characters",
+    "faction_profiles",
+    "generic_entity_profiles",
+    "imported_chapters",
+    "item_profiles",
+    "location_profiles",
+    "map_configs",
+    "rule_profiles",
+    "scene_chapter_links",
+    "secret_profiles",
+    "species_profiles",
+    "world_bible_page_projections",
+    "world_bible_page_revisions",
+    "writing_conflict_checks",
+    "character_knowledge",
+    "character_knowledge_tags",
+    "entity_relations",
+    "entity_revisions",
+    "events",
+    "knowledge_tag_exclusions",
+    "map_location_bindings",
+    "map_location_layouts",
+    "map_markers",
+    "map_observations",
+    "map_terrain_layers",
+    "map_territory_tiles",
+    "map_tiles",
+    "writing_conflict_items",
+    "map_facts",
+    "map_terrain_regions",
+    "map_terrain_bindings",
+    "map_terrain_patches",
+)
+
 
 def upgrade() -> None:
     bind = op.get_bind()
@@ -54,7 +118,8 @@ def upgrade() -> None:
         op.execute("CREATE EXTENSION IF NOT EXISTS vector")
         op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
 
-    Base.metadata.create_all(bind=bind)
+    for statement in _load_frozen_schema_statements(bind.dialect.name):
+        op.execute(statement)
 
     if bind.dialect.name == "postgresql":
         _create_postgresql_only_indexes()
@@ -62,7 +127,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
-    Base.metadata.drop_all(bind=bind)
+    for table_name in reversed(_FROZEN_TABLES_IN_CREATE_ORDER):
+        op.drop_table(table_name)
 
     if bind.dialect.name == "postgresql":
         op.execute("DROP EXTENSION IF EXISTS pg_trgm")
@@ -91,14 +157,6 @@ def _create_postgresql_only_indexes() -> None:
         """
         CREATE INDEX IF NOT EXISTS ix_core_entities_search_trgm
         ON core_entities USING gin (search_text gin_trgm_ops)
-        """
-    )
-    op.execute(
-        """
-        CREATE INDEX IF NOT EXISTS ix_core_entities_auto_ingested_recent
-        ON core_entities (novel_id, created_at DESC, id DESC)
-        WHERE status = 'canonical'
-          AND (CAST(((content_json -> '_meta') ->> 'auto_ingested') AS BOOLEAN) IS TRUE)
         """
     )
     op.execute(
@@ -161,6 +219,29 @@ def _create_postgresql_only_indexes() -> None:
     )
 
 
+def _load_frozen_schema_statements(dialect_name: str) -> tuple[str, ...]:
+    snapshot_name = _FROZEN_SCHEMA_FILES.get(dialect_name)
+    if snapshot_name is None:
+        supported = ", ".join(sorted(_FROZEN_SCHEMA_FILES))
+        raise RuntimeError(
+            f"The squashed baseline supports only these dialects: {supported}"
+        )
+
+    snapshot_path = Path(__file__).resolve().parents[1] / "frozen" / snapshot_name
+    snapshot_bytes = snapshot_path.read_bytes()
+    actual_digest = hashlib.sha256(snapshot_bytes).hexdigest()
+    if actual_digest != _FROZEN_SCHEMA_SHA256[dialect_name]:
+        raise RuntimeError(
+            f"Frozen schema snapshot checksum mismatch: {snapshot_name}"
+        )
+
+    return tuple(
+        statement.strip()
+        for statement in snapshot_bytes.decode("utf-8").split(";\n\n")
+        if statement.strip()
+    )
+
+
 def _vector_index_type(settings: Settings | None = None) -> str:
     configured = (settings or Settings()).vector_index_type.strip().lower()
     if configured not in _ALLOWED_VECTOR_INDEX_TYPES:
@@ -188,6 +269,8 @@ def _create_vector_index_sql(
 
 
 def _assert_no_postgresql_duplicate_keys() -> None:
+    if context.is_offline_mode():
+        return
     duplicate_checks = {
         "canonical entity relations": """
             SELECT novel_id, source_id, target_id, relation_type, COUNT(*) AS n

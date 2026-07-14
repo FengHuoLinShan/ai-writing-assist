@@ -245,16 +245,19 @@ class TestDeepImportWorkflowNewPipeline:
                 workflow,
                 "_run_phase0_plan",
                 return_value=_integration_phase0_plan(1, 5),
+                autospec=True,
             ),
             mock.patch.object(
                 workflow,
                 "_run_phase1a_scene_slicing",
                 return_value=_integration_phase1a_slicing(1, 5),
+                autospec=True,
             ),
             mock.patch.object(
                 workflow,
                 "_run_phase1b_enrichment",
                 return_value=_integration_phase1b_enrichment(1, 5),
+                autospec=True,
             ),
             mock.patch.object(
                 workflow,
@@ -265,11 +268,17 @@ class TestDeepImportWorkflowNewPipeline:
                     conflict_count=0,
                     created_scene_ids=[f"scene-{index}" for index in range(5)],
                 ),
+                autospec=True,
             ),
             mock.patch.object(
-                workflow, "_extract_entities_by_scene", side_effect=_mock_extract
+                workflow,
+                "_extract_entities_by_scene",
+                side_effect=_mock_extract,
+                autospec=True,
             ),
-            mock.patch.object(workflow, "_analyze_structure", side_effect=_mock_analyze),
+            mock.patch.object(
+                workflow, "_analyze_structure", side_effect=_mock_analyze, autospec=True
+            ),
         ):
             result = await workflow.run_step(
                 db_session,
@@ -301,16 +310,19 @@ class TestDeepImportWorkflowNewPipeline:
                 workflow,
                 "_run_phase0_plan",
                 return_value=_integration_phase0_plan(1, 3),
+                autospec=True,
             ),
             mock.patch.object(
                 workflow,
                 "_run_phase1a_scene_slicing",
                 return_value=_integration_phase1a_slicing(1, 3),
+                autospec=True,
             ),
             mock.patch.object(
                 workflow,
                 "_run_phase1b_enrichment",
                 return_value=_integration_phase1b_enrichment(1, 3),
+                autospec=True,
             ),
             mock.patch.object(
                 workflow,
@@ -321,11 +333,17 @@ class TestDeepImportWorkflowNewPipeline:
                     conflict_count=0,
                     created_scene_ids=[f"scene-{index}" for index in range(3)],
                 ),
+                autospec=True,
             ),
             mock.patch.object(
-                workflow, "_extract_entities_by_scene", side_effect=_mock_extract_fail
+                workflow,
+                "_extract_entities_by_scene",
+                side_effect=_mock_extract_fail,
+                autospec=True,
             ),
-            mock.patch.object(workflow, "_analyze_structure", side_effect=_mock_analyze),
+            mock.patch.object(
+                workflow, "_analyze_structure", side_effect=_mock_analyze, autospec=True
+            ),
         ):
             result = await workflow.run_step(
                 db_session,
@@ -389,11 +407,13 @@ class TestSceneSegmentationDegradation:
                 service,
                 "_process_batch",
                 side_effect=RuntimeError("LLM batch failure"),
+                autospec=True,
             ),
             mock.patch.object(
                 service,
                 "_process_batch_single_chapter",
                 side_effect=RuntimeError("single chapter failure"),
+                autospec=True,
             ),
         ):
             result = await service.segment_chapters(
@@ -430,8 +450,11 @@ class TestSceneSegmentationDegradation:
                 service,
                 "_process_batch",
                 side_effect=LLMConnectionError("connection failed"),
+                autospec=True,
             ),
-            mock.patch.object(service, "_process_batch_single_chapter") as single_fb,
+            mock.patch.object(
+                service, "_process_batch_single_chapter", autospec=True
+            ) as single_fb,
         ):
             result = await service.segment_chapters(
                 db_session,
@@ -467,11 +490,13 @@ class TestSceneSegmentationDegradation:
                 service,
                 "_process_batch",
                 side_effect=RuntimeError("LLM batch failure"),
+                autospec=True,
             ),
             mock.patch.object(
                 service,
                 "_process_batch_single_chapter",
                 return_value=fallback_output,
+                autospec=True,
             ),
         ):
             result = await service.segment_chapters(
@@ -543,7 +568,9 @@ class TestSceneSegmentationBatchMapping:
                 },
             ]
 
-        with mock.patch.object(service, "_process_batch", side_effect=_mock_batch):
+        with mock.patch.object(
+            service, "_process_batch", side_effect=_mock_batch, autospec=True
+        ):
             result = await service.segment_chapters(
                 db_session,
                 novel_id,

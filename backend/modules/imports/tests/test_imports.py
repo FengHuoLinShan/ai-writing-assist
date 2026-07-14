@@ -657,6 +657,7 @@ class TestImportService:
         with patch(
             "modules.imports.services.parse_file",
             side_effect=ValueError("mock parse error"),
+            autospec=True,
         ):
             with pytest.raises(DomainValidationError) as exc:
                 await service.upload_and_import(
@@ -739,6 +740,7 @@ class TestImportService:
         with patch(
             "modules.imports.services.create_published_draft_only",
             side_effect=RuntimeError("draft write failed"),
+            autospec=True,
         ):
             with pytest.raises(DomainError) as exc:
                 await service.upload_and_import(

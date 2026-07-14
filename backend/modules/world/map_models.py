@@ -22,10 +22,12 @@ World 动态地图 ORM 模型 — PRD docs/PRD-动态地图功能.md
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    DateTime,
     Float,
     ForeignKey,
     Index,
@@ -33,6 +35,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -52,13 +55,34 @@ class MapConfig(Base, UUIDMixin, TimestampMixin, NovelMixin):
 
     __tablename__ = "map_configs"
     __table_args__ = (
-        # 同一 novel 下、同一父层级内，地图名唯一
+        # 普通索引用于查询；PostgreSQL/SQLite partial unique indexes 只约束
+        # active 地图，因此 archived 历史可与新地图同名共存。
         Index(
-            "uq_map_config_novel_parent_name",
+            "ix_map_config_novel_parent_name",
+            "novel_id",
+            "parent_map_id",
+            "name",
+        ),
+        Index(
+            "uq_map_config_active_child_name",
             "novel_id",
             "parent_map_id",
             "name",
             unique=True,
+            postgresql_where=text(
+                "status = 'active' AND parent_map_id IS NOT NULL"
+            ),
+            sqlite_where=text("status = 'active' AND parent_map_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_map_config_active_root_name",
+            "novel_id",
+            "name",
+            unique=True,
+            postgresql_where=text(
+                "status = 'active' AND parent_map_id IS NULL"
+            ),
+            sqlite_where=text("status = 'active' AND parent_map_id IS NULL"),
         ),
         {"comment": "动态地图配置"},
     )
@@ -114,6 +138,15 @@ class MapConfig(Base, UUIDMixin, TimestampMixin, NovelMixin):
 
     sort_order: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, comment="同层级排序"
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="active", index=True
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    editor_revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, comment="视觉编辑乐观锁版本"
     )
 
     # 自引用 relationship（需 foreign_keys 消歧）
@@ -323,6 +356,194 @@ class MapTerrainLayer(Base, UUIDMixin, TimestampMixin, NovelMixin):
     visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     meta: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
+
+
+class MapPathLayer(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """Continuous path collection.
+
+    Display state lives exclusively on the corresponding ``MapLayerNode`` leaf.
+    ``category`` is immutable after creation and constrains the supported path
+    profiles (transport or water).
+    """
+
+    __tablename__ = "map_path_layers"
+    __table_args__ = (
+        Index("ix_map_path_layer_map_category", "map_id", "category"),
+        {"comment": "Continuous map path layer"},
+    )
+
+    map_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_configs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    category: Mapped[str] = mapped_column(
+        String(16), nullable=False, comment="transport / water"
+    )
+    meta: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
+
+
+class MapLayerNode(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """递归地图图层节点。
+
+    节点保存局部显示/锁定属性；有效属性由祖先链计算。terrain layer 的旧显示
+    字段只是兼容投影，不是图层树的第二权威。
+    """
+
+    __tablename__ = "map_layer_nodes"
+    __table_args__ = (
+        Index("ix_map_layer_node_map_parent", "map_id", "parent_id", "sort_order"),
+        Index(
+            "uq_map_layer_node_map_layer_key",
+            "map_id",
+            "layer_key",
+            unique=True,
+        ),
+        Index(
+            "uq_map_layer_node_terrain_layer",
+            "terrain_layer_id",
+            unique=True,
+        ),
+        Index(
+            "uq_map_layer_node_path_layer",
+            "path_layer_id",
+            unique=True,
+        ),
+        {"comment": "地图递归图层树"},
+    )
+
+    map_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_configs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_layer_nodes.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    terrain_layer_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_terrain_layers.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    path_layer_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_path_layers.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    node_type: Mapped[str] = mapped_column(
+        String(16), nullable=False, comment="group / leaf"
+    )
+    layer_key: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, comment="singleton 或 marker leaf key"
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    opacity: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    min_zoom: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_zoom: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    selection_mode: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="normal"
+    )
+    floor_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    meta: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
+
+
+class MapPath(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """Editable continuous road/water path with stable archive identity."""
+
+    __tablename__ = "map_paths"
+    __table_args__ = (
+        Index("ix_map_path_map_status", "map_id", "status"),
+        Index("ix_map_path_layer_order", "path_layer_id", "sort_order", "id"),
+        {"comment": "Continuous roads and waterways"},
+    )
+
+    map_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_configs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    path_layer_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_path_layers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    path_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    opacity: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    min_zoom: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_zoom: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    style_json: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
+    start_location_entity_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("core_entities.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    end_location_entity_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("core_entities.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="active", index=True
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    content_revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1
+    )
+    meta: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
+
+
+class MapPathNode(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """Ordered continuous axial-coordinate control point for a map path."""
+
+    __tablename__ = "map_path_nodes"
+    __table_args__ = (
+        UniqueConstraint(
+            "path_id",
+            "sort_order",
+            name="uq_map_path_node_path_order",
+        ),
+        Index("ix_map_path_node_map_path", "map_id", "path_id", "sort_order"),
+        {"comment": "Continuous map path control points"},
+    )
+
+    map_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_configs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    path_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("map_paths.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    q: Mapped[float] = mapped_column(Float, nullable=False)
+    r: Mapped[float] = mapped_column(Float, nullable=False)
+    width_scale: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    tension: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
+    segment_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class MapTerrainRegion(Base, UUIDMixin, TimestampMixin, NovelMixin):
@@ -582,6 +803,14 @@ class MapObservation(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "map_observations"
     __table_args__ = (
         Index("ix_map_observation_map_review", "map_id", "review_state"),
+        Index(
+            "ix_map_observation_novel_map_review_scene_id",
+            "novel_id",
+            "map_id",
+            "review_state",
+            "scene_index",
+            "id",
+        ),
         Index("ix_map_observation_target", "target_entity_id", "dynamic_type"),
         Index("ix_map_observation_scene", "scene_id", "scene_index"),
         {"comment": "地图观察事实候选"},
@@ -669,6 +898,14 @@ class MapFact(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __tablename__ = "map_facts"
     __table_args__ = (
         Index("ix_map_fact_map_status", "map_id", "fact_status"),
+        Index(
+            "ix_map_fact_novel_map_status_scene_id",
+            "novel_id",
+            "map_id",
+            "fact_status",
+            "scene_index",
+            "id",
+        ),
         Index("ix_map_fact_target", "target_entity_id", "dynamic_type"),
         Index("ix_map_fact_scene", "scene_id", "scene_index"),
         {"comment": "已确认时间化地图事实"},

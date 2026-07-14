@@ -69,7 +69,9 @@ MapInteractionEngine = 拖拽、锁定、+/-、撤销、命中查询
 
 - 目标地点本身。
 - 直接子地点或明确包含地点。
-- 与这些地点强关联的人物、组织、事件。
+- 通过 canonical `contains/contained_in/located_in` 关系关联的直接子地点。
+
+用户可以搜索并显式添加其他 canonical 地点；人物、组织和事件不进入本轮地点布局范围。
 
 默认不拉取全世界对象库，避免详图一开始过度拥挤。
 
@@ -79,7 +81,7 @@ MapInteractionEngine = 拖拽、锁定、+/-、撤销、命中查询
 
 - 查询已有世界对象、地点、组织、人物、事件、关系、Scene、剧情线、地图 observation/fact。
 - 默认只用 `canonical` 数据。
-- `包含待确认候选` 开关打开时，可把 candidate 数据拉入预览，并用明显待确认样式展示。
+- `包含待确认候选` 开关打开时，可把 candidate 数据拉入只读预览，并用明显待确认样式展示；candidate 默认不选、控件禁用且不得保存。
 - 不自动新建世界对象。
 - 数据不足时显示“缺少地点方向/距离关系，可在地点详情补充”，不使用叙事顺序猜地理位置。
 
@@ -92,7 +94,7 @@ MapInteractionEngine = 拖拽、锁定、+/-、撤销、命中查询
 - 拖拽地点。
 - `+ / -` 调整地点占用半径。
 - 锁定/解锁地点。
-- 勾选/取消勾选预览地点；默认全选，确认时只写入已选地点。
+- 勾选/取消勾选 canonical 预览地点；canonical 默认全选，candidate 永远只读。
 - 开关候选数据。
 - 选择是否生成人物、组织、事件等结构化标记。
 - 前端 session 内 Undo/Redo。
@@ -103,7 +105,11 @@ MapInteractionEngine = 拖拽、锁定、+/-、撤销、命中查询
 1. 必写：地图配置；地点布局、地点绑定只写入预览中已选地点。
 2. 可选：人物、组织、事件等结构化标记。默认勾选“生成人物等结构化标记”，允许取消。
 
-API 兼容旧调用：`confirm` 不传 `layouts` 时按完整预览落库；传入 `layouts` 时只按传入布局落库；传入 `layouts=[]` 时只创建或复用地图，不写地点布局、绑定或 quick-create facts。
+API 兼容旧调用：`confirm` 不传 `layouts` 时按完整预览落库；传入 `layouts` 时只按传入布局落库；传入 `layouts=[]` 时只创建地图，不写地点布局、绑定或 quick-create facts。
+
+同层同名地图默认返回 409。preview/confirm 只有显式提供 `replace_map_id` 才替换已有地图；
+替换沿用目标的类型、网格及父层级，只覆盖地点布局、地点 bindings 和对应
+quick-create facts，保留底图、覆盖图层、标记与领地。
 
 第一版预览草稿只存在前端本地状态，不新增后端草稿表。
 
@@ -136,7 +142,7 @@ API 兼容旧调用：`confirm` 不传 `layouts` 时按完整预览落库；传�
 - 小锁图标用于解除固定。
 - 固定地点不会被自动挤走。
 - 未固定地点按局部规则挤占、补位、外扩。
-- 空间不足或固定地点冲突时，默认自动扩展画布/地图边界，同时保留冲突提示和撤销入口。
+- 空间不足或任一 footprint 越界时拒绝整次保存，保留冲突提示和撤销入口；本轮不自动扩展既有地图边界。
 
 ### 地点大小
 
@@ -357,6 +363,10 @@ currentPlaybackFrame
 - 地形绑定。
 - 已确认移动解释。
 - 开放地图冲突。
+
+其中 `map_location_layouts.center_hex` 是地点编辑锚点，实际显示范围以
+`map_location_bindings` 为权威。地点移动会整体平移全部 bindings 并保留不规则 footprint、
+label/style override 与唯一中心；只软废弃实际移动地点的旧 quick-create fact，不新增世界事实。
 
 世界事实层只保存地点方向、包含、规模等 canonical 设定。只有用户明确选择 `同步修改数据库中的地理设定` 时，地图操作才写入世界事实层。
 
@@ -766,4 +776,48 @@ E2E 验收：
 仍需后续增强：
 
 - 地图画布内的完整拖拽预览、地形绘制工具栏、TerrainEditor 接入生产工具栏、StoryOverlay 接入生产剧情覆盖控件，以及检查器绑定候选 UI 仍需继续打磨。
-- Playwright E2E 尚未新增完整 quick-create + terrain 手绘流程；当前先由后端服务测试和前端单元测试覆盖关键契约。
+- 当时尚缺完整 quick-create + terrain 手绘 Playwright 流程；该缺口已在 2026-07-14 的分层编辑与统一保存 E2E 中补齐。
+
+## 2026-07-14 一致性编辑与递归图层补充
+
+本轮继续复用 Vanilla JS、Leaflet 1.9.4 CDN 和 Canvas，不改变 ADR-0003，也不新增独立
+inspector 后端。地图作者入口由硬删除改为整棵子树归档/恢复；active 根地图与 active
+同父子地图分别使用 PostgreSQL partial unique 约束名称，归档资产仍完整保留。
+
+地图视觉写入以 `map_configs.editor_revision` 做 CAS。`POST /maps/{map_id}/editor/apply`
+在一个事务中按顺序执行有类型的命令，临时创建资源用 `client_id` 引用；任一校验或写入失败
+回滚整批，成功只递增一次 revision。旧视觉写入口仍保留，但每次成功写入递增一次，且与
+统一入口共用 `novel_id + map_id + resource_id` 归属校验及递归锁定检查。
+
+`map_layer_nodes` 成为图层局部 `visible/locked/opacity/sort_order/min_zoom/max_zoom` 的唯一
+权威。有效显隐取祖先逻辑与，锁定取祖先逻辑或，透明度沿祖先相乘，zoom 取祖先区间交集；
+空交集不绘制。terrain 旧字段只作兼容投影，新建/删除 terrain layer 同步维护一一对应 leaf。
+
+世界对象反向定位通过只读 `GET /entities/{entity_id}/map-presence` 合并 layout 和 bindings，
+默认排除归档地图与 candidate。地图端使用 typed selection；fact/observation 继续进入 dashboard
+inspector。Canvas 增加视口裁剪、revision/viewport 缓存与单 RAF 调度；本轮保持地图 state
+全量 tile wire shape。Playwright 在固定 Chromium 1280×720 视口下使用 200×200 地图，预热 20 帧、
+采样 100 帧，生成 `map-canvas-performance.json`；视口裁剪相对同轮未裁剪基线平均帧耗时退化
+超过 20% 才失败，不使用跨机器固定毫秒门限。
+
+## 2026-07-14 楼层与连续线路补充
+
+递归图层 group 新增 `normal/exclusive/floor` 模式和直接子层 `floor_level`。模式与楼层编号
+属于持久化树结构；每个 group 的当前子层和 isolate 属于前端会话状态，通过 route 与按
+novel/map 隔离的 localStorage 恢复，不写入 `editor_revision`。嵌套 group 沿全部祖先选择
+共同决定有效可见性，isolate 只过滤绘制和命中，不改变服务端锁定。
+
+道路和水系使用 `map_path_layers/map_paths/map_path_nodes` 保存连续轴向几何，继续由 Canvas 2D
+渲染，Leaflet 只承担视口。线路图层显示名称和显示属性由 tree leaf 唯一拥有；线路本体保存
+类型、样式、控制点、可选 canonical 地点端点和 `content_revision`。地点布局只提供显式吸附
+目标，地点移动不会静默重写线路。
+
+线路写入复用 `POST /maps/{map_id}/editor/apply` 的 CAS 与单事务。正式资源 ID 由服务端生成，
+同批资源通过请求级唯一 client ID 引用；创建、修改、归档、恢复和空 layer 删除均先校验
+`novel_id + map_id`、递归锁定、容量、有限坐标、类别和最终图层树。线路只归档，避免破坏
+Observation/Fact 的稳定空间引用。
+
+`MapSpatialAnchor` 对 map/path/location/hex 字段进行类型化校验。Fact 确认时保存 path ID、
+内容 revision、名称和代表点；后续线路更新不改写历史事实，Playback 比较 revision 并可用
+只读方式高亮归档几何。deep import 无法解析的 path 引用不会入库，而是在 observation 来源
+metadata 中留下 `invalid_spatial_anchor` 诊断。

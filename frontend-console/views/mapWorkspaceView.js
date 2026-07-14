@@ -7,9 +7,22 @@ import mapQuickCreateView from "./mapQuickCreateView.js"
 import { parseMapRouteContext } from "./mapRouteContext.js"
 import { authorFacingStateText, mapAssetDisplay } from "../shared/assetDisplayState.js"
 import { renderWorkspaceRail, workspaceRailKey } from "../shared/workspaceRail.js"
+import {
+  createMapTimelineState,
+  filterTimelineItems,
+  formatMapDynamicValue,
+  MAP_TIMELINE_TRACKS,
+  mapDynamicNormalizationLabel,
+  mapDynamicTrackLabel,
+  normalizeMapStateAtResponse,
+  normalizeMapTimelineResponse,
+  timelineAnchorPoint,
+  timelineItemsAtScene,
+} from "./mapTimelineProjection.js"
 
 const RECENT_PREFIX = "novel_map_recent:"
 const MAP_BATCH_ID_LIMIT = 100
+const ARCHIVED_PAGE_SIZE = 20
 
 const DEFAULT_LAYERS = {
   terrain: true,
@@ -34,6 +47,7 @@ function createDynamicIndexes() {
 
 const mapWorkspaceView = {
   _maps: [],
+  _archivedMaps: [],
   _locations: [],
   _mapById: new Map(),
   _detailMapByLocationId: new Map(),
@@ -43,10 +57,17 @@ const mapWorkspaceView = {
   _activeMapId: null,
   _activeSceneId: null,
   _focusEntityId: null,
+  _focusHexQ: null,
+  _focusHexR: null,
+  _focusPathId: null,
+  _focusLayerNodeId: null,
   _focusedDynamicItemId: null,
   _viewMode: "dashboard",
   _lowMotion: false,
+  _editingState: { editing: false, dirty: false, editorLayer: "none" },
   _showHistory: false,
+  _showArchivedMaps: false,
+  _archivedPage: 0,
   _layers: { ...DEFAULT_LAYERS },
   _dynamicSummary: {
     mapId: null,
@@ -68,17 +89,55 @@ const mapWorkspaceView = {
     playing: false,
     activeIndex: 0,
   },
+  _timeline: createMapTimelineState(),
+  _timelineLoadEpoch: 0,
+  _timelineProjectionVersion: 0,
+  _dynamicLoadEpoch: 0,
   _dynamicIndexes: createDynamicIndexes(),
   _pendingTimers: new Set(),
+  _beforeUnloadHandler: null,
+  _dataLoadEpoch: 0,
+  _mountEpoch: 0,
+  _mountPromise: Promise.resolve(),
 
   async onEnter() {
+    this._bindBeforeUnloadGuard()
     this._showHistory = false
+    this._archivedPage = 0
+    this._showArchivedMaps = false
     await this._loadData()
   },
 
+  canLeave() {
+    return mapView.canLeave()
+  },
+
   onLeave() {
+    this._dataLoadEpoch += 1
+    this._mountEpoch += 1
+    this._unbindBeforeUnloadGuard()
     this._clearPendingTimers()
+    this._timelineLoadEpoch += 1
+    this._dynamicLoadEpoch += 1
     mapView.unmount()
+    this._editingState = { editing: false, dirty: false, editorLayer: "none" }
+    return true
+  },
+
+  _bindBeforeUnloadGuard() {
+    if (this._beforeUnloadHandler) return
+    this._beforeUnloadHandler = (event) => {
+      if (!this._editingState.dirty) return
+      event.preventDefault()
+      event.returnValue = ""
+    }
+    window.addEventListener("beforeunload", this._beforeUnloadHandler)
+  },
+
+  _unbindBeforeUnloadGuard() {
+    if (!this._beforeUnloadHandler) return
+    window.removeEventListener("beforeunload", this._beforeUnloadHandler)
+    this._beforeUnloadHandler = null
   },
 
   async render() {
@@ -92,17 +151,34 @@ const mapWorkspaceView = {
       this._activeMapId = context.mapId
       this._activeSceneId = context.sceneId
       this._focusEntityId = context.focusEntityId
+      this._focusHexQ = context.focusHexQ
+      this._focusHexR = context.focusHexR
+      this._focusPathId = context.focusPathId
+      this._focusLayerNodeId = context.focusLayerNodeId
       this._viewMode = this._normalizeViewMode(context.mode)
     } else if (context.mode === "recent") {
       this._activeSceneId = context.sceneId
       this._focusEntityId = context.focusEntityId
+      this._focusHexQ = context.focusHexQ
+      this._focusHexR = context.focusHexR
+      this._focusPathId = context.focusPathId
+      this._focusLayerNodeId = context.focusLayerNodeId
       if (!(this._mode === "map" && this._activeMapId)) {
         const preferredViewMode = context.sceneId || context.focusEntityId ? "live" : null
         this._defer(() => this._openRecentMap({ viewMode: preferredViewMode }))
       }
-    } else if (context.projectId && !context.mapId && !this._activeMapId) {
+    } else if (
+      context.projectId
+      && !context.mapId
+      && !this._activeMapId
+      && context.mode !== "overview"
+    ) {
       this._activeSceneId = context.sceneId
       this._focusEntityId = context.focusEntityId
+      this._focusHexQ = context.focusHexQ
+      this._focusHexR = context.focusHexR
+      this._focusPathId = context.focusPathId
+      this._focusLayerNodeId = context.focusLayerNodeId
       this._defer(() => this._openDefaultTarget())
     }
 
@@ -112,9 +188,9 @@ const mapWorkspaceView = {
     return this._renderOverview()
   },
 
-  onRendered() {
+  async onRendered() {
     if (this._mode === "map" && this._activeMapId) {
-      this._mountMap()
+      await this._mountMap()
     } else {
       this._bindEvents()
     }
@@ -137,19 +213,28 @@ const mapWorkspaceView = {
   },
 
   async _loadData() {
-    if (!state.currentProjectId) {
+    const epoch = ++this._dataLoadEpoch
+    const projectId = state.currentProjectId
+    if (!projectId) {
       this._maps = []
+      this._archivedMaps = []
       this._locations = []
       this._rebuildMapIndexes()
-      return
+      return true
     }
-    const [maps, locations] = await Promise.all([
-      api.world.listMaps({ novel_id: state.currentProjectId }).catch(() => ({ items: [] })),
-      this._listAllLocations().catch(() => []),
+    const [maps, archivedMaps, locations] = await Promise.all([
+      this._listAllMaps("active", projectId),
+      this._listAllMaps("archived", projectId),
+      this._listAllLocations(projectId),
     ])
+    if (epoch !== this._dataLoadEpoch || state.currentProjectId !== projectId) {
+      return false
+    }
     this._maps = maps.items || maps || []
+    this._archivedMaps = archivedMaps.items || archivedMaps || []
     this._locations = locations.items || locations || []
     this._rebuildMapIndexes()
+    return true
   },
 
   _rebuildMapIndexes() {
@@ -171,14 +256,33 @@ const mapWorkspaceView = {
     }
   },
 
-  async _listAllLocations() {
+  async _listAllLocations(projectId = state.currentProjectId) {
     const all = []
     const limit = 50
     let skip = 0
     while (true) {
       const data = await api.world.listEntities({
-        novel_id: state.currentProjectId,
+        novel_id: projectId,
         entity_type: "location",
+        skip,
+        limit,
+      })
+      const items = data.items || data || []
+      all.push(...items)
+      if (items.length < limit) break
+      skip += limit
+    }
+    return all
+  },
+
+  async _listAllMaps(status = "active", projectId = state.currentProjectId) {
+    const all = []
+    const limit = 500
+    let skip = 0
+    while (true) {
+      const data = await api.world.listMaps({
+        novel_id: projectId,
+        status,
         skip,
         limit,
       })
@@ -277,11 +381,14 @@ const mapWorkspaceView = {
       })
       if (target.fallback_message) toast(target.fallback_message, "warning")
       if (target.map_id) {
-        this._openMap(target.map_id, {
+        const openOptions = {
           sceneId: target.scene_id || this._activeSceneId,
           focusEntityId: target.focus_entity_id || this._focusEntityId,
           viewMode: preferredViewMode || target.mode || "dashboard",
-        })
+        }
+        if (target.focus_path_id) openOptions.focusPathId = target.focus_path_id
+        if (target.focus_layer_node_id) openOptions.focusLayerNodeId = target.focus_layer_node_id
+        this._openMap(target.map_id, openOptions)
       }
     } catch {
       if (fallbackToRecent) {
@@ -292,17 +399,47 @@ const mapWorkspaceView = {
     }
   },
 
-  _openMap(mapId, { sceneId = null, focusEntityId = null, viewMode = null } = {}) {
+  _openMap(mapId, {
+    sceneId = null,
+    focusEntityId = null,
+    focusHexQ = null,
+    focusHexR = null,
+    focusPathId = null,
+    focusLayerNodeId = null,
+    viewMode = null,
+  } = {}) {
+    const hasMountedMap = this._mode === "map" && Boolean(this._activeMapId)
+    const onlyViewModeChanges = hasMountedMap
+      && this._activeMapId === mapId
+      && sceneId == null
+      && focusEntityId == null
+      && focusHexQ == null
+      && focusHexR == null
+      && focusPathId == null
+      && focusLayerNodeId == null
+    if (onlyViewModeChanges) {
+      if (viewMode) this._setViewMode(viewMode)
+      return true
+    }
+    if (hasMountedMap && !mapView.canLeave()) {
+      return false
+    }
+    if (hasMountedMap) this._onMapEditingChange()
     this._mode = "map"
     this._activeMapId = mapId
     this._activeSceneId = sceneId
     this._focusEntityId = focusEntityId
+    this._focusHexQ = focusHexQ
+    this._focusHexR = focusHexR
+    this._focusPathId = focusPathId
+    this._focusLayerNodeId = focusLayerNodeId
     if (viewMode) this._viewMode = this._normalizeViewMode(viewMode)
     this._resetDynamicSummary()
     this._ensureMapIndexes()
     const map = this._mapById.get(mapId)
     if (map) this._saveRecentMap(map)
     router.refresh?.()
+    return true
   },
 
   _openLocation(locationId) {
@@ -347,6 +484,7 @@ const mapWorkspaceView = {
         viewMode: this._viewMode,
         lowMotion: this._lowMotion,
       }
+      this._syncTimelineProjection()
       this._updateWorkspaceLayoutDom()
     }
   },
@@ -358,6 +496,10 @@ const mapWorkspaceView = {
       mapId,
       sceneId: this._activeSceneId,
       focusEntityId: this._focusEntityId,
+      focusHexQ: this._focusHexQ,
+      focusHexR: this._focusHexR,
+      focusPathId: this._focusPathId,
+      focusLayerNodeId: this._focusLayerNodeId,
       focusedDynamicItemId: this._focusedDynamicItemId,
       loading: false,
       loaded: false,
@@ -371,6 +513,7 @@ const mapWorkspaceView = {
     }
     this._dynamicIndexes = createDynamicIndexes()
     this._resetPlayback()
+    this._resetTimeline()
   },
 
   _resetPlayback() {
@@ -383,6 +526,12 @@ const mapWorkspaceView = {
       activeIndex: 0,
     }
     this._dynamicIndexes = createDynamicIndexes()
+  },
+
+  _resetTimeline() {
+    this._timelineLoadEpoch += 1
+    this._timeline = createMapTimelineState()
+    mapView.clearTimelineProjection?.()
   },
 
   _normalizeViewMode(mode) {
@@ -419,11 +568,12 @@ const mapWorkspaceView = {
             <button class="btn btn-sm btn-primary" data-action="map-open-recent">打开最近地图</button>
             <button class="btn btn-sm btn-primary" data-action="map-quick-create">快速创建</button>
             <button class="btn btn-sm" data-action="map-create-world">创建世界地图</button>
+            <button class="btn btn-sm" data-action="map-toggle-archived">${this._showArchivedMaps ? "返回当前地图" : `归档地图 ${this._archivedMaps.length}`}</button>
             <input class="form-input map-overview-search" id="map-workspace-search" placeholder="搜索地图或地点" />
           </div>
         </div>
         ${message}
-        <div class="map-overview-grid">
+        ${this._showArchivedMaps ? this._renderArchivedMaps() : `<div class="map-overview-grid">
           <section class="card">
             <h3>最近地图</h3>
             <p>${recent ? esc(recent.name) : "暂无最近地图"}</p>
@@ -440,7 +590,7 @@ const mapWorkspaceView = {
             <h3>图层</h3>
             ${this._renderLayerToggles()}
           </section>
-        </div>
+        </div>`}
         <div id="map-search-results"></div>
       </div>
     `
@@ -457,10 +607,44 @@ const mapWorkspaceView = {
             <button class="link-button" data-action="map-open" data-id="${esc(m.id)}">
               ${esc(m.name)}
             </button>
+            <button class="btn btn-xs" data-action="map-archive" data-id="${esc(m.id)}">归档</button>
             ${this._renderMapTree(m.id)}
           </li>
         `).join("")}
       </ul>
+    `
+  },
+
+  _renderArchivedMaps() {
+    const archivedIds = new Set(this._archivedMaps.map((map) => map.id))
+    const roots = this._archivedMaps.filter(
+      (map) => !map.parent_map_id || !archivedIds.has(map.parent_map_id),
+    )
+    if (!roots.length) {
+      return `<section class="card"><h3>归档地图</h3><p class="map-muted-text">暂无归档地图</p></section>`
+    }
+    const pageCount = Math.max(1, Math.ceil(roots.length / ARCHIVED_PAGE_SIZE))
+    this._archivedPage = Math.min(this._archivedPage, pageCount - 1)
+    const pageRoots = roots.slice(
+      this._archivedPage * ARCHIVED_PAGE_SIZE,
+      (this._archivedPage + 1) * ARCHIVED_PAGE_SIZE,
+    )
+    return `
+      <section class="card map-archived-list">
+        <h3>归档地图</h3>
+        <p class="map-muted-text">归档地图不参与地图树、定位和编辑；恢复会连同其完整子树执行。</p>
+        ${pageRoots.map((map) => `
+          <div class="map-archived-row">
+            <span><strong>${esc(map.name)}</strong><small>${esc(map.map_type)} · ${map.archived_at ? esc(new Date(map.archived_at).toLocaleString()) : "归档时间未知"}</small></span>
+            <button class="btn btn-sm" data-action="map-restore" data-id="${esc(map.id)}">恢复子树</button>
+          </div>
+        `).join("")}
+        <div class="map-pagination">
+          <button class="btn btn-sm" data-action="map-archive-page" data-page="${this._archivedPage - 1}" ${this._archivedPage === 0 ? "disabled" : ""}>上一页</button>
+          <span>第 ${this._archivedPage + 1} / ${pageCount} 页，共 ${roots.length} 个归档子树</span>
+          <button class="btn btn-sm" data-action="map-archive-page" data-page="${this._archivedPage + 1}" ${this._archivedPage + 1 >= pageCount ? "disabled" : ""}>下一页</button>
+        </div>
+      </section>
     `
   },
 
@@ -486,7 +670,7 @@ const mapWorkspaceView = {
   _renderMapWorkspace() {
     const map = this._mapById.get(this._activeMapId) || {}
     return `
-      <div class="map-workspace map-workspace-active">
+      <div class="map-workspace map-workspace-active ${this._editingState.editing ? "is-map-editing" : ""}">
         <div class="view-header map-toolbar">
           <div class="view-header__title">
             <button class="btn btn-sm" data-action="map-overview">← 返回总览</button>
@@ -558,6 +742,7 @@ const mapWorkspaceView = {
   },
 
   _renderSemanticBand() {
+    if (this._editingState.editing) return ""
     const dashboard = this._dynamicSummary?.dashboard
     if (!dashboard) return ""
     const layout = this._buildLayout()
@@ -607,7 +792,7 @@ const mapWorkspaceView = {
         </button>
       </div>
       ${this._renderFirstVisualLayer(dashboard.first_visual_layer || {})}
-      ${this._renderPlaybackPanel()}
+      ${this._renderTimelinePanel()}
       ${queue.length
         ? `<div class="map-dynamic-section">
             <h4>动态队列</h4>
@@ -650,6 +835,7 @@ const mapWorkspaceView = {
         <div class="map-dynamic-meta">
           ${esc(item.time_label || "时间未确定")} · ${esc(display.label)}
           ${item.confidence !== null && item.confidence !== undefined ? ` · 置信度 ${Math.round(item.confidence * 100)}%` : ""}
+          ${item.normalization_state ? ` · ${esc(mapDynamicNormalizationLabel(item.normalization_state))}` : ""}
         </div>
         <div class="map-dynamic-source">${esc(item.source_summary || "来源未确定")}</div>
         ${display.attentionReasons.length ? `<div class="map-dynamic-attention">${display.attentionReasons.map((reason) => `<span class="badge badge-warning">${esc(reason)}</span>`).join("")}</div>` : ""}
@@ -945,6 +1131,238 @@ const mapWorkspaceView = {
     return Number(group.pending_count ?? group.review_count ?? group.candidate_count ?? 0) || 0
   },
 
+  _renderTimelinePanel() {
+    const timeline = this._timeline || createMapTimelineState()
+    if (timeline.loading) {
+      return `<div class="map-dynamic-section"><h4>Scene 时间轴</h4><p class="map-muted-text">正在组装正式世界状态...</p></div>`
+    }
+    const data = timeline.data
+    const scenes = data?.scenes || []
+    if (!data || !scenes.length) {
+      const fallback = this._renderPlaybackPanel()
+      const note = timeline.error
+        ? `<div class="map-timeline-fallback"><span>类型化时间轴暂不可用，已保留旧播放。</span><button class="btn btn-sm" data-action="map-timeline-retry">重试</button></div>`
+        : ""
+      return `${note}${fallback}`
+    }
+
+    const activeIndex = Math.max(0, Math.min(timeline.activeIndex || 0, scenes.length - 1))
+    const activeScene = scenes[activeIndex]
+    const sceneIndex = activeScene?.scene_index
+    const stateAt = timeline.stateAt || { items: [], conflicts: [] }
+    const stateItems = filterTimelineItems(stateAt.items, timeline.selectedTracks)
+    const candidates = timeline.includeCandidates
+      ? timelineItemsAtScene(data.candidates, sceneIndex, timeline.selectedTracks)
+      : []
+    const conflicts = timelineItemsAtScene(
+      [...(data.conflicts || []), ...(stateAt.conflicts || [])],
+      sceneIndex,
+      timeline.selectedTracks,
+    )
+
+    return `
+      <div class="map-dynamic-section map-timeline-panel${this._lowMotion ? " is-low-motion" : ""}">
+        <div class="map-playback-header">
+          <h4>Scene 时间轴</h4>
+          <button class="btn btn-sm" data-action="${timeline.playing ? "map-timeline-stop" : "map-timeline-start"}" ${this._editingState.editing ? "disabled" : ""}>
+            ${timeline.playing ? "暂停" : "播放"}
+          </button>
+        </div>
+        ${this._renderTimelineControls(scenes, activeIndex)}
+        ${timeline.stateLoading
+          ? `<p class="map-muted-text">正在加载 Scene ${esc(sceneIndex)} 的正式状态...</p>`
+          : timeline.stateError
+            ? `<div class="alert alert-warning">${esc(timeline.stateError)}</div>`
+            : this._renderTimelineStateItems(stateItems, sceneIndex)}
+        ${this._renderTimelineCandidates(candidates, sceneIndex)}
+        ${this._renderTimelineConflicts(conflicts)}
+        ${this._renderTimelineUntypedFacts(data.untyped_facts || [], sceneIndex)}
+        ${data.has_more || stateAt.has_more
+          ? `<p class="map-timeline-page-note">还有更多记录，请缩小 Scene 范围后查看。</p>`
+          : ""}
+        ${(data.undated_facts || []).length
+          ? `<p class="map-timeline-page-note">另有 ${esc(data.undated_facts.length)} 条正式事实尚未确定 Scene，不参与当前状态。</p>`
+          : ""}
+      </div>
+      ${this._renderContinuityIssues(data.continuity_issues || [])}
+    `
+  },
+
+  _renderTimelineControls(scenes, activeIndex) {
+    const timeline = this._timeline
+    const active = scenes[activeIndex] || scenes[0]
+    const sceneSummary = active
+      ? `${Number(active.delta_count || 0)} 项变化 · ${Number(active.conflict_count || 0)} 个冲突`
+      : "暂无变化"
+    return `
+      <div class="map-timeline-controls">
+        <div class="map-timeline-stepper">
+          <button class="btn btn-sm" data-action="map-timeline-step" data-delta="-1" ${activeIndex <= 0 ? "disabled" : ""} aria-label="上一个 Scene">←</button>
+          <select class="form-select" data-action="map-timeline-scene-select" aria-label="选择 Scene">
+            ${scenes.map((scene, index) => `
+              <option value="${index}" ${index === activeIndex ? "selected" : ""}>Scene ${esc(scene.scene_index)}</option>
+            `).join("")}
+          </select>
+          <button class="btn btn-sm" data-action="map-timeline-step" data-delta="1" ${activeIndex >= scenes.length - 1 ? "disabled" : ""} aria-label="下一个 Scene">→</button>
+        </div>
+        <input class="map-timeline-cursor" type="range" min="0" max="${Math.max(0, scenes.length - 1)}" value="${activeIndex}"
+          data-action="map-timeline-cursor" aria-label="Scene 时间游标" />
+        <div class="map-timeline-caption">
+          <span>Scene ${esc(active?.scene_index ?? "-")}</span>
+          <span>${esc(sceneSummary)}</span>
+        </div>
+        <div class="map-timeline-options">
+          <label>
+            播放节奏
+            <select class="form-select" data-action="map-timeline-speed">
+              ${[[2400, "舒缓"], [1600, "标准"], [900, "紧凑"]].map(([value, label]) => `
+                <option value="${value}" ${Number(timeline.speedMs) === value ? "selected" : ""}>${label}</option>
+              `).join("")}
+            </select>
+          </label>
+          <label class="map-timeline-candidate-toggle">
+            <input type="checkbox" data-action="map-timeline-candidates" ${timeline.includeCandidates ? "checked" : ""} />
+            待处理预览
+          </label>
+        </div>
+        <div class="map-timeline-tracks" role="group" aria-label="时间轴轨道">
+          ${MAP_TIMELINE_TRACKS.map((track) => `
+            <label>
+              <input type="checkbox" data-action="map-timeline-track" data-track="${track.key}"
+                ${timeline.selectedTracks[track.key] !== false ? "checked" : ""} />
+              ${esc(track.label)}
+            </label>
+          `).join("")}
+        </div>
+        ${this._lowMotion ? `<span class="map-timeline-motion-note">低动效：逐 Scene 切换</span>` : ""}
+      </div>
+    `
+  },
+
+  _renderTimelineStateItems(items, sceneIndex) {
+    if (!items.length) {
+      return `<div class="map-timeline-state"><h5>正式状态</h5><p class="map-muted-text">Scene ${esc(sceneIndex)} 暂无已结构化的正式状态。</p></div>`
+    }
+    return `
+      <div class="map-timeline-state">
+        <h5>正式状态</h5>
+        ${items.slice(0, 8).map((item) => `
+          <article class="map-timeline-state-item is-canonical">
+            <div class="map-dynamic-title">${esc(item.target_name || item.dynamic_type || "地图对象")}</div>
+            <div class="map-dynamic-meta">${esc(mapDynamicTrackLabel(item))} · 已采用 · ${esc(mapDynamicNormalizationLabel(item.normalization_state))}</div>
+            <div class="map-dynamic-source">${esc(formatMapDynamicValue(item.normalized_value, "正式状态已记录"))}</div>
+          </article>
+        `).join("")}
+        ${items.length > 8 ? `<p class="map-timeline-page-note">当前 Scene 另有 ${esc(items.length - 8)} 项正式状态。</p>` : ""}
+      </div>
+    `
+  },
+
+  _renderTimelineCandidates(candidates, sceneIndex) {
+    if (!this._timeline.includeCandidates) {
+      return `<p class="map-timeline-candidate-note">待处理内容默认隐藏，不会进入 Scene ${esc(sceneIndex)} 的正式状态。</p>`
+    }
+    if (!candidates.length) {
+      return `<div class="map-timeline-candidates"><h5>待处理预览</h5><p class="map-muted-text">当前 Scene 没有待处理候选。</p></div>`
+    }
+    return `
+      <div class="map-timeline-candidates">
+        <h5>待处理预览</h5>
+        ${candidates.slice(0, 6).map((item) => `
+            <article class="map-timeline-state-item is-candidate">
+              <div class="map-dynamic-title">${esc(item.target_name || item.title || item.dynamic_type || "待处理地图对象")}</div>
+              <div class="map-dynamic-meta">${esc(mapDynamicTrackLabel(item))} · 只读预览 · ${esc(mapDynamicNormalizationLabel(item.normalization_state))}</div>
+              <div class="map-dynamic-source">${esc(formatMapDynamicValue(item.normalized_value, item.evidence_text || "等待作者判断"))}</div>
+            </article>
+          `).join("")}
+      </div>
+    `
+  },
+
+  _renderTimelineConflicts(conflicts) {
+    if (!conflicts.length) return ""
+    return `
+      <div class="map-timeline-conflicts">
+        <h5>同一 Scene 冲突</h5>
+        ${conflicts.slice(0, 5).map((item) => `
+          <article class="map-timeline-state-item is-conflict">
+            <div class="map-dynamic-title">${esc(item.target_name || item.dynamic_type || "地图状态冲突")}</div>
+            <div class="map-dynamic-source">存在 ${esc((item.values || []).length || 2)} 个互相矛盾的正式值，当前状态未替作者做选择。</div>
+          </article>
+        `).join("")}
+      </div>
+    `
+  },
+
+  _renderTimelineUntypedFacts(facts, sceneIndex) {
+    if (this._timeline.selectedTracks.world === false) return ""
+    const current = (facts || []).filter((fact) => (
+      Number(fact.scene_index ?? fact.time_anchor?.scene_index) === Number(sceneIndex)
+    ))
+    if (!current.length) return ""
+    return `
+      <div class="map-timeline-untyped">
+        <h5>尚未结构化（仅展示）</h5>
+        ${current.slice(0, 5).map((fact) => `
+          <article class="map-timeline-state-item is-untyped">
+            <div class="map-dynamic-title">${esc(fact.target_name || fact.dynamic_type || "旧地图事实")}</div>
+            <div class="map-dynamic-meta">世界动态 · ${esc(mapDynamicNormalizationLabel(fact.normalization_state || "untyped"))}</div>
+            <div class="map-dynamic-source">${esc(fact.evidence_text || fact.source_summary || "原始来源已保留")}</div>
+          </article>
+        `).join("")}
+      </div>
+    `
+  },
+
+  _renderContinuityIssues(issues) {
+    if (!issues.length) return ""
+    return `
+      <div class="map-dynamic-section map-continuity-panel">
+        <div class="map-playback-header">
+          <h4>空间连续性</h4>
+          <span>${esc(issues.length)} 项待核对</span>
+        </div>
+        ${issues.slice(0, 8).map((issue) => {
+          const riskClass = issue.severity === "danger" || issue.severity === "error"
+            ? " is-danger"
+            : " is-warning"
+          const sceneRange = issue.from_scene_index === issue.to_scene_index
+            ? `Scene ${issue.to_scene_index}`
+            : `Scene ${issue.from_scene_index} → ${issue.to_scene_index}`
+          return `
+            <article class="map-continuity-issue${riskClass}">
+              <div class="map-dynamic-title">${esc(issue.target_name || this._continuityIssueLabel(issue.issue_type))}</div>
+              <div class="map-dynamic-meta">${esc(sceneRange)}${issue.distance_hex == null ? "" : ` · ${esc(issue.distance_hex)} 格`}</div>
+              <div class="map-dynamic-source">${esc(issue.message || this._continuityIssueLabel(issue.issue_type))}</div>
+              <div class="map-dynamic-actions">
+                <button class="btn btn-sm" data-action="map-continuity-focus" data-side="from" data-issue="${esc(issue.issue_key)}">定位起点</button>
+                <button class="btn btn-sm" data-action="map-continuity-focus" data-side="to" data-issue="${esc(issue.issue_key)}">定位终点</button>
+                <button class="btn btn-sm" data-action="map-continuity-evidence" data-issue="${esc(issue.issue_key)}">查看证据</button>
+                ${issue.target_entity_id
+                  ? `<button class="btn btn-sm" data-action="map-continuity-open-entity" data-entity="${esc(issue.target_entity_id)}">打开对象</button>`
+                  : ""}
+                ${issue.suggested_observation
+                  ? `<button class="btn btn-sm btn-primary" data-action="map-continuity-explain" data-issue="${esc(issue.issue_key)}">补充解释</button>`
+                  : ""}
+              </div>
+            </article>
+          `
+        }).join("")}
+      </div>
+    `
+  },
+
+  _continuityIssueLabel(issueType) {
+    return {
+      same_scene_conflict: "同一 Scene 的位置冲突",
+      missing_anchor: "位置锚点缺失",
+      route_unknown: "路线信息不足",
+      no_route: "未找到连通路线",
+      blocked_route: "移动经过受阻线路",
+      path_revision_mismatch: "线路版本已经变化",
+    }[issueType] || "空间连续性待核对"
+  },
+
   _renderPlaybackPanel() {
     const playbackState = this._playback || {}
     if (playbackState.loading) {
@@ -976,6 +1394,9 @@ const mapWorkspaceView = {
               <div class="map-dynamic-title">${esc(active.title)}</div>
               <div class="map-dynamic-meta">${esc(active.time_label)} · ${esc(this._mapStatusLabel(active))}</div>
               <div class="map-dynamic-source">${esc(active.change_summary || active.source_summary || "")}</div>
+              ${mapView.pathRevisionMismatch(active.spatial_anchor)
+                ? `<div class="map-path-revision-warning">线路已更新，回放保留原事实快照</div>`
+                : ""}
             </article>`
           : ""}
       </div>
@@ -983,19 +1404,60 @@ const mapWorkspaceView = {
   },
 
   _mountMap() {
-    mapView.unmount()
-    mapView.mount("map-root", {
+    const epoch = ++this._mountEpoch
+    const context = {
       mapId: this._activeMapId,
       sceneId: this._activeSceneId,
       focusEntityId: this._focusEntityId,
+      focusHexQ: this._focusHexQ,
+      focusHexR: this._focusHexR,
+      focusPathId: this._focusPathId,
+      focusLayerNodeId: this._focusLayerNodeId,
       viewMode: this._viewMode,
       lowMotion: this._lowMotion,
       mode: this._activeMapId ? "map" : "overview",
       layers: this._layers,
       onMapOpened: (map) => this._saveRecentMap(map),
+      onEditingChange: (editingState) => this._onMapEditingChange(editingState),
+      onOpenEntity: (entityId) => {
+        state.selectedItem = entityId
+        router.navigate("world", "objects")
+      },
+    }
+    this._mountPromise = this._mountPromise.catch(() => {}).then(async () => {
+      if (epoch !== this._mountEpoch) return false
+      mapView.unmount()
+      await mapView.mount("map-root", context)
+      if (epoch !== this._mountEpoch) {
+        mapView.unmount()
+        return false
+      }
+      this._loadDynamicSummary()
+      this._bindEvents()
+      return true
     })
-    this._loadDynamicSummary()
-    this._bindEvents()
+    return this._mountPromise
+  },
+
+  _onMapEditingChange(editingState = {}) {
+    const wasEditing = Boolean(this._editingState?.editing)
+    this._editingState = {
+      editing: Boolean(editingState.editing),
+      dirty: Boolean(editingState.dirty),
+      editorLayer: editingState.editorLayer || "none",
+    }
+    document.querySelector(".map-workspace-active")?.classList.toggle("is-map-editing", this._editingState.editing)
+    const band = document.getElementById("map-semantic-band")
+    if (band) band.style.display = this._editingState.editing ? "none" : ""
+    document.querySelector(".map-dynamic-rail")?.classList.toggle("is-map-editing", this._editingState.editing)
+    if (this._editingState.editing && !wasEditing) {
+      this._timeline = { ...this._timeline, playing: false }
+      this._playback = { ...this._playback, playing: false }
+      mapView.clearTimelineProjection?.()
+      mapView.clearPathFocus?.({ preserveSelection: true })
+    } else if (!this._editingState.editing) {
+      this._syncTimelineProjection({ fresh: true })
+    }
   },
 
   async _loadDynamicSummary({ force = false } = {}) {
@@ -1012,10 +1474,20 @@ const mapWorkspaceView = {
     ) {
       return
     }
+    const projectId = state.currentProjectId
     const mapId = this._activeMapId
     const sceneId = this._activeSceneId
     const focusEntityId = this._focusEntityId
     const focusedDynamicItemId = this._focusedDynamicItemId
+    const loadEpoch = ++this._dynamicLoadEpoch
+    const isCurrentRequest = () => (
+      this._dynamicLoadEpoch === loadEpoch
+      && state.currentProjectId === projectId
+      && this._activeMapId === mapId
+      && this._activeSceneId === sceneId
+      && this._focusEntityId === focusEntityId
+      && this._focusedDynamicItemId === focusedDynamicItemId
+    )
     this._dynamicSummary = {
       mapId,
       sceneId,
@@ -1039,25 +1511,38 @@ const mapWorkspaceView = {
       playing: false,
       activeIndex: 0,
     }
+    const timelinePreferences = this._timeline || createMapTimelineState()
+    this._timeline = {
+      ...createMapTimelineState(),
+      includeCandidates: Boolean(timelinePreferences.includeCandidates),
+      speedMs: Number(timelinePreferences.speedMs || 1600),
+      selectedTracks: { ...timelinePreferences.selectedTracks },
+      loading: true,
+    }
     this._updateDynamicSummaryDom()
     try {
-      const [dashboard, playback] = await Promise.all([
+      const [dashboard, playback, timelineResult] = await Promise.all([
         api.world.getMapDashboard(
           mapId,
-          state.currentProjectId,
+          projectId,
           sceneId,
           focusEntityId,
           focusedDynamicItemId,
         ),
         api.world.getMapPlayback(
           mapId,
-          state.currentProjectId,
+          projectId,
           sceneId,
           focusEntityId,
           true,
         ),
+        Promise.resolve(api.world.getMapTimeline(mapId, projectId, {
+          focusEntityId,
+          includeCandidates: this._timeline.includeCandidates || undefined,
+          limit: 500,
+        })).then((data) => ({ data })).catch((error) => ({ error })),
       ])
-      if (this._activeMapId !== mapId) return
+      if (!isCurrentRequest()) return
       this._dynamicSummary = {
         mapId,
         sceneId,
@@ -1083,9 +1568,42 @@ const mapWorkspaceView = {
         playing: false,
         activeIndex: 0,
       }
+      if (timelineResult.data) {
+        const data = normalizeMapTimelineResponse(timelineResult.data)
+        const previousScene = timelinePreferences.sceneIndex
+        let activeIndex = data.scenes.findIndex((item) => item.scene_index === previousScene)
+        if (activeIndex < 0) activeIndex = Math.max(0, data.scenes.length - 1)
+        this._timeline = {
+          ...this._timeline,
+          loading: false,
+          loaded: true,
+          error: null,
+          data,
+          activeIndex,
+          sceneIndex: data.scenes[activeIndex]?.scene_index ?? null,
+          playing: false,
+        }
+      } else {
+        this._timeline = {
+          ...this._timeline,
+          loading: false,
+          loaded: true,
+          error: timelineResult.error?.message || "Scene 时间轴暂不可用",
+          data: null,
+          playing: false,
+        }
+      }
       this._rebuildDynamicIndexes()
+      if (this._timeline.sceneIndex !== null) {
+        await this._loadTimelineStateAt(this._timeline.sceneIndex, {
+          updateDom: false,
+          isCurrentRequest,
+        })
+      } else {
+        mapView.clearTimelineProjection?.()
+      }
     } catch (err) {
-      if (this._activeMapId !== mapId) return
+      if (!isCurrentRequest()) return
       this._dynamicSummary = {
         mapId,
         sceneId,
@@ -1109,10 +1627,296 @@ const mapWorkspaceView = {
         playing: false,
         activeIndex: 0,
       }
+      this._timeline = {
+        ...this._timeline,
+        loading: false,
+        loaded: true,
+        error: "Scene 时间轴暂不可用",
+        data: null,
+        playing: false,
+      }
+      mapView.clearTimelineProjection?.()
       this._rebuildDynamicIndexes()
       toast(`地图动态事实暂不可用：${err.message || "加载失败"}`, "warning")
     }
     this._updateDynamicSummaryDom()
+  },
+
+  async _loadTimelineStateAt(sceneIndex, {
+    updateDom = true,
+    isCurrentRequest = null,
+  } = {}) {
+    if (!state.currentProjectId || !this._activeMapId || sceneIndex == null) return false
+    const projectId = state.currentProjectId
+    const mapId = this._activeMapId
+    const epoch = ++this._timelineLoadEpoch
+    this._timeline = {
+      ...this._timeline,
+      stateLoading: true,
+      stateError: null,
+      sceneIndex: Number(sceneIndex),
+    }
+    if (updateDom) this._updateDynamicSummaryDom()
+    try {
+      const response = await api.world.getMapStateAt(mapId, projectId, Number(sceneIndex), {
+        focusEntityId: this._focusEntityId,
+        limit: 500,
+      })
+      if (
+        epoch !== this._timelineLoadEpoch
+        || state.currentProjectId !== projectId
+        || this._activeMapId !== mapId
+        || this._timeline.sceneIndex !== Number(sceneIndex)
+        || (typeof isCurrentRequest === "function" && !isCurrentRequest())
+      ) {
+        return false
+      }
+      this._timeline = {
+        ...this._timeline,
+        stateAt: normalizeMapStateAtResponse(response),
+        stateLoading: false,
+        stateError: null,
+      }
+      this._syncTimelineProjection({ fresh: true })
+      if (updateDom) this._updateDynamicSummaryDom()
+      return true
+    } catch (err) {
+      if (epoch !== this._timelineLoadEpoch) return false
+      this._timeline = {
+        ...this._timeline,
+        stateAt: null,
+        stateLoading: false,
+        stateError: err.message || "Scene 正式状态暂不可用",
+      }
+      mapView.clearTimelineProjection?.()
+      if (updateDom) this._updateDynamicSummaryDom()
+      return false
+    }
+  },
+
+  _syncTimelineProjection({ fresh = false } = {}) {
+    const timeline = this._timeline
+    if (!timeline?.data || timeline.sceneIndex == null || timeline.stateError) {
+      mapView.clearTimelineProjection?.()
+      return false
+    }
+    if (fresh) this._timelineProjectionVersion += 1
+    return mapView.setTimelineProjection?.({
+      projectionToken: timeline.stateAt?.projection_token
+        || timeline.data?.projection_token
+        || `local-${this._timelineProjectionVersion}`,
+      sceneIndex: timeline.sceneIndex,
+      stateItems: timeline.stateAt?.items || [],
+      conflicts: timeline.stateAt?.conflicts || [],
+      deltas: timeline.data.deltas || [],
+      candidates: timeline.data.candidates || [],
+      includeCandidates: Boolean(timeline.includeCandidates),
+      selectedTracks: { ...timeline.selectedTracks },
+      lowMotion: this._lowMotion,
+    }) || false
+  },
+
+  async _setTimelineScenePosition(position, { fromPlayback = false } = {}) {
+    const scenes = this._timeline?.data?.scenes || []
+    if (!scenes.length) return false
+    const nextPosition = Math.max(0, Math.min(Number(position) || 0, scenes.length - 1))
+    const nextSceneIndex = scenes[nextPosition].scene_index
+    this._timeline = {
+      ...this._timeline,
+      activeIndex: nextPosition,
+      sceneIndex: nextSceneIndex,
+      stateAt: null,
+      stateError: null,
+      playing: fromPlayback ? this._timeline.playing : false,
+    }
+    mapView.clearPathFocus?.()
+    this._syncTimelineProjection({ fresh: true })
+    this._updateDynamicSummaryDom()
+    return this._loadTimelineStateAt(nextSceneIndex)
+  },
+
+  async _stepTimeline(delta, { fromPlayback = false } = {}) {
+    const scenes = this._timeline?.data?.scenes || []
+    if (!scenes.length) return false
+    const current = Math.max(0, Math.min(this._timeline.activeIndex || 0, scenes.length - 1))
+    const next = current + Number(delta || 0)
+    if (next < 0 || next >= scenes.length) {
+      if (fromPlayback) this._stopTimeline()
+      return false
+    }
+    return this._setTimelineScenePosition(next, { fromPlayback })
+  },
+
+  _startTimeline() {
+    if (this._editingState.editing) {
+      toast("请先结束地图编辑，再播放 Scene 时间轴", "info")
+      return false
+    }
+    const scenes = this._timeline?.data?.scenes || []
+    if (!scenes.length) return this._startPlayback()
+    const restart = this._timeline.activeIndex >= scenes.length - 1
+    this._timeline = {
+      ...this._timeline,
+      playing: true,
+      activeIndex: restart ? 0 : this._timeline.activeIndex,
+      sceneIndex: restart ? scenes[0].scene_index : this._timeline.sceneIndex,
+    }
+    this._updateDynamicSummaryDom()
+    const begin = restart
+      ? this._loadTimelineStateAt(scenes[0].scene_index)
+      : Promise.resolve(true)
+    Promise.resolve(begin).then((loaded) => {
+      if (loaded && this._timeline.playing) this._scheduleTimelineAdvance()
+      else if (!loaded) this._timeline = { ...this._timeline, playing: false }
+    })
+    return true
+  },
+
+  _stopTimeline({ clearProjection = false } = {}) {
+    this._timeline = { ...this._timeline, playing: false }
+    if (clearProjection) mapView.clearTimelineProjection?.()
+    this._updateDynamicSummaryDom()
+    return true
+  },
+
+  _scheduleTimelineAdvance() {
+    const delay = Math.max(600, Number(this._timeline.speedMs || 1600))
+    const timer = setTimeout(async () => {
+      this._pendingTimers.delete(timer)
+      if (!this._timeline?.playing || this._editingState.editing) return
+      const moved = await this._stepTimeline(1, { fromPlayback: true })
+      if (moved && this._timeline.playing) this._scheduleTimelineAdvance()
+      else if (!moved) this._stopTimeline()
+    }, delay)
+    this._pendingTimers.add(timer)
+  },
+
+  _setTimelineTrack(track, enabled) {
+    if (!MAP_TIMELINE_TRACKS.some((item) => item.key === track)) return false
+    this._timeline = {
+      ...this._timeline,
+      selectedTracks: {
+        ...this._timeline.selectedTracks,
+        [track]: Boolean(enabled),
+      },
+      playing: false,
+    }
+    this._syncTimelineProjection()
+    this._updateDynamicSummaryDom()
+    return true
+  },
+
+  async _setTimelineCandidates(enabled) {
+    this._timeline = {
+      ...this._timeline,
+      includeCandidates: Boolean(enabled),
+      playing: false,
+    }
+    await this._loadDynamicSummary({ force: true })
+    return true
+  },
+
+  _findContinuityIssue(issueKey) {
+    return (this._timeline?.data?.continuity_issues || [])
+      .find((issue) => issue.issue_key === issueKey)
+  },
+
+  _continuityAnchor(issue, side) {
+    const facts = new Set(issue?.source_fact_ids || [])
+    const deltas = (this._timeline?.data?.deltas || []).filter((delta) => (
+      (delta.source_fact_ids || []).some((id) => facts.has(id))
+    ))
+    const delta = side === "from" ? deltas[0] : deltas.at(-1)
+    const primary = side === "from"
+      ? delta?.spatial_anchor_before
+      : delta?.spatial_anchor_after
+    const fallback = side === "from"
+      ? issue?.suggested_observation?.source_ref?.from_spatial_anchor
+      : issue?.suggested_observation?.spatial_anchor
+    return primary || fallback || null
+  },
+
+  _focusContinuityIssue(issueKey, side) {
+    const issue = this._findContinuityIssue(issueKey)
+    if (!issue) return false
+    const anchor = this._continuityAnchor(issue, side)
+    const pathId = (issue.path_ids || [])[side === "from" ? 0 : (issue.path_ids || []).length - 1]
+    const pathFocused = pathId ? mapView.focusPath?.(pathId) : false
+    const anchorFocused = anchor ? mapView.focusTimelineAnchor?.(anchor) : false
+    if (!pathFocused && !anchorFocused) {
+      toast("该端点尚无可定位的地图锚点", "info")
+      return false
+    }
+    toast(side === "from" ? "已定位移动起点" : "已定位移动终点", "info")
+    return true
+  },
+
+  _showContinuityEvidence(issueKey) {
+    const issue = this._findContinuityIssue(issueKey)
+    if (!issue) return
+    const evidence = (issue.source_fact_ids || [])
+      .map((id) => this._dynamicFact(id))
+      .filter(Boolean)
+      .map((fact) => fact.evidence_text || fact.source_summary)
+      .filter(Boolean)
+    const sceneRange = issue.from_scene_index === issue.to_scene_index
+      ? `Scene ${issue.to_scene_index}`
+      : `Scene ${issue.from_scene_index} → ${issue.to_scene_index}`
+    const body = `
+      <div class="map-object-info">
+        <div class="map-detail-section"><div class="map-detail-label">检查结果</div><div class="map-detail-value">${esc(issue.message || this._continuityIssueLabel(issue.issue_type))}</div></div>
+        <div class="map-detail-section"><div class="map-detail-label">Scene</div><div class="map-detail-value">${esc(sceneRange)}</div></div>
+        ${issue.distance_hex == null ? "" : `<div class="map-detail-section"><div class="map-detail-label">地图距离</div><div class="map-detail-value">${esc(issue.distance_hex)} 格；未换算为叙事时间</div></div>`}
+        <div class="map-detail-section"><div class="map-detail-label">来源证据</div><div class="map-detail-value">${evidence.length ? evidence.slice(0, 5).map((text) => `<p>${esc(text)}</p>`).join("") : `已保留 ${esc((issue.source_fact_ids || []).length)} 条来源事实`}</div></div>
+      </div>
+    `
+    showModalHtml("空间连续性证据", body, [{ text: "关闭", class: "btn", handler: () => closeModal() }])
+  },
+
+  _showContinuityExplanationForm(issueKey) {
+    const issue = this._findContinuityIssue(issueKey)
+    const suggestion = issue?.suggested_observation
+    if (!issue || !suggestion) return
+    const form = `
+      <p>${esc(issue.message || this._continuityIssueLabel(issue.issue_type))}</p>
+      <div class="form-group">
+        <label>作者解释</label>
+        <textarea class="form-textarea" id="map-continuity-explanation" rows="4" placeholder="例如：角色使用了城内密道，因此未经过已封锁的桥。"></textarea>
+      </div>
+      <div class="form-group">
+        <label>补充证据（可选）</label>
+        <textarea class="form-textarea" id="map-continuity-evidence" rows="3" placeholder="填写相关正文或设定依据"></textarea>
+      </div>
+      <p class="map-muted-text">保存后只生成待处理候选，不会直接改写正式世界状态。</p>
+    `
+    showModalHtml("补充移动解释", form, [{
+      text: "保存为待处理",
+      class: "btn-primary",
+      handler: async () => {
+        const explanation = document.getElementById("map-continuity-explanation")?.value?.trim() || ""
+        const evidence = document.getElementById("map-continuity-evidence")?.value?.trim() || ""
+        if (!explanation) {
+          toast("请先填写作者解释", "warning")
+          return false
+        }
+        const payload = JSON.parse(JSON.stringify(suggestion))
+        payload.review_state = "candidate"
+        payload.value_json = {
+          ...(payload.value_json || {}),
+          schema_version: 1,
+          type: "semantic",
+          relation_type: "movement_explanation",
+          summary: explanation,
+        }
+        payload.evidence_text = evidence || explanation
+        await api.world.createMapObservation(this._activeMapId, payload, state.currentProjectId)
+        closeModal()
+        toast("移动解释已进入待处理，确认后才会成为正式事实", "success")
+        this._timeline.includeCandidates = true
+        await this._loadDynamicSummary({ force: true })
+        return true
+      },
+    }])
   },
 
   _updateDynamicSummaryDom() {
@@ -1187,6 +1991,7 @@ const mapWorkspaceView = {
       activeIndex: 0,
     }
     this._updateWorkspaceLayoutDom()
+    this._syncPlaybackPathFocus()
     this._schedulePlaybackAdvance()
   },
 
@@ -1195,7 +2000,23 @@ const mapWorkspaceView = {
       ...this._playback,
       playing: false,
     }
+    mapView.clearPathFocus()
     this._updateWorkspaceLayoutDom()
+  },
+
+  _syncPlaybackPathFocus() {
+    const event = this._playback?.playback?.events?.[this._playback.activeIndex]
+      || this._playback?.playback?.events?.[0]
+    const anchor = event?.spatial_anchor || {}
+    const pathId = anchor.path_id || event?.path_id || null
+    if (!pathId) {
+      mapView.clearPathFocus()
+      return false
+    }
+    return mapView.focusPath(
+      pathId,
+      anchor.focus_layer_node_id || anchor.layer_node_id || event?.layer_node_id || null,
+    )
   },
 
   _findDynamicItem(id) {
@@ -1250,7 +2071,7 @@ const mapWorkspaceView = {
         </div>
         <div class="map-detail-section">
           <div class="map-detail-label">状态</div>
-          <div class="map-detail-value">${esc(status)}</div>
+          <div class="map-detail-value">${esc(status)}${item.normalization_state ? ` · ${esc(mapDynamicNormalizationLabel(item.normalization_state))}` : ""}</div>
         </div>
         <div class="map-detail-section">
           <div class="map-detail-label">来源</div>
@@ -1309,10 +2130,7 @@ const mapWorkspaceView = {
         <label>空间锚点 JSON</label>
         <textarea class="form-textarea" id="map-object-edit-spatial-anchor" rows="3">${jsonValue(item.spatial_anchor)}</textarea>
       </div>
-      <div class="form-group">
-        <label>字段差异 JSON</label>
-        <textarea class="form-textarea" id="map-object-edit-value-json" rows="4">${jsonValue(item.value_json)}</textarea>
-      </div>
+      ${this._renderTypedDynamicValueEditor(item, jsonValue)}
       <div class="form-group">
         <label>来源引用 JSON</label>
         <textarea class="form-textarea" id="map-object-edit-source-ref" rows="3">${jsonValue(item.source_ref)}</textarea>
@@ -1362,18 +2180,335 @@ const mapWorkspaceView = {
         }
       },
     }])
+    this._bindTypedDynamicValueEditor()
+  },
+
+  _renderTypedDynamicValueEditor(item, jsonValue) {
+    const types = [
+      ["", "保留旧格式"],
+      ["location", "人物/对象位置"],
+      ["route_state", "线路状态"],
+      ["status", "对象状态"],
+      ["boundary", "势力范围"],
+      ["resource", "资源控制"],
+      ["terrain", "地形变化"],
+      ["crisis", "危机扩散"],
+      ["semantic", "语义关联"],
+    ]
+    const supported = new Set(types.map(([value]) => value).filter(Boolean))
+    const rawValue = item.normalized_value || item.value_json || {}
+    const typedValue = rawValue.schema_version === 1 && supported.has(rawValue.type)
+      ? rawValue
+      : null
+    const selectedType = typedValue?.type || ""
+    const entitiesById = new Map()
+    for (const entity of [
+      ...(mapView.timelineEntityOptions?.() || []),
+      ...(this._locations || []).map((location) => ({
+        id: location.id,
+        name: location.name,
+        entityType: "location",
+      })),
+    ]) {
+      if (entity?.id && entity?.name) entitiesById.set(entity.id, entity)
+    }
+    const entities = [...entitiesById.values()]
+    const paths = mapView.timelinePathOptions?.() || []
+    const knownEntityIds = new Set(entities.map((entry) => entry.id))
+    const unknownRelatedOptions = (typedValue?.related_entity_ids || [])
+      .filter((id) => !knownEntityIds.has(id))
+      .map((id) => `<option value="${esc(id)}" selected>当前已关联对象</option>`)
+      .join("")
+    const optionList = (items, selected, emptyLabel) => {
+      const values = new Set(items.map((entry) => entry.id))
+      const unknown = selected && !values.has(selected)
+        ? `<option value="${esc(selected)}" selected>当前已关联对象</option>`
+        : ""
+      return `
+        <option value="">${esc(emptyLabel)}</option>
+        ${unknown}
+        ${items.map((entry) => `<option value="${esc(entry.id)}" ${entry.id === selected ? "selected" : ""}>${esc(entry.name)}</option>`).join("")}
+      `
+    }
+    const entityOptions = (selected, emptyLabel = "请选择对象") => (
+      optionList(entities, selected, emptyLabel)
+    )
+    const locationOptions = (selected) => optionList(
+      entities.filter((entry) => entry.entityType === "location"),
+      selected,
+      "未指定地点",
+    )
+    const pathOptions = (selected) => optionList(paths, selected, "未指定线路")
+    const hexText = (value) => (value?.hexes || [])
+      .map((hex) => `${hex.hex_q},${hex.hex_r}`)
+      .join("\n")
+    const scalarType = typedValue?.type === "status"
+      ? (typedValue.value === null
+          ? "null"
+          : typeof typedValue.value === "number"
+            ? "number"
+            : typeof typedValue.value === "boolean"
+              ? "boolean"
+              : "string")
+      : "string"
+    const fieldset = (type, content) => `
+      <div class="map-typed-dynamic-fields" data-map-dynamic-fields="${type}" ${selectedType === type ? "" : "hidden"}>
+        ${content}
+      </div>
+    `
+    const normalizationState = item.normalization_state
+      || (typedValue ? "typed" : "untyped")
+    return `
+      <section class="map-typed-dynamic-editor">
+        <div class="map-typed-dynamic-heading">
+          <strong>结构化动态</strong>
+          <span>${esc(mapDynamicNormalizationLabel(normalizationState))}</span>
+        </div>
+        ${typedValue
+          ? `<p class="map-muted-text">已使用可检查的结构化字段；保存时继续由后端 schema 校验。</p>`
+          : `<p class="map-legacy-dynamic-note">尚未结构化。可选择一种动态类型补齐字段；保留旧格式时仍保存原 JSON。</p>`}
+        <div class="form-group">
+          <label>动态值类型</label>
+          <select class="form-select" id="map-object-edit-value-type" data-initial-type="${selectedType}" data-initialized="false">
+            ${types.map(([value, label]) => `<option value="${value}" ${selectedType === value ? "selected" : ""}>${esc(label)}</option>`).join("")}
+          </select>
+        </div>
+        ${fieldset("location", `
+          <div class="form-group"><label>所在地点</label><select class="form-select" id="map-typed-location-entity">${locationOptions(typedValue?.location_entity_id)}</select></div>
+          <div class="form-group"><label>使用线路（可选）</label><select class="form-select" id="map-typed-location-path">${pathOptions(typedValue?.path_id)}</select></div>
+          <div class="form-group"><label>移动方式</label><select class="form-select" id="map-typed-location-mode">${["walk", "ride", "vehicle", "rail", "water", "flight", "teleport", "unknown"].map((value) => `<option value="${value}" ${(typedValue?.movement_mode || "unknown") === value ? "selected" : ""}>${esc({ walk: "步行", ride: "骑乘", vehicle: "载具", rail: "轨道", water: "水路", flight: "飞行", teleport: "传送", unknown: "未知" }[value])}</option>`).join("")}</select></div>
+          <div class="form-group"><label>位置状态</label><input class="form-input" id="map-typed-location-state" maxlength="64" value="${esc(typedValue?.state || "present")}" /></div>
+        `)}
+        ${fieldset("route_state", `
+          <div class="form-group"><label>线路</label><select class="form-select" id="map-typed-route-path">${pathOptions(typedValue?.path_id)}</select></div>
+          <div class="form-group"><label>线路状态</label><select class="form-select" id="map-typed-route-state">${[["open", "开放"], ["restricted", "受限"], ["blocked", "阻断"]].map(([value, label]) => `<option value="${value}" ${(typedValue?.state || "open") === value ? "selected" : ""}>${label}</option>`).join("")}</select></div>
+          <div class="form-group"><label>原因（可选）</label><textarea class="form-textarea" id="map-typed-route-reason" rows="2" maxlength="1000">${esc(typedValue?.reason || "")}</textarea></div>
+        `)}
+        ${fieldset("status", `
+          <div class="form-group"><label>状态字段</label><input class="form-input" id="map-typed-status-key" maxlength="128" value="${esc(typedValue?.field_key || "")}" placeholder="例如：戒备等级" /></div>
+          <div class="map-typed-scalar-row">
+            <div class="form-group"><label>值类型</label><select class="form-select" id="map-typed-status-value-type">${[["string", "文字"], ["number", "数字"], ["boolean", "是/否"], ["null", "未设置"]].map(([value, label]) => `<option value="${value}" ${scalarType === value ? "selected" : ""}>${label}</option>`).join("")}</select></div>
+            <div class="form-group"><label>当前值</label><input class="form-input" id="map-typed-status-value" value="${esc(typedValue?.value ?? "")}" /></div>
+          </div>
+        `)}
+        ${fieldset("boundary", `
+          <div class="form-group"><label>控制者</label><select class="form-select" id="map-typed-boundary-controller">${entityOptions(typedValue?.controller_entity_id || item.target_entity_id)}</select></div>
+          <div class="form-group"><label>范围格（每行 q,r）</label><textarea class="form-textarea" id="map-typed-boundary-hexes" rows="4" placeholder="2,3">${esc(hexText(typedValue))}</textarea></div>
+        `)}
+        ${fieldset("resource", `
+          <div class="form-group"><label>资源名称/键</label><input class="form-input" id="map-typed-resource-key" maxlength="128" value="${esc(typedValue?.resource_key || "")}" /></div>
+          <div class="form-group"><label>控制者（可选）</label><select class="form-select" id="map-typed-resource-controller">${entityOptions(typedValue?.controller_entity_id, "未指定控制者")}</select></div>
+          <div class="map-typed-scalar-row"><div class="form-group"><label>状态（可选）</label><input class="form-input" id="map-typed-resource-status" maxlength="128" value="${esc(typedValue?.status || "")}" /></div><div class="form-group"><label>数量（可选）</label><input class="form-input" id="map-typed-resource-amount" type="number" step="any" value="${esc(typedValue?.amount ?? "")}" /></div></div>
+        `)}
+        ${fieldset("terrain", `
+          <div class="form-group"><label>地形名称/键</label><input class="form-input" id="map-typed-terrain-key" maxlength="128" value="${esc(typedValue?.terrain_key || "")}" /></div>
+          <div class="form-group"><label>地形状态</label><input class="form-input" id="map-typed-terrain-state" maxlength="128" value="${esc(typedValue?.state || "")}" /></div>
+          <div class="form-group"><label>影响格（每行 q,r）</label><textarea class="form-textarea" id="map-typed-terrain-hexes" rows="4" placeholder="2,3">${esc(hexText(typedValue))}</textarea></div>
+        `)}
+        ${fieldset("crisis", `
+          <div class="form-group"><label>危机名称/键</label><input class="form-input" id="map-typed-crisis-key" maxlength="128" value="${esc(typedValue?.crisis_key || "")}" /></div>
+          <div class="form-group"><label>强度（0–5）</label><input class="form-input" id="map-typed-crisis-severity" type="number" min="0" max="5" step="1" value="${esc(typedValue?.severity ?? 0)}" /></div>
+          <div class="form-group"><label>影响格（每行 q,r）</label><textarea class="form-textarea" id="map-typed-crisis-hexes" rows="4" placeholder="2,3">${esc(hexText(typedValue))}</textarea></div>
+        `)}
+        ${fieldset("semantic", `
+          <div class="form-group"><label>关联类型</label><input class="form-input" id="map-typed-semantic-relation" maxlength="64" value="${esc(typedValue?.relation_type || "semantic_relation")}" /></div>
+          <div class="form-group"><label>相关对象（可多选）</label><select class="form-select" id="map-typed-semantic-entities" multiple size="4">${unknownRelatedOptions}${entities.map((entry) => `<option value="${esc(entry.id)}" ${(typedValue?.related_entity_ids || []).includes(entry.id) ? "selected" : ""}>${esc(entry.name)}</option>`).join("")}</select></div>
+          <div class="form-group"><label>关联说明（可选）</label><textarea class="form-textarea" id="map-typed-semantic-summary" rows="3" maxlength="2000">${esc(typedValue?.summary || "")}</textarea></div>
+        `)}
+        <details class="map-dynamic-advanced">
+          <summary>高级 JSON</summary>
+          <p class="map-muted-text">仅在“保留旧格式”时读取；结构化表单保存时由表单生成 V1 数据。</p>
+          <textarea class="form-textarea" id="map-object-edit-value-json" rows="5">${jsonValue(item.value_json)}</textarea>
+        </details>
+      </section>
+    `
+  },
+
+  _bindTypedDynamicValueEditor() {
+    const select = document.getElementById("map-object-edit-value-type")
+    if (!select) return false
+    document.querySelectorAll(".map-typed-dynamic-editor select:not([multiple])").forEach((field) => {
+      const declared = field.querySelector("option[selected]")
+      if (declared) field.value = declared.value
+    })
+    if (select.dataset.initialized !== "true") {
+      select.value = select.dataset.initialType || ""
+      select.dataset.initialized = "true"
+    }
+    const sync = () => {
+      document.querySelectorAll("[data-map-dynamic-fields]").forEach((fieldset) => {
+        fieldset.hidden = fieldset.dataset.mapDynamicFields !== select.value
+      })
+      const dynamicType = document.getElementById("map-object-edit-dynamic-type")
+      if (dynamicType && select.value) {
+        const currentCanonical = this._canonicalDynamicType(dynamicType.value)
+        if (currentCanonical !== select.value) dynamicType.value = select.value
+      }
+    }
+    select.onchange = sync
+    sync()
+    return true
+  },
+
+  _canonicalDynamicType(value) {
+    const normalized = String(value || "").trim().toLowerCase().replaceAll("-", "_")
+    return {
+      movement: "location",
+      position: "location",
+      position_change: "location",
+      journey: "location",
+      route: "route_state",
+      path_state: "route_state",
+      state: "status",
+      territory: "boundary",
+      territory_change: "boundary",
+      resource_control: "resource",
+      terrain_change: "terrain",
+      crisis_spread: "crisis",
+      semantic_relation: "semantic",
+      movement_explanation: "semantic",
+    }[normalized] || normalized
+  },
+
+  _parseDynamicHexes(raw) {
+    const byKey = new Map()
+    for (const token of String(raw || "").split(/[\n;]+/).map((item) => item.trim()).filter(Boolean)) {
+      const match = token.match(/^(\d+)\s*,\s*(\d+)$/)
+      if (!match) throw new Error(`范围格“${token}”格式不正确，应为 q,r`)
+      const hex = { hex_q: Number(match[1]), hex_r: Number(match[2]) }
+      byKey.set(`${hex.hex_q},${hex.hex_r}`, hex)
+      if (byKey.size > 20000) throw new Error("范围格一次最多 20,000 个")
+    }
+    return [...byKey.values()].sort((a, b) => a.hex_q - b.hex_q || a.hex_r - b.hex_r)
+  },
+
+  _readTypedDynamicValue() {
+    const value = (id) => document.getElementById(id)?.value?.trim() || ""
+    const optional = (id) => value(id) || null
+    const required = (id, label) => {
+      const result = value(id)
+      if (!result) throw new Error(`请填写${label}`)
+      return result
+    }
+    const typeSelect = document.getElementById("map-object-edit-value-type")
+    const type = typeSelect?.dataset?.initialized === "true"
+      ? value("map-object-edit-value-type")
+      : (typeSelect?.dataset?.initialType || "")
+    if (!type) return null
+    if (type === "location") {
+      return {
+        schema_version: 1,
+        type,
+        location_entity_id: optional("map-typed-location-entity"),
+        path_id: optional("map-typed-location-path"),
+        movement_mode: value("map-typed-location-mode") || "unknown",
+        state: required("map-typed-location-state", "位置状态"),
+      }
+    }
+    if (type === "route_state") {
+      return {
+        schema_version: 1,
+        type,
+        path_id: required("map-typed-route-path", "线路"),
+        state: value("map-typed-route-state") || "open",
+        reason: optional("map-typed-route-reason"),
+      }
+    }
+    if (type === "status") {
+      const scalarType = value("map-typed-status-value-type") || "string"
+      const raw = value("map-typed-status-value")
+      let scalar = raw
+      if (scalarType === "null") scalar = null
+      if (scalarType === "boolean") {
+        if (!["true", "false", "是", "否"].includes(raw.toLowerCase())) {
+          throw new Error("状态值应填写 true/false 或 是/否")
+        }
+        scalar = ["true", "是"].includes(raw.toLowerCase())
+      }
+      if (scalarType === "number") {
+        scalar = Number(raw)
+        if (!raw || !Number.isFinite(scalar)) throw new Error("状态数字必须是有限数值")
+      }
+      return {
+        schema_version: 1,
+        type,
+        field_key: required("map-typed-status-key", "状态字段"),
+        value: scalar,
+      }
+    }
+    if (type === "boundary") {
+      return {
+        schema_version: 1,
+        type,
+        controller_entity_id: required("map-typed-boundary-controller", "控制者"),
+        hexes: this._parseDynamicHexes(value("map-typed-boundary-hexes")),
+      }
+    }
+    if (type === "resource") {
+      const amount = value("map-typed-resource-amount")
+      const numericAmount = amount ? Number(amount) : null
+      if (amount && !Number.isFinite(numericAmount)) throw new Error("资源数量必须是有限数值")
+      return {
+        schema_version: 1,
+        type,
+        resource_key: required("map-typed-resource-key", "资源名称/键"),
+        controller_entity_id: optional("map-typed-resource-controller"),
+        status: optional("map-typed-resource-status"),
+        amount: numericAmount,
+      }
+    }
+    if (type === "terrain") {
+      return {
+        schema_version: 1,
+        type,
+        terrain_key: required("map-typed-terrain-key", "地形名称/键"),
+        state: required("map-typed-terrain-state", "地形状态"),
+        hexes: this._parseDynamicHexes(value("map-typed-terrain-hexes")),
+      }
+    }
+    if (type === "crisis") {
+      const severity = Number(value("map-typed-crisis-severity"))
+      if (!Number.isInteger(severity) || severity < 0 || severity > 5) {
+        throw new Error("危机强度必须是 0–5 的整数")
+      }
+      return {
+        schema_version: 1,
+        type,
+        crisis_key: required("map-typed-crisis-key", "危机名称/键"),
+        severity,
+        hexes: this._parseDynamicHexes(value("map-typed-crisis-hexes")),
+      }
+    }
+    if (type === "semantic") {
+      const related = [...(document.getElementById("map-typed-semantic-entities")?.selectedOptions || [])]
+        .map((option) => option.value)
+      if (related.length > 200) throw new Error("相关对象一次最多选择 200 个")
+      return {
+        schema_version: 1,
+        type,
+        relation_type: required("map-typed-semantic-relation", "关联类型"),
+        related_entity_ids: [...new Set(related)].sort(),
+        summary: optional("map-typed-semantic-summary"),
+      }
+    }
+    throw new Error("不支持的结构化动态类型")
   },
 
   _readObservationEditPayload(reviewState) {
     const value = (id) => document.getElementById(id)?.value?.trim() || ""
+    const typedValue = this._readTypedDynamicValue()
+    let dynamicType = value("map-object-edit-dynamic-type") || "state_change"
+    if (typedValue && this._canonicalDynamicType(dynamicType) !== typedValue.type) {
+      dynamicType = typedValue.type
+    }
     const payload = {
       review_state: reviewState || "candidate",
       target_name: value("map-object-edit-target-name") || null,
       target_entity_type: value("map-object-edit-target-type") || null,
-      dynamic_type: value("map-object-edit-dynamic-type") || "state_change",
+      dynamic_type: dynamicType,
       time_anchor: this._readJsonField("map-object-edit-time-anchor"),
       spatial_anchor: this._readJsonField("map-object-edit-spatial-anchor"),
-      value_json: this._readJsonField("map-object-edit-value-json"),
+      value_json: typedValue || this._readJsonField("map-object-edit-value-json"),
       source_ref: this._readJsonField("map-object-edit-source-ref"),
       evidence_text: value("map-object-edit-evidence") || null,
     }
@@ -1519,11 +2654,21 @@ const mapWorkspaceView = {
     this._focusedDynamicItemId = dynamicItemId
     if (!focusEntityId) {
       await this._loadDynamicSummary({ force: true })
+      const observation = dynamicItemId ? this._dynamicObservation(dynamicItemId) : null
+      const fact = !observation && dynamicItemId ? this._dynamicFact(dynamicItemId) : null
+      if (observation) mapView.selectInspectorObject("observation", observation)
+      if (fact) mapView.selectInspectorObject("fact", fact)
       toast("检查器已在右侧显示", "info")
       return
     }
     this._focusEntityId = focusEntityId
     await this._loadDynamicSummary({ force: true })
+    if (dynamicItemId) {
+      const observation = this._dynamicObservation(dynamicItemId)
+      const fact = observation ? null : this._dynamicFact(dynamicItemId)
+      if (observation) mapView.selectInspectorObject("observation", observation)
+      if (fact) mapView.selectInspectorObject("fact", fact)
+    }
     toast("检查器已按对象聚焦", "info")
   },
 
@@ -1572,8 +2717,10 @@ const mapWorkspaceView = {
       const nextIndex = this._playback.activeIndex + 1
       if (nextIndex >= events.length) {
         this._playback = { ...this._playback, playing: false }
+        mapView.clearPathFocus()
       } else {
         this._playback = { ...this._playback, activeIndex: nextIndex }
+        this._syncPlaybackPathFocus()
         this._schedulePlaybackAdvance()
       }
       this._updateWorkspaceLayoutDom()
@@ -1599,11 +2746,42 @@ const mapWorkspaceView = {
       if (action === "map-search-location") return runAction(() => this._openLocation(target.dataset.id))
       if (action === "map-quick-create") return runAction(() => this._openQuickCreate())
       if (action === "map-create-world") return runAction(() => this._showCreateWorldForm())
+      if (action === "map-toggle-archived") {
+        this._showArchivedMaps = !this._showArchivedMaps
+        return runAction(() => router.renderCurrentView?.())
+      }
+      if (action === "map-archive-page") {
+        this._archivedPage = Math.max(0, Number(target.dataset.page || 0))
+        return runAction(() => router.renderCurrentView?.())
+      }
+      if (action === "map-archive") return runAction(() => this._archiveMap(target.dataset.id))
+      if (action === "map-restore") return runAction(() => this._showRestoreMapForm(target.dataset.id))
       if (action === "map-confirm-observation") return runAction(() => this._confirmObservation(target.dataset.id))
       if (action === "map-ignore-observation") return runAction(() => this._ignoreObservation(target.dataset.id))
       if (action === "map-view-mode") return runAction(() => this._setViewMode(target.dataset.viewMode))
       if (action === "map-playback-start") return runAction(() => this._startPlayback())
       if (action === "map-playback-stop") return runAction(() => this._stopPlayback())
+      if (action === "map-timeline-start") return runAction(() => this._startTimeline())
+      if (action === "map-timeline-stop") return runAction(() => this._stopTimeline())
+      if (action === "map-timeline-step") {
+        return runAction(() => this._stepTimeline(Number(target.dataset.delta || 0)))
+      }
+      if (action === "map-timeline-retry") {
+        return runAction(() => this._loadDynamicSummary({ force: true }))
+      }
+      if (action === "map-continuity-focus") {
+        return runAction(() => this._focusContinuityIssue(target.dataset.issue, target.dataset.side))
+      }
+      if (action === "map-continuity-evidence") {
+        return runAction(() => this._showContinuityEvidence(target.dataset.issue))
+      }
+      if (action === "map-continuity-open-entity") {
+        state.selectedItem = target.dataset.entity
+        return runAction(() => router.navigate("world", "objects"))
+      }
+      if (action === "map-continuity-explain") {
+        return runAction(() => this._showContinuityExplanationForm(target.dataset.issue))
+      }
       if (action === "map-batch-review") return runAction(() => this._batchReviewGroup(target.dataset.group, target.dataset.reviewAction))
       if (action === "map-toggle-history") {
         return runAction(() => this._toggleHistory())
@@ -1613,12 +2791,41 @@ const mapWorkspaceView = {
       }
       if (action === "map-overview") {
         return runAction(() => {
+          if (!mapView.canLeave()) return false
           this._mode = "overview"
           this._activeMapId = null
           this._resetDynamicSummary()
           mapView.unmount()
-          router.refresh?.()
+          this._onMapEditingChange()
+          return router.navigate(
+            "map",
+            null,
+            true,
+            new URLSearchParams({ mode: "overview" }),
+          )
         })
+      }
+    }
+    root.onchange = (event) => {
+      const target = event.target.closest?.("[data-action]")
+      if (!target) return
+      const action = target.dataset.action
+      if (action === "map-timeline-scene-select" || action === "map-timeline-cursor") {
+        return runAction(() => this._setTimelineScenePosition(Number(target.value)))
+      }
+      if (action === "map-timeline-speed") {
+        this._timeline = {
+          ...this._timeline,
+          speedMs: Math.max(600, Number(target.value || 1600)),
+          playing: false,
+        }
+        return this._updateDynamicSummaryDom()
+      }
+      if (action === "map-timeline-candidates") {
+        return runAction(() => this._setTimelineCandidates(target.checked))
+      }
+      if (action === "map-timeline-track") {
+        return this._setTimelineTrack(target.dataset.track, target.checked)
       }
     }
     root.querySelectorAll("[data-action='map-layer-toggle']").forEach((input) => {
@@ -1639,6 +2846,71 @@ const mapWorkspaceView = {
         }
       }
     }
+  },
+
+  async _archiveMap(mapId) {
+    const map = this._mapById.get(mapId)
+    const impact = await api.world.getMapArchiveImpact(mapId, state.currentProjectId)
+    const counts = impact.asset_counts || {}
+    const totalAssets = Object.values(counts).reduce((sum, value) => sum + Number(value || 0), 0)
+    const labels = {
+      tiles: "底图格",
+      location_bindings: "地点绑定",
+      location_layouts: "地点布局",
+      markers: "标记",
+      territories: "领地格",
+      terrain_layers: "覆盖图层",
+      terrain_regions: "覆盖区域",
+      terrain_patches: "覆盖格",
+      terrain_bindings: "覆盖绑定",
+      layer_nodes: "图层节点",
+      observations: "待处理观察",
+      facts: "地图事实",
+    }
+    const details = Object.entries(counts)
+      .filter(([, value]) => Number(value || 0) > 0)
+      .map(([key, value]) => `${labels[key] || key} ${Number(value)}`)
+      .join("、")
+    return confirmAction(
+      `归档「${esc(map?.name || "该地图")}」及其 ${impact.map_count} 张地图？将一并隐藏 ${totalAssets} 个关联资产${details ? `（${details}）` : ""}；内容会保留，可从归档地图恢复。`,
+      async () => {
+        await api.world.archiveMap(mapId, state.currentProjectId)
+        if (this._activeMapId === mapId) this._clearRecentMap()
+        await this._loadData()
+        toast("地图子树已归档", "success")
+        router.refresh?.()
+      },
+      "归档子树",
+    )
+  },
+
+  _showRestoreMapForm(mapId) {
+    const map = this._archivedMaps.find((item) => item.id === mapId)
+    if (!map) return
+    const form = `
+      <p>将恢复「${esc(map.name)}」及其完整子树。若同层已有同名地图，可只重命名恢复根。</p>
+      <div class="form-group">
+        <label>恢复根名称</label>
+        <input class="form-input" id="map-restore-root-name" value="${esc(map.name)}" maxlength="255" />
+      </div>
+    `
+    showModalHtml("恢复归档地图", form, [{
+      text: "恢复子树",
+      class: "btn-primary",
+      handler: async () => {
+        const rootName = document.getElementById("map-restore-root-name")?.value?.trim()
+        try {
+          await api.world.restoreMap(mapId, { root_name: rootName || map.name }, state.currentProjectId)
+          closeModal()
+          await this._loadData()
+          toast("地图子树已恢复", "success")
+          router.refresh?.()
+        } catch (err) {
+          toast(`恢复失败：${err.message || "未知错误"}`, "error")
+          return false
+        }
+      },
+    }])
   },
 
   async _openQuickCreate() {

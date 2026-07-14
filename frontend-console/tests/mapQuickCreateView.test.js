@@ -14,6 +14,7 @@ beforeEach(() => {
   mapQuickCreateView._previousLayoutIds = new Set()
   mapQuickCreateView._includeCandidates = false
   mapQuickCreateView._target = "world"
+  mapQuickCreateView._replaceMapId = null
   mapQuickCreateView._onCreated = null
 })
 
@@ -65,6 +66,11 @@ describe("mapQuickCreateView", () => {
     )
     expect(showModal).toHaveBeenCalledWith(
       "快速创建地图",
+      expect.objectContaining({ html: expect.stringContaining("map-quick-extra-search") }),
+      expect.any(Array),
+    )
+    expect(showModal).toHaveBeenCalledWith(
+      "快速创建地图",
       expect.objectContaining({ html: expect.not.stringContaining("生成人物等结构化标记") }),
       expect.any(Array),
     )
@@ -107,6 +113,19 @@ describe("mapQuickCreateView", () => {
     expect(api.world.previewQuickCreateMap).toHaveBeenCalledWith(expect.objectContaining({
       include_candidates: true,
     }), "p1")
+  })
+
+  it("infers the fixed target level when replacing an existing map", () => {
+    expect(mapQuickCreateView._targetForExistingMap({ id: "world" })).toBe("world")
+    expect(mapQuickCreateView._targetForExistingMap({
+      id: "detail",
+      parent_entity_id: "loc1",
+    })).toBe("detail")
+    expect(mapQuickCreateView._targetForExistingMap({
+      id: "drilldown",
+      parent_entity_id: "loc2",
+      parent_map_id: "detail",
+    })).toBe("drilldown")
   })
 
   it("candidate toggle failure keeps the previous preview and shows feedback", async () => {
@@ -226,7 +245,7 @@ describe("mapQuickCreateView", () => {
     expect(toast).toHaveBeenCalledWith("请至少选择一个地点", "warning")
   })
 
-  it("preserves existing selections and selects newly loaded locations", async () => {
+  it("preserves existing selections and keeps newly loaded candidates read-only", async () => {
     api.world.getMapQuickCreateContext.mockResolvedValue({
       locations: [
         { id: "loc1", name: "洛阳", status: "canonical" },
@@ -262,7 +281,7 @@ describe("mapQuickCreateView", () => {
 
     expect(mapQuickCreateView._selectedLocationIds.has("loc1")).toBe(false)
     expect(mapQuickCreateView._selectedLocationIds.has("loc2")).toBe(true)
-    expect(mapQuickCreateView._selectedLocationIds.has("loc3")).toBe(true)
+    expect(mapQuickCreateView._selectedLocationIds.has("loc3")).toBe(false)
   })
 
   it("updates active preview layout before confirm", async () => {

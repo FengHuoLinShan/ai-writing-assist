@@ -27,14 +27,14 @@ const routes = {
 /**
  * 视图渲染器映射
  * 每个视图模块提供 render() 函数
- * @type {Object<string, {render: function, onEnter?: function, onRendered?: function, onActivate?: function, onDeactivate?: function, onLeave?: function}>}
+ * @type {Object<string, {render: function, onEnter?: function, onRendered?: function, onActivate?: function, onDeactivate?: function, canLeave?: function, onLeave?: function}>}
  */
 const viewRenderers = {}
 
 /**
  * 注册视图渲染器
  * @param {string} name - 视图名称
- * @param {Object} renderer - { render(), onEnter?(), onRendered?(), onActivate?(), onDeactivate?(), onLeave?() }
+ * @param {Object} renderer - { render(), onEnter?(), onRendered?(), onActivate?(), onDeactivate?(), canLeave?(), onLeave?() }
  */
 function registerView(name, renderer) {
   viewRenderers[name] = renderer
@@ -251,6 +251,54 @@ function _hashForRoute(routeState) {
   return "#" + _buildHash(routeState.viewName, routeState.subView, routeState.query, routeState.projectId)
 }
 
+function _renderedRouteState() {
+  const renderedMatchesState = _prevRenderedView === state.currentView
+  return {
+    projectId: renderedMatchesState
+      ? _prevRenderedProjectId
+      : (state.currentProjectId || null),
+    viewName: renderedMatchesState
+      ? _prevRenderedView
+      : state.currentView,
+    subView: renderedMatchesState
+      ? (_prevRenderedSubView || null)
+      : (state.currentSubView || null),
+    query: _currentQuery,
+  }
+}
+
+function _isRouteTransition(routeState) {
+  const current = _renderedRouteState()
+  return current.viewName !== routeState.viewName
+    || current.subView !== (routeState.subView || null)
+    || current.projectId !== (routeState.projectId || null)
+    || current.query.toString() !== (routeState.query || new URLSearchParams()).toString()
+}
+
+function _canLeaveCurrentRoute(routeState) {
+  if (!_isRouteTransition(routeState)) return true
+  const current = _renderedRouteState()
+  const renderer = viewRenderers[current.viewName]
+  if (!renderer?.canLeave) return true
+  try {
+    return renderer.canLeave() !== false
+  } catch (err) {
+    console.error(err)
+    return false
+  }
+}
+
+function _restoreRenderedRouteHash() {
+  const current = _renderedRouteState()
+  const hash = _hashForRoute(current)
+  if (window.location.hash === hash) return
+  window.history.pushState({
+    view: current.viewName,
+    subView: current.subView,
+    projectId: current.projectId,
+  }, "", hash)
+}
+
 async function _applyRoute(routeState) {
   const isCurrent = await _syncCurrentProject(routeState.projectId)
   if (!isCurrent) return false
@@ -332,11 +380,19 @@ async function _syncCurrentProject(projectId, force) {
 
 /** @type {boolean} 下一次渲染强制重新执行 onEnter（用于增删改后刷新当前视图） */
 let _forceRefresh = false
+let _renderGeneration = 0
 
 async function renderCurrentView() {
+  const renderGeneration = ++_renderGeneration
   const viewName = state.currentView
+  const subView = state.currentSubView || ""
   const content = document.getElementById("workspace-content")
   if (!content) return
+  const isCurrentRender = () => (
+    renderGeneration === _renderGeneration
+    && state.currentView === viewName
+    && (state.currentSubView || "") === subView
+  )
 
   // 离开旧视图
   if (_prevView && _prevView !== viewName) {
@@ -380,23 +436,29 @@ async function renderCurrentView() {
       const cacheKey = _viewCacheKey(viewName, state.currentSubView, currentProjectId)
       const cached = _viewDomCache[cacheKey]
       if (cached && _shouldKeepAlive(viewName, state.currentSubView) && !forceRefresh) {
+        if (!isCurrentRender()) return false
         content.innerHTML = ""
         content.appendChild(cached)
         delete _viewDomCache[cacheKey]
         if (renderer.onActivate) {
           await renderer.onActivate()
+          if (!isCurrentRender()) return false
         }
       } else {
         if (!isSameRender && renderer.onEnter) {
           await renderer.onEnter()
+          if (!isCurrentRender()) return false
         }
         const html = await renderer.render()
+        if (!isCurrentRender()) return false
         content.innerHTML = html
         if (renderer.onRendered) {
           await renderer.onRendered()
+          if (!isCurrentRender()) return false
         }
       }
     } else {
+      if (!isCurrentRender()) return false
       const route = routes[viewName]
       content.innerHTML = `
         <div class="empty-state">
@@ -407,6 +469,7 @@ async function renderCurrentView() {
       `
     }
   } catch (err) {
+    if (!isCurrentRender()) return false
     console.error("View render error:", err)
     const stateEl = document.createElement("div")
     stateEl.className = "empty-state"
@@ -423,17 +486,21 @@ async function renderCurrentView() {
     stateEl.append(icon, title, message)
     content.replaceChildren(stateEl)
   } finally {
-    state.loading = false
-    _prevRenderedView = viewName
-    _prevRenderedSubView = state.currentSubView || ""
-    _prevRenderedProjectId = currentProjectId
+    if (isCurrentRender()) {
+      state.loading = false
+      _prevRenderedView = viewName
+      _prevRenderedSubView = subView
+      _prevRenderedProjectId = currentProjectId
+    }
   }
 
+  if (!isCurrentRender()) return false
   updateRightPanelForView(viewName)
 
   for (const listener of _navListeners) {
     try { listener(viewName, state.currentSubView) } catch (e) { console.error(e) }
   }
+  return true
 }
 
 async function navigate(viewName, subView = null, pushHistory = true, query = null) {
@@ -447,6 +514,8 @@ async function navigate(viewName, subView = null, pushHistory = true, query = nu
   if (routeState.redirectedToProject) {
     toast("请先选择项目后再进入该页面", "warning")
   }
+
+  if (!_canLeaveCurrentRoute(routeState)) return false
 
   if (state.currentView) {
     if (state.currentView !== routeState.viewName || state.currentSubView !== routeState.subView) {
@@ -498,6 +567,10 @@ async function _handlePopState() {
     const hash = window.location.hash.slice(1) || "project"
     const parsed = _parseHash(hash)
     const routeState = _normalizeRoute(parsed)
+    if (!_canLeaveCurrentRoute(routeState)) {
+      _restoreRenderedRouteHash()
+      return false
+    }
     const canonicalHash = _hashForRoute(routeState)
     if (window.location.hash !== canonicalHash) {
       window.history.replaceState({ view: routeState.viewName, subView: routeState.subView, projectId: routeState.projectId }, "", canonicalHash)

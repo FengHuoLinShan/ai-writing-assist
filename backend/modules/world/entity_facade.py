@@ -400,11 +400,14 @@ async def suggest_entity_fusion(
     limit: int = 200,
     max_suggestions: int = 50,
     progress_callback=None,
+    exclusions: list[dict] | None = None,
+    llm_client=None,
+    group_before_budget: bool = False,
 ) -> dict:
     """Generate world entity duplicate suggestions."""
     from modules.world.entity_fusion import WorldEntityFusionService
 
-    return await WorldEntityFusionService().suggest(
+    return await WorldEntityFusionService(llm_client=llm_client).suggest(
         db,
         novel_id=novel_id,
         entity_type=entity_type,
@@ -412,6 +415,8 @@ async def suggest_entity_fusion(
         limit=limit,
         max_suggestions=max_suggestions,
         progress_callback=progress_callback,
+        exclusions=exclusions,
+        group_before_budget=group_before_budget,
     )
 
 
@@ -431,6 +436,24 @@ async def apply_entity_fusion(
         novel_id=novel_id,
         confirmed=confirmed,
         suggestions=items,
+    )
+
+
+async def apply_entity_fusion_group(
+    db,
+    novel_id: str,
+    *,
+    primary_entity_id: str,
+    operations: list[dict],
+) -> list[dict]:
+    """Strict, caller-transactional entity fusion group apply."""
+    from modules.world.entity_fusion import WorldEntityFusionService
+
+    return await WorldEntityFusionService().apply_group(
+        db,
+        novel_id=novel_id,
+        primary_entity_id=primary_entity_id,
+        operations=operations,
     )
 
 

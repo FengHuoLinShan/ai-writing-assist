@@ -61,8 +61,8 @@ make doctor
 # 运行快速后端测试（不连接 PostgreSQL 或真实 LLM）
 make test
 
-# PostgreSQL E2E（数据库必须已迁移到 head）
-make test-e2e
+# PostgreSQL E2E（必须显式指向已迁移到 head 的专用测试库）
+E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e
 
 # 仅启动前端控制台
 cd frontend-console

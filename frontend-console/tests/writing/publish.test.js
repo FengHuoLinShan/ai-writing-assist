@@ -80,6 +80,73 @@ describe("createPublishManager", () => {
     expect(onPublished).toHaveBeenCalledWith(result)
   })
 
+  it("clears completed progress for a publish without post-processing", async () => {
+    vi.useFakeTimers()
+    state.currentProjectId = "p1"
+    api.writing.publish.mockResolvedValue({ published: true })
+    const manager = createTestManager()
+
+    await manager.publish("正文", "标题", 1, "d1", null)
+    expect(manager.renderBar()).not.toBe("")
+
+    await vi.advanceTimersByTimeAsync(3000)
+
+    expect(manager.renderBar()).toBe("")
+  })
+
+  it("does not let an old clear timer erase a newer publish task", async () => {
+    vi.useFakeTimers()
+    state.currentProjectId = "p1"
+    api.writing.publish
+      .mockResolvedValueOnce({ published: true })
+      .mockResolvedValueOnce({ task_id: "task-new" })
+    api.tasks.get.mockImplementation(() => new Promise(() => {}))
+    const manager = createTestManager()
+
+    await manager.publish("第一版", "标题", 1, "d1", null)
+    await manager.publish("第二版", "标题", 1, "d1", null)
+    await vi.advanceTimersByTimeAsync(3100)
+
+    expect(manager.renderBar()).not.toBe("")
+    manager.dispose()
+  })
+
+  it("waits for the published-state refresh before announcing success", async () => {
+    state.currentProjectId = "p1"
+    api.writing.publish.mockResolvedValue({ published: true })
+    let finishRefresh
+    const onPublished = vi.fn(() => new Promise((resolve) => { finishRefresh = resolve }))
+    const manager = createTestManager({ onPublished })
+
+    const publishPromise = manager.publish("正文", "标题", 1, "d1", null)
+    await flushPromises()
+
+    expect(onPublished).toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalledWith("已发布", "success")
+
+    finishRefresh()
+    await publishPromise
+
+    expect(toast).toHaveBeenCalledWith("已发布", "success")
+  })
+
+  it("does not report the committed publish as failed when the UI refresh fails", async () => {
+    state.currentProjectId = "p1"
+    api.writing.publish.mockResolvedValue({ published: true })
+    const onStatusChange = vi.fn()
+    const onPublished = vi.fn().mockRejectedValue(new Error("refresh failed"))
+    const manager = createTestManager({ onStatusChange, onPublished })
+
+    await manager.publish("正文", "标题", 1, "d1", null)
+
+    expect(onStatusChange).toHaveBeenCalledWith("发布成功")
+    expect(onStatusChange).not.toHaveBeenCalledWith("发布失败")
+    expect(toast).toHaveBeenCalledWith(
+      "章节已发布，但写作台刷新失败，请手动刷新",
+      "warning",
+    )
+  })
+
   it("keeps local formatting edits when backend reuses published version", async () => {
     state.currentProjectId = "p1"
     api.writing.publish.mockResolvedValue({ new_version: false, task_id: null })
@@ -179,6 +246,27 @@ describe("createPublishManager", () => {
     expect(onStatusChange).toHaveBeenCalledWith("发布成功")
   })
 
+  it("does not reload the editor again when publish post-processing completes", async () => {
+    vi.useFakeTimers()
+    state.currentProjectId = "p1"
+    api.writing.publish.mockResolvedValue({ task_id: "task-1" })
+    api.tasks.get.mockResolvedValue({
+      task_id: "task-1",
+      task_type: "publish_chapter",
+      status: "done",
+      progress: 1,
+    })
+    const onPublished = vi.fn()
+    const manager = createTestManager({ onPublished })
+
+    await manager.publish("正文", "标题", 1, "d1", null)
+    await vi.advanceTimersByTimeAsync(3100)
+
+    expect(onPublished).toHaveBeenCalledTimes(1)
+    expect(onPublished).toHaveBeenCalledWith({ task_id: "task-1" })
+    expect(manager.renderBar()).toBe("")
+  })
+
   it("shows error modal when publish task fails", async () => {
     vi.useFakeTimers()
     state.currentProjectId = "p1"
@@ -237,5 +325,28 @@ describe("createPublishManager", () => {
     manager.dispose()
 
     expect(manager.renderBar()).toBe("")
+  })
+
+  it("ignores a polling response that arrives after dispose", async () => {
+    vi.useFakeTimers()
+    state.currentProjectId = "p1"
+    api.writing.publish.mockResolvedValue({ task_id: "task-late" })
+    let finishPoll
+    api.tasks.get.mockImplementation(() => new Promise((resolve) => { finishPoll = resolve }))
+    const manager = createTestManager()
+
+    await manager.publish("正文", "标题", 1, "d1", null)
+    manager.dispose()
+    toast.mockClear()
+    finishPoll({
+      task_id: "task-late",
+      task_type: "publish_chapter",
+      status: "done",
+      progress: 1,
+    })
+    await Promise.resolve()
+
+    expect(manager.renderBar()).toBe("")
+    expect(toast).not.toHaveBeenCalled()
   })
 })

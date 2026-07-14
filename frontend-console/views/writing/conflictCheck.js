@@ -247,10 +247,10 @@ export function createConflictCheck({
 
   function bindEvents(container) {
     container.querySelectorAll('[data-action="open-conflict-check"]').forEach((btn) => {
-      btn.addEventListener("click", () => {
+      btn.onclick = () => {
         const checkId = btn.getAttribute("data-check-id")
         open(checkId)
-      })
+      }
     })
   }
 

@@ -20,6 +20,28 @@ def _int_or_default(value: object, default: int) -> int:
     return int(value)
 
 
+async def _require_llm_execution_snapshot(db, task, meta: dict, novel_id: str) -> dict:
+    from infrastructure.tasks.facade import require_task_checkpoint_session
+
+    require_task_checkpoint_session(db)
+    snapshot = meta.get("llm_execution_snapshot")
+    if isinstance(snapshot, dict) and snapshot:
+        return dict(snapshot)
+
+    # Compatibility for tasks created before submission-time snapshots existed.
+    # Freeze and lease-fence the profile before any provider call.
+    from modules.project.facade import (
+        build_project_llm_execution_snapshot,
+        require_active_project,
+    )
+
+    await require_active_project(db, novel_id)
+    snapshot = await build_project_llm_execution_snapshot(db, novel_id)
+    task.meta = {**meta, "llm_execution_snapshot": snapshot}
+    await db.commit()
+    return snapshot
+
+
 @task_handler("plot_structure_generate", recovery_policy="restart_origin")
 async def handle_plot_structure_generate(db, task):
     """处理 legacy 剧情结构 preview 生成任务。
@@ -33,9 +55,7 @@ async def handle_plot_structure_generate(db, task):
     - end_chapter: 结束章节（可选，默认 10）
     """
     # 延迟导入，避免 infrastructure.tasks 初始化时形成循环依赖
-    from modules.outline.generator import PlotStructureGenerator
-
-    generator = PlotStructureGenerator()
+    from modules.outline.ai_workflow_service import OutlineAIWorkflowService
 
     meta = task.meta or {}
     novel_id = meta.get("novel_id", "")
@@ -45,14 +65,21 @@ async def handle_plot_structure_generate(db, task):
     if not novel_id:
         raise ValueError("novel_id is required for plot_structure_generate")
 
+    llm_execution_snapshot = await _require_llm_execution_snapshot(
+        db,
+        task,
+        meta,
+        novel_id,
+    )
+
     task.update_progress(0.1)
 
-    result = await generator.generate(
+    result = await OutlineAIWorkflowService().generate_legacy_preview_for_task(
         db,
         novel_id=novel_id,
         start_chapter=start_chapter,
         end_chapter=end_chapter,
-        persist=False,
+        llm_execution_snapshot=llm_execution_snapshot,
     )
     task.update_progress(0.85)
 
@@ -137,12 +164,19 @@ async def handle_outline_analyze(db, task):
         "context_confirmation_id",
         "outline_analyze",
     )
-    return await OutlineAIWorkflowService().analyze(
+    llm_execution_snapshot = await _require_llm_execution_snapshot(
+        db,
+        task,
+        meta,
+        novel_id,
+    )
+    return await OutlineAIWorkflowService().analyze_for_task(
         db,
         novel_id=novel_id,
         confirmation_id=confirmation_id,
         task_id=str(task.id),
         instruction=meta.get("instruction"),
+        llm_execution_snapshot=llm_execution_snapshot,
         progress_callback=task.update_progress,
     )
 
@@ -161,14 +195,21 @@ async def handle_outline_generate(db, task):
     )
     start_chapter = _int_or_default(meta.get("start_chapter"), 1)
     end_chapter = _int_or_default(meta.get("end_chapter"), 10)
+    llm_execution_snapshot = await _require_llm_execution_snapshot(
+        db,
+        task,
+        meta,
+        novel_id,
+    )
 
-    result = await OutlineAIWorkflowService().generate(
+    result = await OutlineAIWorkflowService().generate_for_task(
         db,
         novel_id=novel_id,
         confirmation_id=confirmation_id,
         task_id=str(task.id),
         start_chapter=start_chapter,
         end_chapter=end_chapter,
+        llm_execution_snapshot=llm_execution_snapshot,
         progress_callback=task.update_progress,
     )
     logger.info(
@@ -192,13 +233,20 @@ async def handle_outline_chapter_scenes_extract(db, task):
         "outline_chapter_scenes_extract",
     )
     chapter_index = _int_or_default(meta.get("chapter_index"), 1)
+    llm_execution_snapshot = await _require_llm_execution_snapshot(
+        db,
+        task,
+        meta,
+        novel_id,
+    )
 
-    return await OutlineAIWorkflowService().extract_chapter_scenes(
+    return await OutlineAIWorkflowService().extract_chapter_scenes_for_task(
         db,
         novel_id=novel_id,
         confirmation_id=confirmation_id,
         task_id=str(task.id),
         chapter_index=chapter_index,
         instruction=meta.get("instruction"),
+        llm_execution_snapshot=llm_execution_snapshot,
         progress_callback=task.update_progress,
     )

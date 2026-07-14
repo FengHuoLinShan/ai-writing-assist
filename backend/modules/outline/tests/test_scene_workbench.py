@@ -334,9 +334,14 @@ class TestSceneWorkbenchApi:
     async def test_workbench_health_uses_all_matching_scenes_not_only_current_page(
         self,
         async_client: AsyncClient,
+        db_session: AsyncSession,
         test_project_id: str,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        from modules.outline import api as outline_api
+
         selected_scene: dict | None = None
+        suggestion_sources: list[dict] = []
         for chapter in range(1, 26):
             await _create_draft(async_client, test_project_id, chapter)
             scene = await _create_scene(
@@ -354,8 +359,47 @@ class TestSceneWorkbenchApi:
                     "chapter_ids": [str(chapter)],
                 },
             )
+            if chapter <= 2:
+                suggestion_sources.append(scene)
             if chapter == 25:
                 selected_scene = scene
+
+        await SceneWorkbenchService().persist_fusion_suggestions(
+            db_session,
+            novel_id=test_project_id,
+            source_workflow_id=str(uuid.uuid4()),
+            suggestions=[
+                {
+                    "source_scene_ids": [item["id"] for item in suggestion_sources],
+                    "chapter_span": [1, 2],
+                    "proposed_scene": {"title": "跨页性能复核"},
+                    "confidence": 0.9,
+                    "reason": "验证待处理建议不加载页外 ORM",
+                    "scan_trace": [],
+                }
+            ],
+        )
+
+        repo = outline_api._scene_workbench_service.repo
+        original_get_many = repo.get_many_for_novel
+        original_get_ordered = repo.get_by_novel_ordered
+        full_model_load_sizes: list[int] = []
+
+        async def track_page_models(db, novel_id, scene_ids):
+            full_model_load_sizes.append(len(scene_ids))
+            return await original_get_many(db, novel_id, scene_ids)
+
+        async def reject_unbounded_scene_models(*args, **kwargs):
+            if kwargs.get("limit") is None:
+                raise AssertionError("workbench must not hydrate every matching Scene")
+            return await original_get_ordered(*args, **kwargs)
+
+        monkeypatch.setattr(repo, "get_many_for_novel", track_page_models)
+        monkeypatch.setattr(
+            repo,
+            "get_by_novel_ordered",
+            reject_unbounded_scene_models,
+        )
 
         resp = await async_client.get(
             "/api/outline/scene-workbench",
@@ -368,6 +412,8 @@ class TestSceneWorkbenchApi:
         assert data["total"] == 25
         assert data["unassigned_chapters"] == []
         assert data["health"]["unassigned"]["count"] == 0
+        assert data["fusion_suggestions"]["pending_count"] == 1
+        assert full_model_load_sizes == [20]
 
         assert selected_scene is not None
         selected_resp = await async_client.get(
@@ -388,6 +434,49 @@ class TestSceneWorkbenchApi:
         assert selected_scene["id"] in {
             item["scene"]["id"] for item in selected_data["items"]
         }
+        assert full_model_load_sizes == [20, 5]
+
+    async def test_workbench_projection_treats_empty_setup_string_as_missing(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        missing = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "空字符串设定",
+                "goal": "目标",
+                "core_conflict": "冲突",
+                "must_happen": "必须发生",
+                "must_not_happen": "",
+                "status": "draft",
+            },
+        )
+        await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 1,
+                "title": "完整设定",
+                "goal": "目标",
+                "core_conflict": "冲突",
+                "must_happen": "必须发生",
+                "must_not_happen": "禁止发生",
+                "status": "draft",
+            },
+        )
+
+        resp = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={"novel_id": test_project_id, "health": "missing_setup"},
+        )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert [item["scene"]["id"] for item in data["items"]] == [missing["id"]]
+        assert data["health"]["missing_setup"]["count"] == 1
 
     async def test_workbench_includes_candidate_scenes(
         self,

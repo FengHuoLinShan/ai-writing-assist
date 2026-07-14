@@ -194,6 +194,7 @@ class SceneEntityPersistenceGateway:
         workflow_id: str | None = None,
         scene_id: str | None = None,
         result_refs: list[dict[str, str]] | None = None,
+        strict: bool = False,
     ) -> dict[str, int]:
         from modules.world.facade import (
             append_candidate_alias,
@@ -302,6 +303,8 @@ class SceneEntityPersistenceGateway:
                     rel.target_name,
                     exc,
                 )
+                if strict:
+                    raise
                 continue
             if relation_result.get("action") == "created":
                 relations_created += 1
@@ -332,6 +335,7 @@ class SceneEntityPersistenceGateway:
         service = self.service
         from modules.world.facade import (
             create_entity,
+            find_entity_id_by_name,
             find_similar_entities,
         )
 
@@ -370,6 +374,14 @@ class SceneEntityPersistenceGateway:
                 continue
 
             high_confidence_target_id: str | None = None
+            resolved_existing_entity_id: str | None = None
+            if action == "link_to_existing" and ent.suggested_existing_entity_name:
+                resolved_existing_entity_id = await find_entity_id_by_name(
+                    db,
+                    str(nid),
+                    ent.suggested_existing_entity_name,
+                    entity_type=ent.entity_type,
+                )
             if action == "create_new":
                 try:
                     similar = await find_similar_entities(
@@ -426,6 +438,7 @@ class SceneEntityPersistenceGateway:
                     "suggested_existing_entity_name": (
                         ent.suggested_existing_entity_name
                     ),
+                    "suggested_existing_entity_id": resolved_existing_entity_id,
                     "candidate_reason": ent.candidate_reason,
                     "confidence": ent.confidence,
                     "suggested_target_entity_id": high_confidence_target_id,
