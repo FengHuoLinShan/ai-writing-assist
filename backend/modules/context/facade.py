@@ -316,6 +316,8 @@ async def compile_generation_background(
     task: str,
     include_world_synopsis: bool = False,
     selected_world_bible_draft_ids: list[str] | None = None,
+    activation_profile_id: str | None = None,
+    activation_profile_version: int | None = None,
     operation: str = "world.object_draft.generate",
     prompt_name: str = "generation_center_world_object_draft",
     model: str = "project-default",
@@ -341,6 +343,8 @@ async def compile_generation_background(
         chapter_index=reference_chapter_index,
         include_world_synopsis=include_world_synopsis,
         selected_world_bible_draft_ids=selected_world_bible_draft_ids or [],
+        activation_profile_id=activation_profile_id,
+        activation_profile_version=activation_profile_version,
         budget_tokens=4000,
     )
     compiled = await _compiler.compile_with_tiers(
@@ -380,6 +384,10 @@ async def compile_generation_background(
             else "unavailable"
         ),
         "warnings": list(compiled.warnings),
+        "activation_profile_id": options.activation_profile_id,
+        "activation_profile_version": options.activation_profile_version,
+        "activation_rule_hash": options.activation_profile_rule_hash,
+        "activation_source_hashes": list(options.activation_source_hashes),
     }
     included_asset_ids = {
         "world_bible_draft": list(options.selected_world_bible_draft_ids),
@@ -388,6 +396,10 @@ async def compile_generation_background(
             if options.world_synopsis_revision_id
             else []
         ),
+        "activation_profile": (
+            [options.activation_profile_id] if options.activation_profile_id else []
+        ),
+        "activation_target_hash": list(options.activation_included_target_hashes),
     }
     for section in compiled.sections:
         for source in section.sources:
@@ -438,12 +450,20 @@ async def compile_generation_background(
             "world_synopsis_revision_id": options.world_synopsis_revision_id,
             "world_synopsis_source_hash": options.world_synopsis_source_hash,
             "world_synopsis_block_hash": options.world_synopsis_block_hash,
+            "activation_profile_id": options.activation_profile_id,
+            "activation_profile_version": options.activation_profile_version,
+            "activation_profile_rule_hash": options.activation_profile_rule_hash,
+            "activation_source_hashes": list(options.activation_source_hashes),
+            "activation_included_target_hashes": list(
+                options.activation_included_target_hashes
+            ),
         },
         included_asset_ids=included_asset_ids,
         context_summary={
             "section_keys": [section.key for section in compiled.sections],
             "warning_count": len(compiled.warnings),
             "synopsis": usage,
+            "activation": dict(compiled.activation_trace),
         },
         section_metadata=section_metadata,
         token_metadata={
@@ -466,8 +486,40 @@ async def preview_activation(
     focus_entity_id: str | None = None,
     top_k: int = 64,
     depth: int = 2,
+    action: str | None = None,
+    profile_id: str | None = None,
+    profile_version: int | None = None,
+    reveal_mode: str = "author_safe",
+    task_text: str = "",
+    current_scene_text: str = "",
+    previous_scene_briefs: list[str] | None = None,
+    explicit_focus: str = "",
 ) -> dict:
     """Preview worldbuilding activation through the world facade."""
+    if profile_id or action:
+        from modules.context.schemas import ContextActivationPreviewRequest
+        from modules.context.services.activation_profile_service import (
+            ActivationProfileService,
+        )
+
+        request = ContextActivationPreviewRequest(
+            novel_id=novel_id,
+            action=action,
+            profile_id=profile_id,
+            profile_version=profile_version,
+            reveal_mode=reveal_mode,
+            task_text=task_text,
+            current_scene_text=current_scene_text,
+            previous_scene_briefs=previous_scene_briefs or [],
+            explicit_focus=explicit_focus,
+            entity_ids=entity_ids or [],
+            map_id=map_id,
+            scene_id=scene_id,
+            focus_entity_id=focus_entity_id,
+            top_k=top_k,
+            depth=depth,
+        )
+        return await ActivationProfileService().preview(db, request)
     from modules.world import facade as world_facade
 
     return await world_facade.preview_worldbuilding_activation(
@@ -480,6 +532,143 @@ async def preview_activation(
         top_k=top_k,
         depth=depth,
     )
+
+
+async def list_activation_profiles(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    include_archived: bool = False,
+):
+    from modules.context.services.activation_profile_service import (
+        ActivationProfileService,
+    )
+
+    return await ActivationProfileService().list_profiles(
+        db,
+        novel_id,
+        include_archived=include_archived,
+    )
+
+
+async def create_activation_profile(db: AsyncSession, data):
+    from modules.context.services.activation_profile_service import (
+        ActivationProfileService,
+    )
+
+    return await ActivationProfileService().create_profile(db, data)
+
+
+async def update_activation_profile(
+    db: AsyncSession,
+    novel_id: str,
+    profile_id: str,
+    data,
+):
+    from modules.context.services.activation_profile_service import (
+        ActivationProfileService,
+    )
+
+    return await ActivationProfileService().update_profile(
+        db,
+        novel_id,
+        profile_id,
+        data,
+    )
+
+
+async def publish_activation_profile(
+    db: AsyncSession,
+    novel_id: str,
+    profile_id: str,
+    data,
+):
+    from modules.context.services.activation_profile_service import (
+        ActivationProfileService,
+    )
+
+    return await ActivationProfileService().publish_profile(
+        db,
+        novel_id,
+        profile_id,
+        data,
+    )
+
+
+async def list_activation_profile_revisions(
+    db: AsyncSession,
+    novel_id: str,
+    profile_id: str,
+):
+    from modules.context.services.activation_profile_service import (
+        ActivationProfileService,
+    )
+
+    return await ActivationProfileService().list_revisions(
+        db,
+        novel_id,
+        profile_id,
+    )
+
+
+async def restore_activation_profile_revision(
+    db: AsyncSession,
+    novel_id: str,
+    profile_id: str,
+    version_number: int,
+    *,
+    restored_by: str | None = None,
+):
+    from modules.context.services.activation_profile_service import (
+        ActivationProfileService,
+    )
+
+    return await ActivationProfileService().restore_revision(
+        db,
+        novel_id,
+        profile_id,
+        version_number,
+        restored_by=restored_by,
+    )
+
+
+async def resolve_activation_profile(
+    db: AsyncSession,
+    novel_id: str,
+    action: str,
+    *,
+    profile_id: str | None = None,
+    version_number: int | None = None,
+) -> dict | None:
+    """Resolve one immutable published revision for a runtime action."""
+    from modules.context.services.activation_profile_service import (
+        ActivationProfileService,
+    )
+
+    return await ActivationProfileService().resolve_published(
+        db,
+        novel_id,
+        action,
+        profile_id=profile_id,
+        version_number=version_number,
+    )
+
+
+async def preview_activation_profile(
+    db: AsyncSession,
+    request,
+    *,
+    published_only: bool = False,
+) -> dict:
+    """Evaluate a draft for dry-run or a published revision for runtime."""
+    from modules.context.services.activation_profile_service import (
+        ActivationProfileService,
+    )
+
+    service = ActivationProfileService()
+    if published_only:
+        return await service.preview_published(db, request)
+    return await service.preview(db, request)
 
 
 async def confirm_context(
@@ -511,6 +700,8 @@ async def confirm_context(
     retrieval_purpose: str = "generic_context",
     include_world_synopsis: bool = False,
     selected_world_bible_draft_ids: list[str] | None = None,
+    activation_profile_id: str | None = None,
+    activation_profile_version: int | None = None,
 ) -> ContextConfirmationContract:
     return await _confirmation_service.confirm_context(
         db,
@@ -540,6 +731,8 @@ async def confirm_context(
         user_note=user_note,
         include_world_synopsis=include_world_synopsis,
         selected_world_bible_draft_ids=selected_world_bible_draft_ids,
+        activation_profile_id=activation_profile_id,
+        activation_profile_version=activation_profile_version,
     )
 
 

@@ -72,6 +72,7 @@
 ## 架构决策
 
 - [`adr/0005-core-entity-type-transition.md`](adr/0005-core-entity-type-transition.md) — CoreEntity 自定义类型、可逆 Profile snapshot 迁移与硬依赖门禁
+- [`adr/0006-world-bible-context-activation-ownership.md`](adr/0006-world-bible-context-activation-ownership.md) — 世界书资料、页面模板与 Context Activation Profile 的所有权边界
 
 ## 参考与历史资料
 

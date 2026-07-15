@@ -15,21 +15,40 @@ from core.dependencies import DbSession
 from modules.context.contracts import VisibilityContextContract
 from modules.context.facade import compile_with_tiers
 from modules.context.facade import confirm_context as _confirm_context
+from modules.context.facade import create_activation_profile as _create_activation_profile
 from modules.context.facade import get_context_snapshot as _get_context_snapshot
 from modules.context.facade import get_evidence_health as _get_evidence_health
 from modules.context.facade import grep_novel_evidence as _grep_novel_evidence
 from modules.context.facade import inspect_novel_target as _inspect_novel_target
+from modules.context.facade import (
+    list_activation_profile_revisions as _list_activation_profile_revisions,
+)
+from modules.context.facade import list_activation_profiles as _list_activation_profiles
 from modules.context.facade import list_context_snapshots as _list_context_snapshots
 from modules.context.facade import list_retrieval_traces as _list_retrieval_traces
 from modules.context.facade import preview_activation as _preview_activation
+from modules.context.facade import (
+    publish_activation_profile as _publish_activation_profile,
+)
 from modules.context.facade import read_novel_evidence as _read_novel_evidence
+from modules.context.facade import (
+    restore_activation_profile_revision as _restore_activation_profile_revision,
+)
 from modules.context.facade import run_snapshot_maintenance as _run_snapshot_maintenance
 from modules.context.facade import search_novel_evidence as _search_novel_evidence
 from modules.context.facade import trace_novel_evidence as _trace_novel_evidence
+from modules.context.facade import update_activation_profile as _update_activation_profile
 from modules.context.markdown_renderer import render_compiled_context
 from modules.context.schemas import (
     ContextActivationPreviewRequest,
     ContextActivationPreviewResponse,
+    ContextActivationProfileCreate,
+    ContextActivationProfileListResponse,
+    ContextActivationProfilePublishRequest,
+    ContextActivationProfileResponse,
+    ContextActivationProfileRestoreRequest,
+    ContextActivationProfileRevisionResponse,
+    ContextActivationProfileUpdate,
     ContextCompileRequest,
     ContextConfirmationResponse,
     ContextConfirmRequest,
@@ -147,6 +166,8 @@ async def compile_context(
         user_note=request.user_note,
         include_world_synopsis=request.include_world_synopsis,
         selected_world_bible_draft_ids=request.selected_world_bible_draft_ids,
+        activation_profile_id=request.activation_profile_id,
+        activation_profile_version=request.activation_profile_version,
     )
 
     return _build_tier_compile_response(request, ctx)
@@ -193,6 +214,8 @@ async def render_context(
         user_note=request.user_note,
         include_world_synopsis=request.include_world_synopsis,
         selected_world_bible_draft_ids=request.selected_world_bible_draft_ids,
+        activation_profile_id=request.activation_profile_id,
+        activation_profile_version=request.activation_profile_version,
     )
 
     markdown = render_compiled_context(ctx)
@@ -246,6 +269,8 @@ async def confirm_context(
         user_note=request.user_note,
         include_world_synopsis=request.include_world_synopsis,
         selected_world_bible_draft_ids=request.selected_world_bible_draft_ids,
+        activation_profile_id=request.activation_profile_id,
+        activation_profile_version=request.activation_profile_version,
     )
     return ContextConfirmationResponse(**confirmation.__dict__)
 
@@ -400,6 +425,118 @@ async def trace_evidence(
     return EvidenceTraceResponse(**result)
 
 
+@router.get(
+    "/activation-profiles",
+    response_model=ContextActivationProfileListResponse,
+)
+async def list_activation_profiles(
+    db: DbSession,
+    *,
+    novel_id: NovelIdQuery,
+    include_archived: bool = False,
+) -> ContextActivationProfileListResponse:
+    await require_active_project(db, novel_id)
+    items = await _list_activation_profiles(
+        db,
+        str(novel_id),
+        include_archived=include_archived,
+    )
+    return ContextActivationProfileListResponse(items=items, total=len(items))
+
+
+@router.post(
+    "/activation-profiles",
+    response_model=ContextActivationProfileResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def create_activation_profile(
+    db: DbSession,
+    request: ContextActivationProfileCreate,
+) -> ContextActivationProfileResponse:
+    await require_active_project(db, request.novel_id)
+    return await _create_activation_profile(db, request)
+
+
+@router.patch(
+    "/activation-profiles/{profile_id}",
+    response_model=ContextActivationProfileResponse,
+)
+async def update_activation_profile(
+    db: DbSession,
+    profile_id: str,
+    request: ContextActivationProfileUpdate,
+    *,
+    novel_id: NovelIdQuery,
+) -> ContextActivationProfileResponse:
+    await require_active_project(db, novel_id)
+    return await _update_activation_profile(
+        db,
+        str(novel_id),
+        profile_id,
+        request,
+    )
+
+
+@router.post(
+    "/activation-profiles/{profile_id}/publish",
+    response_model=ContextActivationProfileResponse,
+)
+async def publish_activation_profile(
+    db: DbSession,
+    profile_id: str,
+    request: ContextActivationProfilePublishRequest,
+    *,
+    novel_id: NovelIdQuery,
+) -> ContextActivationProfileResponse:
+    await require_active_project(db, novel_id)
+    return await _publish_activation_profile(
+        db,
+        str(novel_id),
+        profile_id,
+        request,
+    )
+
+
+@router.get(
+    "/activation-profiles/{profile_id}/revisions",
+    response_model=list[ContextActivationProfileRevisionResponse],
+)
+async def list_activation_profile_revisions(
+    db: DbSession,
+    profile_id: str,
+    *,
+    novel_id: NovelIdQuery,
+) -> list[ContextActivationProfileRevisionResponse]:
+    await require_active_project(db, novel_id)
+    return await _list_activation_profile_revisions(
+        db,
+        str(novel_id),
+        profile_id,
+    )
+
+
+@router.post(
+    "/activation-profiles/{profile_id}/revisions/{version_number}/restore-draft",
+    response_model=ContextActivationProfileResponse,
+)
+async def restore_activation_profile_revision(
+    db: DbSession,
+    profile_id: str,
+    version_number: int,
+    request: ContextActivationProfileRestoreRequest,
+    *,
+    novel_id: NovelIdQuery,
+) -> ContextActivationProfileResponse:
+    await require_active_project(db, novel_id)
+    return await _restore_activation_profile_revision(
+        db,
+        str(novel_id),
+        profile_id,
+        version_number,
+        restored_by=request.restored_by,
+    )
+
+
 @router.get("/activation-preview", response_model=ContextActivationPreviewResponse)
 async def activation_preview(
     db: DbSession,
@@ -422,6 +559,17 @@ async def activation_preview(
         top_k=top_k,
         depth=depth,
     )
+    result = await _preview_activation(db, **request.model_dump())
+    return ContextActivationPreviewResponse(**result)
+
+
+@router.post("/activation-preview", response_model=ContextActivationPreviewResponse)
+async def structured_activation_preview(
+    db: DbSession,
+    request: ContextActivationPreviewRequest,
+) -> ContextActivationPreviewResponse:
+    """Return the additive typed trace while preserving the legacy GET route."""
+    await require_active_project(db, request.novel_id)
     result = await _preview_activation(db, **request.model_dump())
     return ContextActivationPreviewResponse(**result)
 

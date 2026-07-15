@@ -87,6 +87,7 @@ from modules.world.schemas import (
     WorldAliasRelationExtractResponse,
     WorldBibleAiGenerateRequest,
     WorldBibleAiGenerateResponse,
+    WorldBibleApplyTemplateRequest,
     WorldBibleCategoryCreate,
     WorldBibleCategoryListResponse,
     WorldBibleCategoryResponse,
@@ -99,6 +100,11 @@ from modules.world.schemas import (
     WorldBiblePageListResponse,
     WorldBiblePageResponse,
     WorldBiblePageRevisionResponse,
+    WorldBiblePageTemplateCreate,
+    WorldBiblePageTemplateListResponse,
+    WorldBiblePageTemplateResponse,
+    WorldBiblePageTemplateRevisionResponse,
+    WorldBiblePageTemplateUpdate,
     WorldBiblePageUpdate,
     WorldBibleSuggestionApplyDraftRequest,
     WorldBibleSynopsisAutoRefreshRequest,
@@ -141,6 +147,7 @@ from modules.world.services.worldbuilding.worldbuilding_service import (
     SuggestionAlreadyProcessedError,
     SuggestionQueueService,
     WorldBibleLifecycleService,
+    WorldBiblePageTemplateService,
     WorldBibleService,
     WorldBibleSynopsisService,
     WorldProfileService,
@@ -162,6 +169,7 @@ _knowledge_service = CharacterKnowledgeService()
 _profile_service = WorldProfileService()
 _bible_service = WorldBibleService()
 _bible_lifecycle_service = WorldBibleLifecycleService()
+_bible_page_template_service = WorldBiblePageTemplateService()
 _bible_synopsis_service = WorldBibleSynopsisService()
 _suggestion_service = SuggestionQueueService()
 _conflict_queue_service = ConflictQueueService()
@@ -717,6 +725,113 @@ async def unpin_bible_synopsis(
 @router.get("/bible/templates")
 async def list_bible_templates() -> list[dict]:
     return await _bible_service.list_templates()
+
+
+@router.get(
+    "/bible/page-templates",
+    response_model=WorldBiblePageTemplateListResponse,
+)
+async def list_bible_page_templates(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    include_archived: bool = Query(default=False),
+) -> WorldBiblePageTemplateListResponse:
+    items = await _bible_page_template_service.list_templates(
+        db,
+        novel_id,
+        include_archived=include_archived,
+    )
+    return WorldBiblePageTemplateListResponse(items=items, total=len(items))
+
+
+@router.post(
+    "/bible/page-templates",
+    response_model=WorldBiblePageTemplateResponse,
+    status_code=201,
+)
+async def create_bible_page_template(
+    db: DbSession,
+    data: WorldBiblePageTemplateCreate,
+) -> WorldBiblePageTemplateResponse:
+    await require_active_project(db, data.novel_id)
+    return await _bible_page_template_service.create_template(db, data)
+
+
+@router.patch(
+    "/bible/page-templates/{template_id}",
+    response_model=WorldBiblePageTemplateResponse,
+)
+async def update_bible_page_template(
+    db: DbSession,
+    template_id: str,
+    data: WorldBiblePageTemplateUpdate,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldBiblePageTemplateResponse:
+    return await _bible_page_template_service.update_template(
+        db,
+        novel_id,
+        template_id,
+        data,
+    )
+
+
+@router.get(
+    "/bible/page-templates/{template_id}/revisions",
+    response_model=list[WorldBiblePageTemplateRevisionResponse],
+)
+async def list_bible_page_template_revisions(
+    db: DbSession,
+    template_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> list[WorldBiblePageTemplateRevisionResponse]:
+    return await _bible_page_template_service.list_revisions(
+        db,
+        novel_id,
+        template_id,
+    )
+
+
+@router.post(
+    "/bible/page-templates/{template_id}/revisions/{version_number}/restore-draft",
+    response_model=WorldBiblePageTemplateResponse,
+)
+async def restore_bible_page_template_revision(
+    db: DbSession,
+    template_id: str,
+    version_number: int,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    restored_by: str | None = Query(default=None, max_length=64),
+) -> WorldBiblePageTemplateResponse:
+    return await _bible_page_template_service.restore_revision(
+        db,
+        novel_id,
+        template_id,
+        version_number,
+        restored_by=restored_by,
+    )
+
+
+@router.post(
+    "/bible/drafts/{draft_id}/apply-template",
+    response_model=WorldBiblePageDraftResponse,
+)
+async def apply_bible_page_template(
+    db: DbSession,
+    draft_id: str,
+    data: WorldBibleApplyTemplateRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> WorldBiblePageDraftResponse:
+    return await _bible_page_template_service.apply_to_draft(
+        db,
+        novel_id,
+        draft_id,
+        data,
+    )
 
 
 @router.post(

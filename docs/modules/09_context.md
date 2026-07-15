@@ -19,6 +19,7 @@ context 本身不拥有业务事实，但当前**有自己的确认与审计记�
 - `context_confirmations`：AI 参考资料确认记录，保存 action、scope、selected_asset_ids、warnings、result_refs、stale_reasons 等摘要
 - `context_snapshots`：自动 AI 调用上下文快照，保存 task_id、workflow_id、phase、context_mode、included_asset_ids、摘要、prompt_hash、token/section metadata、result_refs 和错误信息
 - `evidence_links`：使用 `TargetRef + claim_path` 将对象字段连到 `SourceRangeRef`；保存 precision/status/provenance，不创建独立 Claim 正史
+- `context_activation_profiles` / `context_activation_profile_revisions`：项目级 AI 参考规则 aggregate 与不可变发布历史；运行时只消费已发布 revision
 
 聚合来源仍来自：
 
@@ -100,6 +101,16 @@ public baseline 的 CharacterKnowledge 默认排除。
 `needs_review`，不伪造 offset。
 
 ## AI 参考资料确认
+
+Activation Profile 是 AI 参考资料选择的一层确定性输入。每个 Profile 最多 128 条稳定规则，
+仅支持声明 action、author 模式、受限文本来源、Unicode 归一化 substring/token-boundary、
+固定 World Bible 页面/CoreEntity TargetRef，以及最大深度 2 的页面链接/关系展开；不支持
+regex、随机概率或任意表达式。draft 只用于编辑和 dry-run，发布会校验目标并写不可变 revision。
+调用方必须显式选择 Profile，编译器才增加可排除的 P1 `world_bible_activation` section。
+
+规则不能放宽 reader/character、candidate、未来 Scene、P0 或 `novel_id` 门禁。逐项 trace
+保存命中/阻断、展开来源、source hash、预算前后 token 和排除原因；confirmation/snapshot
+固定实际 profile version、rule hash、来源 hash 与纳入目标 hash，确保回放和失效诊断。
 
 手动 AI 操作在 world / outline / writing / generate 等入口发起前，可先创建确认记录：
 
@@ -222,6 +233,12 @@ POST /api/context/evidence/search
 POST /api/context/evidence/read
 POST /api/context/evidence/inspect
 POST /api/context/evidence/trace
+GET/POST /api/context/activation-profiles
+PATCH /api/context/activation-profiles/{profile_id}
+POST /api/context/activation-profiles/{profile_id}/publish
+GET /api/context/activation-profiles/{profile_id}/revisions
+POST /api/context/activation-profiles/{profile_id}/revisions/{version}/restore-draft
+GET/POST /api/context/activation-preview
 ```
 
 ## 不做

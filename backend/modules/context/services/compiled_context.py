@@ -73,6 +73,7 @@ class CompiledContext(BaseModel):
     truncated_keys: list[str] = Field(default_factory=list)
     budget_events: list[ContextBudgetEvent] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    activation_trace: dict[str, Any] = Field(default_factory=dict)
 
     def enforce_budget(self) -> CompiledContext:
         """Evict sections by tier to fit within budget_tokens.
@@ -236,4 +237,5 @@ class CompiledContext(BaseModel):
             truncated_keys=truncated_keys,
             budget_events=budget_events,
             warnings=list(self.warnings),
+            activation_trace=dict(self.activation_trace),
         )

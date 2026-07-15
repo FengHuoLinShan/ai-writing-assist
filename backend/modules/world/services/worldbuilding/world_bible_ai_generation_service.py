@@ -589,7 +589,7 @@ class WorldBibleAiGenerationService:
         novel_id: str,
         data: WorldBibleAiGenerateRequest,
     ) -> dict[str, Any]:
-        if not data.include_world_synopsis:
+        if not data.include_world_synopsis and not data.activation_profile_id:
             return {"rendered_context": "", "context_usage": None}
         provider = self._generation_background_provider
         if provider is None:
@@ -605,8 +605,10 @@ class WorldBibleAiGenerationService:
             db,
             novel_id=novel_id,
             task="世界书页面共创",
-            include_world_synopsis=True,
+            include_world_synopsis=data.include_world_synopsis,
             selected_world_bible_draft_ids=[],
+            activation_profile_id=data.activation_profile_id,
+            activation_profile_version=data.activation_profile_version,
             operation=f"world.world_bible.{data.output_target}",
             prompt_name=f"world_bible_{data.output_target}",
             model=self._model_for(data.quality_mode),

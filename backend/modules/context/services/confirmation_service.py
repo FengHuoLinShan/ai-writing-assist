@@ -59,6 +59,8 @@ class ContextConfirmationService:
         user_note: str | None = None,
         include_world_synopsis: bool = False,
         selected_world_bible_draft_ids: list[str] | None = None,
+        activation_profile_id: str | None = None,
+        activation_profile_version: int | None = None,
     ) -> ContextConfirmationContract:
         retrieval_purpose = _resolve_retrieval_purpose(
             action,
@@ -92,6 +94,8 @@ class ContextConfirmationService:
             user_note=user_note,
             include_world_synopsis=include_world_synopsis,
             selected_world_bible_draft_ids=selected_world_bible_draft_ids or [],
+            activation_profile_id=activation_profile_id,
+            activation_profile_version=activation_profile_version,
         )
         compiled = await self._compiler.compile_with_tiers(
             db,
@@ -298,6 +302,21 @@ class ContextConfirmationService:
             selected["world_bible_draft"] = list(
                 options.selected_world_bible_draft_ids
             )
+        if options.activation_profile_id:
+            selected["activation_profile"] = [options.activation_profile_id]
+        if options.activation_included_target_hashes:
+            selected["activation_target_hash"] = list(
+                options.activation_included_target_hashes
+            )
+        for item in compiled.activation_trace.get("items") or []:
+            target = item.get("target") or {}
+            target_type = str(target.get("target_type") or "")
+            target_id = str(target.get("target_id") or "")
+            if target_type and target_id:
+                selected.setdefault(target_type, []).append(target_id)
+        selected = {
+            key: list(dict.fromkeys(values)) for key, values in selected.items()
+        }
         selected["context_sections"] = [section.key for section in compiled.sections]
         return selected
 
@@ -334,6 +353,13 @@ class ContextConfirmationService:
             "world_synopsis_revision_id": options.world_synopsis_revision_id,
             "world_synopsis_source_hash": options.world_synopsis_source_hash,
             "world_synopsis_block_hash": options.world_synopsis_block_hash,
+            "activation_profile_id": options.activation_profile_id,
+            "activation_profile_version": options.activation_profile_version,
+            "activation_profile_rule_hash": options.activation_profile_rule_hash,
+            "activation_source_hashes": options.activation_source_hashes,
+            "activation_included_target_hashes": (
+                options.activation_included_target_hashes
+            ),
         }
 
     @staticmethod

@@ -75,6 +75,16 @@ class CompileOptions:
     """确认/回放时记录的简介规范化来源 hash"""
     world_synopsis_block_hash: str | None = None
     """确认/回放时记录的实际上下文块 hash"""
+    activation_profile_id: str | None = None
+    """显式选择的 Activation Profile；为空时不启用规则"""
+    activation_profile_version: int | None = None
+    """运行时固定的已发布 profile revision"""
+    activation_profile_rule_hash: str | None = None
+    """运行时固定的规则 aggregate hash"""
+    activation_source_hashes: list[str] = field(default_factory=list)
+    """实际纳入候选的 world source hashes"""
+    activation_included_target_hashes: list[str] = field(default_factory=list)
+    """预算执行前实际入选的 target hashes"""
 
 
 @dataclass

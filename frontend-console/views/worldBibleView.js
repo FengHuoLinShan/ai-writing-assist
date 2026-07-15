@@ -49,6 +49,10 @@ const worldBibleView = {
   _activePage: null,
   _activeDraft: null,
   _synopsis: null,
+  _pageTemplates: [],
+  _activationProfiles: [],
+  _activeActivationProfileId: null,
+  _activationTrace: null,
   _synopsisTask: null,
   _synopsisPoller: null,
   _suggestions: [],
@@ -65,6 +69,7 @@ const worldBibleView = {
   _aiQualityMode: "fast",
   _aiSelectedChapters: "",
   _aiIncludeSynopsis: true,
+  _aiActivationProfileId: null,
   _aiResult: null,
   _displayMode: "editor",
   _activeCategory: "all",
@@ -120,6 +125,16 @@ const worldBibleView = {
       else if (action === "bible-publish-page") this._publishDraft()
       else if (action === "bible-discard-draft") this._discardDraft()
       else if (action === "bible-manage-categories") this._openCategoryManager()
+      else if (action === "bible-manage-page-templates") this._openPageTemplateManager()
+      else if (action === "bible-apply-page-template") this._applySelectedPageTemplate()
+      else if (action === "bible-section-add") this._addSection()
+      else if (action === "bible-section-remove") this._removeSection(actionNode)
+      else if (action === "bible-section-up") this._moveSection(actionNode, -1)
+      else if (action === "bible-section-down") this._moveSection(actionNode, 1)
+      else if (action === "bible-activation-new") this._openActivationProfileEditor()
+      else if (action === "bible-activation-edit") this._openActivationProfileEditor(this._activeActivationProfile())
+      else if (action === "bible-activation-publish") this._publishActivationProfile()
+      else if (action === "bible-activation-dry-run") this._dryRunActivationProfile()
       else if (action === "bible-refresh-synopsis") this._refreshSynopsis()
       else if (action === "bible-toggle-synopsis-auto") this._toggleSynopsisAuto()
       else if (action === "bible-synopsis-history") this._openSynopsisHistory()
@@ -161,6 +176,14 @@ const worldBibleView = {
     container.querySelector("#bible-ai-include-synopsis")?.addEventListener("change", (event) => {
       this._aiIncludeSynopsis = Boolean(event.target.checked)
     })
+    container.querySelector("#bible-ai-activation-profile")?.addEventListener("change", (event) => {
+      this._aiActivationProfileId = event.target.value || null
+    })
+    container.querySelector("#bible-activation-profile")?.addEventListener("change", (event) => {
+      this._activeActivationProfileId = event.target.value || null
+      this._activationTrace = null
+      router.renderCurrentView()
+    })
   },
 
   onLeave() {
@@ -169,18 +192,29 @@ const worldBibleView = {
   },
 
   async _load() {
-    const [data, categories, drafts, synopsis] = await Promise.all([
+    const [data, categories, drafts, synopsis, pageTemplates, activationProfiles] = await Promise.all([
       api.world.listBiblePages({ novel_id: state.currentProjectId }),
       // Archived categories remain visible in the manager and keep their display
       // metadata for historical pages, but are filtered out of new selections.
       api.world.listBibleCategories(state.currentProjectId, true),
       api.world.listBibleDrafts(state.currentProjectId),
       api.world.getBibleSynopsis(state.currentProjectId),
+      api.world.listBiblePageTemplates
+        ? api.world.listBiblePageTemplates(state.currentProjectId)
+        : Promise.resolve({ items: [] }),
+      api.context.listActivationProfiles
+        ? api.context.listActivationProfiles(state.currentProjectId, true)
+        : Promise.resolve({ items: [] }),
     ])
     this._pages = data.items || []
     this._categories = categories?.items || []
     this._drafts = drafts?.items || []
     this._synopsis = synopsis || null
+    this._pageTemplates = pageTemplates?.items || []
+    this._activationProfiles = activationProfiles?.items || []
+    if (!this._activeActivationProfileId && this._activationProfiles.length) {
+      this._activeActivationProfileId = this._activationProfiles[0].id
+    }
     if (this._synopsis?.active_task_id && !this._synopsisPoller) {
       this._synopsisTask = {
         task_id: this._synopsis.active_task_id,
@@ -237,6 +271,7 @@ const worldBibleView = {
           </span>
           <button class="btn btn-sm btn-primary" data-action="bible-new-page">新建页面</button>
           <button class="btn btn-sm" data-action="bible-manage-categories">管理分类</button>
+          <button class="btn btn-sm" data-action="bible-manage-page-templates">页面模板</button>
           <button class="btn btn-sm" data-action="bible-open-suggestions">创设建议</button>
           <button class="btn btn-sm" data-action="bible-open-conflicts">冲突检查</button>
         </div>
@@ -264,6 +299,7 @@ const worldBibleView = {
         <main class="panel world-bible-editor-panel">
           ${this._renderActivePage()}
         </main>
+        ${this._renderActivationInspector()}
       </div>
     `
   },
@@ -635,6 +671,9 @@ const worldBibleView = {
     const isWorking = Boolean(draft)
     const showAi = this._aiOpen && Boolean(page?.id)
     return `
+      <div class="world-bible-source-notice" role="note">
+        资料页，不是事实源。正式设定请编辑对应世界对象；AI 建议不会自动发布。
+      </div>
       <div class="world-bible-panel__header">
         <div>
           <h2>${esc(source.title)}</h2>
@@ -662,8 +701,25 @@ const worldBibleView = {
             <label>排序
               <input class="form-input" id="bible-sort-order" type="number" value="${esc(source.sort_order || 0)}" />
             </label>
+            <label>页面模板
+              <select class="form-select" id="bible-page-template">
+                <option value="">空白页</option>
+                ${this._pageTemplates.map((template) => `
+                  <option value="${esc(template.template_key)}" ${source.template_key === template.template_key ? "selected" : ""}>
+                    ${esc(template.name)} · v${esc(template.version_number)}${template.builtin ? " · 内置" : ""}
+                  </option>
+                `).join("")}
+              </select>
+            </label>
           </div>
-          <textarea class="form-textarea world-bible-editor" id="bible-free-text" rows="16">${esc(source.free_text || "")}</textarea>
+          <div class="world-bible-template-actions">
+            <button class="btn btn-sm" data-action="bible-apply-page-template">应用模板到工作稿</button>
+            ${source.template_key ? `<span class="badge">${esc(source.template_key)} · v${esc(source.template_version || 1)}</span>` : ""}
+          </div>
+          <label class="bible-ai-field">页面概览
+            <textarea class="form-textarea world-bible-editor" id="bible-free-text" rows="8">${esc(source.free_text || "")}</textarea>
+          </label>
+          ${this._renderSectionEditor(source.sections_json)}
           <label class="bible-ai-field">关联资产（每行 type:id；世界书只保存引用，不内联修改资产）
             <textarea class="form-textarea" id="bible-asset-refs" rows="3">${esc(this._formatAssetRefs(source.linked_asset_refs_json))}</textarea>
           </label>
@@ -673,6 +729,258 @@ const worldBibleView = {
         ${showAi ? this._renderAiSidebar(source) : ""}
       </div>
     `
+  },
+
+  _renderSectionEditor(sections) {
+    const items = Array.isArray(sections) ? [...sections] : []
+    items.sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)
+      || String(a.section_id || "").localeCompare(String(b.section_id || "")))
+    return `
+      <section class="world-bible-sections">
+        <div class="world-bible-sections__header">
+          <div>
+            <strong>页面分区</strong>
+            <div class="world-bible-page-meta">分区 ID 在发布与恢复时保持稳定，用于 diff 和来源定位。</div>
+          </div>
+          <button class="btn btn-sm" data-action="bible-section-add">新增分区</button>
+        </div>
+        <div class="world-bible-section-list">
+          ${items.length ? items.map((section, index) => this._renderSectionCard(section, index)).join("")
+            : `<div class="world-bible-empty-hint">暂无分区；旧页面可继续只使用概览。</div>`}
+        </div>
+      </section>
+    `
+  },
+
+  _renderSectionCard(section, index) {
+    return `
+      <article class="world-bible-section-editor" data-section-index="${index}" data-section-id="${esc(section.section_id)}">
+        <div class="world-bible-section-editor__toolbar">
+          <span class="badge">${esc(section.section_id)}</span>
+          <span class="world-bible-section-editor__actions">
+            <button class="btn btn-sm" data-action="bible-section-up" aria-label="上移分区">↑</button>
+            <button class="btn btn-sm" data-action="bible-section-down" aria-label="下移分区">↓</button>
+            <button class="btn btn-sm" data-action="bible-section-remove">移除</button>
+          </span>
+        </div>
+        <div class="generate-form-grid">
+          <label>标题<input class="form-input" data-section-field="title" maxlength="120" value="${esc(section.title || "未命名分区")}" /></label>
+          <label>类型<select class="form-select" data-section-field="section_type">
+            ${["markdown", "checklist", "asset_collection"].map((type) => `<option value="${type}" ${section.section_type === type ? "selected" : ""}>${type}</option>`).join("")}
+          </select></label>
+          <label>敏感度<select class="form-select" data-section-field="sensitivity_hint">
+            ${["author_safe", "author_only", "public_baseline"].map((value) => `<option value="${value}" ${section.sensitivity_hint === value ? "selected" : ""}>${value}</option>`).join("")}
+          </select></label>
+          <label>投影<select class="form-select" data-section-field="projection_policy">
+            ${["eligible", "excluded"].map((value) => `<option value="${value}" ${section.projection_policy === value ? "selected" : ""}>${value}</option>`).join("")}
+          </select></label>
+        </div>
+        <textarea class="form-textarea" data-section-field="body_markdown" rows="6">${esc(section.body_markdown || "")}</textarea>
+        <label class="bible-ai-field">局部引用 hash（每行一个，必须来自页面级引用）
+          <textarea class="form-textarea" data-section-field="linked_asset_ref_hashes" rows="2">${esc((section.linked_asset_ref_hashes || []).join("\n"))}</textarea>
+        </label>
+      </article>
+    `
+  },
+
+  _activeActivationProfile() {
+    return this._activationProfiles.find((item) => item.id === this._activeActivationProfileId) || null
+  },
+
+  _renderActivationInspector() {
+    const profile = this._activeActivationProfile()
+    return `
+      <aside class="panel world-bible-inspector">
+        <div class="world-bible-inspector__header">
+          <div>
+            <strong>AI 参考规则</strong>
+            <div class="world-bible-page-meta">资料发布与规则发布相互独立。</div>
+          </div>
+          <button class="btn btn-sm" data-action="bible-activation-new">新建</button>
+        </div>
+        <label class="bible-ai-field">Activation Profile
+          <select class="form-select" id="bible-activation-profile">
+            <option value="">未选择</option>
+            ${this._activationProfiles.map((item) => `
+              <option value="${esc(item.id)}" ${item.id === this._activeActivationProfileId ? "selected" : ""}>
+                ${esc(item.name)} · v${esc(item.version_number)} · ${esc(item.status)}
+              </option>
+            `).join("")}
+          </select>
+        </label>
+        ${profile ? `
+          <div class="world-bible-profile-summary">
+            <div><span class="badge">${esc(profile.status)}</span> ${esc(profile.profile_key)}</div>
+            <div>${esc(profile.rules_json?.length || 0)} 条规则 · ${esc((profile.applicable_actions_json || []).join("、"))}</div>
+          </div>
+          <div class="world-bible-inspector__actions">
+            <button class="btn btn-sm" data-action="bible-activation-edit">编辑工作稿</button>
+            <button class="btn btn-sm btn-primary" data-action="bible-activation-publish" ${profile.status === "archived" ? "disabled" : ""}>发布规则</button>
+          </div>
+          <label class="bible-ai-field">Dry-run 任务文本
+            <textarea class="form-textarea" id="bible-activation-task" rows="4" placeholder="例如：描写北境商队使用银币"></textarea>
+          </label>
+          <button class="btn btn-sm" data-action="bible-activation-dry-run">执行 Dry-run</button>
+        ` : `<div class="world-bible-empty-hint">创建或选择 Profile 后，可配置正向词、排除词和固定资料目标。</div>`}
+        ${this._renderActivationTrace()}
+      </aside>
+    `
+  },
+
+  _renderActivationTrace() {
+    const trace = this._activationTrace
+    if (!trace) return ""
+    const included = Array.isArray(trace.items) ? trace.items : []
+    const excluded = Array.isArray(trace.excluded_items) ? trace.excluded_items : []
+    return `
+      <div class="world-bible-activation-trace">
+        <div class="world-bible-section-title">本次参考资料</div>
+        ${(trace.rule_evaluations || []).map((item) => `
+          <div class="world-bible-trace-rule ${item.matched ? "is-matched" : ""}">
+            ${esc(item.rule_id)} · ${item.matched ? "命中" : "未命中"} · ${esc(item.candidate_count || 0)} 个候选
+            ${(item.blocked_clauses || []).length ? `<div>${esc(item.blocked_clauses.join("、"))}</div>` : ""}
+          </div>
+        `).join("")}
+        <div class="world-bible-trace-group"><strong>已加入 (${esc(included.length)})</strong>
+          ${included.map((item) => this._renderActivationTraceItem(item)).join("") || `<div class="world-bible-empty-hint">无</div>`}
+        </div>
+        <div class="world-bible-trace-group"><strong>被排除 / 裁剪 (${esc(excluded.length)})</strong>
+          ${excluded.map((item) => this._renderActivationTraceItem(item)).join("") || `<div class="world-bible-empty-hint">无</div>`}
+        </div>
+        ${(trace.warnings || []).map((warning) => `<div class="world-bible-projection-status__hint">${esc(warning)}</div>`).join("")}
+      </div>
+    `
+  },
+
+  _renderActivationTraceItem(item) {
+    return `
+      <div class="world-bible-trace-item">
+        <strong>${esc(item.label || item.target?.target_id || "未知目标")}</strong>
+        <div>${esc(item.activation_reason || item.source || "")} · ${esc(item.token_after ?? item.token_before ?? 0)} tokens</div>
+        ${item.excluded_reason ? `<span class="badge">${esc(item.excluded_reason)}</span>` : ""}
+      </div>
+    `
+  },
+
+  _openActivationProfileEditor(profile = null) {
+    const rule = profile?.rules_json?.[0] || null
+    const target = rule?.select?.target_refs?.[0]
+      || (this._activePage?.id ? { target_type: "world_bible_page", target_id: this._activePage.id } : {})
+    const body = `
+      <p class="world-bible-empty-hint">简单模式只支持确定性词匹配、固定 TargetRef、优先级和预算；不支持 regex、随机、Prompt role 或递归。</p>
+      <div class="form-group"><label>Profile key</label><input class="form-input" id="bible-profile-key" value="${esc(profile?.profile_key || "writing.world_bible")}" ${profile ? "disabled" : ""} /></div>
+      <div class="form-group"><label>名称</label><input class="form-input" id="bible-profile-name" value="${esc(profile?.name || "场景写作世界资料")}" /></div>
+      <div class="form-group"><label>适用操作</label><input class="form-input" id="bible-profile-action" value="${esc(profile?.applicable_actions_json?.[0] || "writing.generate")}" /></div>
+      <div class="form-group"><label>规则名称</label><input class="form-input" id="bible-rule-name" value="${esc(rule?.name || "命中关键词时加入资料")}" /></div>
+      <div class="form-group"><label>正向词（逗号分隔）</label><input class="form-input" id="bible-rule-positive" value="${esc((rule?.match?.positive_terms || []).join(","))}" /></div>
+      <div class="form-group"><label>排除词（逗号分隔）</label><input class="form-input" id="bible-rule-negative" value="${esc((rule?.match?.negative_terms || []).join(","))}" /></div>
+      <div class="form-group"><label>资料目标（type:id）</label><input class="form-input" id="bible-rule-target" value="${esc(target?.target_type && target?.target_id ? `${target.target_type}:${target.target_id}` : "")}" /></div>
+      <div class="generate-form-grid">
+        <label>优先级<input class="form-input" id="bible-rule-priority" type="number" min="0" max="1000" value="${esc(rule?.rank?.priority ?? 700)}" /></label>
+        <label>Top-K<input class="form-input" id="bible-rule-top-k" type="number" min="1" max="256" value="${esc(rule?.rank?.top_k ?? 12)}" /></label>
+        <label>Token cap<input class="form-input" id="bible-rule-token-cap" type="number" min="64" max="32000" value="${esc(rule?.rank?.token_cap ?? 1200)}" /></label>
+      </div>
+    `
+    showModalHtml(profile ? "编辑 AI 参考规则工作稿" : "新建 AI 参考规则", body, [{
+      text: "保存工作稿",
+      class: "btn-primary",
+      handler: () => this._saveActivationProfileEditor(profile),
+    }], { size: "large" })
+  },
+
+  async _saveActivationProfileEditor(profile) {
+    const splitTerms = (id) => String(document.getElementById(id)?.value || "")
+      .split(/[,，\n]+/).map((value) => value.trim()).filter(Boolean)
+    const action = document.getElementById("bible-profile-action")?.value?.trim() || ""
+    const positive = splitTerms("bible-rule-positive")
+    const rawTarget = document.getElementById("bible-rule-target")?.value?.trim() || ""
+    const separator = rawTarget.indexOf(":")
+    if (!action || !positive.length || separator < 1) {
+      toast("请填写适用操作、至少一个正向词和有效资料目标", "warning")
+      return
+    }
+    const rule = {
+      rule_id: profile?.rules_json?.[0]?.rule_id || `rule_${Date.now().toString(36)}`,
+      name: document.getElementById("bible-rule-name")?.value?.trim() || "资料规则",
+      enabled: true,
+      scope: { actions: [action], modes: ["author_safe", "author_full"], match_sources: ["task_text", "current_scene_text", "explicit_focus"] },
+      match: { positive_terms: positive, negative_terms: splitTerms("bible-rule-negative"), positive_logic: "any", negative_logic: "any", mode: "normalized_substring" },
+      select: {
+        target_refs: [{ target_type: rawTarget.slice(0, separator).trim(), target_id: rawTarget.slice(separator + 1).trim(), target_path: "" }],
+        expand_page_links: true,
+        relation_types: [],
+        max_depth: 1,
+      },
+      rank: {
+        priority: Number(document.getElementById("bible-rule-priority")?.value || 700),
+        top_k: Number(document.getElementById("bible-rule-top-k")?.value || 12),
+        token_cap: Number(document.getElementById("bible-rule-token-cap")?.value || 1200),
+      },
+    }
+    try {
+      const name = document.getElementById("bible-profile-name")?.value?.trim() || "AI 参考规则"
+      const saved = profile
+        ? await api.context.updateActivationProfile(profile.id, {
+          base_version_number: profile.version_number,
+          name,
+          applicable_actions_json: [action],
+          rules_json: [rule],
+        }, state.currentProjectId)
+        : await api.context.createActivationProfile({
+          novel_id: state.currentProjectId,
+          profile_key: document.getElementById("bible-profile-key")?.value?.trim() || "",
+          name,
+          applicable_actions_json: [action],
+          rules_json: [rule],
+        })
+      closeModal()
+      this._activeActivationProfileId = saved.id
+      this._activationTrace = null
+      toast("规则工作稿已保存；发布前不会影响真实调用", "success")
+      await this._load()
+      router.refresh()
+    } catch (err) {
+      toast(err.message || "保存规则失败", "error")
+    }
+  },
+
+  _publishActivationProfile() {
+    const profile = this._activeActivationProfile()
+    if (!profile) return
+    return confirmAction("发布此 Activation Profile？后续显式启用它的 AI 调用将固定使用该 revision。", async () => {
+      try {
+        const saved = await api.context.publishActivationProfile(profile.id, {
+          base_version_number: profile.version_number,
+          revision_reason: "manual_publish",
+        }, state.currentProjectId)
+        this._activeActivationProfileId = saved.id
+        toast("AI 参考规则已发布", "success")
+        await this._load()
+        router.refresh()
+      } catch (err) {
+        toast(err.message || "发布规则失败", "error")
+      }
+    })
+  },
+
+  async _dryRunActivationProfile() {
+    const profile = this._activeActivationProfile()
+    if (!profile) return
+    try {
+      this._activationTrace = await api.context.previewActivationProfile({
+        novel_id: state.currentProjectId,
+        profile_id: profile.id,
+        action: profile.applicable_actions_json?.[0] || "writing.generate",
+        reveal_mode: "author_safe",
+        task_text: document.getElementById("bible-activation-task")?.value || "",
+        entity_ids: [],
+        top_k: 64,
+        depth: 2,
+      })
+      router.renderCurrentView()
+    } catch (err) {
+      toast(err.message || "Dry-run 失败", "error")
+    }
   },
 
   _renderAiSidebar(page) {
@@ -711,6 +1019,14 @@ const worldBibleView = {
         <label class="bible-ai-toggle">
           <input id="bible-ai-include-synopsis" type="checkbox" ${this._aiIncludeSynopsis ? "checked" : ""} />
           使用当前世界观简介
+        </label>
+        <label class="bible-ai-field">已发布 AI 参考规则（显式启用）
+          <select id="bible-ai-activation-profile" class="form-select">
+            <option value="">不启用</option>
+            ${this._activationProfiles.filter((item) => item.status === "published").map((item) => `
+              <option value="${esc(item.id)}" ${this._aiActivationProfileId === item.id ? "selected" : ""}>${esc(item.name)} · v${esc(item.version_number)}</option>
+            `).join("")}
+          </select>
         </label>
         <div class="bible-ai-messages">
           ${this._aiMessages.length ? this._aiMessages.map((message) => `
@@ -825,6 +1141,13 @@ const worldBibleView = {
           ${this._categoryOptions("background")}
         </select>
       </div>
+      <div class="form-group">
+        <label>页面模板</label>
+        <select class="form-select" id="bible-create-template">
+          <option value="">空白页</option>
+          ${this._pageTemplates.map((template) => `<option value="${esc(template.template_key)}">${esc(template.name)} · v${esc(template.version_number)}</option>`).join("")}
+        </select>
+      </div>
     `
     showModalHtml("新建世界书页面", formHtml, [
       {
@@ -837,14 +1160,27 @@ const worldBibleView = {
             return
           }
           try {
-            const draft = await api.world.createBibleDraft({
+            const templateKey = document.getElementById("bible-create-template")?.value || ""
+            const template = this._pageTemplates.find((item) => item.template_key === templateKey)
+            const createPayload = {
               novel_id: state.currentProjectId,
               title,
               page_type: document.getElementById("bible-create-type")?.value || "custom",
-            })
-            this._activeDraft = draft
+            }
+            if (templateKey) {
+              createPayload.template_key = templateKey
+              createPayload.template_version = template?.version_number || 1
+            }
+            const draft = await api.world.createBibleDraft(createPayload)
+            this._activeDraft = templateKey
+              ? await api.world.applyBiblePageTemplate(draft.id, {
+                template_key: templateKey,
+                template_version: template?.version_number || 1,
+                replace_sections: true,
+              }, state.currentProjectId)
+              : draft
             this._activePage = null
-            this._drafts = [draft, ...this._drafts]
+            this._drafts = [this._activeDraft, ...this._drafts]
             this._displayMode = "editor"
             this._galleryCategory = null
             this._persistDisplayPreference("displayMode", "editor")
@@ -891,6 +1227,129 @@ const worldBibleView = {
       linked_asset_refs_json: this._parseAssetRefs(
         document.getElementById("bible-asset-refs")?.value || "",
       ),
+      sections_json: this._readSections(),
+    }
+  },
+
+  _readSections() {
+    return Array.from(document.querySelectorAll(".world-bible-section-editor")).map((node, index) => {
+      const field = (name) => node.querySelector(`[data-section-field="${name}"]`)
+      const title = field("title")?.value?.trim() || ""
+      if (!title) throw new Error(`第 ${index + 1} 个分区标题不能为空`)
+      return {
+        section_id: node.getAttribute("data-section-id"),
+        section_type: field("section_type")?.value || "markdown",
+        title,
+        body_markdown: field("body_markdown")?.value || "",
+        sort_order: (index + 1) * 10,
+        linked_asset_ref_hashes: String(field("linked_asset_ref_hashes")?.value || "")
+          .split(/\n+/).map((value) => value.trim()).filter(Boolean),
+        projection_policy: field("projection_policy")?.value || "eligible",
+        sensitivity_hint: field("sensitivity_hint")?.value || "author_safe",
+      }
+    })
+  },
+
+  _captureSectionsFromDom() {
+    const source = this._activeDraft || this._activePage
+    if (!source) return []
+    const title = document.getElementById("bible-title")
+    const pageType = document.getElementById("bible-page-type")
+    const freeText = document.getElementById("bible-free-text")
+    const sortOrder = document.getElementById("bible-sort-order")
+    const assetRefs = document.getElementById("bible-asset-refs")
+    if (title) source.title = title.value
+    if (pageType) source.page_type = pageType.value
+    if (freeText) source.free_text = freeText.value
+    if (sortOrder) source.sort_order = Number(sortOrder.value || 0)
+    if (assetRefs) {
+      try {
+        source.linked_asset_refs_json = this._parseAssetRefs(assetRefs.value || "")
+      } catch (err) {
+        toast(err.message || "读取页面引用失败", "error")
+      }
+    }
+    try {
+      source.sections_json = this._readSections()
+    } catch (err) {
+      toast(err.message || "读取分区失败", "error")
+    }
+    return source.sections_json || []
+  },
+
+  _addSection() {
+    const source = this._activeDraft || this._activePage
+    if (!source) return
+    const sections = [...this._captureSectionsFromDom()]
+    const used = new Set(sections.map((item) => item.section_id))
+    let id = `section_${Date.now().toString(36)}`
+    let suffix = 1
+    while (used.has(id)) id = `section_${Date.now().toString(36)}_${suffix++}`
+    sections.push({
+      section_id: id,
+      section_type: "markdown",
+      title: "新分区",
+      body_markdown: "",
+      sort_order: (sections.length + 1) * 10,
+      linked_asset_ref_hashes: [],
+      projection_policy: "eligible",
+      sensitivity_hint: "author_safe",
+    })
+    source.sections_json = sections
+    router.renderCurrentView()
+  },
+
+  _removeSection(actionNode) {
+    const source = this._activeDraft || this._activePage
+    const card = actionNode.closest(".world-bible-section-editor")
+    if (!source || !card) return
+    const id = card.getAttribute("data-section-id")
+    source.sections_json = this._captureSectionsFromDom().filter((item) => item.section_id !== id)
+    router.renderCurrentView()
+  },
+
+  _moveSection(actionNode, direction) {
+    const source = this._activeDraft || this._activePage
+    const card = actionNode.closest(".world-bible-section-editor")
+    if (!source || !card) return
+    const sections = [...this._captureSectionsFromDom()]
+    const index = sections.findIndex((item) => item.section_id === card.getAttribute("data-section-id"))
+    const next = index + direction
+    if (index < 0 || next < 0 || next >= sections.length) return
+    const current = sections[index]
+    sections[index] = sections[next]
+    sections[next] = current
+    source.sections_json = sections.map((item, order) => ({ ...item, sort_order: (order + 1) * 10 }))
+    router.renderCurrentView()
+  },
+
+  async _applySelectedPageTemplate() {
+    const templateKey = document.getElementById("bible-page-template")?.value || ""
+    if (!templateKey) {
+      toast("请选择页面模板", "warning")
+      return
+    }
+    try {
+      let draft = this._activeDraft || this._draftForPage(this._activePage?.id)
+      if (!draft && this._activePage) {
+        draft = await api.world.createBibleDraft({
+          novel_id: state.currentProjectId,
+          page_id: this._activePage.id,
+        })
+      }
+      if (!draft) return
+      const selected = this._pageTemplates.find((item) => item.template_key === templateKey)
+      draft = await api.world.applyBiblePageTemplate(draft.id, {
+        template_key: templateKey,
+        template_version: selected?.version_number || 1,
+        replace_sections: false,
+      }, state.currentProjectId)
+      this._activeDraft = draft
+      this._drafts = [draft, ...this._drafts.filter((item) => item.id !== draft.id)]
+      toast("模板已生成工作稿分区；发布前可继续编辑", "success")
+      router.refresh()
+    } catch (err) {
+      toast(err.message || "应用模板失败", "error")
     }
   },
 
@@ -1002,6 +1461,138 @@ const worldBibleView = {
         toast(err.message || "归档页面失败", "error")
       }
     })
+  },
+
+  _openPageTemplateManager() {
+    const custom = this._pageTemplates.filter((item) => !item.builtin)
+    const body = `
+      <p class="world-bible-empty-hint">页面模板只定义分区布局和默认值，不保存 Prompt、provider、工具或脚本。</p>
+      <div class="world-bible-suggestion-list">
+        ${this._pageTemplates.map((item) => `
+          <div class="world-bible-suggestion-item">
+            <div><strong>${esc(item.name)}</strong> · ${esc(item.template_key)} · v${esc(item.version_number)} ${item.builtin ? "· 内置" : `· ${esc(item.status)}`}</div>
+            ${item.builtin ? "" : `<div class="world-bible-suggestion-item__actions">
+              <button class="btn btn-sm" data-page-template-rename="${esc(item.id)}">编辑</button>
+              <button class="btn btn-sm" data-page-template-history="${esc(item.id)}">历史</button>
+            </div>`}
+          </div>
+        `).join("")}
+      </div>
+      <hr />
+      <div class="form-group"><label>模板 key</label><input class="form-input" id="bible-template-key" placeholder="trade_guide" /></div>
+      <div class="form-group"><label>名称</label><input class="form-input" id="bible-template-name" placeholder="贸易资料页" /></div>
+      <div class="form-group"><label>默认分区标题</label><input class="form-input" id="bible-template-section-title" placeholder="货币与交换" /></div>
+    `
+    showModalHtml("页面模板", body, [{
+      text: "创建自定义模板",
+      class: "btn-primary",
+      handler: () => this._createPageTemplateFromModal(),
+    }], { size: "large" })
+    if (!custom.length) return
+    document.querySelectorAll("[data-page-template-rename]").forEach((button) => {
+      button.addEventListener("click", () => this._editPageTemplate(button.getAttribute("data-page-template-rename")))
+    })
+    document.querySelectorAll("[data-page-template-history]").forEach((button) => {
+      button.addEventListener("click", () => this._openPageTemplateHistory(button.getAttribute("data-page-template-history")))
+    })
+  },
+
+  async _createPageTemplateFromModal() {
+    const key = document.getElementById("bible-template-key")?.value?.trim() || ""
+    const name = document.getElementById("bible-template-name")?.value?.trim() || ""
+    const title = document.getElementById("bible-template-section-title")?.value?.trim() || ""
+    if (!key || !name || !title) {
+      toast("请填写模板 key、名称和默认分区标题", "warning")
+      return
+    }
+    try {
+      await api.world.createBiblePageTemplate({
+        novel_id: state.currentProjectId,
+        template_key: key,
+        name,
+        default_sections_json: [{
+          section_id: `section_${Date.now().toString(36)}`,
+          section_type: "markdown",
+          title,
+          body_markdown: "",
+          sort_order: 10,
+          linked_asset_ref_hashes: [],
+          projection_policy: "eligible",
+          sensitivity_hint: "author_safe",
+        }],
+      })
+      closeModal()
+      toast("页面模板已创建", "success")
+      await this._load()
+      router.refresh()
+    } catch (err) {
+      toast(err.message || "创建模板失败", "error")
+    }
+  },
+
+  _editPageTemplate(templateId) {
+    const template = this._pageTemplates.find((item) => item.id === templateId && !item.builtin)
+    if (!template) return
+    const body = `
+      <p class="world-bible-empty-hint">稳定键 ${esc(template.template_key)} 不可修改。升级模板不会自动改写已发布页面。</p>
+      <div class="form-group"><label>名称</label><input class="form-input" id="bible-template-edit-name" value="${esc(template.name)}" /></div>
+      <div class="form-group"><label>说明</label><textarea class="form-textarea" id="bible-template-edit-description" rows="3">${esc(template.description || "")}</textarea></div>
+      <label class="bible-ai-toggle"><input id="bible-template-edit-archived" type="checkbox" ${template.status === "archived" ? "checked" : ""} /> 归档模板</label>
+    `
+    showModalHtml("编辑页面模板", body, [{
+      text: "保存新版本",
+      class: "btn-primary",
+      handler: async () => {
+        try {
+          await api.world.updateBiblePageTemplate(template.id, {
+            base_version_number: template.version_number,
+            name: document.getElementById("bible-template-edit-name")?.value?.trim() || template.name,
+            description: document.getElementById("bible-template-edit-description")?.value || null,
+            status: document.getElementById("bible-template-edit-archived")?.checked ? "archived" : "active",
+          }, state.currentProjectId)
+          closeModal()
+          toast("模板新版本已保存", "success")
+          await this._load()
+          router.refresh()
+        } catch (err) {
+          toast(err.message || "更新模板失败", "error")
+        }
+      },
+    }])
+  },
+
+  async _openPageTemplateHistory(templateId) {
+    const template = this._pageTemplates.find((item) => item.id === templateId)
+    if (!template || template.builtin) return
+    try {
+      const revisions = await api.world.listBiblePageTemplateRevisions(template.id, state.currentProjectId)
+      const body = revisions.map((item) => `
+        <div class="world-bible-suggestion-item">
+          <strong>v${esc(item.version_number)}</strong> · ${esc(item.revision_reason)} · ${esc(item.content_hash.slice(0, 12))}
+          <button class="btn btn-sm" data-template-restore-version="${esc(item.version_number)}">恢复为新版本</button>
+        </div>
+      `).join("") || `<div class="world-bible-empty-hint">暂无历史</div>`
+      showModalHtml("模板历史", body, [], { size: "large" })
+      document.querySelectorAll("[data-template-restore-version]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          try {
+            await api.world.restoreBiblePageTemplateRevision(
+              template.id,
+              Number(button.getAttribute("data-template-restore-version")),
+              state.currentProjectId,
+            )
+            closeModal()
+            toast("历史模板已恢复为新版本", "success")
+            await this._load()
+            router.refresh()
+          } catch (err) {
+            toast(err.message || "恢复模板失败", "error")
+          }
+        })
+      })
+    } catch (err) {
+      toast(err.message || "加载模板历史失败", "error")
+    }
   },
 
   _openCategoryManager() {
@@ -1299,6 +1890,7 @@ const worldBibleView = {
           template_variables: {},
           include_current_page: true,
           include_world_synopsis: this._aiIncludeSynopsis,
+          activation_profile_id: this._aiActivationProfileId,
         },
         state.currentProjectId,
       )

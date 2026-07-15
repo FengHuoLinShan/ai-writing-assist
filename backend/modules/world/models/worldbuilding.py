@@ -145,6 +145,7 @@ class WorldBiblePage(Base, UUIDMixin, TimestampMixin, StatusMixin):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     page_meta_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     free_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sections_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     linked_asset_refs_json: Mapped[list] = mapped_column(
         JSON,
         nullable=False,
@@ -257,6 +258,7 @@ class WorldBibleCategory(Base, UUIDMixin, TimestampMixin, StatusMixin):
     color: Mapped[str] = mapped_column(String(7), nullable=False, default="#64748B")
     icon: Mapped[str] = mapped_column(String(16), nullable=False, default="")
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    default_template_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
 
 class WorldBiblePageDraft(Base, UUIDMixin, TimestampMixin):
@@ -286,14 +288,88 @@ class WorldBiblePageDraft(Base, UUIDMixin, TimestampMixin):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     page_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     free_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sections_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     linked_asset_refs_json: Mapped[list] = mapped_column(
         JSON,
         nullable=False,
         default=list,
     )
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    template_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    template_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class WorldBiblePageTemplate(Base, UUIDMixin, TimestampMixin, StatusMixin):
+    __tablename__ = "world_bible_page_templates"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "template_key",
+            name="uq_world_bible_page_template_key",
+        ),
+        {"comment": "项目自定义 World Bible 页面模板"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    template_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    category_key_hint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sections_schema_json: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+    )
+    default_sections_json: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
+    validation_rules_json: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+    )
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class WorldBiblePageTemplateRevision(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "world_bible_page_template_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "template_id",
+            "version_number",
+            name="uq_world_bible_page_template_revision",
+        ),
+        {"comment": "World Bible 页面模板不可变版本"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    template_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("world_bible_page_templates.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    snapshot_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    revision_reason: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class WorldBibleSynopsisRevision(Base, UUIDMixin, TimestampMixin):

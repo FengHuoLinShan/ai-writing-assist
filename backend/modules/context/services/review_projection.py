@@ -48,4 +48,5 @@ def build_tier_compile_response(
         truncated=ctx.truncated_keys,
         budget_events=[event.model_dump() for event in ctx.budget_events],
         warnings=list(ctx.warnings),
+        activation_trace=dict(ctx.activation_trace),
     )

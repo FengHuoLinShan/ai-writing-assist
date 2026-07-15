@@ -185,6 +185,39 @@ class WorldBibleSynopsisContextContract:
     warnings: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class WorldBibleActivationTargetContract:
+    """Validated author-reference material returned to context activation."""
+
+    novel_id: str
+    target: dict[str, str]
+    target_hash: str
+    label: str
+    status: str
+    importance: float = 0.0
+    content: str = ""
+    token_count: int = 0
+    source_kind: str = "explicit"
+    source_version: int | None = None
+    source_hash: str = ""
+    linked_target_refs: list[dict[str, str]] = field(default_factory=list)
+    expanded_from: dict[str, str] | None = None
+    fallback: bool = False
+    excluded_reason: str | None = None
+    warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class WorldBibleActivationResolutionContract:
+    """Novel-scoped activation target resolution without exposing world ORM."""
+
+    novel_id: str
+    items: list[WorldBibleActivationTargetContract] = field(default_factory=list)
+    excluded_items: list[WorldBibleActivationTargetContract] = field(
+        default_factory=list
+    )
+
+
 class GenerationBackgroundProvider(Protocol):
     """DI port used by world generation without importing context internals."""
 
@@ -196,6 +229,8 @@ class GenerationBackgroundProvider(Protocol):
         task: str,
         include_world_synopsis: bool = False,
         selected_world_bible_draft_ids: list[str] | None = None,
+        activation_profile_id: str | None = None,
+        activation_profile_version: int | None = None,
         operation: str = "world.object_draft.generate",
         prompt_name: str = "generation_center_world_object_draft",
         model: str = "project-default",
@@ -237,6 +272,8 @@ __all__ = [
     "ResolveResult",
     "WorldBackgroundBundleContract",
     "WorldBackgroundEntryContract",
+    "WorldBibleActivationResolutionContract",
+    "WorldBibleActivationTargetContract",
     "WorldBibleSynopsisContextContract",
     "WorldAliasRelationTaskPort",
 ]

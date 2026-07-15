@@ -18,6 +18,8 @@ RAG 负责“找”，context 负责“选、裁、确认、追踪”。
 - 为前端 AI 参考资料审查台返回 section 元数据、激活原因、来源摘要和预算裁剪事件
 - 为作者生成按需加载 `world_bible_synopsis`，并把实际 revision/source/block hash 写入
   编译结果、确认记录和生成响应 provenance
+- 管理版本化 Activation Profile，用受限匹配规则把固定世界书页面/CoreEntity 编译为
+  可解释、可预算裁剪的 P1 参考资料
 
 ## 不负责
 
@@ -60,6 +62,14 @@ async def read_novel_evidence(...) -> dict
 async def inspect_novel_target(...) -> dict
 async def trace_novel_evidence(...) -> dict
 async def record_evidence_link(...) -> EvidenceLinkContract
+async def list_activation_profiles(...) -> list
+async def create_activation_profile(...) -> ContextActivationProfileResponse
+async def update_activation_profile(...) -> ContextActivationProfileResponse
+async def publish_activation_profile(...) -> ContextActivationProfileResponse
+async def list_activation_profile_revisions(...) -> list
+async def restore_activation_profile_revision(...) -> ContextActivationProfileResponse
+async def resolve_activation_profile(...) -> dict | None
+async def preview_activation_profile(...) -> dict
 ```
 
 `create_context_snapshot()`、`mark_context_snapshot_succeeded()` 和
@@ -74,6 +84,8 @@ async def record_evidence_link(...) -> EvidenceLinkContract
 | `context_snapshots` | 自动 AI 调用上下文审计记录，保存 `task_id`、`workflow_id`、`phase`、`context_mode`、`included_asset_ids`、摘要、`prompt_hash`、token/section metadata、`result_refs`、错误信息和可选 `rendered_context` |
 | `evidence_links` | 使用 `TargetRef + claim_path` 将对象/人物知识/结构字段连到 `SourceRangeRef`；只记录 provenance，不判定事实真假 |
 | `context_retrieval_traces` | 按 novel/content mode 保存查询计划哈希、clause 摘要、候选/回读/丢弃计数与 safe-empty 原因；不保存 raw task/query/正文 |
+| `context_activation_profiles` | 项目级可编辑规则 aggregate；draft/published 状态与 CAS 版本分离运行时选择 |
+| `context_activation_profile_revisions` | 每次发布的不可变规则快照与 rule hash；旧发布版可固定回放 |
 
 `context_confirmations` 和 `context_snapshots` 是两套语义：
 
@@ -81,6 +93,23 @@ async def record_evidence_link(...) -> EvidenceLinkContract
 - `context_snapshots` 面向自动流水线审计，表示一次真实 LLM 调用使用过的上下文视图。
 
 默认只保存可复现摘要和 metadata；`retain_rendered_context=True` 时才保存完整上下文并设置过期时间。清理任务只清空 `rendered_context` 和 `rendered_context_expires_at`，不删除快照行、hash、资产 ID、结果引用或 metadata。
+
+## Activation Profile
+
+Activation Profile 属于 context，不属于 World Bible 页面。规则只支持声明过的 action、
+`author_safe/author_full` 模式、任务/当前 Scene/最多两个前序 brief/显式焦点文本，以及
+Unicode NFKC + 大小写归一化的 substring 或 token-boundary 匹配；不支持 regex、随机概率、
+任意表达式或无限递归。每个 Profile 最多 128 条稳定 rule ID，固定 TargetRef 只允许已采用的
+World Bible 页面或 CoreEntity，页面链接/关系展开最大深度为 2。
+
+编辑和 dry-run 可使用当前 draft；发布会校验目标并写不可变 revision。运行时只解析已发布
+revision，编辑已发布 aggregate 会创建更高版本 draft，不改变旧运行时结果。编译器仅在调用方
+显式选择 Profile 时增加可排除 P1 `world_bible_activation`，并把资料包在不可关闭的不可信数据
+边界内。reader/character、candidate、P0 和 `novel_id` 门禁始终优先于规则。
+
+trace 对每个候选保存 rule、命中/阻断原因、来源、展开父项、source hash、预算前后 token、
+排除原因与 stale projection fallback。confirmation 与 snapshot 固定实际 profile version、
+rule hash、来源 hash 和纳入目标 hash；页面发布会把消费该页的 confirmation 标脏。
 
 ## AI 参考资料审查台
 
@@ -246,6 +275,12 @@ POST /api/context/evidence/search
 POST /api/context/evidence/read
 POST /api/context/evidence/inspect
 POST /api/context/evidence/trace
+GET/POST /api/context/activation-profiles
+PATCH /api/context/activation-profiles/{profile_id}
+POST /api/context/activation-profiles/{profile_id}/publish
+GET /api/context/activation-profiles/{profile_id}/revisions
+POST /api/context/activation-profiles/{profile_id}/revisions/{version}/restore-draft
+GET/POST /api/context/activation-preview
 ```
 
 ## Deep Import Activation

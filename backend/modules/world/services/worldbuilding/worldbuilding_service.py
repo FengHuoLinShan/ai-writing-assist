@@ -9,6 +9,9 @@ from modules.world.services.worldbuilding.conflict_queue_service import (  # noq
 from modules.world.services.worldbuilding.knowledge_tag_service import (  # noqa: F401
     KnowledgeTagService,
 )
+from modules.world.services.worldbuilding.page_template_service import (  # noqa: F401
+    WorldBiblePageTemplateService,
+)
 from modules.world.services.worldbuilding.profile_service import (  # noqa: F401
     WorldProfileService,
 )
@@ -52,6 +55,7 @@ __all__ = [
     "SuggestionQueueService",
     "WorldBibleService",
     "WorldBibleLifecycleService",
+    "WorldBiblePageTemplateService",
     "WorldBibleSynopsisService",
     "WorldProfileService",
     "ProfileBinding",

@@ -252,11 +252,20 @@ class ContextCompiler:
             reveal_mode=options.reveal_mode,
         )
         sections.extend(constraint_sections)
+        activation_section, activation_trace, activation_warnings = (
+            await self._build_activation_section(db, bundle, options)
+        )
+        if activation_section is not None:
+            sections.append(activation_section)
         sections, exclusion_warnings = self._apply_section_exclusions(
             sections,
             options.excluded_asset_ids.get("context_sections", []),
         )
-        warnings = [*bundle.warnings, *exclusion_warnings]
+        warnings = [
+            *bundle.warnings,
+            *activation_warnings,
+            *exclusion_warnings,
+        ]
         total = sum(s.token_count for s in sections)
         ctx = CompiledContext(
             sections=sections,
@@ -264,8 +273,157 @@ class ContextCompiler:
             budget_tokens=budget_tokens,
             compiled_at=datetime.now(UTC).replace(tzinfo=None).isoformat(),
             warnings=warnings,
+            activation_trace=activation_trace,
         )
-        return ctx.enforce_budget()
+        compiled = ctx.enforce_budget()
+        if activation_trace:
+            self._apply_global_activation_budget_trace(compiled)
+        return compiled
+
+    async def _build_activation_section(
+        self,
+        db: AsyncSession,
+        bundle: StructureContextBundle,
+        options: CompileOptions,
+    ) -> tuple[ContextSection | None, dict[str, Any], list[str]]:
+        if not options.activation_profile_id:
+            return None, {}, []
+        if not options.consumer_action:
+            return None, {}, ["activation_profile_requires_consumer_action"]
+
+        from modules.context.schemas import ContextActivationPreviewRequest
+        from modules.context.services.activation_profile_service import (
+            ActivationProfileService,
+        )
+
+        scene = bundle.scene or {}
+        current_scene_text = "\n".join(
+            str(scene.get(key) or "")
+            for key in ("title", "summary", "content", "scene_text")
+        )
+        request = ContextActivationPreviewRequest(
+            novel_id=options.novel_id,
+            action=options.consumer_action,
+            profile_id=options.activation_profile_id,
+            profile_version=options.activation_profile_version,
+            reveal_mode=options.reveal_mode,
+            task_text=options.task,
+            current_scene_text=current_scene_text[:50000],
+            explicit_focus=" ".join(
+                value
+                for value in (
+                    options.focus_entity_id,
+                    " ".join(options.entity_ids or []),
+                )
+                if value
+            ),
+            scene_id=options.scene_id,
+            entity_ids=options.entity_ids or [],
+            focus_entity_id=options.focus_entity_id,
+            top_k=min(max(options.top_k, 1), 256),
+            depth=2,
+        )
+        trace = await ActivationProfileService().preview_published(db, request)
+        profile = trace.get("profile")
+        warnings = list(trace.get("warnings") or [])
+        if not profile:
+            return None, trace, warnings
+        options.activation_profile_version = int(profile["version"])
+        options.activation_profile_rule_hash = str(profile["rule_hash"])
+        options.activation_source_hashes = list(
+            dict.fromkeys(
+                str(item.get("source_hash") or "")
+                for item in trace.get("items") or []
+                if item.get("source_hash")
+            )
+        )
+        options.activation_included_target_hashes = [
+            str(item["target_hash"])
+            for item in trace.get("items") or []
+            if item.get("target_hash")
+        ]
+        if not trace.get("items"):
+            return None, trace, warnings
+        data_items = [
+            {
+                "label": item.get("label"),
+                "target": item.get("target"),
+                "source_hash": item.get("source_hash"),
+                "content": item.get("content"),
+            }
+            for item in trace["items"]
+        ]
+        serialized_items = json.dumps(
+            data_items,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).replace("<", "\\u003c").replace(">", "\\u003e")
+        content = (
+            "<WORLD_BIBLE_ACTIVATION_DATA>\n"
+            + serialized_items
+            + "\n</WORLD_BIBLE_ACTIVATION_DATA>"
+        )
+        section = ContextSection(
+            key="world_bible_activation",
+            tier=Tier.P1,
+            content=content,
+            token_count=estimate_token_count(content),
+            title="AI 参考规则命中的世界资料",
+            preview="；".join(str(item.get("label") or "") for item in trace["items"])[
+                :160
+            ],
+            status="canonical",
+            activation_reason=(
+                f"Activation Profile {profile['profile_key']} v{profile['version']}"
+            ),
+            sources=[
+                {
+                    "type": str(item["target"].get("target_type") or "world"),
+                    "id": str(item["target"].get("target_id") or ""),
+                    "label": str(item.get("label") or ""),
+                    "status": str(item.get("status") or "canonical"),
+                    "source_hash": str(item.get("source_hash") or ""),
+                }
+                for item in trace["items"]
+            ],
+            can_exclude=True,
+            retrieval_metadata={
+                "profile": profile,
+                "rule_evaluations": trace.get("rule_evaluations") or [],
+                "activation_budget_events": trace.get("budget_events") or [],
+                "included_target_hashes": options.activation_included_target_hashes,
+                "source_hashes": options.activation_source_hashes,
+            },
+        )
+        return section, trace, warnings
+
+    @staticmethod
+    def _apply_global_activation_budget_trace(compiled: CompiledContext) -> None:
+        trace = compiled.activation_trace
+        if not trace:
+            return
+        if "world_bible_activation" in compiled.evicted_keys:
+            for item in trace.get("items") or []:
+                item["decision"] = "excluded"
+                item["excluded_reason"] = "global_budget_evicted"
+                item["token_after"] = 0
+            trace.setdefault("budget_events", []).append(
+                {
+                    "section_key": "world_bible_activation",
+                    "event_type": "evicted",
+                    "reason": "global_budget_evicted",
+                }
+            )
+        elif "world_bible_activation" in compiled.truncated_keys:
+            for item in trace.get("items") or []:
+                item["excluded_reason"] = "global_budget_truncated"
+            trace.setdefault("budget_events", []).append(
+                {
+                    "section_key": "world_bible_activation",
+                    "event_type": "truncated",
+                    "reason": "global_budget_truncated",
+                }
+            )
 
     @staticmethod
     def _apply_section_exclusions(

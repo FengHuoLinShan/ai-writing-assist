@@ -28,7 +28,9 @@ from modules.world.schemas import (
     WorldBiblePageDraftUpdate,
     WorldBiblePageResponse,
     WorldBiblePageRevisionResponse,
+    WorldBibleSection,
 )
+from shared.target_ref import TargetRef
 from shared.utils import parse_uuid
 
 BUILTIN_WORLD_BIBLE_CATEGORIES: tuple[dict[str, Any], ...] = (
@@ -140,6 +142,12 @@ class WorldBibleLifecycleService:
         )
         if existing is not None:
             raise ConflictError("World Bible category key already exists")
+        if data.default_template_key:
+            await self._ensure_page_template_key(
+                db,
+                data.novel_id,
+                data.default_template_key,
+            )
         category = WorldBibleCategory(
             novel_id=nid,
             category_key=data.category_key,
@@ -148,6 +156,7 @@ class WorldBibleLifecycleService:
             color=data.color.upper(),
             icon=data.icon,
             sort_order=data.sort_order,
+            default_template_key=data.default_template_key,
             status="active",
         )
         db.add(category)
@@ -162,7 +171,13 @@ class WorldBibleLifecycleService:
         data: WorldBibleCategoryUpdate,
     ) -> WorldBibleCategoryResponse:
         category = await self._get_category(db, novel_id, category_id)
-        payload = data.model_dump(exclude_unset=True)
+        payload = data.model_dump(mode="json", exclude_unset=True)
+        if payload.get("default_template_key"):
+            await self._ensure_page_template_key(
+                db,
+                novel_id,
+                payload["default_template_key"],
+            )
         for key, value in payload.items():
             setattr(category, key, value.upper() if key == "color" and value else value)
         await db.flush()
@@ -247,6 +262,11 @@ class WorldBibleLifecycleService:
             title = data.title or page.title
             page_type = data.page_type or page.page_type
             free_text = page.free_text if data.free_text is None else data.free_text
+            sections = (
+                page.sections_json
+                if data.sections_json is None
+                else self._serialize_sections(data.sections_json)
+            )
             refs = (
                 page.linked_asset_refs_json
                 if data.linked_asset_refs_json is None
@@ -255,18 +275,26 @@ class WorldBibleLifecycleService:
             sort_order = page.sort_order if data.sort_order is None else data.sort_order
             page_id = page.id
             base_version = page.version_number
+            template_key = data.template_key or page.template_key
+            template_version = data.template_version or page.template_version
         else:
             if not data.title:
                 raise ValidationError("title is required for a new World Bible draft")
             title = data.title
             page_type = data.page_type or "custom"
             free_text = data.free_text
+            sections = self._serialize_sections(data.sections_json or [])
             refs = data.linked_asset_refs_json or []
             sort_order = data.sort_order or 0
             page_id = None
             base_version = None
+            template_key = data.template_key
+            template_version = data.template_version or 1
         await self._ensure_category_key(db, nid, page_type)
+        if template_key:
+            await self._ensure_page_template_key(db, str(nid), template_key)
         await self._validate_asset_refs(db, nid, refs)
+        self._validate_section_refs(sections, refs)
         draft = WorldBiblePageDraft(
             novel_id=nid,
             page_id=page_id,
@@ -274,8 +302,11 @@ class WorldBibleLifecycleService:
             title=title,
             page_type=page_type,
             free_text=free_text,
+            sections_json=sections,
             linked_asset_refs_json=refs,
             sort_order=sort_order,
+            template_key=template_key,
+            template_version=template_version,
             created_by=data.created_by,
             updated_by=data.created_by,
         )
@@ -291,7 +322,7 @@ class WorldBibleLifecycleService:
         data: WorldBiblePageDraftUpdate,
     ) -> WorldBiblePageDraftResponse:
         draft = await self._get_draft_model(db, novel_id, draft_id)
-        payload = data.model_dump(exclude_unset=True)
+        payload = data.model_dump(mode="json", exclude_unset=True)
         if "page_type" in payload:
             await self._ensure_category_key(db, draft.novel_id, payload["page_type"])
         if "linked_asset_refs_json" in payload:
@@ -300,6 +331,15 @@ class WorldBibleLifecycleService:
                 draft.novel_id,
                 payload["linked_asset_refs_json"] or [],
             )
+        if payload.get("template_key"):
+            await self._ensure_page_template_key(
+                db,
+                str(draft.novel_id),
+                payload["template_key"],
+            )
+        next_sections = payload.get("sections_json", draft.sections_json)
+        next_refs = payload.get("linked_asset_refs_json", draft.linked_asset_refs_json)
+        self._validate_section_refs(next_sections or [], next_refs or [])
         for key, value in payload.items():
             setattr(draft, key, value)
         await db.flush()
@@ -335,7 +375,17 @@ class WorldBibleLifecycleService:
     ) -> WorldBiblePageResponse:
         draft = await self._get_draft_model(db, novel_id, draft_id, for_update=True)
         await self._ensure_category_key(db, draft.novel_id, draft.page_type)
+        if draft.template_key:
+            await self._ensure_page_template_key(
+                db,
+                str(draft.novel_id),
+                draft.template_key,
+            )
         await self._validate_asset_refs(db, draft.novel_id, draft.linked_asset_refs_json)
+        self._validate_section_refs(
+            draft.sections_json,
+            draft.linked_asset_refs_json,
+        )
         if draft.page_id is None:
             page = WorldBiblePage(
                 novel_id=draft.novel_id,
@@ -344,8 +394,11 @@ class WorldBibleLifecycleService:
                 title=draft.title,
                 status="canonical",
                 free_text=draft.free_text,
+                sections_json=draft.sections_json,
                 linked_asset_refs_json=draft.linked_asset_refs_json,
                 sort_order=draft.sort_order,
+                template_key=draft.template_key,
+                template_version=draft.template_version,
                 version_number=1,
                 created_by=published_by or draft.created_by,
                 updated_by=published_by or draft.updated_by,
@@ -366,8 +419,11 @@ class WorldBibleLifecycleService:
             page.page_type = draft.page_type
             page.title = draft.title
             page.free_text = draft.free_text
+            page.sections_json = draft.sections_json
             page.linked_asset_refs_json = draft.linked_asset_refs_json
             page.sort_order = draft.sort_order
+            page.template_key = draft.template_key
+            page.template_version = draft.template_version
             page.status = "canonical"
             page.version_number += 1
             page.updated_by = published_by or draft.updated_by
@@ -377,6 +433,11 @@ class WorldBibleLifecycleService:
             db,
             draft,
             reason="world_bible_draft_published",
+        )
+        await self.mark_page_context_changed(
+            db,
+            page,
+            reason="world_bible_page_published",
         )
         await db.delete(draft)
         await self._mark_synopsis_stale(db, str(page.novel_id))
@@ -418,8 +479,11 @@ class WorldBibleLifecycleService:
             title=str(snapshot.get("title") or page.title),
             page_type=str(snapshot.get("page_type") or page.page_type),
             free_text=snapshot.get("free_text"),
+            sections_json=list(snapshot.get("sections_json") or []),
             linked_asset_refs_json=list(snapshot.get("linked_asset_refs_json") or []),
             sort_order=int(snapshot.get("sort_order") or 0),
+            template_key=snapshot.get("template_key"),
+            template_version=int(snapshot.get("template_version") or 1),
             created_by=restored_by,
             updated_by=restored_by,
         )
@@ -474,6 +538,82 @@ class WorldBibleLifecycleService:
             parse_uuid(novel_id, "novel_id"),
             refs,
         )
+
+    async def ensure_category_key(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        category_key: str,
+    ) -> None:
+        await self._ensure_category_key(
+            db,
+            parse_uuid(novel_id, "novel_id"),
+            category_key,
+        )
+
+    async def ensure_page_template_key(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        template_key: str,
+    ) -> None:
+        await self._ensure_page_template_key(db, novel_id, template_key)
+
+    async def get_draft_model(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        draft_id: str,
+        *,
+        for_update: bool = False,
+    ) -> WorldBiblePageDraft:
+        return await self._get_draft_model(
+            db,
+            novel_id,
+            draft_id,
+            for_update=for_update,
+        )
+
+    async def mark_draft_context_changed(
+        self,
+        db: AsyncSession,
+        draft: WorldBiblePageDraft,
+        *,
+        reason: str,
+    ) -> None:
+        await self._mark_draft_context_changed(db, draft, reason=reason)
+
+    @staticmethod
+    async def mark_page_context_changed(
+        db: AsyncSession,
+        page: WorldBiblePage,
+        *,
+        reason: str,
+    ) -> None:
+        """Invalidate confirmations that consumed this published page."""
+        try:
+            from modules.context.facade import mark_asset_context_changed
+
+            await mark_asset_context_changed(
+                db,
+                novel_id=str(page.novel_id),
+                asset_type="world_bible_page",
+                asset_id=str(page.id),
+                reason=reason,
+            )
+        except Exception:
+            logger.warning(
+                "World Bible 页面上下文确认失效标记失败 page_id=%s",
+                page.id,
+                exc_info=True,
+            )
+
+    def validate_section_refs(
+        self,
+        sections: list[dict[str, Any]] | list[WorldBibleSection],
+        refs: list[dict[str, Any]],
+    ) -> None:
+        self._validate_section_refs(self._serialize_sections(sections), refs)
 
     async def _get_category(
         self,
@@ -553,6 +693,30 @@ class WorldBibleLifecycleService:
         if exists is None:
             raise ValidationError("Unknown or archived World Bible category")
 
+    @staticmethod
+    async def _ensure_page_template_key(
+        db: AsyncSession,
+        novel_id: str,
+        template_key: str,
+    ) -> None:
+        from modules.world.models import WorldBiblePageTemplate
+        from modules.world.services.worldbuilding.page_template_service import (
+            BUILTIN_PAGE_TEMPLATE_KEYS,
+        )
+
+        if template_key in BUILTIN_PAGE_TEMPLATE_KEYS:
+            return
+        nid = parse_uuid(novel_id, "novel_id")
+        exists = await db.scalar(
+            select(WorldBiblePageTemplate.id).where(
+                WorldBiblePageTemplate.novel_id == nid,
+                WorldBiblePageTemplate.template_key == template_key,
+                WorldBiblePageTemplate.status == "active",
+            )
+        )
+        if exists is None:
+            raise ValidationError("Unknown or archived World Bible page template")
+
     async def _validate_asset_refs(
         self,
         db: AsyncSession,
@@ -628,6 +792,7 @@ class WorldBibleLifecycleService:
                     "status": page.status,
                     "page_meta_json": page.page_meta_json,
                     "free_text": page.free_text,
+                    "sections_json": page.sections_json,
                     "linked_asset_refs_json": page.linked_asset_refs_json,
                     "activation_defaults_json": page.activation_defaults_json,
                     "template_key": page.template_key,
@@ -692,6 +857,58 @@ class WorldBibleLifecycleService:
 
         slug = normalize_profession_slug(title) or "page"
         return f"{page_type}:{slug}:{uuid.uuid4().hex[:8]}"
+
+    @staticmethod
+    def serialize_sections(
+        sections: list[dict[str, Any]] | list[WorldBibleSection],
+    ) -> list[dict[str, Any]]:
+        return [
+            item.model_dump(mode="json")
+            if isinstance(item, WorldBibleSection)
+            else dict(item)
+            for item in sections
+        ]
+
+    _serialize_sections = serialize_sections
+
+    @classmethod
+    def _validate_section_refs(
+        cls,
+        sections: list[dict[str, Any]],
+        refs: list[dict[str, Any]],
+    ) -> None:
+        available_hashes = {cls._asset_ref_hash(ref) for ref in refs}
+        for section in sections:
+            for ref_hash in section.get("linked_asset_ref_hashes") or []:
+                normalized = str(ref_hash).removeprefix("sha256:")
+                if normalized not in available_hashes:
+                    raise ValidationError(
+                        "World Bible section references must point to page asset refs"
+                    )
+
+    @staticmethod
+    def _asset_ref_hash(ref: dict[str, Any]) -> str:
+        target_type = str(
+            ref.get("target_type")
+            or ref.get("type")
+            or ref.get("source_type")
+            or ""
+        )
+        target_id = str(
+            ref.get("target_id") or ref.get("id") or ref.get("source_id") or ""
+        )
+        aliases = {
+            "entity": "core_entity",
+            "profile": "core_entity",
+            "event": "core_entity",
+            "page": "world_bible_page",
+            "relation": "entity_relation",
+        }
+        return TargetRef(
+            target_type=aliases.get(target_type, target_type),
+            target_id=target_id,
+            target_path=str(ref.get("target_path") or ""),
+        ).target_hash()
 
 
 __all__ = [

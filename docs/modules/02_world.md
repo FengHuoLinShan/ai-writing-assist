@@ -31,7 +31,8 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - `character_knowledge` — 人物知识边界
 - `species_profiles` / `faction_profiles` / `location_profiles` / `rule_profiles` / `item_profiles` / `secret_profiles` / `entity_profile_templates` / `generic_entity_profiles` — 世界对象的类型化 Profile 与模板
 - `generation_prompt_templates` / `generation_prompt_template_revisions` — 项目生成模板及不可变版本
-- `world_bible_categories` / `world_bible_page_drafts` / `world_bible_pages` / `world_bible_page_revisions` / `world_bible_page_projections` — 世界书类别、服务器工作稿、已发布页和派生投影
+- `world_bible_categories` / `world_bible_page_drafts` / `world_bible_pages` / `world_bible_page_revisions` / `world_bible_page_projections` — 世界书类别、服务器工作稿、含稳定 sections 的已发布页和派生投影
+- `world_bible_page_templates` / `world_bible_page_template_revisions` — 项目页面布局模板及不可变历史；内置模板仍由代码注册
 - `world_bible_synopsis_heads` / `world_bible_synopsis_revisions` — 作者版世界观简介的刷新状态、授权与不可变版本
 - `knowledge_tags` / `character_knowledge_tags` / `asset_knowledge_tags` / `knowledge_tag_exclusions` / `knowledge_visibility_policies` / `reader_reveal_policies` / `creation_suggestion_queue` / `conflict_check_queue` — 知识标签、可见性和待处理工作队列
 - `map_configs` / `map_tiles` / `map_location_bindings` / `map_location_layouts` / `map_terrain_layers` / `map_terrain_regions` / `map_terrain_patches` / `map_terrain_bindings` / `map_markers` / `map_territory_tiles` / `map_observations` / `map_facts` — 动态地图子系统表，详见 `docs/modules/15_map.md`
@@ -88,8 +89,9 @@ helper 和历史兼容入口：
   `worldbuilding_service.py` 仅作为旧 import path 兼容 hub；实现按概念拆到
   `profile_service.py`、`world_bible_service.py`、`world_bible_lifecycle_service.py`、
   `world_bible_synopsis_service.py`、`suggestion_queue_service.py`、
-  `knowledge_tag_service.py`、`reader_safety_service.py`、`conflict_queue_service.py`
-  和 `activation_preview_service.py`。
+  `knowledge_tag_service.py`、`reader_safety_service.py`、`conflict_queue_service.py`、
+  `activation_preview_service.py`、`activation_target_service.py` 和
+  `page_template_service.py`。
 - `services/common.py`：跨子包通用 helper，如 `parse_uuid`、`normalize_name`。
 - `services/map_service.py`：历史兼容导出层，不承载业务逻辑。
 
@@ -104,6 +106,8 @@ Root `modules.world.facade` 是纯 re-export hub，用来保持旧跨模块 impo
 
 `worldbuilding_facade.py` 承载世界书上下文激活入口：
 `preview_worldbuilding_activation()` 委托确定性 activation preview 服务；
+`get_world_bible_projection_candidates()` 和 `get_world_bible_page_source_manifest()`
+为 context 提供 novel-scoped TargetRef 解析、最大深度 2 的有界展开与来源 hash；
 `mark_worldbuilding_context_stale()` 保持函数内 lazy import `modules.context.facade`，
 避免扩大 context ↔ world 循环 import 风险。
 
@@ -144,6 +148,8 @@ async def get_full_state(db, novel_id) -> dict
 
 # ---- Worldbuilding ----
 async def preview_worldbuilding_activation(db, novel_id, *, entity_ids=None, ...) -> dict
+async def get_world_bible_projection_candidates(db, novel_id, target_refs, *, expand_page_links=False, relation_types=None, max_depth=0, ...) -> WorldBibleActivationResolutionContract
+async def get_world_bible_page_source_manifest(db, novel_id, page_ids) -> list[dict]
 async def mark_worldbuilding_context_stale(db, novel_id, *, reason: str, asset_id="worldbuilding") -> int
 async def get_world_bible_synopsis_context(db, novel_id, *, revision_id=None) -> WorldBibleSynopsisContextContract
 async def get_world_bible_working_pages_context(db, novel_id, *, draft_ids) -> list[dict]
@@ -165,6 +171,11 @@ async def get_characters_at_location(db, novel_id, location_id) -> list[dict]
 async def get_character_location_id(db, novel_id, character_id) -> str | None
 async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | None
 ```
+
+World Bible 页面是资料组织层，不是结构化事实源。`free_text` 是兼容概览，`sections_json`
+保存最多 64 个稳定、有序的 markdown/checklist/asset_collection 资料段；section 引用只能
+指向页面级已校验 TargetRef。项目页面模板只描述布局和默认段落，不能保存 Prompt、provider、
+API key、工具或可执行表达式；应用模板只修改工作稿，发布仍走既有 CAS 与不可变 revision。
 
 ## API
 
@@ -221,6 +232,11 @@ DELETE /api/world/knowledge/{knowledge_id}
 # World Bible 工作稿、历史和简介
 GET/POST/PATCH /api/world/bible/categories
 GET/POST/PATCH/DELETE /api/world/bible/drafts
+GET/POST /api/world/bible/page-templates
+PATCH  /api/world/bible/page-templates/{template_id}
+GET    /api/world/bible/page-templates/{template_id}/revisions
+POST   /api/world/bible/page-templates/{template_id}/revisions/{version}/restore-draft
+POST   /api/world/bible/drafts/{draft_id}/apply-template
 POST   /api/world/bible/drafts/{draft_id}/publish
 GET    /api/world/bible/pages/{page_id}/revisions
 POST   /api/world/bible/pages/{page_id}/revisions/{version}/restore-draft

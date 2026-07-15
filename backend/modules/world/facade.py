@@ -67,6 +67,8 @@ from modules.world.map_facade import (  # noqa: F401
 )
 from modules.world.worldbuilding_facade import (  # noqa: F401
     get_world_background,
+    get_world_bible_page_source_manifest,
+    get_world_bible_projection_candidates,
     get_world_bible_synopsis_context,
     get_world_bible_working_pages_context,
     mark_world_bible_synopsis_stale,
@@ -109,6 +111,8 @@ __all__ = [
     "get_events_context",
     "get_full_state",
     "get_world_background",
+    "get_world_bible_page_source_manifest",
+    "get_world_bible_projection_candidates",
     "get_world_bible_synopsis_context",
     "get_world_bible_working_pages_context",
     "get_world_context",

@@ -10,6 +10,9 @@ beforeEach(() => {
   generateView._templates = []
   generateView._templatesLoaded = false
   generateView._templateLoadError = null
+  generateView._activationProfiles = []
+  generateView._activationProfilesLoaded = false
+  generateView._activationProfileId = null
   generateView._messages = []
   generateView._selectedChapters = []
   generateView._povChapters = []
@@ -112,6 +115,7 @@ beforeEach(() => {
     warnings: [],
   })
   api.context.render.mockResolvedValue({ markdown: "# 上下文\n\n测试内容" })
+  api.context.listActivationProfiles = vi.fn().mockResolvedValue({ items: [] })
   api.writing.listChapters.mockResolvedValue({ chapters: [] })
   api.outline.listScenesByChapter.mockResolvedValue([])
   api.world.listCharacters.mockResolvedValue({ items: [], total: 0 })
@@ -129,6 +133,22 @@ function mountAiReferenceModalShell() {
 }
 
 describe("generateView bounded local state", () => {
+  it("生成中心只把显式选择的已发布 Activation Profile 放入请求", async () => {
+    api.context.listActivationProfiles.mockResolvedValue({
+      items: [
+        { id: "published-1", name: "写作规则", version_number: 3, status: "published" },
+        { id: "draft-1", name: "工作稿", version_number: 4, status: "draft" },
+      ],
+    })
+    await generateView._loadActivationProfiles()
+    generateView._activationProfileId = "published-1"
+
+    expect(generateView._activationProfiles.map((item) => item.id)).toEqual(["published-1"])
+    expect(generateView._buildPayload()).toEqual(expect.objectContaining({
+      activation_profile_id: "published-1",
+    }))
+  })
+
   it("measures the 512 KiB limit in UTF-8 bytes instead of JavaScript characters", () => {
     const storageKey = generateView._storageKey()
     const previous = JSON.stringify({ savedAt: 1, messages: [{ role: "user", content: "旧快照" }] })

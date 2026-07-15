@@ -572,6 +572,8 @@ class ObjectDraftGenerationService:
             task="生成中心世界对象共创",
             include_world_synopsis=data.include_world_synopsis,
             selected_world_bible_draft_ids=data.selected_world_bible_draft_ids,
+            activation_profile_id=data.activation_profile_id,
+            activation_profile_version=data.activation_profile_version,
             operation=(
                 "world.object_draft.chat"
                 if isinstance(data, ObjectDraftChatRequest)

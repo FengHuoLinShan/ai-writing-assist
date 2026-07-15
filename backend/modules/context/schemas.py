@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from shared.target_ref import normalize_target_ref
 
 
 class ContextSelectionRequest(BaseModel):
@@ -114,6 +116,15 @@ class ContextSelectionRequest(BaseModel):
         default_factory=list,
         max_length=20,
         description="本次显式加入的 World Bible 工作稿 ID",
+    )
+    activation_profile_id: str | None = Field(
+        default=None,
+        description="本次显式启用的已发布 AI 参考规则 Profile",
+    )
+    activation_profile_version: int | None = Field(
+        default=None,
+        ge=1,
+        description="回放时固定的已发布 Profile revision",
     )
     excluded_asset_ids: dict[str, list[str]] = Field(
         default_factory=dict,
@@ -278,6 +289,7 @@ class ContextTierCompileResponse(BaseModel):
     truncated: list[str] = Field(default_factory=list, description="被截断的段 key 列表")
     budget_events: list[ContextBudgetEventItem] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    activation_trace: dict[str, Any] = Field(default_factory=dict)
 
 
 class ContextConfirmRequest(ContextSelectionRequest):
@@ -290,12 +302,271 @@ class ContextActivationPreviewRequest(BaseModel):
     """Worldbuilding activation preview request."""
 
     novel_id: str
+    action: str | None = Field(default=None, min_length=1, max_length=128)
+    profile_id: str | None = None
+    profile_version: int | None = Field(default=None, ge=1)
+    reveal_mode: Literal[
+        "author_safe",
+        "author_full",
+        "reader",
+        "character",
+    ] = "author_safe"
+    task_text: str = Field(default="", max_length=20000)
+    current_scene_text: str = Field(default="", max_length=50000)
+    previous_scene_briefs: list[str] = Field(default_factory=list, max_length=2)
+    explicit_focus: str = Field(default="", max_length=10000)
     entity_ids: list[str] = Field(default_factory=list)
     map_id: str | None = None
     scene_id: str | None = None
     focus_entity_id: str | None = None
     top_k: int = Field(default=64, ge=1, le=256)
     depth: int = Field(default=2, ge=0, le=2)
+
+
+class ActivationRuleScope(BaseModel):
+    actions: list[str] = Field(default_factory=list, min_length=1, max_length=20)
+    modes: list[
+        Literal["author_safe", "author_full", "reader", "character"]
+    ] = Field(default_factory=lambda: ["author_safe"], min_length=1, max_length=4)
+    match_sources: list[
+        Literal[
+            "task_text",
+            "current_scene_text",
+            "previous_scene_briefs",
+            "explicit_focus",
+        ]
+    ] = Field(
+        default_factory=lambda: ["task_text"],
+        min_length=1,
+        max_length=4,
+    )
+
+    @field_validator("actions")
+    @classmethod
+    def validate_actions(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip() for value in values if value.strip()]
+        if len(normalized) != len(values):
+            raise ValueError("activation actions must not be blank")
+        return list(dict.fromkeys(normalized))
+
+
+class ActivationRuleMatch(BaseModel):
+    positive_terms: list[str] = Field(default_factory=list, max_length=32)
+    negative_terms: list[str] = Field(default_factory=list, max_length=32)
+    positive_logic: Literal["any", "all"] = "any"
+    negative_logic: Literal["any", "all"] = "any"
+    mode: Literal["normalized_substring", "token_boundary"] = (
+        "normalized_substring"
+    )
+
+    @field_validator("positive_terms", "negative_terms")
+    @classmethod
+    def validate_terms(cls, values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for value in values:
+            term = value.strip()
+            if not term:
+                raise ValueError("activation terms must not be blank")
+            if len(term) > 80:
+                raise ValueError("activation terms must be at most 80 characters")
+            if term not in normalized:
+                normalized.append(term)
+        return normalized
+
+    @model_validator(mode="after")
+    def require_positive_term(self) -> ActivationRuleMatch:
+        if not self.positive_terms:
+            raise ValueError("activation rule requires at least one positive term")
+        return self
+
+
+class ActivationRuleSelect(BaseModel):
+    target_refs: list[dict[str, str]] = Field(
+        default_factory=list,
+        min_length=1,
+        max_length=64,
+    )
+    expand_page_links: bool = False
+    relation_types: list[str] = Field(default_factory=list, max_length=32)
+    max_depth: int = Field(default=0, ge=0, le=2)
+
+    @field_validator("target_refs")
+    @classmethod
+    def validate_target_refs(
+        cls,
+        values: list[dict[str, str]],
+    ) -> list[dict[str, str]]:
+        normalized: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for value in values:
+            target = normalize_target_ref(value)
+            if target.target_type not in {"core_entity", "world_bible_page"}:
+                raise ValueError("activation target type is not supported")
+            target_hash = target.target_hash()
+            if target_hash not in seen:
+                normalized.append(target.canonical_dict())
+                seen.add(target_hash)
+        return normalized
+
+    @field_validator("relation_types")
+    @classmethod
+    def validate_relation_types(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip() for value in values if value.strip()]
+        if len(normalized) != len(values):
+            raise ValueError("relation types must not be blank")
+        return list(dict.fromkeys(normalized))
+
+
+class ActivationRuleRank(BaseModel):
+    priority: int = Field(default=500, ge=0, le=1000)
+    top_k: int = Field(default=12, ge=1, le=256)
+    token_cap: int = Field(default=1200, ge=64, le=32000)
+
+
+class ActivationRule(BaseModel):
+    rule_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$",
+    )
+    name: str = Field(..., min_length=1, max_length=120)
+    enabled: bool = True
+    scope: ActivationRuleScope
+    match: ActivationRuleMatch
+    select: ActivationRuleSelect
+    rank: ActivationRuleRank = Field(default_factory=ActivationRuleRank)
+
+
+def _validate_activation_rules(rules: list[ActivationRule]) -> list[ActivationRule]:
+    rule_ids = [rule.rule_id for rule in rules]
+    if len(rule_ids) != len(set(rule_ids)):
+        raise ValueError("activation rule_id must be unique within a profile")
+    return sorted(rules, key=lambda rule: rule.rule_id)
+
+
+class ContextActivationProfileCreate(BaseModel):
+    novel_id: str
+    profile_key: str = Field(
+        ...,
+        min_length=2,
+        max_length=128,
+        pattern=r"^[a-z][a-z0-9_.-]*$",
+    )
+    name: str = Field(..., min_length=1, max_length=80)
+    description: str | None = Field(default=None, max_length=1000)
+    applicable_actions_json: list[str] = Field(
+        default_factory=list,
+        min_length=1,
+        max_length=20,
+    )
+    rules_json: list[ActivationRule] = Field(default_factory=list, max_length=128)
+    budget_hints_json: dict[str, int] = Field(default_factory=dict)
+    created_by: str | None = Field(default=None, max_length=64)
+
+    @field_validator("rules_json")
+    @classmethod
+    def validate_rules(cls, rules: list[ActivationRule]) -> list[ActivationRule]:
+        return _validate_activation_rules(rules)
+
+    @model_validator(mode="after")
+    def validate_actions(self) -> ContextActivationProfileCreate:
+        actions = [action.strip() for action in self.applicable_actions_json]
+        if not all(actions):
+            raise ValueError("profile actions must not be blank")
+        self.applicable_actions_json = list(dict.fromkeys(actions))
+        rule_actions = {
+            action
+            for rule in self.rules_json
+            for action in rule.scope.actions
+        }
+        if not rule_actions.issubset(set(self.applicable_actions_json)):
+            raise ValueError("rule actions must be declared by the profile")
+        return self
+
+
+class ContextActivationProfileUpdate(BaseModel):
+    base_version_number: int = Field(..., ge=1)
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    description: str | None = Field(default=None, max_length=1000)
+    applicable_actions_json: list[str] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=20,
+    )
+    rules_json: list[ActivationRule] | None = Field(default=None, max_length=128)
+    budget_hints_json: dict[str, int] | None = None
+    status: Literal["draft", "archived"] | None = None
+    updated_by: str | None = Field(default=None, max_length=64)
+
+    @field_validator("rules_json")
+    @classmethod
+    def validate_rules(
+        cls,
+        rules: list[ActivationRule] | None,
+    ) -> list[ActivationRule] | None:
+        return None if rules is None else _validate_activation_rules(rules)
+
+    @model_validator(mode="after")
+    def reject_null_values(self) -> ContextActivationProfileUpdate:
+        for field_name in {
+            "name",
+            "applicable_actions_json",
+            "rules_json",
+            "budget_hints_json",
+            "status",
+        }:
+            if field_name in self.model_fields_set and getattr(self, field_name) is None:
+                raise ValueError(f"{field_name} cannot be null")
+        return self
+
+
+class ContextActivationProfilePublishRequest(BaseModel):
+    base_version_number: int = Field(..., ge=1)
+    revision_reason: str = Field(default="publish", min_length=1, max_length=64)
+    published_by: str | None = Field(default=None, max_length=64)
+
+
+class ContextActivationProfileResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: str
+    novel_id: str
+    profile_key: str
+    name: str
+    description: str | None = None
+    applicable_actions_json: list[str] = Field(default_factory=list)
+    rules_json: list[ActivationRule] = Field(default_factory=list)
+    budget_hints_json: dict[str, int] = Field(default_factory=dict)
+    version_number: int
+    status: str
+    created_by: str | None = None
+    updated_by: str | None = None
+    created_at: Any | None = None
+    updated_at: Any | None = None
+
+
+class ContextActivationProfileListResponse(BaseModel):
+    items: list[ContextActivationProfileResponse]
+    total: int
+
+
+class ContextActivationProfileRevisionResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: str
+    novel_id: str
+    profile_id: str
+    version_number: int
+    snapshot_json: dict[str, Any] = Field(default_factory=dict)
+    rule_hash: str
+    revision_reason: str
+    created_by: str | None = None
+    created_at: Any | None = None
+
+
+class ContextActivationProfileRestoreRequest(BaseModel):
+    restored_by: str | None = Field(default=None, max_length=64)
 
 
 class ContextActivationPreviewResponse(BaseModel):
@@ -305,6 +576,10 @@ class ContextActivationPreviewResponse(BaseModel):
     depth: int
     top_k: int
     items: list[dict] = Field(default_factory=list)
+    excluded_items: list[dict] = Field(default_factory=list)
+    profile: dict | None = None
+    rule_evaluations: list[dict] = Field(default_factory=list)
+    budget_events: list[dict] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
 

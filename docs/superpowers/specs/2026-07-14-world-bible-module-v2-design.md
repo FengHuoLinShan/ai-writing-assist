@@ -2,13 +2,22 @@
 
 ## 状态
 
-- 状态：Proposed，供实现评审，不代表当前运行时契约。
+- 状态：Implemented（核心 V2，2026-07-15）；当前运行时契约以模块 README、ORM、
+  migration、facade/contracts 和测试为准。Phase 5 的 imports opt-in 与固定质量评测、
+  高级规则表单和 section diff/折叠属于后续增强，不阻塞核心工作流。
 - 日期：2026-07-14。
 - 参考：[`Novalist 与 SillyTavern 世界书设计深度对比`](../../references/2026-07-14-novalist-sillytavern-worldbook-design-analysis.md)。
 - 当前事实来源：`backend/modules/world/README.md`、`backend/modules/context/README.md`、
   ORM、migration、facade/contracts 与测试。
-- 前置决策：实现新增表和跨模块稳定 contract 前，需要用户确认，并以 ADR 固化“资料归
-  world、激活规则归 context”的长期边界。
+- 架构决策：[`ADR-0006`](../../adr/0006-world-bible-context-activation-ownership.md)
+  已固化“资料归 world、激活规则归 context”的长期边界。
+
+实现采用以下收敛：页面模板历史恢复直接把旧快照写成当前模板的新版本，不另建模板工作稿
+表；V2 激活候选只覆盖固定 World Bible 页面/CoreEntity 及其有界页面链接、关系展开，RAG
+检索 trace 继续由既有 retrieval trace 管理；编译通过现有 `CompileOptions + compile_with_tiers`
+稳定入口显式选择 Profile，不增加 pass-through `compile_with_activation_profile`；跨项目目标统一
+报告 `target_missing`，避免用 `target_cross_novel` 泄露目标存在性。移动端使用单栏重排而非新增
+抽屉组件，保持现有 Vanilla JS 交互体系。
 
 ## 1. 结论
 

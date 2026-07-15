@@ -16,9 +16,39 @@ beforeEach(() => {
   clearDocument()
   mountModalDom()
   vi.clearAllMocks()
+  api.context.listActivationProfiles = vi.fn().mockResolvedValue({ items: [] })
 })
 
 describe("aiReferenceModal", () => {
+  it("写作确认只在作者显式选择后提交已发布 Profile", async () => {
+    api.context.listActivationProfiles.mockResolvedValue({
+      items: [
+        { id: "profile-1", name: "场景规则", version_number: 2, status: "published" },
+        { id: "draft-1", name: "未发布", version_number: 3, status: "draft" },
+      ],
+    })
+    api.context.confirm.mockResolvedValue({ id: "confirmation-1", selected_asset_ids: {}, warnings: [] })
+    confirmAiReference({
+      novel_id: "p1",
+      action: "writing.generate",
+      task: "生成当前 Scene",
+      scope: "chapter",
+      chapter_index: 2,
+    }).catch(() => {})
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const select = document.getElementById("ai-ref-activation-profile")
+    expect(Array.from(select.options).map((item) => item.value)).toEqual(["", "profile-1"])
+    select.value = "profile-1"
+    document.querySelector("#modal-footer button")?.click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(api.context.confirm).toHaveBeenCalledWith(expect.objectContaining({
+      activation_profile_id: "profile-1",
+    }))
+  })
+
   it("渲染默认选择且不提供 Markdown textarea", () => {
     confirmAiReference({
       novel_id: "p1",

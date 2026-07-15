@@ -15,6 +15,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.engine import Dialect
@@ -297,3 +298,77 @@ class ContextRetrievalTrace(Base, TimestampMixin):
     degraded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     warning_codes: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     latency_metadata: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
+
+class ContextActivationProfile(Base, TimestampMixin):
+    """Versioned deterministic activation policy aggregate."""
+
+    __tablename__ = "context_activation_profiles"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "profile_key",
+            name="uq_context_activation_profile_key",
+        ),
+        Index(
+            "ix_context_activation_profiles_novel_status",
+            "novel_id",
+            "status",
+        ),
+        {"comment": "上下文激活规则当前版本"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    profile_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    applicable_actions_json: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
+    rules_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    budget_hints_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class ContextActivationProfileRevision(Base, TimestampMixin):
+    """Immutable snapshot of one published activation policy version."""
+
+    __tablename__ = "context_activation_profile_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "profile_id",
+            "version_number",
+            name="uq_context_activation_profile_revision",
+        ),
+        {"comment": "上下文激活规则不可变版本"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(),
+        ForeignKey("context_activation_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    snapshot_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    rule_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    revision_reason: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)

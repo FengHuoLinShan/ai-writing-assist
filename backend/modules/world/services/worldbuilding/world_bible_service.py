@@ -77,6 +77,16 @@ class WorldBibleService:
             data.novel_id,
             data.linked_asset_refs_json,
         )
+        self._lifecycle.validate_section_refs(
+            data.sections_json,
+            data.linked_asset_refs_json,
+        )
+        if data.template_key:
+            await self._lifecycle.ensure_page_template_key(
+                db,
+                data.novel_id,
+                data.template_key,
+            )
         page_key = data.page_key or self._default_page_key(data.page_type, data.title)
         page = WorldBiblePage(
             novel_id=nid,
@@ -86,6 +96,7 @@ class WorldBibleService:
             status=data.status,
             page_meta_json=data.page_meta_json,
             free_text=data.free_text,
+            sections_json=self._lifecycle.serialize_sections(data.sections_json),
             linked_asset_refs_json=data.linked_asset_refs_json,
             activation_defaults_json=data.activation_defaults_json,
             template_key=data.template_key,
@@ -126,13 +137,22 @@ class WorldBibleService:
         )
         if active_draft is not None:
             raise ConflictError("World Bible page has an active working draft")
-        payload = data.model_dump(exclude_unset=True)
+        payload = data.model_dump(mode="json", exclude_unset=True)
+        if payload.get("template_key"):
+            await self._lifecycle.ensure_page_template_key(
+                db,
+                novel_id,
+                payload["template_key"],
+            )
         if payload.get("linked_asset_refs_json") is not None:
             await self._lifecycle.validate_asset_refs(
                 db,
                 novel_id,
                 payload["linked_asset_refs_json"],
             )
+        next_sections = payload.get("sections_json", page.sections_json)
+        next_refs = payload.get("linked_asset_refs_json", page.linked_asset_refs_json)
+        self._lifecycle.validate_section_refs(next_sections or [], next_refs or [])
         free_text_changed = (
             "free_text" in payload and payload["free_text"] != page.free_text
         )
@@ -141,6 +161,7 @@ class WorldBibleService:
             "status",
             "page_meta_json",
             "free_text",
+            "sections_json",
             "linked_asset_refs_json",
             "activation_defaults_json",
             "template_key",
@@ -153,7 +174,15 @@ class WorldBibleService:
         before_status = page.status
         for key, value in payload.items():
             setattr(page, key, value)
-        if free_text_changed:
+        projection_input_changed = free_text_changed or any(
+            key in payload
+            for key in {
+                "sections_json",
+                "linked_asset_refs_json",
+                "template_key",
+            }
+        )
+        if projection_input_changed:
             await self._mark_page_projections_stale(db, page)
         adopted_change = meaningful_change and (
             page.status in self._ADOPTED_STATUSES
@@ -163,6 +192,11 @@ class WorldBibleService:
             page.version_number += 1
             await self._add_revision(db, page, revision_reason="legacy_update")
             await self._mark_synopsis_stale(db, str(page.novel_id))
+            await self._lifecycle.mark_page_context_changed(
+                db,
+                page,
+                reason="world_bible_page_updated",
+            )
         await db.flush()
         return WorldBiblePageResponse.model_validate(page)
 
@@ -195,6 +229,11 @@ class WorldBibleService:
         await self._add_revision(db, page, revision_reason=revision_reason)
         if page.status in self._ADOPTED_STATUSES:
             await self._mark_synopsis_stale(db, str(page.novel_id))
+            await self._lifecycle.mark_page_context_changed(
+                db,
+                page,
+                reason="world_bible_page_updated",
+            )
         await db.flush()
         return WorldBiblePageResponse.model_validate(page)
 
@@ -246,13 +285,9 @@ class WorldBibleService:
             content = self._build_projection_content(page, projection_type)
             projection.content = content
             projection.source_page_version = page.version_number
-            projection.source_hash = hashlib.sha256(
-                (page.free_text or "").encode("utf-8")
-            ).hexdigest()
+            projection.source_hash = self._projection_source_hash(page)
             projection.token_estimate = estimate_token_count(content)
-            projection.source_spans_json = [
-                {"start": 0, "end": len(page.free_text or "")}
-            ]
+            projection.source_spans_json = self._projection_source_spans(page)
             projection.omitted_reasons_json = []
             projection.status = "ready"
             projection.stale = False
@@ -334,6 +369,7 @@ class WorldBibleService:
                 "status": page.status,
                 "page_meta_json": page.page_meta_json,
                 "free_text": page.free_text,
+                "sections_json": page.sections_json,
                 "linked_asset_refs_json": page.linked_asset_refs_json,
                 "activation_defaults_json": page.activation_defaults_json,
                 "template_key": page.template_key,
@@ -386,7 +422,16 @@ class WorldBibleService:
         page: WorldBiblePage,
         projection_type: str,
     ) -> str:
-        text = (page.free_text or "").strip()
+        content_parts = [(page.free_text or "").strip()]
+        content_parts.extend(
+            str(section.get("body_markdown") or "").strip()
+            for section in sorted(
+                page.sections_json or [],
+                key=lambda item: (item.get("sort_order", 0), item.get("section_id", "")),
+            )
+            if section.get("projection_policy", "eligible") == "eligible"
+        )
+        text = "\n\n".join(part for part in content_parts if part)
         if not text:
             return ""
         if projection_type == "excerpt":
@@ -398,6 +443,51 @@ class WorldBibleService:
             lines = (line.strip() for line in text.splitlines())
             return "\n".join(line for line in lines if line)[:3000]
         return text[:2400]
+
+    @staticmethod
+    def _projection_source_hash(page: WorldBiblePage) -> str:
+        import json
+
+        payload = {
+            "free_text": page.free_text or "",
+            "linked_asset_refs_json": page.linked_asset_refs_json or [],
+            "sections_json": page.sections_json or [],
+            "template_key": page.template_key,
+            "template_version": page.template_version,
+            "version_number": page.version_number,
+        }
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _projection_source_spans(page: WorldBiblePage) -> list[dict[str, Any]]:
+        spans: list[dict[str, Any]] = []
+        if page.free_text:
+            spans.append(
+                {
+                    "page_id": str(page.id),
+                    "section_id": "overview",
+                    "start": 0,
+                    "end": len(page.free_text),
+                }
+            )
+        for section in page.sections_json or []:
+            body = str(section.get("body_markdown") or "")
+            if body and section.get("projection_policy", "eligible") == "eligible":
+                spans.append(
+                    {
+                        "page_id": str(page.id),
+                        "section_id": section.get("section_id"),
+                        "start": 0,
+                        "end": len(body),
+                    }
+                )
+        return spans
 
     def _default_page_key(self, page_type: str, title: str) -> str:
         slug = normalize_profession_slug(title) or "page"

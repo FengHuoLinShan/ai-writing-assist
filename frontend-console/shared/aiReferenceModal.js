@@ -16,6 +16,7 @@ export function confirmAiReference(options) {
     const excludedSectionKeys = new Set(options.excluded_asset_ids?.context_sections || [])
     titleEl.textContent = "AI 参考资料"
     bodyEl.innerHTML = renderBody(options)
+    loadActivationProfiles(options)
     footerEl.innerHTML = ""
     document.getElementById("ai-ref-scope")?.addEventListener("change", (event) => {
       event.currentTarget.dataset.userChanged = "1"
@@ -115,6 +116,11 @@ function renderBody(options) {
         <label>排除资产 ID
           <input id="ai-ref-excluded" class="form-input" placeholder="逗号分隔，可留空" />
         </label>
+        <label>已发布 AI 参考规则（显式启用）
+          <select id="ai-ref-activation-profile" class="form-select">
+            <option value="">不启用</option>
+          </select>
+        </label>
       </div>
       <div class="ai-ref-section">
         <label>本次 AI 额外注意事项
@@ -161,6 +167,9 @@ function buildPayload(options, excludedSectionKeys = new Set()) {
   if (options.character_ids) payload.character_ids = options.character_ids
   if (options.viewpoint_character_id) payload.viewpoint_character_id = options.viewpoint_character_id
   if (options.location_ids) payload.location_ids = options.location_ids
+  const activationProfileId = document.getElementById("ai-ref-activation-profile")?.value
+    || options.activation_profile_id
+  if (activationProfileId) payload.activation_profile_id = activationProfileId
   const excludedContextSections = Array.from(excludedSectionKeys)
   const optionExcluded = options.excluded_asset_ids || {}
   const hasOptionExcluded = Object.keys(optionExcluded).length > 0
@@ -170,6 +179,24 @@ function buildPayload(options, excludedSectionKeys = new Set()) {
     if (excludedContextSections.length) payload.excluded_asset_ids.context_sections = excludedContextSections
   }
   return payload
+}
+
+async function loadActivationProfiles(options) {
+  const select = document.getElementById("ai-ref-activation-profile")
+  if (!select || !api.context.listActivationProfiles || !options.novel_id) return
+  try {
+    const result = await api.context.listActivationProfiles(options.novel_id)
+    const profiles = (result?.items || []).filter((item) => item.status === "published")
+    for (const profile of profiles) {
+      const node = document.createElement("option")
+      node.value = profile.id
+      node.textContent = `${profile.name} · v${profile.version_number}`
+      node.selected = profile.id === options.activation_profile_id
+      select.append(node)
+    }
+  } catch {
+    select.title = "AI 参考规则加载失败；本次仍可不启用规则继续。"
+  }
 }
 
 function renderSummary(confirmation, onExcludeSection) {

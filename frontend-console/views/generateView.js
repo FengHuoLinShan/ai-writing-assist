@@ -96,6 +96,9 @@ const generateView = {
   _selectedTemplateId: "builtin:none",
   _templates: [],
   _templatesLoaded: false,
+  _activationProfiles: [],
+  _activationProfilesLoaded: false,
+  _activationProfileId: null,
   _templateLoadError: null,
   _messages: [],
   _selectedChapters: [],
@@ -162,6 +165,9 @@ const generateView = {
     }
     if (!this._templatesLoaded) {
       await this._loadTemplates()
+    }
+    if (!this._activationProfilesLoaded) {
+      await this._loadActivationProfiles()
     }
     if (this._generateSubTab === "pov_prose") {
       await this._loadPovBaseOptions()
@@ -282,6 +288,15 @@ const generateView = {
               <label class="generate-quality-toggle">
                 <input id="generate-include-world-synopsis" type="checkbox" ${this._includeWorldSynopsis ? "checked" : ""} />
                 <span>使用世界观简介</span>
+              </label>
+              <label class="generate-quality-toggle generate-quality-toggle--stacked">
+                <span>已发布 AI 参考规则（显式启用）</span>
+                <select id="generate-activation-profile" class="form-select">
+                  <option value="">不启用</option>
+                  ${this._activationProfiles.map((item) => `
+                    <option value="${esc(item.id)}" ${this._activationProfileId === item.id ? "selected" : ""}>${esc(item.name)} · v${esc(item.version_number)}</option>
+                  `).join("")}
+                </select>
               </label>
               <div id="generate-chat-context-usage">
                 ${this._renderChatContextUsageAction()}
@@ -497,6 +512,10 @@ const generateView = {
       this._syncInputs()
       this._persistState()
     })
+    document.getElementById("generate-activation-profile")?.addEventListener("change", (event) => {
+      this._activationProfileId = event.target.value || null
+      this._persistState()
+    })
     document.getElementById("generate-pov-chapter")?.addEventListener("change", (event) => {
       this._changePovChapter(event.target.value)
     })
@@ -576,6 +595,25 @@ const generateView = {
     if (!this._findTemplate(this._selectedTemplateId)) {
       this._selectedTemplateId = "builtin:none"
     }
+  },
+
+  async _loadActivationProfiles() {
+    if (!state.currentProjectId) {
+      this._activationProfiles = []
+      this._activationProfilesLoaded = true
+      return
+    }
+    try {
+      const data = await api.context.listActivationProfiles(state.currentProjectId)
+      this._activationProfiles = (data?.items || []).filter((item) => item.status === "published")
+      if (this._activationProfileId && !this._activationProfiles.some((item) => item.id === this._activationProfileId)) {
+        this._activationProfileId = null
+      }
+    } catch (err) {
+      this._activationProfiles = []
+      toast(`AI 参考规则加载失败：${err.message || "未知错误"}`, "warning")
+    }
+    this._activationProfilesLoaded = true
   },
 
   _allTemplates() {
@@ -1120,6 +1158,7 @@ const generateView = {
       quality_mode: this._qualityMode,
       include_world_synopsis: this._includeWorldSynopsis,
       selected_world_bible_draft_ids: [],
+      activation_profile_id: this._activationProfileId,
     }
   },
 
@@ -1234,6 +1273,9 @@ const generateView = {
     this._templates = []
     this._templatesLoaded = false
     this._templateLoadError = null
+    this._activationProfiles = []
+    this._activationProfilesLoaded = false
+    this._activationProfileId = null
     this._messages = []
     this._selectedChapters = []
     this._povChapters = []
@@ -1284,6 +1326,7 @@ const generateView = {
       lastPovSubmission: this._lastPovSubmission,
       qualityMode: this._qualityMode,
       includeWorldSynopsis: this._includeWorldSynopsis,
+      activationProfileId: this._activationProfileId,
       lastEntity: this._lastEntity,
       lastContextUsage: this._lastContextUsage,
       lastChatContextUsage: this._lastChatContextUsage,
@@ -1488,6 +1531,7 @@ const generateView = {
       this._lastPovSubmission = parsed.lastPovSubmission || null
       this._qualityMode = parsed.qualityMode || "fast"
       this._includeWorldSynopsis = parsed.includeWorldSynopsis !== false
+      this._activationProfileId = parsed.activationProfileId || null
       this._lastEntity = parsed.lastEntity || null
       this._lastContextUsage = parsed.lastContextUsage || null
       this._lastChatContextUsage = parsed.lastChatContextUsage || null

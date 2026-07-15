@@ -629,6 +629,42 @@ const api = {
       return request("/world/bible/templates")
     },
 
+    async listBiblePageTemplates(novelId, includeArchived = false) {
+      return request(withQuery("/world/bible/page-templates", {
+        novel_id: novelId,
+        include_archived: includeArchived,
+      }))
+    },
+
+    async createBiblePageTemplate(payload) {
+      return post("/world/bible/page-templates", payload)
+    },
+
+    async updateBiblePageTemplate(templateId, payload, novelId) {
+      return patch(withQuery(`/world/bible/page-templates/${templateId}`, {
+        novel_id: novelId,
+      }), payload)
+    },
+
+    async listBiblePageTemplateRevisions(templateId, novelId) {
+      return request(withQuery(`/world/bible/page-templates/${templateId}/revisions`, {
+        novel_id: novelId,
+      }))
+    },
+
+    async restoreBiblePageTemplateRevision(templateId, version, novelId) {
+      return post(withQuery(
+        `/world/bible/page-templates/${templateId}/revisions/${version}/restore-draft`,
+        { novel_id: novelId },
+      ))
+    },
+
+    async applyBiblePageTemplate(draftId, payload, novelId) {
+      return post(withQuery(`/world/bible/drafts/${draftId}/apply-template`, {
+        novel_id: novelId,
+      }), payload)
+    },
+
     async refreshBibleProjection(pageId, novelId, projectionType = "context_brief", force = false) {
       return post(withQuery(`/world/bible/pages/${pageId}/refresh-projection`, {
         novel_id: novelId,
@@ -1102,6 +1138,46 @@ const api = {
 
     async activationPreview(params = {}) {
       return contractFetch("context.activationPreview", {}, params)
+    },
+
+    async previewActivationProfile(payload) {
+      return post("/context/activation-preview", payload)
+    },
+
+    async listActivationProfiles(novelId, includeArchived = false) {
+      return request(withQuery("/context/activation-profiles", {
+        novel_id: novelId,
+        include_archived: includeArchived,
+      }))
+    },
+
+    async createActivationProfile(payload) {
+      return post("/context/activation-profiles", payload)
+    },
+
+    async updateActivationProfile(profileId, payload, novelId) {
+      return patch(withQuery(`/context/activation-profiles/${profileId}`, {
+        novel_id: novelId,
+      }), payload)
+    },
+
+    async publishActivationProfile(profileId, payload, novelId) {
+      return post(withQuery(`/context/activation-profiles/${profileId}/publish`, {
+        novel_id: novelId,
+      }), payload)
+    },
+
+    async listActivationProfileRevisions(profileId, novelId) {
+      return request(withQuery(`/context/activation-profiles/${profileId}/revisions`, {
+        novel_id: novelId,
+      }))
+    },
+
+    async restoreActivationProfileRevision(profileId, version, payload, novelId) {
+      return post(withQuery(
+        `/context/activation-profiles/${profileId}/revisions/${version}/restore-draft`,
+        { novel_id: novelId },
+      ), payload)
     },
 
     async evidenceHealth(novelId, contentMode = "canonical", windowHours = 24) {

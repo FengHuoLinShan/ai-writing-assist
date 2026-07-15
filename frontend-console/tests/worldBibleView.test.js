@@ -30,6 +30,10 @@ beforeEach(() => {
   worldBibleView._activePage = null
   worldBibleView._activeDraft = null
   worldBibleView._synopsis = null
+  worldBibleView._pageTemplates = []
+  worldBibleView._activationProfiles = []
+  worldBibleView._activeActivationProfileId = null
+  worldBibleView._activationTrace = null
   worldBibleView._synopsisTask = null
   if (worldBibleView._synopsisPoller?.stop) worldBibleView._synopsisPoller.stop()
   worldBibleView._synopsisPoller = null
@@ -61,9 +65,131 @@ beforeEach(() => {
     warnings: [],
     auto_refresh_enabled: false,
   })
+  api.world.listBiblePageTemplates = vi.fn().mockResolvedValue({ items: [] })
+  api.world.applyBiblePageTemplate = vi.fn()
+  api.context.listActivationProfiles = vi.fn().mockResolvedValue({ items: [] })
+  api.context.previewActivationProfile = vi.fn()
+  api.context.publishActivationProfile = vi.fn()
+  api.context.createActivationProfile = vi.fn()
+  api.context.updateActivationProfile = vi.fn()
 })
 
 describe("worldBibleView", () => {
+  it("结构化分区可编辑并随工作稿保存", async () => {
+    api.world.listBiblePages.mockResolvedValue({
+      items: [{
+        ...page,
+        status: "canonical",
+        sections_json: [{
+          section_id: "currency",
+          section_type: "markdown",
+          title: "货币",
+          body_markdown: "旧正文",
+          sort_order: 10,
+          linked_asset_ref_hashes: [],
+          projection_policy: "eligible",
+          sensitivity_hint: "author_safe",
+        }],
+      }],
+      total: 1,
+    })
+    api.world.listBibleDrafts.mockResolvedValue({
+      items: [{
+        id: "draft-1",
+        page_id: "page-1",
+        title: "世界基本背景",
+        page_type: "background",
+        sections_json: [{
+          section_id: "currency",
+          section_type: "markdown",
+          title: "货币",
+          body_markdown: "旧正文",
+          sort_order: 10,
+          linked_asset_ref_hashes: [],
+          projection_policy: "eligible",
+          sensitivity_hint: "author_safe",
+        }],
+      }],
+      total: 1,
+    })
+    api.world.updateBibleDraft.mockImplementation(async (_id, payload) => ({ id: "draft-1", page_id: "page-1", ...payload }))
+
+    document.body.innerHTML = await worldBibleView.render()
+    document.querySelector('[data-section-field="title"]').value = "货币与交换"
+    document.querySelector('[data-section-field="body_markdown"]').value = "新正文"
+    await worldBibleView._savePage()
+
+    expect(api.world.updateBibleDraft).toHaveBeenCalledWith(
+      "draft-1",
+      expect.objectContaining({
+        sections_json: [expect.objectContaining({
+          section_id: "currency",
+          title: "货币与交换",
+          body_markdown: "新正文",
+        })],
+      }),
+      "p1",
+    )
+  })
+
+  it("新增分区重绘前保留尚未保存的页面概览", async () => {
+    api.world.listBiblePages.mockResolvedValue({ items: [], total: 0 })
+    api.world.listBibleDrafts.mockResolvedValue({
+      items: [{
+        id: "draft-1",
+        page_id: null,
+        title: "世界基本背景",
+        page_type: "background",
+        free_text: "旧概览",
+        sections_json: [],
+      }],
+      total: 1,
+    })
+
+    document.body.innerHTML = await worldBibleView.render()
+    document.getElementById("bible-free-text").value = "尚未保存的新概览"
+    worldBibleView._addSection()
+
+    expect(worldBibleView._activeDraft.free_text).toBe("尚未保存的新概览")
+    expect(worldBibleView._activeDraft.sections_json).toHaveLength(1)
+  })
+
+  it("AI 参考规则 dry-run 对动态 trace 做转义并显示排除原因", async () => {
+    api.world.listBiblePages.mockResolvedValue({ items: [page], total: 1 })
+    api.context.listActivationProfiles.mockResolvedValue({
+      items: [{
+        id: "profile-1",
+        profile_key: "writing.world",
+        name: "写作规则",
+        status: "draft",
+        version_number: 1,
+        applicable_actions_json: ["writing.generate"],
+        rules_json: [],
+      }],
+    })
+    api.context.previewActivationProfile.mockResolvedValue({
+      profile: { id: "profile-1", version: 1, status: "draft" },
+      rule_evaluations: [{ rule_id: "<script>bad</script>", matched: false, candidate_count: 0, blocked_clauses: ["negative_matched"] }],
+      items: [],
+      excluded_items: [{ label: "<img src=x onerror=bad>", excluded_reason: "negative_matched", token_before: 0 }],
+      warnings: [],
+    })
+
+    document.body.innerHTML = await worldBibleView.render()
+    document.getElementById("bible-activation-task").value = "北境梦境"
+    await worldBibleView._dryRunActivationProfile()
+    const html = worldBibleView._renderActivationTrace()
+
+    expect(api.context.previewActivationProfile).toHaveBeenCalledWith(expect.objectContaining({
+      profile_id: "profile-1",
+      action: "writing.generate",
+      task_text: "北境梦境",
+    }))
+    expect(html).toContain("negative_matched")
+    expect(html).not.toContain("<script>bad</script>")
+    expect(html).not.toContain("<img src=x onerror=bad>")
+  })
+
   it("新建页面使用应用内弹窗，不依赖浏览器 prompt", async () => {
     api.world.listBiblePages.mockResolvedValue({ items: [], total: 0 })
     api.world.createBibleDraft.mockResolvedValue({

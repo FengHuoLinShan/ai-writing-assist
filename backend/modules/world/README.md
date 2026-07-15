@@ -79,8 +79,8 @@ Prompt 校验外，`/api/world` 与
 World Bible 页面是作者组织和解释世界事实的手册层；`CoreEntity`、Profile、关系、
 事件和已确认地图事实仍是结构化正史来源。新版编辑流程不直接覆盖正式页：
 
-1. 作者创建或打开 `world_bible_page_drafts` 工作稿；标题、类别、正文、关联资产引用和
-   排序均可编辑，结构化资产只提供引用与跳转编辑。
+1. 作者创建或打开 `world_bible_page_drafts` 工作稿；标题、类别、概览、结构化 sections、
+   关联资产引用和排序均可编辑，结构化资产只提供引用与跳转编辑。
 2. 发布时以 `base_version_number` 做行锁 + CAS；版本冲突返回 409 并保留工作稿。
 3. 发布原子更新 `canonical` 页面、递增 `version_number`、写不可变 revision、删除工作稿，
    并标记作者版世界观简介 stale。恢复旧页面版本只创建新工作稿，不覆盖历史。
@@ -88,9 +88,20 @@ World Bible 页面是作者组织和解释世界事实的手册层；`CoreEntity
    `POST /api/world/suggestions/{id}/apply-to-world-bible-draft` 落工作稿；新版 UI 不使用
    旧 `/confirm` 直发路径。
 
+`free_text` 保留为兼容概览；`sections_json` 保存最多 64 个有稳定 `section_id` 的有序资料段。
+section 只支持 `markdown/checklist/asset_collection`，局部引用必须指向页面级已校验
+TargetRef 的 hash，`projection_policy` 和 `sensitivity_hint` 只能收紧投影/可见性。页面正文
+始终是资料而非事实源，也不能选择 Prompt role、工具或 system scaffold。
+
+页面模板由 `world_bible_page_templates` 与不可变 revision 管理。内置模板只在代码注册，项目
+模板不能覆盖内置 key，也不能保存 Prompt、provider、API key、工具调用或可执行表达式。
+应用模板只改服务器工作稿；恢复历史模板会把旧快照写成当前模板的新版本，不覆盖历史，也
+不会自动改写已发布页面。
+
 内置类别为 `background/species/faction/location/rule/secret/custom`。项目自定义类别只
-保存 `key/name/description/color/icon/sort_order/status`；`category_key` 创建后不可修改，
-归档不删除历史页面，也不定义模板 schema 或资产激活规则。
+保存 `key/name/description/color/icon/sort_order/status/default_template_key`；默认模板只影响
+新建页面选择，`category_key` 创建后不可修改，归档不删除历史页面，也不定义模板 schema
+或资产激活规则。
 
 `world_bible_synopsis` 是独立的作者模式 P1 section，UI 名称为“世界观简介”。它由 LLM
 从已采用结构化世界事实和 `canonical/confirmed` 页面派生，保存不可变 revision、逐 claim
@@ -187,6 +198,8 @@ tasks ORM。
 | `world_bible_pages` | 已发布作者手册页面；新版 UI 只发布为 canonical |
 | `world_bible_page_revisions` | 页面发布点的不可变快照，项目/页面/版本唯一 |
 | `world_bible_page_projections` | 与页面版本/source hash 绑定的派生投影 |
+| `world_bible_page_templates` | 项目自定义页面布局模板；与代码内置模板 key 隔离 |
+| `world_bible_page_template_revisions` | 页面模板每次修改/恢复产生的不可变快照 |
 | `world_bible_synopsis_heads` | 每项目简介指针、stale/pin/task 与自动维护授权 |
 | `world_bible_synopsis_revisions` | 作者版世界观简介的不可变 LLM 派生版本 |
 | `entity_revisions` | 实体快照版本表（旧版快照；当前活跃回滚优先使用 `TextArchive`，无归档时回退到 `EntityRevision`） |
@@ -453,6 +466,9 @@ facade 函数，跨模块调用必须显式使用 `contracts.py` / `facade.py` /
 
 `worldbuilding_facade.py` 承载世界书上下文激活相关入口：
 `preview_worldbuilding_activation()` 调用确定性 activation preview 服务；
+`get_world_bible_projection_candidates()` 按项目解析固定页面/CoreEntity TargetRef，并执行
+最大深度 2 的页面链接或关系展开；`get_world_bible_page_source_manifest()` 返回可审计的
+页面版本、section 与 source hash；
 `mark_worldbuilding_context_stale()` 保持函数内 lazy import `modules.context.facade`，
 避免扩大 context ↔ world 循环 import 风险。
 
@@ -501,6 +517,8 @@ async def summarize_scene_map_for_writing(db, novel_id, scene_id, *, include_can
 
 # ---- Worldbuilding ----
 async def preview_worldbuilding_activation(db, novel_id, *, entity_ids=None, ...) -> dict
+async def get_world_bible_projection_candidates(db, novel_id, target_refs, *, expand_page_links=False, relation_types=None, max_depth=0, ...) -> WorldBibleActivationResolutionContract
+async def get_world_bible_page_source_manifest(db, novel_id, page_ids) -> list[dict]
 async def mark_worldbuilding_context_stale(db, novel_id, *, reason: str, asset_id="worldbuilding") -> int
 
 # ---- EntityRevision (legacy rollback by revision_id) ----
@@ -546,6 +564,11 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 | POST | `/api/world/suggestions/{suggestion_id}/reject` | 拒绝建议 |
 | POST | `/api/world/object-draft-chat` | 生成中心自由共创聊天；不写库 |
 | POST | `/api/world/object-drafts/generate` | 将生成中心聊天/粘贴内容收束为待处理建议；同时返回兼容草稿视图 |
+| GET/POST | `/api/world/bible/page-templates` | 列出内置/项目页面模板，或创建项目模板 |
+| PATCH | `/api/world/bible/page-templates/{template_id}` | CAS 更新或归档项目页面模板 |
+| GET | `/api/world/bible/page-templates/{template_id}/revisions` | 页面模板不可变版本历史 |
+| POST | `/api/world/bible/page-templates/{template_id}/revisions/{version}/restore-draft` | 将历史快照恢复为当前模板的新版本 |
+| POST | `/api/world/bible/drafts/{draft_id}/apply-template` | 把模板布局应用到服务器工作稿 |
 | GET | `/api/world/generation-prompt-templates` | 生成中心 Prompt 模板列表（含内置模板） |
 | POST | `/api/world/generation-prompt-templates` | 创建用户自定义 Prompt 模板 |
 | POST | `/api/world/generation-prompt-templates/validate` | 校验模板变量、危险指令和输出契约 |

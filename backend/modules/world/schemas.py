@@ -327,6 +327,8 @@ class ObjectDraftChatRequest(BaseModel):
         default_factory=list,
         max_length=20,
     )
+    activation_profile_id: str | None = None
+    activation_profile_version: int | None = Field(default=None, ge=1)
 
 
 class GenerationContextUsage(BaseModel):
@@ -341,6 +343,10 @@ class GenerationContextUsage(BaseModel):
     status: str = "not_requested"
     warnings: list[str] = Field(default_factory=list)
     context_snapshot_id: str | None = None
+    activation_profile_id: str | None = None
+    activation_profile_version: int | None = None
+    activation_rule_hash: str | None = None
+    activation_source_hashes: list[str] = Field(default_factory=list)
 
 
 class ObjectDraftChatResponse(BaseModel):
@@ -371,6 +377,8 @@ class ObjectDraftGenerateRequest(BaseModel):
         default_factory=list,
         max_length=20,
     )
+    activation_profile_id: str | None = None
+    activation_profile_version: int | None = Field(default=None, ge=1)
 
 
 class ObjectDraftGenerateResponse(BaseModel):
@@ -404,6 +412,8 @@ class WorldBibleAiGenerateRequest(BaseModel):
     template_variables: dict[str, Any] = Field(default_factory=dict)
     include_current_page: bool = True
     include_world_synopsis: bool = False
+    activation_profile_id: str | None = None
+    activation_profile_version: int | None = Field(default=None, ge=1)
     selected_asset_refs: list[dict[str, Any]] = Field(
         default_factory=list,
         max_length=40,
@@ -1666,6 +1676,80 @@ class WorldProfileMigrateResponse(BaseModel):
     profile: WorldProfileResponse
 
 
+class WorldBibleSection(BaseModel):
+    section_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$",
+    )
+    section_type: Literal["markdown", "checklist", "asset_collection"] = "markdown"
+    title: str = Field(..., min_length=1, max_length=120)
+    body_markdown: str = Field(default="", max_length=30000)
+    sort_order: int = Field(default=0, ge=-100000, le=100000)
+    linked_asset_ref_hashes: list[str] = Field(default_factory=list, max_length=100)
+    projection_policy: Literal["eligible", "excluded"] = "eligible"
+    sensitivity_hint: Literal[
+        "author_only",
+        "author_safe",
+        "public_baseline",
+    ] = "author_safe"
+
+    @field_validator("linked_asset_ref_hashes")
+    @classmethod
+    def validate_ref_hashes(cls, values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for value in values:
+            current = str(value).strip().removeprefix("sha256:")
+            if len(current) != 64 or any(
+                ch not in "0123456789abcdef" for ch in current
+            ):
+                raise ValueError(
+                    "linked asset ref hashes must be lowercase sha256 values"
+                )
+            if current not in normalized:
+                normalized.append(current)
+        return normalized
+
+
+def _validate_world_bible_sections(
+    sections: list[WorldBibleSection],
+) -> list[WorldBibleSection]:
+    ids = [section.section_id for section in sections]
+    if len(ids) != len(set(ids)):
+        raise ValueError("World Bible section_id must be unique within a page")
+    return sorted(sections, key=lambda item: (item.sort_order, item.section_id))
+
+
+_FORBIDDEN_PAGE_TEMPLATE_KEYS = frozenset(
+    {
+        "api_key",
+        "depth",
+        "macro",
+        "outlet",
+        "prompt",
+        "provider",
+        "role",
+        "system",
+        "tool",
+        "tools",
+    }
+)
+
+
+def _reject_executable_template_values(value: Any, *, path: str = "template") -> Any:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            normalized = str(key).strip().lower()
+            if normalized in _FORBIDDEN_PAGE_TEMPLATE_KEYS:
+                raise ValueError(f"{path}.{key} is not allowed in a page template")
+            _reject_executable_template_values(child, path=f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            _reject_executable_template_values(child, path=f"{path}[{index}]")
+    return value
+
+
 class WorldBiblePageCreate(BaseModel):
     novel_id: str
     page_type: str = Field(default="custom", max_length=64)
@@ -1674,11 +1758,20 @@ class WorldBiblePageCreate(BaseModel):
     status: str = Field(default="draft", max_length=32)
     page_meta_json: dict[str, Any] = Field(default_factory=dict)
     free_text: str | None = None
+    sections_json: list[WorldBibleSection] = Field(default_factory=list, max_length=64)
     linked_asset_refs_json: list[dict[str, Any]] = Field(default_factory=list)
     activation_defaults_json: dict[str, Any] = Field(default_factory=dict)
     template_key: str | None = Field(default=None, max_length=128)
     sort_order: int = 0
     created_by: str | None = Field(default=None, max_length=64)
+
+    @field_validator("sections_json")
+    @classmethod
+    def validate_sections(
+        cls,
+        value: list[WorldBibleSection],
+    ) -> list[WorldBibleSection]:
+        return _validate_world_bible_sections(value)
 
 
 class WorldBiblePageUpdate(BaseModel):
@@ -1686,6 +1779,7 @@ class WorldBiblePageUpdate(BaseModel):
     status: str | None = Field(default=None, max_length=32)
     page_meta_json: dict[str, Any] | None = None
     free_text: str | None = None
+    sections_json: list[WorldBibleSection] | None = Field(default=None, max_length=64)
     linked_asset_refs_json: list[dict[str, Any]] | None = None
     activation_defaults_json: dict[str, Any] | None = None
     template_key: str | None = Field(default=None, max_length=128)
@@ -1700,11 +1794,20 @@ class WorldBiblePageUpdate(BaseModel):
             "page_meta_json",
             "linked_asset_refs_json",
             "activation_defaults_json",
+            "sections_json",
             "sort_order",
         }:
             if field_name in self.model_fields_set and getattr(self, field_name) is None:
                 raise ValueError(f"{field_name} cannot be null")
         return self
+
+    @field_validator("sections_json")
+    @classmethod
+    def validate_sections(
+        cls,
+        value: list[WorldBibleSection] | None,
+    ) -> list[WorldBibleSection] | None:
+        return None if value is None else _validate_world_bible_sections(value)
 
 
 class WorldBiblePageResponse(BaseModel):
@@ -1718,6 +1821,7 @@ class WorldBiblePageResponse(BaseModel):
     status: str
     page_meta_json: dict = Field(default_factory=dict)
     free_text: str | None = None
+    sections_json: list[WorldBibleSection] = Field(default_factory=list)
     linked_asset_refs_json: list = Field(default_factory=list)
     activation_defaults_json: dict = Field(default_factory=dict)
     template_key: str | None = None
@@ -1751,6 +1855,7 @@ class WorldBibleCategoryCreate(BaseModel):
     color: str = Field(default="#64748B", pattern=r"^#[0-9A-Fa-f]{6}$")
     icon: str = Field(default="", max_length=16)
     sort_order: int = 100
+    default_template_key: str | None = Field(default=None, max_length=128)
 
 
 class WorldBibleCategoryUpdate(BaseModel):
@@ -1760,6 +1865,7 @@ class WorldBibleCategoryUpdate(BaseModel):
     icon: str | None = Field(default=None, max_length=16)
     sort_order: int | None = None
     status: Literal["active", "archived"] | None = None
+    default_template_key: str | None = Field(default=None, max_length=128)
 
     @model_validator(mode="after")
     def reject_null_required_fields(self) -> WorldBibleCategoryUpdate:
@@ -1782,6 +1888,7 @@ class WorldBibleCategoryResponse(BaseModel):
     sort_order: int
     status: str
     builtin: bool = False
+    default_template_key: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -1801,17 +1908,31 @@ class WorldBiblePageDraftCreate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     page_type: str | None = Field(default=None, min_length=1, max_length=64)
     free_text: str | None = None
+    sections_json: list[WorldBibleSection] | None = Field(default=None, max_length=64)
     linked_asset_refs_json: list[dict[str, Any]] | None = None
     sort_order: int | None = None
+    template_key: str | None = Field(default=None, max_length=128)
+    template_version: int | None = Field(default=None, ge=1)
     created_by: str | None = Field(default=None, max_length=64)
+
+    @field_validator("sections_json")
+    @classmethod
+    def validate_sections(
+        cls,
+        value: list[WorldBibleSection] | None,
+    ) -> list[WorldBibleSection] | None:
+        return None if value is None else _validate_world_bible_sections(value)
 
 
 class WorldBiblePageDraftUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     page_type: str | None = Field(default=None, min_length=1, max_length=64)
     free_text: str | None = None
+    sections_json: list[WorldBibleSection] | None = Field(default=None, max_length=64)
     linked_asset_refs_json: list[dict[str, Any]] | None = None
     sort_order: int | None = None
+    template_key: str | None = Field(default=None, max_length=128)
+    template_version: int | None = Field(default=None, ge=1)
     updated_by: str | None = Field(default=None, max_length=64)
 
     @model_validator(mode="after")
@@ -1820,11 +1941,21 @@ class WorldBiblePageDraftUpdate(BaseModel):
             "title",
             "page_type",
             "linked_asset_refs_json",
+            "sections_json",
             "sort_order",
+            "template_version",
         }:
             if field_name in self.model_fields_set and getattr(self, field_name) is None:
                 raise ValueError(f"{field_name} cannot be null")
         return self
+
+    @field_validator("sections_json")
+    @classmethod
+    def validate_sections(
+        cls,
+        value: list[WorldBibleSection] | None,
+    ) -> list[WorldBibleSection] | None:
+        return None if value is None else _validate_world_bible_sections(value)
 
 
 class WorldBiblePageDraftResponse(BaseModel):
@@ -1837,8 +1968,11 @@ class WorldBiblePageDraftResponse(BaseModel):
     title: str
     page_type: str
     free_text: str | None = None
+    sections_json: list[WorldBibleSection] = Field(default_factory=list)
     linked_asset_refs_json: list = Field(default_factory=list)
     sort_order: int = 0
+    template_key: str | None = None
+    template_version: int = 1
     created_by: str | None = None
     updated_by: str | None = None
     created_at: datetime | None = None
@@ -1875,6 +2009,128 @@ class WorldBiblePageRevisionResponse(BaseModel):
     @classmethod
     def coerce_revision_uuid(cls, v: object) -> str:
         return _uuid_validator(v)
+
+
+class WorldBiblePageTemplateCreate(BaseModel):
+    novel_id: str
+    template_key: str = Field(
+        ...,
+        min_length=2,
+        max_length=128,
+        pattern=r"^[a-z][a-z0-9_]*$",
+    )
+    name: str = Field(..., min_length=1, max_length=80)
+    description: str | None = Field(default=None, max_length=1000)
+    category_key_hint: str | None = Field(default=None, max_length=64)
+    sections_schema_json: dict[str, Any] = Field(default_factory=dict)
+    default_sections_json: list[WorldBibleSection] = Field(
+        default_factory=list,
+        max_length=64,
+    )
+    validation_rules_json: dict[str, Any] = Field(default_factory=dict)
+    created_by: str | None = Field(default=None, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_template(self) -> WorldBiblePageTemplateCreate:
+        self.default_sections_json = _validate_world_bible_sections(
+            self.default_sections_json
+        )
+        _reject_executable_template_values(self.sections_schema_json)
+        _reject_executable_template_values(self.validation_rules_json)
+        return self
+
+
+class WorldBiblePageTemplateUpdate(BaseModel):
+    base_version_number: int = Field(..., ge=1)
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    description: str | None = Field(default=None, max_length=1000)
+    category_key_hint: str | None = Field(default=None, max_length=64)
+    sections_schema_json: dict[str, Any] | None = None
+    default_sections_json: list[WorldBibleSection] | None = Field(
+        default=None,
+        max_length=64,
+    )
+    validation_rules_json: dict[str, Any] | None = None
+    status: Literal["active", "archived"] | None = None
+    updated_by: str | None = Field(default=None, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_template(self) -> WorldBiblePageTemplateUpdate:
+        for field_name in {
+            "name",
+            "sections_schema_json",
+            "default_sections_json",
+            "validation_rules_json",
+            "status",
+        }:
+            if field_name in self.model_fields_set and getattr(self, field_name) is None:
+                raise ValueError(f"{field_name} cannot be null")
+        if self.default_sections_json is not None:
+            self.default_sections_json = _validate_world_bible_sections(
+                self.default_sections_json
+            )
+        if self.sections_schema_json is not None:
+            _reject_executable_template_values(self.sections_schema_json)
+        if self.validation_rules_json is not None:
+            _reject_executable_template_values(self.validation_rules_json)
+        return self
+
+
+class WorldBiblePageTemplateResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    novel_id: str
+    template_key: str
+    name: str
+    description: str | None = None
+    category_key_hint: str | None = None
+    sections_schema_json: dict = Field(default_factory=dict)
+    default_sections_json: list[WorldBibleSection] = Field(default_factory=list)
+    validation_rules_json: dict = Field(default_factory=dict)
+    version_number: int = 1
+    status: str = "active"
+    builtin: bool = False
+    created_by: str | None = None
+    updated_by: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    @field_validator("id", "novel_id", mode="before")
+    @classmethod
+    def coerce_template_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)
+
+
+class WorldBiblePageTemplateListResponse(BaseModel):
+    items: list[WorldBiblePageTemplateResponse]
+    total: int
+
+
+class WorldBiblePageTemplateRevisionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    novel_id: str
+    template_id: str
+    version_number: int
+    snapshot_json: dict = Field(default_factory=dict)
+    content_hash: str
+    revision_reason: str
+    created_by: str | None = None
+    created_at: datetime | None = None
+
+    @field_validator("id", "novel_id", "template_id", mode="before")
+    @classmethod
+    def coerce_template_revision_uuid(cls, v: object) -> str:
+        return _uuid_validator(v)
+
+
+class WorldBibleApplyTemplateRequest(BaseModel):
+    template_key: str = Field(..., min_length=1, max_length=128)
+    template_version: int | None = Field(default=None, ge=1)
+    replace_sections: bool = False
+    updated_by: str | None = Field(default=None, max_length=64)
 
 
 class WorldBibleSuggestionApplyDraftRequest(BaseModel):

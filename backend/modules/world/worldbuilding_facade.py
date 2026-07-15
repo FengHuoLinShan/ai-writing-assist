@@ -97,6 +97,51 @@ async def get_world_bible_working_pages_context(
     return items
 
 
+async def get_world_bible_projection_candidates(
+    db,
+    novel_id: str,
+    target_refs: list[dict],
+    *,
+    projection_type: str = "context_brief",
+    expand_page_links: bool = False,
+    relation_types: list[str] | None = None,
+    max_depth: int = 0,
+    reveal_mode: str = "author_safe",
+):
+    """Resolve fixed activation targets without exposing world persistence."""
+    from modules.world.services.worldbuilding.activation_target_service import (
+        WorldBibleActivationTargetService,
+    )
+
+    return await WorldBibleActivationTargetService().resolve(
+        db,
+        novel_id,
+        target_refs,
+        projection_type=projection_type,
+        expand_page_links=expand_page_links,
+        relation_types=relation_types,
+        max_depth=max_depth,
+        reveal_mode=reveal_mode,
+    )
+
+
+async def get_world_bible_page_source_manifest(
+    db,
+    novel_id: str,
+    page_ids: list[str],
+) -> list[dict]:
+    """Return stable page source hashes for activation snapshot auditing."""
+    from modules.world.services.worldbuilding.activation_target_service import (
+        WorldBibleActivationTargetService,
+    )
+
+    return await WorldBibleActivationTargetService().page_source_manifest(
+        db,
+        novel_id,
+        page_ids,
+    )
+
+
 async def mark_worldbuilding_context_stale(
     db,
     novel_id: str,
