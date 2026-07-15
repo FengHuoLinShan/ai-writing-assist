@@ -578,7 +578,7 @@ class EntityExtractionService:
         from modules.world.services.common import find_alias_in_list
 
         eid = parse_uuid(entity_id, "entity_id")
-        entity = await self._entity_repo.get(db, eid)
+        entity = await self._entity_repo.get_for_update(db, eid)
         if entity is None:
             return
 

@@ -1,0 +1,74 @@
+{
+  "version": 2,
+  "checksums": {
+    "standard": "8efb429667b900ed06831442f0e9bd5ad4472e2a37a4e369444d7fa6dcc76e6d",
+    "stress": "8379af84cd7be779cc99b103430a0fc93f3336361c3c0d139f0619eabcbe1e76"
+  },
+  "payload_checksums": {
+    "standard": "a9a4c5f77cab9aefa4c1e94adb7296d4a53f3ed5bd50b3925dea68b82a8ebe69",
+    "stress": "c5bbe1726e30316251d521566c0159d46a6684027b87732ed5c52db43aa78b67"
+  },
+  "profiles": {
+    "standard": {
+      "name": "24x18-semantic",
+      "template": "continent",
+      "grid": { "width": 24, "height": 18 },
+      "counts": {
+        "tiles": 432,
+        "location_bindings": 3,
+        "markers": 1,
+        "territory_tiles": 3,
+        "layer_nodes": 10,
+        "labels": 3,
+        "facts": 1,
+        "candidates": 1
+      },
+      "layer": {
+        "keys": ["baseTerrain", "location", "marker", "marker.character", "marker.event", "marker.item", "territory", "terrainOverlay", "path", "pending"]
+      },
+      "locations": [
+        { "name": "北境城", "q": 4, "r": 4 },
+        { "name": "云港", "q": 15, "r": 9 },
+        { "name": "镜湖", "q": 9, "r": 13 }
+      ],
+      "marker": { "name": "巡游者", "entity_type": "character", "marker_type": "character", "q": 6, "r": 5 },
+      "territory": { "name": "北境盟", "entity_type": "organization", "hexes": [[3, 3], [3, 4], [4, 3]] },
+      "dynamic": {
+        "confirmed": { "dynamic_type": "location", "target": "marker", "location_index": 0, "q": 4, "r": 4 },
+        "candidate": { "dynamic_type": "status", "target": "marker", "location_index": 1, "q": 15, "r": 9 }
+      }
+    },
+    "stress": {
+      "name": "200x200-semantic",
+      "template": "continent",
+      "grid": { "width": 200, "height": 200 },
+      "counts": {
+        "tiles": 40000,
+        "location_bindings": 6,
+        "markers": 1,
+        "territory_tiles": 5,
+        "layer_nodes": 10,
+        "labels": 6,
+        "facts": 1,
+        "candidates": 1
+      },
+      "layer": {
+        "keys": ["baseTerrain", "location", "marker", "marker.character", "marker.event", "marker.item", "territory", "terrainOverlay", "path", "pending"]
+      },
+      "locations": [
+        { "name": "西陆", "q": 20, "r": 25 },
+        { "name": "北城", "q": 70, "r": 30 },
+        { "name": "中州", "q": 100, "r": 100 },
+        { "name": "东港", "q": 155, "r": 80 },
+        { "name": "南岭", "q": 110, "r": 165 },
+        { "name": "远岛", "q": 180, "r": 170 }
+      ],
+      "marker": { "name": "观测者", "entity_type": "character", "marker_type": "character", "q": 102, "r": 99 },
+      "territory": { "name": "中央议会", "entity_type": "organization", "hexes": [[98, 98], [98, 99], [99, 98], [99, 99], [100, 99]] },
+      "dynamic": {
+        "confirmed": { "dynamic_type": "location", "target": "marker", "location_index": 2, "q": 100, "r": 100 },
+        "candidate": { "dynamic_type": "status", "target": "marker", "location_index": 3, "q": 155, "r": 80 }
+      }
+    }
+  }
+}

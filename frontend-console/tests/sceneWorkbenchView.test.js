@@ -171,6 +171,8 @@ describe("sceneWorkbenchView", () => {
     expect(html).toContain("打开写作")
     expect(html).toContain("合并")
     expect(html).toContain("拆分")
+    expect(html).toContain("<span>#1</span>")
+    expect(html).not.toContain("<span>#0</span>")
   })
 
   it("selects visible scenes for manual fusion", () => {
@@ -288,7 +290,8 @@ describe("sceneWorkbenchView", () => {
       "#workbench/p1/outline/scenes",
     )
 
-    expect(sceneWorkbenchView._selectedSceneId()).toBe("s1")
+    expect(sceneWorkbenchView._selectedSceneId()).toBeNull()
+    expect(sceneWorkbenchView._selectedSceneItem()).toBeNull()
   })
 
   it("submits scene auto extraction stage task", async () => {
@@ -752,7 +755,16 @@ describe("sceneWorkbenchView", () => {
   })
 
   it("renders fixed health filters, 62/38 desktop layout, and unassigned chapters", async () => {
-    sceneWorkbenchView._workbench = workbenchPayload
+    sceneWorkbenchView._workbench = {
+      ...workbenchPayload,
+      health: {
+        ...workbenchPayload.health,
+        needs_organize: {
+          ...workbenchPayload.health.needs_organize,
+          breakdown: { scene_structure: 1, source_mapping: 1 },
+        },
+      },
+    }
 
     const html = await sceneWorkbenchView.render()
 
@@ -763,6 +775,8 @@ describe("sceneWorkbenchView", () => {
     expect(html).toContain("未关联章节")
     expect(html).toContain("缺设定")
     expect(html).toContain("待整理")
+    expect(html).toContain("待整理总数按 Scene 去重")
+    expect(html).toContain("原因数不能相加作为总数")
     expect(html).toContain("潜入")
     expect(html).toContain("第 4 章")
     expect(html).toContain("data-action=\"assign-unassigned-chapter\"")
@@ -809,6 +823,143 @@ describe("sceneWorkbenchView", () => {
     expect(html).toContain("采用")
     expect(html).toContain("来源与注意")
     expect(html).toContain("需要人工检查")
+  })
+
+  it("在 Scene 卡片和详情中显示作者可读正文范围与重叠细节", async () => {
+    const counterpartId = "22222222-2222-4222-8222-222222222222"
+    sceneWorkbenchView._workbench = {
+      ...workbenchPayload,
+      items: [
+        {
+          ...workbenchPayload.items[0],
+          span_summaries: [
+            {
+              chapter_index: 1,
+              mapping_status: "exact",
+              mapping_status_label: "精确定位",
+              anchor_excerpt: "枪声响起 众人开始追逐",
+              range_label: "第 1 章 · 字符 10–50 · 精确定位",
+            },
+            {
+              chapter_index: 3,
+              mapping_status: "chapter_only",
+              mapping_status_label: "仅关联章节",
+              range_label: "第 3 章 · 第 1–3 段",
+            },
+          ],
+          overlap_details: [{
+            counterpart_scene_id: counterpartId,
+            counterpart_scene_title: "追逐转折",
+            counterpart_scene_label: "追逐转折",
+            chapter_index: 1,
+            scene_start_offset: 10,
+            scene_end_offset: 50,
+            counterpart_start_offset: 40,
+            counterpart_end_offset: 80,
+            overlap_start_offset: 40,
+            overlap_end_offset: 50,
+            range_label: "第 1 章 · 字符 40–50 与「追逐转折」重叠",
+          }],
+        },
+        {
+          ...workbenchPayload.items[1],
+          scene: {
+            ...workbenchPayload.items[1].scene,
+            id: counterpartId,
+            title: "追逐转折",
+          },
+        },
+      ],
+    }
+
+    document.body.innerHTML = await sceneWorkbenchView.render()
+    const text = document.body.textContent
+
+    expect(text).toContain("第 1 章 · 字符 10–50 · 精确定位")
+    expect(text).toContain("第 3 章 · 第 1–3 段 · 仅关联章节")
+    expect(text).toContain("原文摘要：枪声响起 众人开始追逐")
+    expect(text).toContain("第 1 章 · 字符 40–50 与「追逐转折」重叠")
+    expect(text).toContain("当前范围：第 1 章 · 字符 10–50")
+    expect(text).toContain("对方范围：第 1 章 · 字符 40–80")
+    expect(text).toContain("实际重叠：第 1 章 · 字符 40–50")
+    expect(text).toContain("查看「追逐转折」")
+    expect(text).not.toContain(counterpartId)
+    expect(document.querySelector('[data-action="open-overlap-scene"]').dataset.id).toBe(counterpartId)
+  })
+
+  it("重叠对方在当前列表时可直接查看且不显示 UUID", async () => {
+    sceneWorkbenchView._workbench = {
+      ...workbenchPayload,
+      items: [
+        {
+          ...workbenchPayload.items[0],
+          overlap_details: [{
+            counterpart_scene_id: "s2",
+            counterpart_scene_title: "撤离",
+            counterpart_scene_label: "撤离",
+            chapter_index: 1,
+            scene_start_offset: 0,
+            scene_end_offset: 20,
+            counterpart_start_offset: 10,
+            counterpart_end_offset: 30,
+            overlap_start_offset: 10,
+            overlap_end_offset: 20,
+            range_label: "第 1 章 · 字符 10–20 与「撤离」重叠",
+          }],
+        },
+        workbenchPayload.items[1],
+      ],
+    }
+    document.body.innerHTML = `<main id="workspace-content">${await sceneWorkbenchView.render()}</main>`
+    sceneWorkbenchView._bindEvents()
+
+    document.querySelector('[data-action="open-overlap-scene"]').click()
+
+    expect(state.currentSubView).toBe("s2")
+    expect(window.location.hash).toBe("#workbench/p1/scene/s2")
+    expect(document.body.textContent).not.toContain("s2")
+  })
+
+  it("重叠对方不在当前页时重置筛选后打开", async () => {
+    sceneWorkbenchView._filters = {
+      ...sceneWorkbenchView._filters,
+      health: "needs_organize",
+      q: "当前页关键词",
+      skip: 20,
+    }
+    sceneWorkbenchView._activeHealth = "needs_organize"
+    router.refresh.mockResolvedValue()
+
+    expect(await sceneWorkbenchView._openOverlapScene("off-page-scene")).toBe(true)
+
+    expect(sceneWorkbenchView._filters.health).toBe("")
+    expect(sceneWorkbenchView._filters.q).toBe("")
+    expect(sceneWorkbenchView._filters.skip).toBe(0)
+    expect(sceneWorkbenchView._activeHealth).toBeNull()
+    expect(state.currentSubView).toBe("off-page-scene")
+    expect(router.refresh).toHaveBeenCalledOnce()
+  })
+
+  it("旧 workbench 响应没有 overlap detail 时保留旧待处理提示", async () => {
+    sceneWorkbenchView._workbench = {
+      ...workbenchPayload,
+      items: [{
+        ...workbenchPayload.items[0],
+        health: ["needs_organize"],
+        health_details: {
+          needs_organize: [{
+            code: "overlapping_span",
+            label: "正文范围与其他 Scene 重叠",
+          }],
+        },
+      }],
+    }
+
+    const html = await sceneWorkbenchView.render()
+
+    expect(html).toContain("正文范围与其他 Scene 重叠")
+    expect(html).not.toContain("scene-detail-overlaps")
+    expect(html).not.toContain('data-action="open-overlap-scene"')
   })
 
   it("uses source mapping confirmation as the contextual primary action", async () => {

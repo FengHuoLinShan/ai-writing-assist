@@ -931,6 +931,62 @@ test.describe("写作台模块", () => {
     }
   })
 
+  test("390px 下短文本可保存为工作稿并在刷新后恢复", async ({ page }) => {
+    await createDraft(testProjectId, 1, "移动速记", "原始移动正文")
+    await page.setViewportSize({ width: 390, height: 844 })
+    await reloadWorkbench(page, "writing")
+    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
+    await page.getByLabel("展开章节").click()
+    await page.locator('[data-action="select-chapter"][data-chapter="1"]').click()
+
+    const editor = page.getByLabel("移动端速记正文")
+    await expect(editor).toBeVisible()
+    await editor.fill("390px 下保存的短文本。")
+    const saveButton = page.getByRole("button", { name: "保存为工作稿" })
+    const saveBox = await saveButton.boundingBox()
+    expect(saveBox).not.toBeNull()
+    expect(saveBox.height).toBeGreaterThanOrEqual(44)
+    await saveButton.click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("已保存到工作稿", {
+      timeout: 10000,
+    })
+    await expect.poll(async () => (
+      (await getLatestDraft(testProjectId, 1)).content
+    )).toBe("390px 下保存的短文本。")
+
+    await reloadWorkbench(page, "writing")
+    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
+    const chapterRail = page.locator(".writing-tree-rail")
+    if (!(await chapterRail.evaluate((element) => element.open))) {
+      await page.getByLabel("展开章节").click()
+    }
+    await page.locator('[data-action="select-chapter"][data-chapter="1"]').click()
+    await expect(page.getByLabel("移动端速记正文")).toHaveValue("390px 下保存的短文本。")
+    const overflow = await page.evaluate(() => (
+      Math.ceil(document.documentElement.scrollWidth - window.innerWidth)
+    ))
+    expect(overflow).toBeLessThanOrEqual(2)
+  })
+
+  test("390px 速记切换完整编辑器时保留未保存正文", async ({ page }) => {
+    await createDraft(testProjectId, 1, "移动切换", "切换前正文")
+    await page.setViewportSize({ width: 390, height: 844 })
+    await reloadWorkbench(page, "writing")
+    await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
+    const chapterRailToggle = page.getByLabel("展开章节")
+    const railBox = await chapterRailToggle.boundingBox()
+    expect(railBox).not.toBeNull()
+    expect(railBox.height).toBeGreaterThanOrEqual(40)
+    await chapterRailToggle.click()
+    await page.locator('[data-action="select-chapter"][data-chapter="1"]').click()
+    await page.getByLabel("移动端速记正文").fill("尚未保存但必须保留的正文")
+
+    await page.getByRole("button", { name: "完整编辑器" }).click()
+
+    await expect(page.locator("#writing-editor")).toBeVisible()
+    await expect(page.locator("#writing-editor")).toHaveValue("尚未保存但必须保留的正文")
+  })
+
   // ============================================================
   // 从正文整理 Scene
   // ============================================================

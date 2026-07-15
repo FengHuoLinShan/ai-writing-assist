@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import worldView from "../views/worldView.js"
+import worldBibleView from "../views/worldBibleView.js"
 import { resetState, autoConfirm, captureModalHandler, renderHtml } from "./helpers.js"
 
 beforeEach(() => {
@@ -12,13 +13,28 @@ beforeEach(() => {
   worldView._entities = []
   worldView._candidates = []
   worldView._candidateTotal = 0
+  worldView._candidateLoadError = null
   worldView._batches = []
   worldView._relations = []
+  worldView._relationGroups = []
   worldView._relationTotal = 0
-  worldView._relationFilters = { skip: 0, limit: 20 }
+  worldView._relationGroupTotal = 0
+  worldView._relationFilters = { skip: 0, limit: 20, q: "", relation_type: "" }
   worldView._aliases = []
+  worldView._aliasGroups = []
   worldView._aliasTotal = 0
-  worldView._aliasFilters = { skip: 0, limit: 20 }
+  worldView._aliasGroupTotal = 0
+  worldView._aliasFilters = { skip: 0, limit: 20, q: "" }
+  worldView._relationReviewDrafts = {}
+  worldView._aliasReviewDrafts = {}
+  worldView._relationReviewErrors = {}
+  worldView._aliasReviewErrors = {}
+  worldView._reviewCounts = { objects: 0, aliases: 0, relations: 0 }
+  worldView._reviewTypeCatalog = {
+    custom_allowed: true,
+    relation_types: [{ value: "friend_of", label: "朋友", category: "社会", synonyms: ["朋友"] }],
+    alias_types: [{ value: "alias", label: "别名", category: "别名", synonyms: ["别称"] }],
+  }
   worldView._candidateFilters = { skip: 0, limit: 20 }
   worldView._total = 0
   worldView._entitiesLoadError = null
@@ -50,6 +66,11 @@ beforeEach(() => {
   localStorage.removeItem("novel_world_filter_panels:p1")
   localStorage.removeItem("novel_world_filter_panels:p2")
   vi.clearAllMocks()
+  api.world.getReviewTypeCatalog.mockReset().mockResolvedValue(worldView._reviewTypeCatalog)
+  api.world.listRelationReviewGroups.mockReset().mockResolvedValue({ groups: [], group_total: 0, item_total: 0 })
+  api.world.reviewRelationsBatch.mockReset()
+  api.world.listAliasReviewGroups.mockReset().mockResolvedValue({ groups: [], group_total: 0, item_total: 0 })
+  api.world.reviewAliasesBatch.mockReset()
   router.refresh.mockReset()
   api.world.getEntityMapPresence.mockReset().mockResolvedValue({ items: [], total: 0 })
 })
@@ -230,6 +251,18 @@ describe("onLeave", () => {
     expect(stop).toHaveBeenCalled()
     expect(worldView._fusionPoller).toBeNull()
   })
+
+  it("世界书子视图委托未保存离开门禁", () => {
+    state.currentSubView = "bible"
+    const guard = vi.spyOn(worldBibleView, "canLeave").mockReturnValue(false)
+
+    expect(worldView.canLeave()).toBe(false)
+    expect(guard).toHaveBeenCalledOnce()
+
+    state.currentSubView = "objects"
+    expect(worldView.canLeave()).toBe(true)
+    guard.mockRestore()
+  })
 })
 
 // ============================================================
@@ -270,7 +303,13 @@ describe("worldView render", () => {
     worldView._bindEvents()
     document.querySelector('[data-action="nav-map"]')?.click()
 
-    expect(router.navigate).toHaveBeenCalledWith("map", null)
+    expect(router.navigate).toHaveBeenCalledWith(
+      "map",
+      null,
+      true,
+      expect.any(URLSearchParams),
+    )
+    expect(router.navigate.mock.calls.at(-1)[3].toString()).toBe("mode=overview")
   })
 
   it("对象库渲染顶部工具栏，包含新建对象、自动提取和视图切换", async () => {
@@ -388,6 +427,7 @@ describe("worldView render", () => {
     state.currentProjectId = "p1"
     state.currentSubView = "review-objects"
     router.navigate("world", "review-objects", true, new URLSearchParams({
+      entity_type: "location",
       suggested_action: "link_to_existing",
       source: "deep_import",
       workflow_id: "wf-2",
@@ -402,6 +442,7 @@ describe("worldView render", () => {
     await worldView.render()
 
     expect(worldView._candidateFilters).toMatchObject({
+      entity_type: "location",
       suggested_action: "link_to_existing",
       source: "deep_import",
       workflow_id: "wf-2",
@@ -412,6 +453,9 @@ describe("worldView render", () => {
       skip: 20,
       limit: 20,
     })
+    expect(api.world.listEntities).toHaveBeenCalledWith(expect.objectContaining({
+      entity_type: "location",
+    }))
     expect(api.world.listEntities).toHaveBeenCalledWith(expect.objectContaining({
       novel_id: "p1",
       display_state: "review",
@@ -479,6 +523,17 @@ describe("候选清洗", () => {
         scene_index: 2,
         confidence_min: 0.8,
       })
+    })
+
+    it("加载失败保留可见错误和重试入口", async () => {
+      state.currentProjectId = "p1"
+      api.world.listEntities.mockRejectedValue(new Error("网络中断"))
+
+      await worldView._loadCandidates()
+
+      expect(worldView._candidateLoadError).toBe("网络中断")
+      expect(worldView._renderCandidatesList()).toContain("retry-candidate-load")
+      expect(toast).toHaveBeenCalledWith("待处理对象加载失败，可重试", "warning")
     })
   })
 
@@ -686,6 +741,7 @@ describe("候选清洗", () => {
     it("待处理对象筛选写入 URL query", async () => {
       state.currentSubView = "review-objects"
       document.body.innerHTML = `
+        <select id="review-candidate-entity-type"><option value="location" selected>地点</option></select>
         <select id="review-candidate-action"><option value="link_to_existing" selected>别名</option></select>
         <input id="review-candidate-source" value="deep_import" />
         <input id="review-candidate-workflow" value="wf-12" />
@@ -699,6 +755,7 @@ describe("候选清洗", () => {
 
       expect(router.navigate).toHaveBeenCalledWith("world", "review-objects", true, expect.any(URLSearchParams))
       const query = router.navigate.mock.calls.at(-1)[3]
+      expect(query.get("entity_type")).toBe("location")
       expect(query.get("suggested_action")).toBe("link_to_existing")
       expect(query.get("source")).toBe("deep_import")
       expect(query.get("workflow_id")).toBe("wf-12")
@@ -728,6 +785,29 @@ describe("候选清洗", () => {
       const query = router.navigate.mock.calls.at(-1)[3]
       expect(query.toString()).toBe("")
       expect(worldView._candidateFilters.skip).toBe(0)
+    })
+
+    it("全部类型可单独清除 location 深链且保留 workflow", async () => {
+      state.currentSubView = "review-objects"
+      worldView._candidateFilters = {
+        skip: 0,
+        limit: 20,
+        entity_type: "location",
+        source: "deep_import",
+        workflow_id: "wf-location",
+      }
+      document.body.innerHTML = `
+        <select id="review-candidate-entity-type"><option value="" selected>全部类型</option></select>
+        <input id="review-candidate-source" value="deep_import" />
+        <input id="review-candidate-workflow" value="wf-location" />
+      `
+
+      await worldView._applyCandidateReviewFilters()
+
+      const query = router.navigate.mock.calls.at(-1)[3]
+      expect(query.get("entity_type")).toBeNull()
+      expect(query.get("source")).toBe("deep_import")
+      expect(query.get("workflow_id")).toBe("wf-location")
     })
   })
 
@@ -1685,46 +1765,84 @@ describe("关系", () => {
 
     it("渲染待处理关系状态", async () => {
       state.currentProjectId = "p1"
-      api.world.listRelationships.mockResolvedValue({
-        items: [
-          {
-            id: "r1",
-            source_id: "src",
-            target_id: "tgt",
-            relation_type: "sibling",
-            status: "candidate",
-          },
-        ],
-      })
-      const html = await worldView._renderRelations({ reviewOnly: true })
-      expect(html).toContain("待处理")
-      expect(html).toContain('data-action="mark-relation-reviewed"')
-      expect(html).toContain("采用")
-      expect(html).toContain("全选当前关系")
-      expect(html).toContain("展开筛选")
-    })
-
-    it("待处理关系队列保留 candidate wire filter 并显示编辑后采用", async () => {
-      state.currentProjectId = "p1"
-      api.world.listRelationships.mockResolvedValue({
-        items: [{
-          id: "r1",
+      api.world.listRelationReviewGroups.mockResolvedValue({
+        groups: [{
+          group_id: "src:tgt",
           source_id: "src",
           source_name: "克莱恩",
           target_id: "tgt",
-          target_name: "值夜者",
-          relation_type: "member_of",
-          status: "candidate",
-          quote: "证据文本",
+          target_name: "邓恩",
+          member_count: 1,
+          evidence_count: 1,
+          type_variants: ["sibling"],
+          scene_indices: [3],
+          source_chapter_indices: [2],
+          canonical_relations: [],
+          execution_fingerprint: "f".repeat(64),
+          members: [{
+            id: "r1",
+            relation_type: "sibling",
+            status: "candidate",
+            strength: 0.8,
+            evidence_summary: { source: "deep_import", scene_index: 3, source_chapter_index: 2, quote: "原文" },
+          }],
         }],
-        total: 1,
+        group_total: 1,
+        item_total: 1,
+      })
+      const html = await worldView._renderRelations({ reviewOnly: true })
+      expect(html).toContain("待处理")
+      expect(html).toContain('data-action="prepare-relation-review"')
+      expect(html).toContain("处理本组")
+      expect(html).toContain("全选当前页关系组")
+      expect(html).toContain("深度导入 · Scene 3 · 第 2 章 · 强度 80%")
+      expect(html).toContain("展开筛选")
+    })
+
+    it("待处理关系按有向对象对分组并显示证据", async () => {
+      state.currentProjectId = "p1"
+      api.world.listRelationReviewGroups.mockResolvedValue({
+        groups: [{
+          group_id: "src:tgt",
+          source_id: "src", source_name: "克莱恩",
+          target_id: "tgt", target_name: "值夜者",
+          member_count: 1, evidence_count: 1,
+          type_variants: ["member_of"], scene_indices: [], source_chapter_indices: [],
+          canonical_relations: [], execution_fingerprint: "f".repeat(64),
+          members: [{ id: "r1", relation_type: "member_of", status: "candidate", evidence_summary: { quote: "证据文本" } }],
+        }],
+        group_total: 1, item_total: 1,
       })
 
       const html = await worldView._renderRelations({ reviewOnly: true })
 
-      expect(api.world.listRelationships).toHaveBeenCalledWith({ novel_id: "p1", skip: 0, limit: 20, status: "candidate" })
-      expect(html).toContain("编辑后采用")
+      expect(api.world.listRelationReviewGroups).toHaveBeenCalledWith({ novel_id: "p1", skip: 0, limit: 20 })
+      expect(html).toContain("克莱恩 → 值夜者")
       expect(html).toContain("证据文本")
+    })
+
+    it("反向关系只显示提示且不进入当前组", async () => {
+      state.currentProjectId = "p1"
+      api.world.listRelationReviewGroups.mockResolvedValue({
+        groups: [{
+          group_id: "src:tgt",
+          source_id: "src", source_name: "甲",
+          target_id: "tgt", target_name: "乙",
+          member_count: 1, evidence_count: 0,
+          type_variants: ["supports"], members: [{ id: "r1", relation_type: "supports" }],
+          canonical_relations: [], execution_fingerprint: "f".repeat(64),
+          reverse_candidate_count: 2,
+          reverse_type_variants: ["opposes"],
+          reverse_canonical_relations: [{ relation_type: "related_to" }],
+        }],
+        group_total: 1, item_total: 1,
+      })
+
+      const html = await worldView._renderRelations({ reviewOnly: true })
+
+      expect(html).toContain("反向关联提示：乙 → 甲")
+      expect(html).toContain("反向记录不会自动归并")
+      expect(html).toContain("2 条候选")
     })
 
     it("关系证据展示导入来源且转义 review_meta 动态内容", () => {
@@ -1756,15 +1874,14 @@ describe("关系", () => {
     it("待处理关系筛选参数传给 API", async () => {
       state.currentProjectId = "p1"
       worldView._relationFilters = { skip: 0, limit: 20, q: "克莱恩", relation_type: "member_of", source_chapter_id: "ch1", strength_min: "0.7", strength_max: "" }
-      api.world.listRelationships.mockResolvedValue({ items: [], total: 0 })
+      api.world.listRelationReviewGroups.mockResolvedValue({ groups: [], group_total: 0, item_total: 0 })
 
       const html = await worldView._renderRelations({ reviewOnly: true })
 
-      expect(api.world.listRelationships).toHaveBeenCalledWith({
+      expect(api.world.listRelationReviewGroups).toHaveBeenCalledWith({
         novel_id: "p1",
         skip: 0,
         limit: 20,
-        status: "candidate",
         q: "克莱恩",
         relation_type: "member_of",
         source_chapter_id: "ch1",
@@ -1782,12 +1899,13 @@ describe("关系", () => {
       })
 
       const html = await worldView._renderRelations()
+      state.currentSubView = "relations"
       await worldView._changeRelationPage(1)
 
       expect(html).toContain('data-action="next-relations-page"')
       expect(html).toContain("共 41 条")
       expect(worldView._relationFilters.skip).toBe(20)
-      expect(router.refresh).toHaveBeenCalled()
+      expect(router.navigate).toHaveBeenCalledWith("world", "relations", true, expect.any(URLSearchParams))
     })
   })
 
@@ -1821,6 +1939,8 @@ describe("关系", () => {
       worldView.showRelationReviewEditForm("r1")
       const body = showModal.mock.calls[0][1].html
       expect(body).toContain("证据文本")
+      expect(body).toContain("强度 50%")
+      expect(body).not.toContain("置信度 50%")
       expect(showModal.mock.calls[0][2][0].text).toBe("采用")
       const handler = captureModalHandler()
       document.body.innerHTML = `
@@ -1843,6 +1963,173 @@ describe("关系", () => {
       }, "p1")
       expect(api.world.reviewEditRelationship.mock.calls[0][1]).not.toHaveProperty("quote")
       expect(api.world.reviewEditRelationship.mock.calls[0][1]).not.toHaveProperty("source_chapter_id")
+    })
+  })
+
+  describe("关系分组决策", () => {
+    it("端点搜索调用全项目对象接口，可选中首批之外的结果", async () => {
+      state.currentProjectId = "p1"
+      worldView._relationGroups = [{
+        group_id: "g1",
+        source_id: "e1", source_name: "源对象",
+        target_id: "e2", target_name: "旧目标",
+        execution_fingerprint: "f".repeat(64),
+        canonical_relations: [],
+        members: [{ id: "r1", relation_type: "friend", description: "旧描述", strength: 0.5 }],
+      }]
+      worldView.showRelationGroupReviewForm("g1")
+      const body = showModal.mock.calls[0][1].html
+      document.body.innerHTML = body
+      api.world.listEntities.mockResolvedValue({
+        items: [{ id: "e25", name: "第二十五个对象", entity_type: "character", status: "canonical" }],
+      })
+      worldView._bindReviewEntitySearch("relation-target", "e2")
+
+      document.getElementById("relation-target-query").value = "二十五"
+      document.getElementById("relation-target-search").click()
+      await vi.waitFor(() => expect(api.world.listEntities).toHaveBeenCalledWith({
+        novel_id: "p1", q: "二十五", skip: 0, limit: 20,
+      }))
+
+      expect(document.getElementById("relation-target-select").innerHTML).toContain("第二十五个对象")
+      expect(document.getElementById("relation-target-select").innerHTML).toContain('value="e25"')
+    })
+
+    it("一次确认只发出一个关系批处理请求并反馈部分失败", async () => {
+      state.currentProjectId = "p1"
+      autoConfirm()
+      const groups = [
+        { group_id: "g1", members: [{ id: "r1" }], execution_fingerprint: "1".repeat(64) },
+        { group_id: "g2", members: [{ id: "r2" }], execution_fingerprint: "2".repeat(64) },
+      ]
+      worldView._relationReviewDrafts = {
+        g1: { client_decision_id: "g1", action: "accept" },
+        g2: { client_decision_id: "g2", action: "accept" },
+      }
+      api.world.reviewRelationsBatch.mockResolvedValue({
+        succeeded_count: 1, stale_count: 0, failed_count: 1,
+        results: [
+          { client_decision_id: "g1", status: "success" },
+          { client_decision_id: "g2", status: "failed", message: "冲突" },
+        ],
+      })
+
+      worldView._applyRelationReviewBatch(groups)
+      await vi.waitFor(() => expect(api.world.reviewRelationsBatch).toHaveBeenCalledTimes(1))
+
+      expect(api.world.reviewRelationsBatch).toHaveBeenCalledWith({
+        confirmed: true,
+        decisions: [
+          { client_decision_id: "g1", action: "accept" },
+          { client_decision_id: "g2", action: "accept" },
+        ],
+      }, "p1")
+      expect(worldView._relationReviewDrafts.g1).toBeUndefined()
+      expect(worldView._relationReviewDrafts.g2).toBeDefined()
+      expect(worldView._relationReviewErrors.g2).toBe("处理失败：冲突")
+      expect(toast).toHaveBeenCalledWith("已处理 1 个关系组，1 个失败", "warning")
+    })
+
+    it("关系批处理超过 20 个决策时不发请求", () => {
+      const groups = Array.from({ length: 21 }, (_, index) => ({
+        group_id: `g${index}`,
+        members: [{ id: `r${index}` }],
+        execution_fingerprint: "f".repeat(64),
+      }))
+      worldView._relationReviewDrafts = Object.fromEntries(groups.map((group) => [
+        group.group_id,
+        { client_decision_id: group.group_id, action: "accept", member_relation_ids: [group.members[0].id] },
+      ]))
+
+      worldView._applyRelationReviewBatch(groups)
+
+      expect(api.world.reviewRelationsBatch).not.toHaveBeenCalled()
+      expect(toast).toHaveBeenCalledWith(expect.stringContaining("单次最多处理 20 个关系决策"), "warning")
+    })
+
+    it("关系批处理累计超过 50 条所选关系时不发请求", () => {
+      const groups = Array.from({ length: 20 }, (_, groupIndex) => ({
+        group_id: `g${groupIndex}`,
+        members: Array.from({ length: 3 }, (_, memberIndex) => ({ id: `r${groupIndex}-${memberIndex}` })),
+        execution_fingerprint: "f".repeat(64),
+      }))
+      worldView._relationReviewDrafts = Object.fromEntries(groups.map((group) => [
+        group.group_id,
+        {
+          client_decision_id: group.group_id,
+          action: "ignore",
+          group_id: group.group_id,
+          member_relation_ids: group.members.map((item) => item.id),
+          expected_execution_fingerprint: group.execution_fingerprint,
+        },
+      ]))
+
+      worldView._applyRelationReviewBatch(groups)
+
+      expect(api.world.reviewRelationsBatch).not.toHaveBeenCalled()
+      expect(toast).toHaveBeenCalledWith(expect.stringContaining("50 条所选关系"), "warning")
+    })
+
+    it("关系批处理网络失败保留草稿并标记可重试原因", async () => {
+      state.currentProjectId = "p1"
+      autoConfirm()
+      const groups = [{ group_id: "g1", members: [{ id: "r1" }], execution_fingerprint: "f".repeat(64) }]
+      worldView._relationReviewDrafts = {
+        g1: { client_decision_id: "g1", action: "accept", member_relation_ids: ["r1"] },
+      }
+      api.world.reviewRelationsBatch.mockRejectedValue(new Error("网络中断"))
+
+      worldView._applyRelationReviewBatch(groups)
+      await vi.waitFor(() => expect(api.world.reviewRelationsBatch).toHaveBeenCalledTimes(1))
+
+      expect(worldView._relationReviewDrafts.g1).toBeDefined()
+      expect(worldView._relationReviewErrors.g1).toBe("网络中断")
+      expect(toast).toHaveBeenCalledWith("网络中断", "error")
+    })
+
+    it("关系决策抽屉显示采用结果预览", () => {
+      worldView._relationGroups = [{
+        group_id: "g1", source_id: "e1", source_name: "甲", target_id: "e2", target_name: "乙",
+        execution_fingerprint: "f".repeat(64), canonical_relations: [],
+        members: [{ id: "r1", relation_type: "friend_of", description: "朋友", strength: 0.8 }],
+      }]
+
+      worldView.showRelationGroupReviewForm("g1")
+
+      const body = showModal.mock.calls[0][1].html
+      expect(body).toContain('id="relation-review-preview"')
+      document.body.innerHTML = body
+      worldView._updateRelationReviewPreview(worldView._relationGroups[0])
+      expect(document.getElementById("relation-review-preview").textContent).toContain("采用后结果预览")
+      expect(document.getElementById("relation-review-preview").textContent).toContain("所选证据：1 条")
+    })
+
+    it("处理完成后自动进入同位置的下一个关系组", async () => {
+      worldView._relationGroups = [{ group_id: "next-group" }]
+      const open = vi.spyOn(worldView, "showRelationGroupReviewForm").mockImplementation(() => {})
+
+      await worldView._advanceRelationReview(0)
+
+      expect(open).toHaveBeenCalledWith("next-group")
+      open.mockRestore()
+    })
+
+    it("当前页处理为空时校正页码并保留滚动位置", async () => {
+      state.currentSubView = "review-relations"
+      worldView._relationGroups = []
+      worldView._relationGroupTotal = 21
+      worldView._relationFilters = { skip: 40, limit: 20, q: "克莱恩" }
+      document.body.innerHTML = '<main id="workspace-content"></main>'
+      document.getElementById("workspace-content").scrollTop = 72
+
+      await worldView._advanceRelationReview(0)
+
+      expect(worldView._relationFilters.skip).toBe(20)
+      expect(router.replace).toHaveBeenCalledWith("world", "review-relations", expect.any(URLSearchParams))
+      const query = router.replace.mock.calls.at(-1)[2]
+      expect(query.get("q")).toBe("克莱恩")
+      expect(query.get("page")).toBe("2")
+      expect(document.getElementById("workspace-content").scrollTop).toBe(72)
     })
   })
 
@@ -1909,9 +2196,13 @@ describe("别名", () => {
 
     it("渲染待处理别名元数据", async () => {
       state.currentProjectId = "p1"
-      api.world.listAliases.mockResolvedValue({
-        items: [
-          {
+      api.world.listAliasReviewGroups.mockResolvedValue({
+        groups: [{
+          group_id: "e1",
+          entity_id: "e1",
+          entity_name: "克莱恩",
+          member_count: 1,
+          members: [{
             alias: "周明瑞",
             alias_type: "name",
             entity_id: "e1",
@@ -1920,33 +2211,62 @@ describe("别名", () => {
             status: "candidate",
             source: "deep_import",
             needs_review: true,
-          },
-        ],
+            execution_fingerprint: "a".repeat(64),
+          }],
+        }],
+        group_total: 1,
+        item_total: 1,
       })
       const html = await worldView._renderAliases({ reviewOnly: true })
       expect(html).toContain("克莱恩")
-      expect(html).toContain("待处理")
       expect(html).toContain("深度导入")
-      expect(html).toContain("91%")
-      expect(html).toContain('data-action="edit-alias-review"')
-      expect(html).toContain("编辑后采用")
-      expect(html).toContain('data-action="mark-alias-reviewed"')
-      expect(html).toContain("全选当前别名")
+      expect(html).toContain("置信度 91%")
+      expect(html).toContain('data-action="prepare-alias-review"')
+      expect(html).toContain("编辑决策")
+      expect(html).toContain("全选当前页别名")
       expect(html).toContain("展开筛选")
+    })
+
+    it("建议队列拥有的别名不进入分组复核选择", async () => {
+      state.currentProjectId = "p1"
+      api.world.listAliasReviewGroups.mockResolvedValue({
+        groups: [{
+          group_id: "shadow",
+          entity_id: "shadow",
+          entity_name: "建议影子",
+          member_count: 1,
+          members: [{
+            alias: "影子别名",
+            alias_type: "alias",
+            entity_id: "shadow",
+            managed_by_suggestion: true,
+            execution_fingerprint: "a".repeat(64),
+          }],
+        }],
+        group_total: 1,
+        item_total: 1,
+      })
+
+      const html = await worldView._renderAliases({ reviewOnly: true })
+
+      expect(html).toContain("随对象建议处理")
+      expect(html).not.toContain('data-action="prepare-alias-review"')
+      expect(html).not.toContain('data-id="shadow::影子别名"')
+      expect(worldView._visibleIdsForBulkScope("world-aliases")).toEqual([])
+      expect(worldView._bulkSelections["world-aliases"]?.size || 0).toBe(0)
     })
 
     it("待处理别名队列按展示态并传递筛选", async () => {
       state.currentProjectId = "p1"
       worldView._aliasFilters = { skip: 0, limit: 20, q: "黑荆棘", source: "deep_import", workflow_id: "wf1", scene_index: "3", confidence_min: "0.8", confidence_max: "", source_chapter_index: "" }
-      api.world.listAliases.mockResolvedValue({ items: [], total: 0 })
+      api.world.listAliasReviewGroups.mockResolvedValue({ groups: [], group_total: 0, item_total: 0 })
 
       const html = await worldView._renderAliases({ reviewOnly: true })
 
-      expect(api.world.listAliases).toHaveBeenCalledWith({
+      expect(api.world.listAliasReviewGroups).toHaveBeenCalledWith({
         novel_id: "p1",
         skip: 0,
         limit: 20,
-        display_state: "review",
         q: "黑荆棘",
         source: "deep_import",
         workflow_id: "wf1",
@@ -1957,25 +2277,110 @@ describe("别名", () => {
       expect(html).toContain("已筛选")
     })
 
-    it("信任后端派生展示态，旧形状影子别名仍显示待处理", async () => {
+    it("分组响应中的自定义别名类型保持原值", async () => {
       state.currentProjectId = "p1"
-      api.world.listAliases.mockResolvedValue({
-        items: [{
-          alias: "影子称号",
-          alias_type: "title",
-          entity_id: "shadow-1",
-          entity_name: "待处理对象",
-          display_state: "review",
-          managed_by_suggestion: true,
+      api.world.listAliasReviewGroups.mockResolvedValue({
+        groups: [{
+          group_id: "e1",
+          entity_id: "e1",
+          entity_name: "克莱恩",
+          member_count: 1,
+          members: [{
+            alias: "夏洛克",
+            alias_type: "别称",
+            entity_id: "e1",
+            entity_name: "克莱恩",
+            type_kind: "custom",
+            suggested_alias_type: "alias",
+            execution_fingerprint: "a".repeat(64),
+          }],
         }],
+        group_total: 1,
+        item_total: 1,
       })
 
       const html = await worldView._renderAliases({ reviewOnly: true })
 
-      expect(html).toContain("待处理")
-      expect(html).not.toContain("已采用")
-      expect(html).toContain("随对象建议处理")
-      expect(html).not.toContain('data-action="delete-alias"')
+      expect(html).toContain("别称")
+      expect(html).toContain("自定义")
+      worldView.showAliasReviewDecisionForm("e1", "夏洛克")
+      expect(showModal.mock.calls[0][1].html).toContain("保留原类型：别称")
+      expect(showModal.mock.calls[0][1].html).toContain('value="别称" selected')
+    })
+
+    it("别名决策编辑器把 Workflow 和 Scene UUID 收进诊断折叠区", () => {
+      worldView._aliases = [{
+        entity_id: "e1", entity_name: "克莱恩", alias: "夏洛克", alias_type: "别称",
+        source: "deep_import", workflow_id: "workflow-secret", scene_id: "scene-uuid-secret", scene_index: 3,
+        confidence: 0.9, quote: "原文", execution_fingerprint: "a".repeat(64),
+      }]
+
+      worldView.showAliasReviewDecisionForm("e1", "夏洛克")
+      const body = showModal.mock.calls[0][1].html
+
+      expect(body).toContain("深度导入")
+      expect(body).toContain("Scene 3")
+      expect(body.indexOf("<details>")).toBeLessThan(body.indexOf("workflow-secret"))
+      expect(body).not.toContain("<strong>Workflow：</strong>")
+    })
+
+    it("别名目标搜索排除 suggestion shadow", async () => {
+      state.currentProjectId = "p1"
+      document.body.innerHTML = `
+        <input id="alias-target-query" value="克莱恩" />
+        <button id="alias-target-search"></button>
+        <select id="alias-target-id"></select>
+      `
+      api.world.listEntities.mockResolvedValue({ items: [
+        { id: "shadow", name: "克莱恩建议影子", status: "candidate", content_json: { _meta: { compatibility_shadow: true } } },
+        { id: "valid", name: "克莱恩", status: "canonical", content_json: {} },
+      ] })
+
+      worldView._bindAliasTargetSearch({ sourceId: "source" })
+      document.getElementById("alias-target-search").click()
+      await vi.waitFor(() => expect(api.world.listEntities).toHaveBeenCalled())
+
+      expect(document.getElementById("alias-target-id").innerHTML).toContain('value="valid"')
+      expect(document.getElementById("alias-target-id").innerHTML).not.toContain('value="shadow"')
+    })
+
+    it("别名批处理超过 50 条时不发请求", () => {
+      const items = Array.from({ length: 51 }, (_, index) => ({
+        entity_id: `e${index}`, alias: `别名${index}`, execution_fingerprint: "a".repeat(64),
+      }))
+
+      worldView._applyAliasReviewBatch(items, "accept")
+
+      expect(api.world.reviewAliasesBatch).not.toHaveBeenCalled()
+      expect(toast).toHaveBeenCalledWith(expect.stringContaining("单次最多处理 50 条别名"), "warning")
+    })
+
+    it("别名部分失败保留草稿并显示具体原因", async () => {
+      state.currentProjectId = "p1"
+      autoConfirm()
+      const items = [
+        { entity_id: "e1", alias: "成功项", execution_fingerprint: "a".repeat(64) },
+        { entity_id: "e2", alias: "冲突项", execution_fingerprint: "b".repeat(64) },
+      ]
+      worldView._aliases = items
+      worldView._aliasReviewDrafts = {
+        "e1::成功项": { alias_type: "alias" },
+        "e2::冲突项": { alias_type: "别称" },
+      }
+      api.world.reviewAliasesBatch.mockResolvedValue({
+        succeeded_count: 1, stale_count: 1, failed_count: 0,
+        results: [
+          { client_decision_id: "alias-0-e1", status: "success" },
+          { client_decision_id: "alias-1-e2", status: "stale", message: "已被其他复核修改" },
+        ],
+      })
+
+      worldView._applyAliasReviewBatch(items, "accept")
+      await vi.waitFor(() => expect(api.world.reviewAliasesBatch).toHaveBeenCalledTimes(1))
+
+      expect(worldView._aliasReviewDrafts["e1::成功项"]).toBeUndefined()
+      expect(worldView._aliasReviewDrafts["e2::冲突项"]).toBeDefined()
+      expect(worldView._aliasReviewErrors["e2::冲突项"]).toBe("已过期：已被其他复核修改")
     })
 
     it("同一对象的多个别名聚合显示", async () => {
@@ -2008,12 +2413,13 @@ describe("别名", () => {
       })
 
       const html = await worldView._renderAliases()
+      state.currentSubView = "aliases"
       await worldView._changeAliasPage(1)
 
       expect(html).toContain('data-action="next-aliases-page"')
       expect(html).toContain("共 22 条")
       expect(worldView._aliasFilters.skip).toBe(20)
-      expect(router.refresh).toHaveBeenCalled()
+      expect(router.navigate).toHaveBeenCalledWith("world", "aliases", true, expect.any(URLSearchParams))
     })
   })
 

@@ -23,6 +23,7 @@ import {
 const uuidPattern = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
 
 async function openMapWorkspace(page, project, map, params = {}) {
+  await openWorkbench(page, project, "map")
   const query = new URLSearchParams({
     map_id: map.id,
     mode: params.mode || "dashboard",
@@ -53,7 +54,13 @@ async function createObservation(novelId, mapId, data) {
       hex_r: data.hexR ?? 1,
       location_name: data.locationName || "洛阳外城",
     },
-    value_json: { state: data.dynamicType, label: data.targetName },
+    value_json: data.dynamicType === "position_change"
+      ? {
+          schema_version: 1,
+          type: "location",
+          state: "present",
+        }
+      : { state: data.dynamicType, label: data.targetName },
     confidence: data.confidence ?? 0.8,
     source_ref: {
       source: "chaos_e2e",
@@ -63,6 +70,7 @@ async function createObservation(novelId, mapId, data) {
     evidence_text: data.evidence || `${data.targetName} 出现在地图上下文。`,
     scene_id: data.sceneId,
     scene_index: data.sceneIndex,
+    source_chapter_index: 1,
     review_state: data.reviewState,
   })
 }
@@ -291,7 +299,7 @@ test.describe("世界动态地图混乱路径", () => {
     )
     expect(dashboardAfterIgnore.dynamic_queue.map((item) => item.title)).not.toContain("暗门传闻")
 
-    await confirmMapObservation(fixture.project.id, fixture.map.id, fixture.observations.high.id)
+    await confirmMapObservation(fixture.project.id, fixture.map.id, fixture.observations.high)
     let playback = await getMapPlayback(fixture.project.id, fixture.map.id, {
       includeCandidates: false,
     })

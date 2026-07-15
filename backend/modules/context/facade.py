@@ -8,6 +8,7 @@ Facade 不写复杂业务逻辑，只做稳定的对外代理。
 from __future__ import annotations
 
 import hashlib
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +34,7 @@ from modules.context.services import (
     ContextCompiler,
     ContextConfirmationService,
     ContextSnapshotService,
+    DurableContextSnapshotService,
 )
 from modules.context.services.compiled_context import CompiledContext
 from modules.context.services.confirmed_ai_action import ConfirmedAIActionService
@@ -42,6 +44,7 @@ _compiler = ContextCompiler()
 _confirmation_service = ContextConfirmationService()
 _confirmed_ai_action_service = ConfirmedAIActionService(_confirmation_service)
 _snapshot_service = ContextSnapshotService()
+_durable_snapshot_service = DurableContextSnapshotService(_snapshot_service)
 _hidden_guard_builder = HiddenGuardBuilder()
 
 
@@ -318,29 +321,37 @@ async def compile_generation_background(
     selected_world_bible_draft_ids: list[str] | None = None,
     activation_profile_id: str | None = None,
     activation_profile_version: int | None = None,
-    operation: str = "world.object_draft.generate",
-    prompt_name: str = "generation_center_world_object_draft",
+    operation: str = "world.generation.core_entity",
+    prompt_name: str = "world.generation.core_entity.structured",
     model: str = "project-default",
     focus_text: str = "",
     reference_chapter_index: int | None = None,
+    scene_id: str | None = None,
+    thread_ids: list[str] | None = None,
+    character_ids: list[str] | None = None,
+    entity_ids: list[str] | None = None,
+    source_snapshot: dict | None = None,
 ) -> dict:
     """Compile the actual author-only background consumed by generation center."""
-    is_object_generation = operation in {
-        "world.object_draft.chat",
-        "world.object_draft.generate",
+    is_world_generation = operation in {
+        "world.generation.chat",
+        "world.generation.core_entity",
+        "world.generation.world_bible_page",
     }
     normalized_focus = " ".join((focus_text or "").split())[:4000]
     compile_task = f"{task}：{normalized_focus}" if normalized_focus else task
     options = CompileOptions(
         novel_id=novel_id,
         task=compile_task,
-        scope="generation_center" if is_object_generation else "world",
+        scope="generation_center" if is_world_generation else "world",
         reveal_mode="author_safe",
-        retrieval_purpose=(
-            "world_object_generation" if is_object_generation else "world_fusion"
-        ),
+        retrieval_purpose=("world_generation" if is_world_generation else "world_fusion"),
         consumer_action=operation,
         chapter_index=reference_chapter_index,
+        scene_id=scene_id,
+        thread_ids=thread_ids,
+        character_ids=character_ids,
+        entity_ids=entity_ids,
         include_world_synopsis=include_world_synopsis,
         selected_world_bible_draft_ids=selected_world_bible_draft_ids or [],
         activation_profile_id=activation_profile_id,
@@ -366,13 +377,13 @@ async def compile_generation_background(
     usage = {
         "included": bool(compiled.sections),
         "section_key": (
-            "generation_background" if is_object_generation else "world_bible_synopsis"
+            "generation_background" if is_world_generation else "world_bible_synopsis"
         ),
         "revision_id": metadata.get("revision_id"),
         "source_hash": metadata.get("source_hash"),
         "block_hash": metadata.get("block_hash"),
         "token_count": total_tokens
-        if is_object_generation
+        if is_world_generation
         else (synopsis.token_count if synopsis else 0),
         "stale": bool(metadata.get("stale")),
         "fallback": bool(metadata.get("fallback")),
@@ -417,10 +428,11 @@ async def compile_generation_background(
             "token_count": section.token_count,
             "source_count": len(section.sources),
             "retrieval_metadata": dict(section.retrieval_metadata or {}),
+            "truncated_reason": section.truncated_reason,
         }
         for section in compiled.sections
     }
-    snapshot = await create_context_snapshot(
+    snapshot = await _create_generation_context_snapshot(
         db,
         novel_id=novel_id,
         phase="generation_background",
@@ -442,6 +454,12 @@ async def compile_generation_background(
             "retrieval_purpose": options.retrieval_purpose,
             "consumer_action": options.consumer_action,
             "reference_chapter_index": reference_chapter_index,
+            "effective_chapter_index": options.chapter_index,
+            "scene_id": options.scene_id,
+            "requested_thread_ids": list(options.thread_ids or []),
+            "requested_character_ids": list(options.character_ids or []),
+            "requested_entity_ids": list(options.entity_ids or []),
+            "source_snapshot": dict(source_snapshot or {}),
             "budget_tokens": options.budget_tokens,
             "include_world_synopsis": options.include_world_synopsis,
             "selected_world_bible_draft_ids": list(
@@ -462,6 +480,14 @@ async def compile_generation_background(
         context_summary={
             "section_keys": [section.key for section in compiled.sections],
             "warning_count": len(compiled.warnings),
+            "warnings": list(compiled.warnings),
+            "evicted_keys": list(compiled.evicted_keys),
+            "truncated_keys": list(compiled.truncated_keys),
+            "budget_events": [
+                item.model_dump(mode="json") for item in compiled.budget_events
+            ],
+            "actual_included_asset_ids": included_asset_ids,
+            "generation_selection": dict(compiled.selection_trace),
             "synopsis": usage,
             "activation": dict(compiled.activation_trace),
         },
@@ -1064,11 +1090,33 @@ async def create_context_snapshot(
     )
 
 
+async def _create_generation_context_snapshot(
+    db: AsyncSession,
+    **request_fields: Any,
+) -> ContextSnapshotContract:
+    """Open a generation snapshot in a context-owned transaction."""
+    return await open_generation_context_snapshot(
+        db,
+        ContextSnapshotRequest(**request_fields),
+    )
+
+
 async def open_context_snapshot(
     db: AsyncSession,
     request: ContextSnapshotRequest,
 ) -> ContextSnapshotContract:
     return await _snapshot_service.open_context_snapshot(
+        db,
+        request,
+    )
+
+
+async def open_generation_context_snapshot(
+    db: AsyncSession,
+    request: ContextSnapshotRequest,
+) -> ContextSnapshotContract:
+    """Durably open a generation snapshot outside the caller transaction."""
+    return await _durable_snapshot_service.open_context_snapshot(
         db,
         request,
     )
@@ -1100,6 +1148,20 @@ async def succeed_context_snapshot(
     )
 
 
+async def succeed_generation_context_snapshot(
+    db: AsyncSession,
+    *,
+    snapshot_id: str,
+    result_refs: list[dict],
+) -> ContextSnapshotContract:
+    """Durably close a generation snapshot as succeeded."""
+    return await _durable_snapshot_service.succeed_context_snapshot(
+        db,
+        snapshot_id=snapshot_id,
+        result_refs=result_refs,
+    )
+
+
 async def mark_context_snapshot_failed(
     db: AsyncSession,
     *,
@@ -1123,6 +1185,22 @@ async def fail_context_snapshot(
     error_message: str,
 ) -> ContextSnapshotContract:
     return await _snapshot_service.fail_context_snapshot(
+        db,
+        snapshot_id=snapshot_id,
+        error_kind=error_kind,
+        error_message=error_message,
+    )
+
+
+async def fail_generation_context_snapshot(
+    db: AsyncSession,
+    *,
+    snapshot_id: str,
+    error_kind: str,
+    error_message: str,
+) -> ContextSnapshotContract:
+    """Durably close a generation snapshot as failed."""
+    return await _durable_snapshot_service.fail_context_snapshot(
         db,
         snapshot_id=snapshot_id,
         error_kind=error_kind,

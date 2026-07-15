@@ -14,7 +14,7 @@ describe("mapRouteContext", () => {
     })
 
     expect(url).toBe(
-      "#workbench/p1/map?map_id=m1&scene_id=s1&focus_entity_id=f1&mode=map"
+      "#workbench/p1/map?map_id=m1&scene_id=s1&focus_entity_id=f1&mode=live"
     )
   })
 
@@ -61,7 +61,7 @@ describe("mapRouteContext", () => {
       focusHexR: null,
       focusPathId: null,
       focusLayerNodeId: null,
-      mode: "map",
+      mode: "live",
     })
   })
 
@@ -71,4 +71,28 @@ describe("mapRouteContext", () => {
     expect(context.mode).toBe("overview")
     expect(context.projectId).toBe("p1")
   })
+
+  it("normalizes invalid coordinates and legacy map mode", () => {
+    const context = parseMapRouteContext(
+      "#workbench/p1/map?map_id=m1&focus_hex_q=nope&focus_hex_r=3&mode=map"
+    )
+
+    expect(context).toMatchObject({
+      focusHexQ: null,
+      focusHexR: 3,
+      mode: "live",
+    })
+  })
+
+  it.each(["", "   ", "Infinity", "-Infinity", "NaN"])(
+    "treats an invalid focus coordinate %j as absent",
+    (value) => {
+      const context = parseMapRouteContext(
+        `#workbench/p1/map?map_id=m1&focus_hex_q=${encodeURIComponent(value)}&focus_hex_r=4`,
+      )
+
+      expect(context.focusHexQ).toBeNull()
+      expect(context.focusHexR).toBe(4)
+    },
+  )
 })

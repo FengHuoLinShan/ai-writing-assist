@@ -6,9 +6,16 @@ Phase 1 (Scene 切分) 与 Phase 2 (按 Scene 实体提取) 的真实 LLM 输出
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 _AI_WORLD_ENTITY_TYPES = {
     "character",
@@ -535,14 +542,87 @@ class DeltaEvent(BaseModel):
         return {"note": note} if note else {}
 
 
+class ExtractedMapProposalBase(BaseModel):
+    """LLM-only evidence contract; system provenance is added deterministically."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    quote: str = Field(..., min_length=1, max_length=8000)
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    supporting_scene_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("quote", mode="before")
+    @classmethod
+    def _normalize_quote(cls, value: Any) -> str:
+        return _coerce_short_text(value).strip()
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _normalize_confidence(cls, value: Any) -> float:
+        return _coerce_score(value, default=0.7)
+
+    @field_validator("supporting_scene_ids", mode="before")
+    @classmethod
+    def _normalize_scene_ids(cls, value: Any) -> list[str]:
+        return _coerce_string_list(value)
+
+
+class ExtractedCharacterLocationProposal(ExtractedMapProposalBase):
+    proposal_type: Literal["character_location"]
+    character_name: str = Field(..., min_length=1, max_length=255)
+    location_name: str | None = Field(None, max_length=255)
+    movement_mode: Literal[
+        "walk", "ride", "vehicle", "rail", "water", "flight", "teleport", "unknown"
+    ] = "unknown"
+    state: str = Field("present", min_length=1, max_length=64)
+
+
+class ExtractedEventLocationProposal(ExtractedMapProposalBase):
+    proposal_type: Literal["event_location"]
+    event_name: str = Field(..., min_length=1, max_length=255)
+    location_name: str | None = Field(None, max_length=255)
+    state: str = Field("occurred", min_length=1, max_length=64)
+
+
+class ExtractedRouteStateProposal(ExtractedMapProposalBase):
+    proposal_type: Literal["route_state"]
+    path_name: str | None = Field(None, max_length=255)
+    state: Literal["open", "restricted", "blocked"]
+    reason: str | None = Field(None, max_length=1000)
+
+
+class ExtractedBoundaryProposal(ExtractedMapProposalBase):
+    proposal_type: Literal["boundary"]
+    controller_name: str | None = Field(None, max_length=255)
+    area_description: str | None = Field(None, max_length=2000)
+
+
+ExtractedMapObservationProposal = Annotated[
+    ExtractedCharacterLocationProposal
+    | ExtractedEventLocationProposal
+    | ExtractedRouteStateProposal
+    | ExtractedBoundaryProposal,
+    Field(discriminator="proposal_type"),
+]
+
+
 class SceneEntityExtractionOutput(BaseModel):
     """Phase 2 LLM 输出结构：Scene 正文 → entities/relations/delta_events。"""
 
     entities: list[ExtractedEntity] = Field(default_factory=list)
     relations: list[ExtractedRelation] = Field(default_factory=list)
     delta_events: list[DeltaEvent] = Field(default_factory=list)
+    map_observation_proposals: list[ExtractedMapObservationProposal] = Field(
+        default_factory=list
+    )
 
-    @field_validator("entities", "relations", "delta_events", mode="before")
+    @field_validator(
+        "entities",
+        "relations",
+        "delta_events",
+        "map_observation_proposals",
+        mode="before",
+    )
     @classmethod
     def _normalize_optional_lists(cls, value: Any) -> list[Any]:
         return _coerce_list_or_empty(value)
@@ -686,8 +766,18 @@ class Phase2WorldExtractionOutput(BaseModel):
     relations: list[Phase2WorldRelation] = Field(default_factory=list)
     deltas: list[Phase2WorldDelta] = Field(default_factory=list)
     uncertain_items: list[Phase2WorldUncertainItem] = Field(default_factory=list)
+    map_observation_proposals: list[ExtractedMapObservationProposal] = Field(
+        default_factory=list
+    )
 
-    @field_validator("objects", "relations", "deltas", "uncertain_items", mode="before")
+    @field_validator(
+        "objects",
+        "relations",
+        "deltas",
+        "uncertain_items",
+        "map_observation_proposals",
+        mode="before",
+    )
     @classmethod
     def _normalize_optional_lists(cls, value: Any) -> list[Any]:
         return _coerce_list_or_empty(value)

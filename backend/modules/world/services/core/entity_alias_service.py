@@ -14,15 +14,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.errors import ConflictError, NotFoundError
 from core.errors import ValidationError as DomainValidationError
 from modules.world.repositories import CoreEntityRepository
-from modules.world.schemas import CoreEntityUpdate
+from modules.world.schemas import (
+    CoreEntityUpdate,
+    EntityAliasReviewBatchRequest,
+    EntityAliasReviewGroupListResponse,
+    ReviewBatchResponse,
+)
 from modules.world.services.common import parse_uuid
 from modules.world.services.core.dedup_service import EntityDedupService
+from modules.world.services.core.review_queue import (
+    stable_fingerprint,
+    suggest_alias_type,
+)
 
 logger = logging.getLogger(__name__)
 
-# 别名列表一次性拉取的实体上限（低并发场景，分页作用于别名列表）。
-MAX_LIST_ALIAS_ENTITIES = 10000
+ALIAS_ENTITY_SCAN_BATCH = 1000
 ALIAS_TARGET_STATUSES = {"draft", "canonical", "candidate"}
+
+
+class _StaleAliasReviewDecisionError(Exception):
+    pass
 
 
 class EntityAliasService:
@@ -41,6 +53,18 @@ class EntityAliasService:
         if isinstance(alias_item, str):
             return alias_item.strip(), "name"
         return alias_item.get("alias", "").strip(), alias_item.get("type", "name")
+
+    def _alias_execution_fingerprint(
+        self,
+        entity_id: object,
+        alias_item: str | dict,
+    ) -> str:
+        return stable_fingerprint(
+            {
+                "entity_id": str(entity_id),
+                "alias_item": alias_item,
+            }
+        )
 
     def _candidate_alias_payload(
         self,
@@ -96,6 +120,10 @@ class EntityAliasService:
             "reviewed_by": alias_item.get("reviewed_by"),
             "reviewed_from": alias_item.get("reviewed_from"),
             "quote": alias_item.get("quote"),
+            "evidence_refs": list(alias_item.get("evidence_refs") or []),
+            "execution_fingerprint": self._alias_execution_fingerprint(
+                entity.id, alias_item
+            ),
             "managed_by_suggestion": bool(
                 owner_meta.get("compatibility_shadow") and owner_meta.get("suggestion_id")
             ),
@@ -103,6 +131,10 @@ class EntityAliasService:
         }
         return {
             **response,
+            "suggested_alias_type": suggest_alias_type(response["alias_type"]),
+            "type_kind": "recommended"
+            if suggest_alias_type(response["alias_type"]) == response["alias_type"]
+            else "custom",
             **project_alias_state(
                 status=response["status"],
                 source=response["source"],
@@ -306,11 +338,8 @@ class EntityAliasService:
 
     async def _collect_aliases(self, db: AsyncSession, novel_id: str) -> list[dict]:
         nid = parse_uuid(novel_id, "novel_id")
-        entities = await self.repo.list_by_novel(
-            db,
-            nid,
-            include_archived=True,
-            limit=MAX_LIST_ALIAS_ENTITIES,
+        entities = await self._list_all_entities(
+            db, nid, include_archived=True
         )
         result: list[dict] = []
         for entity in entities:
@@ -359,6 +388,12 @@ class EntityAliasService:
                     "quote": alias_item.get("quote")
                     if isinstance(alias_item, dict)
                     else None,
+                    "evidence_refs": list(alias_item.get("evidence_refs") or [])
+                    if isinstance(alias_item, dict)
+                    else [],
+                    "execution_fingerprint": self._alias_execution_fingerprint(
+                        entity.id, alias_item
+                    ),
                     "managed_by_suggestion": bool(
                         owner_meta.get("compatibility_shadow")
                         and owner_meta.get("suggestion_id")
@@ -370,6 +405,13 @@ class EntityAliasService:
                 result.append(
                     {
                         **response,
+                        "suggested_alias_type": suggest_alias_type(
+                            response["alias_type"]
+                        ),
+                        "type_kind": "recommended"
+                        if suggest_alias_type(response["alias_type"])
+                        == response["alias_type"]
+                        else "custom",
                         **project_alias_state(
                             status=response["status"],
                             source=response["source"],
@@ -380,6 +422,262 @@ class EntityAliasService:
                     }
                 )
         return result
+
+    async def _list_all_entities(
+        self,
+        db: AsyncSession,
+        novel_id,
+        *,
+        include_archived: bool,
+    ) -> list:
+        """Scan the full stable entity order instead of truncating queue totals."""
+        entities = []
+        skip = 0
+        while True:
+            page = await self.repo.list_by_novel(
+                db,
+                novel_id,
+                include_archived=include_archived,
+                skip=skip,
+                limit=ALIAS_ENTITY_SCAN_BATCH,
+            )
+            entities.extend(page)
+            if len(page) < ALIAS_ENTITY_SCAN_BATCH:
+                break
+            skip += len(page)
+        return entities
+
+    async def list_review_groups(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        q: str | None = None,
+        source: str | None = None,
+        workflow_id: str | None = None,
+        scene_id: str | None = None,
+        scene_index: int | None = None,
+        source_chapter_index: int | None = None,
+        confidence_min: float | None = None,
+        confidence_max: float | None = None,
+        has_quote: bool | None = None,
+        type_kind: str | None = None,
+        multi_alias_only: bool = False,
+        skip: int = 0,
+        limit: int = 20,
+    ) -> EntityAliasReviewGroupListResponse:
+        aliases = await self._collect_aliases(db, novel_id)
+        aliases = self._filter_aliases(
+            aliases,
+            q=q,
+            display_state="review",
+            source=source,
+            workflow_id=workflow_id,
+            scene_id=scene_id,
+            scene_index=scene_index,
+            source_chapter_index=source_chapter_index,
+            confidence_min=confidence_min,
+            confidence_max=confidence_max,
+        )
+        filtered: list[dict] = []
+        for item in aliases:
+            quote_present = bool(
+                str(item.get("quote") or "").strip() or item.get("evidence_refs")
+            )
+            if has_quote is not None and quote_present is not has_quote:
+                continue
+            if type_kind and item.get("type_kind") != type_kind:
+                continue
+            filtered.append(item)
+
+        grouped: dict[str, list[dict]] = {}
+        for item in filtered:
+            grouped.setdefault(str(item["entity_id"]), []).append(item)
+        if multi_alias_only:
+            grouped = {
+                entity_id: members
+                for entity_id, members in grouped.items()
+                if len(members) > 1
+            }
+        ordered = sorted(
+            grouped.items(),
+            key=lambda item: (
+                str(item[1][0].get("entity_name") or ""),
+                item[0],
+            ),
+        )
+        item_total = sum(len(members) for _entity_id, members in ordered)
+        page = ordered[skip : skip + min(limit, 50)]
+        return EntityAliasReviewGroupListResponse(
+            groups=[
+                {
+                    "group_id": f"alias-owner-{entity_id}",
+                    "entity_id": entity_id,
+                    "entity_name": members[0].get("entity_name"),
+                    "member_count": len(members),
+                    "members": members,
+                }
+                for entity_id, members in page
+            ],
+            group_total=len(ordered),
+            item_total=item_total,
+            skip=skip,
+            limit=min(limit, 50),
+        )
+
+    async def review_batch(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        data: EntityAliasReviewBatchRequest,
+    ) -> ReviewBatchResponse:
+        nid = parse_uuid(novel_id, "novel_id")
+        entity_ids = []
+        for decision in data.decisions:
+            for raw_id in (decision.entity_id, decision.target_entity_id):
+                if not raw_id:
+                    continue
+                try:
+                    entity_ids.append(parse_uuid(raw_id, "entity_id"))
+                except Exception:
+                    continue
+        await self.repo.get_many_for_update(db, nid, entity_ids)
+        results: list[dict] = []
+        for decision in data.decisions:
+            try:
+                async with db.begin_nested():
+                    result = await self._apply_review_decision(
+                        db,
+                        novel_id,
+                        decision,
+                    )
+                results.append(
+                    {
+                        "client_decision_id": decision.client_decision_id,
+                        "status": "success",
+                        "action": decision.action,
+                        **result,
+                    }
+                )
+            except _StaleAliasReviewDecisionError:
+                results.append(
+                    {
+                        "client_decision_id": decision.client_decision_id,
+                        "status": "stale",
+                        "action": decision.action,
+                        "error_code": "stale_execution",
+                        "message": "待处理别名已发生变化，请刷新后重试",
+                    }
+                )
+            except Exception as exc:
+                results.append(
+                    {
+                        "client_decision_id": decision.client_decision_id,
+                        "status": "failed",
+                        "action": decision.action,
+                        "error_code": getattr(exc, "code", "review_failed"),
+                        "message": getattr(exc, "message", "别名复核失败"),
+                    }
+                )
+        succeeded = sum(item["status"] == "success" for item in results)
+        stale = sum(item["status"] == "stale" for item in results)
+        return ReviewBatchResponse(
+            requested_count=len(data.decisions),
+            succeeded_count=succeeded,
+            stale_count=stale,
+            failed_count=len(results) - succeeded - stale,
+            results=results,
+        )
+
+    async def _apply_review_decision(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        decision,
+    ) -> dict:
+        nid = parse_uuid(novel_id, "novel_id")
+        source_id = parse_uuid(decision.entity_id, "entity_id")
+        target_id = parse_uuid(
+            decision.target_entity_id or decision.entity_id,
+            "target_entity_id",
+        )
+        entities = {}
+        for entity_id in sorted({source_id, target_id}, key=str):
+            entity = await self.repo.get_for_update(
+                db,
+                entity_id,
+                novel_id=nid,
+            )
+            if entity is None or entity.novel_id != nid:
+                raise NotFoundError("Entity not found")
+            entities[entity_id] = entity
+        source = entities[source_id]
+        self._assert_not_pending_suggestion_shadow(source)
+        source_aliases = list((source.content_json or {}).get("aliases", []))
+        index = self._find_alias_index(source_aliases, decision.original_alias)
+        if index < 0:
+            raise _StaleAliasReviewDecisionError
+        current = source_aliases[index]
+        if self._alias_execution_fingerprint(source.id, current) != (
+            decision.expected_execution_fingerprint
+        ):
+            raise _StaleAliasReviewDecisionError
+
+        if decision.action == "accept":
+            result = await self.edit_alias(
+                db,
+                novel_id,
+                decision.entity_id,
+                decision.original_alias,
+                target_entity_id=decision.target_entity_id,
+                alias=decision.alias,
+                alias_type=decision.alias_type,
+                confirm_review=True,
+            )
+            return {"affected_ids": result.get("affected_ids") or []}
+
+        alias_text, alias_type = self._normalize_alias_item(current)
+        updated = (
+            dict(current)
+            if isinstance(current, dict)
+            else {"alias": alias_text, "type": alias_type}
+        )
+        reviewed_at = datetime.now(UTC).isoformat()
+        history = list(updated.get("review_history") or [])
+        history.append(
+            {
+                "review_action": "alias_review_ignored",
+                "reviewed_at": reviewed_at,
+                "reviewed_by": "manual",
+                "reviewed_from": "world_aliases_review_batch",
+                "review_before": dict(updated),
+            }
+        )
+        updated.update(
+            {
+                "alias": alias_text,
+                "type": alias_type,
+                "status": "ignored",
+                "needs_review": False,
+                "reviewed_at": reviewed_at,
+                "reviewed_by": "manual",
+                "reviewed_from": "world_aliases_review_batch",
+                "review_history": history,
+            }
+        )
+        source_aliases[index] = updated
+        content = dict(source.content_json or {})
+        content["aliases"] = source_aliases
+        source.content_json = content
+        db.add(source)
+        await db.flush()
+        await self._mark_context_changed(
+            db,
+            novel_id=novel_id,
+            entity_id=str(source.id),
+            reason="alias_ignored",
+        )
+        return {"affected_ids": [str(source.id)]}
 
     async def create_alias(
         self,
@@ -399,7 +697,7 @@ class EntityAliasService:
         """为实体添加别名；重复时抛 409。"""
         nid = parse_uuid(novel_id, "novel_id")
         eid = parse_uuid(entity_id, "entity_id")
-        entity = await self.repo.get(db, eid)
+        entity = await self.repo.get_for_update(db, eid, novel_id=nid)
         if entity is None or entity.novel_id != nid:
             raise NotFoundError("Entity not found")
         self._assert_not_pending_suggestion_shadow(entity)
@@ -447,7 +745,7 @@ class EntityAliasService:
         """更新实体别名条目的元数据；None 值表示移除对应字段。"""
         nid = parse_uuid(novel_id, "novel_id")
         eid = parse_uuid(entity_id, "entity_id")
-        entity = await self.repo.get(db, eid)
+        entity = await self.repo.get_for_update(db, eid, novel_id=nid)
         if entity is None or entity.novel_id != nid:
             raise NotFoundError("Entity not found")
         self._assert_not_pending_suggestion_shadow(entity)
@@ -513,17 +811,20 @@ class EntityAliasService:
         """Edit alias text/type and optionally move it to another target entity."""
         nid = parse_uuid(novel_id, "novel_id")
         source_eid = parse_uuid(entity_id, "entity_id")
-        source = await self.repo.get(db, source_eid)
-        if source is None or source.novel_id != nid:
+        target_eid = (
+            parse_uuid(target_entity_id, "target_entity_id")
+            if target_entity_id
+            else source_eid
+        )
+        locked = await self.repo.get_many_for_update(db, nid, [source_eid, target_eid])
+        locked_by_id = {entity.id: entity for entity in locked}
+        source = locked_by_id.get(source_eid)
+        target = locked_by_id.get(target_eid)
+        if source is None:
             raise NotFoundError("Entity not found")
+        if target is None:
+            raise NotFoundError("Target entity not found")
         self._assert_not_pending_suggestion_shadow(source)
-
-        target = source
-        if target_entity_id:
-            target_eid = parse_uuid(target_entity_id, "target_entity_id")
-            target = await self.repo.get(db, target_eid)
-            if target is None or target.novel_id != nid:
-                raise NotFoundError("Target entity not found")
         self._assert_valid_target(target)
 
         source_content = dict(source.content_json or {})
@@ -613,8 +914,10 @@ class EntityAliasService:
         nid = parse_uuid(novel_id, "novel_id")
         cid = parse_uuid(candidate_id, "candidate_id")
         tid = parse_uuid(target_entity_id, "target_entity_id")
-        candidate = await self.repo.get(db, cid)
-        target = await self.repo.get(db, tid)
+        locked = await self.repo.get_many_for_update(db, nid, [cid, tid])
+        locked_by_id = {entity.id: entity for entity in locked}
+        candidate = locked_by_id.get(cid)
+        target = locked_by_id.get(tid)
         if candidate is None or candidate.novel_id != nid:
             raise NotFoundError("Candidate entity not found")
         if target is None or target.novel_id != nid:
@@ -648,8 +951,6 @@ class EntityAliasService:
 
         target_content = dict(target.content_json or {})
         target_aliases = list(target_content.get("aliases", []))
-        if self._has_duplicate_alias(target_aliases, normalized_alias):
-            raise ConflictError(f"Alias already exists: {normalized_alias}")
 
         candidate_meta = dict((candidate.content_json or {}).get("_meta") or {})
         alias_payload = {
@@ -678,7 +979,23 @@ class EntityAliasService:
             if candidate_meta.get(key) is not None:
                 alias_payload[key] = candidate_meta[key]
 
-        target_aliases.append(alias_payload)
+        existing_index = next(
+            (
+                index
+                for index, item in enumerate(target_aliases)
+                if self._has_duplicate_alias([item], normalized_alias)
+            ),
+            None,
+        )
+        if existing_index is None:
+            target_aliases.append(alias_payload)
+        else:
+            existing = target_aliases[existing_index]
+            target_aliases[existing_index] = {
+                **(existing if isinstance(existing, dict) else {}),
+                **alias_payload,
+            }
+            alias_payload = target_aliases[existing_index]
         target_content["aliases"] = target_aliases
         target.content_json = target_content
 
@@ -755,7 +1072,7 @@ class EntityAliasService:
         """追加深度导入产生的待复核别名，已存在时返回 False。"""
         nid = parse_uuid(novel_id, "novel_id")
         eid = parse_uuid(entity_id, "entity_id")
-        entity = await self.repo.get(db, eid)
+        entity = await self.repo.get_for_update(db, eid, novel_id=nid)
         if entity is None or entity.novel_id != nid:
             raise NotFoundError("Entity not found")
         self._assert_not_pending_suggestion_shadow(entity)
@@ -827,10 +1144,11 @@ class EntityAliasService:
     ) -> int:
         """Archive untouched inline alias candidates owned by one workflow."""
         nid = parse_uuid(novel_id, "novel_id")
-        entities = await self.repo.list_by_novel(
-            db,
-            nid,
-            limit=MAX_LIST_ALIAS_ENTITIES,
+        entity_snapshots = await self._list_all_entities(
+            db, nid, include_archived=False
+        )
+        entities = await self.repo.get_many_for_update(
+            db, nid, [entity.id for entity in entity_snapshots]
         )
         rolled_back_at = datetime.now(UTC).isoformat()
         count = 0
@@ -879,7 +1197,7 @@ class EntityAliasService:
         """
         nid = parse_uuid(novel_id, "novel_id")
         eid = parse_uuid(entity_id, "entity_id")
-        entity = await self.repo.get(db, eid)
+        entity = await self.repo.get_for_update(db, eid, novel_id=nid)
         if entity is None or entity.novel_id != nid:
             raise NotFoundError("Entity not found")
         self._assert_not_pending_suggestion_shadow(entity)

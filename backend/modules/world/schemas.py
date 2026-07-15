@@ -349,96 +349,138 @@ class GenerationContextUsage(BaseModel):
     activation_source_hashes: list[str] = Field(default_factory=list)
 
 
-class ObjectDraftChatResponse(BaseModel):
-    """生成中心自由聊天响应。"""
+class WorldGenerationProjectSource(BaseModel):
+    """Use the project as the generation-center source."""
 
-    reply: str
-    model: str = ""
-    provider: str = ""
-    context_usage: GenerationContextUsage | None = None
+    kind: Literal["project"] = "project"
 
 
-class ObjectDraftGenerateRequest(BaseModel):
-    """将生成中心共创内容收束为待处理世界对象建议。"""
+class WorldGenerationPublishedSourceBaseline(BaseModel):
+    """The author expects the published page to be the active source."""
 
-    novel_id: str
+    kind: Literal["published"] = "published"
+    page_version: int = Field(..., ge=1)
+
+
+class WorldGenerationDraftSourceBaseline(BaseModel):
+    """The author expects one exact working draft to be the active source."""
+
+    kind: Literal["draft"] = "draft"
+    page_version: int = Field(..., ge=1)
+    draft_id: str
+    draft_updated_at: datetime
+
+
+WorldGenerationPageSourceBaseline = Annotated[
+    WorldGenerationPublishedSourceBaseline | WorldGenerationDraftSourceBaseline,
+    Field(discriminator="kind"),
+]
+
+
+class WorldGenerationPageSource(BaseModel):
+    """Use a server-loaded World Bible page or working draft as source."""
+
+    kind: Literal["world_bible_page"] = "world_bible_page"
+    page_id: str
+    baseline: WorldGenerationPageSourceBaseline
+
+
+WorldGenerationSourceContext = Annotated[
+    WorldGenerationProjectSource | WorldGenerationPageSource,
+    Field(discriminator="kind"),
+]
+
+
+class WorldGenerationCoreEntityTarget(BaseModel):
+    kind: Literal["core_entity"] = "core_entity"
     template: ObjectDraftTemplate = "none"
-    messages: list[ObjectDraftChatMessage] = Field(default_factory=list, max_length=40)
-    pasted_context: str | None = Field(default=None, max_length=60000)
-    selected_chapter_indices: list[int] = Field(default_factory=list, max_length=20)
-    quality_mode: ObjectDraftQualityMode = "fast"
     template_name: str | None = Field(default=None, max_length=80)
     template_prompt: str | None = Field(default=None, max_length=8000)
     template_id: str | None = Field(default=None, max_length=128)
     template_version: int | None = Field(default=None, ge=1)
     template_variables: dict[str, Any] = Field(default_factory=dict)
-    include_world_synopsis: bool = False
-    selected_world_bible_draft_ids: list[str] = Field(
-        default_factory=list,
-        max_length=20,
-    )
-    activation_profile_id: str | None = None
-    activation_profile_version: int | None = Field(default=None, ge=1)
 
 
-class ObjectDraftGenerateResponse(BaseModel):
-    """生成中心建议响应；entity 保留旧草稿 wire contract。"""
-
-    entity: CoreEntityResponse
-    suggestion: CreationSuggestionResponse
-    quality_mode: ObjectDraftQualityMode
-    model: str = ""
-    provider: str = ""
-    context_usage: GenerationContextUsage | None = None
+class WorldGenerationExistingPageTarget(BaseModel):
+    kind: Literal["world_bible_page"] = "world_bible_page"
+    page_id: str
 
 
-WorldBibleAiOutputTarget = Literal[
-    "chat",
-    "page_patch",
-    "new_page",
-    "world_object_draft",
+class WorldGenerationNewPageTarget(BaseModel):
+    kind: Literal["world_bible_new_page"] = "world_bible_new_page"
+    page_type: str = Field(..., min_length=1, max_length=64)
+    page_template_key: str | None = Field(default=None, max_length=128)
+    page_template_version: int | None = Field(default=None, ge=1)
+
+
+WorldGenerationTarget = Annotated[
+    WorldGenerationCoreEntityTarget
+    | WorldGenerationExistingPageTarget
+    | WorldGenerationNewPageTarget,
+    Field(discriminator="kind"),
 ]
 
 
-class WorldBibleAiGenerateRequest(BaseModel):
-    """世界书页内 AI 生成请求。"""
+class WorldGenerationRequestBase(BaseModel):
+    """Shared, author-selected inputs for world generation-center operations."""
 
-    output_target: WorldBibleAiOutputTarget = "chat"
+    novel_id: str
+    source_context: WorldGenerationSourceContext = Field(
+        default_factory=WorldGenerationProjectSource
+    )
+    target: WorldGenerationTarget
     messages: list[ObjectDraftChatMessage] = Field(default_factory=list, max_length=40)
+    pasted_context: str | None = Field(default=None, max_length=60000)
     selected_chapter_indices: list[int] = Field(default_factory=list, max_length=20)
-    quality_mode: ObjectDraftQualityMode = "fast"
-    template_id: str | None = Field(default=None, max_length=128)
-    template_version: int | None = Field(default=None, ge=1)
-    template_variables: dict[str, Any] = Field(default_factory=dict)
-    include_current_page: bool = True
-    include_world_synopsis: bool = False
-    activation_profile_id: str | None = None
-    activation_profile_version: int | None = Field(default=None, ge=1)
+    scene_id: str | None = None
+    thread_ids: list[str] = Field(default_factory=list, max_length=20)
+    character_ids: list[str] = Field(default_factory=list, max_length=20)
+    entity_ids: list[str] = Field(default_factory=list, max_length=40)
     selected_asset_refs: list[dict[str, Any]] = Field(
         default_factory=list,
         max_length=40,
     )
+    quality_mode: ObjectDraftQualityMode = "fast"
+    include_world_synopsis: bool = True
+    activation_profile_id: str | None = None
+    activation_profile_version: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def validate_source_target_pair(self) -> WorldGenerationRequestBase:
+        if isinstance(self.target, WorldGenerationExistingPageTarget):
+            if not isinstance(self.source_context, WorldGenerationPageSource):
+                raise ValueError(
+                    "world_bible_page target requires a world_bible_page source"
+                )
+            if self.target.page_id != self.source_context.page_id:
+                raise ValueError("source and target World Bible page must match")
+        return self
 
 
-class WorldBibleAiSuggestionSummary(BaseModel):
-    """世界书 AI 生成后创建的建议摘要。"""
-
-    id: str
-    target_type: str
-    review_group: str
-    risk_level: str
-    title: str = ""
-    summary: str = ""
+class WorldGenerationChatRequest(WorldGenerationRequestBase):
+    pass
 
 
-class WorldBibleAiGenerateResponse(BaseModel):
-    """世界书页内 AI 生成响应。"""
+class WorldGenerationSuggestionRequest(WorldGenerationRequestBase):
+    pass
 
-    reply: str = ""
-    suggestions: list[WorldBibleAiSuggestionSummary] = Field(default_factory=list)
+
+class WorldGenerationSourceSnapshot(BaseModel):
+    kind: Literal["project", "world_bible_page"]
+    page_id: str | None = None
+    page_version: int | None = None
+    draft_id: str | None = None
+    draft_updated_at: datetime | None = None
+    content_hash: str | None = None
+    title: str | None = None
+
+
+class WorldGenerationChatResponse(BaseModel):
+    reply: str
     model: str = ""
     provider: str = ""
     context_usage: GenerationContextUsage | None = None
+    source_snapshot: WorldGenerationSourceSnapshot
 
 
 class WorldBibleSourceRef(BaseModel):
@@ -452,20 +494,6 @@ class WorldBibleSourceRef(BaseModel):
     page_id: str | None = None
     title: str | None = Field(default=None, max_length=255)
     chapter_index: int | None = None
-
-
-class WorldBiblePagePatchSuggestionPayload(BaseModel):
-    page_id: str
-    append_text: str = Field(..., min_length=1, max_length=20000)
-    source_refs: list[WorldBibleSourceRef] = Field(default_factory=list)
-    reason: str = Field(default="", max_length=1000)
-
-
-class WorldBibleNewPageSuggestionPayload(BaseModel):
-    title: str = Field(..., min_length=1, max_length=255)
-    page_type: str = Field(default="custom", min_length=1, max_length=64)
-    free_text: str = Field(..., min_length=1, max_length=30000)
-    source_refs: list[WorldBibleSourceRef] = Field(default_factory=list)
 
 
 class CoreEntityDraftSuggestionPayload(BaseModel):
@@ -984,6 +1012,143 @@ class EntityRelationListResponse(BaseModel):
 
     items: list[EntityRelationResponse]
     total: int
+
+
+class ReviewTypeCatalogItem(BaseModel):
+    value: str
+    label: str
+    category: str
+    synonyms: list[str] = Field(default_factory=list)
+
+
+class ReviewTypeCatalogResponse(BaseModel):
+    version: int = 1
+    custom_allowed: bool = True
+    relation_types: list[ReviewTypeCatalogItem] = Field(default_factory=list)
+    alias_types: list[ReviewTypeCatalogItem] = Field(default_factory=list)
+
+
+class EntityRelationReviewMember(EntityRelationResponse):
+    suggested_relation_type: str | None = None
+    type_kind: Literal["recommended", "custom"] = "custom"
+    evidence_summary: dict[str, Any] = Field(default_factory=dict)
+
+
+class EntityRelationReviewGroup(BaseModel):
+    group_id: str
+    source_id: str
+    source_name: str | None = None
+    target_id: str
+    target_name: str | None = None
+    member_count: int
+    type_variants: list[str] = Field(default_factory=list)
+    evidence_count: int = 0
+    scene_indices: list[int] = Field(default_factory=list)
+    source_chapter_indices: list[int] = Field(default_factory=list)
+    members: list[EntityRelationReviewMember] = Field(default_factory=list)
+    canonical_relations: list[EntityRelationResponse] = Field(default_factory=list)
+    reverse_candidate_count: int = 0
+    reverse_type_variants: list[str] = Field(default_factory=list)
+    reverse_canonical_relations: list[EntityRelationResponse] = Field(
+        default_factory=list
+    )
+    execution_fingerprint: str = Field(..., min_length=64, max_length=64)
+
+
+class EntityRelationReviewGroupListResponse(BaseModel):
+    groups: list[EntityRelationReviewGroup] = Field(default_factory=list)
+    group_total: int = 0
+    item_total: int = 0
+    skip: int = 0
+    limit: int = 20
+
+
+class EntityRelationReviewBatchDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    client_decision_id: str = Field(..., min_length=1, max_length=64)
+    action: Literal["accept", "merge", "ignore"]
+    group_id: str = Field(..., min_length=1, max_length=80)
+    member_relation_ids: list[str] = Field(..., min_length=1, max_length=50)
+    primary_relation_id: str | None = None
+    expected_execution_fingerprint: str = Field(..., min_length=64, max_length=64)
+    source_id: str | None = None
+    target_id: str | None = None
+    relation_type: str | None = Field(None, min_length=1, max_length=64)
+    description: str | None = None
+    strength: float | None = Field(None, ge=0.0, le=1.0)
+
+    @field_validator("relation_type")
+    @classmethod
+    def normalize_relation_type(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("relation_type cannot be blank")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_decision(self) -> EntityRelationReviewBatchDecision:
+        member_ids = list(dict.fromkeys(self.member_relation_ids))
+        if len(member_ids) != len(self.member_relation_ids):
+            raise ValueError("member_relation_ids must be unique")
+        if self.action == "accept" and len(member_ids) != 1:
+            raise ValueError("accept requires exactly one relation")
+        if self.action == "merge" and len(member_ids) < 2:
+            raise ValueError("merge requires at least two relations")
+        if self.action in {"accept", "merge"}:
+            if self.primary_relation_id not in member_ids:
+                raise ValueError("primary_relation_id must be selected")
+            if not self.source_id or not self.target_id or not self.relation_type:
+                raise ValueError("accepted relation fields are required")
+        return self
+
+
+class EntityRelationReviewBatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmed: bool = False
+    decisions: list[EntityRelationReviewBatchDecision] = Field(
+        ..., min_length=1, max_length=20
+    )
+
+    @model_validator(mode="after")
+    def validate_batch(self) -> EntityRelationReviewBatchRequest:
+        if not self.confirmed:
+            raise ValueError("confirmed=true is required")
+        decision_ids = [item.client_decision_id for item in self.decisions]
+        if len(decision_ids) != len(set(decision_ids)):
+            raise ValueError("client_decision_id must be unique")
+        relation_ids = [
+            relation_id
+            for decision in self.decisions
+            for relation_id in decision.member_relation_ids
+        ]
+        if len(relation_ids) != len(set(relation_ids)):
+            raise ValueError("a relation may only appear in one batch decision")
+        if len(relation_ids) > 50:
+            raise ValueError("a batch may reference at most 50 relations")
+        return self
+
+
+class ReviewBatchItemResult(BaseModel):
+    client_decision_id: str
+    status: Literal["success", "stale", "failed"]
+    action: str
+    affected_ids: list[str] = Field(default_factory=list)
+    canonical_relation_id: str | None = None
+    archived_relation_ids: list[str] = Field(default_factory=list)
+    error_code: str | None = None
+    message: str | None = None
+
+
+class ReviewBatchResponse(BaseModel):
+    requested_count: int
+    succeeded_count: int
+    stale_count: int
+    failed_count: int
+    results: list[ReviewBatchItemResult] = Field(default_factory=list)
 
 
 # ============================================================
@@ -1577,6 +1742,91 @@ class EntityAliasEditRequest(BaseModel):
     confirm_review: bool = True
 
 
+class EntityAliasReviewItem(BaseModel):
+    entity_id: str
+    entity_name: str | None = None
+    alias: str
+    alias_type: str
+    status: str | None = None
+    source: str | None = None
+    workflow_id: str | None = None
+    scene_id: str | None = None
+    scene_index: int | None = None
+    source_chapter_index: int | None = None
+    confidence: float | None = None
+    needs_review: bool | None = None
+    quote: str | None = None
+    evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
+    suggested_alias_type: str | None = None
+    type_kind: Literal["recommended", "custom"] = "custom"
+    display_state: Literal["active", "review", "archived"] | None = None
+    managed_by_suggestion: bool = False
+    suggestion_id: str | None = None
+    execution_fingerprint: str = Field(..., min_length=64, max_length=64)
+
+
+class EntityAliasReviewGroup(BaseModel):
+    group_id: str
+    entity_id: str
+    entity_name: str | None = None
+    member_count: int
+    members: list[EntityAliasReviewItem] = Field(default_factory=list)
+
+
+class EntityAliasReviewGroupListResponse(BaseModel):
+    groups: list[EntityAliasReviewGroup] = Field(default_factory=list)
+    group_total: int = 0
+    item_total: int = 0
+    skip: int = 0
+    limit: int = 20
+
+
+class EntityAliasReviewBatchDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    client_decision_id: str = Field(..., min_length=1, max_length=64)
+    action: Literal["accept", "ignore"]
+    entity_id: str
+    original_alias: str = Field(..., min_length=1, max_length=255)
+    expected_execution_fingerprint: str = Field(..., min_length=64, max_length=64)
+    target_entity_id: str | None = None
+    alias: str | None = Field(None, min_length=1, max_length=255)
+    alias_type: str | None = Field(None, min_length=1, max_length=20)
+
+    @field_validator("alias_type")
+    @classmethod
+    def normalize_alias_type(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("alias_type cannot be blank")
+        return normalized
+
+
+class EntityAliasReviewBatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmed: bool = False
+    decisions: list[EntityAliasReviewBatchDecision] = Field(
+        ..., min_length=1, max_length=50
+    )
+
+    @model_validator(mode="after")
+    def validate_batch(self) -> EntityAliasReviewBatchRequest:
+        if not self.confirmed:
+            raise ValueError("confirmed=true is required")
+        decision_ids = [item.client_decision_id for item in self.decisions]
+        if len(decision_ids) != len(set(decision_ids)):
+            raise ValueError("client_decision_id must be unique")
+        alias_keys = [
+            (item.entity_id, item.original_alias.casefold()) for item in self.decisions
+        ]
+        if len(alias_keys) != len(set(alias_keys)):
+            raise ValueError("an alias may only appear once in a batch")
+        return self
+
+
 class EntityResolveAsAliasRequest(BaseModel):
     """将候选实体确认为已有对象的别名。"""
 
@@ -1701,9 +1951,7 @@ class WorldBibleSection(BaseModel):
         normalized: list[str] = []
         for value in values:
             current = str(value).strip().removeprefix("sha256:")
-            if len(current) != 64 or any(
-                ch not in "0123456789abcdef" for ch in current
-            ):
+            if len(current) != 64 or any(ch not in "0123456789abcdef" for ch in current):
                 raise ValueError(
                     "linked asset ref hashes must be lowercase sha256 values"
                 )
@@ -2133,22 +2381,75 @@ class WorldBibleApplyTemplateRequest(BaseModel):
     updated_by: str | None = Field(default=None, max_length=64)
 
 
-class WorldBibleSuggestionApplyDraftRequest(BaseModel):
-    append_text: str | None = Field(default=None, max_length=20000)
-    title: str | None = Field(default=None, min_length=1, max_length=255)
-    page_type: str | None = Field(default=None, min_length=1, max_length=64)
+class WorldBiblePageProposalContent(BaseModel):
+    """Complete, editable World Bible working-draft content."""
+
+    title: str = Field(..., min_length=1, max_length=255)
+    page_type: str = Field(..., min_length=1, max_length=64)
     free_text: str | None = Field(default=None, max_length=30000)
+    sections_json: list[WorldBibleSection] = Field(default_factory=list, max_length=64)
+    linked_asset_refs_json: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=100,
+    )
+
+    @field_validator("sections_json")
+    @classmethod
+    def validate_sections(
+        cls,
+        value: list[WorldBibleSection],
+    ) -> list[WorldBibleSection]:
+        return _validate_world_bible_sections(value)
+
+
+class WorldGenerationPageBaseline(BaseModel):
+    page_id: str
+    page_version: int
+    draft_id: str | None = None
+    draft_updated_at: datetime | None = None
+    content_hash: str = Field(..., min_length=64, max_length=64)
+
+
+class WorldBiblePageDraftSuggestionPayload(BaseModel):
+    operation: Literal["replace_existing", "create_new"]
+    target_page_id: str | None = None
+    baseline: WorldGenerationPageBaseline | None = None
+    template_key: str | None = Field(default=None, max_length=128)
+    template_version: int | None = Field(default=None, ge=1)
+    page: WorldBiblePageProposalContent
+    design_rationale: str = Field(default="", max_length=4000)
+    review_notes: list[str] = Field(default_factory=list, max_length=20)
+    source_refs: list[WorldBibleSourceRef] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_operation(self) -> WorldBiblePageDraftSuggestionPayload:
+        if self.operation == "replace_existing":
+            if not self.target_page_id or self.baseline is None:
+                raise ValueError("replace_existing requires target_page_id and baseline")
+            if self.target_page_id != self.baseline.page_id:
+                raise ValueError("target_page_id must match baseline.page_id")
+        elif self.target_page_id is not None:
+            raise ValueError("create_new must not include target_page_id")
+        return self
+
+
+class WorldGenerationApplyPageDraftRequest(BaseModel):
+    page: WorldBiblePageProposalContent | None = None
     updated_by: str | None = Field(default=None, max_length=64)
 
 
 class WorldBibleSynopsisClaim(BaseModel):
-    category_key: str = Field(default="custom", max_length=64)
     text: str = Field(..., min_length=1, max_length=1200)
-    source_refs: list[dict[str, Any]] = Field(default_factory=list, min_length=1)
+    source_keys: list[str] = Field(default_factory=list, min_length=1, max_length=40)
+
+
+class WorldBibleSynopsisSection(BaseModel):
+    title: str = Field(..., min_length=1, max_length=120)
+    claims: list[WorldBibleSynopsisClaim] = Field(default_factory=list, max_length=40)
 
 
 class WorldBibleSynopsisStructuredOutput(BaseModel):
-    claims: list[WorldBibleSynopsisClaim] = Field(default_factory=list, max_length=80)
+    sections: list[WorldBibleSynopsisSection] = Field(default_factory=list, max_length=20)
     omitted_reasons: list[str] = Field(default_factory=list, max_length=40)
 
 
@@ -2296,6 +2597,38 @@ class CreationSuggestionResponse(BaseModel):
         if self.suggested_action is None:
             self.suggested_action = projection["suggested_action"]
         return self
+
+
+class WorldGenerationCoreEntityResult(BaseModel):
+    kind: Literal["core_entity"] = "core_entity"
+    suggestion: CreationSuggestionResponse
+    proposal: CoreEntityDraftSuggestionPayload
+    review_notes: list[str] = Field(default_factory=list)
+
+
+class WorldGenerationPageResult(BaseModel):
+    kind: Literal["world_bible_page", "world_bible_new_page"]
+    suggestion: CreationSuggestionResponse
+    proposal: WorldBiblePageDraftSuggestionPayload
+
+
+WorldGenerationSuggestionResult = Annotated[
+    WorldGenerationCoreEntityResult | WorldGenerationPageResult,
+    Field(discriminator="kind"),
+]
+
+
+class WorldGenerationSuggestionResponse(BaseModel):
+    result: WorldGenerationSuggestionResult
+    model: str = ""
+    provider: str = ""
+    context_usage: GenerationContextUsage | None = None
+    source_snapshot: WorldGenerationSourceSnapshot
+
+
+class WorldGenerationApplyPageDraftResponse(BaseModel):
+    suggestion: CreationSuggestionResponse
+    draft: WorldBiblePageDraftResponse
 
 
 class CreationSuggestionListResponse(BaseModel):

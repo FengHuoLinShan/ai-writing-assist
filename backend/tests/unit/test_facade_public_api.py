@@ -17,6 +17,7 @@ WORLD_FACADE_API = {
     "create_character",
     "create_entity",
     "create_event",
+    "create_map_observation_candidates",
     "create_map_observation_from_delta_event",
     "create_or_merge_relation",
     "create_relation",
@@ -80,6 +81,7 @@ OUTLINE_FACADE_API = {
     "get_deep_import_structure_category_targets",
     "get_deep_import_structure_output_count",
     "get_next_scene_index",
+    "get_plot_threads_for_context",
     "get_reader_reveal_decision",
     "get_scene",
     "get_scene_context_window",
@@ -109,6 +111,17 @@ WORLD_CONTRACT_API = {
     "EntityRevisionContract",
     "EventContract",
     "GenerationBackgroundProvider",
+    "MapBoundaryProposal",
+    "MapCharacterLocationProposal",
+    "MapEventLocationProposal",
+    "MapObservationCandidateAuthorization",
+    "MapObservationCandidateAuthorizationScope",
+    "MapObservationCandidateBatchResult",
+    "MapObservationCandidateInput",
+    "MapObservationCandidateResult",
+    "MapObservationProposalBase",
+    "MapObservationProposalV1",
+    "MapRouteStateProposal",
     "MergeResult",
     "ResolveResult",
     "WorldBackgroundBundleContract",
@@ -140,6 +153,16 @@ def test_outline_root_facade_public_api_is_frozen() -> None:
 
 def test_world_contracts_do_not_reexport_http_schemas() -> None:
     assert set(world_contracts.__all__) == WORLD_CONTRACT_API
+
+
+def test_world_alias_task_port_and_map_candidate_result_keep_separate_surfaces() -> None:
+    for method in (
+        "prepare_alias_relation_task",
+        "execute_alias_relation_task",
+        "finalize_alias_relation_task",
+    ):
+        assert hasattr(world_contracts.WorldAliasRelationTaskPort, method)
+        assert not hasattr(world_contracts.MapObservationCandidateBatchResult, method)
     for schema_name in (
         "CharacterContextBundle",
         "CharacterResponse",

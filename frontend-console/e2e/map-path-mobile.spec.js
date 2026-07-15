@@ -5,21 +5,19 @@ import { openWorkbench } from "./helpers/workbench.js"
 import { expectNoPageOverflow, expectWithinViewport } from "./helpers/responsive.js"
 import {
   cleanupProject,
+  createEntity,
+  createLocationBindings,
   createMap,
+  createMapObservation,
   createProject,
-  getMapPaths,
+  createTerritories,
+  getMapState,
+  listMaps,
+  listTerritories,
   waitForBackend,
 } from "./helpers/api-client.js"
 
 const MOBILE_VIEWPORT = { width: 390, height: 844 }
-const LEAFLET_ORIGIN = 60
-
-function hexPosition(q, r, size = 30) {
-  return {
-    x: LEAFLET_ORIGIN + size * 1.5 * q,
-    y: LEAFLET_ORIGIN + size * Math.sqrt(3) * (r + q / 2),
-  }
-}
 
 async function openMapWorkspace(page, project, map) {
   await openWorkbench(page, project, "map")
@@ -35,22 +33,9 @@ async function expectMobileWorkspaceFits(page) {
   await expectNoPageOverflow(page)
 }
 
-async function setRangeValue(locator, value) {
-  await locator.evaluate((input, nextValue) => {
-    input.value = nextValue
-    input.dispatchEvent(new Event("change", { bubbles: true }))
-  }, String(value))
-}
+test.use({ viewport: MOBILE_VIEWPORT, hasTouch: true })
 
-async function clickCentered(locator) {
-  await locator.evaluate((element) => element.scrollIntoView({ block: "center" }))
-  await expectWithinViewport(locator)
-  await locator.click()
-}
-
-test.use({ viewport: MOBILE_VIEWPORT })
-
-test.describe("390px 地图线路编辑", () => {
+test.describe("390px 地图浏览与桌面端编辑转交", () => {
   let testProjectId = null
 
   test.beforeAll(async () => {
@@ -68,105 +53,228 @@ test.describe("390px 地图线路编辑", () => {
     }
   })
 
-  test("creates, refines, persists, archives, and restores a path without page overflow", async ({ page }) => {
+  test("保留触控浏览和只读摘要，不在窄屏暴露复杂编辑", async ({ page }) => {
     const project = await createProject({
-      title: "移动端线路 E2E",
+      title: "移动端地图转交 E2E",
       genre: "fantasy",
       language: "zh",
     })
     testProjectId = project.id
     const map = await createMap(testProjectId, {
-      name: "移动端道路图",
+      name: "移动端浏览图",
       map_type: "world",
       grid_width: 8,
       grid_height: 8,
       template: "blank",
     })
+    const location = await createEntity(testProjectId, {
+      name: "触控港口",
+      entity_type: "location",
+      status: "canonical",
+    })
+    const faction = await createEntity(testProjectId, {
+      name: "海风盟",
+      entity_type: "organization",
+      status: "canonical",
+    })
+    await createLocationBindings(testProjectId, map.id, {
+      location_entity_id: location.id,
+      hexes: [{ hex_q: 1, hex_r: 1, is_center: true }],
+    })
+    await createTerritories(testProjectId, map.id, {
+      faction_entity_id: faction.id,
+      hexes: [{ hex_q: 2, hex_r: 2 }],
+    })
 
+    const before = await getMapState(testProjectId, map.id)
+    const territoriesBefore = await listTerritories(testProjectId, map.id)
     await openMapWorkspace(page, project, map)
     await expectMobileWorkspaceFits(page)
 
-    await page.getByRole("button", { name: "编辑" }).click()
-    await page.getByRole("button", { name: "线路", exact: true }).click()
-    await expectMobileWorkspaceFits(page)
+    const handoff = page.getByRole("note")
+    await expect(handoff).toContainText("移动端为浏览模式")
+    await expect(handoff).toContainText("1 个势力格")
+    await expect(handoff).toContainText("线路节点精修")
+    await expect(page.getByRole("button", { name: "请在桌面端编辑" })).toBeVisible()
+    await expect(page.getByRole("button", { name: "编辑", exact: true })).toHaveCount(0)
+    await expect(page.locator(".map-edit-panel")).toHaveCount(0)
 
-    await page.getByRole("button", { name: "+ 线路图层" }).click()
-    await expect(page.locator(SEL.modalTitle)).toHaveText("新建线路图层")
-    await page.locator("#map-path-layer-name").fill("移动端王国公路")
-    await page.locator("#map-path-layer-category").selectOption("transport")
-    await expectNoPageOverflow(page)
-    await page.locator(SEL.modalFooter).getByRole("button", { name: "创建" }).click()
-    await expect(page.locator("#map-path-layer")).not.toHaveValue("")
+    const label = page.locator(
+      `.map-center-label[data-id="${location.id}"]`,
+    )
+    await expect(label).toBeVisible()
+    const labelBox = await label.boundingBox()
+    expect(labelBox).not.toBeNull()
+    await page.touchscreen.tap(
+      labelBox.x + labelBox.width / 2,
+      labelBox.y + labelBox.height / 2,
+    )
+    await expect(page.locator(SEL.mapDetailPanel)).toContainText("触控港口")
 
     const canvas = page.locator(SEL.mapCanvas)
     await canvas.scrollIntoViewIfNeeded()
     await expectWithinViewport(canvas)
-    const box = await canvas.boundingBox()
-    expect(box).not.toBeNull()
-    const start = hexPosition(1, 1)
-    const bend = hexPosition(2, 3)
-    const end = hexPosition(4, 2)
-    await page.mouse.move(box.x + start.x, box.y + start.y)
-    await page.mouse.down()
-    await page.mouse.move(box.x + bend.x, box.y + bend.y, { steps: 8 })
-    await page.mouse.move(box.x + end.x, box.y + end.y, { steps: 8 })
-    await page.mouse.up()
-
-    await expect(page.locator(".map-path-list-row.active")).toContainText("主干道")
-    await page.getByRole("button", { name: "节点精修", exact: true }).click()
-    await page.waitForTimeout(300)
-    await canvas.click({ position: start })
-    await expect(page.locator(".map-path-node-editor")).toContainText(/节点 1 \/ \d+/)
-
-    await setRangeValue(page.locator("#map-path-node-width"), 1.75)
-    await setRangeValue(page.locator("#map-path-node-tension"), 0.25)
-    await page.locator("#map-path-node-segment").selectOption("dirt_trail")
+    const canvasBox = await canvas.boundingBox()
+    expect(canvasBox).not.toBeNull()
+    const cdp = await page.context().newCDPSession(page)
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ x: canvasBox.x + 40, y: canvasBox.y + 80 }],
+    })
+    for (let step = 1; step <= 8; step += 1) {
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{
+          x: canvasBox.x + 40 + (70 * step) / 8,
+          y: canvasBox.y + 80 + (40 * step) / 8,
+        }],
+      })
+    }
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] })
+    await expect(canvas).toBeVisible()
     await expectMobileWorkspaceFits(page)
 
-    await page.getByRole("button", { name: "应用当前图层", exact: true }).click()
-    await expect(page.locator(SEL.toastContainer)).toContainText("已原子应用 2 个编辑命令", {
+    await page.getByRole("button", { name: "请在桌面端编辑" }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText(
+      "复杂地图编辑请在桌面端继续",
+    )
+
+    const after = await getMapState(testProjectId, map.id)
+    const territoriesAfter = await listTerritories(testProjectId, map.id)
+    expect(after.map.editor_revision).toBe(before.map.editor_revision)
+    expect(after.tiles).toHaveLength(before.tiles.length)
+    expect(after.location_bindings).toEqual(before.location_bindings)
+    expect(territoriesAfter).toEqual(territoriesBefore)
+  })
+
+  test("390px 下 quick-create 可调整预览并确认创建", async ({ page }) => {
+    const project = await createProject({
+      title: "移动端快速创建 E2E",
+      genre: "fantasy",
+      language: "zh",
+    })
+    testProjectId = project.id
+    const location = await createEntity(testProjectId, {
+      name: "移动云港",
+      entity_type: "location",
+      status: "canonical",
+    })
+
+    await openWorkbench(page, project, "map")
+    await page.getByRole("button", { name: "快速创建" }).first().click()
+    const preview = page.locator("#map-quick-canvas")
+    await preview.scrollIntoViewIfNeeded()
+    await expect(preview).toBeVisible()
+    await expectWithinViewport(preview)
+    await page.locator("#map-quick-name").fill("移动云港世界图")
+    const locationRow = page.locator(
+      `[data-action="map-quick-move"][data-id="${location.id}"]`,
+    ).first().locator("xpath=ancestor::tr")
+    const initialCoordinates = (await locationRow.locator("td").nth(2).textContent())
+      .split(",")
+      .map((value) => Number(value.trim()))
+    expect(initialCoordinates).toHaveLength(2)
+    expect(initialCoordinates.every(Number.isFinite)).toBe(true)
+    const moveButton = page.locator(
+      `[data-action="map-quick-move"][data-id="${location.id}"][data-dq="1"]`,
+    )
+    const radiusButton = page.locator(
+      `[data-action="map-quick-radius"][data-id="${location.id}"]`,
+    ).first()
+    const lockButton = page.locator(
+      `[data-action="map-quick-lock"][data-id="${location.id}"]`,
+    )
+    for (const control of [moveButton, radiusButton, lockButton]) {
+      const box = await control.boundingBox()
+      expect(box).not.toBeNull()
+      expect(box.width).toBeGreaterThanOrEqual(40)
+      expect(box.height).toBeGreaterThanOrEqual(40)
+    }
+    await moveButton.tap()
+    const createButton = page.getByRole("button", { name: "创建", exact: true }).last()
+    await createButton.scrollIntoViewIfNeeded()
+    const createBox = await createButton.boundingBox()
+    expect(createBox).not.toBeNull()
+    expect(createBox.height).toBeGreaterThanOrEqual(44)
+    await expectMobileWorkspaceFits(page)
+    await createButton.click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("地图已快速创建", {
       timeout: 10000,
     })
 
-    const activeAfterSave = await getMapPaths(testProjectId, map.id, "active")
-    expect(activeAfterSave.layers).toHaveLength(1)
-    expect(activeAfterSave.paths).toHaveLength(1)
-    expect(activeAfterSave.paths[0].nodes.length).toBeGreaterThanOrEqual(2)
-    expect(activeAfterSave.paths[0].nodes).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        width_scale: 1.75,
-        tension: 0.25,
-        segment_type: "dirt_trail",
-      }),
+    await expect.poll(async () => {
+      const maps = (await listMaps(testProjectId)).items || []
+      return maps.find((item) => item.name === "移动云港世界图") || null
+    }).not.toBeNull()
+    const maps = (await listMaps(testProjectId)).items || []
+    const map = maps.find((item) => item.name === "移动云港世界图")
+    const persisted = await getMapState(testProjectId, map.id)
+    expect(persisted.location_layouts).toHaveLength(1)
+    expect(persisted.location_layouts[0]).toEqual(expect.objectContaining({
+      location_entity_id: location.id,
+      center_hex_q: initialCoordinates[0] + 1,
+      center_hex_r: initialCoordinates[1],
+    }))
+    expect(persisted.location_bindings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ location_entity_id: location.id, is_center: true }),
     ]))
+  })
 
-    const pathArchiveButton = page.locator(
-      '.map-path-selection-summary [data-action="map-path-archive"]',
-    )
-    await expect(pathArchiveButton).toHaveText("归档")
-    await clickCentered(pathArchiveButton)
-    await expect(page.locator(SEL.modalTitle)).toHaveText("确认操作")
-    await expectNoPageOverflow(page)
-    await page.locator(SEL.modalFooter).getByRole("button", { name: "归档线路" }).click()
-    await page.getByRole("button", { name: "应用当前图层", exact: true }).click()
-    await expect.poll(async () => (await getMapPaths(testProjectId, map.id, "active")).paths.length)
-      .toBe(0)
-    expect((await getMapPaths(testProjectId, map.id, "archived")).paths).toHaveLength(1)
-    await expect(page.locator(".map-path-list-row.active")).toContainText("已归档")
-
-    await expect(pathArchiveButton).toHaveText("恢复")
-    await clickCentered(pathArchiveButton)
-    await page.getByRole("button", { name: "应用当前图层", exact: true }).click()
-    await expect.poll(async () => (await getMapPaths(testProjectId, map.id, "active")).paths.length)
-      .toBe(1)
-    expect((await getMapPaths(testProjectId, map.id, "archived")).paths).toHaveLength(0)
+  test("势力待处理项在 390px 只显示桌面端空间编辑转交", async ({ page }) => {
+    const project = await createProject({
+      title: "移动端势力审核 E2E",
+      genre: "fantasy",
+      language: "zh",
+    })
+    testProjectId = project.id
+    const map = await createMap(testProjectId, {
+      name: "移动端势力图",
+      map_type: "world",
+      grid_width: 8,
+      grid_height: 8,
+      template: "blank",
+    })
+    const faction = await createEntity(testProjectId, {
+      name: "海风盟",
+      entity_type: "organization",
+      status: "canonical",
+    })
+    const observation = await createMapObservation(testProjectId, map.id, {
+      target_entity_id: faction.id,
+      target_entity_type: "organization",
+      target_name: faction.name,
+      dynamic_type: "boundary",
+      time_anchor: { kind: "initial_state" },
+      value_json: {
+        payload_kind: "proposal",
+        schema_version: 1,
+        proposal_type: "boundary",
+        controller_name: faction.name,
+        area_description: "东部港口",
+      },
+      source_ref: { source: "e2e_fixture" },
+      evidence_text: "海风盟控制东部港口。",
+      confidence: 0.8,
+    })
 
     await openMapWorkspace(page, project, map)
-    await page.getByRole("button", { name: "编辑" }).click()
-    await page.getByRole("button", { name: "线路", exact: true }).click()
-    const restoredPath = page.locator(".map-path-list-row").filter({ hasText: "主干道" }).first()
-    await expect(restoredPath).toBeVisible()
-    await expect(restoredPath).not.toContainText("已归档")
+    await page.locator('.workspace-rail__summary[aria-label="展开动态摘要"]').click()
+    const candidate = page.locator(
+      `.map-dynamic-item[data-id="${observation.id}"]`,
+    ).first()
+    await expect(candidate).toBeVisible({ timeout: 10000 })
+    await candidate.click()
+    await expect(page.locator(SEL.modalTitle)).toContainText("海风盟")
+    await page.locator(SEL.modalFooter).getByRole("button", { name: "修改" }).click()
+
+    await expect(page.locator(SEL.modalTitle)).toHaveText("修改地图对象")
+    await expect(page.locator(".map-boundary-spatial-field")).toBeHidden()
+    await expect(page.locator(".map-boundary-mobile-handoff")).toBeVisible()
+    await expect(page.locator(".map-boundary-mobile-handoff")).toContainText("请在桌面端继续")
+    const saveButton = page.locator(SEL.modalFooter).getByRole("button", { name: "保存" })
+    const saveBox = await saveButton.boundingBox()
+    expect(saveBox).not.toBeNull()
+    expect(saveBox.height).toBeGreaterThanOrEqual(44)
     await expectMobileWorkspaceFits(page)
   })
 })

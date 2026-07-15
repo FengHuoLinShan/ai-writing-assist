@@ -100,6 +100,13 @@ describe("createWritingTools", () => {
     expect(toast).toHaveBeenCalledWith("已导出「第一章」", "success")
   })
 
+  it("未选章节时不导出占位章节", () => {
+    const tools = createTestTools()
+
+    expect(tools.exportChapter()).toBe(false)
+    expect(toast).toHaveBeenCalledWith("请先选择章节", "warning")
+  })
+
   it("splits scene through public splitScene method", async () => {
     state.currentProjectId = "p1"
     api.writing.splitChapter.mockResolvedValue({ new_chapter_index: 2 })

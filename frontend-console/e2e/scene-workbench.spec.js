@@ -40,9 +40,11 @@ test.describe("Scene 工作台", () => {
     await createDraft(project.id, 1, "第一章", "正文")
 
     await openWorkbench(page, project, "writing")
+    await page.locator('[data-action="select-chapter"][data-chapter="1"]').click()
     await page.locator('[data-action="open-scene-workbench"]').click()
 
     await expect(page.locator("#topbar-module")).toHaveText("大纲")
+    await expect(page).toHaveURL(new RegExp(`scene_id=${scene.id}`))
     await expect(page.locator(`.scene-workbench-row[data-id="${scene.id}"]`)).toHaveClass(/is-selected/)
   })
 
@@ -69,7 +71,7 @@ test.describe("Scene 工作台", () => {
     expect(Math.abs(positions.activeTabTop - positions.actionsTop)).toBeLessThan(8)
   })
 
-  test("选择 Scene 写入 URL，浏览器后退恢复默认 Scene", async ({ page }) => {
+  test("选择 Scene 写入 URL，浏览器后退恢复未选中列表", async ({ page }) => {
     const project = await createProject({ title: "Scene 历史恢复", genre: "fantasy", language: "zh" })
     testProjectId = project.id
     const first = await createScene(project.id, {
@@ -96,7 +98,9 @@ test.describe("Scene 工作台", () => {
     await page.goBack()
 
     await expect(page).toHaveURL(/outline\/scenes$/)
-    await expect(page.locator(`.scene-workbench-row[data-id="${first.id}"]`)).toHaveClass(/is-selected/)
+    await expect(page.locator(".scene-workbench-row.is-selected")).toHaveCount(0)
+    await expect(page.locator(".scene-detail-empty")).toHaveText("选择一个 Scene 查看详情。")
+    await expect(page.locator(`.scene-workbench-row[data-id="${first.id}"]`)).not.toHaveClass(/is-selected/)
   })
 
   test("旧 Scene 深链接自动打开目标所在分页", async ({ page }) => {
@@ -620,10 +624,10 @@ test.describe("Scene 工作台", () => {
   })
 
   test("窄屏下详情进入抽屉，列表仍是主操作面", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 760 })
+    await page.setViewportSize({ width: 390, height: 844 })
     const project = await createProject({ title: "Scene 移动端", genre: "fantasy", language: "zh" })
     testProjectId = project.id
-    await createScene(project.id, {
+    const scene = await createScene(project.id, {
       scene_index: 0,
       title: "移动端 Scene",
       goal: "目标",
@@ -639,9 +643,18 @@ test.describe("Scene 工作台", () => {
     await expect(page.locator(".scene-workbench-row .scene-context-action")).toBeVisible()
     await expect(page.locator(".scene-workbench-row .scene-secondary-action")).toBeHidden()
     await expect(page.locator(".scene-workbench-row .action-menu-btn")).toBeVisible()
+    await expect(page.locator(".scene-workbench-row.is-selected")).toHaveCount(0)
+    await expect(page.locator(".scene-workbench-drawer")).toHaveCount(0)
     await expectNoPageOverflow(page)
+
+    await page.locator(`.scene-workbench-row[data-id="${scene.id}"] [data-action="select-workbench-scene"]`).click()
+    await expect(page).toHaveURL(new RegExp(`scene_id=${scene.id}`))
     await expectWithinViewport(page.locator(".scene-workbench-drawer"))
     await expectWithinViewport(page.locator('[data-action="close-scene-detail"]'))
+    await page.locator('[data-action="close-scene-detail"]').click()
+    await expect(page.locator(".scene-workbench-drawer")).toHaveCount(0)
+    await expect(page).not.toHaveURL(/scene_id=/)
+    await expect(page.locator(".scene-workbench-row.is-selected")).toHaveCount(0)
   })
 
   test("右侧 Scene 详情栏内容溢出时可滚动", async ({ page }) => {

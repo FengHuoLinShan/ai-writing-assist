@@ -4,8 +4,9 @@
 import mapView from "./mapView.js"
 import { buildMapLayout } from "./mapLayoutEngine.js"
 import mapQuickCreateView from "./mapQuickCreateView.js"
-import { parseMapRouteContext } from "./mapRouteContext.js"
+import { buildMapQuery, parseMapRouteContext } from "./mapRouteContext.js"
 import { authorFacingStateText, mapAssetDisplay } from "../shared/assetDisplayState.js"
+import { formatMapDiagnosticInfo } from "./mapDiagnosticInfo.js"
 import { renderWorkspaceRail, workspaceRailKey } from "../shared/workspaceRail.js"
 import {
   createMapTimelineState,
@@ -23,6 +24,17 @@ import {
 const RECENT_PREFIX = "novel_map_recent:"
 const MAP_BATCH_ID_LIMIT = 100
 const ARCHIVED_PAGE_SIZE = 20
+const MAP_INBOX_PAGE_SIZE = 20
+
+function createMapInboxFilters() {
+  return {
+    dynamicType: "",
+    sceneId: "",
+    source: "",
+    confidence: "",
+    eligibility: "",
+  }
+}
 
 const DEFAULT_LAYERS = {
   terrain: true,
@@ -49,6 +61,17 @@ const mapWorkspaceView = {
   _maps: [],
   _archivedMaps: [],
   _locations: [],
+  _inbox: {
+    loading: false,
+    items: [],
+    total: 0,
+    hasMore: false,
+    error: null,
+    page: 0,
+    projectId: null,
+    filters: createMapInboxFilters(),
+  },
+  _pendingObservationEditorId: null,
   _mapById: new Map(),
   _detailMapByLocationId: new Map(),
   _mapsByParentId: new Map(),
@@ -105,6 +128,18 @@ const mapWorkspaceView = {
     this._showHistory = false
     this._archivedPage = 0
     this._showArchivedMaps = false
+    if (this._inbox.projectId !== state.currentProjectId) {
+      this._inbox = {
+        ...this._inbox,
+        projectId: state.currentProjectId || null,
+        items: [],
+        total: 0,
+        hasMore: false,
+        error: null,
+        page: 0,
+        filters: createMapInboxFilters(),
+      }
+    }
     await this._loadData()
   },
 
@@ -142,6 +177,7 @@ const mapWorkspaceView = {
 
   async render() {
     this._clearPendingTimers()
+    const hadLegacyMapMode = /(?:^|[?&])mode=map(?:&|$)/.test(window.location.hash || "")
     const context = parseMapRouteContext()
     if (context.projectId && !state.currentProjectId) {
       state.currentProjectId = context.projectId
@@ -156,6 +192,9 @@ const mapWorkspaceView = {
       this._focusPathId = context.focusPathId
       this._focusLayerNodeId = context.focusLayerNodeId
       this._viewMode = this._normalizeViewMode(context.mode)
+      if (hadLegacyMapMode) {
+        this._defer(() => this._replaceActiveMapRoute())
+      }
     } else if (context.mode === "recent") {
       this._activeSceneId = context.sceneId
       this._focusEntityId = context.focusEntityId
@@ -219,13 +258,34 @@ const mapWorkspaceView = {
       this._maps = []
       this._archivedMaps = []
       this._locations = []
+      this._inbox = {
+        ...this._inbox,
+        loading: false,
+        items: [],
+        total: 0,
+        hasMore: false,
+        error: null,
+        page: 0,
+      }
       this._rebuildMapIndexes()
       return true
     }
-    const [maps, archivedMaps, locations] = await Promise.all([
+    const inboxPage = Math.max(0, Number(this._inbox?.page || 0))
+    const inboxFilters = this._inbox?.filters || {}
+    this._inbox = { ...this._inbox, loading: true, error: null }
+    const [maps, archivedMaps, locations, inboxResult] = await Promise.all([
       this._listAllMaps("active", projectId),
       this._listAllMaps("archived", projectId),
       this._listAllLocations(projectId),
+      Promise.resolve(api.world.listProjectMapObservationInbox(projectId, {
+        dynamicType: inboxFilters.dynamicType,
+        sceneId: inboxFilters.sceneId,
+        source: inboxFilters.source,
+        confidence: inboxFilters.confidence,
+        eligibility: inboxFilters.eligibility,
+        skip: inboxPage * MAP_INBOX_PAGE_SIZE,
+        limit: MAP_INBOX_PAGE_SIZE,
+      })).then((data) => ({ data })).catch((error) => ({ error })),
     ])
     if (epoch !== this._dataLoadEpoch || state.currentProjectId !== projectId) {
       return false
@@ -233,6 +293,22 @@ const mapWorkspaceView = {
     this._maps = maps.items || maps || []
     this._archivedMaps = archivedMaps.items || archivedMaps || []
     this._locations = locations.items || locations || []
+    const inboxItems = inboxResult.data?.items || inboxResult.data || []
+    const inboxTotal = Number(inboxResult.data?.total || 0)
+    const lastPage = Math.max(0, Math.ceil(inboxTotal / MAP_INBOX_PAGE_SIZE) - 1)
+    if (!inboxResult.error && inboxPage > lastPage && inboxPage !== 0) {
+      this._inbox = { ...this._inbox, page: lastPage }
+      return this._loadData()
+    }
+    this._inbox = {
+      ...this._inbox,
+      loading: false,
+      projectId,
+      items: inboxItems,
+      total: inboxTotal,
+      hasMore: Boolean(inboxResult.data?.has_more),
+      error: inboxResult.error?.message || null,
+    }
     this._rebuildMapIndexes()
     return true
   },
@@ -327,7 +403,8 @@ const mapWorkspaceView = {
     this._message = message
     toast(this._message, "warning")
     this._mode = "overview"
-    router.refresh?.()
+    this._activeMapId = null
+    this._replaceMapRoute({ mapId: null, mode: "overview" })
   },
 
   async _openRecentMap({
@@ -354,7 +431,7 @@ const mapWorkspaceView = {
         focusEntityId: this._focusEntityId,
       }
       if (viewMode) options.viewMode = viewMode
-      this._openMap(map.id, options)
+      this._openMap(map.id, { ...options, history: "replace" })
       this._saveRecentMap(map)
     } catch {
       this._clearRecentMap()
@@ -388,7 +465,7 @@ const mapWorkspaceView = {
         }
         if (target.focus_path_id) openOptions.focusPathId = target.focus_path_id
         if (target.focus_layer_node_id) openOptions.focusLayerNodeId = target.focus_layer_node_id
-        this._openMap(target.map_id, openOptions)
+        this._openMap(target.map_id, { ...openOptions, history: "replace" })
       }
     } catch {
       if (fallbackToRecent) {
@@ -407,8 +484,10 @@ const mapWorkspaceView = {
     focusPathId = null,
     focusLayerNodeId = null,
     viewMode = null,
+    history = "auto",
   } = {}) {
     const hasMountedMap = this._mode === "map" && Boolean(this._activeMapId)
+    const previousMapId = this._activeMapId
     const onlyViewModeChanges = hasMountedMap
       && this._activeMapId === mapId
       && sceneId == null
@@ -424,7 +503,10 @@ const mapWorkspaceView = {
     if (hasMountedMap && !mapView.canLeave()) {
       return false
     }
-    if (hasMountedMap) this._onMapEditingChange()
+    if (hasMountedMap) {
+      mapView.unmount()
+      this._onMapEditingChange()
+    }
     this._mode = "map"
     this._activeMapId = mapId
     this._activeSceneId = sceneId
@@ -438,7 +520,9 @@ const mapWorkspaceView = {
     this._ensureMapIndexes()
     const map = this._mapById.get(mapId)
     if (map) this._saveRecentMap(map)
-    router.refresh?.()
+    const shouldReplace = history === "replace"
+      || (history === "auto" && hasMountedMap && previousMapId === mapId)
+    this._navigateMapRoute({ replace: shouldReplace })
     return true
   },
 
@@ -463,8 +547,11 @@ const mapWorkspaceView = {
 
   _setViewMode(viewMode) {
     viewMode = this._normalizeViewMode(viewMode)
-    this._viewMode = viewMode
     if (this._mode === "map") {
+      if (!mapView.canLeave()) return false
+      mapView.unmount()
+      this._onMapEditingChange()
+      this._viewMode = viewMode
       mapView._mountContext = {
         ...(mapView._mountContext || {}),
         viewMode: this._viewMode,
@@ -473,7 +560,78 @@ const mapWorkspaceView = {
       mapView._redraw?.()
       this._updateViewModeControlsDom()
       this._updateWorkspaceLayoutDom()
+      this._navigateMapRoute({ replace: true })
+      return true
     }
+    this._viewMode = viewMode
+    return true
+  },
+
+  _mapRouteQuery(overrides = {}) {
+    const hasMapIdOverride = Object.prototype.hasOwnProperty.call(overrides, "mapId")
+    const mapId = hasMapIdOverride ? overrides.mapId : this._activeMapId
+    return buildMapQuery({
+      projectId: state.currentProjectId,
+      mapId,
+      sceneId: Object.prototype.hasOwnProperty.call(overrides, "sceneId")
+        ? overrides.sceneId
+        : this._activeSceneId,
+      focusEntityId: Object.prototype.hasOwnProperty.call(overrides, "focusEntityId")
+        ? overrides.focusEntityId
+        : this._focusEntityId,
+      focusHexQ: Object.prototype.hasOwnProperty.call(overrides, "focusHexQ")
+        ? overrides.focusHexQ
+        : this._focusHexQ,
+      focusHexR: Object.prototype.hasOwnProperty.call(overrides, "focusHexR")
+        ? overrides.focusHexR
+        : this._focusHexR,
+      focusPathId: Object.prototype.hasOwnProperty.call(overrides, "focusPathId")
+        ? overrides.focusPathId
+        : this._focusPathId,
+      focusLayerNodeId: Object.prototype.hasOwnProperty.call(overrides, "focusLayerNodeId")
+        ? overrides.focusLayerNodeId
+        : this._focusLayerNodeId,
+      mode: overrides.mode || (mapId ? this._viewMode : "overview"),
+    })
+  },
+
+  _navigateMapRoute({ replace = false, ...overrides } = {}) {
+    const query = this._mapRouteQuery(overrides)
+    if (replace && typeof router.replace === "function") {
+      void router.replace("map", null, query)
+    } else {
+      void router.navigate("map", null, true, query)
+    }
+  },
+
+  _replaceMapRoute(overrides = {}) {
+    this._navigateMapRoute({ ...overrides, replace: true })
+  },
+
+  _replaceActiveMapRoute(overrides = {}) {
+    if (!this._activeMapId) return false
+    this._replaceMapRoute(overrides)
+    return true
+  },
+
+  _returnToOverview() {
+    if (!mapView.canLeave()) return false
+    mapView.unmount()
+    this._mode = "overview"
+    this._activeMapId = null
+    this._activeSceneId = null
+    this._focusEntityId = null
+    this._focusHexQ = null
+    this._focusHexR = null
+    this._focusPathId = null
+    this._focusLayerNodeId = null
+    this._resetDynamicSummary()
+    this._onMapEditingChange()
+    void router.navigate("map", null, true, buildMapQuery({
+      projectId: state.currentProjectId,
+      mode: "overview",
+    }))
+    return true
   },
 
   _setLowMotion(enabled) {
@@ -574,6 +732,7 @@ const mapWorkspaceView = {
         </div>
         ${message}
         ${this._showArchivedMaps ? this._renderArchivedMaps() : `<div class="map-overview-grid">
+          ${this._renderProjectObservationInbox()}
           <section class="card">
             <h3>最近地图</h3>
             <p>${recent ? esc(recent.name) : "暂无最近地图"}</p>
@@ -593,6 +752,185 @@ const mapWorkspaceView = {
         </div>`}
         <div id="map-search-results"></div>
       </div>
+    `
+  },
+
+  _filteredProjectObservationInbox() {
+    const filters = this._inbox?.filters || {}
+    return (this._inbox?.items || []).filter((item) => {
+      const source = item.source || item.source_ref?.source || item.source_ref?.workflow || ""
+      if (filters.source && source !== filters.source) return false
+      if (filters.confidence === "low" && Number(item.confidence ?? 1) >= 0.6) return false
+      if (filters.confidence === "high" && Number(item.confidence ?? 0) < 0.6) return false
+      if (filters.eligibility === "ready" && !item.eligibility?.can_confirm) return false
+      if (filters.eligibility === "missing" && item.eligibility?.can_confirm) return false
+      return true
+    })
+  },
+
+  _removeProjectInboxItem(observationId) {
+    const total = Math.max(0, Number(this._inbox?.total || 0) - 1)
+    const lastPage = Math.max(0, Math.ceil(total / MAP_INBOX_PAGE_SIZE) - 1)
+    const previousPage = Number(this._inbox?.page || 0)
+    this._inbox = {
+      ...this._inbox,
+      items: (this._inbox?.items || []).filter((entry) => entry.id !== observationId),
+      total,
+      page: Math.min(previousPage, lastPage),
+    }
+    return this._inbox.page !== previousPage
+  },
+
+  _proposalTypeLabel(item) {
+    return {
+      character_location: "人物位置",
+      event_location: "事件位置",
+      route_state: "线路状态",
+      boundary: "势力范围",
+      location: "位置建议",
+      entity_created: "对象位置建议",
+      entity_updated: "对象位置建议",
+      relation_created: "关系位置建议",
+      relation_updated: "关系位置建议",
+    }[item.proposal_type || item.dynamic_type] || item.dynamic_type || "地图建议"
+  },
+
+  _inboxSourceLabel(item) {
+    const source = item.source || item.source_ref?.source || item.source_ref?.workflow || ""
+    return {
+      deep_import: "深度导入",
+      deep_import_delta_event: "深度导入",
+      entity_created: "对象抽取",
+      relation_created: "关系抽取",
+      manual: "人工录入",
+    }[source] || source || "来源已保留"
+  },
+
+  _inboxEvidenceText(item) {
+    const raw = item.evidence_text
+      || item.proposal_value?.area_description
+      || item.proposal_value?.location_name
+      || item.proposal_value?.path_name
+      || ""
+    const cleaned = String(raw).replace(
+      /^(?:deep_import_delta_event|entity_created|relation_created)\s*[·:：-]\s*/,
+      "",
+    ).trim()
+    return cleaned || "尚无可读的空间证据；可查看诊断信息或忽略此建议。"
+  },
+
+  _inboxMissingLabels(item) {
+    const hasScene = item.scene_id || item.scene_index != null || item.time_anchor?.scene_index != null
+    const hasChapter = item.source_chapter_id || item.source_chapter_index != null
+    return (item.eligibility?.missing_item_labels || []).filter((label) => {
+      const normalized = String(label || "").toLowerCase()
+      if (hasScene && (normalized.includes("scene") || normalized.includes("场景"))) return false
+      if (hasChapter && (normalized.includes("chapter") || normalized.includes("章节"))) return false
+      return true
+    }).map((label) => {
+      if (String(label).includes("未选择地图")) return "选择目标地图"
+      if (String(label).includes("动态字段尚未解析完整")) return "补全空间字段"
+      return label
+    })
+  },
+
+  _inboxConfidenceLabel(item) {
+    if (item.confidence === null || item.confidence === undefined) {
+      return "置信度未提供"
+    }
+    const confidence = Number(item.confidence)
+    return Number.isFinite(confidence)
+      ? `${Math.round(confidence * 100)}%`
+      : "置信度未提供"
+  },
+
+  _inboxTimeLabel(item) {
+    const parts = []
+    const sceneIndex = item.scene_index ?? item.time_anchor?.scene_index
+    if (sceneIndex !== null && sceneIndex !== undefined) {
+      parts.push(`Scene ${Number(sceneIndex) + 1}`)
+    }
+    else if (item.scene_id) parts.push("已关联 Scene")
+    const chapterIndex = item.source_chapter_index
+    if (chapterIndex !== null && chapterIndex !== undefined) parts.push(`第 ${chapterIndex} 章`)
+    if (item.time_anchor?.kind === "initial_state") parts.push("初始状态")
+    return parts.join(" · ") || item.time_label || "时间来源待补全"
+  },
+
+  _renderProjectObservationInbox() {
+    const inbox = this._inbox || {}
+    const filters = inbox.filters || {}
+    const items = this._filteredProjectObservationInbox()
+    const sources = [...new Set([
+      filters.source,
+      ...(inbox.items || [])
+        .map((item) => item.source || item.source_ref?.source || item.source_ref?.workflow),
+    ].filter(Boolean))].sort()
+    const page = Number(inbox.page || 0)
+    const pageStart = inbox.total ? page * MAP_INBOX_PAGE_SIZE + 1 : 0
+    const pageEnd = Math.min(inbox.total, pageStart + (inbox.items || []).length - 1)
+    return `
+      <section class="card map-project-inbox">
+        <div class="map-inbox-heading">
+          <div><h3>地图收件箱</h3><p>未分配地图的建议先在这里分流，不会进入任意地图面板。</p></div>
+          <span class="badge">${esc(inbox.total || 0)} 条</span>
+        </div>
+        <div class="map-inbox-filters" aria-label="地图收件箱筛选">
+          <select class="form-select" aria-label="按动态类型筛选" data-action="map-inbox-filter" data-filter="dynamicType">
+            <option value="">全部类型</option>
+            ${[["location", "人物/事件位置"], ["route_state", "线路状态"], ["boundary", "势力范围"]].map(([value, label]) => `<option value="${value}" ${filters.dynamicType === value ? "selected" : ""}>${label}</option>`).join("")}
+          </select>
+          <details class="map-inbox-diagnostic-filter">
+            <summary>诊断筛选</summary>
+            <input class="form-input" aria-label="按 Scene 原始 ID 筛选" data-action="map-inbox-filter" data-filter="sceneId" value="${esc(filters.sceneId || "")}" placeholder="Scene 原始 ID" />
+          </details>
+          <select class="form-select" aria-label="按来源筛选" data-action="map-inbox-filter" data-filter="source">
+            <option value="">全部来源</option>
+            ${sources.map((value) => `<option value="${esc(value)}" ${filters.source === value ? "selected" : ""}>${esc(this._inboxSourceLabel({ source: value }))}</option>`).join("")}
+          </select>
+          <select class="form-select" aria-label="按置信度筛选" data-action="map-inbox-filter" data-filter="confidence">
+            <option value="">全部置信度</option>
+            <option value="low" ${filters.confidence === "low" ? "selected" : ""}>低于 60%</option>
+            <option value="high" ${filters.confidence === "high" ? "selected" : ""}>60% 及以上</option>
+          </select>
+          <select class="form-select" aria-label="按字段完整度筛选" data-action="map-inbox-filter" data-filter="eligibility">
+            <option value="">全部完整度</option>
+            <option value="ready" ${filters.eligibility === "ready" ? "selected" : ""}>可确认</option>
+            <option value="missing" ${filters.eligibility === "missing" ? "selected" : ""}>待补全</option>
+          </select>
+        </div>
+        ${inbox.loading ? `<p class="map-muted-text">正在加载地图待处理项...</p>` : ""}
+        ${inbox.error ? `<div class="alert alert-warning map-inbox-error">
+          <span>${esc(inbox.error)}</span>
+          <button class="btn btn-sm" data-action="map-inbox-retry">重试</button>
+        </div>` : ""}
+        ${!inbox.loading && !items.length ? `<p class="map-muted-text">当前筛选下没有未分配建议。</p>` : `
+          <div class="map-inbox-list">
+            ${items.map((item) => {
+              const missing = this._inboxMissingLabels(item)
+              const source = this._inboxSourceLabel(item)
+              return `<article class="map-inbox-item">
+                <div>
+                  <strong>${esc(item.target_name || this._proposalTypeLabel(item))}</strong>
+                  <div class="map-dynamic-meta">${esc(this._proposalTypeLabel(item))} · ${esc(source)} · ${esc(this._inboxConfidenceLabel(item))}</div>
+                  <div class="map-dynamic-meta">${esc(this._inboxTimeLabel(item))}</div>
+                  <div class="map-dynamic-source">${esc(this._inboxEvidenceText(item))}</div>
+                  <div class="map-dynamic-meta">${missing.length ? `待补：${esc(missing.join("、"))}` : "字段完整，分配地图后可确认"}</div>
+                </div>
+                <div class="map-dynamic-actions">
+                  <button class="btn btn-sm btn-primary" data-action="map-inbox-assign" data-id="${esc(item.id)}">分配并继续</button>
+                  <button class="btn btn-sm" data-action="map-inbox-ignore" data-id="${esc(item.id)}">忽略</button>
+                  <button class="btn btn-sm" data-action="map-inbox-copy-diagnostic" data-id="${esc(item.id)}">复制诊断信息</button>
+                </div>
+              </article>`
+            }).join("")}
+          </div>`}
+        ${inbox.total > MAP_INBOX_PAGE_SIZE ? `<div class="map-pagination">
+          <button class="btn btn-sm" data-action="map-inbox-page" data-page="${page - 1}" ${page === 0 ? "disabled" : ""}>上一页</button>
+          <span>${pageStart}–${pageEnd} / ${esc(inbox.total)}</span>
+          <button class="btn btn-sm" data-action="map-inbox-page" data-page="${page + 1}" ${!inbox.hasMore ? "disabled" : ""}>下一页</button>
+        </div>` : ""}
+      </section>
     `
   },
 
@@ -1419,6 +1757,13 @@ const mapWorkspaceView = {
       layers: this._layers,
       onMapOpened: (map) => this._saveRecentMap(map),
       onEditingChange: (editingState) => this._onMapEditingChange(editingState),
+      onOpenMap: (mapId) => this._openMap(mapId, { viewMode: "live" }),
+      onBackOverview: () => this._returnToOverview(),
+      onSceneChange: (sceneId) => this._changeSceneRoute(sceneId),
+      onLayerFocusChange: (focusLayerNodeId) => {
+        this._focusLayerNodeId = focusLayerNodeId || null
+        this._replaceActiveMapRoute({ focusLayerNodeId: this._focusLayerNodeId })
+      },
       onOpenEntity: (entityId) => {
         state.selectedItem = entityId
         router.navigate("world", "objects")
@@ -1437,6 +1782,15 @@ const mapWorkspaceView = {
       return true
     })
     return this._mountPromise
+  },
+
+  _changeSceneRoute(sceneId) {
+    if (!this._activeMapId || !mapView.canLeave()) return false
+    mapView.unmount()
+    this._onMapEditingChange()
+    this._activeSceneId = sceneId || null
+    this._replaceActiveMapRoute({ sceneId: this._activeSceneId })
+    return true
   },
 
   _onMapEditingChange(editingState = {}) {
@@ -1521,7 +1875,7 @@ const mapWorkspaceView = {
     }
     this._updateDynamicSummaryDom()
     try {
-      const [dashboard, playback, timelineResult] = await Promise.all([
+      const [dashboard, playback, timelineResult, observationPage] = await Promise.all([
         api.world.getMapDashboard(
           mapId,
           projectId,
@@ -1541,8 +1895,25 @@ const mapWorkspaceView = {
           includeCandidates: this._timeline.includeCandidates || undefined,
           limit: 500,
         })).then((data) => ({ data })).catch((error) => ({ error })),
+        api.world.listMapObservations(mapId, projectId, null),
       ])
       if (!isCurrentRequest()) return
+      const dashboardObservations = new Map((dashboard.dynamic_queue || [])
+        .filter((item) => item.item_kind === "observation")
+        .map((item) => [String(item.item_id), item]))
+      const observationItems = observationPage?.items
+        || (Array.isArray(observationPage) ? observationPage : [...dashboardObservations.values()])
+      const observationsById = new Map(dashboardObservations)
+      for (const item of observationItems) {
+        const id = String(item.id || item.item_id)
+        observationsById.set(id, { ...(observationsById.get(id) || {}), ...item })
+      }
+      const observations = [...observationsById.values()].map((item) => ({
+        ...item,
+        item_id: item.id || item.item_id,
+        item_kind: "observation",
+        title: item.target_name || item.title || item.dynamic_type || "地图待处理项",
+      }))
       this._dynamicSummary = {
         mapId,
         sceneId,
@@ -1551,8 +1922,7 @@ const mapWorkspaceView = {
         loading: false,
         loaded: true,
         dashboard,
-        observations: (dashboard.dynamic_queue || [])
-          .filter((item) => item.item_kind === "observation"),
+        observations,
         facts: (dashboard.dynamic_queue || [])
           .filter((item) => item.item_kind === "fact"),
         historyItems: [],
@@ -1601,6 +1971,14 @@ const mapWorkspaceView = {
         })
       } else {
         mapView.clearTimelineProjection?.()
+      }
+      const pendingObservationId = this._pendingObservationEditorId
+      const pendingObservation = pendingObservationId
+        ? this._dynamicObservation(pendingObservationId)
+        : null
+      if (pendingObservation) {
+        this._pendingObservationEditorId = null
+        this._defer(() => this._showDynamicEditForm(pendingObservation))
       }
     } catch (err) {
       if (!isCurrentRequest()) return
@@ -1953,14 +2331,31 @@ const mapWorkspaceView = {
 
   async _confirmObservation(id) {
     const item = this._dynamicObservation(id)
+    if (item?.eligibility && !item.eligibility.can_confirm) {
+      const missing = item.eligibility.missing_item_labels?.join("、") || "结构化字段"
+      toast(`还不能采用，请先补全：${missing}`, "warning")
+      return false
+    }
     const name = item?.title || item?.target_name || "地图映射"
     return confirmAction(`采用地图映射“${name}”并写入当前有效事实？`, async () => {
       try {
-        await api.world.confirmMapObservation(this._activeMapId, id, state.currentProjectId)
+        await api.world.confirmMapObservation(
+          this._activeMapId,
+          id,
+          state.currentProjectId,
+          item?.updated_at,
+        )
         toast("地图事实已采用", "success")
         await this._loadDynamicSummary({ force: true })
       } catch (err) {
+        const latest = err.body?.context?.latest
+        if (err.status === 409 && latest) {
+          this._applyObservationConflictLatest(latest, item)
+          toast("该建议已更新；已加载服务器最新摘要，请核对后重试", "warning")
+          return false
+        }
         toast(`采用失败：${err.message || "未知错误"}`, "error")
+        return false
       }
     })
   },
@@ -1970,11 +2365,23 @@ const mapWorkspaceView = {
     const name = item?.title || item?.target_name || "地图映射"
     return confirmAction(`忽略地图映射「${name}」？`, async () => {
       try {
-        await api.world.ignoreMapObservation(this._activeMapId, id, state.currentProjectId)
+        await api.world.ignoreMapObservation(
+          this._activeMapId,
+          id,
+          state.currentProjectId,
+          item?.updated_at,
+        )
         toast("地图映射已忽略", "success")
         await this._loadDynamicSummary({ force: true })
       } catch (err) {
+        const latest = err.body?.context?.latest
+        if (err.status === 409 && latest) {
+          this._applyObservationConflictLatest(latest, item)
+          toast("该建议已更新；已加载服务器最新摘要，请核对后重试", "warning")
+          return false
+        }
         toast(`忽略失败：${err.message || "未知错误"}`, "error")
+        return false
       }
     })
   },
@@ -2053,6 +2460,14 @@ const mapWorkspaceView = {
     const status = mapAssetDisplay(item).label
     const time = item.time_label || "时间未确定"
     const summary = item.change_summary || item.source_summary || "暂无来源摘要"
+    const evidence = item.evidence_text || "未提供正文证据"
+    const workflow = item.source_ref?.workflow
+      || item.source_ref?.source
+      || item.source_workflow
+      || "来源工作流已记录"
+    const confidence = item.confidence == null
+      ? "未提供"
+      : `${Math.round(Number(item.confidence) * 100)}%`
     const actions = this._dynamicObjectActions(item)
     const detailLine = [item.type_label, item.location_label, item.spatial_anchor_label]
       .filter(Boolean)
@@ -2077,6 +2492,18 @@ const mapWorkspaceView = {
           <div class="map-detail-label">来源</div>
           <div class="map-detail-value">${esc(summary)}</div>
         </div>
+        <div class="map-detail-section">
+          <div class="map-detail-label">证据</div>
+          <div class="map-detail-value">${esc(evidence)}</div>
+        </div>
+        <div class="map-detail-section">
+          <div class="map-detail-label">来源工作流</div>
+          <div class="map-detail-value">${esc(workflow)}</div>
+        </div>
+        <div class="map-detail-section">
+          <div class="map-detail-label">原始置信度</div>
+          <div class="map-detail-value">${esc(confidence)}</div>
+        </div>
       </div>
     `
     showModalHtml(esc(title), body, [
@@ -2089,6 +2516,11 @@ const mapWorkspaceView = {
         },
       },
       ...actions,
+      {
+        text: "复制诊断信息",
+        class: "btn",
+        handler: () => this._copyDynamicDiagnostic(item),
+      },
       {
         text: "打开检查器",
         class: "btn",
@@ -2104,41 +2536,38 @@ const mapWorkspaceView = {
     if (!item) return
     const isFact = item.item_kind === "fact"
     const statusValue = isFact ? (item.fact_status || "confirmed") : (item.review_state || "candidate")
-    const jsonValue = (value) => esc(JSON.stringify(value || {}, null, 2))
+    const targetEntities = (mapView.timelineEntityOptions?.() || [])
+    const knownTargetIds = new Set(targetEntities.map((entity) => entity.id))
+    const unknownTarget = item.target_entity_id && !knownTargetIds.has(item.target_entity_id)
+      ? `<option value="${esc(item.target_entity_id)}" data-entity-type="${esc(item.target_entity_type || "")}" selected>当前已关联对象</option>`
+      : ""
+    const eligibility = item.eligibility || {}
     const observationFields = isFact ? "" : `
       <div class="form-group">
         <label>目标名称</label>
-        <input class="form-input" id="map-object-edit-target-name" value="${esc(item.target_name || item.title || "")}" />
+        <input class="form-input" id="map-object-edit-target-name" aria-label="目标名称" value="${esc(item.target_name || item.title || "")}" />
       </div>
       <div class="form-group">
-        <label>目标类型</label>
-        <input class="form-input" id="map-object-edit-target-type" value="${esc(item.target_entity_type || item.object_type || "")}" />
+        <label>关联对象</label>
+        <select class="form-select" id="map-object-edit-target-entity" aria-label="关联对象">
+          <option value="">未指定</option>
+          ${unknownTarget}
+          ${targetEntities.map((entity) => `<option value="${esc(entity.id)}" data-entity-type="${esc(entity.entityType || "")}" ${entity.id === item.target_entity_id ? "selected" : ""}>${esc(entity.name)} · ${esc(entity.entityType || "对象")}</option>`).join("")}
+        </select>
       </div>
-      <div class="form-group">
-        <label>动态类型</label>
-        <input class="form-input" id="map-object-edit-dynamic-type" value="${esc(item.dynamic_type || item.object_type || "")}" />
+      <div class="map-observation-eligibility ${eligibility.can_confirm ? "is-ready" : "is-missing"}">
+        ${eligibility.can_confirm
+          ? "字段已完整，保存后可采用。"
+          : `待补：${esc((eligibility.missing_item_labels || []).join("、") || "请补全结构化字段")}`}
       </div>
-      <div class="form-group">
-        <label>置信度</label>
-        <input class="form-input" id="map-object-edit-confidence" type="number" min="0" max="1" step="0.01" value="${esc(item.confidence ?? "")}" />
+      <div class="map-object-readonly-context" role="note" aria-label="来源信息（只读）">
+        <div><strong>时间：</strong>${esc(item.time_label || "时间未确定")}</div>
+        <div><strong>位置：</strong>${esc(item.location_label || item.spatial_anchor_label || "位置未确定")}</div>
+        <div><strong>证据：</strong>${esc(item.evidence_text || item.source_summary || "未提供正文证据")}</div>
+        <div><strong>来源：</strong>${esc(item.source_ref?.workflow || item.source_ref?.source || item.source_workflow || "来源工作流已记录")}</div>
+        <div><strong>原始置信度：</strong>${esc(item.confidence == null ? "未提供" : `${Math.round(Number(item.confidence) * 100)}%`)}</div>
       </div>
-      <div class="form-group">
-        <label>时间锚点 JSON</label>
-        <textarea class="form-textarea" id="map-object-edit-time-anchor" rows="3">${jsonValue(item.time_anchor)}</textarea>
-      </div>
-      <div class="form-group">
-        <label>空间锚点 JSON</label>
-        <textarea class="form-textarea" id="map-object-edit-spatial-anchor" rows="3">${jsonValue(item.spatial_anchor)}</textarea>
-      </div>
-      ${this._renderTypedDynamicValueEditor(item, jsonValue)}
-      <div class="form-group">
-        <label>来源引用 JSON</label>
-        <textarea class="form-textarea" id="map-object-edit-source-ref" rows="3">${jsonValue(item.source_ref)}</textarea>
-      </div>
-      <div class="form-group">
-        <label>证据文本</label>
-        <textarea class="form-textarea" id="map-object-edit-evidence" rows="3">${esc(item.evidence_text || item.source_summary || "")}</textarea>
-      </div>
+      ${this._renderTypedDynamicValueEditor(item)}
     `
     const formHtml = `
       <div class="form-group">
@@ -2147,7 +2576,7 @@ const mapWorkspaceView = {
       </div>
       <div class="form-group">
         <label>展示状态</label>
-        <select class="form-select" id="map-object-edit-status">
+        <select class="form-select" id="map-object-edit-status" aria-label="展示状态">
           ${isFact
             ? ["confirmed", "rolled_back", "deprecated"].map((value) => `<option value="${value}" ${value === statusValue ? "selected" : ""}>${esc(this._factStatusLabel(value))}</option>`).join("")
             : [
@@ -2170,22 +2599,33 @@ const mapWorkspaceView = {
         } else {
           let payload
           try {
-            payload = this._readObservationEditPayload(nextStatus)
+            payload = this._readObservationEditPayload(nextStatus, item)
           } catch (err) {
             toast(err.message || "地图待处理项字段格式不正确", "error")
             return
           }
-          closeModal()
-          await this._updateObservationReview(item.item_id, payload)
+          await this._saveObservationEdit(item, payload)
         }
       },
     }])
     this._bindTypedDynamicValueEditor()
   },
 
-  _renderTypedDynamicValueEditor(item, jsonValue) {
+  async _copyDynamicDiagnostic(item) {
+    const text = formatMapDiagnosticInfo(item, { mapId: this._activeMapId })
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable")
+      await navigator.clipboard.writeText(text)
+      toast("诊断信息已复制", "success")
+      return true
+    } catch {
+      toast("无法访问剪贴板，请检查浏览器权限", "warning")
+      return false
+    }
+  },
+
+  _renderTypedDynamicValueEditor(item) {
     const types = [
-      ["", "保留旧格式"],
       ["location", "人物/对象位置"],
       ["route_state", "线路状态"],
       ["status", "对象状态"],
@@ -2196,11 +2636,25 @@ const mapWorkspaceView = {
       ["semantic", "语义关联"],
     ]
     const supported = new Set(types.map(([value]) => value).filter(Boolean))
-    const rawValue = item.normalized_value || item.value_json || {}
+    const proposalValue = item.proposal_value
+      || (item.value_json?.payload_kind === "proposal" ? item.value_json : null)
+    const rawValue = item.normalized_value
+      || (proposalValue ? this._proposalToTypedValue(item, proposalValue) : item.value_json)
+      || {}
     const typedValue = rawValue.schema_version === 1 && supported.has(rawValue.type)
       ? rawValue
       : null
-    const selectedType = typedValue?.type || ""
+    if (!typedValue) {
+      return `
+        <section class="map-typed-dynamic-editor" role="note">
+          <div class="map-typed-dynamic-heading"><strong>结构化动态</strong><span>旧版数据</span></div>
+          <p class="map-legacy-dynamic-note">该记录仍使用旧版格式，本批只读保留；请等待后续结构化迁移后再编辑动态值。</p>
+        </section>
+      `
+    }
+    const selectedType = typedValue.type
+    const isEventLocation = item.proposal_type === "event_location"
+    const selectedTypeLabel = types.find(([value]) => value === selectedType)?.[1] || "结构化动态"
     const entitiesById = new Map()
     for (const entity of [
       ...(mapView.timelineEntityOptions?.() || []),
@@ -2251,11 +2705,9 @@ const mapWorkspaceView = {
               ? "boolean"
               : "string")
       : "string"
-    const fieldset = (type, content) => `
-      <div class="map-typed-dynamic-fields" data-map-dynamic-fields="${type}" ${selectedType === type ? "" : "hidden"}>
-        ${content}
-      </div>
-    `
+    const fieldset = (type, content) => selectedType === type
+      ? `<div class="map-typed-dynamic-fields" data-map-dynamic-fields="${type}">${content}</div>`
+      : ""
     const normalizationState = item.normalization_state
       || (typedValue ? "typed" : "untyped")
     return `
@@ -2264,25 +2716,18 @@ const mapWorkspaceView = {
           <strong>结构化动态</strong>
           <span>${esc(mapDynamicNormalizationLabel(normalizationState))}</span>
         </div>
-        ${typedValue
-          ? `<p class="map-muted-text">已使用可检查的结构化字段；保存时继续由后端 schema 校验。</p>`
-          : `<p class="map-legacy-dynamic-note">尚未结构化。可选择一种动态类型补齐字段；保留旧格式时仍保存原 JSON。</p>`}
-        <div class="form-group">
-          <label>动态值类型</label>
-          <select class="form-select" id="map-object-edit-value-type" data-initial-type="${selectedType}" data-initialized="false">
-            ${types.map(([value, label]) => `<option value="${value}" ${selectedType === value ? "selected" : ""}>${esc(label)}</option>`).join("")}
-          </select>
-        </div>
+        <p class="map-muted-text">类型：${esc(selectedTypeLabel)}。${proposalValue ? "这是未解析建议，请用选择器补全正式对象。" : "保存时继续由后端 schema 校验。"}</p>
+        <input type="hidden" id="map-object-edit-value-type" value="${esc(selectedType)}" data-initial-type="${esc(selectedType)}" data-initialized="true" />
         ${fieldset("location", `
-          <div class="form-group"><label>所在地点</label><select class="form-select" id="map-typed-location-entity">${locationOptions(typedValue?.location_entity_id)}</select></div>
-          <div class="form-group"><label>使用线路（可选）</label><select class="form-select" id="map-typed-location-path">${pathOptions(typedValue?.path_id)}</select></div>
-          <div class="form-group"><label>移动方式</label><select class="form-select" id="map-typed-location-mode">${["walk", "ride", "vehicle", "rail", "water", "flight", "teleport", "unknown"].map((value) => `<option value="${value}" ${(typedValue?.movement_mode || "unknown") === value ? "selected" : ""}>${esc({ walk: "步行", ride: "骑乘", vehicle: "载具", rail: "轨道", water: "水路", flight: "飞行", teleport: "传送", unknown: "未知" }[value])}</option>`).join("")}</select></div>
-          <div class="form-group"><label>位置状态</label><input class="form-input" id="map-typed-location-state" maxlength="64" value="${esc(typedValue?.state || "present")}" /></div>
+          <div class="form-group"><label for="map-typed-location-entity">所在地点</label><select class="form-select" id="map-typed-location-entity">${locationOptions(typedValue?.location_entity_id)}</select></div>
+          ${isEventLocation ? "" : `<div class="form-group"><label for="map-typed-location-path">使用线路（可选）</label><select class="form-select" id="map-typed-location-path">${pathOptions(typedValue?.path_id)}</select></div>`}
+          <div class="form-group"><label for="map-typed-location-mode">移动方式</label><select class="form-select" id="map-typed-location-mode">${["walk", "ride", "vehicle", "rail", "water", "flight", "teleport", "unknown"].map((value) => `<option value="${value}" ${(typedValue?.movement_mode || "unknown") === value ? "selected" : ""}>${esc({ walk: "步行", ride: "骑乘", vehicle: "载具", rail: "轨道", water: "水路", flight: "飞行", teleport: "传送", unknown: "未知" }[value])}</option>`).join("")}</select></div>
+          <div class="form-group"><label for="map-typed-location-state">位置状态</label><input class="form-input" id="map-typed-location-state" maxlength="64" value="${esc(typedValue?.state || "present")}" /></div>
         `)}
         ${fieldset("route_state", `
-          <div class="form-group"><label>线路</label><select class="form-select" id="map-typed-route-path">${pathOptions(typedValue?.path_id)}</select></div>
-          <div class="form-group"><label>线路状态</label><select class="form-select" id="map-typed-route-state">${[["open", "开放"], ["restricted", "受限"], ["blocked", "阻断"]].map(([value, label]) => `<option value="${value}" ${(typedValue?.state || "open") === value ? "selected" : ""}>${label}</option>`).join("")}</select></div>
-          <div class="form-group"><label>原因（可选）</label><textarea class="form-textarea" id="map-typed-route-reason" rows="2" maxlength="1000">${esc(typedValue?.reason || "")}</textarea></div>
+          <div class="form-group"><label for="map-typed-route-path">线路</label><select class="form-select" id="map-typed-route-path">${pathOptions(typedValue?.path_id)}</select></div>
+          <div class="form-group"><label for="map-typed-route-state">线路状态</label><select class="form-select" id="map-typed-route-state">${[["open", "开放"], ["restricted", "受限"], ["blocked", "阻断"]].map(([value, label]) => `<option value="${value}" ${(typedValue?.state || "open") === value ? "selected" : ""}>${label}</option>`).join("")}</select></div>
+          <div class="form-group"><label for="map-typed-route-reason">原因（可选）</label><textarea class="form-textarea" id="map-typed-route-reason" rows="2" maxlength="1000">${esc(typedValue?.reason || "")}</textarea></div>
         `)}
         ${fieldset("status", `
           <div class="form-group"><label>状态字段</label><input class="form-input" id="map-typed-status-key" maxlength="128" value="${esc(typedValue?.field_key || "")}" placeholder="例如：戒备等级" /></div>
@@ -2292,8 +2737,9 @@ const mapWorkspaceView = {
           </div>
         `)}
         ${fieldset("boundary", `
-          <div class="form-group"><label>控制者</label><select class="form-select" id="map-typed-boundary-controller">${entityOptions(typedValue?.controller_entity_id || item.target_entity_id)}</select></div>
-          <div class="form-group"><label>范围格（每行 q,r）</label><textarea class="form-textarea" id="map-typed-boundary-hexes" rows="4" placeholder="2,3">${esc(hexText(typedValue))}</textarea></div>
+          <div class="form-group"><label for="map-typed-boundary-controller">控制者</label><select class="form-select" id="map-typed-boundary-controller">${entityOptions(typedValue?.controller_entity_id || item.target_entity_id)}</select></div>
+          <div class="form-group map-boundary-spatial-field"><label for="map-typed-boundary-hexes">范围格（每行 q,r）</label><textarea class="form-textarea" id="map-typed-boundary-hexes" rows="4" placeholder="2,3">${esc(hexText(typedValue))}</textarea></div>
+          <p class="map-boundary-mobile-handoff">当前范围已保留；势力 hex 绘制与精修请在桌面端继续。</p>
         `)}
         ${fieldset("resource", `
           <div class="form-group"><label>资源名称/键</label><input class="form-input" id="map-typed-resource-key" maxlength="128" value="${esc(typedValue?.resource_key || "")}" /></div>
@@ -2315,13 +2761,46 @@ const mapWorkspaceView = {
           <div class="form-group"><label>相关对象（可多选）</label><select class="form-select" id="map-typed-semantic-entities" multiple size="4">${unknownRelatedOptions}${entities.map((entry) => `<option value="${esc(entry.id)}" ${(typedValue?.related_entity_ids || []).includes(entry.id) ? "selected" : ""}>${esc(entry.name)}</option>`).join("")}</select></div>
           <div class="form-group"><label>关联说明（可选）</label><textarea class="form-textarea" id="map-typed-semantic-summary" rows="3" maxlength="2000">${esc(typedValue?.summary || "")}</textarea></div>
         `)}
-        <details class="map-dynamic-advanced">
-          <summary>高级 JSON</summary>
-          <p class="map-muted-text">仅在“保留旧格式”时读取；结构化表单保存时由表单生成 V1 数据。</p>
-          <textarea class="form-textarea" id="map-object-edit-value-json" rows="5">${jsonValue(item.value_json)}</textarea>
-        </details>
       </section>
     `
+  },
+
+  _proposalToTypedValue(item, proposal) {
+    const entities = mapView.timelineEntityOptions?.() || []
+    const paths = mapView.timelinePathOptions?.() || []
+    const entityByName = (name, allowedTypes = null) => entities.find((entity) => (
+      entity.name === name && (!allowedTypes || allowedTypes.includes(entity.entityType))
+    ))?.id || null
+    if (["character_location", "event_location"].includes(proposal.proposal_type)) {
+      return {
+        schema_version: 1,
+        type: "location",
+        location_entity_id: entityByName(proposal.location_name, ["location"]),
+        path_id: null,
+        movement_mode: proposal.movement_mode || "unknown",
+        state: proposal.state || (proposal.proposal_type === "event_location" ? "occurred" : "present"),
+      }
+    }
+    if (proposal.proposal_type === "route_state") {
+      return {
+        schema_version: 1,
+        type: "route_state",
+        path_id: paths.find((path) => path.name === proposal.path_name)?.id || null,
+        state: proposal.state || "open",
+        reason: proposal.reason || null,
+      }
+    }
+    if (proposal.proposal_type === "boundary") {
+      return {
+        schema_version: 1,
+        type: "boundary",
+        controller_entity_id: entityByName(proposal.controller_name, ["organization", "faction"])
+          || item.target_entity_id
+          || null,
+        hexes: [],
+      }
+    }
+    return proposal
   },
 
   _bindTypedDynamicValueEditor() {
@@ -2339,11 +2818,6 @@ const mapWorkspaceView = {
       document.querySelectorAll("[data-map-dynamic-fields]").forEach((fieldset) => {
         fieldset.hidden = fieldset.dataset.mapDynamicFields !== select.value
       })
-      const dynamicType = document.getElementById("map-object-edit-dynamic-type")
-      if (dynamicType && select.value) {
-        const currentCanonical = this._canonicalDynamicType(dynamicType.value)
-        if (currentCanonical !== select.value) dynamicType.value = select.value
-      }
     }
     select.onchange = sync
     sync()
@@ -2494,39 +2968,81 @@ const mapWorkspaceView = {
     throw new Error("不支持的结构化动态类型")
   },
 
-  _readObservationEditPayload(reviewState) {
+  _readObservationEditPayload(reviewState, observation = null) {
     const value = (id) => document.getElementById(id)?.value?.trim() || ""
     const typedValue = this._readTypedDynamicValue()
-    let dynamicType = value("map-object-edit-dynamic-type") || "state_change"
-    if (typedValue && this._canonicalDynamicType(dynamicType) !== typedValue.type) {
-      dynamicType = typedValue.type
-    }
+    const targetSelect = document.getElementById("map-object-edit-target-entity")
+    const selectedTarget = targetSelect?.selectedOptions?.[0]
     const payload = {
+      expected_updated_at: observation?.updated_at,
       review_state: reviewState || "candidate",
-      target_name: value("map-object-edit-target-name") || null,
-      target_entity_type: value("map-object-edit-target-type") || null,
-      dynamic_type: dynamicType,
-      time_anchor: this._readJsonField("map-object-edit-time-anchor"),
-      spatial_anchor: this._readJsonField("map-object-edit-spatial-anchor"),
-      value_json: typedValue || this._readJsonField("map-object-edit-value-json"),
-      source_ref: this._readJsonField("map-object-edit-source-ref"),
-      evidence_text: value("map-object-edit-evidence") || null,
+      target_entity_id: targetSelect?.value || null,
+      target_entity_type: selectedTarget?.dataset?.entityType || null,
+      target_name: value("map-object-edit-target-name") || selectedTarget?.textContent?.split("·")[0]?.trim() || null,
     }
-    const confidence = value("map-object-edit-confidence")
-    if (confidence !== "") payload.confidence = Number(confidence)
+    if (typedValue) payload.value_json = typedValue
     return payload
   },
 
-  _readJsonField(id) {
-    const raw = document.getElementById(id)?.value?.trim()
-    if (!raw) return {}
-    try {
-      const parsed = JSON.parse(raw)
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed
-    } catch {
-      // handled below with a field-specific error
+  _applyObservationConflictLatest(latest, capturedItem = null) {
+    if (!latest?.id) return null
+    const applyLatest = (entry) => {
+      const entryId = entry?.item_id || entry?.id
+      if (entryId !== latest.id) return entry
+      Object.assign(entry, latest)
+      entry.item_id ||= latest.id
+      entry.item_kind ||= "observation"
+      return entry
     }
-    throw new Error(`${id} 必须是 JSON 对象`)
+    if (capturedItem) applyLatest(capturedItem)
+    for (const entry of this._inbox?.items || []) applyLatest(entry)
+    for (const entry of this._dynamicSummary?.observations || []) applyLatest(entry)
+    for (const entry of this._dynamicSummary?.dashboard?.dynamic_queue || []) applyLatest(entry)
+    this._rebuildDynamicIndexes()
+
+    const body = document.getElementById("modal-body")
+    if (body) {
+      let summary = body.querySelector("#map-observation-conflict-summary")
+      if (!summary) {
+        summary = document.createElement("div")
+        summary.id = "map-observation-conflict-summary"
+        summary.className = "alert alert-warning"
+        summary.setAttribute("role", "status")
+        body.prepend(summary)
+      }
+      const missing = latest.eligibility?.missing_item_labels || []
+      const stateLabel = this._reviewStateLabel(latest.review_state)
+      summary.textContent = `服务器最新摘要：${stateLabel}${missing.length ? `；待补 ${missing.join("、")}` : "；字段完整"}。当前表单输入已保留。`
+    }
+    return capturedItem || this._dynamicObservation(latest.id)
+  },
+
+  async _saveObservationEdit(item, payload) {
+    const requestPayload = {
+      ...payload,
+      expected_updated_at: payload.expected_updated_at || item.updated_at,
+    }
+    try {
+      await api.world.updateMapObservationReview(
+        this._activeMapId,
+        item.item_id || item.id,
+        state.currentProjectId,
+        requestPayload,
+      )
+      closeModal()
+      toast("地图待处理项已保存", "success")
+      await this._loadDynamicSummary({ force: true })
+      return true
+    } catch (err) {
+      const latest = err.body?.context?.latest
+      if (err.status === 409 && latest) {
+        this._applyObservationConflictLatest(latest, item)
+        toast("该建议已被其他操作更新；当前表单未关闭，请核对后重试", "warning")
+        return false
+      }
+      toast(`更新失败：${err.message || "未知错误"}`, "error")
+      return false
+    }
   },
 
   _dynamicObjectActions(item) {
@@ -2554,6 +3070,22 @@ const mapWorkspaceView = {
           handler: () => {
             closeModal()
             this._markObservationConflict(item.item_id)
+          },
+        },
+        {
+          text: "更换地图",
+          class: "btn",
+          handler: () => {
+            closeModal()
+            this._showInboxAssignment(item.item_id, item)
+          },
+        },
+        {
+          text: "取消分配",
+          class: "btn",
+          handler: () => {
+            closeModal()
+            this._unassignObservation(item.item_id)
           },
         },
       ]
@@ -2594,11 +3126,23 @@ const mapWorkspaceView = {
     const name = item?.title || item?.target_name || "地图映射"
     return confirmAction(`标记地图映射「${name}」为冲突？`, async () => {
       try {
-        await api.world.updateMapObservationReview(this._activeMapId, id, state.currentProjectId, "conflicted")
+        await api.world.updateMapObservationReview(
+          this._activeMapId,
+          id,
+          state.currentProjectId,
+          { expected_updated_at: item?.updated_at, review_state: "conflicted" },
+        )
         toast("地图映射已标记为冲突", "success")
         await this._loadDynamicSummary({ force: true })
       } catch (err) {
+        const latest = err.body?.context?.latest
+        if (err.status === 409 && latest) {
+          this._applyObservationConflictLatest(latest, item)
+          toast("地图映射已更新，请核对最新摘要后重试", "warning")
+          return false
+        }
         toast(`标记失败：${err.message || "未知错误"}`, "error")
+        return false
       }
     })
   },
@@ -2618,11 +3162,58 @@ const mapWorkspaceView = {
     const label = this._reviewStateLabel(reviewState)
     return confirmAction(`将地图映射「${name}」设为${label}？`, async () => {
       try {
-        await api.world.updateMapObservationReview(this._activeMapId, id, state.currentProjectId, reviewState)
+        const payload = reviewState && typeof reviewState === "object"
+          ? { ...reviewState }
+          : { review_state: reviewState }
+        if (!payload.expected_updated_at) payload.expected_updated_at = item?.updated_at
+        await api.world.updateMapObservationReview(
+          this._activeMapId,
+          id,
+          state.currentProjectId,
+          payload,
+        )
         toast("地图映射已更新", "success")
         await this._loadDynamicSummary({ force: true })
       } catch (err) {
+        const latest = err.body?.context?.latest
+        if (err.status === 409 && latest) {
+          this._applyObservationConflictLatest(latest, item)
+          toast("地图映射已更新，请核对最新摘要后重试", "warning")
+          return false
+        }
         toast(`更新失败：${err.message || "未知错误"}`, "error")
+        return false
+      }
+    })
+  },
+
+  _unassignObservation(id) {
+    const item = this._dynamicObservation(id)
+    if (!item) return false
+    const name = item.title || item.target_name || "地图待处理项"
+    return confirmAction(`取消「${name}」的地图分配？它将回到项目级地图待处理。`, async () => {
+      try {
+        await api.world.assignProjectMapObservation(
+          id,
+          state.currentProjectId,
+          null,
+          item.updated_at,
+        )
+        toast("已取消分配，建议已回到地图待处理", "success")
+        await Promise.all([
+          this._loadDynamicSummary({ force: true }),
+          this._loadData(),
+        ])
+        return true
+      } catch (err) {
+        const latest = err.body?.context?.latest
+        if (err.status === 409 && latest) {
+          this._applyObservationConflictLatest(latest, item)
+          toast("地图归属已更新，请核对最新摘要后重试", "warning")
+          return false
+        }
+        toast(`取消分配失败：${err.message || "未知错误"}`, "error")
+        return false
       }
     })
   },
@@ -2685,6 +3276,16 @@ const mapWorkspaceView = {
       return
     }
     const batchIds = ids.slice(0, MAP_BATCH_ID_LIMIT)
+    const batchItems = batchIds
+      .map((id) => this._dynamicObservation(id) || this._findDynamicItem(id))
+      .filter(Boolean)
+    if (action === "confirm") {
+      const blocked = batchItems.find((item) => item.eligibility && !item.eligibility.can_confirm)
+      if (blocked) {
+        toast(`分组中有待补全项：${(blocked.eligibility.missing_item_labels || []).join("、") || "请打开编辑"}`, "warning")
+        return false
+      }
+    }
     const label = { confirm: "采用", ignore: "忽略", conflict: "标记冲突" }[action] || "处理"
     const batchNote = ids.length > batchIds.length
       ? `本次先${label} ${batchIds.length} 条（该分组共 ${ids.length} 条）`
@@ -2698,12 +3299,23 @@ const mapWorkspaceView = {
         }[action]
         await api.world.runMapBatchAction(this._activeMapId, state.currentProjectId, {
           action: apiAction,
-          observation_ids: batchIds,
+          observation_items: batchItems.map((item) => ({
+            observation_id: item.item_id || item.id,
+            expected_updated_at: item.updated_at,
+          })),
         })
         toast("批量修改已完成", "success")
         await this._loadDynamicSummary({ force: true })
       } catch (err) {
+        const latest = err.body?.context?.latest
+        if (err.status === 409 && latest) {
+          const captured = batchItems.find((item) => (item.item_id || item.id) === latest.id)
+          this._applyObservationConflictLatest(latest, captured)
+          toast("批量修改遇到新版本；未写入部分结果，请核对最新摘要后重试", "warning")
+          return false
+        }
         toast(`批量修改失败：${err.message || "未知错误"}`, "error")
+        return false
       }
     })
   },
@@ -2756,6 +3368,25 @@ const mapWorkspaceView = {
       }
       if (action === "map-archive") return runAction(() => this._archiveMap(target.dataset.id))
       if (action === "map-restore") return runAction(() => this._showRestoreMapForm(target.dataset.id))
+      if (action === "map-inbox-assign") return runAction(() => this._showInboxAssignment(target.dataset.id))
+      if (action === "map-inbox-ignore") return runAction(() => this._ignoreInboxObservation(target.dataset.id))
+      if (action === "map-inbox-copy-diagnostic") {
+        const item = (this._inbox?.items || []).find((entry) => entry.id === target.dataset.id)
+        return runAction(() => this._copyDynamicDiagnostic(item))
+      }
+      if (action === "map-inbox-retry") {
+        return runAction(async () => {
+          await this._loadData()
+          await router.renderCurrentView?.()
+        })
+      }
+      if (action === "map-inbox-page") {
+        this._inbox = { ...this._inbox, page: Math.max(0, Number(target.dataset.page || 0)) }
+        return runAction(async () => {
+          await this._loadData()
+          await router.renderCurrentView?.()
+        })
+      }
       if (action === "map-confirm-observation") return runAction(() => this._confirmObservation(target.dataset.id))
       if (action === "map-ignore-observation") return runAction(() => this._ignoreObservation(target.dataset.id))
       if (action === "map-view-mode") return runAction(() => this._setViewMode(target.dataset.viewMode))
@@ -2790,20 +3421,7 @@ const mapWorkspaceView = {
         return runAction(() => this._showDynamicObjectInfo(target.dataset.id))
       }
       if (action === "map-overview") {
-        return runAction(() => {
-          if (!mapView.canLeave()) return false
-          this._mode = "overview"
-          this._activeMapId = null
-          this._resetDynamicSummary()
-          mapView.unmount()
-          this._onMapEditingChange()
-          return router.navigate(
-            "map",
-            null,
-            true,
-            new URLSearchParams({ mode: "overview" }),
-          )
-        })
+        return runAction(() => this._returnToOverview())
       }
     }
     root.onchange = (event) => {
@@ -2827,6 +3445,21 @@ const mapWorkspaceView = {
       if (action === "map-timeline-track") {
         return this._setTimelineTrack(target.dataset.track, target.checked)
       }
+      if (action === "map-inbox-filter") {
+        const filter = target.dataset.filter
+        this._inbox = {
+          ...this._inbox,
+          page: 0,
+          filters: {
+            ...(this._inbox?.filters || {}),
+            [filter]: target.value,
+          },
+        }
+        return runAction(async () => {
+          await this._loadData()
+          await router.renderCurrentView?.()
+        })
+      }
     }
     root.querySelectorAll("[data-action='map-layer-toggle']").forEach((input) => {
       input.onchange = () => this._setLayer(input.dataset.layer, input.checked)
@@ -2846,6 +3479,88 @@ const mapWorkspaceView = {
         }
       }
     }
+  },
+
+  _showInboxAssignment(observationId, assignedItem = null) {
+    const item = assignedItem
+      || (this._inbox?.items || []).find((entry) => entry.id === observationId)
+    if (!item) return false
+    const isReassignment = Boolean(assignedItem)
+    if (!this._maps.length) {
+      toast("请先创建一张地图，再分配待处理项", "warning")
+      return false
+    }
+    const form = `
+      <p>分配后将打开目标地图，并继续补全「${esc(item.target_name || this._proposalTypeLabel(item))}」。</p>
+      <div class="form-group">
+        <label>目标地图</label>
+        <select class="form-select" id="map-inbox-assignment-map">
+          ${this._maps.map((map) => `<option value="${esc(map.id)}" ${map.id === (item.map_id || this._activeMapId) ? "selected" : ""}>${esc(map.name)}</option>`).join("")}
+        </select>
+      </div>
+    `
+    showModalHtml(isReassignment ? "更换地图" : "分配地图待处理项", form, [{
+      text: isReassignment ? "更换并继续" : "分配并继续",
+      class: "btn-primary",
+      handler: async () => {
+        const mapId = document.getElementById("map-inbox-assignment-map")?.value
+        if (!mapId) {
+          toast("请选择目标地图", "warning")
+          return false
+        }
+        try {
+          await api.world.assignProjectMapObservation(
+            item.id,
+            state.currentProjectId,
+            mapId,
+            item.updated_at,
+          )
+          closeModal()
+          this._removeProjectInboxItem(item.id)
+          this._pendingObservationEditorId = item.id
+          this._openMap(mapId, { viewMode: "dashboard" })
+          toast(isReassignment ? "已更换地图，请继续核对并确认" : "已分配地图，请继续补全并确认", "success")
+          return true
+        } catch (err) {
+          const latest = err.body?.context?.latest
+          if (err.status === 409 && latest) {
+            this._applyObservationConflictLatest(latest, item)
+            toast("该建议已被其他操作更新，表单已保留，请核对后重试", "warning")
+            return false
+          }
+          toast(`分配失败：${err.message || "未知错误"}`, "error")
+          return false
+        }
+      },
+    }])
+    return true
+  },
+
+  _ignoreInboxObservation(observationId) {
+    const item = (this._inbox?.items || []).find((entry) => entry.id === observationId)
+    if (!item) return false
+    return confirmAction(`忽略地图待处理项「${item.target_name || this._proposalTypeLabel(item)}」？`, async () => {
+      try {
+        await api.world.ignoreProjectMapObservation(
+          item.id,
+          state.currentProjectId,
+          item.updated_at,
+        )
+        const pageChanged = this._removeProjectInboxItem(item.id)
+        toast("地图待处理项已忽略", "success")
+        if (pageChanged) await this._loadData()
+        await router.renderCurrentView?.()
+      } catch (err) {
+        const latest = err.body?.context?.latest
+        if (err.status === 409 && latest) {
+          this._applyObservationConflictLatest(latest, item)
+          toast("该建议已更新，请核对最新内容", "warning")
+          return false
+        }
+        toast(`忽略失败：${err.message || "未知错误"}`, "error")
+        return false
+      }
+    })
   },
 
   async _archiveMap(mapId) {

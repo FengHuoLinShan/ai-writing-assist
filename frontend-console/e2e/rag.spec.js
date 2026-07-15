@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
 import { openWorkbench } from "./helpers/workbench.js"
 import { API_BASE, createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
+import { expectNoPageOverflow, expectWithinViewport } from "./helpers/responsive.js"
 
 test.describe("RAG 检索模块", () => {
   let testProjectId = null
@@ -42,10 +43,119 @@ test.describe("RAG 检索模块", () => {
     await expect(page.locator("#rag-search-input")).toBeVisible()
   })
 
+  test("390px 下检索输入和主操作可见且无水平溢出", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.locator('.subnav-item[data-action="nav-search"]').click()
+
+    const input = page.getByLabel("检索关键词")
+    const searchButton = page.locator('[data-action="do-search"]')
+    await expect(input).toBeVisible()
+    await expectWithinViewport(input)
+    await expectWithinViewport(searchButton)
+    await expectNoPageOverflow(page)
+    await expect(input).toHaveCSS("min-height", "40px")
+    await expect(searchButton).toHaveCSS("min-height", "40px")
+  })
+
+  test("58 条证据按 20 条渐进展示并由 URL 前进后退恢复", async ({ page }) => {
+    const requests = []
+    await page.route("**/api/context/evidence/search", async (route) => {
+      const payload = route.request().postDataJSON()
+      requests.push(payload.query)
+      const prefix = payload.query === "海港" ? "海港结果" : "旧塔结果"
+      const count = payload.query === "海港" ? 3 : 58
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          total: count,
+          hits: Array.from({ length: count }, (_, index) => ({
+            kind: "manuscript",
+            title: `${prefix} ${index + 1}`,
+            snippet: `${payload.query}的固定证据 ${index + 1}`,
+            chapter_index: index + 1,
+            source_ref: {
+              content_mode: "canonical",
+              chapter_index: index + 1,
+              version_number: 1,
+              source_content_hash: `hash-${index + 1}`,
+            },
+          })),
+          warnings: [],
+          degraded: false,
+        }),
+      })
+    })
+    await page.route("**/api/context/evidence/read", async (route) => {
+      const payload = route.request().postDataJSON()
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          title: "第一章",
+          text: "旧塔的铜铃在夜里响起。",
+          highlight_start: 0,
+          highlight_end: 2,
+          source_ref: payload.source_ref,
+          scene_refs: [],
+          object_refs: [],
+          warnings: [],
+        }),
+      })
+    })
+
+    await page.locator('.subnav-item[data-action="nav-search"]').click()
+    await page.getByLabel("检索关键词").fill("旧塔")
+    await page.locator('[data-action="do-search"]').click()
+
+    await expect(page).toHaveURL(/q=%E6%97%A7%E5%A1%94/)
+    await expect(page.locator(".rag-result-card")).toHaveCount(20)
+    await expect(page.locator(".rag-result-count")).toContainText("找到 58")
+    await page.locator('[data-action="load-more-results"]').click()
+    await expect(page.locator(".rag-result-card")).toHaveCount(40)
+    await page.locator('[data-action="load-more-results"]').click()
+    await expect(page.locator(".rag-result-card")).toHaveCount(58)
+    await expect(page.locator('[data-action="load-more-results"]')).toHaveCount(0)
+
+    await page.locator('[data-action="open-hit"]').first().click()
+    await expect(page.locator("#rag-evidence-drawer")).toContainText("旧塔的铜铃")
+    await page.locator('[data-action="close-drawer"]').click()
+
+    const searchInput = page.getByLabel("检索关键词")
+    await searchInput.fill("海港")
+    await expect(searchInput).toHaveValue("海港")
+    await searchInput.press("Enter")
+    await expect(page).toHaveURL(/q=%E6%B5%B7%E6%B8%AF/)
+    await expect(page.locator(".rag-result-card")).toHaveCount(3)
+    await expect(page.locator("#rag-results")).toContainText("海港结果 1")
+
+    await page.goBack()
+    await expect(page).toHaveURL(/q=%E6%97%A7%E5%A1%94/)
+    await expect(page.getByLabel("检索关键词")).toHaveValue("旧塔")
+    await expect(page.locator(".rag-result-card")).toHaveCount(20)
+    await expect(page.locator("#rag-results")).toContainText("旧塔结果 1")
+    expect(requests).toEqual(["旧塔", "海港", "旧塔"])
+
+    await page.goBack()
+    await expect(page).not.toHaveURL(/(?:\?|&)q=/)
+    await expect(page.getByLabel("检索关键词")).toHaveValue("")
+    await expect(page.locator(".rag-result-card")).toHaveCount(0)
+
+    await page.goForward()
+    await expect(page).toHaveURL(/q=%E6%97%A7%E5%A1%94/)
+    await expect(page.getByLabel("检索关键词")).toHaveValue("旧塔")
+    await expect(page.locator(".rag-result-card")).toHaveCount(20)
+    expect(requests).toEqual(["旧塔", "海港", "旧塔", "旧塔"])
+  })
+
   test("搜索空结果", async ({ page }) => {
     // Mock 搜索接口返回空结果，避免新项目无索引导致 API 报错
-    await page.route("**/api/rag/retrieve**", async (route) => {
-      await route.fulfill({ status: 200, body: JSON.stringify({ chunks: [], total: 0, query: "不存在的词", warnings: [], degraded: false }) })
+    await page.route("**/api/context/evidence/search", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ hits: [], total: 0, warnings: [], degraded: false }),
+      })
     })
 
     await page.locator('.subnav-item[data-action="nav-search"]').click()

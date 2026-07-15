@@ -1719,6 +1719,29 @@ describe("mapView Scene 时间轴", () => {
     expect(html).toContain("map-scene-next")
     expect(html).toContain("map-scene-clear")
   })
+
+  it("在 workspace 回调确认前不提前改变当前 Scene", async () => {
+    mapState.currentSceneId = "s1"
+    const onSceneChange = vi.fn(() => false)
+    mapView._mountContext = { onSceneChange }
+
+    await expect(mapView._notifySceneChanged("s2")).resolves.toBe(false)
+
+    expect(onSceneChange).toHaveBeenCalledWith("s2")
+    expect(mapState.currentSceneId).toBe("s1")
+  })
+
+  it("无 workspace 回调时先提交 Scene 再刷新投影", async () => {
+    mapState.currentSceneId = "s1"
+    mapView._mountContext = {}
+    const reload = vi.spyOn(mapView, "_reloadWithScene").mockResolvedValue(true)
+
+    await mapView._notifySceneChanged("s2")
+
+    expect(mapState.currentSceneId).toBe("s2")
+    expect(reload).toHaveBeenCalledTimes(1)
+    reload.mockRestore()
+  })
 })
 
 describe("mapView marker 提示", () => {

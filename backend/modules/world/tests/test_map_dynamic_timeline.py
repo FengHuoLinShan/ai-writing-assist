@@ -72,12 +72,14 @@ async def _create_fact(
             "value_json": value_json,
             "source_ref": {"source": "timeline_test"},
             "confidence": 1,
+            "source_chapter_index": 1,
         },
     )
     assert created.status_code == 201, created.text
     confirmed = await client.post(
         f"/api/world/maps/{map_id}/observations/{created.json()['id']}/confirm",
         params={"novel_id": novel_id},
+        json={"expected_updated_at": created.json()["updated_at"]},
     )
     assert confirmed.status_code == 200, confirmed.text
     return confirmed.json()
@@ -198,15 +200,21 @@ async def test_partial_observation_patch_validates_merged_typed_contract(
     type_only = await async_client.patch(
         f"/api/world/maps/{map_data['id']}/observations/{observation_id}",
         params={"novel_id": novel_id},
-        json={"dynamic_type": "terrain"},
+        json={
+            "expected_updated_at": created.json()["updated_at"],
+            "dynamic_type": "terrain",
+        },
     )
     assert type_only.status_code == 422
-    assert type_only.json()["error"] == "invalid_map_dynamic_value"
+    assert any(
+        error["loc"][-1] == "dynamic_type" for error in type_only.json()["detail"]
+    )
 
     value_only = await async_client.patch(
         f"/api/world/maps/{map_data['id']}/observations/{observation_id}",
         params={"novel_id": novel_id},
         json={
+            "expected_updated_at": created.json()["updated_at"],
             "value_json": {
                 "schema_version": 1,
                 "type": "terrain",
@@ -217,12 +225,15 @@ async def test_partial_observation_patch_validates_merged_typed_contract(
         },
     )
     assert value_only.status_code == 422
-    assert value_only.json()["error"] == "invalid_map_dynamic_value"
+    assert value_only.json()["error"] == "invalid_map_observation_payload"
 
     ordinary_patch = await async_client.patch(
         f"/api/world/maps/{map_data['id']}/observations/{observation_id}",
         params={"novel_id": novel_id},
-        json={"target_name": "城防边界"},
+        json={
+            "expected_updated_at": created.json()["updated_at"],
+            "target_name": "城防边界",
+        },
     )
     assert ordinary_patch.status_code == 200, ordinary_patch.text
     assert ordinary_patch.json()["value_json"] == created.json()["value_json"]
@@ -257,15 +268,26 @@ async def test_confirm_and_batch_revalidate_preexisting_typed_candidates(
     confirmed = await async_client.post(
         f"/api/world/maps/{map_data['id']}/observations/{stale.id}/confirm",
         params={"novel_id": novel_id},
+        json={"expected_updated_at": stale.updated_at.isoformat()},
     )
-    assert confirmed.status_code == 404
+    assert confirmed.status_code == 422
+    assert confirmed.json()["error"] == "map_observation_not_eligible"
 
     batch = await async_client.post(
         f"/api/world/maps/{map_data['id']}/observations/batch-review",
         params={"novel_id": novel_id},
-        json={"observation_ids": [str(stale.id)], "action": "confirm"},
+        json={
+            "items": [
+                {
+                    "observation_id": str(stale.id),
+                    "expected_updated_at": stale.updated_at.isoformat(),
+                }
+            ],
+            "action": "confirm",
+        },
     )
-    assert batch.status_code == 404
+    assert batch.status_code == 422
+    assert batch.json()["error"] == "map_observation_not_eligible"
 
     facts = await async_client.get(
         f"/api/world/maps/{map_data['id']}/facts",
@@ -922,7 +944,7 @@ async def test_value_only_path_is_snapshotted_on_batch_confirm_and_reprojects(
         await _create_scene(db_session, novel_id, scene_index)
         for scene_index in (1, 2)
     ]
-    observation_ids = []
+    observations = []
     for scene, location, (hex_q, hex_r) in zip(
         scenes,
         locations,
@@ -951,16 +973,26 @@ async def test_value_only_path_is_snapshotted_on_batch_confirm_and_reprojects(
                     "path_id": path_id,
                     "movement_mode": "walk",
                 },
+                "source_chapter_index": 1,
             },
         )
         assert created.status_code == 201, created.text
         assert "path_id" not in created.json()["spatial_anchor"]
-        observation_ids.append(created.json()["id"])
+        observations.append(created.json())
 
     confirmed = await async_client.post(
         f"/api/world/maps/{map_data['id']}/observations/batch-review",
         params={"novel_id": novel_id},
-        json={"observation_ids": observation_ids, "action": "confirm"},
+        json={
+            "items": [
+                {
+                    "observation_id": observation["id"],
+                    "expected_updated_at": observation["updated_at"],
+                }
+                for observation in observations
+            ],
+            "action": "confirm",
+        },
     )
     assert confirmed.status_code == 200, confirmed.text
     assert confirmed.json()["created_fact_count"] == 2

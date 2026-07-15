@@ -5,6 +5,7 @@ beforeEach(() => {
   vi.useRealTimers()
   vi.clearAllMocks()
   localStorage.clear()
+  document.body.innerHTML = ""
   state.currentProjectId = "p1"
   generateView._selectedTemplateId = "builtin:none"
   generateView._templates = []
@@ -29,12 +30,31 @@ beforeEach(() => {
   generateView._qualityMode = "fast"
   generateView._includeWorldSynopsis = true
   generateView._lastEntity = null
+  generateView._lastWorldResult = null
+  generateView._lastWorldSuggestionId = null
+  generateView._routeSourcePageId = null
+  generateView._worldTargetKind = "core_entity"
+  generateView._sourcePage = null
+  generateView._sourceDraft = null
+  generateView._worldCategories = []
+  generateView._worldPageTemplates = []
+  generateView._worldScenes = []
+  generateView._worldThreads = []
+  generateView._worldCharacters = []
+  generateView._worldEntities = []
+  generateView._selectedSceneId = ""
+  generateView._selectedThreadIds = []
+  generateView._selectedCharacterIds = []
+  generateView._selectedEntityIds = []
+  generateView._newPageType = "custom"
+  generateView._newPageTemplateKey = ""
+  generateView._worldWorkspaceWarning = null
   generateView._lastContextUsage = null
   generateView._lastChatContextUsage = null
   generateView._lastEntityContextUsage = null
   generateView._busy = false
   generateView._abortControllers = null
-  generateView._generateSubTab = "chat"
+  generateView._generateSubTab = "world"
   generateView._taskPreset = "custom"
   generateView._taskForm = {
     task: "",
@@ -55,6 +75,10 @@ beforeEach(() => {
   generateView._activeStorageKey = generateView._storageKey()
   generateView._storageDirty = false
   generateView._storageNotices = new Set()
+  generateView._requestEpoch = 0
+  generateView._composerDraft = ""
+  generateView._composerDrafts = new Map()
+  generateView._pageProposalDirty = false
   api.generate.listPromptTemplates.mockResolvedValue({
     items: [
       {
@@ -119,6 +143,14 @@ beforeEach(() => {
   api.writing.listChapters.mockResolvedValue({ chapters: [] })
   api.outline.listScenesByChapter.mockResolvedValue([])
   api.world.listCharacters.mockResolvedValue({ items: [], total: 0 })
+  api.world.listEntities.mockResolvedValue({ items: [], total: 0 })
+  api.world.listBiblePages.mockResolvedValue({ items: [], total: 0 })
+  api.world.listBibleDrafts.mockResolvedValue({ items: [], total: 0 })
+  api.world.listBibleCategories.mockResolvedValue({ items: [{ category_key: "custom", name: "自定义", status: "active" }] })
+  api.world.listBiblePageTemplates.mockResolvedValue({ items: [], total: 0 })
+  api.world.listSuggestions.mockResolvedValue({ items: [], total: 0 })
+  api.outline.listScenes.mockResolvedValue({ items: [] })
+  api.outline.listThreads.mockResolvedValue({ items: [] })
   api.writing.generate.mockResolvedValue({ task_id: "task-1" })
 })
 
@@ -178,7 +210,7 @@ describe("generateView bounded local state", () => {
     )
   })
 
-  it("drops reproducible previews before dropping conversation messages", () => {
+  it("不把可重建的预览正文写入 v2 本地会话", () => {
     generateView._messages = Array.from({ length: 30 }, (_, index) => ({
       role: "user",
       content: `${index}:` + "x".repeat(10_000),
@@ -188,13 +220,10 @@ describe("generateView bounded local state", () => {
     expect(generateView._persistState()).toBe(true)
 
     const stored = JSON.parse(localStorage.getItem(generateView._storageKey()))
-    expect(stored.lastContextBundle).toBeNull()
+    expect(stored).not.toHaveProperty("lastContextBundle")
     expect(stored.messages).toHaveLength(30)
     expect(stored.messages[0].content.startsWith("0:")).toBe(true)
-    expect(toast).toHaveBeenCalledWith(
-      expect.stringContaining("省略可重新生成的预览数据"),
-      "warning",
-    )
+    expect(toast).not.toHaveBeenCalledWith(expect.stringContaining("预览数据"), "warning")
   })
 
   it("single oversized message does not overwrite the previous snapshot", () => {
@@ -216,7 +245,7 @@ describe("generateView bounded local state", () => {
   it("keeps at most five project snapshots and evicts the oldest", () => {
     for (let index = 1; index <= 5; index += 1) {
       localStorage.setItem(
-        `generate_chatbox_state_v1_old-${index}`,
+        `generate_world_workspace_state_v2_old-${index}_project_core_entity`,
         JSON.stringify({ savedAt: index, messages: [] }),
       )
     }
@@ -226,10 +255,10 @@ describe("generateView bounded local state", () => {
     expect(generateView._persistState()).toBe(true)
 
     const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))
-      .filter((key) => key.startsWith("generate_chatbox_state_v1_"))
+      .filter((key) => key.startsWith("generate_world_workspace_state_v2_"))
     expect(keys).toHaveLength(5)
-    expect(keys).toContain("generate_chatbox_state_v1_new-project")
-    expect(keys).not.toContain("generate_chatbox_state_v1_old-1")
+    expect(keys).toContain("generate_world_workspace_state_v2_new-project_project_core_entity")
+    expect(keys).not.toContain("generate_world_workspace_state_v2_old-1_project_core_entity")
     expect(toast).toHaveBeenCalledWith(
       expect.stringContaining("最久未使用的项目缓存"),
       "warning",
@@ -257,11 +286,11 @@ describe("generateView bounded local state", () => {
   it("quota failure evicts only the oldest generate snapshot and retries the write", () => {
     localStorage.setItem("unrelated-module-state", "keep")
     localStorage.setItem(
-      "generate_chatbox_state_v1_oldest",
+      "generate_world_workspace_state_v2_oldest_project_core_entity",
       JSON.stringify({ savedAt: 1, messages: [{ role: "user", content: "oldest" }] }),
     )
     localStorage.setItem(
-      "generate_chatbox_state_v1_recent",
+      "generate_world_workspace_state_v2_recent_project_core_entity",
       JSON.stringify({ savedAt: 2, messages: [{ role: "user", content: "recent" }] }),
     )
     const originalSetItem = localStorage.setItem.bind(localStorage)
@@ -279,8 +308,8 @@ describe("generateView bounded local state", () => {
     expect(generateView._persistState()).toBe(true)
 
     expect(currentWriteAttempts).toBe(2)
-    expect(localStorage.getItem("generate_chatbox_state_v1_oldest")).toBeNull()
-    expect(localStorage.getItem("generate_chatbox_state_v1_recent")).toContain("recent")
+    expect(localStorage.getItem("generate_world_workspace_state_v2_oldest_project_core_entity")).toBeNull()
+    expect(localStorage.getItem("generate_world_workspace_state_v2_recent_project_core_entity")).toContain("recent")
     expect(localStorage.getItem("unrelated-module-state")).toBe("keep")
     expect(localStorage.getItem(generateView._storageKey())).toContain("current")
     setItem.mockRestore()
@@ -288,7 +317,7 @@ describe("generateView bounded local state", () => {
 
   it("does not loop forever when a storage implementation refuses to remove an eviction candidate", () => {
     localStorage.setItem(
-      "generate_chatbox_state_v1_oldest",
+      "generate_world_workspace_state_v2_oldest_project_core_entity",
       JSON.stringify({ savedAt: 1, messages: [] }),
     )
     const quotaError = new Error("quota")
@@ -349,32 +378,17 @@ describe("generateView bounded local state", () => {
     getItem.mockRestore()
   })
 
-  it("restores legacy v1 snapshots and fills fields added after the snapshot", () => {
-    const storageKey = generateView._storageKey()
-    localStorage.setItem(storageKey, JSON.stringify({
+  it("不迁移旧 v1 会话", () => {
+    localStorage.setItem("generate_chatbox_state_v1_p1", JSON.stringify({
       selectedTemplateId: "builtin:character",
       messages: [{ role: "user", content: "旧版会话" }],
-      povForm: { chapterIndex: 3 },
-      taskForm: { task: "旧版任务" },
     }))
 
     generateView._resetProjectState()
-    generateView._restoreState(storageKey)
+    generateView._restoreState(generateView._storageKey())
 
-    expect(generateView._selectedTemplateId).toBe("builtin:character")
-    expect(generateView._messages).toEqual([{ role: "user", content: "旧版会话" }])
-    expect(generateView._povForm).toEqual(expect.objectContaining({
-      chapterIndex: 3,
-      sceneId: "",
-      viewpointCharacterId: "",
-      instruction: "",
-    }))
-    expect(generateView._taskForm).toEqual(expect.objectContaining({
-      task: "旧版任务",
-      scope: "arc",
-      reveal_mode: "author_safe",
-      budget_tokens: 4000,
-    }))
+    expect(generateView._selectedTemplateId).toBe("builtin:none")
+    expect(generateView._messages).toEqual([])
   })
 
   it("switching projects resets unsaved project-scoped state before restore", () => {
@@ -384,16 +398,16 @@ describe("generateView bounded local state", () => {
 
     generateView._activateProjectState()
 
-    expect(generateView._activeStorageKey).toBe("generate_chatbox_state_v1_p2")
+    expect(generateView._activeStorageKey).toBe("generate_world_workspace_state_v2_p2_project_core_entity")
     expect(generateView._messages).toEqual([])
     expect(generateView._lastContextBundle).toBeNull()
     expect(generateView._selectedTemplateId).toBe("builtin:none")
-    expect(localStorage.getItem("generate_chatbox_state_v1_p1")).toContain("项目一私有内容")
-    expect(localStorage.getItem("generate_chatbox_state_v1_p2")).toBeNull()
+    expect(localStorage.getItem("generate_world_workspace_state_v2_p1_project_core_entity")).toContain("项目一私有内容")
+    expect(localStorage.getItem("generate_world_workspace_state_v2_p2_project_core_entity")).toBeNull()
   })
 
   it("restores only the destination project after saving the previous project", () => {
-    localStorage.setItem("generate_chatbox_state_v1_p2", JSON.stringify({
+    localStorage.setItem("generate_world_workspace_state_v2_p2_project_core_entity", JSON.stringify({
       savedAt: 2,
       messages: [{ role: "user", content: "项目二快照" }],
     }))
@@ -402,7 +416,7 @@ describe("generateView bounded local state", () => {
 
     generateView._activateProjectState()
 
-    expect(localStorage.getItem("generate_chatbox_state_v1_p1")).toContain("项目一当前内容")
+    expect(localStorage.getItem("generate_world_workspace_state_v2_p1_project_core_entity")).toContain("项目一当前内容")
     expect(generateView._messages).toEqual([{ role: "user", content: "项目二快照" }])
   })
 
@@ -412,8 +426,8 @@ describe("generateView bounded local state", () => {
 
     expect(generateView._persistState()).toBe(true)
 
-    expect(localStorage.getItem("generate_chatbox_state_v1_p1")).toContain("项目一私有内容")
-    expect(localStorage.getItem("generate_chatbox_state_v1_p2")).toBeNull()
+    expect(localStorage.getItem("generate_world_workspace_state_v2_p1_project_core_entity")).toContain("项目一私有内容")
+    expect(localStorage.getItem("generate_world_workspace_state_v2_p2_project_core_entity")).toBeNull()
   })
 
   it("does not overwrite newer in-memory state with an older snapshot for the active project", () => {
@@ -427,6 +441,82 @@ describe("generateView bounded local state", () => {
 
     expect(generateView._messages).toEqual([{ role: "user", content: "当前未保存内容" }])
   })
+
+  it("按来源页面与目标隔离 world v2 会话", () => {
+    generateView._messages = [{ role: "user", content: "项目级对象讨论" }]
+
+    generateView._activateProjectState("page-1", "world_bible_page")
+    expect(generateView._messages).toEqual([])
+    generateView._messages = [{ role: "user", content: "第一页完善讨论" }]
+
+    generateView._activateProjectState("page-1", "core_entity")
+    expect(generateView._messages).toEqual([])
+    generateView._messages = [{ role: "user", content: "基于第一页创建对象" }]
+
+    generateView._activateProjectState("page-1", "world_bible_page")
+    expect(generateView._messages).toEqual([{ role: "user", content: "第一页完善讨论" }])
+    expect(localStorage.getItem("generate_world_workspace_state_v2_p1_project_core_entity")).toContain("项目级对象讨论")
+    expect(localStorage.getItem("generate_world_workspace_state_v2_p1_page-1_core_entity")).toContain("基于第一页创建对象")
+  })
+
+  it("按 v2 会话在内存中保留各自未发送的 composer 草稿", () => {
+    generateView._composerDraft = "项目级未发送内容"
+    generateView._rememberComposerDraft()
+
+    generateView._activateProjectState("page-1", "world_bible_page")
+    expect(generateView._composerDraft).toBe("")
+    generateView._composerDraft = "第一页未发送内容"
+    generateView._rememberComposerDraft()
+
+    generateView._activateProjectState(null, "core_entity")
+
+    expect(generateView._composerDraft).toBe("项目级未发送内容")
+    expect(generateView._composerDrafts.get("generate_world_workspace_state_v2_p1_page-1_world_bible_page"))
+      .toBe("第一页未发送内容")
+  })
+
+  it("旧 target 的迟到生成响应不会写入新 target 会话", async () => {
+    let resolveRequest
+    api.generate.generateWorldSuggestion.mockImplementation(() => new Promise((resolve) => {
+      resolveRequest = resolve
+    }))
+    generateView._messages = [{ role: "user", content: "完善当前页" }]
+    document.body.innerHTML = await generateView.render()
+
+    const pending = generateView._generateWorldSuggestion()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const oldSignal = api.generate.generateWorldSuggestion.mock.calls[0][1].signal
+    generateView._activateProjectState(null, "world_bible_new_page")
+    expect(oldSignal.aborted).toBe(true)
+
+    resolveRequest({
+      result: {
+        kind: "core_entity",
+        suggestion: { id: "stale-suggestion", payload_json: { name: "迟到对象" } },
+      },
+    })
+    await pending
+
+    expect(generateView._lastWorldResult).toBeNull()
+    expect(generateView._lastWorldSuggestionId).toBeNull()
+    expect(localStorage.getItem("generate_world_workspace_state_v2_p1_project_world_bible_new_page") || "")
+      .not.toContain("stale-suggestion")
+  })
+
+  it("整页提案有未应用编辑时阻止离开", () => {
+    generateView._pageProposalDirty = true
+    const originalConfirm = window.confirm
+    const confirm = vi.fn().mockReturnValue(false)
+    window.confirm = confirm
+
+    expect(generateView.canLeave()).toBe(false)
+    expect(generateView._pageProposalDirty).toBe(true)
+
+    confirm.mockReturnValue(true)
+    expect(generateView.canLeave()).toBe(true)
+    expect(generateView._pageProposalDirty).toBe(false)
+    window.confirm = originalConfirm
+  })
 })
 
 describe("generateView chatbox", () => {
@@ -435,11 +525,11 @@ describe("generateView chatbox", () => {
 
     expect(html).toContain("不带模板")
     expect(html).toContain("人物")
-    expect(html).toContain("编辑模板")
+    expect(html).toContain("编辑对象模板")
     expect(html).toContain("高质量")
-    expect(html).toContain("直接聊，或把其他 Chatbox 的完整讨论粘贴到这里")
+    expect(html).toContain("说明你想创造、推敲或重构的世界设定")
     expect(html).toContain("生成世界对象建议")
-    expect(html).toContain("自由对话")
+    expect(html).toContain("世界设定")
     expect(html).toContain("角色视角正文")
     expect(html).toContain("任务")
     expect(html).toContain("上下文预览")
@@ -451,10 +541,10 @@ describe("generateView chatbox", () => {
     const html = await generateView.render()
 
     expect(html).toContain("generate-toolbar")
-    expect(html).toContain("自由对话")
+    expect(html).toContain("世界设定")
     expect(html).toContain("测试项目")
     expect(html).toContain('data-action="send-chat-message"')
-    expect(html).toContain('data-action="generate-object-draft"')
+    expect(html).toContain('data-action="generate-world-suggestion"')
     expect(html).toContain("generate-template-row--toolbar")
   })
 
@@ -475,30 +565,29 @@ describe("generateView chatbox", () => {
 
   it("发送自由聊天只调用 chat 接口，不调用结构化生成和 context confirm", async () => {
     document.body.innerHTML = await generateView.render()
-    api.generate.objectDraftChat.mockResolvedValue({ reply: "可以设计成旧友型反派" })
+    api.generate.worldChat.mockResolvedValue({ reply: "可以设计成旧友型反派" })
     document.getElementById("generate-chat-input").value = "帮我设计一个反派"
 
     await generateView._sendChatMessage()
 
-    expect(api.generate.objectDraftChat).toHaveBeenCalledWith(
+    expect(api.generate.worldChat).toHaveBeenCalledWith(
       expect.objectContaining({
         novel_id: "p1",
-        template_id: "builtin:none",
-        template_version: 1,
-        template: "none",
+        source_context: { kind: "project" },
+        target: expect.objectContaining({ kind: "core_entity", template: "none" }),
         quality_mode: "fast",
         messages: [{ role: "user", content: "帮我设计一个反派" }],
       }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
-    expect(api.generate.generateObjectDraft).not.toHaveBeenCalled()
+    expect(api.generate.generateWorldSuggestion).not.toHaveBeenCalled()
     expect(api.context.confirm).not.toHaveBeenCalled()
     expect(document.getElementById("generate-chat-messages")?.innerHTML).toContain("旧友型反派")
   })
 
   it("聊天请求失败时在聊天流里显示错误，不只依赖 toast", async () => {
     document.body.innerHTML = await generateView.render()
-    api.generate.objectDraftChat.mockRejectedValue(new Error("请求超时"))
+    api.generate.worldChat.mockRejectedValue(new Error("请求超时"))
     document.getElementById("generate-chat-input").value = "设计一个典型 dnd 圣骑士"
 
     await generateView._sendChatMessage()
@@ -506,7 +595,7 @@ describe("generateView chatbox", () => {
     const html = document.getElementById("generate-chat-messages")?.innerHTML || ""
     expect(html).toContain("设计一个典型 dnd 圣骑士")
     expect(html).toContain("聊天失败：请求超时")
-    expect(api.generate.objectDraftChat).toHaveBeenCalledWith(
+    expect(api.generate.worldChat).toHaveBeenCalledWith(
       expect.objectContaining({
         messages: [{ role: "user", content: "设计一个典型 dnd 圣骑士" }],
       }),
@@ -517,20 +606,17 @@ describe("generateView chatbox", () => {
 
   it("主输入框粘贴已有对话后直接点击生成，会把输入内容作为生成上下文", async () => {
     document.body.innerHTML = await generateView.render()
-    api.generate.generateObjectDraft.mockResolvedValue({
-      entity: {
-        id: "e1",
-        name: "沈无咎",
-        entity_type: "character",
-        status: "draft",
-        summary: "旧友型反派",
+    api.generate.generateWorldSuggestion.mockResolvedValue({
+      result: {
+        kind: "core_entity",
+        suggestion: { id: "s1", status: "pending", payload_json: { name: "沈无咎", entity_type: "character", summary: "旧友型反派" } },
       },
     })
     document.getElementById("generate-chat-input").value = "外部 Chatbox：反派不是纯恶人。"
 
-    await generateView._generateObjectDraft()
+    await generateView._generateWorldSuggestion()
 
-    expect(api.generate.generateObjectDraft).toHaveBeenCalledWith(
+    expect(api.generate.generateWorldSuggestion).toHaveBeenCalledWith(
       expect.objectContaining({
         messages: [{ role: "user", content: "外部 Chatbox：反派不是纯恶人。" }],
         quality_mode: "fast",
@@ -599,7 +685,8 @@ describe("generateView chatbox", () => {
     generateView._messages = [{ role: "user", content: "设计一个圣骑士" }]
     generateView._selectedTemplateId = "tpl-copy-1"
 
-    expect(generateView._buildPayload()).toEqual(expect.objectContaining({
+    expect(generateView._buildPayload().target).toEqual(expect.objectContaining({
+      kind: "core_entity",
       template_id: "tpl-copy-1",
       template_version: 2,
       template: "character",
@@ -688,7 +775,8 @@ describe("generateView chatbox", () => {
       }),
     )
     expect(document.getElementById("generate-template-row")?.textContent).toContain("DND 圣骑士")
-    expect(generateView._buildPayload()).toEqual(expect.objectContaining({
+    expect(generateView._buildPayload().target).toEqual(expect.objectContaining({
+      kind: "core_entity",
       template_id: "tpl-1",
       template_version: 1,
       template: "custom",
@@ -709,19 +797,19 @@ describe("generateView chatbox", () => {
   it("勾选高质量后提交 pro，否则提交 fast", async () => {
     document.body.innerHTML = await generateView.render()
     generateView._messages = [{ role: "user", content: "生成一个反派" }]
-    api.generate.generateObjectDraft.mockResolvedValue({
-      entity: { id: "e1", name: "普通草稿", entity_type: "character", status: "draft" },
+    api.generate.generateWorldSuggestion.mockResolvedValue({
+      result: { kind: "core_entity", suggestion: { id: "s1", payload_json: { name: "普通草稿", entity_type: "character" } } },
     })
 
-    await generateView._generateObjectDraft()
-    expect(api.generate.generateObjectDraft).toHaveBeenLastCalledWith(
+    await generateView._generateWorldSuggestion()
+    expect(api.generate.generateWorldSuggestion).toHaveBeenLastCalledWith(
       expect.objectContaining({ quality_mode: "fast" }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
 
     document.getElementById("generate-quality-pro").checked = true
-    await generateView._generateObjectDraft()
-    expect(api.generate.generateObjectDraft).toHaveBeenLastCalledWith(
+    await generateView._generateWorldSuggestion()
+    expect(api.generate.generateWorldSuggestion).toHaveBeenLastCalledWith(
       expect.objectContaining({ quality_mode: "pro" }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
@@ -797,9 +885,9 @@ describe("generateView chatbox", () => {
   it("无聊天和粘贴内容时不会生成数据库草稿", async () => {
     document.body.innerHTML = await generateView.render()
 
-    await generateView._generateObjectDraft()
+    await generateView._generateWorldSuggestion()
 
-    expect(api.generate.generateObjectDraft).not.toHaveBeenCalled()
+    expect(api.generate.generateWorldSuggestion).not.toHaveBeenCalled()
     expect(toast).toHaveBeenCalledWith("请先聊天或粘贴已有对话到输入框", "warning")
   })
 
@@ -812,11 +900,11 @@ describe("generateView chatbox", () => {
       d.promise = new Promise((resolve) => { d.resolve = resolve })
       return d
     }
-    api.generate.objectDraftChat.mockImplementation((_payload, options) => {
+    api.generate.worldChat.mockImplementation((_payload, options) => {
       signals.push(options?.signal)
       return deferreds[0].promise
     })
-    api.generate.generateObjectDraft.mockImplementation((_payload, options) => {
+    api.generate.generateWorldSuggestion.mockImplementation((_payload, options) => {
       signals.push(options?.signal)
       return deferreds[1].promise
     })
@@ -826,16 +914,16 @@ describe("generateView chatbox", () => {
     document.getElementById("generate-chat-input").value = "继续聊"
 
     generateView._sendChatMessage()
-    generateView._generateObjectDraft()
+    generateView._generateWorldSuggestion()
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(signals).toHaveLength(2)
     expect(signals.every((signal) => signal && !signal.aborted)).toBe(true)
-    expect(api.generate.objectDraftChat).toHaveBeenCalledWith(
+    expect(api.generate.worldChat).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
-    expect(api.generate.generateObjectDraft).toHaveBeenCalledWith(
+    expect(api.generate.generateWorldSuggestion).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
@@ -852,6 +940,17 @@ describe("generateView chatbox", () => {
 
     generateView.onRendered()
 
+    expect(spy).toHaveBeenCalledTimes(1)
+    spy.mockRestore()
+  })
+
+  it("生成中心内部重绘后重新绑定新页签事件", async () => {
+    document.body.innerHTML = '<main id="workspace-content"></main>'
+    const spy = vi.spyOn(generateView, "onRendered")
+
+    await generateView._switchGenerateSubTab("task")
+
+    expect(document.getElementById("gen-task")).not.toBeNull()
     expect(spy).toHaveBeenCalledTimes(1)
     spy.mockRestore()
   })
@@ -1171,8 +1270,201 @@ describe("generateView POV prose tab", () => {
       skip: 0,
       limit: 50,
     })
-    expect(api.generate.generateObjectDraft).not.toHaveBeenCalled()
+    expect(api.generate.generateWorldSuggestion).not.toHaveBeenCalled()
     expect(api.context.confirm).not.toHaveBeenCalled()
+  })
+
+  it("现有页面来源请求携带服务器 baseline 与完整显式上下文选择", () => {
+    generateView._routeSourcePageId = "page-1"
+    generateView._worldTargetKind = "world_bible_page"
+    generateView._sourcePage = { id: "page-1", version_number: 7 }
+    generateView._sourceDraft = { id: "draft-1", page_id: "page-1", updated_at: "2026-07-15T10:00:00Z" }
+    generateView._selectedChapters = [{ chapter_index: 3 }, { chapter_index: 5 }]
+    generateView._selectedSceneId = "scene-3"
+    generateView._selectedThreadIds = ["thread-1"]
+    generateView._selectedCharacterIds = ["character-1"]
+    generateView._selectedEntityIds = ["entity-1"]
+    generateView._messages = [{ role: "user", content: "重构这页，让规则更严密" }]
+
+    const payload = generateView._buildPayload()
+
+    expect(payload.source_context).toEqual({
+      kind: "world_bible_page",
+      page_id: "page-1",
+      baseline: {
+        kind: "draft",
+        page_version: 7,
+        draft_id: "draft-1",
+        draft_updated_at: "2026-07-15T10:00:00Z",
+      },
+    })
+    expect(payload.target).toEqual({ kind: "world_bible_page", page_id: "page-1" })
+    expect(payload).toEqual(expect.objectContaining({
+      selected_chapter_indices: [3, 5],
+      scene_id: "scene-3",
+      thread_ids: ["thread-1"],
+      character_ids: ["character-1"],
+      entity_ids: ["entity-1"],
+    }))
+
+    generateView._sourceDraft = null
+    expect(generateView._buildPayload().source_context.baseline).toEqual({
+      kind: "published",
+      page_version: 7,
+    })
+  })
+
+  it("作者编辑完整页面提案后只调用工作稿 apply 并返回世界书", async () => {
+    generateView._worldCategories = [{ category_key: "rule", name: "规则" }]
+    generateView._lastWorldResult = {
+      kind: "world_bible_page",
+      suggestion: { id: "suggestion-page-1" },
+      proposal: {
+        operation: "replace_existing",
+        page: {
+          title: "原提案标题",
+          page_type: "rule",
+          free_text: "原概览",
+          sections_json: [{ section_id: "section-1", title: "边界", section_type: "markdown", content: "原内容" }],
+          linked_asset_refs_json: [],
+        },
+      },
+    }
+    document.body.innerHTML = generateView._renderWorldResult(generateView._lastWorldResult)
+    document.getElementById("generate-page-title").value = "作者编辑后的标题"
+    document.getElementById("generate-page-free-text").value = "作者编辑后的概览"
+    document.getElementById("generate-page-sections").value = JSON.stringify([
+      { section_id: "section-1", title: "边界", section_type: "markdown", content: "作者修订内容" },
+    ])
+    api.generate.applyWorldPageDraft.mockResolvedValue({
+      draft: { id: "draft-2", page_id: "page-1" },
+    })
+
+    await generateView._applyWorldPageDraft()
+
+    expect(api.generate.applyWorldPageDraft).toHaveBeenCalledWith(
+      "suggestion-page-1",
+      {
+        page: expect.objectContaining({
+          title: "作者编辑后的标题",
+          free_text: "作者编辑后的概览",
+          sections_json: [expect.objectContaining({ content: "作者修订内容" })],
+        }),
+      },
+      "p1",
+      { signal: expect.any(AbortSignal) },
+    )
+    expect(router.navigate).toHaveBeenCalledWith(
+      "world",
+      "bible",
+      true,
+      expect.any(URLSearchParams),
+    )
+    const query = router.navigate.mock.calls.at(-1)[3]
+    expect(query.get("draft_id")).toBe("draft-2")
+    expect(query.get("page_id")).toBe("page-1")
+  })
+
+  it("页面工作稿 baseline 冲突时保留当前提案且不导航", async () => {
+    generateView._worldCategories = [{ category_key: "rule", name: "规则" }]
+    generateView._lastWorldResult = {
+      kind: "world_bible_page",
+      suggestion: { id: "suggestion-page-1" },
+      proposal: {
+        operation: "replace_existing",
+        page: { title: "规则", page_type: "rule", free_text: "", sections_json: [], linked_asset_refs_json: [] },
+      },
+    }
+    document.body.innerHTML = generateView._renderWorldResult(generateView._lastWorldResult)
+    const conflict = new Error("baseline drift")
+    conflict.status = 409
+    api.generate.applyWorldPageDraft.mockRejectedValue(conflict)
+
+    await generateView._applyWorldPageDraft()
+
+    expect(router.navigate).not.toHaveBeenCalled()
+    expect(generateView._lastWorldResult.suggestion.id).toBe("suggestion-page-1")
+    expect(toast).toHaveBeenCalledWith(
+      "来源工作稿已变更，本次提案未覆盖新修改。请重新生成。",
+      "warning",
+    )
+  })
+
+  it("刷新后用 pending suggestion ID 恢复整页提案", async () => {
+    generateView._routeSourcePageId = "page-1"
+    generateView._worldTargetKind = "world_bible_page"
+    generateView._lastWorldSuggestionId = "suggestion-restore"
+    api.world.listBiblePages.mockResolvedValue({
+      items: [{ id: "page-1", title: "北境", version_number: 3, sections_json: [] }],
+      total: 1,
+    })
+    api.world.listSuggestions.mockResolvedValue({
+      items: [{
+        id: "suggestion-restore",
+        target_type: "world_bible_page_draft",
+        status: "pending",
+        payload_json: {
+          operation: "replace_existing",
+          target_page_id: "page-1",
+          page: {
+            title: "恢复的北境",
+            page_type: "custom",
+            free_text: "恢复概览",
+            sections_json: [],
+            linked_asset_refs_json: [],
+          },
+        },
+      }],
+      total: 1,
+    })
+
+    await generateView._loadWorldWorkspace()
+
+    expect(api.world.listSuggestions).toHaveBeenCalledWith(expect.objectContaining({
+      novel_id: "p1",
+      review_group: "generation_center",
+      status: "pending",
+    }))
+    expect(generateView._lastWorldResult).toEqual(expect.objectContaining({
+      kind: "world_bible_page",
+      suggestion: expect.objectContaining({ id: "suggestion-restore" }),
+      proposal: expect.objectContaining({ target_page_id: "page-1" }),
+    }))
+  })
+
+  it("整页提案按 section_id 展示新增、修改与删除", () => {
+    generateView._sourcePage = {
+      title: "原页",
+      sections_json: [
+        { section_id: "kept", title: "旧标题", body_markdown: "旧正文" },
+        { section_id: "removed", title: "将删除", body_markdown: "" },
+      ],
+    }
+    generateView._worldCategories = [{ category_key: "custom", name: "自定义" }]
+    const html = generateView._renderWorldResult({
+      kind: "world_bible_page",
+      suggestion: { id: "suggestion-diff" },
+      proposal: {
+        operation: "replace_existing",
+        page: {
+          title: "新页",
+          page_type: "custom",
+          free_text: "",
+          linked_asset_refs_json: [],
+          sections_json: [
+            { section_id: "kept", title: "新标题", body_markdown: "新正文" },
+            { section_id: "added", title: "新增分区", body_markdown: "" },
+          ],
+        },
+      },
+    })
+    document.body.innerHTML = html
+
+    const diffText = document.querySelector(".generate-page-section-diff").textContent
+    expect(diffText).toContain("修改")
+    expect(diffText).toContain("标题、正文")
+    expect(diffText).toContain("新增")
+    expect(diffText).toContain("删除")
   })
 
   it("角色超过单页上限时分页加载全部角色", async () => {
@@ -1393,12 +1685,13 @@ describe("generateView POV prose tab", () => {
 
 describe("generateView context integration", () => {
   it("生成的结果卡片包含查看上下文按钮", async () => {
-    generateView._lastEntity = {
-      id: "e1",
-      name: "沈无咎",
-      entity_type: "character",
-      status: "draft",
-      summary: "旧友型反派",
+    generateView._lastWorldResult = {
+      kind: "core_entity",
+      suggestion: {
+        id: "s1",
+        status: "pending",
+        payload_json: { name: "沈无咎", entity_type: "character", summary: "旧友型反派" },
+      },
     }
     generateView._lastEntityContextUsage = { status: "included", warnings: [] }
     const html = await generateView.render()
@@ -1445,15 +1738,15 @@ describe("generateView context integration", () => {
       warnings: [],
     }
     generateView._messages = [{ role: "user", content: "先生成对象" }]
-    api.generate.generateObjectDraft.mockResolvedValue({
-      suggestion: { id: "suggestion-1", payload_json: { name: "空城" } },
+    api.generate.generateWorldSuggestion.mockResolvedValue({
+      result: { kind: "core_entity", suggestion: { id: "suggestion-1", payload_json: { name: "空城" } } },
       context_usage: entityUsage,
     })
     document.body.innerHTML = await generateView.render()
-    await generateView._generateObjectDraft()
+    await generateView._generateWorldSuggestion()
 
     document.getElementById("generate-chat-input").value = "继续讨论"
-    api.generate.objectDraftChat.mockResolvedValue({ reply: "好", context_usage: chatUsage })
+    api.generate.worldChat.mockResolvedValue({ reply: "好", context_usage: chatUsage })
     await generateView._sendChatMessage()
 
     await generateView._viewGenerationContext("entity")
@@ -1470,7 +1763,8 @@ describe("generateView context integration", () => {
     const payload = generateView._buildPayload()
 
     expect(payload.include_world_synopsis).toBe(true)
-    expect(payload.selected_world_bible_draft_ids).toEqual([])
+    expect(payload.source_context).toEqual({ kind: "project" })
+    expect(payload.target).toEqual(expect.objectContaining({ kind: "core_entity" }))
   })
 })
 

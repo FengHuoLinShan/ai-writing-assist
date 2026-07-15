@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from datetime import UTC, datetime
 from math import sqrt
@@ -11,22 +13,33 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, DomainError, NotFoundError, ValidationError
 from modules.outline.facade import get_scene_contract
+from modules.world.contracts import (
+    MapObservationCandidateBatchResult,
+    MapObservationCandidateInput,
+    MapObservationCandidateResult,
+)
 from modules.world.map_models import MapObservation
 from modules.world.map_repositories import MapPathNodeRepository, MapPathRepository
 from modules.world.map_schemas import (
     MapFactResponse,
+    MapObservationAssignmentRequest,
+    MapObservationAuthorUpdate,
     MapObservationBatchReviewRequest,
     MapObservationBatchReviewResponse,
     MapObservationCreate,
+    MapObservationEligibility,
     MapObservationListResponse,
     MapObservationResponse,
     MapObservationReviewUpdate,
+    MapObservationRevisionRequest,
     MapSpatialAnchor,
+    validate_map_observation_payload,
 )
 from modules.world.services.common import parse_uuid
 from modules.world.services.map.map_dynamic_lifecycle import MapDynamicLifecycle
 from modules.world.services.map.map_dynamic_projection import (
     canonical_dynamic_type,
+    equivalent_dynamic_types,
     normalize_dynamic_value,
     validate_versioned_dynamic_value,
 )
@@ -39,6 +52,213 @@ class MapObservationService:
         self.owner = owner
         self._path_repo = MapPathRepository()
         self._path_node_repo = MapPathNodeRepository()
+
+    _MISSING_LABELS = {
+        "map": "未选择地图",
+        "canonical_value": "动态字段尚未解析完整",
+        "target_entity": "未选择目标对象",
+        "target_entity_type": "目标对象类型不正确",
+        "target_entity_canonical": "目标对象尚未采用",
+        "location": "未匹配地点或空间位置",
+        "location_canonical": "地点尚未采用",
+        "path": "未匹配地图线路",
+        "controller": "未选择控制势力",
+        "controller_canonical": "控制势力尚未采用",
+        "boundary_hexes": "需要绘制明确势力范围",
+        "scene": "缺少来源 Scene",
+        "chapter": "缺少来源章节",
+    }
+
+    @staticmethod
+    def _same_revision(actual: datetime | None, expected: datetime) -> bool:
+        if actual is None:
+            return False
+        if actual.tzinfo is None:
+            actual = actual.replace(tzinfo=UTC)
+        if expected.tzinfo is None:
+            expected = expected.replace(tzinfo=UTC)
+        return actual.astimezone(UTC) == expected.astimezone(UTC)
+
+    @staticmethod
+    def _is_initial_state(observation: MapObservation) -> bool:
+        source_ref = observation.source_ref or {}
+        source = str(source_ref.get("source") or "").lower()
+        if "deep_import" in source or source_ref.get("auto_ingested") is True:
+            return False
+        return (observation.time_anchor or {}).get("kind") == "initial_state"
+
+    @staticmethod
+    def _proposal_type(observation: MapObservation) -> str | None:
+        value = observation.value_json or {}
+        if value.get("payload_kind") == "proposal":
+            return value.get("proposal_type")
+        source_ref = observation.source_ref or {}
+        value = source_ref.get("proposal_type")
+        return value if isinstance(value, str) else None
+
+    async def _eligibility(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        observation: MapObservation,
+    ) -> MapObservationEligibility:
+        missing: list[str] = []
+        conflict_reason: str | None = None
+        config = None
+        if observation.map_id is None:
+            missing.append("map")
+        else:
+            try:
+                config = await self.owner._ctx.require_map(
+                    db,
+                    novel_id,
+                    str(observation.map_id),
+                )
+            except DomainError as exc:
+                conflict_reason = exc.code
+
+        normalized = normalize_dynamic_value(
+            observation.dynamic_type,
+            observation.value_json,
+            observation.spatial_anchor,
+        )
+        if normalized.state != "typed" or normalized.value is None:
+            missing.append("canonical_value")
+        else:
+            value = normalized.value
+            target = None
+            if observation.target_entity_id is None:
+                if value["type"] in {"location", "boundary"}:
+                    missing.append("target_entity")
+            else:
+                try:
+                    target = await self.owner._ctx.require_entity(
+                        db,
+                        novel_id,
+                        str(observation.target_entity_id),
+                    )
+                except DomainError as exc:
+                    conflict_reason = conflict_reason or exc.code
+                if target is not None and target.status != "canonical":
+                    missing.append("target_entity_canonical")
+
+            if value["type"] == "location":
+                proposal_type = self._proposal_type(observation)
+                expected_types = {
+                    "character_location": {"character"},
+                    "event_location": {"event"},
+                }.get(proposal_type, {"character", "event"})
+                if target is not None and target.entity_type not in expected_types:
+                    missing.append("target_entity_type")
+                anchor = observation.spatial_anchor or {}
+                location_id = value.get("location_entity_id") or anchor.get(
+                    "location_entity_id"
+                )
+                has_hex = (
+                    anchor.get("hex_q") is not None and anchor.get("hex_r") is not None
+                )
+                if location_id:
+                    try:
+                        location = await self.owner._ctx.require_entity(
+                            db,
+                            novel_id,
+                            str(location_id),
+                            allowed_types={"location"},
+                        )
+                        if location.status != "canonical":
+                            missing.append("location_canonical")
+                    except DomainError as exc:
+                        conflict_reason = conflict_reason or exc.code
+                path_is_sufficient = proposal_type != "event_location" and value.get(
+                    "path_id"
+                )
+                if not location_id and not path_is_sufficient and not has_hex:
+                    missing.append("location")
+
+            if value["type"] == "route_state" and not value.get("path_id"):
+                missing.append("path")
+
+            if value["type"] == "boundary":
+                controller = None
+                try:
+                    controller = await self.owner._ctx.require_entity(
+                        db,
+                        novel_id,
+                        value["controller_entity_id"],
+                        allowed_types={"organization", "faction"},
+                    )
+                except DomainError as exc:
+                    conflict_reason = conflict_reason or exc.code
+                    missing.append("controller")
+                if controller is not None and controller.status != "canonical":
+                    missing.append("controller_canonical")
+                if not value.get("hexes"):
+                    missing.append("boundary_hexes")
+
+            if config is not None:
+                try:
+                    await self._validated_dynamic_value(
+                        db,
+                        novel_id,
+                        config,
+                        observation.dynamic_type,
+                        observation.value_json,
+                        observation.spatial_anchor,
+                    )
+                    await self._validated_anchor(
+                        db,
+                        novel_id,
+                        config,
+                        observation.spatial_anchor,
+                    )
+                except DomainError as exc:
+                    conflict_reason = conflict_reason or exc.code
+
+        if not self._is_initial_state(observation):
+            if observation.scene_id is None:
+                missing.append("scene")
+            if observation.source_chapter_index is None:
+                missing.append("chapter")
+
+        unique_missing = list(dict.fromkeys(missing))
+        return MapObservationEligibility(
+            can_confirm=(
+                observation.review_state in {"candidate", "conflicted"}
+                and not unique_missing
+                and conflict_reason is None
+            ),
+            missing_items=unique_missing,
+            missing_item_labels=[self._MISSING_LABELS[item] for item in unique_missing],
+            conflict_reason=conflict_reason,
+        )
+
+    async def _response(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        observation: MapObservation,
+    ) -> MapObservationResponse:
+        response = MapObservationResponse.model_validate(observation)
+        response.eligibility = await self._eligibility(db, novel_id, observation)
+        return response
+
+    async def _raise_revision_conflict(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        observation_id: uuid.UUID,
+    ) -> None:
+        latest = await self.owner._observation_repo.get(db, observation_id)
+        context: dict[str, Any] = {}
+        if latest is not None and latest.novel_id == parse_uuid(novel_id, "novel_id"):
+            context["latest"] = (await self._response(db, novel_id, latest)).model_dump(
+                mode="json"
+            )
+        raise ConflictError(
+            "地图待处理项已被其他操作更新，请核对最新内容后重试",
+            code="map_observation_revision_conflict",
+            context=context,
+        )
 
     async def _validated_dynamic_value(
         self,
@@ -435,8 +655,63 @@ class MapObservationService:
             limit=limit,
         )
         return MapObservationListResponse(
-            items=[MapObservationResponse.model_validate(item) for item in items],
+            items=[await self._response(db, novel_id, item) for item in items],
             total=total,
+            has_more=skip + len(items) < total,
+        )
+
+    async def list_project_inbox(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        dynamic_type: str | None = None,
+        scene_id: str | None = None,
+        source: str | None = None,
+        confidence: str | None = None,
+        eligibility: str | None = None,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> MapObservationListResponse:
+        nid = parse_uuid(novel_id, "novel_id")
+        scene_uuid = None
+        if scene_id:
+            await self._validated_scene(db, novel_id, scene_id, None)
+            scene_uuid = parse_uuid(scene_id, "scene_id")
+        advanced_filters = any((source, confidence, eligibility))
+        items, total = await self.owner._observation_repo.list_project_inbox(
+            db,
+            nid,
+            dynamic_types=(
+                equivalent_dynamic_types(dynamic_type) if dynamic_type else None
+            ),
+            scene_id=scene_uuid,
+            skip=0 if advanced_filters else skip,
+            limit=None if advanced_filters else limit,
+        )
+        responses = [await self._response(db, novel_id, item) for item in items]
+        if advanced_filters:
+            responses = [
+                item
+                for item in responses
+                if (not source or item.source == source)
+                and (
+                    not confidence
+                    or (confidence == "low" and item.confidence < 0.6)
+                    or (confidence == "high" and item.confidence >= 0.6)
+                )
+                and (
+                    not eligibility
+                    or (eligibility == "ready" and item.eligibility.can_confirm)
+                    or (eligibility == "missing" and not item.eligibility.can_confirm)
+                )
+            ]
+            total = len(responses)
+            responses = responses[skip : skip + limit]
+        return MapObservationListResponse(
+            items=responses,
+            total=total,
+            has_more=skip + len(responses) < total,
         )
 
     async def create_observation(
@@ -476,7 +751,142 @@ class MapObservationService:
         values["value_json"] = value_json
         values["scene_id"] = scene_uuid
         observation = await owner._observation_repo.create(db, nid, values)
-        return MapObservationResponse.model_validate(observation)
+        return await self._response(db, novel_id, observation)
+
+    async def _author_update(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        observation_id: str,
+        data: MapObservationAuthorUpdate,
+        required_map_id: str | None = None,
+    ) -> MapObservationResponse:
+        owner = self.owner
+        nid = parse_uuid(novel_id, "novel_id")
+        oid = parse_uuid(observation_id, "observation_id")
+        observation = await owner._observation_repo.get(db, oid)
+        owner._assert_observation_in_novel(observation, observation_id, nid)
+        assert observation is not None
+        if required_map_id is not None:
+            mid = parse_uuid(required_map_id, "map_id")
+            await owner._ctx.require_map(db, novel_id, required_map_id)
+            owner._assert_observation_in_map(observation, observation_id, mid)
+
+        update_values = data.model_dump(
+            exclude_unset=True,
+            exclude={"expected_updated_at"},
+        )
+        immutable_proposal_type = (observation.source_ref or {}).get("proposal_type")
+        next_value_json = update_values.get("value_json")
+        if (
+            isinstance(immutable_proposal_type, str)
+            and isinstance(next_value_json, dict)
+            and next_value_json.get("payload_kind") == "proposal"
+            and next_value_json.get("proposal_type") != immutable_proposal_type
+        ):
+            raise ValidationError(
+                "导入候选的 proposal 类型属于来源身份，不能原地修改",
+                code="map_observation_proposal_type_immutable",
+                status_code=422,
+                context={"proposal_type": immutable_proposal_type},
+            )
+        effective_target_entity_id = update_values.get(
+            "target_entity_id",
+            observation.target_entity_id,
+        )
+        if effective_target_entity_id:
+            target = await owner._ctx.require_entity(
+                db,
+                novel_id,
+                str(effective_target_entity_id),
+            )
+            if target.status != "canonical":
+                raise ValidationError(
+                    "目标对象尚未采用",
+                    code="unadopted_map_entity",
+                    status_code=422,
+                )
+            update_values["target_entity_id"] = target.id
+            update_values["target_entity_type"] = target.entity_type
+            update_values["target_name"] = target.name
+
+        config = None
+        if observation.map_id is not None:
+            config = await owner._ctx.require_map(
+                db,
+                novel_id,
+                str(observation.map_id),
+            )
+        if "spatial_anchor" in update_values:
+            if config is None:
+                raise ValidationError(
+                    "请先分配地图，再选择空间位置",
+                    code="map_assignment_required",
+                    status_code=422,
+                )
+            update_values["spatial_anchor"] = await self._validated_anchor(
+                db,
+                novel_id,
+                config,
+                data.spatial_anchor,
+            )
+        if "value_json" in update_values:
+            value_json = update_values["value_json"]
+            try:
+                validate_map_observation_payload(
+                    observation.dynamic_type,
+                    value_json,
+                    require_explicit_schema=True,
+                )
+            except (PydanticValidationError, ValueError) as exc:
+                raise ValidationError(
+                    "地图待处理项不符合 proposal/canonical 契约",
+                    code="invalid_map_observation_payload",
+                    status_code=422,
+                    context={"reason": str(exc)},
+                ) from exc
+            if config is None and value_json.get("payload_kind") != "proposal":
+                raise ValidationError(
+                    "canonical 地图动态必须先分配地图",
+                    code="map_assignment_required",
+                    status_code=422,
+                )
+            if config is not None:
+                update_values["value_json"] = await self._validated_dynamic_value(
+                    db,
+                    novel_id,
+                    config,
+                    observation.dynamic_type,
+                    value_json,
+                    update_values.get(
+                        "spatial_anchor",
+                        observation.spatial_anchor,
+                    ),
+                )
+        source_ref = dict(observation.source_ref or {})
+        proposal_type = self._proposal_type(observation)
+        next_value = update_values.get("value_json") or {}
+        if proposal_type and next_value.get("payload_kind") != "proposal":
+            source_ref["proposal_type"] = proposal_type
+        source_ref.update(
+            {
+                "user_edited": True,
+                "author_updated_at": datetime.now(UTC).isoformat(),
+            }
+        )
+        update_values["source_ref"] = source_ref
+        updated = await owner._observation_repo.compare_and_update(
+            db,
+            nid,
+            oid,
+            expected_updated_at=data.expected_updated_at,
+            values=update_values,
+        )
+        if updated is None:
+            await self._raise_revision_conflict(db, novel_id, oid)
+        assert updated is not None
+        return await self._response(db, novel_id, updated)
 
     async def update_observation_review(
         self,
@@ -485,57 +895,70 @@ class MapObservationService:
         *,
         map_id: str,
         observation_id: str,
-        data: MapObservationReviewUpdate,
+        data: MapObservationAuthorUpdate,
+    ) -> MapObservationResponse:
+        return await self._author_update(
+            db,
+            novel_id,
+            observation_id=observation_id,
+            data=data,
+            required_map_id=map_id,
+        )
+
+    async def update_project_observation(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        observation_id: str,
+        data: MapObservationAuthorUpdate,
+    ) -> MapObservationResponse:
+        return await self._author_update(
+            db,
+            novel_id,
+            observation_id=observation_id,
+            data=data,
+        )
+
+    async def assign_project_observation(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        observation_id: str,
+        data: MapObservationAssignmentRequest,
     ) -> MapObservationResponse:
         owner = self.owner
         nid = parse_uuid(novel_id, "novel_id")
-        mid = parse_uuid(map_id, "map_id")
-        await owner._ctx.require_map(db, novel_id, map_id)
         oid = parse_uuid(observation_id, "observation_id")
         observation = await owner._observation_repo.get(db, oid)
         owner._assert_observation_in_novel(observation, observation_id, nid)
         assert observation is not None
-        owner._assert_observation_in_map(observation, observation_id, mid)
-        update_values = data.model_dump(exclude_unset=True)
-        if data.target_entity_id:
-            await owner._ctx.require_entity(db, novel_id, data.target_entity_id)
-        if "spatial_anchor" in update_values:
-            config = await owner._ctx.require_map(db, novel_id, map_id)
-            update_values["spatial_anchor"] = await self._validated_anchor(
-                db, novel_id, config, data.spatial_anchor
-            )
-        config = await owner._ctx.require_map(db, novel_id, map_id)
-        combined_dynamic_type = update_values.get(
-            "dynamic_type", observation.dynamic_type
+        next_map_id = None
+        if data.map_id:
+            config = await owner._ctx.require_map(db, novel_id, data.map_id)
+            next_map_id = config.id
+        source_ref = dict(observation.source_ref or {})
+        history = list(source_ref.get("assignment_history") or [])
+        history.append(
+            {
+                "from_map_id": str(observation.map_id) if observation.map_id else None,
+                "to_map_id": str(next_map_id) if next_map_id else None,
+                "assigned_at": datetime.now(UTC).isoformat(),
+            }
         )
-        combined_value = update_values.get("value_json", observation.value_json)
-        combined_anchor = update_values.get(
-            "spatial_anchor", observation.spatial_anchor
-        )
-        update_values["value_json"] = await self._validated_dynamic_value(
+        source_ref["assignment_history"] = history[-20:]
+        updated = await owner._observation_repo.compare_and_update(
             db,
-            novel_id,
-            config,
-            combined_dynamic_type,
-            combined_value,
-            combined_anchor,
+            nid,
+            oid,
+            expected_updated_at=data.expected_updated_at,
+            values={"map_id": next_map_id, "source_ref": source_ref},
         )
-        if "scene_id" in update_values or "scene_index" in update_values:
-            raw_scene_id = update_values.get("scene_id")
-            if raw_scene_id is None and "scene_id" not in update_values:
-                raw_scene_id = str(observation.scene_id) if observation.scene_id else None
-            raw_scene_index = update_values.get(
-                "scene_index", observation.scene_index
-            )
-            update_values["scene_id"] = await self._validated_scene(
-                db,
-                novel_id,
-                str(raw_scene_id) if raw_scene_id else None,
-                raw_scene_index,
-            )
-        updated = await owner._observation_repo.update(db, observation, update_values)
+        if updated is None:
+            await self._raise_revision_conflict(db, novel_id, oid)
         assert updated is not None
-        return MapObservationResponse.model_validate(updated)
+        return await self._response(db, novel_id, updated)
 
     async def ignore_observation(
         self,
@@ -544,14 +967,35 @@ class MapObservationService:
         *,
         map_id: str,
         observation_id: str,
+        data: MapObservationRevisionRequest,
     ) -> MapObservationResponse:
-        owner = self.owner
-        return await owner.update_observation_review(
+        return await self._author_update(
             db,
             novel_id,
-            map_id=map_id,
             observation_id=observation_id,
-            data=MapObservationReviewUpdate(review_state="ignored"),
+            required_map_id=map_id,
+            data=MapObservationReviewUpdate(
+                expected_updated_at=data.expected_updated_at,
+                review_state="ignored",
+            ),
+        )
+
+    async def ignore_project_observation(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        observation_id: str,
+        data: MapObservationRevisionRequest,
+    ) -> MapObservationResponse:
+        return await self._author_update(
+            db,
+            novel_id,
+            observation_id=observation_id,
+            data=MapObservationReviewUpdate(
+                expected_updated_at=data.expected_updated_at,
+                review_state="ignored",
+            ),
         )
 
     async def confirm_observation(
@@ -561,6 +1005,7 @@ class MapObservationService:
         *,
         map_id: str,
         observation_id: str,
+        data: MapObservationRevisionRequest,
     ) -> MapFactResponse:
         owner = self.owner
         await owner._ctx.require_map(db, novel_id, map_id)
@@ -568,10 +1013,35 @@ class MapObservationService:
         mid = parse_uuid(map_id, "map_id")
         oid = parse_uuid(observation_id, "observation_id")
 
-        observation = await owner._observation_repo.get(db, oid)
+        observation = await owner._observation_repo.get_in_novel_for_update(
+            db,
+            nid,
+            oid,
+        )
         owner._assert_observation_in_novel(observation, observation_id, nid)
         assert observation is not None
         owner._assert_observation_in_map(observation, observation_id, mid)
+
+        existing = await owner._fact_repo.get_by_observation(db, oid)
+        if existing is not None:
+            return MapFactResponse.model_validate(existing)
+        if observation.review_state not in {
+            "candidate",
+            "conflicted",
+        } or not self._same_revision(
+            observation.updated_at,
+            data.expected_updated_at,
+        ):
+            await self._raise_revision_conflict(db, novel_id, oid)
+
+        response = await self._response(db, novel_id, observation)
+        if not response.eligibility.can_confirm:
+            raise ValidationError(
+                "地图待处理项仍有缺失或冲突，暂不能采用",
+                code="map_observation_not_eligible",
+                status_code=422,
+                context={"eligibility": response.eligibility.model_dump(mode="json")},
+            )
 
         config = await owner._ctx.require_map(db, novel_id, map_id)
         await self._validated_dynamic_value(
@@ -588,25 +1058,6 @@ class MapObservationService:
             str(observation.scene_id) if observation.scene_id else None,
             observation.scene_index,
         )
-
-        existing = await owner._fact_repo.get_by_observation(db, oid)
-        if existing is not None:
-            await owner._observation_repo.update_review_state(
-                db,
-                observation,
-                "confirmed",
-            )
-            from modules.world.services.worldbuilding.synopsis_invalidation import (
-                mark_synopsis_source_changed,
-            )
-
-            await mark_synopsis_source_changed(
-                db,
-                novel_id,
-                source_type="map_fact",
-                source_id=str(existing.id),
-            )
-            return MapFactResponse.model_validate(existing)
 
         fact_anchor = await self._fact_anchor_snapshot(
             db,
@@ -664,30 +1115,59 @@ class MapObservationService:
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
         observation_ids = [
-            parse_uuid(observation_id, "observation_id")
-            for observation_id in data.observation_ids
+            parse_uuid(item.observation_id, "observation_id") for item in data.items
         ]
-        observations_by_id = {
-            observation.id: observation
-            for observation in await owner._observation_repo.get_many(
-                db,
-                observation_ids,
-            )
+        locked = await owner._observation_repo.get_many_in_novel_for_update(
+            db,
+            nid,
+            observation_ids,
+        )
+        locked_by_id = {observation.id: observation for observation in locked}
+        request_by_id = {
+            parse_uuid(item.observation_id, "observation_id"): item for item in data.items
         }
-        observations = []
-        for observation_id, oid in zip(data.observation_ids, observation_ids):
-            observation = observations_by_id.get(oid)
-            owner._assert_observation_in_novel(observation, observation_id, nid)
+        observations: list[MapObservation] = []
+        for oid in sorted(observation_ids, key=str):
+            request_item = request_by_id[oid]
+            observation = locked_by_id.get(oid)
+            owner._assert_observation_in_novel(
+                observation,
+                request_item.observation_id,
+                nid,
+            )
             assert observation is not None
-            owner._assert_observation_in_map(observation, observation_id, mid)
+            owner._assert_observation_in_map(
+                observation,
+                request_item.observation_id,
+                mid,
+            )
+            if observation.review_state not in {
+                "candidate",
+                "conflicted",
+            } or not self._same_revision(
+                observation.updated_at,
+                request_item.expected_updated_at,
+            ):
+                await self._raise_revision_conflict(db, novel_id, oid)
             observations.append(observation)
 
-        updated_observations = []
-        facts = []
+        updated_observations: list[MapObservationResponse] = []
+        facts: list[MapFactResponse] = []
         created_fact_count = 0
         if data.action == "confirm":
             config = await owner._ctx.require_map(db, novel_id, map_id)
             for observation in observations:
+                response = await self._response(db, novel_id, observation)
+                if not response.eligibility.can_confirm:
+                    raise ValidationError(
+                        "批量采用包含仍有缺失或冲突的地图待处理项",
+                        code="map_observation_not_eligible",
+                        status_code=422,
+                        context={
+                            "observation_id": str(observation.id),
+                            "eligibility": response.eligibility.model_dump(mode="json"),
+                        },
+                    )
                 await self._validated_dynamic_value(
                     db,
                     novel_id,
@@ -758,21 +1238,17 @@ class MapObservationService:
                 {fact.observation_id: fact for fact in created_facts}
             )
 
-            updated = await owner._observation_repo.update_review_states(
-                db,
-                [observation.id for observation in observations],
-                "confirmed",
-            )
-            updated_by_id = {observation.id: observation for observation in updated}
             for observation in observations:
+                observation.review_state = "confirmed"
+                db.add(observation)
                 fact = fact_by_observation.get(observation.id)
                 if fact is not None:
                     facts.append(MapFactResponse.model_validate(fact))
-                updated_observation = updated_by_id.get(observation.id)
-                if updated_observation is not None:
-                    updated_observations.append(
-                        MapObservationResponse.model_validate(updated_observation)
-                    )
+            await db.flush()
+            for observation in observations:
+                updated_observations.append(
+                    await self._response(db, novel_id, observation)
+                )
             if facts:
                 from modules.world.services.worldbuilding.synopsis_invalidation import (
                     mark_synopsis_source_changed,
@@ -786,26 +1262,271 @@ class MapObservationService:
                 )
         else:
             next_state = "ignored" if data.action == "ignore" else "conflicted"
-            updated = await owner._observation_repo.update_review_states(
-                db,
-                [observation.id for observation in observations],
-                next_state,
-            )
-            updated_by_id = {observation.id: observation for observation in updated}
             for observation in observations:
-                updated_observation = updated_by_id.get(observation.id)
-                assert updated_observation is not None
+                observation.review_state = next_state
+                db.add(observation)
+            await db.flush()
+            for observation in observations:
                 updated_observations.append(
-                    MapObservationResponse.model_validate(updated_observation)
+                    await self._response(db, novel_id, observation)
                 )
 
         return MapObservationBatchReviewResponse(
             action=data.action,
-            requested_count=len(data.observation_ids),
+            requested_count=len(data.items),
             updated_count=len(updated_observations),
             created_fact_count=created_fact_count,
             observations=updated_observations,
             facts=facts,
+        )
+
+    @staticmethod
+    def _candidate_identity(
+        novel_id: str,
+        candidate: MapObservationCandidateInput,
+    ) -> uuid.UUID:
+        identity = "|".join(
+            (
+                str(novel_id),
+                candidate.workflow_id,
+                candidate.scene_id,
+                candidate.source_item_key,
+                candidate.proposal.proposal_type,
+            )
+        )
+        return uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"ai-writing-assist:map-observation:v1:{identity}",
+        )
+
+    @staticmethod
+    def _candidate_payload_hash(candidate: MapObservationCandidateInput) -> str:
+        payload = candidate.model_dump(
+            mode="json",
+            exclude={"task_id", "authorization"},
+        )
+        payload["authorization_fingerprint"] = (
+            candidate.authorization.snapshot_fingerprint
+        )
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    async def create_observation_candidates(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        candidates: list[MapObservationCandidateInput],
+    ) -> MapObservationCandidateBatchResult:
+        """Create import-owned proposal observations as one fail-closed batch."""
+        if not candidates:
+            return MapObservationCandidateBatchResult()
+
+        owner = self.owner
+        nid = parse_uuid(novel_id, "novel_id")
+        prepared: dict[
+            uuid.UUID,
+            tuple[MapObservationCandidateInput, str, dict[str, Any]],
+        ] = {}
+        dynamic_types = {
+            "character_location": "location",
+            "event_location": "location",
+            "route_state": "route_state",
+            "boundary": "boundary",
+        }
+        expected_entity_types = {
+            "character_location": {"character"},
+            "event_location": {"event"},
+            "boundary": {"organization", "faction"},
+        }
+
+        for candidate in candidates:
+            authorization_scope = candidate.authorization.scope
+            if authorization_scope.novel_id != str(nid):
+                raise ValidationError(
+                    "地图候选授权项目与当前项目不一致",
+                    code="map_observation_candidate_authorization_scope_invalid",
+                    status_code=422,
+                )
+            if not (
+                authorization_scope.start_chapter
+                <= candidate.source_chapter_index
+                <= authorization_scope.end_chapter
+            ):
+                raise ValidationError(
+                    "地图候选章节不在导入授权范围内",
+                    code="map_observation_candidate_authorization_scope_invalid",
+                    status_code=422,
+                    context={
+                        "source_chapter_index": candidate.source_chapter_index,
+                        "start_chapter": authorization_scope.start_chapter,
+                        "end_chapter": authorization_scope.end_chapter,
+                    },
+                )
+            scene = await get_scene_contract(db, novel_id, candidate.scene_id)
+            if scene is None:
+                raise NotFoundError(
+                    "地图候选来源 Scene 不存在",
+                    code="map_observation_candidate_scene_not_found",
+                    context={"scene_id": candidate.scene_id},
+                )
+            if scene.scene_index != candidate.scene_index:
+                raise ValidationError(
+                    "地图候选 Scene 序号与当前项目不一致",
+                    code="map_observation_candidate_scene_mismatch",
+                    status_code=422,
+                    context={
+                        "scene_id": candidate.scene_id,
+                        "expected_scene_index": scene.scene_index,
+                        "received_scene_index": candidate.scene_index,
+                    },
+                )
+
+            proposal_type = candidate.proposal.proposal_type
+            target_uuid = None
+            target_type = None
+            target_name = candidate.target_name
+            if candidate.target_entity_id:
+                target = await owner._ctx.require_entity(
+                    db,
+                    novel_id,
+                    candidate.target_entity_id,
+                )
+                allowed_types = expected_entity_types.get(proposal_type)
+                if allowed_types and target.entity_type not in allowed_types:
+                    raise ValidationError(
+                        "地图候选目标对象类型不正确",
+                        code="map_observation_candidate_target_type_invalid",
+                        status_code=422,
+                        context={
+                            "proposal_type": proposal_type,
+                            "entity_type": target.entity_type,
+                        },
+                    )
+                target_uuid = target.id
+                target_type = target.entity_type
+                target_name = target.name
+            elif (
+                proposal_type in {"character_location", "event_location"}
+                and not target_name
+            ):
+                raise ValidationError(
+                    "人物/事件地点候选必须提供目标名称或目标对象",
+                    code="map_observation_candidate_target_required",
+                    status_code=422,
+                )
+            elif proposal_type == "boundary" and not target_name:
+                target_name = candidate.proposal.controller_name
+
+            observation_id = self._candidate_identity(str(nid), candidate)
+            payload_hash = self._candidate_payload_hash(candidate)
+            source_ref = {
+                "source": "deep_import_typed_map_proposal",
+                "identity_version": 1,
+                "workflow_id": candidate.workflow_id,
+                "task_id": candidate.task_id,
+                "source_item_key": candidate.source_item_key,
+                "proposal_type": proposal_type,
+                "scene_source_fingerprint": candidate.scene_source_fingerprint,
+                "context_snapshot_id": candidate.context_snapshot_id,
+                "evidence_anchor": candidate.evidence_anchor,
+                "original_payload_hash": payload_hash,
+                "adoption_policy": candidate.authorization.adoption_policy,
+                "authorization_confirmed": True,
+                "authorized_at": candidate.authorization.authorized_at.isoformat(),
+                "authorization_scope": candidate.authorization.scope.model_dump(
+                    mode="json"
+                ),
+                "authorization_snapshot_fingerprint": (
+                    candidate.authorization.snapshot_fingerprint
+                ),
+                "auto_ingested": True,
+            }
+            values = {
+                "id": observation_id,
+                "map_id": None,
+                "target_entity_id": target_uuid,
+                "target_entity_type": target_type,
+                "target_name": target_name,
+                "dynamic_type": dynamic_types[proposal_type],
+                "time_anchor": {
+                    "kind": "scene",
+                    "scene_id": candidate.scene_id,
+                    "scene_index": candidate.scene_index,
+                    "source_chapter_index": candidate.source_chapter_index,
+                },
+                "spatial_anchor": {},
+                "value_json": candidate.proposal.model_dump(
+                    mode="json", exclude_none=True
+                ),
+                "confidence": candidate.confidence,
+                "review_state": "candidate",
+                "source_ref": source_ref,
+                "evidence_text": candidate.evidence_text,
+                "scene_id": parse_uuid(candidate.scene_id, "scene_id"),
+                "scene_index": candidate.scene_index,
+                "source_chapter_index": candidate.source_chapter_index,
+            }
+            previous = prepared.get(observation_id)
+            if previous and previous[1] != payload_hash:
+                raise ConflictError(
+                    "同一地图候选身份包含不同来源内容",
+                    code="map_observation_candidate_payload_conflict",
+                    context={"observation_id": str(observation_id)},
+                )
+            prepared[observation_id] = (candidate, payload_hash, values)
+
+        await owner._observation_repo.lock_candidate_identities(
+            db,
+            nid,
+            list(prepared),
+        )
+        existing_rows = await owner._observation_repo.get_many_in_novel_for_update(
+            db,
+            nid,
+            list(prepared),
+        )
+        existing = {item.id: item for item in existing_rows}
+        results: list[MapObservationCandidateResult] = []
+        for observation_id in sorted(prepared, key=str):
+            candidate, payload_hash, values = prepared[observation_id]
+            current = existing.get(observation_id)
+            if current is not None:
+                current_hash = (current.source_ref or {}).get("original_payload_hash")
+                if current_hash != payload_hash:
+                    raise ConflictError(
+                        "地图候选来源已变化，已停止重试写入",
+                        code="map_observation_candidate_payload_conflict",
+                        context={
+                            "observation_id": str(observation_id),
+                            "existing_payload_hash": current_hash,
+                            "received_payload_hash": payload_hash,
+                        },
+                    )
+
+        created_ids: set[uuid.UUID] = set()
+        for observation_id in sorted(prepared, key=str):
+            candidate, payload_hash, values = prepared[observation_id]
+            if observation_id not in existing:
+                await owner._observation_repo.create(db, nid, values)
+                created_ids.add(observation_id)
+            results.append(
+                MapObservationCandidateResult(
+                    observation_id=str(observation_id),
+                    action="created" if observation_id in created_ids else "reused",
+                    proposal_type=candidate.proposal.proposal_type,
+                    payload_hash=payload_hash,
+                )
+            )
+        return MapObservationCandidateBatchResult(
+            created_count=len(created_ids),
+            reused_count=len(results) - len(created_ids),
+            items=results,
         )
 
     async def create_observation_from_delta_event(
@@ -1004,4 +1725,4 @@ class MapObservationService:
             "source_chapter_index": meta.get("source_chapter_index"),
         }
         observation = await owner._observation_repo.create(db, nid, values)
-        return MapObservationResponse.model_validate(observation)
+        return await self._response(db, novel_id, observation)

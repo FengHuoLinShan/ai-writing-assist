@@ -59,6 +59,15 @@ class SceneSuggestionSourceProjection:
     updated_at: datetime | None
 
 
+@dataclass(frozen=True, slots=True)
+class SceneIdentityProjection:
+    """Minimal author-facing identity for an overlap counterpart."""
+
+    id: uuid.UUID
+    scene_index: int
+    title: str | None
+
+
 def apply_structure_asset_filters(
     conditions: list[Any],
     model: Any,
@@ -896,6 +905,58 @@ class SceneRepository:
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_scene_spans_for_scenes(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        scene_ids: list[uuid.UUID],
+        *,
+        content_mode: str = "canonical",
+    ) -> list[SceneSpan]:
+        """Load one page of SceneSpan rows without crossing novel boundaries."""
+        if not scene_ids:
+            return []
+        stmt = (
+            select(SceneSpan)
+            .where(
+                SceneSpan.novel_id == novel_id,
+                SceneSpan.scene_id.in_(scene_ids),
+                SceneSpan.content_mode == content_mode,
+            )
+            .order_by(
+                SceneSpan.scene_id,
+                SceneSpan.chapter_index,
+                SceneSpan.part_no,
+                SceneSpan.id,
+            )
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_scene_identity_projections(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        scene_ids: set[uuid.UUID],
+    ) -> dict[uuid.UUID, SceneIdentityProjection]:
+        """Return counterpart labels scoped to the requested novel."""
+        if not scene_ids:
+            return {}
+        result = await db.execute(
+            select(Scene.id, Scene.scene_index, Scene.title).where(
+                Scene.novel_id == novel_id,
+                Scene.id.in_(scene_ids),
+            )
+        )
+        return {
+            row.id: SceneIdentityProjection(
+                id=row.id,
+                scene_index=row.scene_index,
+                title=row.title,
+            )
+            for row in result
+        }
 
     async def get_scene_ids_needing_span_review(
         self,

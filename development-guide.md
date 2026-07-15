@@ -33,6 +33,8 @@ npm run test                     # Vitest unit/component tests
 npm run test:watch               # Vitest watch mode
 npm run test:e2e                 # Playwright E2E
 npm run test:e2e:smoke           # Playwright smoke subset
+npm run test:e2e:map             # Complete map regression list; workers=1/retries=0
+DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:map-perf  # Real map telemetry profile
 npm run test:all                 # Vitest, then Playwright
 
 # Database
@@ -54,6 +56,8 @@ make test-v                      # Fast layer, verbose, stop on first failure
 make test ARGS="-k test_create"  # Filter by test name
 make test-integration            # SQLite cross-module integration tests
 E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e  # Explicit test DB at Alembic head
+RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_map_observation_concurrency.py -m "not real_llm and not external_data"  # Map observation row-lock race
+RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' python -m pytest tests/e2e/test_map_subsystem_reset_postgresql.py -m "not real_llm and not external_data"  # Map reset dry-run/restore drill
 make test-real-llm               # Explicit SQLite real-model acceptance
 E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt  # Real corpus + PostgreSQL/model acceptance
 make test-frontend FRONTEND_ARGS="stateTopbarHelp.test.js"  # Frontend Vitest
@@ -66,6 +70,11 @@ make format-fix                  # ruff format
 ```
 
 Frontend currently has no build script and no independent lint/format dependency in `frontend-console/package.json`; frontend validation remains the Vitest/Playwright scripts above plus `git diff --check`.
+
+`python -m scripts.reset_map_subsystem` 是地图子系统的开发管理预检工具。它只提供
+dry-run 和可选 `--backup-restore-drill`，要求显式的预期环境与数据库 fingerprint，
+会校验 16 张 `map_*` 表、FK、活跃引用和运行任务。当前 CLI 没有
+`--execute` / `--yes` 或目标库删除分支；不得把 dry-run 的 ready 结果解释为已获得清空授权。
 
 GitHub Actions 的后端门禁、等价本地命令和显式验收层边界见
 [`testing-guide.md`](testing-guide.md#continuous-integration)。

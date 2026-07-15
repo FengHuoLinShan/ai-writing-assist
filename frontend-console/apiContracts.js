@@ -136,6 +136,23 @@
     }),
 
     "world.listEntities": define("GET", () => "/world/entities"),
+    "world.getReviewTypeCatalog": define("GET", () => "/world/review-type-catalog"),
+    "world.listRelationReviewGroups": define("GET", () => "/world/relations/review-groups", {
+      requiredQuery: ["novel_id"],
+    }),
+    "world.reviewRelationsBatch": define("POST", () => "/world/relations/review-batch", {
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+      requiredBody: ["confirmed", "decisions"],
+    }),
+    "world.listAliasReviewGroups": define("GET", () => "/world/aliases/review-groups", {
+      requiredQuery: ["novel_id"],
+    }),
+    "world.reviewAliasesBatch": define("POST", () => "/world/aliases/review-batch", {
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+      requiredBody: ["confirmed", "decisions"],
+    }),
     "world.getEntity": define("GET", ({ id }) => `/world/entities/${required(id, "id", "world.getEntity")}`, {
       requiredParams: ["id"],
       requiredQuery: ["novel_id"],
@@ -215,9 +232,32 @@
       requiredParams: ["mapId"],
       requiredQuery: ["novel_id"],
     }),
+    "world.listProjectMapObservationInbox": define("GET", () => "/world/maps/project-observations/inbox", {
+      requiredQuery: ["novel_id"],
+    }),
+    "world.updateProjectMapObservation": define("PATCH", ({ observationId }) => `/world/maps/project-observations/${required(observationId, "observationId", "world.updateProjectMapObservation")}`, {
+      requiredParams: ["observationId"],
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+      requiredBody: ["expected_updated_at"],
+    }),
+    "world.assignProjectMapObservation": define("POST", ({ observationId }) => `/world/maps/project-observations/${required(observationId, "observationId", "world.assignProjectMapObservation")}/assign`, {
+      requiredParams: ["observationId"],
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+      requiredBody: ["map_id", "expected_updated_at"],
+    }),
+    "world.ignoreProjectMapObservation": define("POST", ({ observationId }) => `/world/maps/project-observations/${required(observationId, "observationId", "world.ignoreProjectMapObservation")}/ignore`, {
+      requiredParams: ["observationId"],
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+      requiredBody: ["expected_updated_at"],
+    }),
     "world.confirmMapObservation": define("POST", ({ mapId, observationId }) => `/world/maps/${required(mapId, "mapId", "world.confirmMapObservation")}/observations/${required(observationId, "observationId", "world.confirmMapObservation")}/confirm`, {
       requiredParams: ["mapId", "observationId"],
       requiredQuery: ["novel_id"],
+      hasBody: true,
+      requiredBody: ["expected_updated_at"],
     }),
     "world.updateMapFactStatus": define("PATCH", ({ mapId, factId }) => `/world/maps/${required(mapId, "mapId", "world.updateMapFactStatus")}/facts/${required(factId, "factId", "world.updateMapFactStatus")}`, {
       requiredParams: ["mapId", "factId"],

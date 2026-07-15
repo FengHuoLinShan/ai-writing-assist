@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -9,9 +11,11 @@ from typing import Any
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import NotFoundError, ValidationError
+from core.errors import ConflictError, NotFoundError, ValidationError
 from modules.world.models import (
     CreationSuggestion,
+    WorldBiblePage,
+    WorldBiblePageDraft,
 )
 from modules.world.schemas import (
     CoreEntityCreate,
@@ -27,13 +31,12 @@ from modules.world.schemas import (
     EntityRelationCreate,
     EntityRelationSuggestionPayload,
     EntityResolveAsAliasRequest,
-    WorldBibleNewPageSuggestionPayload,
-    WorldBiblePageCreate,
     WorldBiblePageDraftCreate,
+    WorldBiblePageDraftSuggestionPayload,
     WorldBiblePageDraftUpdate,
-    WorldBiblePagePatchSuggestionPayload,
     WorldBibleSourceRef,
-    WorldBibleSuggestionApplyDraftRequest,
+    WorldGenerationApplyPageDraftRequest,
+    WorldGenerationApplyPageDraftResponse,
     WorldProfileUpsertRequest,
 )
 from shared.utils import parse_uuid
@@ -76,6 +79,7 @@ class SuggestionQueueService:
         risk_level: str = "medium",
         compatibility_status: str | None = None,
         compatibility_created_by: str | None = None,
+        action_schema: str = "v1",
     ) -> tuple[CreationSuggestionResponse, CoreEntityResponse | None]:
         """Create the authoritative suggestion and an optional legacy read shadow.
 
@@ -106,6 +110,7 @@ class SuggestionQueueService:
                 source_module=source_module,
                 review_group=review_group,
                 target_type="core_entity_draft",
+                action_schema=action_schema,
                 payload_json=payload.model_dump(mode="json"),
                 evidence_refs_json=evidence_refs,
                 risk_level=risk_level,
@@ -238,6 +243,11 @@ class SuggestionQueueService:
                 suggestion.target_type,
                 payload_json,
             )
+        if suggestion.target_type == "world_bible_page_draft":
+            raise ValidationError(
+                "World Bible page draft suggestions must be applied through "
+                "the generation-center draft endpoint"
+            )
         suggestion = await self._claim_pending(db, novel_id, suggestion_id)
         suggestion.payload_json = payload_json
         result_ref: dict[str, Any] = {}
@@ -255,37 +265,6 @@ class SuggestionQueueService:
                 WorldProfileUpsertRequest.model_validate(profile_payload),
             )
             result_ref = {"type": "profile", "id": profile.entity_id}
-        elif suggestion.target_type == "world_bible_page_patch":
-            payload = WorldBiblePagePatchSuggestionPayload.model_validate(
-                suggestion.payload_json
-            )
-            page = await self._bible.apply_page_patch(
-                db,
-                novel_id,
-                payload.page_id,
-                payload.append_text,
-                revision_reason="ai_suggestion",
-            )
-            result_ref = {"type": "world_bible_page", "id": page.id}
-        elif suggestion.target_type == "world_bible_page":
-            payload = WorldBibleNewPageSuggestionPayload.model_validate(
-                suggestion.payload_json
-            )
-            page = await self._bible.create_page(
-                db,
-                WorldBiblePageCreate(
-                    novel_id=novel_id,
-                    title=payload.title,
-                    page_type=payload.page_type,
-                    status="confirmed",
-                    free_text=payload.free_text,
-                    linked_asset_refs_json=self._world_bible_asset_refs(
-                        payload.source_refs
-                    ),
-                    created_by="ai_world_bible",
-                ),
-            )
-            result_ref = {"type": "world_bible_page", "id": page.id}
         elif suggestion.target_type in {"core_entity", "core_entity_draft"}:
             payload = CoreEntityDraftSuggestionPayload.model_validate(
                 suggestion.payload_json
@@ -429,85 +408,184 @@ class SuggestionQueueService:
             core_entity_changes=data,
         )
 
-    async def apply_world_bible_suggestion_to_draft(
+    async def apply_world_generation_page_draft(
         self,
         db: AsyncSession,
         novel_id: str,
         suggestion_id: str,
-        data: WorldBibleSuggestionApplyDraftRequest,
-    ) -> CreationSuggestionResponse:
-        """Apply an edited page suggestion to a working draft, never canonical."""
+        data: WorldGenerationApplyPageDraftRequest,
+    ) -> WorldGenerationApplyPageDraftResponse:
+        """Apply an edited complete-page proposal to a working draft only."""
         pending = await self._get_pending(db, novel_id, suggestion_id)
-        if pending.target_type not in {"world_bible_page_patch", "world_bible_page"}:
+        if pending.target_type != "world_bible_page_draft":
             raise ValidationError(
-                "This decision is only available for World Bible page suggestions"
+                "This decision is only available for generation-center page drafts"
             )
-        payload_json = self._validated_payload_json(
-            pending.target_type,
-            pending.payload_json,
+        payload = WorldBiblePageDraftSuggestionPayload.model_validate(
+            pending.payload_json
         )
-        suggestion = await self._claim_pending(db, novel_id, suggestion_id)
-        if suggestion.target_type == "world_bible_page_patch":
-            payload = WorldBiblePagePatchSuggestionPayload.model_validate(payload_json)
-            append_text = (
-                data.append_text
-                if data.append_text is not None
-                else payload.append_text
-            ).strip()
-            if not append_text:
-                raise ValidationError("append_text must not be blank")
-            draft = await self._lifecycle.get_or_create_page_draft(
+        page_content = data.page or payload.page
+        updated_by = data.updated_by or "manual"
+        if payload.operation == "replace_existing":
+            page_model, draft_model = await self._lock_and_validate_page_baseline(
                 db,
-                novel_id,
-                payload.page_id,
-                created_by=data.updated_by or "manual",
+                novel_id=novel_id,
+                payload=payload,
             )
-            existing = (draft.free_text or "").rstrip()
-            updated_text = (
-                f"{existing}\n\n{append_text}".strip() if existing else append_text
-            )
-            draft = await self._lifecycle.update_draft(
-                db,
-                novel_id,
-                draft.id,
-                WorldBiblePageDraftUpdate(
-                    free_text=updated_text,
-                    updated_by=data.updated_by or "manual",
-                ),
-            )
-            suggestion.payload_json = {
-                **payload_json,
-                "append_text": append_text,
-            }
+            suggestion = await self._claim_pending(db, novel_id, suggestion_id)
+            if draft_model is None:
+                draft = await self._lifecycle.create_draft(
+                    db,
+                    WorldBiblePageDraftCreate(
+                        novel_id=novel_id,
+                        page_id=str(page_model.id),
+                        title=page_content.title,
+                        page_type=page_content.page_type,
+                        free_text=page_content.free_text,
+                        sections_json=page_content.sections_json,
+                        linked_asset_refs_json=page_content.linked_asset_refs_json,
+                        template_key=page_model.template_key,
+                        template_version=page_model.template_version,
+                        created_by=updated_by,
+                    ),
+                )
+            else:
+                draft = await self._lifecycle.update_draft(
+                    db,
+                    novel_id,
+                    str(draft_model.id),
+                    WorldBiblePageDraftUpdate(
+                        title=page_content.title,
+                        page_type=page_content.page_type,
+                        free_text=page_content.free_text,
+                        sections_json=page_content.sections_json,
+                        linked_asset_refs_json=page_content.linked_asset_refs_json,
+                        updated_by=updated_by,
+                    ),
+                )
         else:
-            payload = WorldBibleNewPageSuggestionPayload.model_validate(payload_json)
-            title = data.title or payload.title
-            page_type = data.page_type or payload.page_type
-            free_text = (
-                data.free_text if data.free_text is not None else payload.free_text
-            )
+            suggestion = await self._claim_pending(db, novel_id, suggestion_id)
             draft = await self._lifecycle.create_draft(
                 db,
                 WorldBiblePageDraftCreate(
                     novel_id=novel_id,
-                    title=title,
-                    page_type=page_type,
-                    free_text=free_text,
-                    created_by=data.updated_by or "manual",
+                    title=page_content.title,
+                    page_type=page_content.page_type,
+                    free_text=page_content.free_text,
+                    sections_json=page_content.sections_json,
+                    linked_asset_refs_json=page_content.linked_asset_refs_json,
+                    template_key=payload.template_key,
+                    template_version=payload.template_version,
+                    created_by=updated_by,
                 ),
             )
-            suggestion.payload_json = {
-                **payload_json,
-                "title": title,
-                "page_type": page_type,
-                "free_text": free_text,
-            }
-        return await self._mark_accepted(
+        edited_payload = payload.model_copy(update={"page": page_content})
+        suggestion.payload_json = edited_payload.model_dump(mode="json")
+        accepted = await self._mark_accepted(
             db,
             novel_id=novel_id,
             suggestion=suggestion,
             result_ref={"type": "world_bible_page_draft", "id": draft.id},
         )
+        return WorldGenerationApplyPageDraftResponse(
+            suggestion=accepted,
+            draft=draft,
+        )
+
+    async def _lock_and_validate_page_baseline(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        payload: WorldBiblePageDraftSuggestionPayload,
+    ) -> tuple[WorldBiblePage, WorldBiblePageDraft | None]:
+        baseline = payload.baseline
+        if baseline is None or payload.target_page_id is None:
+            raise ValidationError("Existing-page suggestion is missing its baseline")
+        nid = parse_uuid(novel_id, "novel_id")
+        pid = parse_uuid(payload.target_page_id, "page_id")
+        page = await db.scalar(
+            select(WorldBiblePage)
+            .where(WorldBiblePage.id == pid, WorldBiblePage.novel_id == nid)
+            .with_for_update()
+        )
+        if page is None:
+            raise NotFoundError("World Bible page not found")
+        draft = await db.scalar(
+            select(WorldBiblePageDraft)
+            .where(
+                WorldBiblePageDraft.novel_id == nid,
+                WorldBiblePageDraft.page_id == pid,
+            )
+            .with_for_update()
+        )
+        if page.version_number != baseline.page_version:
+            raise ConflictError("World Bible page changed after suggestion generation")
+        if baseline.draft_id is None:
+            if draft is not None:
+                raise ConflictError(
+                    "World Bible working draft was created after generation"
+                )
+        elif draft is None or str(draft.id) != baseline.draft_id:
+            raise ConflictError("World Bible working draft changed after generation")
+        elif not self._same_datetime(draft.updated_at, baseline.draft_updated_at):
+            raise ConflictError("World Bible working draft changed after generation")
+        active = draft or page
+        content_hash = self._world_bible_source_hash(
+            title=active.title,
+            page_type=active.page_type,
+            free_text=active.free_text,
+            sections_json=list(active.sections_json or []),
+            linked_asset_refs_json=list(active.linked_asset_refs_json or []),
+            template_key=active.template_key,
+            template_version=active.template_version,
+            page_version=page.version_number,
+        )
+        if content_hash != baseline.content_hash:
+            raise ConflictError("World Bible source content changed after generation")
+        return page, draft
+
+    @staticmethod
+    def _same_datetime(left: datetime | None, right: datetime | None) -> bool:
+        if left is None or right is None:
+            return left is right
+        if left.tzinfo is None:
+            left = left.replace(tzinfo=UTC)
+        if right.tzinfo is None:
+            right = right.replace(tzinfo=UTC)
+        return left.astimezone(UTC) == right.astimezone(UTC)
+
+    @staticmethod
+    def _world_bible_source_hash(
+        *,
+        title: str,
+        page_type: str,
+        free_text: str | None,
+        sections_json: list[dict[str, Any]],
+        linked_asset_refs_json: list[dict[str, Any]],
+        template_key: str | None,
+        template_version: int,
+        page_version: int,
+    ) -> str:
+        value = {
+            "title": title,
+            "page_type": page_type,
+            "free_text": free_text,
+            "sections_json": sections_json,
+            "linked_asset_refs_json": linked_asset_refs_json,
+            "template_key": template_key,
+            "template_version": template_version,
+            "page_version": page_version,
+        }
+        return hashlib.sha256(
+            json.dumps(
+                value,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest()
 
     async def merge_core_entity(
         self,
@@ -800,14 +878,10 @@ class SuggestionQueueService:
         payload_json: dict[str, Any] | None,
     ) -> dict[str, Any]:
         payload = payload_json or {}
-        if target_type == "world_bible_page_patch":
-            return WorldBiblePagePatchSuggestionPayload.model_validate(
+        if target_type == "world_bible_page_draft":
+            return WorldBiblePageDraftSuggestionPayload.model_validate(
                 payload
             ).model_dump(mode="json")
-        if target_type == "world_bible_page":
-            return WorldBibleNewPageSuggestionPayload.model_validate(payload).model_dump(
-                mode="json"
-            )
         if target_type in {"core_entity", "core_entity_draft"}:
             return CoreEntityDraftSuggestionPayload.model_validate(payload).model_dump(
                 mode="json"

@@ -236,6 +236,28 @@ describe("前后端 API 契约", () => {
     expect(getApiContract("world.getEntity").method).toBe("GET")
     expect(contractPath("world.getEntity", { id: "entity-1" }, { novel_id: "novel-1" }))
       .toBe("/world/entities/entity-1?novel_id=novel-1")
+    expect(contractPath("world.getReviewTypeCatalog"))
+      .toBe("/world/review-type-catalog")
+    expect(contractPath("world.listRelationReviewGroups", {}, {
+      novel_id: "novel-1",
+      q: "克莱恩",
+      scene_index: 9,
+      skip: 20,
+      limit: 20,
+    })).toBe("/world/relations/review-groups?novel_id=novel-1&q=%E5%85%8B%E8%8E%B1%E6%81%A9&scene_index=9&skip=20&limit=20")
+    expect(contractPath("world.reviewRelationsBatch", {}, { novel_id: "novel-1" }))
+      .toBe("/world/relations/review-batch?novel_id=novel-1")
+    expect(getApiContract("world.reviewRelationsBatch").requiredBody)
+      .toEqual(["confirmed", "decisions"])
+    expect(contractPath("world.listAliasReviewGroups", {}, {
+      novel_id: "novel-1",
+      type_kind: "custom",
+      limit: 50,
+    })).toBe("/world/aliases/review-groups?novel_id=novel-1&type_kind=custom&limit=50")
+    expect(contractPath("world.reviewAliasesBatch", {}, { novel_id: "novel-1" }))
+      .toBe("/world/aliases/review-batch?novel_id=novel-1")
+    expect(getApiContract("world.reviewAliasesBatch").requiredBody)
+      .toEqual(["confirmed", "decisions"])
     expect(contractPath("world.replaceLocationLayouts", { mapId: "map-1" }, { novel_id: "novel-1" }))
       .toBe("/world/maps/map-1/location-layouts?novel_id=novel-1")
     expect(getApiContract("world.updateTerrainLayer").method).toBe("PATCH")
@@ -272,6 +294,16 @@ describe("前后端 API 契约", () => {
     })).toBe("/world/maps/map-1/state-at?novel_id=novel-1&scene_index=9&focus_entity_id=entity-1")
     expect(getApiContract("world.getMapStateAt").requiredQuery)
       .toEqual(["novel_id", "scene_index"])
+    expect(contractPath("world.listProjectMapObservationInbox", {}, { novel_id: "novel-1" }))
+      .toBe("/world/maps/project-observations/inbox?novel_id=novel-1")
+    expect(contractPath("world.assignProjectMapObservation", { observationId: "obs-1" }, { novel_id: "novel-1" }))
+      .toBe("/world/maps/project-observations/obs-1/assign?novel_id=novel-1")
+    expect(getApiContract("world.assignProjectMapObservation").requiredBody)
+      .toEqual(["map_id", "expected_updated_at"])
+    expect(getApiContract("world.assignProjectMapObservation").hasBody).toBe(true)
+    expect(getApiContract("world.confirmMapObservation").requiredBody)
+      .toEqual(["expected_updated_at"])
+    expect(getApiContract("world.confirmMapObservation").hasBody).toBe(true)
 
     expect(contractPath("imports.startStage", { stage: "scenes" }))
       .toBe("/imports/stages/scenes")

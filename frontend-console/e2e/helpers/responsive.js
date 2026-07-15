@@ -42,6 +42,19 @@ export async function expectWithinViewport(locator) {
   ).toBeLessThanOrEqual(viewport.height + 2)
 }
 
+export async function expectWithinViewportWidth(locator) {
+  await expect(locator).toBeVisible()
+  const box = await locator.boundingBox()
+  if (!box) throw new Error("locator has no bounding box")
+  const viewportWidth = await locator.evaluate(() => window.innerWidth)
+
+  expect(box.x, `left edge outside viewport: ${JSON.stringify(box)}`).toBeGreaterThanOrEqual(0)
+  expect(
+    box.x + box.width,
+    `right edge outside viewport: ${JSON.stringify(box)} > ${viewportWidth}`,
+  ).toBeLessThanOrEqual(viewportWidth + 2)
+}
+
 export async function runResponsiveMatrix(page, callback, viewports = RESPONSIVE_VIEWPORTS) {
   for (const viewport of viewports) {
     await page.setViewportSize(viewport)

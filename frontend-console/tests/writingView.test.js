@@ -1344,6 +1344,17 @@ describe("writingView AI extract chapter cards", () => {
     expect(toolsMenu?.querySelector('[data-action="extract-cards"]')).not.toBeNull()
   })
 
+  it("完整重渲染保留已展开的 AI 工具菜单", async () => {
+    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
+    const toolsMenu = document.querySelector(".writing-tools-menu")
+    toolsMenu.open = true
+    document.getElementById("writing-tree-container").remove()
+
+    await writingView._rerender()
+
+    expect(document.querySelector(".writing-tools-menu")?.open).toBe(true)
+  })
+
   it("点击提取章节卡打开弹窗", async () => {
     document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
     writingView._bindEvents()
@@ -1371,7 +1382,7 @@ describe("writingView scene map summary", () => {
     })
 
     expect(openSpy).toHaveBeenCalledWith(
-      "#workbench/p1/map?map_id=m1&scene_id=s1&focus_entity_id=e1&mode=map",
+      "#workbench/p1/map?map_id=m1&scene_id=s1&focus_entity_id=e1&mode=live",
       "_blank",
       "noopener",
     )

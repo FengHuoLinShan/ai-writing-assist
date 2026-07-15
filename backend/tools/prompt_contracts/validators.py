@@ -4,7 +4,7 @@ import json
 import types
 from importlib import import_module
 from pathlib import Path
-from typing import Any, get_args, get_origin
+from typing import Annotated, Any, get_args, get_origin
 
 from pydantic import BaseModel, ValidationError
 
@@ -15,6 +15,8 @@ from .registry import ContractRegistryError, import_schema_model
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 TARGET_MODELS = {
     "core_entities": "modules.world.models.CoreEntity",
+    "world_bible_page_drafts": "modules.world.models.WorldBiblePageDraft",
+    "world_bible_synopsis_revisions": "modules.world.models.WorldBibleSynopsisRevision",
     "entity_relations": "modules.world.models.EntityRelation",
     "delta_log": "modules.memory.models.DeltaLog",
     "map_observations": "modules.world.map_models.MapObservation",
@@ -25,13 +27,27 @@ TARGET_MODELS = {
     "reveal_plans": "modules.outline.models.RevealPlan",
 }
 CRITICAL_MAPPINGS = {
-    "generation_center_world_object_draft": {
+    "world_generation_core_entity": {
         ("name", "core_entities.name"),
         ("summary", "core_entities.summary"),
         ("details", "core_entities.content_json.details"),
     },
     "phase2_world_extraction": {
         ("deltas.subject_name", "map_observations.target_name"),
+        (
+            "map_observation_proposals.proposal_type",
+            "map_observations.value_json.proposal_type",
+        ),
+        ("map_observation_proposals.quote", "map_observations.evidence_text"),
+        ("map_observation_proposals.confidence", "map_observations.confidence"),
+    },
+    "scene_entity_extraction": {
+        (
+            "map_observation_proposals.proposal_type",
+            "map_observations.value_json.proposal_type",
+        ),
+        ("map_observation_proposals.quote", "map_observations.evidence_text"),
+        ("map_observation_proposals.confidence", "map_observations.confidence"),
     },
 }
 
@@ -63,6 +79,7 @@ def validate_contract(contract: PromptContract) -> list[ContractIssue]:
         ]
 
     paths = schema_field_paths(schema_model)
+    issues.extend(_validate_strict_schema_coverage(contract, paths))
     issues.extend(_validate_forbidden_fields(contract, paths))
     issues.extend(_validate_schema_sources(contract, paths))
     issues.extend(_validate_critical_mappings(contract))
@@ -121,31 +138,66 @@ def _collect_model_paths(model: type[Any], prefix: str, paths: set[str]) -> None
     for name, field in fields.items():
         path = f"{prefix}.{name}" if prefix else name
         paths.add(path)
-        nested = _nested_model(field.annotation)
-        if nested is not None:
+        for nested in _nested_models(field.annotation):
             _collect_model_paths(nested, path, paths)
 
 
-def _nested_model(annotation: Any) -> type[BaseModel] | None:
+def _nested_models(annotation: Any) -> list[type[BaseModel]]:
     origin = get_origin(annotation)
     args = get_args(annotation)
+    if origin is Annotated:
+        return _nested_models(args[0]) if args else []
     if origin in (list, tuple, set, frozenset):
-        return _nested_model(args[0]) if args else None
+        return _nested_models(args[0]) if args else []
     if origin in (types.UnionType, getattr(types, "UnionType", object)):
+        nested_models: list[type[BaseModel]] = []
         for arg in args:
-            nested = _nested_model(arg)
-            if nested is not None:
-                return nested
-        return None
+            nested_models.extend(_nested_models(arg))
+        return list(dict.fromkeys(nested_models))
     if origin is not None and str(origin) == "typing.Union":
+        nested_models = []
         for arg in args:
-            nested = _nested_model(arg)
-            if nested is not None:
-                return nested
-        return None
+            nested_models.extend(_nested_models(arg))
+        return list(dict.fromkeys(nested_models))
     if isinstance(annotation, type) and issubclass(annotation, BaseModel):
-        return annotation
-    return None
+        return [annotation]
+    return []
+
+
+def _validate_strict_schema_coverage(
+    contract: PromptContract,
+    paths: set[str],
+) -> list[ContractIssue]:
+    if not contract.strict_schema_coverage:
+        return []
+
+    issues: list[ContractIssue] = []
+    declared = set(contract.declared_prompt_fields)
+    for field in sorted(declared - paths):
+        issues.append(
+            ContractIssue(
+                severity="P1",
+                contract_id=contract.id,
+                code="schema.strict_declared_missing",
+                message="Strict prompt field is not present in schema.",
+                path=field,
+            )
+        )
+
+    schema_roots = {path for path in paths if "." not in path}
+    covered_roots = {field.split(".", 1)[0] for field in declared}
+    covered_roots.update(item.source.split(".", 1)[0] for item in contract.ignored_fields)
+    for root in sorted(schema_roots - covered_roots):
+        issues.append(
+            ContractIssue(
+                severity="P1",
+                contract_id=contract.id,
+                code="schema.strict_root_undeclared",
+                message="Strict schema root is neither declared nor ignored.",
+                path=root,
+            )
+        )
+    return issues
 
 
 def _validate_forbidden_fields(

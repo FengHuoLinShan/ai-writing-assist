@@ -343,6 +343,8 @@ const sceneWorkbenchView = {
   },
 
   _renderHealthFilters() {
+    const organizeBreakdown = this._workbench.health?.needs_organize?.breakdown || {}
+    const hasOrganizeBreakdown = Object.values(organizeBreakdown).some((count) => Number(count) > 0)
     return `
       <div class="scene-health-bar">
         ${HEALTH_ORDER.map(([key, fallback]) => {
@@ -364,6 +366,11 @@ const sceneWorkbenchView = {
           `
         }).join("")}
       </div>
+      ${hasOrganizeBreakdown ? `
+        <p class="scene-health-count-note" role="note">
+          待整理总数按 Scene 去重；结构、正文定位和融合等原因可在同一 Scene 上重叠，原因数不能相加作为总数。
+        </p>
+      ` : ""}
     `
   },
 
@@ -476,6 +483,102 @@ const sceneWorkbenchView = {
     return `<button class="btn btn-sm ${primaryClass} scene-context-action" ${data}>${esc(action.label)}</button>`
   },
 
+  _spanSummaryLabel(summary) {
+    const rangeLabel = String(summary?.range_label || "").trim()
+    const mappingLabel = String(summary?.mapping_status_label || "").trim()
+    if (rangeLabel && mappingLabel && !rangeLabel.includes(mappingLabel)) {
+      return `${rangeLabel} · ${mappingLabel}`
+    }
+    if (rangeLabel) return rangeLabel
+    const chapter = Number(summary?.chapter_index)
+    return [
+      Number.isInteger(chapter) && chapter > 0 ? `第 ${chapter} 章` : "",
+      mappingLabel,
+    ].filter(Boolean).join(" · ")
+  },
+
+  _overlapCounterpartLabel(detail) {
+    return String(
+      detail?.counterpart_scene_label
+      || detail?.counterpart_scene_title
+      || "未命名 Scene",
+    ).trim() || "未命名 Scene"
+  },
+
+  _renderRowSpanSummary(item) {
+    const summaries = Array.isArray(item?.span_summaries) ? item.span_summaries : []
+    const labels = summaries.map((summary) => this._spanSummaryLabel(summary)).filter(Boolean)
+    if (!labels.length) return ""
+    const visible = labels.slice(0, 2).join("；")
+    const remaining = labels.length > 2 ? `；另 ${labels.length - 2} 段` : ""
+    return `<div class="scene-workbench-row__mapping" aria-label="Scene 正文范围">${esc(`${visible}${remaining}`)}</div>`
+  },
+
+  _renderRowOverlapSummary(item) {
+    const details = Array.isArray(item?.overlap_details) ? item.overlap_details : []
+    if (!details.length) return ""
+    const first = details[0]
+    const label = String(first?.range_label || "").trim()
+      || `与「${this._overlapCounterpartLabel(first)}」的正文范围重叠`
+    const remaining = details.length > 1 ? `；另 ${details.length - 1} 处` : ""
+    return `<div class="scene-workbench-row__overlap" aria-label="Scene 正文范围重叠">${esc(`${label}${remaining}`)}</div>`
+  },
+
+  _renderOverlapShortcut(item) {
+    const detail = Array.isArray(item?.overlap_details) ? item.overlap_details[0] : null
+    if (!detail?.counterpart_scene_id) return ""
+    const label = this._overlapCounterpartLabel(detail)
+    return `<button class="btn btn-sm scene-overlap-shortcut" data-action="open-overlap-scene" data-id="${esc(detail.counterpart_scene_id)}">查看「${esc(label)}」</button>`
+  },
+
+  _renderSpanDetails(item) {
+    const summaries = Array.isArray(item?.span_summaries) ? item.span_summaries : []
+    if (!summaries.length) return ""
+    const rows = summaries.map((summary) => {
+      const label = this._spanSummaryLabel(summary)
+      if (!label) return ""
+      const anchor = String(summary?.anchor_excerpt || "").trim()
+      return `
+        <div class="scene-span-detail">
+          <span>${esc(label)}</span>
+          ${anchor ? `<small>原文摘要：${esc(anchor)}</small>` : ""}
+        </div>
+      `
+    }).filter(Boolean).join("")
+    if (!rows) return ""
+    return `
+      <section class="scene-detail-summary scene-detail-span-summaries" aria-label="Scene 正文范围">
+        <div><strong>正文范围</strong><div class="scene-span-detail-list">${rows}</div></div>
+      </section>
+    `
+  },
+
+  _renderOverlapDetails(item) {
+    const details = Array.isArray(item?.overlap_details) ? item.overlap_details : []
+    if (!details.length) return ""
+    const rows = details.map((detail) => {
+      const counterpartLabel = this._overlapCounterpartLabel(detail)
+      const chapter = Number(detail?.chapter_index)
+      const chapterLabel = Number.isInteger(chapter) && chapter > 0 ? `第 ${chapter} 章 · ` : ""
+      const rangeLabel = String(detail?.range_label || "").trim()
+        || `${chapterLabel}与「${counterpartLabel}」重叠`
+      return `
+        <div class="scene-overlap-detail">
+          <strong>${esc(rangeLabel)}</strong>
+          <span>当前范围：${esc(`${chapterLabel}字符 ${detail.scene_start_offset}–${detail.scene_end_offset}`)}</span>
+          <span>对方范围：${esc(`${chapterLabel}字符 ${detail.counterpart_start_offset}–${detail.counterpart_end_offset}`)}</span>
+          <span>实际重叠：${esc(`${chapterLabel}字符 ${detail.overlap_start_offset}–${detail.overlap_end_offset}`)}</span>
+          ${detail?.counterpart_scene_id ? `<button class="btn btn-sm" data-action="open-overlap-scene" data-id="${esc(detail.counterpart_scene_id)}">查看「${esc(counterpartLabel)}」</button>` : ""}
+        </div>
+      `
+    }).join("")
+    return `
+      <section class="scene-detail-summary scene-detail-overlaps" aria-label="Scene 正文范围重叠">
+        <div><strong>范围重叠</strong><div class="scene-overlap-detail-list">${rows}</div></div>
+      </section>
+    `
+  },
+
   _renderSceneRow(item, selectedId) {
     const scene = item.scene || {}
     const selected = selectedId === scene.id ? "is-selected" : ""
@@ -500,18 +603,21 @@ const sceneWorkbenchView = {
         <div class="scene-workbench-row__content">
           <button class="scene-workbench-row__main" data-action="select-workbench-scene" data-id="${esc(scene.id)}">
             <div class="scene-workbench-row__meta">
-              <span>#${esc(scene.scene_index ?? "-")}</span>
+              <span>#${esc(Number.isFinite(Number(scene.scene_index)) ? Number(scene.scene_index) + 1 : "-")}</span>
               <span>${esc(this._sceneStatusLabel(scene))}</span>
               <span>${esc(this._sourceLabel(scene.source))}</span>
               <span>${esc(item.chapter_range || "未关联章节")}</span>
             </div>
             <div class="scene-workbench-row__title">${esc(scene.title || "未命名 Scene")}</div>
             <div class="scene-workbench-row__summary">${esc(item.summary || scene.goal || "暂无目标")}</div>
+            ${this._renderRowSpanSummary(item)}
+            ${this._renderRowOverlapSummary(item)}
           </button>
           <div class="scene-workbench-row__health">${health}</div>
         </div>
         <div class="scene-workbench-row__actions">
           ${this._renderContextAction(item)}
+          ${this._renderOverlapShortcut(item)}
           ${contextAction.key === "edit" ? "" : `<button class="btn btn-sm scene-secondary-action" data-action="edit-workbench-scene" data-id="${esc(scene.id)}">编辑</button>`}
           ${renderActionMenu(`scene-actions-${esc(scene.id)}`, [
             { action: "open-writing-scene", label: "打开写作", data: { id: scene.id } },
@@ -633,6 +739,8 @@ const sceneWorkbenchView = {
           ${replacementLinks ? `<div><strong>替代结果</strong><span>${replacementLinks}</span></div>` : ""}
           ${attentionLabels.length ? `<div><strong>待处理</strong><span>${esc(attentionLabels.join(" · "))}</span></div>` : ""}
         </section>
+        ${this._renderSpanDetails(item)}
+        ${this._renderOverlapDetails(item)}
         <div class="scene-detail-actions">
           ${contextAction.key === "edit" ? "" : this._renderContextAction(item)}
           <button class="btn btn-primary" data-action="save-scene-detail" data-id="${esc(scene.id)}">保存</button>
@@ -684,7 +792,7 @@ const sceneWorkbenchView = {
     const embedded = state.currentView === "outline" && state.currentSubView === "scenes"
     const routeId = embedded ? this._routeSceneId() : state.currentSubView
     if (embedded) this._selectedSceneIdValue = routeId
-    return routeId || this._workbench?.selected_scene_id || this._workbench?.items?.[0]?.scene?.id || null
+    return routeId || null
   },
 
   _routeSceneId() {
@@ -701,8 +809,9 @@ const sceneWorkbenchView = {
 
   _selectedSceneItem() {
     const id = this._selectedSceneId()
+    if (!id) return null
     const items = this._filteredItems()
-    return items.find((item) => item.scene?.id === id) || items[0] || null
+    return items.find((item) => item.scene?.id === id) || null
   },
 
   _selectSceneInPlace(sceneId) {
@@ -2750,6 +2859,23 @@ const sceneWorkbenchView = {
     await router.refresh()
   },
 
+  async _openOverlapScene(sceneId) {
+    if (!sceneId) return false
+    if (this._findSceneItem(sceneId)) {
+      this._selectSceneInPlace(sceneId)
+      return true
+    }
+    this._filters = { ...SCENE_FILTER_DEFAULTS }
+    this._activeHealth = null
+    this._selectedFusionSceneIds.clear()
+    const embedded = state.currentView === "outline" && state.currentSubView === "scenes"
+    if (embedded) this._selectedSceneIdValue = sceneId
+    else state.currentSubView = sceneId
+    this._pushSceneHistory(sceneId)
+    await router.refresh()
+    return true
+  },
+
   _bindEvents() {
     bindWorkspaceClick(this, {
       "nav-scenes": () => router.navigate("outline", "scenes"),
@@ -2765,6 +2891,10 @@ const sceneWorkbenchView = {
       "show-fusion-suggestions": () => this._showFusionSuggestions(),
       "dismiss-fusion-suggestions": () => this._dismissAllFusionSuggestions(),
       "open-replacement-scene": (_e, _t, ctx) => this._openReplacementScene(ctx.id),
+      "open-overlap-scene": (e, _t, ctx) => {
+        e.stopPropagation()
+        return this._openOverlapScene(ctx.id)
+      },
       "handle-scene-health": (e, t, ctx) => {
         e.stopPropagation()
         return this._handleSceneHealth(ctx.id, t.getAttribute("data-health"))
@@ -2819,6 +2949,7 @@ const sceneWorkbenchView = {
       "start-split-scene": (_e, _t, ctx) => ctx.id && this._startSplit(ctx.id),
       "close-scene-detail": () => {
         this._mobileDetailOpen = false
+        this._clearEmbeddedSceneHistory()
         router.renderCurrentView()
       },
     })

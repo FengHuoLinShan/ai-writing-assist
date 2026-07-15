@@ -86,6 +86,13 @@ globalThis.router = {
       ? new URLSearchParams(query.toString())
       : new URLSearchParams()
   }),
+  replace: vi.fn((viewName, subView = null, query = null) => {
+    state.currentView = viewName
+    state.currentSubView = subView
+    _currentQuery = query && typeof query.toString === "function"
+      ? new URLSearchParams(query.toString())
+      : new URLSearchParams()
+  }),
   refresh: vi.fn(),
   registerView: vi.fn(),
   getCurrentView: vi.fn(() => state.currentView),
@@ -148,8 +155,9 @@ globalThis.api = {
     listPromptTemplateRevisions: vi.fn(),
     validatePromptTemplate: vi.fn(),
     previewPromptTemplate: vi.fn(),
-    objectDraftChat: vi.fn(),
-    generateObjectDraft: vi.fn(),
+    worldChat: vi.fn(),
+    generateWorldSuggestion: vi.fn(),
+    applyWorldPageDraft: vi.fn(),
   },
   outline: {
     listScenes: vi.fn(),
@@ -221,6 +229,11 @@ globalThis.api = {
   world: {
     listEntities: vi.fn(),
     listEntityTypes: vi.fn(),
+    getReviewTypeCatalog: vi.fn(),
+    listRelationReviewGroups: vi.fn(),
+    reviewRelationsBatch: vi.fn(),
+    listAliasReviewGroups: vi.fn(),
+    reviewAliasesBatch: vi.fn(),
     listCharacters: vi.fn(),
     getEntity: vi.fn(),
     listEntityBatches: vi.fn(),
@@ -265,12 +278,12 @@ globalThis.api = {
     listBibleSynopsisRevisions: vi.fn(),
     restoreBibleSynopsisRevision: vi.fn(),
     unpinBibleSynopsis: vi.fn(),
+    listBibleTemplates: vi.fn(),
+    listBiblePageTemplates: vi.fn(),
     refreshBibleProjection: vi.fn(),
-    generateBiblePageAi: vi.fn(),
     listSuggestions: vi.fn(),
     confirmSuggestion: vi.fn(),
     editAndConfirmSuggestion: vi.fn(),
-    applySuggestionToBibleDraft: vi.fn(),
     mergeSuggestion: vi.fn(),
     resolveSuggestionAsAlias: vi.fn(),
     rejectSuggestion: vi.fn(),
@@ -322,6 +335,10 @@ globalThis.api = {
     deleteTerritoriesByFaction: vi.fn(),
     deleteMapTerritory: vi.fn(),
     listMapObservations: vi.fn(),
+    listProjectMapObservationInbox: vi.fn(),
+    updateProjectMapObservation: vi.fn(),
+    assignProjectMapObservation: vi.fn(),
+    ignoreProjectMapObservation: vi.fn(),
     createMapObservation: vi.fn(),
     updateMapObservationReview: vi.fn(),
     batchReviewMapObservations: vi.fn(),

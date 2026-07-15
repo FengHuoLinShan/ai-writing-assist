@@ -18,6 +18,9 @@ beforeEach(() => {
   projectView._importSectionOpen = false
   projectView._uploadProgress = null
   projectView._recycleBinSkip = 0
+  projectView._searchQuery = ""
+  projectView._loadError = null
+  projectView._bulkSelections = {}
   vi.clearAllMocks()
 })
 
@@ -40,12 +43,14 @@ describe("projectView", () => {
       expect(state.projects).toEqual(projects)
     })
 
-    it("API 不可用时设置空列表", async () => {
+    it("API 不可用时保留已有列表并记录可重试错误", async () => {
+      state.projects = [{ id: "cached", title: "已加载项目" }]
       api.projects.list.mockRejectedValue(new Error("Network error"))
 
       await projectView.onEnter()
 
-      expect(state.projects).toEqual([])
+      expect(state.projects).toEqual([{ id: "cached", title: "已加载项目" }])
+      expect(projectView._loadError).toBe("Network error")
     })
 
     it("自动选中已保存的项目", async () => {
@@ -108,15 +113,18 @@ describe("projectView", () => {
   })
 
   describe("project stats and activity", () => {
-    it("按最近活跃时间排序并显示统计待接入占位", async () => {
+    it("当前项目始终置顶，其余按最近活跃时间排序", async () => {
       state.projects = [
         { id: "old", title: "旧项目", created_at: "2026-01-01T00:00:00Z" },
         { id: "new", title: "新项目", updated_at: "2026-02-01T00:00:00Z" },
+        { id: "middle", title: "中间项目", updated_at: "2026-01-15T00:00:00Z" },
       ]
+      state.currentProjectId = "old"
 
       const html = await projectView.render()
 
-      expect(html.indexOf("新项目")).toBeLessThan(html.indexOf("旧项目"))
+      expect(html.indexOf("旧项目")).toBeLessThan(html.indexOf("新项目"))
+      expect(html.indexOf("新项目")).toBeLessThan(html.indexOf("中间项目"))
       expect(html).toContain("待接入")
       expect(html).toContain("统计接入后显示总字数")
       expect(html).toContain("统计接入后显示章节数")
@@ -136,6 +144,48 @@ describe("projectView", () => {
   // ============================================================
 
   describe("project toolbar and current project highlight", () => {
+    it("使用编辑式作品档案布局并突出首个项目", async () => {
+      state.projects = [
+        {
+          id: "p1",
+          title: "白雾里的灯塔",
+          genre: "悬疑",
+          current_stage: "writing",
+          total_words: 48000,
+          chapter_count: 16,
+        },
+        { id: "p2", title: "夜航", genre: "科幻" },
+      ]
+      state.currentProjectId = "p1"
+
+      document.body.innerHTML = await projectView.render()
+
+      expect(document.querySelector(".project-catalog")).not.toBeNull()
+      expect(document.querySelector(".project-archive-hero")?.textContent).toContain("作品档案")
+      expect(document.querySelector(".project-card--lead")?.getAttribute("data-id")).toBe("p1")
+      expect(document.querySelector(".project-card__visual strong")?.textContent).toBe("白雾")
+      expect(document.querySelectorAll('.project-card[data-id="p1"] .project-stats > div')).toHaveLength(3)
+      expect(document.querySelector(".project-card-placeholder__copy")?.textContent).toContain("创建新项目")
+    })
+
+    it("项目首次加载失败时不伪装成空项目，并可页内重试", async () => {
+      projectView._loadError = "连接暂时不可用"
+      state.projects = []
+      document.body.innerHTML = `<div id="workspace-content">${await projectView.render()}</div>`
+      projectView._bindEvents()
+      api.projects.list.mockResolvedValue({ items: [{ id: "p1", title: "诡秘之主：1" }] })
+
+      expect(document.body.textContent).toContain("项目列表暂时无法加载")
+      expect(document.body.textContent).not.toContain("开始你的第一部小说")
+      expect(document.querySelector('[data-action="retry-projects"]')).not.toBeNull()
+
+      document.querySelector('[data-action="retry-projects"]')?.click()
+      await vi.waitFor(() => expect(router.refresh).toHaveBeenCalled())
+      expect(api.projects.list).toHaveBeenCalledOnce()
+      expect(projectView._loadError).toBeNull()
+      expect(state.projects[0]?.title).toBe("诡秘之主：1")
+    })
+
     it("工具栏显示项目数量与操作按钮", async () => {
       state.projects = [
         { id: "p1", title: "项目A" },
@@ -167,7 +217,69 @@ describe("projectView", () => {
       const currentCard = document.querySelector('.project-card.current[data-id="p2"]')
       expect(currentCard).not.toBeNull()
       expect(currentCard?.querySelector(".project-current-badge")).not.toBeNull()
+      expect(currentCard?.getAttribute("aria-current")).toBe("true")
       expect(document.querySelector('.project-card.current[data-id="p1"]')).toBeNull()
+    })
+
+    it("按名称搜索并显示过滤数与总数", async () => {
+      state.projects = [
+        { id: "p1", title: "诡秘之主：1" },
+        { id: "p2", title: "移动端线路 E2E" },
+        { id: "p3", name: "诡秘之主：2" },
+      ]
+
+      projectView._searchQuery = "诡秘之主"
+      const html = await projectView.render()
+      document.body.innerHTML = html
+
+      expect(document.querySelector('[data-role="project-search"]')?.value).toBe("诡秘之主")
+      expect(document.querySelectorAll('.project-card[data-action="open-project"]')).toHaveLength(2)
+      expect(document.body.textContent).toContain("显示 2 / 共 3 个项目")
+      expect(document.body.textContent).not.toContain("移动端线路 E2E")
+    })
+
+    it("搜索无匹配时可清除，并在视图内刷新后保留搜索条件", async () => {
+      state.projects = [
+        { id: "p1", title: "诡秘之主：1" },
+        { id: "p2", title: "项目A-面包屑" },
+      ]
+      projectView._searchQuery = "不存在"
+      document.body.innerHTML = `<div id="workspace-content">${await projectView.render()}</div>`
+      projectView._bindEvents()
+
+      expect(document.querySelector('[data-role="project-search-empty"]')).not.toBeNull()
+      expect(document.body.textContent).toContain("显示 0 / 共 2 个项目")
+
+      document.querySelector('[data-role="project-search-empty"] [data-action="clear-project-search"]')?.click()
+
+      expect(projectView._searchQuery).toBe("")
+      expect(document.querySelectorAll('.project-card[data-action="open-project"]')).toHaveLength(2)
+      expect(document.querySelector('[data-role="project-search"]')?.value).toBe("")
+
+      const input = document.querySelector('[data-role="project-search"]')
+      input.value = "面包"
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+      expect(projectView._searchQuery).toBe("面包")
+      expect(document.querySelectorAll('.project-card[data-action="open-project"]')).toHaveLength(1)
+
+      document.getElementById("workspace-content").innerHTML = await projectView.render()
+      expect(document.querySelector('[data-role="project-search"]')?.value).toBe("面包")
+      expect(document.querySelectorAll('.project-card[data-action="open-project"]')).toHaveLength(1)
+    })
+
+    it("搜索后全选只选中当前可见项目", async () => {
+      state.projects = [
+        { id: "p1", title: "诡秘之主：1" },
+        { id: "p2", title: "诡秘之主：2" },
+        { id: "p3", title: "移动端线路 E2E" },
+      ]
+      projectView._searchQuery = "诡秘之主"
+      document.body.innerHTML = `<div id="workspace-content">${await projectView.render()}</div>`
+      projectView._bindEvents()
+
+      document.querySelector('[data-action="select-visible-projects"]')?.click()
+
+      expect(Array.from(projectView._bulkSelections["project-cards"])).toEqual(["p1", "p2"])
     })
 
     it("导入抽屉默认折叠", async () => {

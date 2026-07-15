@@ -5,10 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
 from infrastructure.tasks.contracts import TaskLifecycleContract
 from infrastructure.tasks.facade import list_task_lifecycle_contracts
@@ -570,3 +572,94 @@ class ContextSnapshotService:
             created_at=record.created_at.isoformat(),
             updated_at=record.updated_at.isoformat() if record.updated_at else None,
         )
+
+
+class DurableContextSnapshotService:
+    """Own detached transactions for generation snapshot lifecycle writes.
+
+    Production callers are bound to an ``AsyncEngine`` and therefore receive a
+    fresh database session and transaction. The repository-wide SQLite fixture
+    binds callers to an ``AsyncConnection`` that already owns the test's outer
+    transaction; there a separate session/savepoint preserves test isolation
+    without committing the caller session or the fixture transaction.
+    """
+
+    def __init__(
+        self,
+        snapshot_service: ContextSnapshotService | None = None,
+    ) -> None:
+        self._snapshot_service = snapshot_service or ContextSnapshotService()
+
+    async def open_context_snapshot(
+        self,
+        caller_db: AsyncSession,
+        request: ContextSnapshotRequest,
+    ) -> ContextSnapshotContract:
+        async with self._transaction(caller_db) as snapshot_db:
+            return await self._snapshot_service.open_context_snapshot(
+                snapshot_db,
+                request,
+            )
+
+    async def succeed_context_snapshot(
+        self,
+        caller_db: AsyncSession,
+        *,
+        snapshot_id: str | uuid.UUID,
+        result_refs: list[dict],
+    ) -> ContextSnapshotContract:
+        async with self._transaction(caller_db) as snapshot_db:
+            return await self._snapshot_service.succeed_context_snapshot(
+                snapshot_db,
+                snapshot_id=snapshot_id,
+                result_refs=result_refs,
+            )
+
+    async def fail_context_snapshot(
+        self,
+        caller_db: AsyncSession,
+        *,
+        snapshot_id: str | uuid.UUID,
+        error_kind: str,
+        error_message: str,
+    ) -> ContextSnapshotContract:
+        async with self._transaction(caller_db) as snapshot_db:
+            return await self._snapshot_service.fail_context_snapshot(
+                snapshot_db,
+                snapshot_id=snapshot_id,
+                error_kind=error_kind,
+                error_message=error_message,
+            )
+
+    @asynccontextmanager
+    async def _transaction(
+        self,
+        caller_db: AsyncSession,
+    ) -> AsyncIterator[AsyncSession]:
+        bind = caller_db.bind
+        if isinstance(bind, AsyncConnection):
+            snapshot_db = AsyncSession(
+                bind=bind,
+                expire_on_commit=False,
+                autoflush=False,
+                join_transaction_mode="create_savepoint",
+            )
+        elif isinstance(bind, AsyncEngine):
+            snapshot_db = AsyncSession(
+                bind=bind,
+                expire_on_commit=False,
+                autoflush=False,
+            )
+        else:
+            raise RuntimeError(
+                "Generation context snapshots require an AsyncEngine or "
+                "AsyncConnection bound session"
+            )
+
+        async with snapshot_db:
+            try:
+                yield snapshot_db
+                await snapshot_db.commit()
+            except Exception:
+                await snapshot_db.rollback()
+                raise

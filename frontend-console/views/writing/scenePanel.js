@@ -72,6 +72,14 @@ export function createScenePanel({
   }
 
   function render() {
+    if (currentChapter == null) {
+      return `
+        <div class="empty-state writing-scene-panel-empty">
+          <strong>写作参考</strong>
+          <p>请先从左侧选择章节，再查看对应 Scene、人物和地图参考。</p>
+        </div>
+      `
+    }
     const currentScene = findCurrentScene()
     scheduleMapSummaryLoad(currentScene)
     return renderSceneCockpitPanel({

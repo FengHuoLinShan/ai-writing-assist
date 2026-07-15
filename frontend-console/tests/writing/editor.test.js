@@ -33,9 +33,24 @@ describe("createEditor", () => {
   it("无选中章节时渲染空状态", () => {
     const editor = createTestEditor()
     const html = editor.render()
+    document.body.innerHTML = html
     expect(html).toContain("选择章节开始编辑")
     expect(html).toContain("请从左侧选择章节")
     expect(html).not.toContain('<textarea id="writing-editor"')
+    expect(document.querySelector('[data-action="ai-continue"]').disabled).toBe(true)
+    expect(document.querySelector('[data-action="export-chapter"]').disabled).toBe(true)
+  })
+
+  it("中文导入正文按每个非空换行段统计段落", () => {
+    const editor = createTestEditor()
+    editor.setState({
+      chapter: 1,
+      content: "第一段\n第二段\n\n第三段\r\n第四段",
+    })
+
+    document.body.innerHTML = editor.render()
+
+    expect(document.getElementById("wc-paragraphs").textContent).toBe("4")
   })
 
   it("有选中章节时渲染编辑器", async () => {

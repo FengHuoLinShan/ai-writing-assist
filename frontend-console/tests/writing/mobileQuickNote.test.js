@@ -142,7 +142,8 @@ describe("createMobileQuickNote", () => {
       updated_at: "2026-07-06T10:00:00Z",
     })
 
-    const note = createTestNote()
+    const editor = createMockEditor()
+    const note = createTestNote({ editor })
     document.body.innerHTML = note.render()
     document.getElementById("mobile-note-editor").value = "新内容"
     note.bindEvents(document.body)
@@ -156,12 +157,63 @@ describe("createMobileQuickNote", () => {
       chapter_index: 2,
       content: "新内容",
     }))
+    expect(editor.setState).toHaveBeenCalledWith(expect.objectContaining({
+      draftId: "d2",
+      versionNumber: 1,
+      updatedAt: "2026-07-06T10:00:00Z",
+      lastSavedContent: "新内容",
+    }))
+  })
+
+  it("首次创建工作稿后连续保存复用新 draft id 和版本", async () => {
+    state.currentProjectId = "p1"
+    state._currentChapter = 2
+    state._currentTitle = "第二章"
+    api.writing.autosaveDraftOnly.mockResolvedValue({
+      id: "d2",
+      version_number: 1,
+      updated_at: "2026-07-06T10:00:00Z",
+    })
+    api.writing.autosave.mockResolvedValue({
+      id: "d2",
+      version_number: 2,
+      updated_at: "2026-07-06T10:01:00Z",
+    })
+    const editor = createMockEditor()
+    editor.setState.mockImplementation((patch) => {
+      if (patch.draftId !== undefined) state._currentDraftId = patch.draftId
+      if (patch.versionNumber !== undefined) state._currentVersionNumber = patch.versionNumber
+      if (patch.updatedAt !== undefined) state._currentUpdatedAt = patch.updatedAt
+    })
+    const note = createTestNote({ editor })
+    document.body.innerHTML = note.render()
+    note.bindEvents(document.body)
+
+    const editorEl = document.getElementById("mobile-note-editor")
+    editorEl.value = "第一次保存"
+    document.querySelector('[data-action="save-mobile-note"]').click()
+    await flushPromises()
+    editorEl.value = "第二次保存"
+    document.querySelector('[data-action="save-mobile-note"]').click()
+    await flushPromises()
+
+    expect(api.writing.autosaveDraftOnly).toHaveBeenCalledTimes(1)
+    expect(api.writing.autosave).toHaveBeenCalledWith(
+      "d2",
+      expect.objectContaining({
+        content: "第二次保存",
+        expected_version: 1,
+        expected_updated_at: "2026-07-06T10:00:00Z",
+      }),
+      "p1",
+    )
   })
 
   it("updates word count on input", () => {
     state.currentProjectId = "p1"
     state._currentChapter = 1
-    const note = createTestNote()
+    const editorState = createMockEditor()
+    const note = createTestNote({ editor: editorState })
     document.body.innerHTML = note.render()
     note.bindEvents(document.body)
 
@@ -170,6 +222,7 @@ describe("createMobileQuickNote", () => {
     editor.dispatchEvent(new Event("input"))
 
     expect(document.getElementById("mobile-note-wc").textContent).toBe("5 字")
+    expect(editorState.setState).toHaveBeenCalledWith({ content: "一二三四五" })
   })
 
   it("does nothing when saving without editor", async () => {

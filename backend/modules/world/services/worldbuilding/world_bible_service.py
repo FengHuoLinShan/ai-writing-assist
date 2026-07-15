@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import ConflictError, NotFoundError, ValidationError
+from core.errors import ConflictError, NotFoundError
 from infrastructure.llm.token_estimation import estimate_token_count
 from infrastructure.tasks.enqueuer import enqueue_task
 from infrastructure.tasks.models import AsyncTask
@@ -191,43 +191,6 @@ class WorldBibleService:
         if adopted_change:
             page.version_number += 1
             await self._add_revision(db, page, revision_reason="legacy_update")
-            await self._mark_synopsis_stale(db, str(page.novel_id))
-            await self._lifecycle.mark_page_context_changed(
-                db,
-                page,
-                reason="world_bible_page_updated",
-            )
-        await db.flush()
-        return WorldBiblePageResponse.model_validate(page)
-
-    async def apply_page_patch(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        page_id: str,
-        append_text: str,
-        *,
-        revision_reason: str = "ai_suggestion",
-    ) -> WorldBiblePageResponse:
-        page = await self._get_page_model(db, novel_id, page_id, for_update=True)
-        active_draft = await db.scalar(
-            select(WorldBiblePageDraft.id).where(
-                WorldBiblePageDraft.novel_id == page.novel_id,
-                WorldBiblePageDraft.page_id == page.id,
-            )
-        )
-        if active_draft is not None:
-            raise ConflictError("World Bible page has an active working draft")
-        existing = (page.free_text or "").rstrip()
-        patch = append_text.strip()
-        if not patch:
-            raise ValidationError("append_text must not be blank")
-        page.free_text = f"{existing}\n\n{patch}".strip() if existing else patch
-        page.version_number += 1
-        page.updated_by = "ai_world_bible"
-        await self._mark_page_projections_stale(db, page)
-        await self._add_revision(db, page, revision_reason=revision_reason)
-        if page.status in self._ADOPTED_STATUSES:
             await self._mark_synopsis_stale(db, str(page.novel_id))
             await self._lifecycle.mark_page_context_changed(
                 db,

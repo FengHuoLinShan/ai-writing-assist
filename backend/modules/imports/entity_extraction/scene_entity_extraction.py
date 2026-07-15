@@ -237,6 +237,7 @@ class SceneEntityExtractionService:
         novel_id: str,
         *,
         workflow_id: str | None = None,
+        authorization_snapshot: dict[str, Any] | None = None,
         on_scene_progress: Callable[[int, int], Awaitable[None]] | None = None,
         existing_checkpoints: dict[str, Any] | None = None,
         start_chapter: int | None = None,
@@ -287,6 +288,7 @@ class SceneEntityExtractionService:
                 scenes,
                 "",
                 workflow_id=workflow_id,
+                authorization_snapshot=authorization_snapshot,
                 on_scene_progress=on_scene_progress,
                 bulk_error_kind=f"unified_activation:{route.strategy}",
                 include_alias_relations=include_alias_relations,
@@ -317,6 +319,8 @@ class SceneEntityExtractionService:
         total_created = 0
         total_relations = 0
         total_deltas = 0
+        map_candidate_created = 0
+        map_candidate_reused = 0
         accumulated_memory: list[dict] = []
         seen_entity_keys: set[tuple[str, str]] = set()
         failed_scene_indices: list[int] = []
@@ -341,6 +345,7 @@ class SceneEntityExtractionService:
                 scenes,
                 existing_context,
                 workflow_id=workflow_id,
+                authorization_snapshot=authorization_snapshot,
                 on_scene_progress=on_scene_progress,
                 bulk_error_kind="small_sample_parallel_default",
             )
@@ -353,6 +358,7 @@ class SceneEntityExtractionService:
                     scenes,
                     existing_context,
                     workflow_id=workflow_id,
+                    authorization_snapshot=authorization_snapshot,
                 )
             except Exception as exc:
                 bulk_error_kind = self._error_kind(exc)
@@ -367,6 +373,7 @@ class SceneEntityExtractionService:
                     scenes,
                     existing_context,
                     workflow_id=workflow_id,
+                    authorization_snapshot=authorization_snapshot,
                     on_scene_progress=on_scene_progress,
                     bulk_error_kind=bulk_error_kind,
                 )
@@ -444,6 +451,16 @@ class SceneEntityExtractionService:
                     "total_relations": bulk_result["relations"],
                     "total_aliases": 0,
                     "total_deltas": bulk_result["deltas"],
+                    "map_observation_candidates_created": int(
+                        (bulk_result.get("map_observation_candidates") or {}).get(
+                            "created", 0
+                        )
+                    ),
+                    "map_observation_candidates_reused": int(
+                        (bulk_result.get("map_observation_candidates") or {}).get(
+                            "reused", 0
+                        )
+                    ),
                     "total_scenes": total_scenes,
                     "degraded": bool(
                         supplement_result["created"] or flush_status["degraded"]
@@ -486,6 +503,7 @@ class SceneEntityExtractionService:
                 scenes,
                 existing_context,
                 workflow_id=workflow_id,
+                authorization_snapshot=authorization_snapshot,
                 on_scene_progress=on_scene_progress,
                 include_alias_relations=include_alias_relations,
             )
@@ -564,10 +582,14 @@ class SceneEntityExtractionService:
                     accumulated_memory,
                     seen_entity_keys,
                     workflow_id=workflow_id,
+                    authorization_snapshot=authorization_snapshot,
                 )
                 total_created += scene_result["created"]
                 total_relations += scene_result["relations"]
                 total_deltas += scene_result["deltas"]
+                candidate_counts = scene_result.get("map_observation_candidates") or {}
+                map_candidate_created += int(candidate_counts.get("created", 0) or 0)
+                map_candidate_reused += int(candidate_counts.get("reused", 0) or 0)
                 structured_format_diagnostics.extend(
                     scene_result.get("structured_format_diagnostics") or []
                 )
@@ -676,6 +698,8 @@ class SceneEntityExtractionService:
             "total_relations": total_relations,
             "total_aliases": 0,
             "total_deltas": total_deltas,
+            "map_observation_candidates_created": map_candidate_created,
+            "map_observation_candidates_reused": map_candidate_reused,
             "total_scenes": total_scenes,
             "degraded": bool(
                 failed_scene_indices or stopped_early or flush_status["degraded"]
@@ -939,6 +963,7 @@ class SceneEntityExtractionService:
         accumulated_memory: list[dict],
         seen_entity_keys: set[tuple[str, str]],
         workflow_id: str | None = None,
+        authorization_snapshot: dict[str, Any] | None = None,
         persistence_stats: dict[str, Any] | None = None,
         db_lock: asyncio.Lock | None = None,
     ) -> dict[str, Any]:
@@ -951,6 +976,7 @@ class SceneEntityExtractionService:
             accumulated_memory,
             seen_entity_keys,
             workflow_id=workflow_id,
+            authorization_snapshot=authorization_snapshot,
             persistence_stats=persistence_stats,
             db_lock=db_lock,
         )
@@ -963,6 +989,7 @@ class SceneEntityExtractionService:
         existing_context: str,
         *,
         workflow_id: str | None,
+        authorization_snapshot: dict[str, Any] | None = None,
         on_scene_progress: Callable[[int, int], Awaitable[None]] | None,
         include_alias_relations: bool = True,
     ) -> dict[str, Any]:
@@ -987,6 +1014,7 @@ class SceneEntityExtractionService:
                     batch_index=batch_index,
                     existing_context=existing_context,
                     workflow_id=workflow_id,
+                    authorization_snapshot=authorization_snapshot,
                     completed_counter=completed_counter,
                     progress_lock=progress_lock,
                     db_lock=db_lock,
@@ -1002,6 +1030,8 @@ class SceneEntityExtractionService:
         total_created = 0
         total_relations = 0
         total_deltas = 0
+        map_candidate_created = 0
+        map_candidate_reused = 0
         failed_scene_indices: list[int] = []
         failed_scene_ids: list[str] = []
         scene_checkpoints: list[dict[str, Any]] = []
@@ -1044,6 +1074,12 @@ class SceneEntityExtractionService:
             total_created += int(result.get("created", 0) or 0)
             total_relations += int(result.get("relations", 0) or 0)
             total_deltas += int(result.get("deltas", 0) or 0)
+            map_candidate_created += int(
+                result.get("map_observation_candidates_created", 0) or 0
+            )
+            map_candidate_reused += int(
+                result.get("map_observation_candidates_reused", 0) or 0
+            )
             failed_scene_indices.extend(result.get("failed_scene_indices") or [])
             failed_scene_ids.extend(result.get("failed_scene_ids") or [])
             scene_checkpoints.extend(result.get("checkpoints") or [])
@@ -1066,6 +1102,7 @@ class SceneEntityExtractionService:
             nid,
             batches,
             workflow_id=workflow_id,
+            authorization_snapshot=authorization_snapshot,
         )
         total_created += int(
             boundary_result["phase2_boundary_supplement_counts"].get("created", 0) or 0
@@ -1087,6 +1124,8 @@ class SceneEntityExtractionService:
             "total_relations": total_relations,
             "total_aliases": 0,
             "total_deltas": total_deltas,
+            "map_observation_candidates_created": map_candidate_created,
+            "map_observation_candidates_reused": map_candidate_reused,
             "total_scenes": total_scenes,
             "degraded": bool(
                 failed_scene_indices
@@ -1153,6 +1192,7 @@ class SceneEntityExtractionService:
         batch_index: int,
         existing_context: str,
         workflow_id: str | None,
+        authorization_snapshot: dict[str, Any] | None = None,
         completed_counter: dict[str, int],
         progress_lock: asyncio.Lock,
         db_lock: asyncio.Lock,
@@ -1171,12 +1211,21 @@ class SceneEntityExtractionService:
         error_kind_value: str | None = None
         error_message: str | None = None
         persistence_stats = self._empty_phase2_persistence_stats()
+        map_candidate_created = 0
+        map_candidate_reused = 0
 
         for scene_idx, scene in enumerate(batch):
             scene_provenance_key = self._scene_provenance_key(workflow_id, scene)
             retry_count = 0
             input_fingerprint = await self._current_scene_input_fingerprint(db, scene)
             try:
+                process_kwargs: dict[str, Any] = {
+                    "workflow_id": workflow_id,
+                    "persistence_stats": persistence_stats,
+                    "db_lock": db_lock,
+                }
+                if authorization_snapshot is not None:
+                    process_kwargs["authorization_snapshot"] = authorization_snapshot
                 scene_result = await self._process_scene(
                     db,
                     nid,
@@ -1185,9 +1234,7 @@ class SceneEntityExtractionService:
                     local_context,
                     local_memory,
                     seen_entity_keys,
-                    workflow_id=workflow_id,
-                    persistence_stats=persistence_stats,
-                    db_lock=db_lock,
+                    **process_kwargs,
                 )
             except Exception as exc:
                 error_kind_value = self._error_kind(exc)
@@ -1218,6 +1265,9 @@ class SceneEntityExtractionService:
                 created += int(scene_result.get("created", 0) or 0)
                 relations += int(scene_result.get("relations", 0) or 0)
                 deltas += int(scene_result.get("deltas", 0) or 0)
+                candidate_counts = scene_result.get("map_observation_candidates") or {}
+                map_candidate_created += int(candidate_counts.get("created", 0) or 0)
+                map_candidate_reused += int(candidate_counts.get("reused", 0) or 0)
                 local_context = scene_result.get("updated_context") or local_context
                 local_memory = scene_result.get("updated_memory") or local_memory
                 checkpoint = scene_result.get("checkpoint")
@@ -1263,6 +1313,8 @@ class SceneEntityExtractionService:
             "created": created,
             "relations": relations,
             "deltas": deltas,
+            "map_observation_candidates_created": map_candidate_created,
+            "map_observation_candidates_reused": map_candidate_reused,
             "failed_scene_indices": failed_scene_indices,
             "failed_scene_ids": failed_scene_ids,
             "checkpoints": checkpoints,
@@ -1279,6 +1331,7 @@ class SceneEntityExtractionService:
         batches: list[list[dict[str, Any]]],
         *,
         workflow_id: str | None,
+        authorization_snapshot: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         windows = self._phase2_boundary_windows(batches)
         if not _phase2_config.phase2_boundary_supplement_enabled():
@@ -1328,12 +1381,15 @@ class SceneEntityExtractionService:
                 )
                 break
             try:
+                boundary_kwargs: dict[str, Any] = {"workflow_id": workflow_id}
+                if authorization_snapshot is not None:
+                    boundary_kwargs["authorization_snapshot"] = authorization_snapshot
                 result = await asyncio.wait_for(
                     self._process_boundary_window(
                         db,
                         nid,
                         window,
-                        workflow_id=workflow_id,
+                        **boundary_kwargs,
                     ),
                     timeout=remaining_s,
                 )
@@ -1369,6 +1425,7 @@ class SceneEntityExtractionService:
         window: dict[str, Any],
         *,
         workflow_id: str | None,
+        authorization_snapshot: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         scenes = window["scenes"]
         entity_result = await self._process_scenes_bulk(
@@ -1377,6 +1434,7 @@ class SceneEntityExtractionService:
             scenes,
             "边界补充：仅补相邻 batch 边界漏抽对象，不重写主 batch 结果。",
             workflow_id=workflow_id,
+            authorization_snapshot=authorization_snapshot,
         )
         return {
             "created": int(entity_result.get("created", 0) or 0),
@@ -1395,6 +1453,7 @@ class SceneEntityExtractionService:
         existing_context: str,
         *,
         workflow_id: str | None,
+        authorization_snapshot: dict[str, Any] | None = None,
         on_scene_progress: Callable[[int, int], Awaitable[None]] | None,
         bulk_error_kind: str | None,
         include_alias_relations: bool = True,
@@ -1408,6 +1467,7 @@ class SceneEntityExtractionService:
             scenes,
             existing_context,
             workflow_id=workflow_id,
+            authorization_snapshot=authorization_snapshot,
             on_scene_progress=on_scene_progress,
             bulk_error_kind=bulk_error_kind,
             include_alias_relations=include_alias_relations,
@@ -1424,6 +1484,7 @@ class SceneEntityExtractionService:
         existing_context: str,
         *,
         workflow_id: str | None = None,
+        authorization_snapshot: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return await BulkSceneEntityExtractor(self).run(
             db,
@@ -1431,6 +1492,7 @@ class SceneEntityExtractionService:
             scenes,
             existing_context,
             workflow_id=workflow_id,
+            authorization_snapshot=authorization_snapshot,
         )
 
     async def _supplement_small_sample_entities(
@@ -1493,12 +1555,16 @@ class SceneEntityExtractionService:
         memory_context: str,
         *,
         diagnostics: list[dict[str, Any]] | None = None,
-    ) -> list[SceneEntityExtractionOutput]:
+        with_source_indexes: bool = False,
+    ) -> (
+        list[SceneEntityExtractionOutput] | list[tuple[int, SceneEntityExtractionOutput]]
+    ):
         return await BulkSceneEntityExtractor(self).call_bulk_llm_extractions(
             scene_texts,
             existing_context,
             memory_context,
             diagnostics=diagnostics,
+            with_source_indexes=with_source_indexes,
         )
 
     @staticmethod
@@ -2005,6 +2071,35 @@ class SceneEntityExtractionService:
             workflow_id=workflow_id,
             scene_id=scene_id,
             scene_provenance_key=scene_provenance_key,
+            context_snapshot_id=context_snapshot_id,
+            result_refs=result_refs,
+        )
+
+    async def _record_map_observation_proposals(
+        self,
+        db: AsyncSession,
+        nid,
+        proposals,
+        *,
+        scene_index: int,
+        source_chapter_index: int | None,
+        workflow_id: str | None,
+        scene_id: str | None,
+        scene_source_fingerprint: str | None,
+        authorization_snapshot: dict[str, Any] | None,
+        context_snapshot_id: str | None = None,
+        result_refs: list[dict[str, str]] | None = None,
+    ) -> dict[str, int]:
+        return await SceneEntityPersistenceGateway(self).record_map_observation_proposals(
+            db,
+            nid,
+            proposals,
+            scene_index=scene_index,
+            source_chapter_index=source_chapter_index,
+            workflow_id=workflow_id,
+            scene_id=scene_id,
+            scene_source_fingerprint=scene_source_fingerprint,
+            authorization_snapshot=authorization_snapshot,
             context_snapshot_id=context_snapshot_id,
             result_refs=result_refs,
         )

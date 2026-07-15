@@ -273,6 +273,27 @@ class TestMapConfigRepository:
 
 class TestMapObservationRepository:
     @pytest.mark.asyncio
+    async def test_candidate_identity_lock_covers_missing_rows_on_postgres(self):
+        repo = MapObservationRepository()
+        db = MagicMock()
+        db.execute = AsyncMock()
+        db.get_bind.return_value.dialect.name = "postgresql"
+        novel_id = uuid.uuid4()
+        first_id = uuid.uuid4()
+        second_id = uuid.uuid4()
+
+        await repo.lock_candidate_identities(
+            db,
+            novel_id,
+            [second_id, first_id, second_id],
+        )
+
+        assert db.execute.await_count == 2
+        statements = [str(call.args[0]) for call in db.execute.await_args_list]
+        assert all("pg_advisory_xact_lock" in statement for statement in statements)
+        assert all("hashtextextended" in statement for statement in statements)
+
+    @pytest.mark.asyncio
     async def test_update_review_state_reuses_loaded_observation(self):
         repo = MapObservationRepository()
         db = MagicMock()

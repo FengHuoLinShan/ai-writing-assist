@@ -61,7 +61,15 @@ async def _observation(
             "hex_r": scene_index,
             "location_name": f"地点 {scene_index}",
         },
-        "value_json": {"state": dynamic_type, "label": target_name},
+        "value_json": (
+            {
+                "schema_version": 1,
+                "type": "location",
+                "state": "present",
+            }
+            if dynamic_type == "position_change"
+            else {"state": dynamic_type, "label": target_name}
+        ),
         "confidence": confidence,
         "source_ref": {
             "source": "chaos_fixture",
@@ -71,6 +79,7 @@ async def _observation(
         "evidence_text": f"{target_name} 在 Scene {scene_index} 发生变化。",
         "scene_id": scene_id,
         "scene_index": scene_index,
+        "source_chapter_index": 1,
     }
     if review_state is not None:
         payload["review_state"] = review_state
@@ -225,6 +234,7 @@ async def test_chaos_dataset_preserves_candidate_fact_boundaries_and_author_labe
     confirm = await async_client.post(
         f"/api/world/maps/{map_id}/observations/{high_confidence['id']}/confirm",
         params={"novel_id": novel_id},
+        json={"expected_updated_at": high_confidence["updated_at"]},
     )
     assert confirm.status_code == 200, confirm.text
     fact = confirm.json()
@@ -232,6 +242,7 @@ async def test_chaos_dataset_preserves_candidate_fact_boundaries_and_author_labe
     ignored = await async_client.post(
         f"/api/world/maps/{map_id}/observations/{low_confidence['id']}/ignore",
         params={"novel_id": novel_id},
+        json={"expected_updated_at": low_confidence["updated_at"]},
     )
     assert ignored.status_code == 200, ignored.text
     facts = await async_client.get(
@@ -246,7 +257,12 @@ async def test_chaos_dataset_preserves_candidate_fact_boundaries_and_author_labe
         params={"novel_id": novel_id},
         json={
             "action": "mark_conflicted",
-            "observation_ids": [crisis["id"]],
+            "observation_items": [
+                {
+                    "observation_id": crisis["id"],
+                    "expected_updated_at": crisis["updated_at"],
+                }
+            ],
         },
     )
     assert batch.status_code == 200, batch.text
@@ -283,7 +299,12 @@ async def test_chaos_dataset_preserves_candidate_fact_boundaries_and_author_labe
         params={"novel_id": other_novel_id},
         json={
             "action": "mark_conflicted",
-            "observation_ids": [conflict["id"]],
+            "observation_items": [
+                {
+                    "observation_id": conflict["id"],
+                    "expected_updated_at": conflict["updated_at"],
+                }
+            ],
         },
     )
     assert cross_novel.status_code == 404

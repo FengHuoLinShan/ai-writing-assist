@@ -45,6 +45,7 @@ from modules.imports.llm_schemas import (
     AliasRelationExtractionOutput,
     DeltaEvent,
     ExtractedAlias,
+    ExtractedCharacterLocationProposal,
     ExtractedEntity,
     ExtractedRelation,
     SceneCandidateOutput,
@@ -156,9 +157,7 @@ def test_phase2_result_merges_phase2b_checkpoints_into_common_checkpoint_tree() 
         {
             "total_aliases": 0,
             "total_relations": 0,
-            "alias_relation_checkpoints": {
-                "phase2b": {"scenes": [phase2b_checkpoint]}
-            },
+            "alias_relation_checkpoints": {"phase2b": {"scenes": [phase2b_checkpoint]}},
         },
     )
 
@@ -481,7 +480,7 @@ async def test_persist_entities_writes_auto_ingested_meta(
         name="克莱恩",
         entity_type="character",
         suggested_action="create_new",
-        aliases=["周明瑞"],
+        aliases=["变量", "variable", "周明瑞"],
         confidence=0.77,
     )
 
@@ -1382,11 +1381,18 @@ async def test_phase2b_links_candidate_entities_and_appends_alias_metadata(
         aliases=[
             ExtractedAlias(
                 entity_name="克莱恩",
+                alias="变量",
+                alias_type="name",
+                confidence=0.99,
+                quote="模型误把字段占位词当成别名。",
+            ),
+            ExtractedAlias(
+                entity_name="克莱恩",
                 alias="周明瑞",
                 alias_type="name",
                 confidence=0.91,
                 quote="周明瑞醒来时发现自己成了克莱恩。",
-            )
+            ),
         ],
         relations=[
             ExtractedRelation(
@@ -3426,6 +3432,105 @@ async def test_bulk_scene_entity_extractor_prefetches_scene_drafts_once() -> Non
     assert "第2章正文" in scene_texts[0]
     assert "第2章正文" in scene_texts[1]
     assert "第3章正文" in scene_texts[1]
+
+
+@pytest.mark.asyncio
+async def test_bulk_map_proposals_keep_their_source_scene_provenance() -> None:
+    scenes = [
+        {
+            "id": "scene-1",
+            "novel_id": "novel-1",
+            "scene_index": 1,
+            "chapter_ids": ["1"],
+        },
+        {
+            "id": "scene-2",
+            "novel_id": "novel-1",
+            "scene_index": 2,
+            "chapter_ids": ["2"],
+        },
+    ]
+
+    async def list_latest_drafts_for_chapters(_db, novel_id, chapter_indices):
+        return [
+            WritingDraftContract(
+                novel_id=novel_id,
+                chapter_index=index,
+                title=f"第{index}章",
+                content=f"第{index}章正文",
+            )
+            for index in chapter_indices
+        ]
+
+    outputs = [
+        SceneEntityExtractionOutput(
+            map_observation_proposals=[
+                ExtractedCharacterLocationProposal(
+                    proposal_type="character_location",
+                    character_name="沈砚",
+                    location_name=f"地点{index}",
+                    quote=f"沈砚到达地点{index}。",
+                    confidence=0.9,
+                )
+            ]
+        )
+        for index in (1, 2)
+    ]
+    service = Mock()
+    service._scene_source_chapter_index.side_effect = lambda scene: scene["scene_index"]
+    service._scene_chunks_by_chapter.side_effect = scene_chunks_by_chapter
+    service._scene_chapter_ids.side_effect = scene_chapter_ids
+    service._select_scene_text.side_effect = select_scene_text
+    service._scene_context_header.side_effect = scene_context_header
+    service._scene_input_fingerprint.side_effect = lambda scene, _text: (
+        f"fingerprint-{scene['id']}"
+    )
+    service._bulk_entity_memory_context.return_value = "批量上下文"
+    service._create_phase2_snapshot = AsyncMock(return_value=Mock(id="snapshot-1"))
+    service._call_bulk_llm_extractions = AsyncMock(return_value=list(enumerate(outputs)))
+    service._persist_entities = AsyncMock(return_value=0)
+    service._persist_relations = AsyncMock(return_value=0)
+    service._record_deltas = AsyncMock(return_value=0)
+    service._record_map_observation_proposals = AsyncMock(
+        return_value={"created": 1, "reused": 0}
+    )
+    service._scene_id.side_effect = lambda scene: scene["id"]
+    service._scene_provenance_key.side_effect = lambda _workflow_id, scene: (
+        f"wf:{scene['id']}"
+    )
+    service._result_ref_ids.return_value = []
+    authorization_snapshot = {"authorization_confirmed": True}
+
+    with (
+        patch(
+            "modules.writing.facade.list_latest_drafts_for_chapters",
+            autospec=True,
+            side_effect=list_latest_drafts_for_chapters,
+        ),
+        patch("modules.context.facade.succeed_context_snapshot", autospec=True),
+        patch("modules.memory.facade.capture_snapshot", autospec=True),
+    ):
+        result = await BulkSceneEntityExtractor(service).run(
+            Mock(),
+            "novel-1",
+            scenes,
+            "无已有对象",
+            workflow_id="wf-bulk",
+            authorization_snapshot=authorization_snapshot,
+        )
+
+    calls = service._record_map_observation_proposals.await_args_list
+    assert [call.kwargs["scene_id"] for call in calls] == ["scene-1", "scene-2"]
+    assert [call.kwargs["scene_index"] for call in calls] == [1, 2]
+    assert [call.kwargs["source_chapter_index"] for call in calls] == [1, 2]
+    assert [call.kwargs["scene_source_fingerprint"] for call in calls] == [
+        "fingerprint-scene-1",
+        "fingerprint-scene-2",
+    ]
+    assert all(
+        call.kwargs["authorization_snapshot"] is authorization_snapshot for call in calls
+    )
+    assert result["map_observation_candidates"] == {"created": 2, "reused": 0}
 
 
 @pytest.mark.asyncio

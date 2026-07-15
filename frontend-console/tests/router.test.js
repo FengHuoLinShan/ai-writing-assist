@@ -215,6 +215,30 @@ describe("subview memory", () => {
 })
 
 describe("route guard and normalization", () => {
+  it("replace shares route normalization and canLeave while preserving history length", async () => {
+    addWorkspace()
+    const canLeave = vi.fn(() => true)
+    window.router.registerView("map", {
+      canLeave,
+      async render() { return "<p>地图</p>" },
+    })
+    state.currentProjectId = "p1"
+    state.currentProject = { id: "p1", title: "项目一" }
+    state.currentView = "map"
+    const beforeLength = window.history.length
+
+    const result = await window.router.replace(
+      "map",
+      null,
+      new URLSearchParams({ map_id: "m1", mode: "live" }),
+    )
+
+    expect(result).toBe(true)
+    expect(canLeave).toHaveBeenCalledTimes(1)
+    expect(window.history.length).toBe(beforeLength)
+    expect(window.location.hash).toBe("#workbench/p1/map?map_id=m1&mode=live")
+  })
+
   it("keeps the current route when its renderer rejects leaving", async () => {
     addWorkspace()
     const canLeave = vi.fn(() => false)

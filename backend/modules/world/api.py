@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from core.api_params import NovelIdQuery
 from core.config import get_settings
 from core.dependencies import DbSession
+from core.errors import ConflictError
 from infrastructure.tasks.enqueuer import enqueue_task
 from modules.context.facade import attach_result_ref, require_fresh_confirmation
 from modules.project.facade import (
@@ -40,6 +41,8 @@ from modules.world.schemas import (
     CreationSuggestionListResponse,
     EntityAliasCreate,
     EntityAliasEditRequest,
+    EntityAliasReviewBatchRequest,
+    EntityAliasReviewGroupListResponse,
     EntityAliasUpdate,
     EntityFusionApplyRequest,
     EntityFusionApplyResponse,
@@ -52,7 +55,9 @@ from modules.world.schemas import (
     EntityRelationCreate,
     EntityRelationListResponse,
     EntityRelationResponse,
+    EntityRelationReviewBatchRequest,
     EntityRelationReviewEditRequest,
+    EntityRelationReviewGroupListResponse,
     EntityRelationUpdate,
     EntityResolveAsAliasRequest,
     EntityRevisionListResponse,
@@ -70,23 +75,19 @@ from modules.world.schemas import (
     GenerationPromptTemplateUpdate,
     KnowledgeTagExclusionRequest,
     KnowledgeTagExclusionResponse,
-    ObjectDraftChatRequest,
-    ObjectDraftChatResponse,
-    ObjectDraftGenerateRequest,
-    ObjectDraftGenerateResponse,
     ProjectionRefreshResponse,
     PromptTemplateCopyRequest,
     PromptTemplatePreviewRequest,
     PromptTemplatePreviewResponse,
     PromptTemplateValidateRequest,
     PromptTemplateValidateResponse,
+    ReviewBatchResponse,
+    ReviewTypeCatalogResponse,
     SuggestionDecisionResponse,
     TextArchiveSeedRequest,
     TextArchiveSeedResponse,
     WorldAliasRelationExtractRequest,
     WorldAliasRelationExtractResponse,
-    WorldBibleAiGenerateRequest,
-    WorldBibleAiGenerateResponse,
     WorldBibleApplyTemplateRequest,
     WorldBibleCategoryCreate,
     WorldBibleCategoryListResponse,
@@ -106,13 +107,18 @@ from modules.world.schemas import (
     WorldBiblePageTemplateRevisionResponse,
     WorldBiblePageTemplateUpdate,
     WorldBiblePageUpdate,
-    WorldBibleSuggestionApplyDraftRequest,
     WorldBibleSynopsisAutoRefreshRequest,
     WorldBibleSynopsisRefreshResponse,
     WorldBibleSynopsisResponse,
     WorldBibleSynopsisRevisionListResponse,
     WorldEntityExtractRequest,
     WorldEntityExtractResponse,
+    WorldGenerationApplyPageDraftRequest,
+    WorldGenerationApplyPageDraftResponse,
+    WorldGenerationChatRequest,
+    WorldGenerationChatResponse,
+    WorldGenerationSuggestionRequest,
+    WorldGenerationSuggestionResponse,
     WorldProfileListResponse,
     WorldProfileMigrateResponse,
     WorldProfileResponse,
@@ -129,16 +135,14 @@ from modules.world.services import (
     WorldEntityService,
 )
 from modules.world.services.core.dedup_service import EntityDedupService
+from modules.world.services.core.review_queue import review_type_catalog
 from modules.world.services.map.map_entity_presence import MapEntityPresenceService
 from modules.world.services.worldbuilding.generation_prompt_template_service import (
     GenerationPromptTemplateService,
     TemplateVersionConflictError,
 )
-from modules.world.services.worldbuilding.object_draft_generation_service import (
-    ObjectDraftGenerationService,
-)
-from modules.world.services.worldbuilding.world_bible_ai_generation_service import (
-    WorldBibleAiGenerationService,
+from modules.world.services.worldbuilding.world_generation_center_service import (
+    WorldGenerationCenterService,
 )
 from modules.world.services.worldbuilding.worldbuilding_service import (
     ConflictQueueService,
@@ -174,8 +178,7 @@ _bible_synopsis_service = WorldBibleSynopsisService()
 _suggestion_service = SuggestionQueueService()
 _conflict_queue_service = ConflictQueueService()
 _knowledge_tag_service = KnowledgeTagService()
-_object_draft_service = ObjectDraftGenerationService()
-_world_bible_ai_service = WorldBibleAiGenerationService()
+_world_generation_service = WorldGenerationCenterService()
 _generation_template_service = GenerationPromptTemplateService()
 _map_presence_service = MapEntityPresenceService()
 
@@ -207,34 +210,41 @@ def _template_version_conflict(exc: TemplateVersionConflictError) -> HTTPExcepti
 # ============================================================
 
 
-@router.post("/object-draft-chat", response_model=ObjectDraftChatResponse)
-async def chat_object_draft(
+@router.post(
+    "/generation-center/chat",
+    response_model=WorldGenerationChatResponse,
+)
+async def chat_world_generation_center(
     db: DbSession,
-    data: ObjectDraftChatRequest,
-) -> ObjectDraftChatResponse:
-    """自由共创聊天；不创建数据库对象。"""
+    data: WorldGenerationChatRequest,
+) -> WorldGenerationChatResponse:
+    """World co-creation chat; never writes a business asset or suggestion."""
     await require_active_project(db, data.novel_id)
     try:
-        return await _object_draft_service.chat(db, data)
+        return await _world_generation_service.chat(db, data)
     except TemplateVersionConflictError as exc:
         raise _template_version_conflict(exc) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post(
-    "/object-drafts/generate",
-    response_model=ObjectDraftGenerateResponse,
+    "/generation-center/suggestions",
+    response_model=WorldGenerationSuggestionResponse,
     status_code=201,
 )
-async def generate_object_draft(
+async def generate_world_suggestion(
     db: DbSession,
-    data: ObjectDraftGenerateRequest,
-) -> ObjectDraftGenerateResponse:
-    """将 Chatbox 上下文收束为待处理建议，并返回兼容草稿视图。"""
+    data: WorldGenerationSuggestionRequest,
+) -> WorldGenerationSuggestionResponse:
+    """Generate one typed, pending suggestion for the author-selected target."""
     await require_active_project(db, data.novel_id)
     try:
-        return await _object_draft_service.generate(db, data)
+        return await _world_generation_service.generate_suggestion(db, data)
     except TemplateVersionConflictError as exc:
         raise _template_version_conflict(exc) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get(
@@ -887,23 +897,6 @@ async def organize_bible_page(
     }
 
 
-@router.post(
-    "/bible/pages/{page_id}/ai-generate",
-    response_model=WorldBibleAiGenerateResponse,
-)
-async def generate_bible_page_ai(
-    db: DbSession,
-    page_id: str,
-    data: WorldBibleAiGenerateRequest,
-    *,
-    novel_id: ActiveNovelIdQuery,
-) -> WorldBibleAiGenerateResponse:
-    try:
-        return await _world_bible_ai_service.generate(db, novel_id, page_id, data)
-    except TemplateVersionConflictError as exc:
-        raise _template_version_conflict(exc) from exc
-
-
 @router.get("/suggestions", response_model=CreationSuggestionListResponse)
 async def list_world_suggestions(
     db: DbSession,
@@ -990,18 +983,18 @@ async def edit_and_confirm_world_suggestion(
 
 
 @router.post(
-    "/suggestions/{suggestion_id}/apply-to-world-bible-draft",
-    response_model=SuggestionDecisionResponse,
+    "/generation-center/suggestions/{suggestion_id}/apply-page-draft",
+    response_model=WorldGenerationApplyPageDraftResponse,
 )
-async def apply_world_suggestion_to_bible_draft(
+async def apply_world_generation_page_draft(
     db: DbSession,
     suggestion_id: str,
-    data: WorldBibleSuggestionApplyDraftRequest,
+    data: WorldGenerationApplyPageDraftRequest,
     *,
     novel_id: ActiveNovelIdQuery,
-) -> SuggestionDecisionResponse:
+) -> WorldGenerationApplyPageDraftResponse:
     try:
-        suggestion = await _suggestion_service.apply_world_bible_suggestion_to_draft(
+        return await _suggestion_service.apply_world_generation_page_draft(
             db,
             novel_id,
             suggestion_id,
@@ -1015,11 +1008,8 @@ async def apply_world_suggestion_to_bible_draft(
                 "suggestion_status": exc.status,
             },
         ) from exc
-    return SuggestionDecisionResponse(
-        status="accepted",
-        suggestion_status=suggestion.status,
-        result_ref_json=suggestion.result_ref_json,
-    )
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post(
@@ -1212,6 +1202,12 @@ async def list_entity_types(
     novel_id: ActiveNovelIdQuery,
 ) -> EntityTypeCatalogResponse:
     return await _entity_service.list_entity_types(db, novel_id)
+
+
+@router.get("/review-type-catalog", response_model=ReviewTypeCatalogResponse)
+async def get_review_type_catalog() -> ReviewTypeCatalogResponse:
+    """Author-facing recommendations; relation and alias values remain open strings."""
+    return ReviewTypeCatalogResponse.model_validate(review_type_catalog())
 
 
 @router.get("/entities", response_model=CoreEntityListResponse)
@@ -1622,6 +1618,60 @@ async def list_relations(
     )
 
 
+@router.get(
+    "/relations/review-groups",
+    response_model=EntityRelationReviewGroupListResponse,
+)
+async def list_relation_review_groups(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    q: str | None = Query(None),
+    relation_type: str | None = Query(None),
+    source_chapter_id: str | None = Query(None),
+    scene_id: str | None = Query(None),
+    scene_index: int | None = Query(None),
+    source_chapter_index: int | None = Query(None),
+    strength_min: float | None = Query(None, ge=0.0, le=1.0),
+    strength_max: float | None = Query(None, ge=0.0, le=1.0),
+    has_quote: bool | None = Query(None),
+    type_kind: Literal["recommended", "custom"] | None = Query(None),
+    multi_type_only: bool = Query(False),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=50),
+) -> EntityRelationReviewGroupListResponse:
+    return await _relation_service.list_review_groups(
+        db,
+        novel_id,
+        q=q,
+        relation_type=relation_type,
+        source_chapter_id=source_chapter_id,
+        scene_id=scene_id,
+        scene_index=scene_index,
+        source_chapter_index=source_chapter_index,
+        strength_min=strength_min,
+        strength_max=strength_max,
+        has_quote=has_quote,
+        type_kind=type_kind,
+        multi_type_only=multi_type_only,
+        skip=skip,
+        limit=limit,
+    )
+
+
+@router.post(
+    "/relations/review-batch",
+    response_model=ReviewBatchResponse,
+)
+async def review_relations_batch(
+    db: DbSession,
+    data: EntityRelationReviewBatchRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> ReviewBatchResponse:
+    return await _relation_service.review_batch(db, novel_id, data)
+
+
 @router.post("/relations", response_model=EntityRelationResponse, status_code=201)
 async def create_relation(
     db: DbSession,
@@ -1990,6 +2040,60 @@ async def list_aliases(
         skip=skip,
         limit=limit,
     )
+
+
+@router.get(
+    "/aliases/review-groups",
+    response_model=EntityAliasReviewGroupListResponse,
+)
+async def list_alias_review_groups(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    q: str | None = Query(None),
+    source: str | None = Query(None),
+    workflow_id: str | None = Query(None),
+    scene_id: str | None = Query(None),
+    scene_index: int | None = Query(None),
+    source_chapter_index: int | None = Query(None),
+    confidence_min: float | None = Query(None, ge=0.0, le=1.0),
+    confidence_max: float | None = Query(None, ge=0.0, le=1.0),
+    has_quote: bool | None = Query(None),
+    type_kind: Literal["recommended", "custom"] | None = Query(None),
+    multi_alias_only: bool = Query(False),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=50),
+) -> EntityAliasReviewGroupListResponse:
+    return await _alias_service.list_review_groups(
+        db,
+        novel_id,
+        q=q,
+        source=source,
+        workflow_id=workflow_id,
+        scene_id=scene_id,
+        scene_index=scene_index,
+        source_chapter_index=source_chapter_index,
+        confidence_min=confidence_min,
+        confidence_max=confidence_max,
+        has_quote=has_quote,
+        type_kind=type_kind,
+        multi_alias_only=multi_alias_only,
+        skip=skip,
+        limit=limit,
+    )
+
+
+@router.post(
+    "/aliases/review-batch",
+    response_model=ReviewBatchResponse,
+)
+async def review_aliases_batch(
+    db: DbSession,
+    data: EntityAliasReviewBatchRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> ReviewBatchResponse:
+    return await _alias_service.review_batch(db, novel_id, data)
 
 
 @router.post("/aliases", status_code=201)

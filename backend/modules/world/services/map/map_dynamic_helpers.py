@@ -803,7 +803,7 @@ class MapDynamicHelperMixin:
         observation_id: str,
         map_id: uuid.UUID,
     ) -> None:
-        if observation.map_id is not None and observation.map_id != map_id:
+        if observation.map_id != map_id:
             raise NotFoundError(
                 f"MapObservation {observation_id} not found",
                 code="map_observation_not_found",

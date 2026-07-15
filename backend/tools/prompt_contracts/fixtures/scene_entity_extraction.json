@@ -1,0 +1,43 @@
+{
+  "entities": [],
+  "relations": [],
+  "delta_events": [],
+  "map_observation_proposals": [
+    {
+      "proposal_type": "route_state",
+      "path_name": "北境商道",
+      "state": "blocked",
+      "reason": "暴雪封路",
+      "quote": "北境商道已被暴雪封死。",
+      "confidence": 0.92,
+      "supporting_scene_ids": []
+    },
+    {
+      "proposal_type": "character_location",
+      "character_name": "沈砚",
+      "location_name": "青石镇",
+      "movement_mode": "walk",
+      "state": "present",
+      "quote": "沈砚走进青石镇。",
+      "confidence": 0.91,
+      "supporting_scene_ids": []
+    },
+    {
+      "proposal_type": "event_location",
+      "event_name": "旧信之约",
+      "location_name": "石桥",
+      "state": "occurred",
+      "quote": "旧信之约发生在石桥。",
+      "confidence": 0.88,
+      "supporting_scene_ids": []
+    },
+    {
+      "proposal_type": "boundary",
+      "controller_name": "玄甲军",
+      "area_description": "控制北岸三镇",
+      "quote": "玄甲军控制了北岸三镇。",
+      "confidence": 0.86,
+      "supporting_scene_ids": []
+    }
+  ]
+}

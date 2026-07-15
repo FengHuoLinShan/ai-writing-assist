@@ -15,6 +15,7 @@ const LEAFLET_STUB = `
         ? document.getElementById(container)
         : container;
       this._layers = [];
+      this._panes = {};
       if (this._container) {
         if (!this._container.style.position) this._container.style.position = "relative";
         const overlay = document.createElement("div");
@@ -22,12 +23,39 @@ const LEAFLET_STUB = `
         overlay.style.position = "absolute";
         overlay.style.inset = "0";
         this._container.appendChild(overlay);
+        this._panes.overlayPane = overlay;
       }
     }
     fitBounds() { return this; }
     on() { return this; }
+    off() { return this; }
     getZoom() { return 0; }
-    latLngToContainerPoint() { return { x: 60, y: 60 }; }
+    getContainer() { return this._container; }
+    createPane(name) {
+      if (this._panes[name]) return this._panes[name];
+      const pane = document.createElement("div");
+      pane.className = "leaflet-pane";
+      pane.dataset.pane = name;
+      pane.style.position = "absolute";
+      pane.style.inset = "0";
+      this._container?.appendChild(pane);
+      this._panes[name] = pane;
+      return pane;
+    }
+    getPane(name) { return this._panes[name] || null; }
+    latLngToContainerPoint(latlng) {
+      return {
+        x: 60 + Number(latlng?.lng || 0),
+        y: 60 - Number(latlng?.lat || 0),
+      };
+    }
+    containerPointToLatLng(point) {
+      return {
+        lat: -(Number(point?.[1] || 0) - 60),
+        lng: Number(point?.[0] || 0) - 60,
+      };
+    }
+    setView() { return this; }
     eachLayer(callback) { this._layers.slice().forEach(callback); }
     removeLayer(layer) {
       this._layers = this._layers.filter((item) => item !== layer);
@@ -41,6 +69,7 @@ const LEAFLET_STUB = `
       this._layers = [];
       if (this._container) this._container.innerHTML = "";
     }
+    dragging = { disable() {}, enable() {} };
   }
 
   window.L = {
@@ -58,7 +87,8 @@ const LEAFLET_STUB = `
           el.className = options.icon?.className || "";
           el.innerHTML = options.icon?.html || "";
           this._el = el;
-          map._container?.appendChild(el);
+          const pane = options.pane ? map.getPane(options.pane) : null;
+          (pane || map._container)?.appendChild(el);
           map._layers.push(this);
           return this;
         },

@@ -27,6 +27,7 @@ class ContextSelectionRequest(BaseModel):
         "conflict_review",
         "outline_generation",
         "world_fusion",
+        "world_generation",
         "import_scene_activation",
         "reader_context",
         "character_context",

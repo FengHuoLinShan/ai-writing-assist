@@ -5,6 +5,10 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ValidationError
+from modules.world.contracts import (
+    MapObservationCandidateBatchResult,
+    MapObservationCandidateInput,
+)
 from modules.world.map_repositories import (
     MapConfigRepository,
     MapFactRepository,
@@ -23,12 +27,14 @@ from modules.world.map_schemas import (
     MapFactListResponse,
     MapFactResponse,
     MapFactStatusUpdate,
+    MapObservationAssignmentRequest,
+    MapObservationAuthorUpdate,
     MapObservationBatchReviewRequest,
     MapObservationBatchReviewResponse,
     MapObservationCreate,
     MapObservationListResponse,
     MapObservationResponse,
-    MapObservationReviewUpdate,
+    MapObservationRevisionRequest,
     MapOpenTarget,
     MapPlaybackResponse,
 )
@@ -131,6 +137,31 @@ class MapDynamicFactService(MapDynamicHelperMixin):
             limit=limit,
         )
 
+    async def list_project_observation_inbox(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        dynamic_type: str | None = None,
+        scene_id: str | None = None,
+        source: str | None = None,
+        confidence: str | None = None,
+        eligibility: str | None = None,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> MapObservationListResponse:
+        return await self._observations.list_project_inbox(
+            db,
+            novel_id,
+            dynamic_type=dynamic_type,
+            scene_id=scene_id,
+            source=source,
+            confidence=confidence,
+            eligibility=eligibility,
+            skip=skip,
+            limit=limit,
+        )
+
     async def count_deep_import_observations_by_workflow(
         self,
         db: AsyncSession,
@@ -177,12 +208,57 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         *,
         map_id: str,
         observation_id: str,
-        data: MapObservationReviewUpdate,
+        data: MapObservationAuthorUpdate,
     ) -> MapObservationResponse:
         return await self._observations.update_observation_review(
             db,
             novel_id,
             map_id=map_id,
+            observation_id=observation_id,
+            data=data,
+        )
+
+    async def update_project_observation(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        observation_id: str,
+        data: MapObservationAuthorUpdate,
+    ) -> MapObservationResponse:
+        return await self._observations.update_project_observation(
+            db,
+            novel_id,
+            observation_id=observation_id,
+            data=data,
+        )
+
+    async def assign_project_observation(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        observation_id: str,
+        data: MapObservationAssignmentRequest,
+    ) -> MapObservationResponse:
+        return await self._observations.assign_project_observation(
+            db,
+            novel_id,
+            observation_id=observation_id,
+            data=data,
+        )
+
+    async def ignore_project_observation(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        observation_id: str,
+        data: MapObservationRevisionRequest,
+    ) -> MapObservationResponse:
+        return await self._observations.ignore_project_observation(
+            db,
+            novel_id,
             observation_id=observation_id,
             data=data,
         )
@@ -194,12 +270,14 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         *,
         map_id: str,
         observation_id: str,
+        data: MapObservationRevisionRequest,
     ) -> MapObservationResponse:
         return await self._observations.ignore_observation(
             db,
             novel_id,
             map_id=map_id,
             observation_id=observation_id,
+            data=data,
         )
 
     async def confirm_observation(
@@ -209,12 +287,14 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         *,
         map_id: str,
         observation_id: str,
+        data: MapObservationRevisionRequest,
     ) -> MapFactResponse:
         return await self._observations.confirm_observation(
             db,
             novel_id,
             map_id=map_id,
             observation_id=observation_id,
+            data=data,
         )
 
     async def batch_review_observations(
@@ -249,6 +329,19 @@ class MapDynamicFactService(MapDynamicHelperMixin):
             scene_index=scene_index,
             context_snapshot_id=context_snapshot_id,
             delta_log_id=delta_log_id,
+        )
+
+    async def create_observation_candidates(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        candidates: list[MapObservationCandidateInput],
+    ) -> MapObservationCandidateBatchResult:
+        return await self._observations.create_observation_candidates(
+            db,
+            novel_id,
+            candidates=candidates,
         )
 
     async def list_facts(
@@ -326,7 +419,7 @@ class MapDynamicFactService(MapDynamicHelperMixin):
                 novel_id,
                 map_id=map_id,
                 data=MapObservationBatchReviewRequest(
-                    observation_ids=data.observation_ids,
+                    items=data.observation_items,
                     action=action_map[data.action],
                 ),
             )

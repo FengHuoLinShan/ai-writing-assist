@@ -364,11 +364,11 @@ describe("outlineView render", () => {
   })
 
   it.each([
-    { subView: "threads", title: "剧情线", createAction: "create-thread" },
-    { subView: "arcs", title: "篇章纲", createAction: "create-arc" },
-    { subView: "foreshadowing", title: "伏笔", createAction: "create-foreshadowing" },
-    { subView: "reveals", title: "揭示", createAction: "create-reveal" },
-  ])("$subView 子标签渲染顶部工具栏、新建按钮和剧情线自动提取", async ({ subView, title, createAction }) => {
+    { subView: "threads", title: "剧情线", createAction: "create-thread", extractLabel: "剧情线自动提取" },
+    { subView: "arcs", title: "篇章纲", createAction: "create-arc", extractLabel: "篇章纲自动提取" },
+    { subView: "foreshadowing", title: "伏笔", createAction: "create-foreshadowing", extractLabel: "剧情线自动提取" },
+    { subView: "reveals", title: "揭示", createAction: "create-reveal", extractLabel: "剧情线自动提取" },
+  ])("$subView 子标签渲染顶部工具栏、新建按钮和匹配的自动提取文案", async ({ subView, title, createAction, extractLabel }) => {
     outlineView._loading = false
     state.currentSubView = subView
     state.currentProjectId = "p1"
@@ -381,6 +381,8 @@ describe("outlineView render", () => {
     expect(html).toContain(title)
     expect(html).toContain(`data-action="${createAction}"`)
     expect(html).toContain('data-action="plot-structure-auto-extract"')
+    expect(html).toContain(extractLabel)
+    if (subView === "arcs") expect(html).not.toContain('data-action="plot-structure-auto-extract">剧情线自动提取')
   })
 
   it("进度卡片出现在工具栏状态区，不再独占一行", async () => {
@@ -624,10 +626,46 @@ describe("outlineView render", () => {
 
     expect(html).toContain("结构分析不完整")
     expect(html).toContain("可重新分析")
+    expect(html).toContain("从已采用 Scene 开始整理")
+    expect(html).toContain('data-action="nav-scenes"')
+  })
+
+  it.each([
+    ["threads", "剧情线"],
+    ["arcs", "篇章纲"],
+    ["foreshadowing", "伏笔"],
+    ["reveals", "揭示"],
+  ])("%s 空状态可返回已采用 Scene 整理", async (subView, kind) => {
+    outlineView._loading = false
+    state.currentSubView = subView
+    state.currentProjectId = "p1"
+
+    const html = await outlineView.render()
+
+    expect(html).toContain(`暂无${kind}`)
+    expect(html).toContain("从已采用 Scene 开始整理")
+    expect(html).toContain('data-action="nav-scenes"')
   })
 })
 
 describe("structure asset filters", () => {
+  it("Workflow 诊断筛选默认折叠，有条件时自动展开", () => {
+    let html = outlineView._renderStructureFilters("threads")
+    document.body.innerHTML = html
+    expect(document.querySelector(".outline-structure-diagnostic-filters").open).toBe(false)
+    expect(document.body.textContent).toContain("Workflow 诊断 ID")
+
+    outlineView._structureFilters.threads = {
+      ...outlineView._structureFilterFor("threads"),
+      workflow_id: "wf-1",
+    }
+    html = outlineView._renderStructureFilters("threads")
+    document.body.innerHTML = html
+
+    expect(document.querySelector(".outline-structure-diagnostic-filters").open).toBe(true)
+    expect(document.querySelector("#outline-filter-workflow-id").value).toBe("wf-1")
+  })
+
   it("应用筛选后刷新当前页签", () => {
     state.currentSubView = "threads"
     document.body.innerHTML = `

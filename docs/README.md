@@ -73,6 +73,7 @@
 
 - [`adr/0005-core-entity-type-transition.md`](adr/0005-core-entity-type-transition.md) — CoreEntity 自定义类型、可逆 Profile snapshot 迁移与硬依赖门禁
 - [`adr/0006-world-bible-context-activation-ownership.md`](adr/0006-world-bible-context-activation-ownership.md) — 世界书资料、页面模板与 Context Activation Profile 的所有权边界
+- [`adr/0007-world-generation-center-consolidation.md`](adr/0007-world-generation-center-consolidation.md) — 世界设定 AI 全量进入生成中心、整页建议与工作稿应用边界
 
 ## 参考与历史资料
 
@@ -80,6 +81,7 @@
   [`map-prd-v1.1.md`](references/map-prd-v1.1.md)、
   [`2026-07-14-novalist-map-capability-analysis.md`](references/2026-07-14-novalist-map-capability-analysis.md)、
   [`2026-07-14-novalist-sillytavern-worldbook-design-analysis.md`](references/2026-07-14-novalist-sillytavern-worldbook-design-analysis.md)、
+  [`2026-07-15-four-authoring-workbench-directions-design.md`](references/2026-07-15-four-authoring-workbench-directions-design.md)、
   [`deep-import-progress-backend-query-analysis.md`](references/deep-import-progress-backend-query-analysis.md)
   与 Scene 健康标记参考。
 - `audit/` — 代码、性能、安全和文档审计的时间点记录。

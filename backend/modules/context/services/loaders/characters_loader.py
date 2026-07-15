@@ -74,20 +74,35 @@ class CharactersLoader(Loader):
         bundle: StructureContextBundle,
     ) -> None:
         char_limit = CONTEXT_BUDGET.get("characters", 6)
+        relevance_action = options.consumer_action in {
+            "writing.generate",
+            "world.generation.chat",
+            "world.generation.core_entity",
+            "world.generation.world_bible_page",
+        }
+        candidates = [
+            (character_id, "explicit")
+            for character_id in dict.fromkeys(options.character_ids or [])
+        ]
 
         if options.character_ids:
-            limited_ids = list(dict.fromkeys(options.character_ids))
-            if options.consumer_action == "writing.generate":
-                inferred_ids = await self._infer_character_ids(
+            if relevance_action:
+                inferred = await self._infer_character_candidates(
                     db,
                     options,
                     bundle,
-                    char_limit,
                 )
-                limited_ids = list(dict.fromkeys([*limited_ids, *inferred_ids]))
-            limited_ids = limited_ids[:char_limit]
+                candidates = self._merge_candidates(candidates, inferred)
         else:
-            limited_ids = await self._infer_character_ids(db, options, bundle, char_limit)
+            candidates = await self._infer_character_candidates(db, options, bundle)
+
+        if len(candidates) > char_limit:
+            bundle.warnings.append(
+                f"人物候选超过 Top-{char_limit}，已按显式选择、Scene、"
+                "剧情线和检索证据的顺序裁剪"
+            )
+        selected_candidates = candidates[:char_limit]
+        limited_ids = [character_id for character_id, _reason in selected_candidates]
 
         if limited_ids:
             ctx = await self._get_characters_context(
@@ -97,7 +112,28 @@ class CharactersLoader(Loader):
                 reveal_mode=options.reveal_mode,
             )
             if ctx:
-                bundle.characters = [c.model_dump() for c in ctx.characters]
+                characters = [c.model_dump() for c in ctx.characters]
+                rank = {item: index for index, item in enumerate(limited_ids)}
+                characters.sort(
+                    key=lambda item: rank.get(
+                        str(item.get("character_id") or item.get("id") or ""),
+                        len(rank),
+                    )
+                )
+                bundle.characters = characters[:char_limit]
+
+        if options.scope == "generation_center":
+            actual_ids = [
+                str(item.get("character_id") or item.get("id") or "")
+                for item in bundle.characters
+                if item.get("character_id") or item.get("id")
+            ]
+            bundle.selection_trace["characters"] = self._selection_trace(
+                candidates,
+                selected_candidates,
+                actual_ids,
+                top_k=char_limit,
+            )
 
         # 知识边界过滤：仅在 character reveal 模式下执行，使用视角人物作为过滤主体。
         if (
@@ -179,26 +215,30 @@ class CharactersLoader(Loader):
 
         bundle.budget_used["characters"] = len(bundle.characters)
 
-    async def _infer_character_ids(
+    async def _infer_character_candidates(
         self,
         db: AsyncSession,
         options: CompileOptions,
         bundle: StructureContextBundle,
-        limit: int,
-    ) -> list[str]:
-        ids: list[str] = []
+    ) -> list[tuple[str, str]]:
+        candidates: list[tuple[str, str]] = []
+        seen: set[str] = set()
 
-        def extend(values: object) -> None:
+        def add(value: object, reason: str) -> None:
+            character_id = str(value or "").strip()
+            if character_id and character_id not in seen:
+                seen.add(character_id)
+                candidates.append((character_id, reason))
+
+        def extend(values: object, reason: str) -> None:
             if not isinstance(values, list | tuple | set):
                 return
             for value in values:
-                character_id = str(value or "").strip()
-                if character_id and character_id not in ids:
-                    ids.append(character_id)
+                add(value, reason)
 
         # 1. Explicit POV and Scene POV character.
         if options.viewpoint_character_id:
-            ids.append(options.viewpoint_character_id)
+            add(options.viewpoint_character_id, "viewpoint")
         scene = (
             bundle.scene
             if isinstance(bundle.scene, dict)
@@ -207,8 +247,8 @@ class CharactersLoader(Loader):
             else None
         )
         pov = scene.get("pov_character_id") if scene else None
-        if pov and pov not in ids:
-            ids.append(pov)
+        if pov:
+            add(pov, "scene_pov")
         elif options.scene_id:
             scene_contract = await self._get_scene_contract(
                 db,
@@ -223,29 +263,71 @@ class CharactersLoader(Loader):
                 else None
             )
             pov = scene.get("pov_character_id") if scene else None
-            if pov and pov not in ids:
-                ids.append(pov)
+            if pov:
+                add(pov, "scene_pov")
 
         # 2. Current Scene, arc, active threads and RAG evidence references.
         scene_meta = scene.get("structure_meta") if scene else None
         if isinstance(scene_meta, dict):
-            extend(scene_meta.get("related_character_ids"))
+            extend(scene_meta.get("related_character_ids"), "scene")
+        if scene:
+            extend(scene.get("present_character_ids"), "scene")
+            extend(scene.get("character_ids"), "scene")
+            extend(scene.get("related_character_ids"), "scene")
         arc = bundle.outline_arc if isinstance(bundle.outline_arc, dict) else {}
-        extend(arc.get("related_character_ids"))
+        extend(arc.get("related_character_ids"), "arc")
         for thread in bundle.plot_threads:
             if isinstance(thread, dict):
-                extend(thread.get("related_character_ids"))
+                extend(thread.get("related_character_ids"), "plot_thread")
         for chunk in bundle.rag_chunks:
             if isinstance(chunk, dict):
-                extend(chunk.get("character_ids"))
+                extend(chunk.get("character_ids"), "rag")
 
         # 3. Character-shaped world entities already selected for this request.
         for ent in bundle.world_entities:
             if ent.get("entity_type") == "character":
                 eid = ent.get("entity_id") or ent.get("id")
-                if eid and eid not in ids:
-                    ids.append(eid)
-            if len(ids) >= limit:
-                break
+                add(eid, "world_entity")
 
-        return ids[:limit]
+        return candidates
+
+    @staticmethod
+    def _merge_candidates(
+        primary: list[tuple[str, str]],
+        secondary: list[tuple[str, str]],
+    ) -> list[tuple[str, str]]:
+        result = list(primary)
+        seen = {item_id for item_id, _reason in result}
+        for item in secondary:
+            if item[0] not in seen:
+                seen.add(item[0])
+                result.append(item)
+        return result
+
+    @staticmethod
+    def _selection_trace(
+        candidates: list[tuple[str, str]],
+        selected: list[tuple[str, str]],
+        actual_ids: list[str],
+        *,
+        top_k: int,
+    ) -> dict[str, object]:
+        actual = set(actual_ids)
+        selected_ids = {item_id for item_id, _reason in selected}
+        included = [
+            {"id": item_id, "reason": reason}
+            for item_id, reason in selected
+            if item_id in actual
+        ]
+        excluded = [
+            {
+                "id": item_id,
+                "reason": reason,
+                "exclusion_reason": (
+                    "not_loaded" if item_id in selected_ids else "top_k"
+                ),
+            }
+            for item_id, reason in candidates
+            if item_id not in actual
+        ]
+        return {"top_k": top_k, "included": included, "excluded": excluded}

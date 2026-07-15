@@ -412,6 +412,71 @@ async def test_entity_fusion_canonical_alias_archives_source_without_content_mer
     )
 
 
+async def test_entity_fusion_canonical_alias_adopts_existing_pending_alias(
+    db_session: AsyncSession,
+    project_novel_id: str,
+) -> None:
+    source_id = await _create_entity(
+        db_session,
+        project_novel_id,
+        name="周明瑞",
+        status="canonical",
+    )
+    target_id = await _create_entity(
+        db_session,
+        project_novel_id,
+        name="克莱恩·莫雷蒂",
+        status="canonical",
+    )
+    repo = CoreEntityRepository()
+    target = await repo.get(db_session, uuid.UUID(hex=target_id))
+    assert target is not None
+    target.content_json = {
+        **dict(target.content_json or {}),
+        "aliases": [
+            {
+                "alias": "周明瑞",
+                "type": "name",
+                "status": "candidate",
+                "source": "deep_import",
+                "workflow_id": "wf-existing",
+                "needs_review": True,
+            }
+        ],
+    }
+    db_session.add(target)
+    await db_session.flush()
+
+    result = await WorldEntityFusionService().apply(
+        db_session,
+        novel_id=project_novel_id,
+        confirmed=True,
+        suggestions=[
+            EntityFusionApplyItem(
+                action="alias_only",
+                source_entity_id=source_id,
+                target_entity_id=target_id,
+                alias="周明瑞",
+                allow_canonical_alias=True,
+            )
+        ],
+    )
+
+    source = await repo.get(db_session, uuid.UUID(hex=source_id))
+    await db_session.refresh(target)
+    aliases = [
+        item
+        for item in (target.content_json or {}).get("aliases", [])
+        if item.get("alias") == "周明瑞"
+    ]
+    assert result["applied"] == 1
+    assert source is not None and source.status == "merged"
+    assert len(aliases) == 1
+    assert aliases[0]["status"] == "canonical"
+    assert aliases[0]["needs_review"] is False
+    assert aliases[0]["workflow_id"] == "wf-existing"
+
+
 async def test_entity_fusion_group_recomputes_canonical_alias_gate_and_fingerprints(
     db_session: AsyncSession,
     project_novel_id: str,

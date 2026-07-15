@@ -1547,12 +1547,14 @@ class TestPlotThreadsLoader:
         mock_thread.start_chapter = 1
         mock_thread.planned_payoff_chapter = 10
         mock_thread.current_stage = "启程"
+        mock_thread.related_character_ids = []
+        mock_thread.related_entity_ids = []
         mock_thread.reader_known_state = ""
         mock_thread.author_known_state = ""
         mock_thread.status = "active"
 
         loader = PlotThreadsLoader(
-            get_active_threads_fn=AsyncMock(return_value=[mock_thread]),
+            get_threads_for_context_fn=AsyncMock(return_value=[mock_thread]),
         )
         bundle = StructureContextBundle(novel_id="id", task="t", scope="full")
         options = MagicMock(novel_id="id", chapter_index=5)

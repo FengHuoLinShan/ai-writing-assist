@@ -153,7 +153,7 @@ def generation_center_docs_commands_present(contract_id: str) -> list[ContractIs
     required = {
         "Makefile": ["prompt-contracts", "generate-e2e"],
         "docs/prompts/Prompt体系设计.md": [
-            "generation_center_world_object_draft",
+            "world_generation_core_entity",
             "make prompt-contracts",
         ],
         "backend/modules/world/README.md": [

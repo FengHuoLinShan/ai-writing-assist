@@ -2,6 +2,22 @@
  * 地图深链接构建/解析工具。
  */
 
+const MAP_MODES = new Set(["overview", "recent", "dashboard", "live", "lens"])
+
+export function normalizeMapMode(mode, { hasMap = false } = {}) {
+  if (mode === "map") return "live"
+  if (MAP_MODES.has(mode)) return mode
+  return hasMap ? "dashboard" : "overview"
+}
+
+function finiteCoordinate(params, name) {
+  if (!params.has(name)) return null
+  const raw = params.get(name)
+  if (raw == null || raw.trim() === "") return null
+  const value = Number(raw)
+  return Number.isFinite(value) ? value : null
+}
+
 export function buildMapUrl({
   projectId,
   mapId = null,
@@ -22,9 +38,14 @@ export function buildMapUrl({
   if (focusHexR != null) params.set("focus_hex_r", String(focusHexR))
   if (focusPathId) params.set("focus_path_id", focusPathId)
   if (focusLayerNodeId) params.set("focus_layer_node_id", focusLayerNodeId)
-  if (mode) params.set("mode", mode)
+  params.set("mode", normalizeMapMode(mode, { hasMap: Boolean(mapId) }))
   const query = params.toString()
   return query ? `${base}?${query}` : base
+}
+
+export function buildMapQuery(options = {}) {
+  const url = buildMapUrl(options)
+  return new URLSearchParams(url.split("?")[1] || "")
 }
 
 export function parseMapRouteContext(hash = window.location.hash) {
@@ -38,10 +59,10 @@ export function parseMapRouteContext(hash = window.location.hash) {
     mapId: params.get("map_id"),
     sceneId: params.get("scene_id"),
     focusEntityId: params.get("focus_entity_id"),
-    focusHexQ: params.has("focus_hex_q") ? Number(params.get("focus_hex_q")) : null,
-    focusHexR: params.has("focus_hex_r") ? Number(params.get("focus_hex_r")) : null,
+    focusHexQ: finiteCoordinate(params, "focus_hex_q"),
+    focusHexR: finiteCoordinate(params, "focus_hex_r"),
     focusPathId: params.get("focus_path_id"),
     focusLayerNodeId: params.get("focus_layer_node_id"),
-    mode: params.get("mode") || "overview",
+    mode: normalizeMapMode(params.get("mode"), { hasMap: Boolean(params.get("map_id")) }),
   }
 }

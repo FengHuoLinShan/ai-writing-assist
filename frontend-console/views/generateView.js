@@ -1,5 +1,5 @@
 /**
- * 生成中心视图 — 自由共创 Chatbox + 数据库草稿生成 + 任务上下文编译
+ * 生成中心视图 — 世界设定共创 + 角色视角正文 + 任务上下文编译
  */
 
 import { confirmAiReference } from "../shared/aiReferenceModal.js"
@@ -88,7 +88,7 @@ const REVEAL_OPTIONS = [
 const POV_CHARACTER_PAGE_SIZE = 50
 const AI_MESSAGE_LIMIT = 40
 const AI_SELECTED_CHAPTER_LIMIT = 20
-const GENERATE_STATE_STORAGE_PREFIX = "generate_chatbox_state_v1_"
+const GENERATE_STATE_STORAGE_PREFIX = "generate_world_workspace_state_v2_"
 const GENERATE_STATE_MAX_PROJECTS = 5
 const GENERATE_STATE_MAX_BYTES = 512 * 1024
 
@@ -116,13 +116,32 @@ const generateView = {
   _qualityMode: "fast",
   _includeWorldSynopsis: true,
   _lastEntity: null,
+  _lastWorldResult: null,
+  _lastWorldSuggestionId: null,
+  _routeSourcePageId: null,
+  _worldTargetKind: "core_entity",
+  _sourcePage: null,
+  _sourceDraft: null,
+  _worldCategories: [],
+  _worldPageTemplates: [],
+  _worldScenes: [],
+  _worldThreads: [],
+  _worldCharacters: [],
+  _worldEntities: [],
+  _selectedSceneId: "",
+  _selectedThreadIds: [],
+  _selectedCharacterIds: [],
+  _selectedEntityIds: [],
+  _newPageType: "custom",
+  _newPageTemplateKey: "",
+  _worldWorkspaceWarning: null,
   _lastContextUsage: null,
   _lastChatContextUsage: null,
   _lastEntityContextUsage: null,
   _busy: false,
   _abortControllers: null,
 
-  _generateSubTab: "chat",
+  _generateSubTab: "world",
   _taskPreset: "custom",
   _taskForm: {
     task: "",
@@ -143,19 +162,39 @@ const generateView = {
   _activeStorageKey: null,
   _storageDirty: false,
   _storageNotices: new Set(),
+  _requestEpoch: 0,
+  _composerDraft: "",
+  _composerDrafts: new Map(),
+  _pageProposalDirty: false,
 
   onLeave() {
+    this._captureComposerDraft()
     this._persistState()
     this._clearTopbarNote()
-    this._abortAllRequests()
+    this._invalidateRequests()
+  },
+
+  canLeave() {
+    return this._confirmDiscardPageProposal("整页提案仍有未应用的编辑，确定放弃修改并离开吗？")
+  },
+
+  _confirmDiscardPageProposal(message) {
+    if (!this._pageProposalDirty) return true
+    if (typeof window.confirm !== "function") return false
+    const accepted = window.confirm(message)
+    if (accepted) this._pageProposalDirty = false
+    return accepted
   },
 
   async render() {
-    this._activateProjectState()
-
     const query = router.getCurrentQuery ? router.getCurrentQuery() : new URLSearchParams()
     const requestedTab = query.get("tab")
-    if (["chat", "task", "preview", "pov_prose"].includes(requestedTab)) {
+    const requestedSourcePageId = query.get("source_page_id") || null
+    const requestedTarget = ["core_entity", "world_bible_page", "world_bible_new_page"].includes(query.get("target"))
+      ? query.get("target")
+      : "core_entity"
+    this._activateProjectState(requestedSourcePageId, requestedTarget)
+    if (["world", "task", "preview", "pov_prose"].includes(requestedTab)) {
       this._generateSubTab = requestedTab
     }
     const requestedPreset = query.get("preset")
@@ -168,6 +207,9 @@ const generateView = {
     }
     if (!this._activationProfilesLoaded) {
       await this._loadActivationProfiles()
+    }
+    if (this._generateSubTab === "world") {
+      await this._loadWorldWorkspace()
     }
     if (this._generateSubTab === "pov_prose") {
       await this._loadPovBaseOptions()
@@ -185,6 +227,8 @@ const generateView = {
     this._renderMessages()
     this._renderAttachments()
     this._syncTaskFormInputs()
+    const composer = document.getElementById("generate-chat-input")
+    if (composer && composer.value !== this._composerDraft) composer.value = this._composerDraft
   },
 
   _renderProjectChip() {
@@ -195,7 +239,7 @@ const generateView = {
 
   _renderGenerateSubTabs() {
     return `
-      <button class="generate-subtab ${this._generateSubTab === "chat" ? "active" : ""}" data-action="switch-generate-subtab" data-subtab="chat">自由对话</button>
+      <button class="generate-subtab ${this._generateSubTab === "world" ? "active" : ""}" data-action="switch-generate-subtab" data-subtab="world">世界设定</button>
       <button class="generate-subtab ${this._generateSubTab === "pov_prose" ? "active" : ""}" data-action="switch-generate-subtab" data-subtab="pov_prose">角色视角正文</button>
       <button class="generate-subtab ${this._generateSubTab === "task" ? "active" : ""}" data-action="switch-generate-subtab" data-subtab="task">任务</button>
       <button class="generate-subtab ${this._generateSubTab === "preview" ? "active" : ""}" data-action="switch-generate-subtab" data-subtab="preview">上下文预览</button>
@@ -204,11 +248,11 @@ const generateView = {
 
   _renderHeaderActions() {
     const projectChip = this._renderProjectChip()
-    if (this._generateSubTab === "chat") {
+    if (this._generateSubTab === "world") {
       return `
         ${projectChip}
         <button class="btn btn-sm" data-action="send-chat-message">发送</button>
-        <button class="btn btn-sm btn-primary" data-action="generate-object-draft">生成世界对象建议</button>
+        <button class="btn btn-sm btn-primary" data-action="generate-world-suggestion">${esc(this._worldGenerateButtonLabel())}</button>
       `
     }
     if (this._generateSubTab === "pov_prose") {
@@ -246,14 +290,30 @@ const generateView = {
     if (this._generateSubTab === "pov_prose") return this._renderPovProseTab()
     if (this._generateSubTab === "task") return this._renderTaskTab()
     if (this._generateSubTab === "preview") return this._renderContextPreviewTab()
-    return this._renderChatTab()
+    return this._renderWorldTab()
   },
 
-  _renderChatTab() {
+  _renderWorldTab() {
+    const source = this._sourceDraft || this._sourcePage
+    const sourceLabel = source
+      ? `${source.title || "未命名页面"}${this._sourceDraft ? " · 工作稿" : " · 已发布"}`
+      : "整个项目"
     return `
-      <div id="generate-template-row" class="generate-template-row generate-template-row--toolbar">
-        ${this._renderTemplateButtons()}
+      <div class="card generate-world-source-bar">
+        <div>
+          <span class="generate-world-source-label">来源</span>
+          <strong>${esc(sourceLabel)}</strong>
+          ${this._sourcePage ? `<span class="badge">v${esc(this._sourcePage.version_number || 1)}</span>` : ""}
+        </div>
+        ${this._routeSourcePageId ? `<button class="btn btn-sm" data-action="return-world-bible">返回世界书</button>` : ""}
       </div>
+      ${this._worldWorkspaceWarning ? `<div class="generate-template-warning">${esc(this._worldWorkspaceWarning)}</div>` : ""}
+      <div class="generate-world-targets" role="group" aria-label="生成目标">
+        ${this._renderWorldTargetButton("core_entity", "世界对象")}
+        ${this._renderWorldTargetButton("world_bible_page", "完善当前页", !this._routeSourcePageId)}
+        ${this._renderWorldTargetButton("world_bible_new_page", "新建世界书页")}
+      </div>
+      ${this._renderWorldTargetConfiguration()}
       <div class="generate-chatbox">
         <div class="generate-chat-main">
           <div class="card generate-chat-panel">
@@ -263,22 +323,21 @@ const generateView = {
                 class="generate-chat-input"
                 id="generate-chat-input"
                 rows="4"
-                placeholder="直接聊，或把其他 Chatbox 的完整讨论粘贴到这里。"
-              ></textarea>
+                placeholder="说明你想创造、推敲或重构的世界设定。AI 会同时关注创意与逻辑。"
+              >${esc(this._composerDraft)}</textarea>
             </div>
           </div>
         </div>
 
         ${renderWorkspaceRail({
           key: workspaceRailKey("generate", state.currentProjectId, "assistant"),
-          title: "生成辅助",
+          title: "上下文与结果",
           className: "generate-side-rail workspace-rail--right",
           defaultOpen: typeof window === "undefined" || window.innerWidth > 1099,
           content: `<div class="generate-chat-side">
           <div class="card generate-settings-card">
             <div class="generate-card-title-row">
-              <div class="card-title">选项</div>
-              <button class="btn btn-sm" data-action="edit-object-templates">编辑模板</button>
+              <div class="card-title">上下文</div>
             </div>
             <div class="generate-side-options">
               <label class="generate-quality-toggle">
@@ -305,18 +364,84 @@ const generateView = {
             </div>
             <p class="generate-empty-copy">单次最多附带 20 章；长对话只发送最近 40 条消息。</p>
             <div id="generate-selected-chapters" class="generate-attachment-summary"></div>
+            ${this._renderWorldContextSelectors()}
           </div>
           <div class="card">
             <div class="card-title">结果</div>
             <div id="generate-result" class="generate-result">
-              ${this._lastEntity ? this._renderEntityResult(this._lastEntity) : `
-                <p class="generate-empty-copy">聊天不会写入世界设定。点击“生成世界对象建议”后，结果会进入待处理，采用后才成为当前有效设定。</p>
+              ${this._lastWorldResult ? this._renderWorldResult(this._lastWorldResult) : `
+                <p class="generate-empty-copy">对话不写业务数据。生成后只会创建待处理建议；世界书提案应用后也只进入工作稿。</p>
               `}
             </div>
           </div>
         </div>`,
         })}
       </div>
+    `
+  },
+
+  _renderWorldTargetButton(kind, label, disabled = false) {
+    return `<button class="generate-world-target ${this._worldTargetKind === kind ? "active" : ""}"
+      data-action="select-world-target" data-target-kind="${esc(kind)}" ${disabled ? "disabled" : ""}>${esc(label)}</button>`
+  },
+
+  _renderWorldTargetConfiguration() {
+    if (this._worldTargetKind === "core_entity") {
+      return `
+        <div id="generate-template-row" class="generate-template-row generate-template-row--toolbar">
+          ${this._renderTemplateButtons()}
+          <button class="btn btn-sm" data-action="edit-object-templates">编辑对象模板</button>
+        </div>
+      `
+    }
+    if (this._worldTargetKind === "world_bible_page") {
+      return `<div class="generate-world-config">将以当前服务器工作稿优先，生成一份完整的整页重构提案。</div>`
+    }
+    return `
+      <div class="generate-world-config">
+        <label>页面类别
+          <select id="generate-new-page-type" class="form-select">
+            ${this._worldCategories.filter((item) => item.status !== "archived").map((item) => `
+              <option value="${esc(item.category_key)}" ${this._newPageType === item.category_key ? "selected" : ""}>${esc(item.name || item.category_key)}</option>
+            `).join("")}
+          </select>
+        </label>
+        <label>页面模板（仅作资料组织参考）
+          <select id="generate-new-page-template" class="form-select">
+            <option value="">不指定</option>
+            ${this._worldPageTemplates.filter((item) => item.status !== "archived").map((item) => `
+              <option value="${esc(item.template_key)}" ${this._newPageTemplateKey === item.template_key ? "selected" : ""}>${esc(item.name || item.template_key)} · v${esc(item.version_number || 1)}</option>
+            `).join("")}
+          </select>
+        </label>
+      </div>
+    `
+  },
+
+  _renderWorldContextSelectors() {
+    const selectOptions = (items, selected, idFor, labelFor) => items.map((item) => {
+      const id = idFor(item)
+      return `<option value="${esc(id)}" ${selected.includes(id) ? "selected" : ""}>${esc(labelFor(item))}</option>`
+    }).join("")
+    return `
+      <details class="generate-world-context-panel">
+        <summary>展开精确上下文</summary>
+        <label>当前 Scene
+          <select id="generate-world-scene" class="form-select">
+            <option value="">不指定</option>
+            ${this._worldScenes.map((item) => `<option value="${esc(item.id)}" ${this._selectedSceneId === item.id ? "selected" : ""}>${esc(item.title || item.name || item.id)}</option>`).join("")}
+          </select>
+        </label>
+        <label>剧情线
+          <select id="generate-world-threads" class="form-select" multiple size="4">${selectOptions(this._worldThreads, this._selectedThreadIds, (item) => item.id, (item) => item.title || item.name || item.id)}</select>
+        </label>
+        <label>人物（未显式选择时由服务器 Top-6）
+          <select id="generate-world-characters" class="form-select" multiple size="4">${selectOptions(this._worldCharacters, this._selectedCharacterIds, (item) => this._characterId(item), (item) => item.name || item.display_name || this._characterId(item))}</select>
+        </label>
+        <label>物品 / 世界对象（未显式选择时由服务器 Top-16）
+          <select id="generate-world-entities" class="form-select" multiple size="5">${selectOptions(this._worldEntities, this._selectedEntityIds, (item) => item.id, (item) => `${item.name || item.id} · ${item.entity_type || "对象"}`)}</select>
+        </label>
+      </details>
     `
   },
 
@@ -440,6 +565,21 @@ const generateView = {
         .generate-template-history { display:grid; gap:8px; max-height:320px; overflow:auto; }
         .generate-template-revision { display:grid; gap:6px; border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px; }
         .generate-template-revision pre { margin:0; white-space:pre-wrap; max-height:120px; overflow:auto; color:var(--text-muted); font:12px/1.5 var(--font-mono); }
+        .generate-world-source-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; padding:9px 12px; }
+        .generate-world-source-label { color:var(--text-dim); font-size:12px; margin-right:8px; }
+        .generate-world-targets { display:flex; gap:7px; margin-bottom:8px; flex-wrap:wrap; }
+        .generate-world-target { border:1px solid var(--border); background:var(--panel); color:var(--text); border-radius:var(--radius-sm); padding:7px 12px; cursor:pointer; }
+        .generate-world-target.active { border-color:var(--accent); background:var(--selected); color:var(--accent); }
+        .generate-world-target:disabled { opacity:.45; cursor:not-allowed; }
+        .generate-world-config { display:flex; align-items:end; gap:10px; padding:8px 10px; margin-bottom:8px; border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-muted); font-size:12px; }
+        .generate-world-config label { display:grid; gap:4px; min-width:220px; }
+        .generate-world-context-panel { display:grid; gap:8px; margin-top:10px; border-top:1px solid var(--border); padding-top:8px; }
+        .generate-world-context-panel summary { cursor:pointer; color:var(--text-muted); }
+        .generate-world-context-panel label { display:grid; gap:4px; color:var(--text-dim); font-size:12px; margin-top:7px; }
+        .generate-page-result { display:grid; gap:8px; }
+        .generate-page-result label { display:grid; gap:4px; color:var(--text-muted); font-size:12px; }
+        .generate-json-editor { font:11px/1.45 var(--font-mono); }
+        .generate-page-review-notes { display:flex; flex-wrap:wrap; gap:5px; }
         @media (max-width: 900px) {
           .generate-chatbox, .generate-chatbox:has(.generate-side-rail:not([open])) { grid-template-columns:1fr; height:auto; min-height:0; overflow:visible; }
           .generate-side-rail { grid-column:1 / -1; }
@@ -447,6 +587,8 @@ const generateView = {
           .generate-chat-panel { min-height:auto; }
           .generate-chat-side { max-height:none; overflow:visible; padding-right:0; }
           .generate-chat-messages { min-height:260px; max-height:60vh; }
+          .generate-world-source-bar, .generate-world-config { align-items:stretch; flex-direction:column; }
+          .generate-world-config label { min-width:0; }
         }
         .generate-subtab { flex-shrink:0; border:1px solid var(--border); background:var(--panel); color:var(--text); border-radius:var(--radius-sm); padding:5px 12px; cursor:pointer; font-size:13px; }
         .generate-subtab.active { border-color:var(--accent); background:var(--selected); color:var(--accent); }
@@ -480,7 +622,10 @@ const generateView = {
       "select-object-template": (_e, target) => this._selectTemplate(target.getAttribute("data-template")),
       "edit-object-templates": () => this._openTemplateEditor(),
       "send-chat-message": () => this._sendChatMessage(),
-      "generate-object-draft": () => this._generateObjectDraft(),
+      "generate-world-suggestion": () => this._generateWorldSuggestion(),
+      "select-world-target": (_e, target) => this._selectWorldTarget(target.getAttribute("data-target-kind")),
+      "return-world-bible": () => this._returnToWorldBible(),
+      "apply-world-page-draft": () => this._applyWorldPageDraft(),
       "generate-pov-prose": () => this._generatePovProse(),
       "select-source-chapters": () => this._openChapterPicker(),
       "open-generated-destination": (_e, target) => {
@@ -516,6 +661,32 @@ const generateView = {
       this._activationProfileId = event.target.value || null
       this._persistState()
     })
+    document.getElementById("generate-chat-input")?.addEventListener("input", (event) => {
+      this._composerDraft = event.target.value || ""
+      this._rememberComposerDraft()
+    })
+    document.getElementById("generate-new-page-type")?.addEventListener("change", (event) => {
+      this._newPageType = event.target.value || "custom"
+      this._persistState()
+    })
+    document.getElementById("generate-new-page-template")?.addEventListener("change", (event) => {
+      this._newPageTemplateKey = event.target.value || ""
+      this._persistState()
+    })
+    document.getElementById("generate-world-scene")?.addEventListener("change", (event) => {
+      this._selectedSceneId = event.target.value || ""
+      this._persistState()
+    })
+    for (const [elementId, stateKey] of [
+      ["generate-world-threads", "_selectedThreadIds"],
+      ["generate-world-characters", "_selectedCharacterIds"],
+      ["generate-world-entities", "_selectedEntityIds"],
+    ]) {
+      document.getElementById(elementId)?.addEventListener("change", (event) => {
+        this[stateKey] = Array.from(event.target.selectedOptions).map((option) => option.value)
+        this._persistState()
+      })
+    }
     document.getElementById("generate-pov-chapter")?.addEventListener("change", (event) => {
       this._changePovChapter(event.target.value)
     })
@@ -546,6 +717,24 @@ const generateView = {
         synopsisHint.hidden = !["reader", "character"].includes(event.target.value)
       }
     })
+    this._bindPageProposalDirtyEvents()
+  },
+
+  _bindPageProposalDirtyEvents() {
+    for (const elementId of [
+      "generate-page-title",
+      "generate-page-type",
+      "generate-page-free-text",
+      "generate-page-sections",
+      "generate-page-assets",
+    ]) {
+      const element = document.getElementById(elementId)
+      if (!element || element.dataset.proposalDirtyBound === "true") continue
+      element.dataset.proposalDirtyBound = "true"
+      element.addEventListener(element.tagName === "SELECT" ? "change" : "input", () => {
+        this._pageProposalDirty = true
+      })
+    }
   },
 
   _builtinTemplates() {
@@ -614,6 +803,117 @@ const generateView = {
       toast(`AI 参考规则加载失败：${err.message || "未知错误"}`, "warning")
     }
     this._activationProfilesLoaded = true
+  },
+
+  async _loadWorldWorkspace() {
+    if (!state.currentProjectId) return
+    this._worldWorkspaceWarning = null
+    try {
+      const [pages, drafts, categories, pageTemplates, scenes, threads, characters, entities] = await Promise.all([
+        api.world.listBiblePages({ novel_id: state.currentProjectId }),
+        api.world.listBibleDrafts(state.currentProjectId),
+        api.world.listBibleCategories(state.currentProjectId),
+        api.world.listBiblePageTemplates(state.currentProjectId),
+        api.outline.listScenes(state.currentProjectId, 0, 50),
+        api.outline.listThreads(state.currentProjectId, { limit: 50 }),
+        api.world.listCharacters({ novel_id: state.currentProjectId, limit: 50 }),
+        api.world.listEntities({ novel_id: state.currentProjectId, display_state: "active", limit: 50 }),
+      ])
+      const pageItems = this._listItems(pages)
+      const draftItems = this._listItems(drafts)
+      this._sourcePage = this._routeSourcePageId
+        ? pageItems.find((item) => item.id === this._routeSourcePageId) || null
+        : null
+      this._sourceDraft = this._routeSourcePageId
+        ? draftItems.find((item) => item.page_id === this._routeSourcePageId) || null
+        : null
+      this._worldCategories = this._listItems(categories)
+      this._worldPageTemplates = this._listItems(pageTemplates)
+      this._worldScenes = this._listItems(scenes)
+      this._worldThreads = this._listItems(threads)
+      this._worldCharacters = this._listItems(characters)
+      const characterEntityIds = new Set(this._worldCharacters.flatMap((item) => [item.id, item.entity_id].filter(Boolean)))
+      this._worldEntities = this._listItems(entities).filter((item) => (
+        item.entity_type !== "character" && !characterEntityIds.has(item.id)
+      ))
+      if (this._routeSourcePageId && !this._sourcePage) {
+        this._worldWorkspaceWarning = "来源页面不存在或不属于当前项目，已改为项目来源。"
+        this._routeSourcePageId = null
+        if (this._worldTargetKind === "world_bible_page") this._worldTargetKind = "core_entity"
+      }
+      if (!this._worldCategories.some((item) => item.category_key === this._newPageType)) {
+        this._newPageType = this._worldCategories.find((item) => item.status !== "archived")?.category_key || "custom"
+      }
+      this._selectedSceneId = this._worldScenes.some((item) => item.id === this._selectedSceneId) ? this._selectedSceneId : ""
+      this._selectedThreadIds = this._selectedThreadIds.filter((id) => this._worldThreads.some((item) => item.id === id))
+      this._selectedCharacterIds = this._selectedCharacterIds.filter((id) => this._worldCharacters.some((item) => this._characterId(item) === id))
+      this._selectedEntityIds = this._selectedEntityIds.filter((id) => this._worldEntities.some((item) => item.id === id))
+      await this._restoreWorldSuggestionFromPending()
+    } catch (err) {
+      this._worldWorkspaceWarning = `生成上下文加载不完整：${err.message || "未知错误"}`
+    }
+  },
+
+  async _restoreWorldSuggestionFromPending() {
+    if (!this._lastWorldSuggestionId || this._lastWorldResult || !api.world.listSuggestions) return
+    let skip = 0
+    const limit = 200
+    let match = null
+    do {
+      const data = await api.world.listSuggestions({
+        novel_id: state.currentProjectId,
+        source_module: "world",
+        review_group: "generation_center",
+        status: "pending",
+        skip,
+        limit,
+      })
+      const items = this._listItems(data)
+      match = items.find((item) => item.id === this._lastWorldSuggestionId) || null
+      if (match) break
+      skip += items.length
+      if (!items.length || skip >= Number(data?.total || 0)) break
+    } while (true)
+
+    if (!match) {
+      this._lastWorldSuggestionId = null
+      this._persistState()
+      return
+    }
+    const payload = match.payload_json || {}
+    let kind = null
+    if (match.target_type === "core_entity_draft" && this._worldTargetKind === "core_entity") {
+      kind = "core_entity"
+    } else if (
+      match.target_type === "world_bible_page_draft"
+      && payload.operation === "replace_existing"
+      && this._worldTargetKind === "world_bible_page"
+      && payload.target_page_id === this._routeSourcePageId
+    ) {
+      kind = "world_bible_page"
+    } else if (
+      match.target_type === "world_bible_page_draft"
+      && payload.operation === "create_new"
+      && this._worldTargetKind === "world_bible_new_page"
+    ) {
+      kind = "world_bible_new_page"
+    }
+    if (!kind) {
+      this._lastWorldSuggestionId = null
+      this._persistState()
+      return
+    }
+    this._lastWorldResult = { kind, suggestion: match, proposal: payload }
+    this._pageProposalDirty = false
+  },
+
+  _listItems(data) {
+    if (Array.isArray(data)) return data
+    if (Array.isArray(data?.items)) return data.items
+    if (Array.isArray(data?.scenes)) return data.scenes
+    if (Array.isArray(data?.threads)) return data.threads
+    if (Array.isArray(data?.characters)) return data.characters
+    return []
   },
 
   _allTemplates() {
@@ -859,6 +1159,8 @@ const generateView = {
     this._syncInputs()
     this._messages.push({ role: "user", content: text })
     if (input) input.value = ""
+    this._composerDraft = ""
+    this._rememberComposerDraft()
     const payload = this._buildPayload()
     const pendingMessage = { role: "assistant", content: "正在思考...", pending: true }
     this._messages.push(pendingMessage)
@@ -866,10 +1168,13 @@ const generateView = {
     this._persistState()
 
     let controller = null
+    let requestScope = null
     try {
       this._setBusy(true)
       controller = this._trackRequestController()
-      const response = await api.generate.objectDraftChat(payload, { signal: controller.signal })
+      requestScope = this._requestScope(controller)
+      const response = await api.generate.worldChat(payload, { signal: controller.signal })
+      if (!this._isRequestScopeActive(requestScope)) return
       this._lastContextUsage = response?.context_usage || null
       this._lastChatContextUsage = response?.context_usage || null
       this._renderChatContextUsageAction(true)
@@ -880,6 +1185,7 @@ const generateView = {
         this._persistState()
       }
     } catch (err) {
+      if (!this._isRequestScopeActive(requestScope)) return
       pendingMessage.content = `聊天失败：${err.message || "未知错误"}`
       pendingMessage.pending = false
       pendingMessage.error = true
@@ -888,54 +1194,77 @@ const generateView = {
       toast(`聊天失败：${err.message || "未知错误"}`, "error")
     } finally {
       this._releaseRequestController(controller)
-      this._setBusy(false)
+      if (this._isRequestScopeActive(requestScope)) this._setBusy(false)
     }
   },
 
-  async _generateObjectDraft() {
+  async _generateWorldSuggestion() {
     if (!state.currentProjectId) {
       toast("请先选择项目", "warning")
       return
     }
-    this._captureDraftInputAsMessage()
-    this._syncInputs()
-    if (!this._messages.length) {
+    const pendingInput = document.getElementById("generate-chat-input")?.value?.trim()
+    if (!this._messages.length && !pendingInput) {
       toast("请先聊天或粘贴已有对话到输入框", "warning")
       return
     }
+    if (!this._confirmDiscardPageProposal("整页提案仍有未应用的编辑，确定放弃并重新生成吗？")) return
+    this._captureDraftInputAsMessage()
+    this._syncInputs()
     this._renderMessages()
     this._persistState()
     const resultEl = document.getElementById("generate-result")
-    if (resultEl) resultEl.innerHTML = '<div class="loading">正在生成世界对象建议...</div>'
+    if (resultEl) {
+      resultEl.replaceChildren()
+      const loading = document.createElement("div")
+      loading.className = "loading"
+      loading.textContent = `正在${this._worldGenerateButtonLabel()}...`
+      resultEl.append(loading)
+    }
     let controller = null
+    let requestScope = null
     try {
       this._setBusy(true)
       controller = this._trackRequestController()
-      const response = await api.generate.generateObjectDraft(this._buildPayload(), { signal: controller.signal })
-      this._lastEntity = response?.suggestion || response?.entity || null
+      requestScope = this._requestScope(controller)
+      const response = await api.generate.generateWorldSuggestion(this._buildPayload(), { signal: controller.signal })
+      if (!this._isRequestScopeActive(requestScope)) return
+      this._lastWorldResult = response?.result || null
+      this._lastWorldSuggestionId = response?.result?.suggestion?.id || null
+      this._lastEntity = response?.result?.kind === "core_entity"
+        ? response.result.suggestion
+        : null
       this._lastContextUsage = response?.context_usage || null
       this._lastEntityContextUsage = response?.context_usage || null
+      this._pageProposalDirty = false
       if (resultEl) {
         resultEl.replaceChildren()
-        if (this._lastEntity) {
-          resultEl.append(this._renderEntityResultNode(this._lastEntity))
+        if (this._lastWorldResult) {
+          resultEl.append(this._renderWorldResultNode(this._lastWorldResult))
+          this._bindPageProposalDirtyEvents()
         } else {
           const empty = document.createElement("p")
           empty.className = "generate-empty-copy"
-          empty.textContent = "生成完成，但未返回对象。"
+          empty.textContent = "生成完成，但未返回结构化建议。"
           resultEl.append(empty)
         }
       }
       this._persistState()
-      toast("世界对象建议已进入待处理", "success")
+      toast(
+        this._lastWorldResult?.kind === "core_entity"
+          ? "世界对象建议已进入待处理"
+          : "世界书整页提案已进入待处理",
+        "success",
+      )
     } catch (err) {
+      if (!this._isRequestScopeActive(requestScope)) return
       if (resultEl) {
         resultEl.replaceChildren(this._renderInlineError(`生成失败：${err.message || "未知错误"}`))
       }
       toast(`生成失败：${err.message || "未知错误"}`, "error")
     } finally {
       this._releaseRequestController(controller)
-      this._setBusy(false)
+      if (this._isRequestScopeActive(requestScope)) this._setBusy(false)
     }
   },
 
@@ -1129,6 +1458,166 @@ const generateView = {
     return card
   },
 
+  _renderWorldResult(result) {
+    if (!result) return '<p class="generate-empty-copy">暂无结果。</p>'
+    if (result.kind === "core_entity") {
+      return this._renderEntityResult(result.suggestion || result.proposal || result)
+    }
+    const payload = result.proposal || {}
+    const page = payload.page || {}
+    const baseline = this._sourceDraft || this._sourcePage
+    const previousSections = Array.isArray(baseline?.sections_json) ? baseline.sections_json : []
+    const nextSections = Array.isArray(page.sections_json) ? page.sections_json : []
+    const summary = payload.operation === "create_new"
+      ? `新建页面 · ${nextSections.length} 个章节`
+      : `标题${baseline?.title === page.title ? "保留" : "已重构"} · 章节 ${previousSections.length} → ${nextSections.length}`
+    return `
+      <div class="generate-result-card generate-page-result">
+        <div class="generate-result-title">${esc(page.title || "未命名页面")}</div>
+        <div class="generate-result-meta">${esc(page.page_type || "custom")} · ${esc(summary)}</div>
+        ${payload.design_rationale ? `<p class="generate-result-summary">${esc(payload.design_rationale)}</p>` : ""}
+        ${(payload.review_notes || []).length ? `<div class="generate-page-review-notes">${payload.review_notes.map((item) => `<span class="badge">${esc(item)}</span>`).join("")}</div>` : ""}
+        ${this._renderSectionDiff(previousSections, nextSections)}
+        <label>标题<input id="generate-page-title" class="form-input" value="${esc(page.title || "")}" /></label>
+        <label>类别
+          <select id="generate-page-type" class="form-select">
+            ${this._worldCategories.map((item) => `<option value="${esc(item.category_key)}" ${page.page_type === item.category_key ? "selected" : ""}>${esc(item.name || item.category_key)}</option>`).join("")}
+          </select>
+        </label>
+        <label>页面概览<textarea id="generate-page-free-text" class="form-textarea" rows="6">${esc(page.free_text || "")}</textarea></label>
+        <label>完整 sections JSON<textarea id="generate-page-sections" class="form-textarea generate-json-editor" rows="12">${esc(JSON.stringify(nextSections, null, 2))}</textarea></label>
+        <label>资产关联 JSON<textarea id="generate-page-assets" class="form-textarea generate-json-editor" rows="6">${esc(JSON.stringify(page.linked_asset_refs_json || [], null, 2))}</textarea></label>
+        <div class="generate-result-actions">
+          <button class="btn btn-sm btn-primary" data-action="apply-world-page-draft">应用到工作稿</button>
+          <button class="btn btn-sm" data-action="continue-chat">继续聊</button>
+          <button class="btn btn-sm" data-action="generate-another">重新生成</button>
+          ${this._lastEntityContextUsage ? `<button class="btn btn-sm" data-action="view-generation-context" data-context-kind="entity">查看本次上下文</button>` : ""}
+        </div>
+        <p class="generate-empty-copy">应用只更新或创建服务器工作稿，不会发布 canonical 页面。</p>
+      </div>
+    `
+  },
+
+  _renderWorldResultNode(result) {
+    const container = document.createElement("div")
+    container.innerHTML = this._renderWorldResult(result)
+    return container.firstElementChild || container
+  },
+
+  _renderSectionDiff(previousSections, nextSections) {
+    const before = new Map((previousSections || []).map((item) => [item.section_id, item]))
+    const after = new Map((nextSections || []).map((item) => [item.section_id, item]))
+    const changes = []
+    for (const [sectionId, section] of after) {
+      const previous = before.get(sectionId)
+      if (!previous) {
+        changes.push({ kind: "新增", section, fields: [] })
+        continue
+      }
+      const fields = [
+        ["title", "标题"],
+        ["section_type", "类型"],
+        ["body_markdown", "正文"],
+        ["projection_policy", "投影策略"],
+        ["sensitivity_hint", "敏感度"],
+        ["linked_asset_ref_hashes", "引用"],
+      ].filter(([key]) => JSON.stringify(previous?.[key] ?? null) !== JSON.stringify(section?.[key] ?? null))
+        .map(([, label]) => label)
+      if (fields.length) changes.push({ kind: "修改", section, fields })
+    }
+    for (const [sectionId, section] of before) {
+      if (!after.has(sectionId)) changes.push({ kind: "删除", section, fields: [] })
+    }
+    return `
+      <div class="generate-page-section-diff">
+        <strong>分区变更</strong>
+        ${changes.length ? changes.map((item) => `
+          <div class="generate-page-section-diff__item">
+            <span class="badge">${esc(item.kind)}</span>
+            <span>${esc(item.section?.title || item.section?.section_id || "未命名分区")}</span>
+            ${item.fields.length ? `<span class="generate-empty-copy">${esc(item.fields.join("、"))}</span>` : ""}
+          </div>
+        `).join("") : `<p class="generate-empty-copy">分区内容无实质变更。</p>`}
+      </div>
+    `
+  },
+
+  _worldGenerateButtonLabel() {
+    return {
+      core_entity: "生成世界对象建议",
+      world_bible_page: "生成整页提案",
+      world_bible_new_page: "生成新页提案",
+    }[this._worldTargetKind] || "生成建议"
+  },
+
+  _selectWorldTarget(kind) {
+    if (!["core_entity", "world_bible_page", "world_bible_new_page"].includes(kind)) return
+    if (kind === "world_bible_page" && !this._routeSourcePageId) {
+      toast("请先从世界书页面进入生成中心", "warning")
+      return
+    }
+    this._persistState()
+    const query = new URLSearchParams({ tab: "world", target: kind })
+    if (this._routeSourcePageId) query.set("source_page_id", this._routeSourcePageId)
+    router.navigate("generate", null, true, query)
+  },
+
+  _returnToWorldBible() {
+    const query = new URLSearchParams()
+    if (this._routeSourcePageId) query.set("page_id", this._routeSourcePageId)
+    router.navigate("world", "bible", true, query)
+  },
+
+  async _applyWorldPageDraft() {
+    const result = this._lastWorldResult
+    const suggestionId = result?.suggestion?.id || this._lastWorldSuggestionId
+    if (!suggestionId || result?.kind === "core_entity") return
+    let page
+    try {
+      const sections = JSON.parse(document.getElementById("generate-page-sections")?.value || "[]")
+      const assets = JSON.parse(document.getElementById("generate-page-assets")?.value || "[]")
+      page = {
+        title: document.getElementById("generate-page-title")?.value?.trim() || "",
+        page_type: document.getElementById("generate-page-type")?.value || "custom",
+        free_text: document.getElementById("generate-page-free-text")?.value || "",
+        sections_json: sections,
+        linked_asset_refs_json: assets,
+      }
+    } catch {
+      toast("sections 或资产关联不是有效 JSON", "warning")
+      return
+    }
+    let controller = null
+    let requestScope = null
+    try {
+      this._setBusy(true)
+      controller = this._trackRequestController()
+      requestScope = this._requestScope(controller)
+      const response = await api.generate.applyWorldPageDraft(
+        suggestionId,
+        { page },
+        state.currentProjectId,
+        { signal: controller.signal },
+      )
+      if (!this._isRequestScopeActive(requestScope)) return
+      this._pageProposalDirty = false
+      toast("提案已应用到工作稿，尚未发布", "success")
+      const query = new URLSearchParams({ draft_id: response.draft.id })
+      if (response.draft.page_id) query.set("page_id", response.draft.page_id)
+      router.navigate("world", "bible", true, query)
+    } catch (err) {
+      if (!this._isRequestScopeActive(requestScope)) return
+      if (err?.status === 409) {
+        toast("来源工作稿已变更，本次提案未覆盖新修改。请重新生成。", "warning")
+      } else {
+        toast(`应用失败：${err.message || "未知错误"}`, "error")
+      }
+    } finally {
+      this._releaseRequestController(controller)
+      if (this._isRequestScopeActive(requestScope)) this._setBusy(false)
+    }
+  },
+
   _renderInlineError(message) {
     const p = document.createElement("p")
     p.className = "generate-error-text"
@@ -1138,27 +1627,68 @@ const generateView = {
 
   _buildPayload() {
     const templatePayload = this._selectedTemplatePayload()
+    const selectedProfile = this._activationProfiles.find((item) => item.id === this._activationProfileId)
+    const selectedPageTemplate = this._worldPageTemplates.find((item) => item.template_key === this._newPageTemplateKey)
     const messages = this._messages
       .filter((item) => !item.pending && !item.error && (item.role === "user" || item.role === "assistant"))
       .map((item) => ({
         role: item.role,
         content: item.content,
       }))
+    const sourceContext = this._sourcePage && this._routeSourcePageId
+      ? {
+          kind: "world_bible_page",
+          page_id: this._routeSourcePageId,
+          baseline: this._sourceDraft
+            ? {
+                kind: "draft",
+                page_version: this._sourcePage.version_number || 1,
+                draft_id: this._sourceDraft.id,
+                draft_updated_at: this._sourceDraft.updated_at,
+              }
+            : {
+                kind: "published",
+                page_version: this._sourcePage.version_number || 1,
+              },
+        }
+      : { kind: "project" }
+    let target
+    if (this._worldTargetKind === "world_bible_page") {
+      target = { kind: "world_bible_page", page_id: this._routeSourcePageId }
+    } else if (this._worldTargetKind === "world_bible_new_page") {
+      target = {
+        kind: "world_bible_new_page",
+        page_type: this._newPageType || "custom",
+        page_template_key: selectedPageTemplate?.template_key || null,
+        page_template_version: selectedPageTemplate?.version_number || null,
+      }
+    } else {
+      target = {
+        kind: "core_entity",
+        template_id: templatePayload.template_id,
+        template_version: templatePayload.template_version,
+        template: templatePayload.template,
+        template_name: templatePayload.template_name,
+        template_prompt: templatePayload.template_prompt,
+      }
+    }
     return {
       novel_id: state.currentProjectId,
-      template_id: templatePayload.template_id,
-      template_version: templatePayload.template_version,
-      template: templatePayload.template,
-      template_name: templatePayload.template_name,
-      template_prompt: templatePayload.template_prompt,
+      source_context: sourceContext,
+      target,
       messages: messages.slice(-AI_MESSAGE_LIMIT),
       selected_chapter_indices: this._selectedChapters
         .slice(0, AI_SELECTED_CHAPTER_LIMIT)
         .map((item) => item.chapter_index),
       quality_mode: this._qualityMode,
       include_world_synopsis: this._includeWorldSynopsis,
-      selected_world_bible_draft_ids: [],
+      scene_id: this._selectedSceneId || null,
+      thread_ids: this._selectedThreadIds,
+      character_ids: this._selectedCharacterIds,
+      entity_ids: this._selectedEntityIds,
+      selected_asset_refs: [],
       activation_profile_id: this._activationProfileId,
+      activation_profile_version: selectedProfile?.version_number || null,
     }
   },
 
@@ -1174,13 +1704,15 @@ const generateView = {
     if (!text) return false
     this._messages.push({ role: "user", content: text })
     if (input) input.value = ""
+    this._composerDraft = ""
+    this._rememberComposerDraft()
     return true
   },
 
   _setBusy(busy) {
     this._busy = busy
     document.querySelectorAll(
-      '[data-action="send-chat-message"], [data-action="generate-object-draft"], [data-action="generate-pov-prose"], [data-action="run-task"], [data-action="preview-task-context"], [data-action="render-task-md"]'
+      '[data-action="send-chat-message"], [data-action="generate-world-suggestion"], [data-action="apply-world-page-draft"], [data-action="generate-pov-prose"], [data-action="run-task"], [data-action="preview-task-context"], [data-action="render-task-md"]'
     ).forEach((btn) => {
       btn.disabled = busy
     })
@@ -1191,6 +1723,23 @@ const generateView = {
     const controller = new AbortController()
     this._abortControllers.add(controller)
     return controller
+  },
+
+  _requestScope(controller) {
+    return {
+      epoch: this._requestEpoch,
+      storageKey: this._activeStorageKey || this._storageKey(),
+      controller,
+    }
+  },
+
+  _isRequestScopeActive(scope) {
+    return Boolean(
+      scope
+      && scope.epoch === this._requestEpoch
+      && scope.storageKey === (this._activeStorageKey || this._storageKey())
+      && !scope.controller?.signal?.aborted,
+    )
   },
 
   _releaseRequestController(controller) {
@@ -1208,6 +1757,12 @@ const generateView = {
     this._abortControllers.clear()
   },
 
+  _invalidateRequests() {
+    this._requestEpoch += 1
+    this._abortAllRequests()
+    this._busy = false
+  },
+
   async _runInBatches(items, batchSize, fn) {
     const results = []
     for (let i = 0; i < items.length; i += batchSize) {
@@ -1223,13 +1778,22 @@ const generateView = {
   },
 
   _clearResult() {
+    if (!this._confirmDiscardPageProposal("整页提案仍有未应用的编辑，确定放弃并清空结果吗？")) return false
     this._lastEntity = null
+    this._lastWorldResult = null
+    this._lastWorldSuggestionId = null
     this._lastEntityContextUsage = null
+    this._pageProposalDirty = false
     const resultEl = document.getElementById("generate-result")
     if (resultEl) {
-      resultEl.innerHTML = '<p class="generate-empty-copy">可以继续基于当前聊天生成新的世界对象建议。</p>'
+      resultEl.replaceChildren()
+      const empty = document.createElement("p")
+      empty.className = "generate-empty-copy"
+      empty.textContent = "可以继续基于当前对话生成新建议。"
+      resultEl.append(empty)
     }
     this._persistState()
+    return true
   },
 
   _excerpt(content, limit = 120) {
@@ -1238,7 +1802,19 @@ const generateView = {
   },
 
   _storageKey() {
-    return `${GENERATE_STATE_STORAGE_PREFIX}${state.currentProjectId || "none"}`
+    return `${GENERATE_STATE_STORAGE_PREFIX}${state.currentProjectId || "none"}_${this._routeSourcePageId || "project"}_${this._worldTargetKind || "core_entity"}`
+  },
+
+  _rememberComposerDraft(storageKey = this._activeStorageKey || this._storageKey()) {
+    if (!storageKey) return
+    if (this._composerDraft) this._composerDrafts.set(storageKey, this._composerDraft)
+    else this._composerDrafts.delete(storageKey)
+  },
+
+  _captureComposerDraft() {
+    const input = document.getElementById("generate-chat-input")
+    if (input) this._composerDraft = input.value || ""
+    this._rememberComposerDraft()
   },
 
   _mountTopbarNote() {
@@ -1256,16 +1832,32 @@ const generateView = {
     document.getElementById("topbar-generate-note")?.remove()
   },
 
-  _activateProjectState() {
+  _activateProjectState(sourcePageId = null, targetKind = "core_entity") {
+    const previousSourcePageId = this._routeSourcePageId
+    const previousTargetKind = this._worldTargetKind
+    this._routeSourcePageId = sourcePageId
+    this._worldTargetKind = targetKind
     const storageKey = this._storageKey()
     if (this._activeStorageKey === storageKey) return
     // The router updates the global project before rendering the next view and
     // does not call onLeave when generate -> generate only changes project.
     // Persist through the previous active key before resetting project state.
-    if (this._activeStorageKey) this._persistState()
+    if (this._activeStorageKey) {
+      this._captureComposerDraft()
+      this._persistState()
+    }
+    this._invalidateRequests()
     this._activeStorageKey = storageKey
     this._resetProjectState()
+    this._routeSourcePageId = sourcePageId
+    this._worldTargetKind = targetKind
     this._restoreState(storageKey)
+    this._composerDraft = this._composerDrafts.get(storageKey) || ""
+    if (!this._routeSourcePageId && previousSourcePageId && sourcePageId === null) {
+      this._sourcePage = null
+      this._sourceDraft = null
+    }
+    if (!targetKind) this._worldTargetKind = previousTargetKind || "core_entity"
   },
 
   _resetProjectState() {
@@ -1292,10 +1884,29 @@ const generateView = {
     this._qualityMode = "fast"
     this._includeWorldSynopsis = true
     this._lastEntity = null
+    this._lastWorldResult = null
+    this._lastWorldSuggestionId = null
+    this._routeSourcePageId = null
+    this._worldTargetKind = "core_entity"
+    this._sourcePage = null
+    this._sourceDraft = null
+    this._worldCategories = []
+    this._worldPageTemplates = []
+    this._worldScenes = []
+    this._worldThreads = []
+    this._worldCharacters = []
+    this._worldEntities = []
+    this._selectedSceneId = ""
+    this._selectedThreadIds = []
+    this._selectedCharacterIds = []
+    this._selectedEntityIds = []
+    this._newPageType = "custom"
+    this._newPageTemplateKey = ""
+    this._worldWorkspaceWarning = null
     this._lastContextUsage = null
     this._lastChatContextUsage = null
     this._lastEntityContextUsage = null
-    this._generateSubTab = "chat"
+    this._generateSubTab = "world"
     this._taskPreset = "custom"
     this._taskForm = {
       task: "",
@@ -1314,6 +1925,8 @@ const generateView = {
     this._lastContextMarkdown = null
     this._lastContextRequestParams = null
     this._storageDirty = false
+    this._composerDraft = ""
+    this._pageProposalDirty = false
   },
 
   _persistedState() {
@@ -1322,20 +1935,16 @@ const generateView = {
       selectedTemplateId: this._selectedTemplateId,
       messages: this._messages.filter((item) => !item.pending),
       selectedChapters: this._selectedChapters.slice(0, AI_SELECTED_CHAPTER_LIMIT),
-      povForm: this._povForm,
-      lastPovSubmission: this._lastPovSubmission,
       qualityMode: this._qualityMode,
       includeWorldSynopsis: this._includeWorldSynopsis,
       activationProfileId: this._activationProfileId,
-      lastEntity: this._lastEntity,
-      lastContextUsage: this._lastContextUsage,
-      lastChatContextUsage: this._lastChatContextUsage,
-      lastEntityContextUsage: this._lastEntityContextUsage,
-      generateSubTab: this._generateSubTab,
-      taskPreset: this._taskPreset,
-      taskForm: this._taskForm,
-      lastContextBundle: this._lastContextBundle,
-      lastContextSource: this._lastContextSource,
+      selectedSceneId: this._selectedSceneId,
+      selectedThreadIds: this._selectedThreadIds,
+      selectedCharacterIds: this._selectedCharacterIds,
+      selectedEntityIds: this._selectedEntityIds,
+      newPageType: this._newPageType,
+      newPageTemplateKey: this._newPageTemplateKey,
+      suggestionId: this._lastWorldSuggestionId,
     }
   },
 
@@ -1509,14 +2118,9 @@ const generateView = {
       if (
         ("messages" in parsed && !Array.isArray(parsed.messages))
         || ("selectedChapters" in parsed && !Array.isArray(parsed.selectedChapters))
-        || (
-          "povForm" in parsed
-          && (!parsed.povForm || typeof parsed.povForm !== "object" || Array.isArray(parsed.povForm))
-        )
-        || (
-          "taskForm" in parsed
-          && (!parsed.taskForm || typeof parsed.taskForm !== "object" || Array.isArray(parsed.taskForm))
-        )
+        || ("selectedThreadIds" in parsed && !Array.isArray(parsed.selectedThreadIds))
+        || ("selectedCharacterIds" in parsed && !Array.isArray(parsed.selectedCharacterIds))
+        || ("selectedEntityIds" in parsed && !Array.isArray(parsed.selectedEntityIds))
       ) {
         throw new Error("invalid local state shape")
       }
@@ -1525,27 +2129,16 @@ const generateView = {
       this._selectedChapters = Array.isArray(parsed.selectedChapters)
         ? parsed.selectedChapters.slice(0, AI_SELECTED_CHAPTER_LIMIT)
         : []
-      this._povForm = parsed.povForm && typeof parsed.povForm === "object"
-        ? { ...this._povForm, ...parsed.povForm }
-        : this._povForm
-      this._lastPovSubmission = parsed.lastPovSubmission || null
       this._qualityMode = parsed.qualityMode || "fast"
       this._includeWorldSynopsis = parsed.includeWorldSynopsis !== false
       this._activationProfileId = parsed.activationProfileId || null
-      this._lastEntity = parsed.lastEntity || null
-      this._lastContextUsage = parsed.lastContextUsage || null
-      this._lastChatContextUsage = parsed.lastChatContextUsage || null
-      this._lastEntityContextUsage = parsed.lastEntityContextUsage
-        || (this._lastEntity ? parsed.lastContextUsage : null)
-      this._generateSubTab = ["chat", "task", "preview", "pov_prose"].includes(parsed.generateSubTab)
-        ? parsed.generateSubTab
-        : this._generateSubTab
-      this._taskPreset = parsed.taskPreset || this._taskPreset
-      this._taskForm = parsed.taskForm && typeof parsed.taskForm === "object"
-        ? { ...this._taskForm, ...parsed.taskForm }
-        : this._taskForm
-      this._lastContextBundle = parsed.lastContextBundle || null
-      this._lastContextSource = parsed.lastContextSource || null
+      this._selectedSceneId = parsed.selectedSceneId || ""
+      this._selectedThreadIds = parsed.selectedThreadIds || []
+      this._selectedCharacterIds = parsed.selectedCharacterIds || []
+      this._selectedEntityIds = parsed.selectedEntityIds || []
+      this._newPageType = parsed.newPageType || "custom"
+      this._newPageTemplateKey = parsed.newPageTemplateKey || ""
+      this._lastWorldSuggestionId = parsed.suggestionId || null
     } catch {
       try {
         localStorage.removeItem(storageKey)
@@ -1778,13 +2371,18 @@ const generateView = {
   },
 
   async _switchGenerateSubTab(subtab) {
-    if (!["chat", "task", "preview", "pov_prose"].includes(subtab)) return
+    if (!["world", "task", "preview", "pov_prose"].includes(subtab)) return
+    if (subtab === this._generateSubTab) return true
+    if (!this._confirmDiscardPageProposal("整页提案仍有未应用的编辑，确定放弃修改并切换标签吗？")) return false
+    this._captureComposerDraft()
+    this._invalidateRequests()
     this._generateSubTab = subtab
     if (subtab === "pov_prose") {
       await this._loadPovBaseOptions()
     }
     this._persistState()
     await this._refreshView()
+    return true
   },
 
   _syncTaskFormInputs() {
@@ -1973,7 +2571,7 @@ const generateView = {
       const summary = `已加载 ${this._lastContextBundle.sections.length} 段上下文，共 ${this._lastContextBundle.total_tokens || 0} tokens。`
       this._messages.push({ role: "assistant", content: summary })
     }
-    this._generateSubTab = "chat"
+    this._generateSubTab = "world"
     this._persistState()
     this._refreshView()
   },
@@ -2108,7 +2706,7 @@ const generateView = {
   },
 
   _renderContextPreviewTab() {
-    const sourceText = this._lastContextSource === "chat" ? "自由对话" : this._lastContextSource === "task" ? `任务：${TASK_PRESETS[this._taskPreset]?.label || "自定义任务"}` : ""
+    const sourceText = this._lastContextSource === "world" ? "世界设定共创" : this._lastContextSource === "task" ? `任务：${TASK_PRESETS[this._taskPreset]?.label || "自定义任务"}` : ""
     return `
       <div class="card">
         <div class="card-title">上下文预览</div>
@@ -2118,13 +2716,13 @@ const generateView = {
             <button class="btn btn-sm" data-action="render-task-md">渲染 Markdown</button>
             <button class="btn btn-sm" data-action="copy-task-md" ${this._lastContextMarkdown ? "" : "disabled"}>复制</button>
             <button class="btn btn-sm" data-action="export-task-md" ${this._lastContextMarkdown ? "" : "disabled"}>导出</button>
-            <button class="btn btn-sm" data-action="switch-generate-subtab" data-subtab="${esc(this._lastContextSource || "chat")}">返回</button>
+            <button class="btn btn-sm" data-action="switch-generate-subtab" data-subtab="${esc(this._lastContextSource || "world")}">返回</button>
           </div>
           <div id="gen-task-output">
             ${this._renderCompileResult(this._lastContextBundle)}
           </div>
         ` : `
-          <p class="generate-context-preview-empty">还未执行任何 AI 生成或上下文编译。去「自由对话」聊天，或在「任务」里执行一个任务。</p>
+          <p class="generate-context-preview-empty">还未执行任何 AI 生成或上下文编译。去「世界设定」共创，或在「任务」里编译上下文。</p>
         `}
       </div>
     `
@@ -2188,7 +2786,10 @@ const generateView = {
   async _refreshView() {
     this._persistState()
     const el = document.getElementById("workspace-content")
-    if (el) el.innerHTML = await this.render()
+    if (el) {
+      el.innerHTML = await this.render()
+      this.onRendered()
+    }
     else if (router.refresh) router.refresh()
   },
 

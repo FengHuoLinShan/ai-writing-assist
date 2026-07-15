@@ -20,6 +20,25 @@ from pydantic import (
     model_validator,
 )
 
+from modules.world.contracts import (
+    MapBoundaryProposal as MapBoundaryProposal,
+)
+from modules.world.contracts import (
+    MapCharacterLocationProposal as MapCharacterLocationProposal,
+)
+from modules.world.contracts import (
+    MapEventLocationProposal as MapEventLocationProposal,
+)
+from modules.world.contracts import (
+    MapObservationProposalBase as MapObservationProposalBase,
+)
+from modules.world.contracts import (
+    MapObservationProposalV1,
+)
+from modules.world.contracts import (
+    MapRouteStateProposal as MapRouteStateProposal,
+)
+
 # ============================================================
 # 类型白名单（PRD §5.5 / §6.1）
 # ============================================================
@@ -1551,6 +1570,54 @@ MapDynamicValueV1 = Annotated[
 _MAP_DYNAMIC_VALUE_ADAPTER = TypeAdapter(MapDynamicValueV1)
 
 
+_MAP_OBSERVATION_PROPOSAL_ADAPTER = TypeAdapter(MapObservationProposalV1)
+
+
+def validate_map_observation_payload(
+    dynamic_type: str,
+    value_json: dict[str, Any] | None,
+    *,
+    require_explicit_schema: bool = False,
+) -> None:
+    """Validate proposal or canonical observation payloads.
+
+    Legacy payloads remain readable and can still be created through the
+    compatibility create route.  Author PATCH is stricter and requires an
+    explicit proposal or canonical schema.
+    """
+
+    value = value_json if isinstance(value_json, dict) else {}
+    if value.get("payload_kind") == "proposal":
+        proposal = _MAP_OBSERVATION_PROPOSAL_ADAPTER.validate_python(value)
+        expected_type = {
+            "character_location": "location",
+            "event_location": "location",
+            "route_state": "route_state",
+            "boundary": "boundary",
+        }[proposal.proposal_type]
+        normalized_type = str(dynamic_type or "").strip().lower().replace("-", "_")
+        normalized_type = {
+            "movement": "location",
+            "position": "location",
+            "position_change": "location",
+            "journey": "location",
+            "route": "route_state",
+            "path_state": "route_state",
+            "territory": "boundary",
+            "territory_change": "boundary",
+        }.get(normalized_type, normalized_type)
+        if normalized_type != expected_type:
+            raise ValueError("proposal_type does not match dynamic_type")
+        return
+    if require_explicit_schema and "schema_version" not in value:
+        raise ValueError("author update requires a proposal or canonical payload")
+    from modules.world.services.map.map_dynamic_projection import (
+        validate_versioned_dynamic_value,
+    )
+
+    validate_versioned_dynamic_value(dynamic_type, value)
+
+
 class MapSpatialAnchor(BaseModel):
     """Validated spatial anchor while preserving legacy extension keys."""
 
@@ -1616,33 +1683,29 @@ class MapObservationCreate(BaseModel):
 
     @model_validator(mode="after")
     def _validate_versioned_value(self) -> MapObservationCreate:
-        from modules.world.services.map.map_dynamic_projection import (
-            validate_versioned_dynamic_value,
-        )
-
-        validate_versioned_dynamic_value(self.dynamic_type, self.value_json)
+        validate_map_observation_payload(self.dynamic_type, self.value_json)
         return self
 
 
-class MapObservationReviewUpdate(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True)
+class MapObservationAuthorUpdate(BaseModel):
+    """Fields an author may change on an unconfirmed observation.
 
+    Provenance, evidence, workflow, confidence and source Scene/chapter are
+    intentionally absent.  ``extra=forbid`` makes the API, not the UI, enforce
+    that read-only boundary.
+    """
+
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    expected_updated_at: datetime
     review_state: Literal["candidate", "ignored", "conflicted"] | None = None
     target_entity_id: str | None = None
     target_entity_type: str | None = Field(None, max_length=64)
     target_name: str | None = Field(None, max_length=255)
-    dynamic_type: str | None = Field(None, min_length=1, max_length=64)
-    time_anchor: dict | None = None
     spatial_anchor: MapSpatialAnchor | None = None
     value_json: dict | None = None
-    confidence: float | None = Field(None, ge=0.0, le=1.0)
-    source_ref: dict | None = None
-    evidence_text: str | None = None
-    scene_id: str | None = None
-    scene_index: int | None = Field(None, ge=0)
-    source_chapter_index: int | None = Field(None, ge=0)
 
-    @field_validator("target_entity_id", "scene_id")
+    @field_validator("target_entity_id")
     @classmethod
     def _coerce_optional_uuid(cls, v: str | None) -> str | None:
         if v is None:
@@ -1650,25 +1713,69 @@ class MapObservationReviewUpdate(BaseModel):
         return str(uuid.UUID(v))
 
     @model_validator(mode="after")
-    def _validate_complete_versioned_update(self) -> MapObservationReviewUpdate:
-        if self.dynamic_type is None or self.value_json is None:
+    def _validate_author_payload(self) -> MapObservationAuthorUpdate:
+        if "review_state" in self.model_fields_set and self.review_state is None:
+            raise ValueError("review_state must not be null")
+        if self.value_json is None:
             return self
-        from modules.world.services.map.map_dynamic_projection import (
-            validate_versioned_dynamic_value,
-        )
-
-        validate_versioned_dynamic_value(self.dynamic_type, self.value_json)
+        value = self.value_json
+        if value.get("payload_kind") == "proposal":
+            _MAP_OBSERVATION_PROPOSAL_ADAPTER.validate_python(value)
+        elif "schema_version" not in value:
+            raise ValueError("author update requires a proposal or canonical payload")
         return self
 
 
+class MapObservationReviewUpdate(MapObservationAuthorUpdate):
+    """Compatibility name for existing internal imports."""
+
+
+class MapObservationRevisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_updated_at: datetime
+
+
+class MapObservationAssignmentRequest(MapObservationRevisionRequest):
+    map_id: str | None = None
+
+    @field_validator("map_id")
+    @classmethod
+    def _coerce_map_id(cls, value: str | None) -> str | None:
+        return str(uuid.UUID(value)) if value else None
+
+
+class MapObservationBatchReviewItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    observation_id: str
+    expected_updated_at: datetime
+
+    @field_validator("observation_id")
+    @classmethod
+    def _coerce_observation_id(cls, value: str) -> str:
+        return str(uuid.UUID(value))
+
+
 class MapObservationBatchReviewRequest(BaseModel):
-    observation_ids: list[str] = Field(..., min_length=1, max_length=100)
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[MapObservationBatchReviewItem] = Field(..., min_length=1, max_length=100)
     action: Literal["confirm", "ignore", "conflict"]
 
-    @field_validator("observation_ids")
-    @classmethod
-    def _coerce_observation_ids(cls, values: list[str]) -> list[str]:
-        return [str(uuid.UUID(value)) for value in values]
+    @model_validator(mode="after")
+    def _unique_items(self) -> MapObservationBatchReviewRequest:
+        ids = [item.observation_id for item in self.items]
+        if len(ids) != len(set(ids)):
+            raise ValueError("batch observation ids must be unique")
+        return self
+
+
+class MapObservationEligibility(BaseModel):
+    can_confirm: bool = False
+    missing_items: list[str] = Field(default_factory=list)
+    missing_item_labels: list[str] = Field(default_factory=list)
+    conflict_reason: str | None = None
 
 
 class MapObservationResponse(BaseModel):
@@ -1689,6 +1796,11 @@ class MapObservationResponse(BaseModel):
     normalization_state: Literal[
         "typed", "legacy_normalized", "untyped", "invalid"
     ] | None = None
+    proposal_value: MapObservationProposalV1 | None = None
+    proposal_type: str | None = None
+    eligibility: MapObservationEligibility = Field(
+        default_factory=MapObservationEligibility
+    )
     confidence: float
     review_state: str
     display_state: Literal["active", "review", "archived"] | None = None
@@ -1747,12 +1859,34 @@ class MapObservationResponse(BaseModel):
             )
             self.dimension_key = normalized.dimension_key
             self.normalization_state = normalized.state
+        if (
+            isinstance(self.value_json, dict)
+            and self.value_json.get("payload_kind") == "proposal"
+        ):
+            proposal = _MAP_OBSERVATION_PROPOSAL_ADAPTER.validate_python(
+                self.value_json
+            )
+            self.proposal_value = proposal
+            self.proposal_type = proposal.proposal_type
+            self.normalized_value = None
+            self.dimension_key = None
+            self.normalization_state = "untyped"
+        elif self.proposal_type is None and isinstance(self.source_ref, dict):
+            persisted_proposal_type = self.source_ref.get("proposal_type")
+            if persisted_proposal_type in {
+                "character_location",
+                "event_location",
+                "route_state",
+                "boundary",
+            }:
+                self.proposal_type = persisted_proposal_type
         return self
 
 
 class MapObservationListResponse(BaseModel):
     items: list[MapObservationResponse]
     total: int
+    has_more: bool = False
 
 
 class MapFactResponse(BaseModel):
@@ -1867,15 +2001,28 @@ class MapBatchActionRequest(BaseModel):
         "update_fact_status",
         "update_layer_visibility",
     ]
-    observation_ids: list[str] = Field(default_factory=list, max_length=100)
+    observation_items: list[MapObservationBatchReviewItem] = Field(
+        default_factory=list,
+        max_length=100,
+    )
     fact_ids: list[str] = Field(default_factory=list, max_length=100)
     patch: dict = Field(default_factory=dict)
     confirmation_text: str | None = Field(None, max_length=64)
 
-    @field_validator("observation_ids", "fact_ids")
+    @field_validator("fact_ids")
     @classmethod
     def _coerce_ids(cls, values: list[str]) -> list[str]:
         return [str(uuid.UUID(value)) for value in values]
+
+    @model_validator(mode="after")
+    def _validate_action_items(self) -> MapBatchActionRequest:
+        if self.action in {
+            "confirm_observations",
+            "ignore_observations",
+            "mark_conflicted",
+        } and not self.observation_items:
+            raise ValueError("observation_items is required for observation actions")
+        return self
 
 
 class MapBatchActionResponse(BaseModel):

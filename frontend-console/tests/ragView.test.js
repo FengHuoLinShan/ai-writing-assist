@@ -25,7 +25,15 @@ beforeEach(() => {
   ragView._indexFreshness = {}
   ragView._characters = []
   ragView._scenes = []
+  ragView._cancelActiveSearch()
+  ragView._cancelActiveDrawer()
   ragView._searchHits = []
+  ragView._searchVisibleCount = 0
+  ragView._searchTotal = 0
+  ragView._searchResultMeta = null
+  ragView._searchQuery = ""
+  ragView._searchGeneration = 0
+  ragView._lastExecutedRouteSignature = ""
   ragView._lastSearchPayload = null
   ragView._evidenceHealth = null
   ragView._retrievalTraces = []
@@ -38,6 +46,8 @@ beforeEach(() => {
   api.context.inspectEvidence = vi.fn()
   api.context.traceEvidence = vi.fn()
   vi.clearAllMocks()
+  router.getCurrentQuery.mockReturnValue(new URLSearchParams())
+  router.navigate.mockResolvedValue(true)
 })
 
 describe("ragView", () => {
@@ -63,6 +73,57 @@ describe("ragView", () => {
   })
 
   describe("ragView render", () => {
+    it("为检索与索引范围字段提供程序化标签", async () => {
+      state.currentSubView = "search"
+      document.body.innerHTML = await ragView.render()
+      expect(document.getElementById("rag-search-input").getAttribute("aria-label")).toBe("检索关键词")
+
+      state.currentSubView = "status"
+      document.body.innerHTML = await ragView.render()
+      expect(document.getElementById("rag-rebuild-content-mode").labels[0].textContent).toContain("正文版本")
+      expect(document.getElementById("rag-rebuild-start").labels[0].textContent).toContain("起始章节")
+      expect(document.getElementById("rag-rebuild-end").labels[0].textContent).toContain("结束章节")
+    })
+
+    it("将页面定位为作者资料查找并默认收起高级筛选", async () => {
+      state.currentSubView = "search"
+      document.body.innerHTML = await ragView.render()
+
+      expect(document.body.textContent).toContain("查找小说资料")
+      expect(document.body.textContent).toContain("为当前创作核对事实")
+      const advanced = document.querySelector('[data-role="rag-advanced-filters"]')
+      expect(advanced.open).toBe(false)
+      expect(advanced.querySelector("#rag-visibility-mode")).not.toBeNull()
+      expect(advanced.querySelector("#rag-chapter-from")).not.toBeNull()
+      expect(advanced.querySelector('[data-search-scope="world"]')).not.toBeNull()
+      expect(advanced.querySelector("#rag-search-kind")).toBeNull()
+      expect(document.getElementById("rag-search-kind")).not.toBeNull()
+    })
+
+    it("路由带高级条件时自动展开并显示作者可读摘要", async () => {
+      router.getCurrentQuery.mockReturnValue(new URLSearchParams([
+        ["visibility", "reader"],
+        ["chapter_from", "2"],
+        ["chapter_to", "9"],
+        ["cutoff_chapter", "8"],
+        ["scope", "manuscript"],
+        ["scope", "world"],
+        ["include_pending", "1"],
+      ]))
+      state.currentSubView = "search"
+      document.body.innerHTML = await ragView.render()
+
+      const advanced = document.querySelector('[data-role="rag-advanced-filters"]')
+      const summary = document.querySelector('[data-role="rag-advanced-summary"]')
+      expect(advanced.open).toBe(true)
+      expect(summary.textContent).toContain("第 2–9 章")
+      expect(summary.textContent).toContain("读者视角")
+      expect(summary.textContent).toContain("可见至第 8 章")
+      expect(summary.textContent).toContain("范围：正文、世界对象")
+      expect(summary.textContent).toContain("含待处理对象")
+      expect(summary.textContent).not.toContain("scene-")
+    })
+
     it.each([
       {
         name: "status 子视图展示创作证据健康",
@@ -210,6 +271,257 @@ describe("ragView", () => {
       for (const text of expectedInHtml) {
         expect(results?.textContent).toContain(text)
       }
+    })
+
+    it("超时保留查询和筛选并显示两种页内重试", async () => {
+      state.currentProjectId = "p1"
+      router.getCurrentQuery.mockReturnValue(new URLSearchParams([
+        ["q", "安提哥努斯"],
+        ["kind", "smart"],
+        ["content_mode", "working"],
+        ["visibility", "author"],
+        ["scope", "manuscript"],
+        ["chapter_from", "3"],
+      ]))
+      state.currentSubView = "search"
+      document.body.innerHTML = await ragView.render()
+      api.context.searchEvidence.mockRejectedValue(new Error("请求超时，请检查后端服务是否运行"))
+
+      await ragView._doSearch("安提哥努斯")
+
+      expect(document.getElementById("rag-search-input").value).toBe("安提哥努斯")
+      expect(document.getElementById("rag-content-mode").value).toBe("working")
+      expect(document.getElementById("rag-chapter-from").value).toBe("3")
+      expect(document.getElementById("rag-results").textContent).toContain("暂时无法完成检索")
+      expect(document.getElementById("rag-results").textContent).toContain("索引繁忙或连接暂时不可用")
+      expect(document.getElementById("rag-results").textContent).not.toContain("后端服务是否运行")
+      expect(document.getElementById("rag-results").textContent).not.toContain("未找到匹配结果")
+      expect(document.querySelector('[data-action="retry-search"]')).not.toBeNull()
+      expect(document.querySelector('[data-action="retry-literal-search"]')).not.toBeNull()
+    })
+
+    it("切换字面搜索重试时保留关键词与章节条件并更新路由", async () => {
+      state.currentProjectId = "p1"
+      router.getCurrentQuery.mockReturnValue(new URLSearchParams([
+        ["q", "旧塔"],
+        ["kind", "smart"],
+        ["content_mode", "canonical"],
+        ["visibility", "author"],
+        ["scope", "manuscript"],
+        ["chapter_from", "5"],
+        ["chapter_to", "12"],
+      ]))
+      state.currentSubView = "search"
+      document.body.innerHTML = await ragView.render()
+
+      await ragView._retrySearch({ literal: true })
+
+      const route = router.navigate.mock.calls.at(-1)[3]
+      expect(route.get("q")).toBe("旧塔")
+      expect(route.get("kind")).toBe("literal")
+      expect(route.get("chapter_from")).toBe("5")
+      expect(route.get("chapter_to")).toBe("12")
+      expect(route.getAll("scope")).toEqual(["manuscript"])
+    })
+
+    it("原条件重试直接重新请求并替换错误卡", async () => {
+      state.currentProjectId = "p1"
+      const route = new URLSearchParams([
+        ["q", "旧塔"],
+        ["kind", "smart"],
+        ["content_mode", "canonical"],
+        ["visibility", "author"],
+        ["scope", "manuscript"],
+      ])
+      router.getCurrentQuery.mockReturnValue(route)
+      state.currentSubView = "search"
+      document.body.innerHTML = await ragView.render()
+      document.getElementById("rag-results").innerHTML = ragView._renderSearchError(new Error("timeout"))
+      api.context.searchEvidence.mockResolvedValue({
+        hits: [{ kind: "manuscript", title: "旧塔章节", snippet: "旧塔里的铜铃" }],
+      })
+
+      await ragView._retrySearch()
+
+      expect(api.context.searchEvidence).toHaveBeenCalledTimes(1)
+      expect(document.getElementById("rag-results").textContent).toContain("旧塔章节")
+      expect(document.getElementById("rag-results").textContent).not.toContain("暂时无法完成检索")
+    })
+  })
+
+  describe("渐进结果与路由恢复", () => {
+    it("固定 58 条结果按 20 条渐进挂载且无重复丢失", async () => {
+      state.currentProjectId = "p1"
+      document.body.innerHTML = '<div id="rag-results"></div>'
+      api.context.searchEvidence.mockResolvedValue({
+        total: 58,
+        hits: Array.from({ length: 58 }, (_, index) => ({
+          title: `结果 ${index + 1}`,
+          snippet: `证据 ${index + 1}`,
+          kind: "manuscript",
+        })),
+      })
+
+      await ragView._doSearch("证据")
+      expect(document.querySelectorAll(".rag-result-card")).toHaveLength(20)
+      expect(document.querySelector(".rag-result-count")?.textContent).toContain("已显示 20")
+
+      ragView._loadMoreSearchResults()
+      expect(document.querySelectorAll(".rag-result-card")).toHaveLength(40)
+      ragView._loadMoreSearchResults()
+
+      const cards = [...document.querySelectorAll(".rag-result-card")]
+      expect(cards).toHaveLength(58)
+      expect(new Set(cards.map((card) => card.querySelector(".rag-result-title")?.textContent.trim())).size).toBe(58)
+      expect(document.querySelector('[data-action="load-more-results"]')).toBeNull()
+    })
+
+    it("降级警告不计入首批 20 张结果卡", async () => {
+      state.currentProjectId = "p1"
+      document.body.innerHTML = '<div id="rag-results"></div>'
+      api.context.searchEvidence.mockResolvedValue({
+        total: 20,
+        degraded: true,
+        warnings: ["关键词检索降级"],
+        hits: Array.from({ length: 20 }, (_, index) => ({
+          title: `结果 ${index + 1}`,
+          snippet: `证据 ${index + 1}`,
+          kind: "manuscript",
+        })),
+      })
+
+      await ragView._doSearch("证据")
+
+      expect(document.querySelectorAll(".rag-result-card")).toHaveLength(20)
+      expect(document.querySelector(".rag-search-warning")?.textContent).toContain("关键词检索降级")
+    })
+
+    it("URL 条件可以恢复表单并 round-trip 为同一规范查询", async () => {
+      const query = new URLSearchParams([
+        ["q", "铜铃"],
+        ["kind", "literal"],
+        ["content_mode", "working"],
+        ["visibility", "reader"],
+        ["scope", "manuscript"],
+        ["scope", "world"],
+        ["chapter_from", "2"],
+        ["chapter_to", "9"],
+        ["cutoff_chapter", "8"],
+        ["cutoff_offset", "12"],
+        ["include_pending", "1"],
+      ])
+      router.getCurrentQuery.mockReturnValue(query)
+      state.currentSubView = "search"
+      document.body.innerHTML = await ragView.render()
+
+      expect(document.getElementById("rag-search-input").value).toBe("铜铃")
+      expect(document.getElementById("rag-search-kind").value).toBe("literal")
+      expect(document.getElementById("rag-content-mode").value).toBe("working")
+      expect(document.getElementById("rag-visibility-mode").value).toBe("reader")
+      expect(document.getElementById("rag-chapter-from").value).toBe("2")
+      expect(document.getElementById("rag-chapter-to").value).toBe("9")
+      expect(document.querySelector('[data-search-scope="world"]').checked).toBe(true)
+      expect(document.getElementById("rag-include-pending").checked).toBe(true)
+      expect(ragView._searchRouteQuery("铜铃").toString()).toBe(query.toString())
+    })
+
+    it("新查询取消旧请求且晚到结果不能覆盖当前查询", async () => {
+      state.currentProjectId = "p1"
+      document.body.innerHTML = '<div id="rag-results"></div>'
+      const pending = []
+      api.context.searchEvidence.mockImplementation((_payload, options) => (
+        new Promise((resolve) => pending.push({ resolve, signal: options.signal }))
+      ))
+
+      const first = ragView._doSearch("旧查询")
+      const second = ragView._doSearch("新查询")
+      expect(pending[0].signal.aborted).toBe(true)
+
+      pending[1].resolve({ hits: [{ title: "新结果", snippet: "新查询命中" }] })
+      await second
+      pending[0].resolve({ hits: [{ title: "旧结果", snippet: "不应出现" }] })
+      await first
+
+      expect(document.getElementById("rag-results").textContent).toContain("新结果")
+      expect(document.getElementById("rag-results").textContent).not.toContain("旧结果")
+    })
+
+    it("空查询 URL 会清空签名并允许前进后重新检索同一关键词", async () => {
+      state.currentProjectId = "p1"
+      state.currentView = "rag"
+      state.currentSubView = "search"
+      const query = new URLSearchParams({ q: "旧塔" })
+      router.getCurrentQuery.mockReturnValue(query)
+      api.context.searchEvidence.mockResolvedValue({
+        hits: [{ title: "旧塔结果", snippet: "旧塔证据", kind: "manuscript" }],
+      })
+      document.body.innerHTML = await ragView.render()
+      ragView._restoreSearchFromRoute()
+      await vi.waitFor(() => expect(api.context.searchEvidence).toHaveBeenCalledTimes(1))
+
+      router.getCurrentQuery.mockReturnValue(new URLSearchParams())
+      document.body.innerHTML = await ragView.render()
+      ragView._restoreSearchFromRoute()
+      expect(document.getElementById("rag-search-input").value).toBe("")
+      expect(ragView._lastExecutedRouteSignature).toBe("")
+
+      router.getCurrentQuery.mockReturnValue(query)
+      document.body.innerHTML = await ragView.render()
+      ragView._restoreSearchFromRoute()
+      await vi.waitFor(() => expect(api.context.searchEvidence).toHaveBeenCalledTimes(2))
+      expect(document.getElementById("rag-results").textContent).toContain("旧塔结果")
+    })
+
+    it("项目切换后旧证据抽屉响应不能覆盖当前抽屉引用", async () => {
+      state.currentProjectId = "p1"
+      ragView._searchHits = [{
+        title: "旧项目命中",
+        source_ref: { content_mode: "canonical", chapter_index: 1, version_number: 1 },
+      }]
+      document.body.innerHTML = '<aside id="rag-evidence-drawer"></aside>'
+      let resolveRead
+      api.context.readEvidence.mockImplementation(() => new Promise((resolve) => {
+        resolveRead = resolve
+      }))
+      const pending = ragView._openHit(0)
+
+      state.currentProjectId = "p2"
+      ragView._resetSearchState()
+      document.body.innerHTML = '<aside id="rag-evidence-drawer">当前项目抽屉</aside>'
+      resolveRead({
+        title: "旧项目证据",
+        text: "不应写回",
+        source_ref: { chapter_index: 1, version_number: 1 },
+        object_refs: [{ target_id: "old-object" }],
+      })
+      await pending
+
+      expect(document.getElementById("rag-evidence-drawer").textContent).toBe("当前项目抽屉")
+      expect(ragView._drawerRefs).toEqual([])
+    })
+
+    it("提交检索把查询与筛选写入 URL，但不保存加载游标", async () => {
+      state.currentProjectId = "p1"
+      router.getCurrentQuery.mockReturnValue(new URLSearchParams())
+      router.navigate.mockResolvedValue(true)
+      document.body.innerHTML = `
+        <input id="rag-search-input" value="旧塔" />
+        <select id="rag-search-kind"><option value="smart" selected>smart</option></select>
+        <select id="rag-content-mode"><option value="canonical" selected>canonical</option></select>
+        <select id="rag-visibility-mode"><option value="author" selected>author</option></select>
+        <input type="checkbox" data-search-scope="manuscript" checked />
+        <input type="checkbox" data-search-scope="world" checked />
+      `
+
+      await ragView._submitSearchFromForm()
+
+      const route = router.navigate.mock.calls.at(-1)[3]
+      expect(router.navigate).toHaveBeenLastCalledWith("rag", "search", true, route)
+      expect(route.get("q")).toBe("旧塔")
+      expect(route.getAll("scope")).toEqual(["manuscript", "world"])
+      expect(route.has("page")).toBe(false)
+      expect(route.has("cursor")).toBe(false)
+      expect(route.has("cutoff_offset")).toBe(false)
     })
   })
 

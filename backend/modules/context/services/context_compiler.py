@@ -43,6 +43,7 @@ SCOPE_LOADERS: dict[str, list[str]] = {
     "world": ["project", "world_entities", "world_bible"],
     "world_character": ["project", "world_entities", "characters", "world_bible"],
     "generation_center": [
+        "scene",
         "project",
         "world_entities",
         "characters",
@@ -150,17 +151,28 @@ class ContextCompiler:
 
         relevance_generation = options.consumer_action in {
             "writing.generate",
-            "world.object_draft.chat",
-            "world.object_draft.generate",
+            "world.generation.chat",
+            "world.generation.core_entity",
+            "world.generation.world_bible_page",
         }
         if relevance_generation:
             # Generation relevance is assembled before entity Top-K: Scene,
             # active threads and RAG chunks contribute stable IDs.
-            prerequisite_names = [n for n in loader_names if n == "project"]
+            prerequisite_names = [
+                n
+                for n in loader_names
+                if n == "project" or (n == "scene" and options.scene_id is not None)
+            ]
             dependent_names = [
                 n
                 for n in loader_names
-                if n not in {"project", "plot_threads", "world_entities", "characters"}
+                if n
+                not in {
+                    *prerequisite_names,
+                    "plot_threads",
+                    "world_entities",
+                    "characters",
+                }
             ]
         else:
             prerequisite_names = [n for n in loader_names if n in _PREREQUISITE_LOADERS]
@@ -175,6 +187,18 @@ class ContextCompiler:
                 continue
             try:
                 await loader.load(db, options, bundle)
+                if name == "scene" and bundle.scene:
+                    scene_chapter = self._scene_chapter_index(bundle.scene)
+                    if scene_chapter is not None:
+                        if (
+                            options.chapter_index is not None
+                            and options.chapter_index != scene_chapter
+                        ):
+                            bundle.warnings.append(
+                                "当前 Scene 章节锚点优先于请求中的参考章节"
+                            )
+                        options.chapter_index = scene_chapter
+                        bundle.chapter_index = scene_chapter
             except Exception as exc:
                 msg = f"加载 {name} 时出错: {exc}"
                 logger.warning(msg)
@@ -252,9 +276,11 @@ class ContextCompiler:
             reveal_mode=options.reveal_mode,
         )
         sections.extend(constraint_sections)
-        activation_section, activation_trace, activation_warnings = (
-            await self._build_activation_section(db, bundle, options)
-        )
+        (
+            activation_section,
+            activation_trace,
+            activation_warnings,
+        ) = await self._build_activation_section(db, bundle, options)
         if activation_section is not None:
             sections.append(activation_section)
         sections, exclusion_warnings = self._apply_section_exclusions(
@@ -274,11 +300,33 @@ class ContextCompiler:
             compiled_at=datetime.now(UTC).replace(tzinfo=None).isoformat(),
             warnings=warnings,
             activation_trace=activation_trace,
+            selection_trace=dict(bundle.selection_trace),
         )
         compiled = ctx.enforce_budget()
         if activation_trace:
             self._apply_global_activation_budget_trace(compiled)
         return compiled
+
+    @staticmethod
+    def _scene_chapter_index(scene: object) -> int | None:
+        """Resolve the latest real chapter covered by the current Scene."""
+        if not isinstance(scene, dict):
+            return None
+        direct = scene.get("chapter_index")
+        if str(direct or "").isdigit():
+            return int(direct)
+        indices: list[int] = []
+        for chunk in scene.get("scene_chunks") or []:
+            if not isinstance(chunk, dict):
+                continue
+            value = chunk.get("chapter_index")
+            if str(value or "").isdigit():
+                indices.append(int(value))
+        if not indices:
+            for value in scene.get("chapter_ids") or []:
+                if str(value or "").isdigit():
+                    indices.append(int(value))
+        return max(indices) if indices else None
 
     async def _build_activation_section(
         self,
@@ -353,11 +401,15 @@ class ContextCompiler:
             }
             for item in trace["items"]
         ]
-        serialized_items = json.dumps(
-            data_items,
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ).replace("<", "\\u003c").replace(">", "\\u003e")
+        serialized_items = (
+            json.dumps(
+                data_items,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            .replace("<", "\\u003c")
+            .replace(">", "\\u003e")
+        )
         content = (
             "<WORLD_BIBLE_ACTIVATION_DATA>\n"
             + serialized_items
@@ -611,6 +663,28 @@ class ContextCompiler:
                 )
             )
 
+        if bundle.world_entities:
+            content = "\n".join(str(item) for item in bundle.world_entities)
+            sections.append(
+                ContextSection(
+                    key="world_entities",
+                    tier=Tier.P2,
+                    content=content,
+                    token_count=estimate_token_count(content),
+                    truncatable_per_item=True,
+                    max_items=16,
+                    title="相关世界对象",
+                    preview=content[:160],
+                    status=options.context_mode if options else "canonical",
+                    activation_reason="作者显式选择及 Scene、剧情线、检索证据关联",
+                    sources=self._sources_from_items(
+                        bundle.world_entities,
+                        default_type="world_entity",
+                        status=options.context_mode if options else "canonical",
+                    ),
+                )
+            )
+
         if bundle.memory_records:
             content = "\n".join(str(m) for m in bundle.memory_records)
             prefixed = mode_prefix + content
@@ -725,6 +799,24 @@ class ContextCompiler:
                 )
             )
 
+        if options is not None and options.consumer_action in {
+            "world.generation.chat",
+            "world.generation.core_entity",
+            "world.generation.world_bible_page",
+        }:
+            generation_order = {
+                "writing_objective": 0,
+                "world_bible_working_pages": 1,
+                "scene_blueprint": 2,
+                "open_narrative_obligations": 3,
+                "retrieval_evidence_packs": 4,
+                "pov_knowledge": 5,
+                "world_entities": 6,
+                "style_assets": 7,
+                "world_bible_synopsis": 8,
+                "compiler_warnings": 9,
+            }
+            sections.sort(key=lambda item: generation_order.get(item.key, 7))
         return sections
 
     def _build_reader_reveal_sections(

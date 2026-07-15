@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import UTC, datetime
 from typing import Any, ClassVar
 
 from sqlalchemy import (
@@ -168,11 +169,7 @@ class MapConfigRepository:
         if db.get_bind().dialect.name != "postgresql":
             return
         await db.execute(
-            select(
-                func.pg_advisory_xact_lock(
-                    func.hashtextextended(str(novel_id), 0)
-                )
-            )
+            select(func.pg_advisory_xact_lock(func.hashtextextended(str(novel_id), 0)))
         )
 
     @staticmethod
@@ -317,11 +314,7 @@ class MapConfigRepository:
     ) -> list[MapConfig]:
         """Lock a complete map subtree in deterministic order."""
         all_maps = list(
-            (
-                await db.execute(
-                    select(MapConfig).where(MapConfig.novel_id == novel_id)
-                )
-            )
+            (await db.execute(select(MapConfig).where(MapConfig.novel_id == novel_id)))
             .scalars()
             .all()
         )
@@ -502,9 +495,7 @@ class MapPresenceRepository:
             .scalars()
             .all()
         )
-        path_ids = list(
-            dict.fromkeys(path.id for path in [*path_starts, *path_ends])
-        )
+        path_ids = list(dict.fromkeys(path.id for path in [*path_starts, *path_ends]))
         path_nodes = (
             list(
                 (
@@ -553,11 +544,9 @@ class MapPresenceRepository:
                         .join(
                             MapTerrainBinding,
                             and_(
-                                MapTerrainBinding.region_id
-                                == MapTerrainPatch.region_id,
+                                MapTerrainBinding.region_id == MapTerrainPatch.region_id,
                                 MapTerrainBinding.map_id == MapTerrainPatch.map_id,
-                                MapTerrainBinding.novel_id
-                                == MapTerrainPatch.novel_id,
+                                MapTerrainBinding.novel_id == MapTerrainPatch.novel_id,
                             ),
                         )
                         .join(MapConfig, MapConfig.id == MapTerrainPatch.map_id)
@@ -1154,8 +1143,7 @@ class MapLayerNodeRepository(MapEntityRepository[MapLayerNode]):
         values: list[dict[str, Any]],
     ) -> list[MapLayerNode]:
         nodes = [
-            MapLayerNode(novel_id=novel_id, map_id=map_id, **item)
-            for item in values
+            MapLayerNode(novel_id=novel_id, map_id=map_id, **item) for item in values
         ]
         db.add_all(nodes)
         await db.flush()
@@ -1825,14 +1813,69 @@ class MapTerritoryRepository(MapEntityRepository[MapTerritoryTile]):
 class MapObservationRepository:
     """地图观察事实数据访问。"""
 
+    async def lock_candidate_identities(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        observation_ids: list[uuid.UUID],
+    ) -> None:
+        """Serialize deterministic candidate creation, including missing rows."""
+        if db.get_bind().dialect.name != "postgresql":
+            return
+        for observation_id in sorted(set(observation_ids), key=str):
+            lock_key = f"map-observation-candidate:{novel_id}:{observation_id}"
+            await db.execute(
+                select(func.pg_advisory_xact_lock(func.hashtextextended(lock_key, 0)))
+            )
+
     async def get(
         self,
         db: AsyncSession,
         observation_id: uuid.UUID,
     ) -> MapObservation | None:
-        stmt = select(MapObservation).where(MapObservation.id == observation_id)
+        stmt = (
+            select(MapObservation)
+            .where(MapObservation.id == observation_id)
+            .execution_options(populate_existing=True)
+        )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_in_novel_for_update(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        observation_id: uuid.UUID,
+    ) -> MapObservation | None:
+        stmt = (
+            select(MapObservation)
+            .where(
+                MapObservation.id == observation_id,
+                MapObservation.novel_id == novel_id,
+            )
+            .with_for_update()
+        )
+        return (await db.execute(stmt)).scalar_one_or_none()
+
+    async def get_many_in_novel_for_update(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        observation_ids: list[uuid.UUID],
+    ) -> list[MapObservation]:
+        unique_ids = sorted(set(observation_ids), key=str)
+        if not unique_ids:
+            return []
+        stmt = (
+            select(MapObservation)
+            .where(
+                MapObservation.novel_id == novel_id,
+                MapObservation.id.in_(unique_ids),
+            )
+            .order_by(MapObservation.id)
+            .with_for_update()
+        )
+        return list((await db.execute(stmt)).scalars().all())
 
     async def get_many(
         self,
@@ -1885,6 +1928,43 @@ class MapObservationRepository:
         result = await db.execute(stmt)
         return list(result.scalars().all()), total
 
+    async def list_project_inbox(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        dynamic_types: tuple[str, ...] | None = None,
+        scene_id: uuid.UUID | None = None,
+        skip: int = 0,
+        limit: int | None = 100,
+    ) -> tuple[list[MapObservation], int]:
+        conditions: list[Any] = [
+            MapObservation.novel_id == novel_id,
+            MapObservation.map_id.is_(None),
+            MapObservation.review_state.in_(["candidate", "conflicted"]),
+        ]
+        if dynamic_types:
+            conditions.append(MapObservation.dynamic_type.in_(dynamic_types))
+        if scene_id is not None:
+            conditions.append(MapObservation.scene_id == scene_id)
+        total = (
+            await db.execute(select(func.count(MapObservation.id)).where(*conditions))
+        ).scalar() or 0
+        stmt = (
+            select(MapObservation)
+            .where(*conditions)
+            .order_by(
+                MapObservation.review_state.desc(),
+                MapObservation.scene_index.nulls_last(),
+                MapObservation.created_at,
+                MapObservation.id,
+            )
+            .offset(skip)
+        )
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        return list((await db.execute(stmt)).scalars().all()), total
+
     async def list_for_dashboard(
         self,
         db: AsyncSession,
@@ -1893,12 +1973,12 @@ class MapObservationRepository:
         map_id: uuid.UUID,
         limit: int = 100,
     ) -> list[MapObservation]:
-        """列出总控台候选：当前地图 + 尚未归属具体地图的观察事实。"""
+        """列出当前地图候选；项目级未分配候选只进入收件箱。"""
         stmt = (
             select(MapObservation)
             .where(
                 MapObservation.novel_id == novel_id,
-                or_(MapObservation.map_id == map_id, MapObservation.map_id.is_(None)),
+                MapObservation.map_id == map_id,
                 MapObservation.review_state.in_(["candidate", "conflicted"]),
             )
             .order_by(
@@ -1959,7 +2039,7 @@ class MapObservationRepository:
             select(MapObservation)
             .where(
                 MapObservation.novel_id == novel_id,
-                or_(MapObservation.map_id == map_id, MapObservation.map_id.is_(None)),
+                MapObservation.map_id == map_id,
                 MapObservation.scene_id == scene_id,
                 MapObservation.review_state.in_(["candidate", "conflicted"]),
                 MapObservation.dynamic_type.in_(tuple(dynamic_types)),
@@ -2077,6 +2157,41 @@ class MapObservationRepository:
         db.add(observation)
         await db.flush()
         return observation
+
+    async def compare_and_update(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        observation_id: uuid.UUID,
+        *,
+        expected_updated_at: datetime,
+        values: dict[str, Any],
+        allowed_states: tuple[str, ...] = ("candidate", "conflicted"),
+    ) -> MapObservation | None:
+        """Apply one author mutation only when revision and state still match."""
+
+        next_values = {**values, "updated_at": datetime.now(UTC)}
+        stmt = (
+            update(MapObservation)
+            .where(
+                MapObservation.id == observation_id,
+                MapObservation.novel_id == novel_id,
+                MapObservation.review_state.in_(allowed_states),
+                MapObservation.updated_at == expected_updated_at,
+            )
+            .values(**next_values)
+            .returning(MapObservation.id)
+        )
+        updated_id = (await db.execute(stmt)).scalar_one_or_none()
+        if updated_id is None:
+            return None
+        await db.flush()
+        refreshed = await db.get(
+            MapObservation,
+            updated_id,
+            populate_existing=True,
+        )
+        return refreshed
 
 
 # ============================================================
@@ -2207,9 +2322,7 @@ class MapFactRepository:
             if context_dynamic_types:
                 focus_condition = or_(
                     focus_condition,
-                    func.lower(MapFact.dynamic_type).in_(
-                        sorted(context_dynamic_types)
-                    ),
+                    func.lower(MapFact.dynamic_type).in_(sorted(context_dynamic_types)),
                 )
             conditions.append(focus_condition)
         stmt = (

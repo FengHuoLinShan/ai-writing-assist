@@ -49,6 +49,9 @@ async def mark_asset_context_changed(...) -> int
 async def open_context_snapshot(db, request: ContextSnapshotRequest) -> ContextSnapshotContract
 async def succeed_context_snapshot(...) -> ContextSnapshotContract
 async def fail_context_snapshot(...) -> ContextSnapshotContract
+async def open_generation_context_snapshot(db, request: ContextSnapshotRequest) -> ContextSnapshotContract
+async def succeed_generation_context_snapshot(...) -> ContextSnapshotContract
+async def fail_generation_context_snapshot(...) -> ContextSnapshotContract
 async def build_snapshot_health_summary(...) -> dict
 async def mark_stale_running_snapshots(...) -> int
 async def prune_rendered_context(...) -> int
@@ -225,11 +228,20 @@ CharacterKnowledge 过滤。当前章活跃剧情线只向模型提供名称、�
 当前进展，并标为 `director_only`；`summary / hidden_truth /
 author_known_state` 不进入 character reveal section。
 
-`scope=generation_center` 供生成中心世界对象共创使用。它以最近作者
-意图作为确定性 RAG query，并先加载篇章、剧情线和证据，再让
-`WorldEntitiesLoader` / `CharactersLoader` 按关联 ID 取 Top-K。无关联 ID 时
-世界对象仍回退到已采用对象的重要性排序。快照只保存 focus hash，
-不把用户聊天原文复制到 `compile_options`。
+`scope=generation_center` 供生成中心整个 world 工作区使用，覆盖对象建议、完善现有
+世界书页面和创建新页面。编译器接收来源页面、当前 Scene、显式剧情线/人物/对象、章节
+索引、世界观简介开关和 Activation Profile revision；以最近作者意图作为确定性 RAG query，
+按“显式选择与来源页引用 → 当前 Scene → 当前章活跃剧情线/篇章/RAG → 关联人物与对象 →
+项目设定与可选简介”组织资料。人物自动候选最多 6 个，非人物世界对象最多 16 个，显式
+选择优先占位；没有章节、Scene、页面引用或检索证据时不默认加载第一章剧情线。
+
+generation center snapshot 保存 consumer action、Prompt 名称、来源页面/工作稿 hash、简介
+revision、Activation Profile revision、实际纳入的剧情线/Scene/人物/对象和裁剪原因。用户
+聊天正文不复制进 `compile_options`，只保存 focus hash；页面正文也由 world 在服务器端重载，
+context 只消费经边界校验的来源投影。生成快照使用 context-owned durable transaction：
+`compile_generation_background()` 独立持久化 running 状态，调用方通过
+`succeed_generation_context_snapshot()` / `fail_generation_context_snapshot()` 独立收尾，
+不会提交或回滚调用方的业务事务。
 - `PlotThreadsLoader(get_active_threads_fn=...)`
 - `OutlineArcLoader(get_arc_by_chapter_fn=...)`
 
@@ -299,6 +311,10 @@ metadata，不产生正史事实。
 生产代码通过 `open_context_snapshot()` 打开 running 快照，通过
 `succeed_context_snapshot()` / `fail_context_snapshot()` 完成生命周期标记。宽参数
 `create_context_snapshot()` 仅用于兼容旧调用。
+
+生成中心调用使用独立的 `open/succeed/fail_generation_context_snapshot()` 生命周期；这些
+入口由 context 创建并提交独立 session，确保业务 suggestion/chat 事务回滚时审计快照仍可
+记录失败。普通 snapshot 入口继续参与调用方事务，不改变既有自动流水线的原子性。
 
 ```http
 GET  /api/context/snapshots?novel_id=...&workflow_id=...

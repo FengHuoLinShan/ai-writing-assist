@@ -24,8 +24,7 @@ from modules.world.schemas import (
     GenerationPromptTemplateResponse,
     GenerationPromptTemplateRevisionResponse,
     GenerationPromptTemplateUpdate,
-    ObjectDraftChatRequest,
-    ObjectDraftGenerateRequest,
+    ObjectDraftTemplate,
     PromptTemplateCopyRequest,
     PromptTemplateIssue,
     PromptTemplatePreviewRequest,
@@ -435,7 +434,9 @@ class GenerationPromptTemplateService:
         template_id: str | None,
         template_version: int | None,
         template_variables: dict[str, Any],
-        legacy_data: ObjectDraftChatRequest | ObjectDraftGenerateRequest | None = None,
+        object_template: ObjectDraftTemplate | None = None,
+        template_name: str | None = None,
+        template_prompt: str | None = None,
     ) -> ResolvedGenerationTemplate:
         if template_id:
             if _is_builtin_id(template_id):
@@ -479,16 +480,16 @@ class GenerationPromptTemplateService:
                 is_builtin=response.is_builtin,
             )
 
-        assert legacy_data is not None
-        object_template = legacy_data.template
+        if object_template is None:
+            raise ValidationError("object_template is required without template_id")
         label = (
-            legacy_data.template_name.strip()[:80]
-            if object_template == "custom" and legacy_data.template_name
+            template_name.strip()[:80]
+            if object_template == "custom" and template_name
             else template_label(object_template)
         )
         prompt = (
-            legacy_data.template_prompt.strip()
-            if legacy_data.template_prompt and legacy_data.template_prompt.strip()
+            template_prompt.strip()
+            if template_prompt and template_prompt.strip()
             else default_template_prompt(object_template)
         )
         issues = validate_template(

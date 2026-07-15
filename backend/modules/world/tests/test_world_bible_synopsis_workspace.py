@@ -29,7 +29,8 @@ from modules.world.schemas import (
     WorldBibleCategoryUpdate,
     WorldBiblePageDraftCreate,
     WorldBiblePageDraftUpdate,
-    WorldBibleSuggestionApplyDraftRequest,
+    WorldBiblePageProposalContent,
+    WorldGenerationApplyPageDraftRequest,
 )
 from modules.world.services.worldbuilding.suggestion_queue_service import (
     SuggestionQueueService,
@@ -48,22 +49,23 @@ class _FakeSynopsisClient:
 
     async def generate_structured(self, _request, schema, **_kwargs):
         return schema(
-            claims=[
+            sections=[{
+                "title": "世界结构",
+                "claims": [
                 {
-                    "category_key": "background",
                     "text": "星海帝国建立于长夜之后。",
-                    "source_refs": self.source_refs,
+                    "source_keys": self.source_keys,
                 },
                 {
-                    "category_key": "secret",
                     "text": "这条声明没有合法来源，应被丢弃。",
-                    "source_refs": [{"type": "unknown", "id": "missing"}],
+                    "source_keys": ["K-missing"],
                 },
-            ],
+                ],
+            }],
             omitted_reasons=[],
         )
 
-    source_refs: list[dict] = []
+    source_keys: list[str] = []
 
 
 class _TaskSynopsisClient(_FakeSynopsisClient):
@@ -77,7 +79,10 @@ class _TaskSynopsisClient(_FakeSynopsisClient):
         close_error: Exception | None = None,
     ) -> None:
         self._session = session
-        self.source_refs = source_refs
+        self.source_keys = [
+            str(item.get("source_key") or "") if isinstance(item, dict) else str(item)
+            for item in source_refs
+        ]
         self._on_generate = on_generate
         self._error = error
         self._close_error = close_error
@@ -96,6 +101,10 @@ class _TaskSynopsisClient(_FakeSynopsisClient):
         self.closed = True
         if self._close_error is not None:
             raise self._close_error
+
+
+class _UnsupportedSynopsisClient(_FakeSynopsisClient):
+    source_keys = ["K-missing"]
 
 
 async def _prepare_synopsis_task(
@@ -143,7 +152,11 @@ async def _prepare_synopsis_task(
     head.stale = True
     await db_session.flush()
     db_session.expunge(task)
-    return task, page, source_hash, [{"type": source["type"], "id": source["id"]}]
+    return task, page, source_hash, [{
+        "type": source["type"],
+        "id": source["id"],
+        "source_key": source["source_key"],
+    }]
 
 
 def _task_handler_session(
@@ -933,7 +946,7 @@ async def test_selected_working_draft_change_marks_confirmation_stale(
     confirmation = await ContextConfirmationService().confirm_context(
         db_session,
         novel_id=project_novel_id,
-        action="world.object_draft.generate",
+        action="world.generation.core_entity",
         task="使用选中的世界书工作稿",
         scope="world",
         selected_world_bible_draft_ids=[draft.id],
@@ -1049,35 +1062,67 @@ async def test_suggestion_edit_applies_to_working_draft_only(
         ),
     )
     page = await lifecycle.publish_draft(db_session, project_novel_id, source.id)
-    suggestion = await SuggestionQueueService().create(
+    queue = SuggestionQueueService()
+    baseline_hash = queue._world_bible_source_hash(
+        title=page.title,
+        page_type=page.page_type,
+        free_text=page.free_text,
+        sections_json=page.sections_json,
+        linked_asset_refs_json=page.linked_asset_refs_json,
+        template_key=page.template_key,
+        template_version=page.template_version,
+        page_version=page.version_number,
+    )
+    suggestion = await queue.create(
         db_session,
         CreationSuggestionCreate(
             novel_id=project_novel_id,
-            source_module="world_bible",
-            review_group="world_bible_ai",
-            target_type="world_bible_page_patch",
-            action_schema="world_bible_page_patch_v1",
+            source_module="world",
+            review_group="generation_center",
+            target_type="world_bible_page_draft",
+            action_schema="world_generation.page_draft.v1",
             payload_json={
-                "page_id": page.id,
-                "append_text": "AI 原始补写。",
+                "operation": "replace_existing",
+                "target_page_id": page.id,
+                "baseline": {
+                    "page_id": page.id,
+                    "page_version": page.version_number,
+                    "content_hash": baseline_hash,
+                },
+                "page": {
+                    "title": "AI 原始标题",
+                    "page_type": page.page_type,
+                    "free_text": "AI 原始整页。",
+                    "sections_json": [],
+                    "linked_asset_refs_json": [],
+                },
                 "source_refs": [],
             },
         ),
     )
-    applied = await SuggestionQueueService().apply_world_bible_suggestion_to_draft(
+    applied = await queue.apply_world_generation_page_draft(
         db_session,
         project_novel_id,
         suggestion.id,
-        WorldBibleSuggestionApplyDraftRequest(append_text="作者编辑后的补写。"),
+        WorldGenerationApplyPageDraftRequest(
+            page=WorldBiblePageProposalContent(
+                title="作者编辑后的标题",
+                page_type=page.page_type,
+                free_text="作者编辑后的整页。",
+                sections_json=[],
+                linked_asset_refs_json=[],
+            )
+        ),
     )
 
-    assert applied.status == "accepted"
+    assert applied.suggestion.status == "accepted"
     draft = await db_session.get(
         WorldBiblePageDraft,
-        uuid.UUID(applied.result_ref_json["id"]),
+        uuid.UUID(applied.draft.id),
     )
     canonical = await db_session.get(WorldBiblePage, uuid.UUID(page.id))
-    assert "作者编辑后的补写" in draft.free_text
+    assert draft.title == "作者编辑后的标题"
+    assert draft.free_text == "作者编辑后的整页。"
     assert canonical.free_text == "已发布正文。"
     stored_suggestion = await db_session.get(
         CreationSuggestion,
@@ -1087,7 +1132,7 @@ async def test_suggestion_edit_applies_to_working_draft_only(
 
 
 @pytest.mark.asyncio
-async def test_suggestion_explicit_empty_edit_does_not_apply_original_text(
+async def test_suggestion_explicit_empty_page_text_does_not_restore_ai_text(
     db_session,
     project_novel_id: str,
 ) -> None:
@@ -1102,28 +1147,63 @@ async def test_suggestion_explicit_empty_edit_does_not_apply_original_text(
         ),
     )
     page = await lifecycle.publish_draft(db_session, project_novel_id, source.id)
-    suggestion = await SuggestionQueueService().create(
+    queue = SuggestionQueueService()
+    baseline_hash = queue._world_bible_source_hash(
+        title=page.title,
+        page_type=page.page_type,
+        free_text=page.free_text,
+        sections_json=page.sections_json,
+        linked_asset_refs_json=page.linked_asset_refs_json,
+        template_key=page.template_key,
+        template_version=page.template_version,
+        page_version=page.version_number,
+    )
+    suggestion = await queue.create(
         db_session,
         CreationSuggestionCreate(
             novel_id=project_novel_id,
-            source_module="world_bible",
-            review_group="world_bible_ai",
-            target_type="world_bible_page_patch",
-            action_schema="world_bible_page_patch_v1",
-            payload_json={"page_id": page.id, "append_text": "不应被静默恢复。"},
+            source_module="world",
+            review_group="generation_center",
+            target_type="world_bible_page_draft",
+            action_schema="world_generation.page_draft.v1",
+            payload_json={
+                "operation": "replace_existing",
+                "target_page_id": page.id,
+                "baseline": {
+                    "page_id": page.id,
+                    "page_version": page.version_number,
+                    "content_hash": baseline_hash,
+                },
+                "page": {
+                    "title": page.title,
+                    "page_type": page.page_type,
+                    "free_text": "不应被静默恢复。",
+                    "sections_json": [],
+                    "linked_asset_refs_json": [],
+                },
+            },
         ),
     )
 
-    with pytest.raises(ValidationError, match="must not be blank"):
-        await SuggestionQueueService().apply_world_bible_suggestion_to_draft(
-            db_session,
-            project_novel_id,
-            suggestion.id,
-            WorldBibleSuggestionApplyDraftRequest(append_text="   "),
+    applied = await queue.apply_world_generation_page_draft(
+        db_session,
+        project_novel_id,
+        suggestion.id,
+        WorldGenerationApplyPageDraftRequest(
+            page=WorldBiblePageProposalContent(
+                title=page.title,
+                page_type=page.page_type,
+                free_text="",
+                sections_json=[],
+                linked_asset_refs_json=[],
+            )
         )
+    )
 
     canonical = await db_session.get(WorldBiblePage, uuid.UUID(page.id))
+    draft = await db_session.get(WorldBiblePageDraft, uuid.UUID(applied.draft.id))
     assert canonical.free_text == "已发布正文。"
+    assert draft.free_text == ""
 
 
 @pytest.mark.asyncio
@@ -1149,7 +1229,7 @@ async def test_synopsis_discards_unattributed_claim_and_persists_provenance(
     )
     page_source = next(item for item in manifest if item["type"] == "world_bible_page")
     client = _FakeSynopsisClient()
-    client.source_refs = [{"type": page_source["type"], "id": page_source["id"]}]
+    client.source_keys = [page_source["source_key"]]
     task_id = str(uuid.uuid4())
     revision, promoted = await service.refresh_now(
         db_session,
@@ -1166,6 +1246,49 @@ async def test_synopsis_discards_unattributed_claim_and_persists_provenance(
     assert revision.token_estimate <= 1200
     assert revision.generation_meta_json["model"] == "fake-synopsis-model"
     assert revision.generation_meta_json["editable"] is False
+
+
+@pytest.mark.asyncio
+async def test_synopsis_uses_fallback_when_all_claims_are_unsupported() -> None:
+    manifest = [
+        {
+            "type": "world_bible_page",
+            "id": "page-1",
+            "title": "世界背景",
+            "summary": "星海帝国建立于长夜之后。",
+            "category_key": "background",
+            "source_key": "K1",
+        }
+    ]
+
+    generation = await WorldBibleSynopsisService()._generate_synopsis(
+        manifest,
+        _UnsupportedSynopsisClient(),
+    )
+
+    claims = json.loads(generation.claims_json)
+    assert generation.rendered_text == (
+        "## 世界观参考\n- 世界背景：星海帝国建立于长夜之后。"
+    )
+    assert claims == [
+        {
+            "claims": [{
+                "source_keys": ["K1"],
+                "source_refs": [
+                    {
+                        "id": "page-1",
+                        "source_hash": None,
+                        "type": "world_bible_page",
+                    }
+                ],
+                "text": "世界背景：星海帝国建立于长夜之后。",
+            }],
+            "title": "世界观参考",
+        }
+    ]
+    assert "all_llm_sections_unsupported:fallback_used" in (
+        generation.validation_omitted_reasons
+    )
 
 
 @pytest.mark.asyncio
@@ -1316,7 +1439,7 @@ async def test_synopsis_source_hash_cas_keeps_obsolete_result_superseded(
     )
     source = next(item for item in current_manifest if item["type"] == "world_bible_page")
     client = _FakeSynopsisClient()
-    client.source_refs = [{"type": source["type"], "id": source["id"]}]
+    client.source_keys = [source["source_key"]]
 
     revision, promoted = await service.refresh_now(
         db_session,
@@ -1376,7 +1499,7 @@ async def test_synopsis_same_hash_result_requires_active_task_ownership(
     head.active_task_id = active_task.id
     await db_session.flush()
     client = _FakeSynopsisClient()
-    client.source_refs = [{"type": page_source["type"], "id": page_source["id"]}]
+    client.source_keys = [page_source["source_key"]]
 
     revision, promoted = await service.refresh_now(
         db_session,

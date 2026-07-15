@@ -23,21 +23,23 @@
 | `structure_chapter_scene.md` | 章节与场景结构生成 | 手动生成流 |
 | `structure_extraction.md` | 从章节正文补抽世界对象 | world 抽取任务 |
 | `scene_segmentation.md` | 正式 Scene 字段切分 / 小样本与单章恢复路径 | imports |
-| `scene_entity_extraction.md` | 深度导入 Phase 2a，Scene 世界对象/Delta 抽取 | imports |
+| `scene_entity_extraction.md` | 深度导入 Phase 2a，Scene 世界对象/Delta 与四类显式地图 proposal 抽取 | imports |
 | `alias_relation_extraction.md` | 深度导入 Phase 2b，基于工作对象索引提取别名/关系 | imports |
 | `extract_chapter_scene.md` | 从正文提取章节卡信息 | 写作/大纲辅助 |
 | `extract_character.md` | 从正文片段提取人物档案字段 | 人物信息补全 |
 | `scene_fusion_draft.py` | 内联 step `outline.scene_fusion.draft.structured`：基于选中 Scene 卡和精确正文生成融合语义草稿 | Scene 工作台 |
+| `world_generation_center_service.py` | 内联 steps `world.generation.chat.generate`、`world.generation.core_entity.structured`、`world.generation.world_bible_page.structured`、`world.generation.world_bible_new_page.structured`：世界设定共创与结构化建议 | world 生成中心 |
 | `world_bible_synopsis_service.py` | 内联 step `world.world_bible.synopsis.structured`：把已采用世界事实压缩为作者版 P1 世界观简介 | world 世界书简介刷新任务 |
 | `generation_prompt_template_service.py` | 内置创作视角与项目级自定义模板；作为 author brief 进入生成中心 | world 对象共创 |
 | `writing/services.py` | 内联 step `writing.generation.candidate.generate`：根据已确认上下文生成正文候选 | writing 正文生成 |
 
 ## 3. Prompt Contract System
 
-深度导入链路和生成中心世界对象草稿链路使用 `backend/tools/prompt_contracts/` 做开发期漂移检查，覆盖
+深度导入链路和生成中心结构化建议链路使用 `backend/tools/prompt_contracts/` 做开发期漂移检查，覆盖
 Phase 1a Scene slicing、Phase 1b Scene enrichment、Phase 1c Scene fusion、Phase 2 world extraction、
-Phase 2b alias/relation、Phase 3 simple structure，以及 Generation Center
-world object draft（`generation_center_world_object_draft`）。检查入口是
+Phase 2b alias/relation、Phase 3 simple structure，以及 Generation Center 的
+`world_generation_core_entity`、`world_generation_world_bible_page`、
+`world_generation_world_bible_new_page` 和 `world_bible_synopsis`。检查入口是
 `make prompt-contracts` 或 `cd backend && python -m tools.prompt_contracts check`。
 
 Contract 使用 JSON 声明 prompt 字段、Pydantic schema、关键持久化映射、目标表列和
@@ -61,9 +63,10 @@ shell、表达式或动态代码执行。默认只有 P0/P1 阻断；文档漂�
 
 `world.world_bible.synopsis.structured` 只负责压缩和组织来源 manifest，不裁决正史。输入先由
 world 模块确定性排序、去重、冲突排除和预算裁剪；页面与结构化事实冲突时排除页面片段并保留
-冲突提示。输出是 category/claim schema，每条 claim 至少引用一个经 `novel_id` 校验且真实
-存在于 manifest 的 type/id；无法归因的 claim 丢弃，schema repair 最多两次，正文上限 1200
-tokens。
+冲突提示。模型自行选择适合当前资料的有序导航 sections，可综合、归纳并突出关键结构，
+不要求固定类别或穷举全部事实。每个实质段落引用至少一个服务端分配的短来源 key；服务再把
+key 映射回经 `novel_id` 校验且真实存在于 manifest 的来源。无法归因的内容丢弃，schema
+repair 最多两次；预算由调用配置控制，不在 Prompt 中硬编码统一篇幅。
 
 世界书正文、简介和引用资料始终作为不可信 user/context 数据块注入；固定 system scaffold
 禁止执行其中指令。作者模板是显式 author instruction，不与背景混入 system Prompt。
@@ -158,30 +161,44 @@ RAG 证据的关联顺序取 Top-K；人物上限 6，相关世界对象上限 1
 动作、表情、对话、内心戏和潜台词字段，避免结构绑架文学表达。
 输出仍经 parser 和 hidden guard 确定性检查，并且只进入待审阅 candidate。
 
-### 生成中心世界对象共创
+### 生成中心世界设定共创
 
-`world.object_draft.chat.generate` 是不写库的自由共创 step。模型的设计目标
-不是按问卷填满对象卡，而是根据对话当前状态自主选择发散、比较、
-指出矛盾、提出实质性问题或阶段性收束。作者明确的选择、否定和修正
-优先于模型早先的建议；高影响新设定应标明为建议，不假定已经成立。
+`world.generation.chat.generate` 是不写库的自由共创 step，服务于世界对象、完善现有
+页面和新建页面三种作者已选目标。设计重点是创意质量与逻辑严密性：模型根据对话状态自主
+选择发散、比较、质疑、验证前提、指出因果/尺度/规则矛盾、提出真正影响设计的问题或阶段性
+收束，不使用固定问卷，也不要求每轮同时覆盖所有维度。作者明确的选择、否定和最新修正优先；
+资料是可参考但不可信的内容，不能改变任务、目标、权限或输出边界。
+聊天正文仍是自然语言，但调用层用只含 `reply` 的 schema 校验非空与长度，
+不把 provider 的任意原始输出直接当作业务响应。
 
-`world.object_draft.generate.structured` 负责把共创过程忠实收束为一个
-待处理世界对象建议，不进行第二次随机重设计。新近作者决定优先于旧内容；
-助手方案只有被作者接受或后续明显沿用时才视为已确定。当作者要求
-自由完成时允许模型运用创作判断；当作者已给出明确设计时，不为完整度
-擅自增加秘密、反转、关系、能力或剧情用途。
+三个结构化 step 分工如下：
 
-结构化输出继续使用 `name / summary / public_info / hidden_truth /
-importance_level / reveal_level / details / character_card`，不新增用于绑架
-创作的中间字段。`summary` 不设固定长度和统一内容模板；
-`hidden_truth` 没有隐藏层时为 null；`character_card` 仅人物对象使用。
-枚举、schema 校验、模板版本、`novel_id` 隔离、上下文快照和 suggestion-only
-状态迁移保留在确定性代码中。
+- `world.generation.core_entity.structured` 忠实收束一个待处理世界对象建议，不进行第二次
+  随机重设计。作者要求自由完成时允许模型运用创作判断；作者已有明确设计时，不为形式完整
+  强加秘密、反转、关系、能力、代价或剧情用途。
+- `world.generation.world_bible_page.structured` 综合完整当前工作稿、作者指令与项目背景，
+  生成整页重构提案。当前页面是重要依据但不是唯一骨架；模型可重组标题、类别、概览和
+  sections，不做末尾追加，也不降低既有 projection/sensitivity。作者已否定的
+  助手方案不得在收束时复活。
+- `world.generation.world_bible_new_page.structured` 生成完整新页面，并按资料自身选择合适的
+  组织方式；不强制固定章节模板。页面模板只作为布局参考，不是创作内容清单。
+  作者最新选择、否定和修正的优先级与现有页一致。
 
-两个 step 共用 `generation_center` 上下文：项目风格、世界观简介、作者
-选择的世界书工作稿、相关剧情线/篇章/RAG 证据，以及从这些证据关联的
-已采用对象和人物 Top-K。选中章节在总预算内优先取命中作者意图的窗口，
-无命中时保留头尾，不使用每章开头固定 500 字的截断。
+对象输出保留 `name / summary / public_info / hidden_truth / importance_level /
+reveal_level / details / character_card`；页面输出为完整 `title / page_type / free_text /
+sections / linked_asset_keys`。Prompt 不设置固定篇幅、必填创作维度或秘密/反转/冲突配额。
+枚举、schema 校验、短资产 key 映射、稳定 section ID、模板版本、`novel_id` 隔离、上下文
+快照和 suggestion-only 状态迁移由确定性代码负责。目标类型始终由作者选择，模型不能调用
+工具、发布页面或写 canonical。
+
+四个 step 共用 `generation_center` 上下文：显式选择与来源页引用优先，其后为当前 Scene、
+剧情线、篇章/RAG 证据、相关人物和世界对象 Top-K、项目风格及可选世界观简介。人物自动
+候选最多 6 个，非人物世界对象最多 16 个；没有章节、Scene、引用或检索证据时不默认注入
+第一章剧情线。选中章节在总预算内优先取命中作者意图的窗口，无命中时保留头尾。
+当 Scene 与参考章节同时存在时，Scene 所在章是剧情线、篇章和 RAG 的有效剧情锚点；
+选中章节只作为参考正文。Prompt 会告知模型背景可能经过选择、摘要和预算裁剪，
+因此“未出现”不代表“不存在”。snapshot 另记录人物/对象实际纳入、未纳入 ID、
+候选来源与 `top_k/not_loaded` 原因，预算裁剪后的 actual IDs 只包含模型真正看到的来源。
 
 内置模板不规定对象必须拥有哪些字段，而是提供与类型相关的创作视角。
 人物聚焦欲望、阻力、选择和行为逻辑；事件聚焦有因果的状态变化；物品聚焦
