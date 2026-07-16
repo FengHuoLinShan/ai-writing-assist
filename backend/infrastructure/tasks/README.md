@@ -26,7 +26,7 @@ infrastructure/tasks/
   `world_bible_synopsis_refresh`
 - outline：`plot_structure_generate`、`chapter_card_extraction`、
   `chapter_scene_generate`、`outline_analyze`、
-  `outline_generate`、`outline_chapter_scenes_extract`
+  `outline_generate`
 - rag：`rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`
 - writing：`publish_chapter`、`writing_generate`、`writing_conflict_ai_review`
 - imports：`deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、

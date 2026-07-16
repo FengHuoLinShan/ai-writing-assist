@@ -1,11 +1,10 @@
 /**
  * 自动提取 / 深度导入表单模块
  *
- * 负责分阶段自动提取、深度导入表单与“从正文整理 Scene”的弹窗提交。
+ * 负责分阶段自动提取与深度导入表单。
  * 任务提交成功后通过 onTaskStarted 回调交给 deepImportRecovery 轮询。
  */
 
-import { confirmAiReference } from "../../shared/aiReferenceModal.js"
 import { confirmAsync } from "../../shared/confirmAsync.js"
 import {
   importAuthorizationNotice,
@@ -134,74 +133,12 @@ export function createAutoExtraction({
     }
   }
 
-  async function extractChapterCards() {
-    const projectId = currentProjectId()
-    const chapterList = projectState._chapterList || []
-    if (!chapterList.length) { toast?.("没有可分析的章节", "warning"); return }
-    const firstCh = chapterList[0]
-    const lastCh = chapterList[chapterList.length - 1]
-    const formHtml = `
-      <div class="form-group">
-        <label>起始章节</label>
-        <input class="form-input" id="extract-start" type="number" min="1" value="${firstCh}" />
-      </div>
-      <div class="form-group">
-        <label>结束章节</label>
-        <input class="form-input" id="extract-end" type="number" min="1" value="${lastCh}" />
-      </div>
-      <p class="writing-form-hint">
-        调用 AI 分析章节内容，生成待处理 Scene 卡建议（场景目标、冲突、情感节奏等）。完成后需检查并采用，才会进入工作 Scene。
-      </p>
-    `
-    modalApi.showModalHtml("从正文整理 Scene", formHtml, [{
-      text: "生成待处理建议",
-      class: "btn-primary",
-      handler: async () => {
-        const start = parseInt(document.getElementById("extract-start")?.value || "1", 10)
-        const end = parseInt(document.getElementById("extract-end")?.value || "10", 10)
-        if (end < start) { toast?.("结束章节必须 ≥ 起始章节", "warning"); return }
-        modalApi.closeModal()
-        try {
-          const confirmation = await confirmAiReference({
-            novel_id: projectId,
-            action: "outline.chapter_scenes.extract",
-            task: "从正文整理 Scene",
-            scope: "chapter",
-            chapter_index: start,
-            include_pending_objects: false,
-          })
-          toast?.("从正文整理 Scene 任务已提交", "info")
-          const result = await api.outline.extractChapterScenes({
-            novel_id: projectId,
-            context_confirmation_id: confirmation.id,
-            chapter_index: start,
-            start_chapter: start,
-            end_chapter: end,
-          })
-          onTaskStarted?.({
-            taskId: result.task_id || result.id,
-            workflowType: "outline_chapter_scenes_extract",
-            stage: "chapter_cards",
-            label: "从正文整理 Scene",
-            startChapter: start,
-            endChapter: end,
-            confirmationId: confirmation.id,
-          })
-          toast?.("从正文整理 Scene 已进入后台，完成后需采用", "success")
-        } catch (err) {
-          toast?.(err.message || "提取失败", "error")
-        }
-      },
-    }])
-  }
-
   function dispose() {
     // 本模块无持久化定时器
   }
 
   return {
     showForm,
-    extractChapterCards,
     dispose,
   }
 }

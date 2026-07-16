@@ -11,6 +11,23 @@ from infrastructure.tasks.models import AsyncTask
 
 
 @pytest.mark.parametrize(
+    "path",
+    [
+        "/api/outline/chapter-scenes/extract",
+        "/api/outline/chapter-scenes/apply",
+    ],
+)
+@pytest.mark.asyncio
+async def test_removed_chapter_scene_preview_routes_return_not_found(
+    async_client: AsyncClient,
+    path: str,
+) -> None:
+    response = await async_client.post(path, json={})
+
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
     ("path", "action", "task_type", "payload"),
     [
         (
@@ -24,12 +41,6 @@ from infrastructure.tasks.models import AsyncTask
             "outline.generate",
             "outline_generate",
             {"start_chapter": 1, "end_chapter": 5, "instruction": "生成主线"},
-        ),
-        (
-            "/api/outline/chapter-scenes/extract",
-            "outline.chapter_scenes.extract",
-            "outline_chapter_scenes_extract",
-            {"chapter_index": 2, "instruction": "提取 Scene 卡"},
         ),
     ],
 )
@@ -73,12 +84,6 @@ async def test_outline_ai_apis_reject_missing_context_confirmation(
             "outline_generate",
             {"start_chapter": 1, "end_chapter": 5, "instruction": "生成主线"},
         ),
-        (
-            "/api/outline/chapter-scenes/extract",
-            "outline.chapter_scenes.extract",
-            "outline_chapter_scenes_extract",
-            {"chapter_index": 2, "instruction": "提取 Scene 卡"},
-        ),
     ],
 )
 @pytest.mark.asyncio
@@ -101,7 +106,7 @@ async def test_outline_ai_apis_enqueue_domain_tasks_after_confirmation(
             "action": action,
             "task": "确认大纲 AI 参考资料",
             "scope": "chapter",
-            "chapter_index": payload.get("chapter_index") or payload.get("start_chapter"),
+            "chapter_index": payload.get("start_chapter"),
         },
     )
     assert confirmation_resp.status_code == 201

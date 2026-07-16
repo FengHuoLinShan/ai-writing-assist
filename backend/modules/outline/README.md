@@ -53,9 +53,10 @@ POST/GET/PATCH/DELETE /api/outline/reveals...
 POST /api/outline/generate
 POST /api/outline/generate/apply
 POST /api/outline/analyze
-POST /api/outline/chapter-scenes/extract
-POST /api/outline/chapter-scenes/apply
 ```
+
+正文到 Scene 的自动提取统一由 imports 深度导入 Scene 阶段负责；outline 不再维护独立的
+章节 Scene 提取、preview 或 apply 工作流。
 
 ## 小说总纲
 
@@ -253,8 +254,6 @@ novel/action/fresh confirmation 和各类条目数，然后写入普通 `draft` 
 supporting_scene_ids` 写入 `provenance_meta`；无有效 Scene 证据、低置信或无法解析目标的
 揭示保留为 review 提案。无法解析的 reveal 不会用 zero UUID 伪造已落库资产。
 
-`chapter-scenes/extract` 保留原有异步任务路由，但任务结果只返回 `draft_scenes` preview、`scene_ids=[]` 和 `requires_apply=true`，不写 `scenes` 表，也不把 context confirmation 当作结果采用。作者编辑后通过 `chapter-scenes/apply` 传 `confirmed=true`；服务会复核同 novel/action 的 fresh confirmation，然后创建普通 `draft` Scene，写入 `adopted_at / source=ai_generated / adopted_from_preview_task_id`，并仅在此时绑定真实 `outline_scene` result refs。apply 只接受作者可编辑的 Scene 内容/章节字段，忽略请求中伪造的 `structure_meta`、source/status 和 POV 引用，系统 provenance 始终重建。
-
 新 Scene 写入的 `status` 只允许 `draft / canonical`；更新路径另允许 `deprecated` 用于软废弃。兼容期仍可读取存量 `candidate` Scene，但新 create/apply/split/fusion 不再写 candidate。
 
 高质量深度导入 Phase 1c 生成同章候选、跨章延续和重复窗口的 Scene 融合建议。建议持久化在
@@ -331,11 +330,11 @@ RAG 片段或资产摘要作为证据交给 LLM 判断 `merge`、`deprecate_dupl
 semantic fingerprints。Scene 融合还要求客户端先调用 Scene 工作台 preview，确认预览后才能进入
 待执行组；实际写入仍委托 `SceneWorkbenchService`。
 
-Analyze/generate/Scene extract、PlotStructureGenerator 和结构去重均通过
+Analyze/generate、PlotStructureGenerator 和结构去重均通过
 project runtime seam 获取 client；batch/pair 外层复用同一 client，结果仍只进入
 preview/needs_review，不扩大自动 apply 权限。
-异步 `plot_structure_generate`、`outline_analyze`、`outline_generate` 和
-`outline_chapter_scenes_extract` 使用仅 TaskWorker 可调用的 prepare / execute /
+异步 `plot_structure_generate`、`outline_analyze` 和 `outline_generate`
+使用仅 TaskWorker 可调用的 prepare / execute /
 finalize seam：提交时冻结无 secret 的 project LLM execution snapshot（旧任务首次执行时
 补建并先做 lease-fenced checkpoint），prepare 阶段在 project `FOR SHARE` 保护下把确认
 上下文和生成器输入复制为 plain DTO 并记录 source fingerprint，同时恢复冻结 profile

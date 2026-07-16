@@ -16,9 +16,6 @@ function createMockApi(overrides = {}) {
       resumeDeepImport: vi.fn(),
       abandonDeepImport: vi.fn(),
     },
-    outline: {
-      applyChapterScenePreview: vi.fn(),
-    },
     clearCache: vi.fn(),
     ...overrides,
   }
@@ -61,9 +58,6 @@ describe("createDeepImportRecovery", () => {
     expect(manager.abandon).toBeTypeOf("function")
     expect(manager.cancel).toBeTypeOf("function")
     expect(manager.showAuditDetails).toBeTypeOf("function")
-    expect(manager.showScenePreview).toBeTypeOf("function")
-    expect(manager.applyScenePreview).toBeTypeOf("function")
-    expect(manager.discardScenePreview).toBeTypeOf("function")
     expect(manager.runMapNextStep).toBeTypeOf("function")
     expect(manager.completeMapNextStep).toBeTypeOf("function")
     expect(manager.retryMapNextStep).toBeTypeOf("function")
@@ -834,68 +828,4 @@ describe("createDeepImportRecovery", () => {
     expect(recoverActiveWorkflows("p1")).toEqual([])
   })
 
-  it("recovers a completed Scene preview and applies edited suggestions explicitly", async () => {
-    const api = createMockApi()
-    api.tasks.get.mockResolvedValue({
-      task_id: "scene-preview-task",
-      task_type: "outline_chapter_scenes_extract",
-      status: "done",
-      result: {
-        requires_apply: true,
-        total_scenes: 1,
-        draft_scenes: [{
-          title: "旧标题",
-          goal: "潜入王宫",
-          chapter_ids: ["1"],
-          status: "draft",
-          display_state: "review",
-          structure_meta: { preview_only: true, needs_review: true },
-        }],
-      },
-    })
-    api.outline.applyChapterScenePreview.mockResolvedValue({
-      status: "applied",
-      scene_ids: ["scene-1"],
-      total_scenes: 1,
-    })
-    persistActiveWorkflow({
-      taskId: "scene-preview-task",
-      workflowType: "outline_chapter_scenes_extract",
-      label: "从正文整理 Scene",
-      projectId: "p1",
-      view: "writing",
-      meta: { confirmationId: "confirm-1", stage: "chapter_cards" },
-    })
-    const modal = createMockModal()
-    const onDone = vi.fn()
-    const manager = createTestManager({ api, modal, onDone })
-
-    await manager.recover()
-
-    expect(manager.getState().taskId).toBe("scene-preview-task")
-    expect(manager.getState().polling).toBe(false)
-    expect(manager.renderBar()).toContain("查看并采用待处理 Scene 建议（1）")
-
-    manager.showScenePreview()
-    const [, body, buttons] = modal.showModalHtml.mock.calls.at(-1)
-    expect(body).toContain("只有点击“采用全部到工作 Scene”后才会写入")
-    document.body.innerHTML = body
-    document.getElementById("scene-preview-0-title").value = "用户修订标题"
-    await buttons.find((button) => button.text === "采用全部到工作 Scene").handler()
-
-    expect(api.outline.applyChapterScenePreview).toHaveBeenCalledWith({
-      novel_id: "p1",
-      context_confirmation_id: "confirm-1",
-      source_task_id: "scene-preview-task",
-      draft_scenes: [expect.objectContaining({
-        title: "用户修订标题",
-        goal: "潜入王宫",
-        chapter_ids: ["1"],
-      })],
-      confirmed: true,
-    })
-    expect(toast).toHaveBeenCalledWith("已采用 1 个工作 Scene", "success")
-    expect(onDone).toHaveBeenCalled()
-    expect(manager.getState().progress).toBeNull()
-  })
 })

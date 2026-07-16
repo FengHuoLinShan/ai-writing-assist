@@ -742,26 +742,6 @@ describe("api.js request headers", () => {
     expect(globalThis.fetch).not.toHaveBeenCalled()
   })
 
-  it("posts edited Scene preview data to the explicit apply endpoint", async () => {
-    mockJsonResponse({ status: "applied", scene_ids: ["scene-1"], total_scenes: 1 })
-
-    await window.api.outline.applyChapterScenePreview({
-      novel_id: "p1",
-      context_confirmation_id: "confirm-1",
-      source_task_id: "task-1",
-      draft_scenes: [{ title: "用户修订" }],
-      confirmed: true,
-    })
-
-    const [url, init] = globalThis.fetch.mock.calls[0]
-    expect(url).toContain("/api/outline/chapter-scenes/apply")
-    expect(JSON.parse(init.body)).toMatchObject({
-      source_task_id: "task-1",
-      draft_scenes: [{ title: "用户修订" }],
-      confirmed: true,
-    })
-  })
-
   it("posts edited outline preview data to the explicit apply endpoint", async () => {
     mockJsonResponse({ status: "applied", total_threads: 1, total_arcs: 0, total_scenes: 0 })
 

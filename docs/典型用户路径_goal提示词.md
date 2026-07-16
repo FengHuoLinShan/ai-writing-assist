@@ -146,17 +146,17 @@ ok
 /goal 实现并验收“手工写作工作台”用户路径。
 
 背景：
-网络小说作者需要长时间在写作工作台中反复写正文、切换 Scene、查看结构提示、保存版本、发布索引，并从正文反向提取章节/Scene 卡。
+网络小说作者需要长时间在写作工作台中反复写正文、切换 Scene、查看结构提示、保存版本、发布索引，并从正文反向提取 Scene。
 
 目标：
-让作者在 /workbench/:projectId/writing 中完成正文编辑、暂存、发布、版本历史、断章、Scene 树导航、右侧 Scene 卡联动、实体轻量查询和“从正文整理 Scene”。
+让作者在 /workbench/:projectId/writing 中完成正文编辑、暂存、发布、版本历史、断章、Scene 树导航、右侧 Scene 卡联动、实体轻量查询和“场景自动提取”。
 
 真实 LLM 验收数据：
-- “从正文整理 Scene”路径必须使用数据库中《诡秘之主 第一部》项目的第 1-3 章真实内容。
+- “场景自动提取”路径必须使用数据库中《诡秘之主 第一部》项目的第 1-3 章真实内容。
 - 不允许用 mock LLM 代替该路径的最终验收。
 
 范围：
-- 后端主模块：backend/modules/writing、backend/modules/outline、backend/modules/rag
+- 后端主模块：backend/modules/writing、backend/modules/imports、backend/modules/outline、backend/modules/rag
 - 前端主视图：writingView
 - 相关测试：writing 单测、writing E2E、writing-conflict E2E；AI 提取可增加真实调用验收记录
 
@@ -172,7 +172,7 @@ ok
 - Scene 切换时编辑器内容进入前端暂存，不触发后端保存，不丢失当前输入。
 - 版本历史可预览并恢复到编辑器，恢复后需用户再次保存才入库。
 - 多 Tab 保存冲突返回 409，前端提示且保留用户输入。
-- “从正文整理 Scene”调用 outline 生成能力并刷新 Scene 列表/右侧 Scene 卡。
+- “场景自动提取”调用 imports Scene stage，并在完成后刷新 Scene 列表/右侧 Scene 卡。
 
 实现约束：
 - writing 模块不直接写 outline 内部实现；Scene 卡编辑走 outline API/稳定入口。

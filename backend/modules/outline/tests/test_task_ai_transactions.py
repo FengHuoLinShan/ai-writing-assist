@@ -130,15 +130,6 @@ def _patch_confirmation_dependencies(
             },
         ),
         (
-            "extract_chapter_scenes_for_task",
-            {
-                "confirmation_id": "confirmation-1",
-                "task_id": "task-1",
-                "chapter_index": 1,
-                "llm_execution_snapshot": {"profile_hash": "frozen"},
-            },
-        ),
-        (
             "generate_legacy_preview_for_task",
             {
                 "start_chapter": 1,
@@ -330,42 +321,6 @@ async def test_real_task_handler_session_checkpoints_before_provider_wait(
         } in tracked.result_refs
     finally:
         await task_session.close()
-
-
-async def test_scene_extract_task_waits_without_transaction(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    db = _CheckpointSession()
-    _patch_confirmation_dependencies(
-        monkeypatch,
-        "confirmed markdown",
-        "confirmed markdown",
-    )
-    transaction_states: list[bool] = []
-
-    class _Client:
-        model_name = "test-model"
-
-        async def generate_structured(self, _request, schema, **_kwargs):
-            transaction_states.append(db.in_transaction())
-            return schema(scenes=[{"title": "Scene A", "chapter_ids": []}])
-
-    result = await OutlineAIWorkflowService(
-        llm_client=_Client(),
-    ).extract_chapter_scenes_for_task(
-        db,
-        novel_id="11111111-1111-1111-1111-111111111111",
-        confirmation_id="confirmation-1",
-        task_id="task-1",
-        chapter_index=7,
-        llm_execution_snapshot={"profile_hash": "frozen"},
-    )
-
-    assert transaction_states == [False]
-    assert db.commit_count == 1
-    assert db.expire_all_count == 1
-    assert result["total_scenes"] == 1
-    assert result["draft_scenes"][0]["chapter_ids"] == ["7"]
 
 
 async def test_generate_tasks_wait_without_transaction_and_revalidate_sources(
@@ -713,18 +668,6 @@ async def test_task_confirmation_prepare_matches_legacy_compile_render(
             {"start_chapter": 2, "end_chapter": 4},
             {"total_threads": 1, "total_arcs": 0},
         ),
-        (
-            "handle_outline_chapter_scenes_extract",
-            "extract_chapter_scenes_for_task",
-            {
-                "novel_id": "11111111-1111-1111-1111-111111111111",
-                "context_confirmation_id": "confirmation-1",
-                "chapter_index": 7,
-                "instruction": "提取 Scene",
-            },
-            {"chapter_index": 7, "instruction": "提取 Scene"},
-            {"total_scenes": 1},
-        ),
     ],
 )
 async def test_outline_handlers_delegate_only_to_task_workflow_seams(
@@ -771,6 +714,5 @@ async def test_task_only_methods_are_not_cross_module_facade_exports() -> None:
     assert not {
         "analyze_for_task",
         "generate_for_task",
-        "extract_chapter_scenes_for_task",
         "generate_legacy_preview_for_task",
     }.intersection(facade.__all__)

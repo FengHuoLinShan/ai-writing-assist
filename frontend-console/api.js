@@ -1572,14 +1572,6 @@ const api = {
       return contractJson("outline.applyStructurePreview", {}, {}, payload)
     },
 
-    async extractChapterScenes(payload) {
-      return post("/outline/chapter-scenes/extract", payload)
-    },
-
-    async applyChapterScenePreview(payload) {
-      return contractJson("outline.applyChapterScenePreview", {}, {}, payload)
-    },
-
     // ---- Scene 卡 ----
     async listScenes(novelId, skip = 0, limit = 50) {
       return request(withQuery("/outline/scenes", { novel_id: novelId, skip, limit }))

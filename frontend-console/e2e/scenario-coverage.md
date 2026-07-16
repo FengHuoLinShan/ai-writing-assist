@@ -34,7 +34,7 @@
 | `p1-lifecycle-health.spec.js` | 场景 3 / A1 | 后端 action 驱动的深度导入继续/放弃入口，以及 evidence health 展示；2/2 通过 |
 | `deep-import-worker.spec.js` | 场景 3 | guarded worker E2E：提交异步深度导入后关闭页面，任务继续由 worker 完成；需 `RUN_WORKER_E2E=1` 和运行中的 backend worker |
 | `deep-import-real.spec.js` | 场景 3 | 真实同步深度导入（`POST /api/imports/deep/sync`），不覆盖新版 Phase 0 / Phase 1a / Phase 1b 韧性策略 |
-| `writing.spec.js` | 场景 4 | 空状态、新建章节、编辑并暂存、发布、Scene 切换不丢内容、版本历史查看与恢复、断章更新左侧树、光标位置联动右侧 Scene 卡面板、从正文整理 Scene 弹窗、离线恢复 localStorage、多 Tab 冲突检测；11/11 通过 |
+| `writing.spec.js` | 场景 4 | 空状态、新建章节、编辑并暂存、发布、Scene 切换不丢内容、版本历史查看与恢复、断章更新左侧树、光标位置联动右侧 Scene 卡面板、Scene 自动提取唯一入口、离线恢复 localStorage、多 Tab 冲突检测；11/11 通过 |
 | `writing-conflict.spec.js` | 场景 4 | 409 冲突 — 其他会话已更新草稿版本；1/1 通过 |
 | `world.spec.js` | 场景 5 | 对象库空态、创建/编辑/删除世界对象、关系子标签、别名子标签、实体合并、实体回滚、人物知识边界；9/9 通过 |
 | `world-relations-aliases.spec.js` | 场景 5 | 创建关系、创建别名；2/2 通过 |

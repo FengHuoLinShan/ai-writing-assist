@@ -64,6 +64,15 @@ def test_world_bible_synopsis_refresh_handler_is_registered() -> None:
     assert callable(handler)
 
 
+def test_removed_outline_chapter_scene_extract_handler_is_not_registered() -> None:
+    import modules.outline.tasks  # noqa: F401
+    from infrastructure.tasks.registry import get_registry
+
+    handler = get_registry().get_handler("outline_chapter_scenes_extract")
+
+    assert handler is None
+
+
 @pytest.mark.asyncio
 async def test_plot_structure_generate_reports_coarse_progress() -> None:
     from modules.outline.tasks import handle_plot_structure_generate

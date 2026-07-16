@@ -294,14 +294,11 @@ const writingView = {
       "retry-deep-import-map-next": () => (
         this._deepImportRecovery?.retryMapNextStep?.()
       ),
-      "view-scene-preview": () => this._deepImportRecovery?.showScenePreview?.(),
-      "discard-scene-preview": () => this._deepImportRecovery?.discardScenePreview?.(),
       "open-outline": () => router.navigate("outline", null),
       "open-scene-workbench": () => {
         const scene = this._scenePanel?.getCurrentScene?.()
         router.navigate("scene", scene?.id || null)
       },
-      "extract-cards": () => this._autoExtraction?.extractChapterCards?.(),
       "insert-person": (e, t) => this._editor?.insertTextAtCursor?.(t.getAttribute("data-name") || ""),
     })
   },

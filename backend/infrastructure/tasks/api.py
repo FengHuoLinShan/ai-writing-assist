@@ -80,7 +80,6 @@ _MODULE_API_ONLY_TASK_TYPES = {
     "rag_reindex_novel",
     "rag_retry_embeddings",
     "outline_structure_generation",
-    "outline_chapter_scenes_extract",
 }
 
 

@@ -1,20 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { createAutoExtraction } from "../../views/writing/autoExtraction.js"
-import { confirmAiReference } from "../../shared/aiReferenceModal.js"
 import { resetState, clearDocument } from "../helpers.js"
-
-vi.mock("../../shared/aiReferenceModal.js", () => ({
-  confirmAiReference: vi.fn(),
-}))
 
 function createMockApi(overrides = {}) {
   return {
     imports: {
       startStage: vi.fn(),
-    },
-    outline: {
-      extractChapterScenes: vi.fn(),
-      listScenesOrdered: vi.fn(),
     },
     ...overrides,
   }
@@ -38,7 +29,6 @@ describe("createAutoExtraction", () => {
   it("returns the public API", () => {
     const extractor = createAutoExtraction({ api: createMockApi(), esc })
     expect(extractor.showForm).toBeTypeOf("function")
-    expect(extractor.extractChapterCards).toBeTypeOf("function")
     expect(extractor.dispose).toBeTypeOf("function")
   })
 
@@ -127,65 +117,4 @@ describe("createAutoExtraction", () => {
     expect(toast).toHaveBeenCalledWith("场景（scene）自动提取已启动", "success")
   })
 
-  it("extractChapterCards confirms AI reference and notifies orchestrator", async () => {
-    confirmAiReference.mockResolvedValue({ id: "conf-1" })
-    const api = createMockApi()
-    api.outline.extractChapterScenes.mockResolvedValue({ task_id: "c1" })
-    const modal = createMockModal()
-    const onTaskStarted = vi.fn()
-    const toast = vi.fn()
-    const state = { currentProjectId: "p1", _chapterList: [1, 2] }
-    const extractor = createAutoExtraction({
-      state,
-      api,
-      esc,
-      modal,
-      onTaskStarted,
-      toast,
-    })
-
-    await extractor.extractChapterCards()
-    const [, , buttons] = modal.showModalHtml.mock.calls[0]
-    document.body.innerHTML = `
-      <input id="extract-start" value="1" />
-      <input id="extract-end" value="2" />
-    `
-    await buttons[0].handler()
-
-    expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({
-      action: "outline.chapter_scenes.extract",
-      include_pending_objects: false,
-    }))
-    expect(api.outline.extractChapterScenes).toHaveBeenCalledWith(expect.objectContaining({
-      novel_id: "p1",
-      chapter_index: 1,
-      start_chapter: 1,
-      end_chapter: 2,
-    }))
-    expect(onTaskStarted).toHaveBeenCalledWith(expect.objectContaining({
-      taskId: "c1",
-      workflowType: "outline_chapter_scenes_extract",
-      stage: "chapter_cards",
-      label: "从正文整理 Scene",
-      startChapter: 1,
-      endChapter: 2,
-      confirmationId: "conf-1",
-    }))
-    expect(api.outline.listScenesOrdered).not.toHaveBeenCalled()
-    expect(toast).toHaveBeenCalledWith("从正文整理 Scene 已进入后台，完成后需采用", "success")
-  })
-
-  it("warns when there are no chapters to extract cards from", () => {
-    const toast = vi.fn()
-    const extractor = createAutoExtraction({
-      state: { currentProjectId: "p1", _chapterList: [] },
-      api: createMockApi(),
-      esc,
-      toast,
-    })
-
-    extractor.extractChapterCards()
-
-    expect(toast).toHaveBeenCalledWith("没有可分析的章节", "warning")
-  })
 })

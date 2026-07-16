@@ -981,26 +981,27 @@ test.describe("写作台模块", () => {
   })
 
   // ============================================================
-  // 从正文整理 Scene
+  // Scene 自动提取
   // ============================================================
 
-  test("从正文整理 Scene 按钮和对话框", async ({ page }) => {
+  test("Scene 自动提取保留唯一 imports 入口", async ({ page }) => {
     await createDraft(testProjectId, 1, "ch1", "测试正文")
     await reloadWorkbench(page, "writing")
     await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
 
-    // 验证“从正文整理 Scene”按钮存在
     await page.locator(".writing-tools-menu summary").click()
-    await expect(page.locator('[data-action="extract-cards"]')).toBeVisible()
+    const sceneExtraction = page.locator(
+      '[data-action="auto-extract-stage"][data-stage="scenes"]',
+    )
+    await expect(sceneExtraction).toBeVisible()
+    await expect(sceneExtraction).toHaveCount(1)
 
-    // 点击按钮打开对话框
-    await page.locator('[data-action="extract-cards"]').click()
+    await sceneExtraction.click()
     await expect(page.locator("#modal-overlay")).toBeVisible()
-    await expect(page.locator("#modal-overlay")).toContainText("从正文整理 Scene")
+    await expect(page.locator("#modal-overlay")).toContainText("场景（scene）自动提取")
     await expect(page.locator("#modal-overlay")).toContainText("起始章节")
     await expect(page.locator("#modal-overlay")).toContainText("结束章节")
 
-    // 关闭对话框
     await page.locator("#modal-close").click()
     await expect(page.locator("#modal-overlay")).not.toBeVisible()
   })
