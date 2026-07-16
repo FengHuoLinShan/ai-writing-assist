@@ -73,17 +73,20 @@ cd frontend-console && npm test
 
 # 后端聚焦模块测试
 cd backend && pytest modules/project/tests/test_project.py modules/imports/tests/test_imports.py modules/imports/tests/test_workflow.py modules/writing/tests/test_writing.py modules/outline/tests/test_scene.py modules/outline/tests/test_foreshadowing_reveal.py modules/world/tests/test_world.py modules/rag/tests/test_rag.py modules/context/tests/test_context.py tests/integration/test_novel_id_isolation.py -q --tb=short
-# 287 passed, 1 existing warning
+# 以当前运行输出为准
 
 # 历史 Playwright 场景套件基线（APP_ENV=test；本表用于覆盖映射，完整结果需按当前分支重跑刷新）
 cd frontend-console && DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:functional -- project.spec.js import.spec.js writing.spec.js world.spec.js outline-scenes.spec.js rag.spec.js generate.spec.js --reporter=list
 # 以当前运行输出为准，不在矩阵中固化历史通过数
 
+# 生成中心合约验收
+cd /path/to/repo && make generate-e2e
+
 # 前端反馈优化定向 Playwright
 cd frontend-console && DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:functional -- map.spec.js -g "should create a world map" --reporter=list
-# 1 passed
+# 以当前运行输出为准
 DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 BACKEND_PORT=8010 FRONTEND_PORT=8090 npm run test:e2e:functional -- project-chaos.spec.js --reporter=list
-# 1 passed；若 sandbox 阻断本地 PostgreSQL 5207，需要提升权限或先运行 backend/scripts/doctor.py --json
+# 若本地 PostgreSQL 不可用，先运行 backend/scripts/doctor.py --json
 DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 BACKEND_PORT=8011 FRONTEND_PORT=8091 npm run test:e2e:functional -- map.spec.js scene-workbench.spec.js world.spec.js project-chaos.spec.js --reporter=list
 # 使用显式专用 PostgreSQL 测试库和隔离端口；不再收集 placeholder-only spec
 
@@ -91,5 +94,5 @@ DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 BACKEND_POR
 cd frontend-console && node --check app.js && node --check api.js
 # exit 0
 cd /Users/tywww/Desktop/项目/ai-writing-assist && make lint
-# 仍存在 105 条预存 lint 警告（主要为 E402/E501/F841/N8xx/UP040），与本轮修复无关；本轮修改的 backend 文件已通过 ruff check。
+# 以当前运行输出为准
 ```
