@@ -138,6 +138,21 @@ describe("onEnter", () => {
 })
 
 describe("对象库搜索", () => {
+  it.each([
+    "objects",
+    "review-objects",
+    "review-aliases",
+    "review-relations",
+    "relations",
+    "aliases",
+    "bible",
+  ])("%s 子页顶部工具栏只有一个智能去重挂载点", (subView) => {
+    const rendered = document.createElement("div")
+    rendered.innerHTML = worldView._renderHeader(subView)
+
+    expect(rendered.querySelectorAll('[data-role="smart-dedup-action"]')).toHaveLength(1)
+  })
+
   it("回车会应用模糊搜索筛选", async () => {
     state.currentProjectId = "p1"
     document.body.innerHTML = `<main id="workspace-content">${await worldView.render()}</main>`
@@ -323,6 +338,7 @@ describe("worldView render", () => {
     expect(html).toContain("btn-new-entity")
     expect(html).toContain('data-action="toggle-extract"')
     expect(html).toContain('data-action="set-object-view"')
+    expect(html).toContain('data-role="smart-dedup-action"')
   })
 
   it("自动提取面板默认收起，点击 toggle 后展开", async () => {

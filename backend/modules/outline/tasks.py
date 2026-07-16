@@ -20,6 +20,12 @@ def _int_or_default(value: object, default: int) -> int:
     return int(value)
 
 
+def _optional_int(value: object) -> int | None:
+    if value is None or value == "":
+        return None
+    return int(value)
+
+
 async def _require_llm_execution_snapshot(db, task, meta: dict, novel_id: str) -> dict:
     from infrastructure.tasks.facade import require_task_checkpoint_session
 
@@ -176,6 +182,8 @@ async def handle_outline_analyze(db, task):
         confirmation_id=confirmation_id,
         task_id=str(task.id),
         instruction=meta.get("instruction"),
+        start_chapter=_optional_int(meta.get("start_chapter")),
+        end_chapter=_optional_int(meta.get("end_chapter")),
         llm_execution_snapshot=llm_execution_snapshot,
         progress_callback=task.update_progress,
     )

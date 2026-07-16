@@ -592,6 +592,12 @@ def _get_budget_for_category(category: str) -> int:
 
 _TIER_HEADERS: dict[str, str] = {
     "writing_objective": "一、创作目标",
+    "outline_analysis_range": "大纲分析范围",
+    "outline_analysis_scenes": "范围内 Scene（按叙事顺序）",
+    "outline_analysis_arcs": "相关篇章纲",
+    "outline_analysis_threads": "相关剧情线",
+    "outline_analysis_foreshadowing": "相关伏笔计划",
+    "outline_analysis_reveals": "相关揭示计划",
     "scene_blueprint": "二、场景蓝图",
     "pov_knowledge": "三、视角人物知识边界",
     "delta_timeline": "四、世界线变化时间线",

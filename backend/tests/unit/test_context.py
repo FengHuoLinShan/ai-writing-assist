@@ -49,6 +49,7 @@ from modules.context.services.loaders import (
     CharactersLoader,
     EventsLoader,
     MemoryRecordsLoader,
+    OutlineAnalysisLoader,
     OutlineArcLoader,
     PlotThreadsLoader,
     ProjectLoader,
@@ -86,6 +87,7 @@ class TestLoaderProtocol:
             PlotThreadsLoader(),
             OutlineArcLoader(),
             SceneLoader(),
+            OutlineAnalysisLoader(),
         ]
         expected_names = [
             "project",
@@ -98,6 +100,7 @@ class TestLoaderProtocol:
             "plot_threads",
             "outline_arc",
             "scene",
+            "outline_analysis",
         ]
         for loader, expected_name in zip(loaders, expected_names):
             assert loader.name == expected_name, (
@@ -118,6 +121,7 @@ class TestLoaderProtocol:
             "plot_threads",
             "outline_arc",
             "scene",
+            "outline_analysis",
         ]
 
     def test_all_loaders_available(self) -> None:
@@ -284,9 +288,9 @@ class TestContextCompilerDispatch:
         assert results.get("memory_records") is True
 
     def test_default_loaders_created(self) -> None:
-        """默认 loaders 列表应包含所有 10 个 loader"""
+        """默认 loaders 列表应包含所有 11 个 loader"""
         compiler = ContextCompiler()
-        assert len(compiler._loaders) == 10
+        assert len(compiler._loaders) == 11
         for name in SCOPE_LOADERS["full"]:
             assert name in compiler._loaders
 

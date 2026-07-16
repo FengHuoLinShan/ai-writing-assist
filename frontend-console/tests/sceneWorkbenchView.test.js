@@ -155,6 +155,7 @@ describe("sceneWorkbenchView", () => {
     const headerActions = sceneWorkbenchView.renderHeaderActions()
     expect(headerActions).toContain("场景（scene）自动提取")
     expect(headerActions).toContain('data-action="scene-auto-extract"')
+    expect(headerActions).toContain('data-role="smart-dedup-action"')
     expect(html).toContain("再选 2 个即可融合")
     expect(html).toContain('data-action="toggle-visible-fusion-selection"')
     expect(html).toContain('aria-label="选择用于批量操作"')

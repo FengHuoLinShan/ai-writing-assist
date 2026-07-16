@@ -43,6 +43,7 @@ POST/GET/PATCH/DELETE /api/outline/foreshadowing...
 POST/GET/PATCH/DELETE /api/outline/reveals...
 POST /api/outline/generate
 POST /api/outline/generate/apply
+POST /api/outline/analyze
 POST /api/outline/chapter-scenes/extract
 POST /api/outline/chapter-scenes/apply
 ```
@@ -265,9 +266,20 @@ finalize seam：提交时冻结无 secret 的 project LLM execution snapshot（�
 上下文和生成器输入复制为 plain DTO 并记录 source fingerprint，同时恢复冻结 profile
 与 Phase 3 token budget；随后显式 fenced commit 并清空 prepare 阶段的 ORM identity
 map，LLM 等待期间 session 必须没有数据库事务。finalize 重新取得
-project 共享锁、复核 fresh confirmation，并重建必要上下文/生成器 fingerprint；并发修改
+project 短暂排他锁、复核 fresh confirmation，并重建必要上下文/生成器 fingerprint；并发修改
 导致漂移时丢弃旧结果，不绑定 preview/result ref。取消或 provider 错误同样不会留下部分
 结果。普通 API/service 入口不拥有该 commit 权限，也不会隐式提交调用方事务。
+手动 `outline_analyze` 把 `start_chapter / end_chapter` 与已确认 context 中的
+`chapter_index / visible_until_chapter` 对齐后才调用模型。确认阶段通过
+`get_outline_analysis_context()` 读取范围内按 `scene_index` 排序的 Scene、重叠篇章、
+区间重叠或被范围资产显式关联的剧情线，以及伏笔和揭示计划；这些资产会先显示在
+AI 参考资料审查台，任务阶段
+只按确认记录的 compile options 重编译并核对确认指纹；上下文发生变化时会在 LLM 前
+拒绝执行，不会静默追加资料。显式章节范围若未成功加载对应范围 section，确认或回放都会
+失败关闭；无范围的历史确认仍可按原语义回放。`confirmation.task` 是唯一经作者确认的分析目标，
+任务 metadata 中的兼容性 `instruction` 不能覆盖它。相关人物与世界对象沿用 context 的 Top-K
+（人物 6、世界对象 16）。结果保持 `{"analysis": string}` 只读形状，只绑定
+`outline_analysis` result ref，不提供 apply，也不写结构资产。
 深度导入 Phase 3 传入任务提交时冻结的 project settings snapshot，
 `PlotStructureGenerator` 用 project snapshot seam 构造并在 `finally` 关闭 client；
 `high_quality=true` 时使用 `max` reasoning，但仍使用冻结 snapshot 中手动选择的 model，不因 worker 启动后项目默认模型变更而漂移。
@@ -282,6 +294,8 @@ project 共享锁、复核 fresh confirmation，并重建必要上下文/生成�
 - `structure_dedup_facade.py`：outline 结构资产智能去重建议与应用
 - `deep_import_repair_facade.py`：deep import 修复、最小结构补齐和清理
 - `foreshadowing_facade.py`：伏笔计划只读上下文
+- `analysis_context_facade.py`：按已确认章节范围读取有序 Scene 与相关结构计划；供
+  手动大纲分析 context loader 使用
 - `thread_facade.py`：按显式 ID 与真实章节锚点读取剧情线的只读 context contract；
   不在缺少章节锚点时默认注入第一章剧情线
 
@@ -293,6 +307,7 @@ Scene/repair/dedup/reveal seam 无法表达，并同步 contract、README 和调
 
 ```python
 async def get_scene(...)
+async def get_outline_analysis_context(...)
 async def get_scene_contract(...)
 async def get_scene_spans_by_chapter(...)
 async def get_scene_spans_for_scene(...)

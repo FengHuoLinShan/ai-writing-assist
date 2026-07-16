@@ -16,6 +16,7 @@ export function createConflictCheck({
   onInsertText,
   onOpenMap,
   onNavigateOutline,
+  onCheckChanged,
 }) {
   const projectState = state
   const modalApi = modal
@@ -48,11 +49,15 @@ export function createConflictCheck({
         novel_id: projectId,
         chapter_index: chapterIndex,
         scene_id: currentScene,
+        draft_id: projectState._currentDraftId || null,
+        version_number: projectState._currentVersionNumber ?? null,
         content,
         include_candidates: options.includeCandidates,
       })
       await refresh(chapterIndex)
+      await onCheckChanged?.(latestConflictCheck || check)
       open(check)
+      return check
     } catch (err) {
       toast(err.message || "剧情设定冲突检查失败", "error")
     } finally {
@@ -225,15 +230,18 @@ export function createConflictCheck({
       novelId: projectId,
       onStatusChanged: async () => {
         await refresh(projectState._currentChapter)
+        await onCheckChanged?.(latestConflictCheck)
       },
       onAiReviewComplete: async (updatedCheck) => {
         await refresh(projectState._currentChapter)
         const refreshed = conflictChecks.find((item) => item.id === updatedCheck?.id) || updatedCheck
+        await onCheckChanged?.(refreshed)
         if (refreshed) open(refreshed)
       },
       onSuggestionComplete: async (updatedItem) => {
         await refresh(projectState._currentChapter)
         const refreshed = conflictChecks.find((item) => item.id === updatedItem?.check_id) || check
+        await onCheckChanged?.(refreshed)
         if (refreshed) open(refreshed)
       },
       onApplySuggestion: (_itemId, text) => {

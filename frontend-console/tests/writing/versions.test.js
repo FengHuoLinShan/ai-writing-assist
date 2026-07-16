@@ -44,6 +44,8 @@ describe("createVersionManager", () => {
     expect(manager.load).toBeTypeOf("function")
     expect(manager.render).toBeTypeOf("function")
     expect(manager.bindEvents).toBeTypeOf("function")
+    expect(manager.showVersionDiff).toBeTypeOf("function")
+    expect(manager.loadVersionDiff).toBeTypeOf("function")
     expect(manager.switchVersion).toBeTypeOf("function")
     expect(manager.deleteVersion).toBeTypeOf("function")
     expect(manager.dispose).toBeTypeOf("function")
@@ -75,8 +77,44 @@ describe("createVersionManager", () => {
     expect(html).toContain("手动保存")
     expect(html).toContain("已发布")
     expect(html).toContain('data-action="version-history"')
+    expect(html).toContain('data-action="version-diff"')
     expect(html).toContain('data-action="delete-version"')
     expect(html).toContain("publish-status-dot")
+  })
+
+  it("does not expose a late version history response after switching project", async () => {
+    state.currentProjectId = "p1"
+    let resolveHistory
+    api.writing.getVersionHistory.mockImplementation(() => new Promise((resolve) => {
+      resolveHistory = resolve
+    }))
+    const manager = createTestManager()
+    const loading = manager.load(1)
+
+    state.currentProjectId = "p2"
+    resolveHistory({ versions: [{ id: "p1-draft", version_number: 1 }] })
+
+    await expect(loading).resolves.toBe(false)
+    expect(manager.render()).toBe("")
+  })
+
+  it("does not open a stale project's Diff modal or request its version ids", async () => {
+    state.currentProjectId = "p1"
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [
+        { id: "p1-d2", version_number: 2 },
+        { id: "p1-d1", version_number: 1 },
+      ],
+    })
+    const manager = createTestManager({ modal: synchronousModal() })
+    await manager.load(1)
+
+    state.currentProjectId = "p2"
+    manager.showVersionDiff()
+
+    expect(toast).toHaveBeenCalledWith("版本列表已过期，请重新选择章节", "warning")
+    expect(showModalHtml).not.toHaveBeenCalled()
+    expect(api.writing.get).not.toHaveBeenCalled()
   })
 
   it("keeps review and archived versions out of the main selector", async () => {
@@ -97,6 +135,23 @@ describe("createVersionManager", () => {
     expect(html).toContain("v2 (latest)".replace("latest", "最新"))
     expect(html).not.toContain('value="candidate-4"')
     expect(html).not.toContain('value="archived-3"')
+  })
+
+  it("does not show a delete action when a chapter has only review and archived versions", async () => {
+    state.currentProjectId = "p1"
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [
+        { id: "candidate-2", version_number: 2, status: "candidate", display_state: "review" },
+        { id: "archived-1", version_number: 1, status: "deprecated", display_state: "archived" },
+      ],
+    })
+
+    const manager = createTestManager()
+    await manager.load(1)
+    const html = manager.render()
+
+    expect(html).toContain('data-action="version-diff"')
+    expect(html).not.toContain('data-action="delete-version"')
   })
 
   it("shows all history but only active history has restore actions", async () => {
@@ -234,6 +289,222 @@ describe("createVersionManager", () => {
       "第 1 章 — 版本历史 (1)",
       expect.stringContaining("v1"),
     )
+  })
+
+  it("compares any two working, candidate, published or archived versions read-only", async () => {
+    state.currentProjectId = "p1"
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [
+        { id: "candidate-4", version_number: 4, status: "candidate", display_state: "review" },
+        { id: "archived-3", version_number: 3, status: "deprecated", display_state: "archived", deprecated_from_status: "published" },
+        { id: "working-2", version_number: 2, status: "draft", display_state: "active" },
+        { id: "published-1", version_number: 1, status: "published", display_state: "active" },
+      ],
+    })
+    api.writing.get.mockImplementation(async (draftId) => ({
+      id: draftId,
+      content: draftId === "candidate-4"
+        ? '<script>alert("候选")</script>\n新增段落'
+        : "当前正文\n原段落",
+    }))
+    const manager = createTestManager({ modal: synchronousModal() })
+    await manager.load(1)
+    document.body.innerHTML = manager.render()
+    manager.bindEvents(document.body)
+
+    document.querySelector('[data-action="version-diff"]').click()
+
+    const modalCall = showModalHtml.mock.calls.at(-1)
+    expect(modalCall[0]).toBe("第 1 章 — 版本比较")
+    expect(modalCall[1]).toContain('value="candidate-4"')
+    expect(modalCall[1]).toContain('value="archived-3"')
+    expect(modalCall[1]).toContain('value="working-2"')
+    expect(modalCall[1]).toContain('value="published-1"')
+    expect(modalCall[1]).toContain("只读临时比较")
+    expect(modalCall[3]).toEqual({ size: "large", protectUnsaved: false })
+    await vi.waitFor(() => {
+      expect(document.querySelector(".writing-version-diff__grid")).not.toBeNull()
+    })
+    expect(api.writing.get).toHaveBeenCalledWith("candidate-4", "p1")
+    expect(api.writing.get).toHaveBeenCalledWith("working-2", "p1")
+    expect(document.body.innerHTML).toContain("&lt;script&gt;alert")
+    expect(document.body.innerHTML).not.toContain('<script>alert("候选")</script>')
+    expect(api.writing.deleteDraft).not.toHaveBeenCalled()
+    expect(api.writing.adoptDraftCandidate).not.toHaveBeenCalled()
+  })
+
+  it("swaps Diff sides without refetching cached drafts", async () => {
+    state.currentProjectId = "p1"
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [
+        { id: "d2", version_number: 2, status: "draft" },
+        { id: "d1", version_number: 1, status: "published" },
+      ],
+    })
+    api.writing.get.mockImplementation(async (draftId) => ({ id: draftId, content: draftId }))
+    const manager = createTestManager({ modal: synchronousModal() })
+    await manager.load(1)
+
+    manager.showVersionDiff()
+    await vi.waitFor(() => expect(document.querySelector(".writing-version-diff__grid")).not.toBeNull())
+    const before = api.writing.get.mock.calls.length
+    document.querySelector('[data-action="swap-version-diff"]').click()
+    await vi.waitFor(() => {
+      expect(document.querySelector(".writing-version-diff__header")?.textContent).toContain("v2")
+    })
+
+    expect(api.writing.get.mock.calls.length).toBe(before)
+  })
+
+  it("rejects selecting the same version on both sides", async () => {
+    state.currentProjectId = "p1"
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [
+        { id: "d2", version_number: 2 },
+        { id: "d1", version_number: 1 },
+      ],
+    })
+    const manager = createTestManager({ modal: synchronousModal() })
+    await manager.load(1)
+    manager.showVersionDiff()
+    const left = document.getElementById("writing-version-diff-left")
+    const right = document.getElementById("writing-version-diff-right")
+    right.value = left.value
+    right.dispatchEvent(new Event("change"))
+
+    expect(document.getElementById("writing-version-diff-result").textContent).toBe("左右两侧不能选择同一版本")
+  })
+
+  it("rejects a version id outside the loaded chapter before issuing a request", async () => {
+    state.currentProjectId = "p1"
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [
+        { id: "d2", version_number: 2 },
+        { id: "d1", version_number: 1 },
+      ],
+    })
+    const manager = createTestManager()
+    await manager.load(1)
+    document.body.innerHTML = '<div id="writing-version-diff-result"></div>'
+
+    await expect(manager.loadVersionDiff("d1", "foreign-draft")).resolves.toBe(false)
+
+    expect(document.getElementById("writing-version-diff-result").textContent)
+      .toBe("所选版本不属于当前章节，请重新选择")
+    expect(api.writing.get).not.toHaveBeenCalled()
+  })
+
+  it("rejects a Diff response whose novel identity does not match the loaded project", async () => {
+    state.currentProjectId = "p1"
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [
+        { id: "d2", version_number: 2 },
+        { id: "d1", version_number: 1 },
+      ],
+    })
+    api.writing.get.mockImplementation(async (draftId) => ({
+      id: draftId,
+      novel_id: draftId === "d1" ? "p2" : "p1",
+      chapter_index: 1,
+      content: draftId,
+    }))
+    const manager = createTestManager()
+    await manager.load(1)
+    document.body.innerHTML = '<div id="writing-version-diff-result"></div>'
+
+    await expect(manager.loadVersionDiff("d1", "d2")).resolves.toBe(false)
+
+    expect(document.getElementById("writing-version-diff-result").textContent)
+      .toBe("版本比较失败：版本响应不属于当前项目")
+  })
+
+  it("does not write a late Diff response after its modal is closed", async () => {
+    state.currentProjectId = "p1"
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [
+        { id: "d2", version_number: 2 },
+        { id: "d1", version_number: 1 },
+      ],
+    })
+    const draftResolvers = new Map()
+    api.writing.get.mockImplementation((draftId) => new Promise((resolve) => {
+      draftResolvers.set(draftId, resolve)
+    }))
+    const manager = createTestManager()
+    await manager.load(1)
+    document.body.innerHTML = `
+      <div id="modal-overlay">
+        <div id="writing-version-diff-result"></div>
+      </div>
+    `
+    const resultEl = document.getElementById("writing-version-diff-result")
+    const loading = manager.loadVersionDiff("d1", "d2")
+
+    document.getElementById("modal-overlay").classList.add("hidden")
+    draftResolvers.get("d1")({ id: "d1", novel_id: "p1", chapter_index: 1, content: "旧" })
+    draftResolvers.get("d2")({ id: "d2", novel_id: "p1", chapter_index: 1, content: "新" })
+
+    await expect(loading).resolves.toBe(false)
+    expect(resultEl.textContent).toBe("正在读取并比较版本…")
+    expect(resultEl.querySelector(".writing-version-diff__grid")).toBeNull()
+  })
+
+  it("does not write a late Diff response into a detached replaced modal body", async () => {
+    state.currentProjectId = "p1"
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [
+        { id: "d2", version_number: 2 },
+        { id: "d1", version_number: 1 },
+      ],
+    })
+    const draftResolvers = new Map()
+    api.writing.get.mockImplementation((draftId) => new Promise((resolve) => {
+      draftResolvers.set(draftId, resolve)
+    }))
+    const manager = createTestManager()
+    await manager.load(1)
+    document.body.innerHTML = '<div id="writing-version-diff-result"></div>'
+    const detachedResult = document.getElementById("writing-version-diff-result")
+    const loading = manager.loadVersionDiff("d1", "d2")
+
+    document.body.innerHTML = "<div>版本历史</div>"
+    draftResolvers.get("d1")({ id: "d1", novel_id: "p1", chapter_index: 1, content: "旧" })
+    draftResolvers.get("d2")({ id: "d2", novel_id: "p1", chapter_index: 1, content: "新" })
+
+    await expect(loading).resolves.toBe(false)
+    expect(detachedResult.isConnected).toBe(false)
+    expect(detachedResult.textContent).toBe("正在读取并比较版本…")
+  })
+
+  it("does not let an older comparison overwrite a newer version selection", async () => {
+    state.currentProjectId = "p1"
+    api.writing.getVersionHistory.mockResolvedValue({
+      versions: [1, 2, 3, 4].map((version) => ({
+        id: `d${version}`,
+        version_number: version,
+      })),
+    })
+    const draftResolvers = new Map()
+    api.writing.get.mockImplementation((draftId) => new Promise((resolve) => {
+      draftResolvers.set(draftId, resolve)
+    }))
+    const manager = createTestManager()
+    await manager.load(1)
+    document.body.innerHTML = '<div id="writing-version-diff-result"></div>'
+    const older = manager.loadVersionDiff("d1", "d2")
+    const newer = manager.loadVersionDiff("d3", "d4")
+
+    draftResolvers.get("d3")({ id: "d3", novel_id: "p1", chapter_index: 1, content: "新左" })
+    draftResolvers.get("d4")({ id: "d4", novel_id: "p1", chapter_index: 1, content: "新右" })
+    await expect(newer).resolves.toBe(true)
+    const latestHtml = document.getElementById("writing-version-diff-result").innerHTML
+    expect(latestHtml).toContain("v3")
+    expect(latestHtml).toContain("v4")
+
+    draftResolvers.get("d1")({ id: "d1", novel_id: "p1", chapter_index: 1, content: "旧左" })
+    draftResolvers.get("d2")({ id: "d2", novel_id: "p1", chapter_index: 1, content: "旧右" })
+    await expect(older).resolves.toBe(false)
+    expect(document.getElementById("writing-version-diff-result").innerHTML).toBe(latestHtml)
   })
 
   it("binds version history preview without window.writingView", async () => {

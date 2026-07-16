@@ -49,7 +49,11 @@ def _prepared_confirmation(
 ) -> SimpleNamespace:
     return SimpleNamespace(
         rendered_markdown=markdown,
-        compile_options={"scope": "chapter", "budget_tokens": 4000},
+        compile_options={
+            "scope": "chapter",
+            "budget_tokens": 4000,
+            "task": "已确认的作者分析目标",
+        },
         confirmation=SimpleNamespace(
             selected_asset_ids={"project": ["novel-1"]},
             excluded_asset_ids={},
@@ -94,6 +98,11 @@ def _patch_confirmation_dependencies(
     monkeypatch.setattr(
         OutlineAIWorkflowService,
         "_require_active_project",
+        project_guard,
+    )
+    monkeypatch.setattr(
+        OutlineAIWorkflowService,
+        "_require_active_project_exclusive",
         project_guard,
     )
     return prepared, attached, project_guard
@@ -169,9 +178,12 @@ async def test_analyze_task_restores_frozen_profile_and_waits_without_transactio
         model_name = "frozen-model"
         close = mock.AsyncMock()
 
-        async def generate(self, _request):
+        async def generate(self, request):
             events.append("llm")
             assert db.in_transaction() is False
+            prompt = request.messages[-1].content
+            assert "已确认的作者分析目标" in prompt
+            assert "未经确认的任务覆盖" not in prompt
             return LLMCallResponse(content="analysis", model=self.model_name)
 
     client = _Client()
@@ -206,6 +218,7 @@ async def test_analyze_task_restores_frozen_profile_and_waits_without_transactio
             novel_id="11111111-1111-1111-1111-111111111111",
             confirmation_id="confirmation-1",
             task_id="task-1",
+            instruction="未经确认的任务覆盖",
             llm_execution_snapshot={"profile_hash": "frozen"},
         )
 
@@ -682,8 +695,10 @@ async def test_task_confirmation_prepare_matches_legacy_compile_render(
                 "novel_id": "11111111-1111-1111-1111-111111111111",
                 "context_confirmation_id": "confirmation-1",
                 "instruction": "分析节奏",
+                "start_chapter": 3,
+                "end_chapter": 8,
             },
-            {"instruction": "分析节奏"},
+            {"instruction": "分析节奏", "start_chapter": 3, "end_chapter": 8},
             {"analysis": "ok"},
         ),
         (

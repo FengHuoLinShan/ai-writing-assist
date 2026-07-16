@@ -9,7 +9,7 @@ function flushPromises() {
 beforeEach(() => {
   resetState({ currentProjectId: "p1", currentView: "world" })
   clearDocument()
-  document.body.innerHTML = '<div id="view-actions"></div>'
+  document.body.innerHTML = '<div id="test-root"></div>'
   localStorage.clear()
   vi.clearAllMocks()
 })
@@ -91,7 +91,6 @@ describe("Smart Dedup Manager", () => {
   it("applies selected smart dedup suggestions through project API", async () => {
     document.body.innerHTML = `
       <input type="checkbox" data-smart-dedup-index="0" checked />
-      <div id="view-actions"></div>
     `
     api.projects.applySmartDedup.mockResolvedValue({ applied: 1, skipped: 0 })
 
@@ -136,7 +135,6 @@ describe("Smart Dedup Manager", () => {
     }]))
     document.body.innerHTML = `
       <input type="checkbox" data-smart-dedup-index="0" checked />
-      <div id="view-actions"></div>
     `
     api.projects.applySmartDedup.mockResolvedValue({ applied: 1, skipped: 0 })
 
@@ -232,7 +230,7 @@ describe("Smart Dedup Manager", () => {
 
     const modal = latestModal()
     expect(modal.body.html).toContain("高风险别名命中")
-    document.body.innerHTML = modal.body.html + '<div id="view-actions"></div>'
+    document.body.innerHTML = modal.body.html
     const checkbox = document.querySelector('[data-smart-dedup-index="0"]')
     expect(checkbox.checked).toBe(false)
 
@@ -258,7 +256,6 @@ describe("Smart Dedup Manager", () => {
   it("does not let stale suggestion DOM selection leak into a new scan result", async () => {
     document.body.innerHTML = `
       <input type="checkbox" data-smart-dedup-index="0" checked />
-      <div id="view-actions"></div>
     `
     await runScanToDone({
       total_assets_scanned: 19,
@@ -275,7 +272,7 @@ describe("Smart Dedup Manager", () => {
     })
 
     const modal = latestModal()
-    document.body.innerHTML = modal.body.html + '<div id="view-actions"></div>'
+    document.body.innerHTML = modal.body.html
     expect(document.querySelector('[data-smart-dedup-index="0"]').checked).toBe(false)
   })
 
@@ -287,7 +284,6 @@ describe("Smart Dedup Manager", () => {
       <input type="checkbox" data-smart-dedup-index="1" checked />
       <input type="radio" name="smart-dedup-primary-1" value="manual" checked />
       <input data-smart-dedup-manual-primary="1" value="manual-primary" />
-      <div id="view-actions"></div>
     `
     api.projects.applySmartDedup.mockResolvedValue({ applied: 2, skipped: 0 })
 
@@ -365,6 +361,75 @@ describe("Smart Dedup Manager", () => {
     manager.dispose()
   })
 
+  it("restores the matching active workflow when projects switch", () => {
+    vi.useFakeTimers()
+    localStorage.setItem("novel_active_workflows_v1", JSON.stringify([
+      {
+        id: "p1:smart_dedup_scan:scan-p1",
+        taskId: "scan-p1",
+        workflowType: "smart_dedup_scan",
+        projectId: "p1",
+      },
+      {
+        id: "p2:smart_dedup_scan:scan-p2",
+        taskId: "scan-p2",
+        workflowType: "smart_dedup_scan",
+        projectId: "p2",
+      },
+    ]))
+    api.tasks.get.mockResolvedValue({
+      task_type: "smart_dedup_scan",
+      status: "running",
+    })
+
+    let currentProjectId = "p1"
+    const renderActions = vi.fn()
+    const manager = createManager({
+      getCurrentProjectId: () => currentProjectId,
+      onRenderActions: renderActions,
+    })
+
+    manager.syncProject("p1")
+    expect(manager.getState()).toMatchObject({ taskId: "scan-p1", scanProjectId: "p1" })
+
+    currentProjectId = "p2"
+    manager.syncProject("p2")
+    expect(manager.getState()).toMatchObject({ taskId: "scan-p2", scanProjectId: "p2" })
+
+    currentProjectId = "p1"
+    manager.syncProject("p1")
+    expect(manager.getState()).toMatchObject({ taskId: "scan-p1", scanProjectId: "p1" })
+    expect(JSON.parse(localStorage.getItem("novel_active_workflows_v1"))).toHaveLength(2)
+    expect(renderActions).toHaveBeenCalledTimes(3)
+    manager.dispose()
+  })
+
+  it("keeps a late scan response bound to its original project", async () => {
+    let resolveStart
+    api.projects.startSmartDedupScan.mockImplementation(() => new Promise((resolve) => {
+      resolveStart = resolve
+    }))
+    let currentProjectId = "p1"
+    const manager = createManager({ getCurrentProjectId: () => currentProjectId })
+
+    const startPromise = manager.startScan()
+    currentProjectId = "p2"
+    manager.syncProject("p2")
+    resolveStart({ task_id: "scan-p1-late" })
+    await startPromise
+
+    expect(manager.getState()).toMatchObject({ taskId: null, progress: null, scanProjectId: null })
+    expect(api.tasks.get).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalledWith("智能去重扫描已提交", "success")
+    expect(JSON.parse(localStorage.getItem("novel_active_workflows_v1"))).toEqual([
+      expect.objectContaining({
+        taskId: "scan-p1-late",
+        workflowType: "smart_dedup_scan",
+        projectId: "p1",
+      }),
+    ])
+  })
+
   it("renders schema v2 groups as a large decision workbench without manual IDs", async () => {
     await runScanToDone(groupResult())
 
@@ -379,6 +444,7 @@ describe("Smart Dedup Manager", () => {
     expect(modal.body.html).toContain("融合内容并迁移引用")
     expect(modal.body.html).not.toContain("手动主体 ID")
     expect(call[3]).toEqual({ size: "large", protectUnsaved: true })
+    expect(showModal.mock.calls.filter(([title]) => title === "智能去重裁决工作台")).toHaveLength(1)
   })
 
   it("keeps an eligible primary selected when the author switches it", async () => {

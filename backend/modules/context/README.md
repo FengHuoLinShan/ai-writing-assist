@@ -220,6 +220,18 @@ Scene、当前章活跃剧情线、篇章和 RAG 证据，再从这些资料的�
 RAG 候选顺序；人物最多 6 个，相关世界对象最多 16 个。没有可用关联
 ID 时，世界对象才回退到已采用对象的重要性排序。
 
+`consumer_action=outline.analyze` 使用已有字段表达确认范围：
+`chapter_index` 是起始章，`visible_until_chapter` 在作者模式下同时作为结束章和正文证据
+上界。编译器先以顺序前置 loader 通过 outline 稳定 facade 加载范围内按叙事顺序排列的
+Scene、重叠篇章、
+区间重叠或被范围资产显式关联的剧情线，以及伏笔/揭示计划，并把这些 section 显示在
+AI 参考资料审查台；该范围查询不进入共用 `AsyncSession` 的 dependent gather。随后再从
+这些结构资产的关联 ID 选择人物 Top-6 和世界对象 Top-16；没有相关对象 ID 时不回退到项目全局
+对象。在 P2 预算中剧情线优先于篇章，所有 P2 section 共享同一剩余预算；预算耗尽的 section
+会被明确剔除并记录 budget event，source 与保留内容同步。confirmation 会记录实际纳入的结构资产
+ID，任务回放只按该 confirmation 的 compile options 重编译，不在 LLM 阶段扩展未确认资料。作者显式
+指定范围时，缺失精确范围 section 的确认和回放都失败关闭。
+
 POV character reveal 在这一选择结果上继续分层：POV 人物得到
 完整的安全档案；其他相关人物只渲染外观和语言风格，不渲染
 身份、内心、渴望、恐惧、行为规则或隐藏关系。姓名只是供模型指代人物的

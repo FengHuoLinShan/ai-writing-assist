@@ -164,6 +164,8 @@ export function createWritingSubModules(orchestrator, deps) {
     esc,
     onOpenMap: (sceneId) => orchestrator._openMap(sceneId),
     onSwitchTab: (tab) => orchestrator._onCockpitTabSwitch(tab),
+    onRunConflictCheck: () => orchestrator._runConflictCheck(),
+    onOpenConflictCheck: (check) => orchestrator._conflictCheck?.open?.(check),
   })
 
   const conflictCheck = createConflictCheck({
@@ -178,6 +180,7 @@ export function createWritingSubModules(orchestrator, deps) {
       router.navigate("outline", null)
       if (hint) toast(hint, "info")
     },
+    onCheckChanged: () => scenePanel.refreshAlerts(),
   })
 
   const outlineFloat = createOutlineFloat({ state, api, esc })

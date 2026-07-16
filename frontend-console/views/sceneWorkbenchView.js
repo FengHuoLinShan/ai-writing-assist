@@ -202,7 +202,7 @@ const sceneWorkbenchView = {
     return `
       <div class="scene-workbench-actions" aria-label="Scene 工作台操作">
         <button class="btn btn-sm btn-primary" data-action="scene-auto-extract">场景（scene）自动提取</button>
-        <span data-role="scene-smart-dedup-action">${this._renderSmartDedupButton()}</span>
+        <span data-role="smart-dedup-action"></span>
       </div>
     `
   },
@@ -2258,13 +2258,6 @@ const sceneWorkbenchView = {
     })}${dismissHtml}</div>`
   },
 
-  _renderSmartDedupButton() {
-    if (typeof window !== "undefined" && window.App?._smartDedup) {
-      return window.App._smartDedup.renderActionButton()
-    }
-    return `<button class="btn btn-sm" data-action="start-smart-dedup">智能去重</button>`
-  },
-
   _updateProgressMount(role, html) {
     if (typeof document === "undefined") return
     const mount = document.querySelector(`[data-role="${role}"]`)
@@ -2884,8 +2877,6 @@ const sceneWorkbenchView = {
       "nav-foreshadowing": () => router.navigate("outline", "foreshadowing"),
       "nav-reveals": () => router.navigate("outline", "reveals"),
       "scene-auto-extract": () => this._showSceneAutoExtractForm(),
-      "start-smart-dedup": () => window.App?._smartDedup?.handleAction("start-smart-dedup"),
-      "show-smart-dedup-progress": () => window.App?._smartDedup?.handleAction("show-smart-dedup-progress"),
       "cancel-scene-auto-extract": () => this._cancelAutoExtractTask(),
       "dismiss-scene-auto-extract": () => this._dismissAutoExtractProgress(),
       "show-fusion-suggestions": () => this._showFusionSuggestions(),

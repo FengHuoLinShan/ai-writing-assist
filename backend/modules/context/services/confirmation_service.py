@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -102,6 +104,11 @@ class ContextConfirmationService:
             options,
             budget_tokens=budget_tokens,
         )
+        if action == "outline.analyze":
+            self._require_outline_analysis_range(compiled, options)
+            options.outline_analysis_fingerprint = (
+                self._outline_analysis_fingerprint(compiled)
+            )
         selected_asset_ids = self._selected_asset_ids(compiled, options)
         warnings = list(compiled.warnings)
         record = await self._repo.create(
@@ -180,11 +187,21 @@ class ContextConfirmationService:
             confirmation_id=confirmation_id,
         )
         options = CompileOptions(**confirmation.compile_options)
-        return await self._compiler.compile_with_tiers(
+        compiled = await self._compiler.compile_with_tiers(
             db,
             options,
             budget_tokens=options.budget_tokens,
         )
+        if action == "outline.analyze":
+            self._require_outline_analysis_range(compiled, options)
+        if options.outline_analysis_fingerprint:
+            current_fingerprint = self._outline_analysis_fingerprint(compiled)
+            if current_fingerprint != options.outline_analysis_fingerprint:
+                raise ValueError(
+                    "outline analysis context changed; "
+                    "review and confirm the latest context"
+                )
+        return compiled
 
     async def attach_result_ref(
         self,
@@ -314,6 +331,21 @@ class ContextConfirmationService:
             target_id = str(target.get("target_id") or "")
             if target_type and target_id:
                 selected.setdefault(target_type, []).append(target_id)
+        range_source_keys = {
+            "scene": "scenes",
+            "outline_arc": "outline_arcs",
+            "plot_thread": "plot_threads",
+            "foreshadowing_plan": "foreshadowing_plans",
+            "reveal_plan": "reveal_plans",
+        }
+        for section in compiled.sections:
+            if not section.key.startswith("outline_analysis_"):
+                continue
+            for source in section.sources:
+                asset_key = range_source_keys.get(str(source.get("type") or ""))
+                asset_id = str(source.get("id") or "")
+                if asset_key and asset_id:
+                    selected.setdefault(asset_key, []).append(asset_id)
         selected = {
             key: list(dict.fromkeys(values)) for key, values in selected.items()
         }
@@ -360,7 +392,69 @@ class ContextConfirmationService:
             "activation_included_target_hashes": (
                 options.activation_included_target_hashes
             ),
+            "outline_analysis_fingerprint": options.outline_analysis_fingerprint,
         }
+
+    @staticmethod
+    def _outline_analysis_fingerprint(compiled: CompiledContext) -> str:
+        payload = [
+            {
+                "key": section.key,
+                "content": section.content,
+                "sources": list(section.sources or []),
+                "excluded": section.excluded,
+                "truncated_reason": section.truncated_reason,
+            }
+            for section in compiled.sections
+        ]
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @staticmethod
+    def _require_outline_analysis_range(
+        compiled: CompiledContext,
+        options: CompileOptions,
+    ) -> None:
+        """Fail closed when a requested range could not be materialized.
+
+        Confirmations created before range-aware P07 remain compatible when
+        they have no chapter range. A partially specified or failed new range
+        in an author view must not silently degrade into a project-only
+        analysis. Reader/character views intentionally use their separate
+        spoiler-safe compiler path and never materialize author planning cards.
+        """
+        if options.reveal_mode not in {"author_safe", "author_full"}:
+            return
+        start = options.chapter_index
+        end = options.visible_until_chapter
+        if start is None and end is None:
+            return
+        if start is None:
+            raise ValueError("outline analysis chapter range is invalid")
+        resolved_end = end if end is not None else start
+        expected_id = f"{start}-{resolved_end}"
+        range_section = next(
+            (
+                section
+                for section in compiled.sections
+                if section.key == "outline_analysis_range"
+            ),
+            None,
+        )
+        source_ids = {
+            str(source.get("id") or "")
+            for source in (range_section.sources if range_section else [])
+        }
+        if range_section is None or expected_id not in source_ids:
+            raise ValueError(
+                "outline analysis range context could not be loaded; "
+                "review and confirm the reference context again"
+            )
 
     @staticmethod
     def _to_contract(

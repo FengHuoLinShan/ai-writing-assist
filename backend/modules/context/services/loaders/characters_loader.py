@@ -76,6 +76,7 @@ class CharactersLoader(Loader):
         char_limit = CONTEXT_BUDGET.get("characters", 6)
         relevance_action = options.consumer_action in {
             "writing.generate",
+            "outline.analyze",
             "world.generation.chat",
             "world.generation.core_entity",
             "world.generation.world_bible_page",
@@ -122,7 +123,10 @@ class CharactersLoader(Loader):
                 )
                 bundle.characters = characters[:char_limit]
 
-        if options.scope == "generation_center":
+        if (
+            options.scope == "generation_center"
+            or options.consumer_action == "outline.analyze"
+        ):
             actual_ids = [
                 str(item.get("character_id") or item.get("id") or "")
                 for item in bundle.characters
@@ -267,6 +271,12 @@ class CharactersLoader(Loader):
                 add(pov, "scene_pov")
 
         # 2. Current Scene, arc, active threads and RAG evidence references.
+        analysis = (
+            bundle.outline_analysis
+            if isinstance(bundle.outline_analysis, dict)
+            else {}
+        )
+        extend(analysis.get("related_character_ids"), "outline_range")
         scene_meta = scene.get("structure_meta") if scene else None
         if isinstance(scene_meta, dict):
             extend(scene_meta.get("related_character_ids"), "scene")

@@ -17,6 +17,11 @@ _LINE_ITEM_SOURCE_KEYS = frozenset(
     {
         "world_entities",
         "open_narrative_obligations",
+        "outline_analysis_scenes",
+        "outline_analysis_arcs",
+        "outline_analysis_threads",
+        "outline_analysis_foreshadowing",
+        "outline_analysis_reveals",
         "retrieval_evidence_packs",
         "pov_knowledge",
     }
@@ -139,56 +144,77 @@ class CompiledContext(BaseModel):
             fixed_cost = sum(
                 s.token_count for s in sections if s.tier in (Tier.P0, Tier.P1)
             )
-            budget_for_p2 = max(0, self.budget_tokens - fixed_cost)
+            remaining_p2_budget = max(0, self.budget_tokens - fixed_cost)
             new_sections: list[ContextSection] = []
             for s in sections:
-                if s.tier == Tier.P2 and s.truncatable_per_item and budget_for_p2 > 0:
-                    items = s.content.split("\n")
-                    kept: list[str] = []
-                    for item in items:
-                        candidate = "\n".join([*kept, item])
-                        candidate_tokens = estimate_token_count(candidate)
-                        if candidate_tokens <= budget_for_p2:
-                            kept.append(item)
-                        else:
-                            break
-                    if kept:
-                        content = "\n".join(kept)
-                        used = estimate_token_count(content)
-                        truncated_reason = "超过预算后按条目裁剪"
-                        new_sections.append(
-                            ContextSection(
-                                key=s.key,
-                                tier=s.tier,
-                                content=content,
-                                token_count=used,
-                                truncatable_per_item=True,
-                                max_items=s.max_items,
-                                title=s.title,
-                                preview=s.preview,
-                                status=s.status,
-                                activation_reason=s.activation_reason,
-                                sources=self._sources_for_kept_lines(s, len(kept)),
-                                can_exclude=s.can_exclude,
-                                excluded=s.excluded,
-                                truncated_reason=truncated_reason,
-                                retrieval_metadata=s.retrieval_metadata,
-                            )
-                        )
-                        if s.key not in truncated_keys:
-                            truncated_keys.append(s.key)
-                        budget_events.append(
-                            ContextBudgetEvent(
-                                section_key=s.key,
-                                event_type="truncated",
-                                reason=truncated_reason,
-                                before_tokens=s.token_count,
-                                after_tokens=used,
-                                tier=int(s.tier),
-                            )
-                        )
-                else:
+                if s.tier != Tier.P2 or not s.truncatable_per_item:
                     new_sections.append(s)
+                    continue
+
+                items = s.content.split("\n")
+                kept: list[str] = []
+                for item in items:
+                    candidate = "\n".join([*kept, item])
+                    candidate_tokens = estimate_token_count(candidate)
+                    if candidate_tokens <= remaining_p2_budget:
+                        kept.append(item)
+                    else:
+                        break
+
+                if not kept:
+                    if s.key not in evicted_keys:
+                        evicted_keys.append(s.key)
+                    budget_events.append(
+                        ContextBudgetEvent(
+                            section_key=s.key,
+                            event_type="evicted",
+                            reason="超过预算后无可用条目预算",
+                            before_tokens=s.token_count,
+                            after_tokens=0,
+                            tier=int(s.tier),
+                        )
+                    )
+                    continue
+
+                content = "\n".join(kept)
+                used = estimate_token_count(content)
+                remaining_p2_budget = max(0, remaining_p2_budget - used)
+                if len(kept) == len(items) and used == s.token_count:
+                    new_sections.append(s)
+                    continue
+
+                truncated_reason = "超过预算后按条目裁剪"
+                new_sections.append(
+                    ContextSection(
+                        key=s.key,
+                        tier=s.tier,
+                        content=content,
+                        token_count=used,
+                        truncatable_per_item=True,
+                        max_items=s.max_items,
+                        title=s.title,
+                        preview=s.preview,
+                        status=s.status,
+                        activation_reason=s.activation_reason,
+                        sources=self._sources_for_kept_lines(s, len(kept)),
+                        can_exclude=s.can_exclude,
+                        excluded=s.excluded,
+                        truncated_reason=truncated_reason,
+                        retrieval_metadata=s.retrieval_metadata,
+                    )
+                )
+                if s.key not in truncated_keys:
+                    truncated_keys.append(s.key)
+                budget_events.append(
+                    ContextBudgetEvent(
+                        section_key=s.key,
+                        event_type="truncated",
+                        reason=truncated_reason,
+                        before_tokens=s.token_count,
+                        after_tokens=used,
+                        tier=int(s.tier),
+                    )
+                )
             sections = new_sections
 
         # Phase 4: P1 Delta compression

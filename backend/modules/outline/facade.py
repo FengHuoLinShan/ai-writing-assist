@@ -11,6 +11,9 @@ Facade 不写复杂业务逻辑，只做稳定的对外代理。
   foreshadowing_facade      — 伏笔只读上下文
 """
 
+from modules.outline.analysis_context_facade import (  # noqa: F401
+    get_outline_analysis_context,
+)
 from modules.outline.deep_import_repair_facade import (  # noqa: F401
     deprecate_deep_import_scenes_by_workflow,
     deprecate_deep_import_structure_assets_by_workflow,
@@ -74,6 +77,7 @@ __all__ = [
     "get_deep_import_structure_category_targets",
     "get_deep_import_structure_output_count",
     "get_next_scene_index",
+    "get_outline_analysis_context",
     "get_plot_threads_for_context",
     "get_reader_reveal_decision",
     "get_scene",

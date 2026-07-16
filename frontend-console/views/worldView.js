@@ -610,6 +610,7 @@ const worldView = {
     content.innerHTML = await this.render()
     content.scrollTop = scrollTop
     this._bindEvents()
+    content.dispatchEvent(new Event("workspace:content-rendered", { bubbles: true }))
   },
 
   async _rerenderCurrentSubViewInPlace({ preserveScroll = true } = {}) {
@@ -621,6 +622,7 @@ const worldView = {
     content.innerHTML = await this.render()
     content.scrollTop = scrollTop
     this._bindEvents()
+    content.dispatchEvent(new Event("workspace:content-rendered", { bubbles: true }))
   },
 
   async _removeCandidateOptimistically(id) {
@@ -761,6 +763,7 @@ const worldView = {
           ${this._renderHeaderTitle(subView, reviewSubView)}
           <div class="view-header__actions">
             ${this._renderHeaderActions(subView, reviewSubView)}
+            <span data-role="smart-dedup-action"></span>
           </div>
         </div>
       </div>

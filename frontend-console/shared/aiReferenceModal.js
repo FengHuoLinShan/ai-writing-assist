@@ -92,16 +92,19 @@ function renderBody(options) {
         <div class="ai-ref-section-title">选择规则</div>
         <div class="ai-ref-form-grid">
           <label>范围
-            <select id="ai-ref-scope" class="form-select">
+            <select id="ai-ref-scope" class="form-select" ${options.lock_scope ? "disabled" : ""}>
               ${option("project", "项目", scope)}
               ${option("chapter", "章节", scope)}
               ${option("arc", "篇章", scope)}
               ${option("full", "全部", scope)}
             </select>
           </label>
-          <label>章节
-            <input id="ai-ref-chapter" class="form-input" type="number" min="1" value="${esc(chapterValue)}" />
+          <label>${options.visible_until_chapter ? "起始章节" : "章节"}
+            <input id="ai-ref-chapter" class="form-input" type="number" min="1" value="${esc(chapterValue)}" ${options.lock_chapter ? "readonly" : ""} />
           </label>
+          ${options.visible_until_chapter ? `<label>结束章节
+            <input class="form-input" type="number" value="${esc(options.visible_until_chapter)}" readonly />
+          </label>` : ""}
           <label>模式
             <select id="ai-ref-context-mode" class="form-select">
               ${option("canonical", contextContentModeLabel("canonical"), contextMode)}
@@ -161,10 +164,13 @@ function buildPayload(options, excludedSectionKeys = new Set()) {
     user_note: document.getElementById("ai-ref-user-note")?.value || undefined,
   }
   if (chapter) payload.chapter_index = chapter
+  if (options.visible_until_chapter) payload.visible_until_chapter = options.visible_until_chapter
+  if (options.budget_tokens) payload.budget_tokens = options.budget_tokens
   if (options.scene_id) payload.scene_id = options.scene_id
   if (options.arc_id) payload.arc_id = options.arc_id
   if (options.entity_ids) payload.entity_ids = options.entity_ids
   if (options.character_ids) payload.character_ids = options.character_ids
+  if (options.thread_ids) payload.thread_ids = options.thread_ids
   if (options.viewpoint_character_id) payload.viewpoint_character_id = options.viewpoint_character_id
   if (options.location_ids) payload.location_ids = options.location_ids
   const activationProfileId = document.getElementById("ai-ref-activation-profile")?.value

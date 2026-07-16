@@ -46,7 +46,10 @@ const App = {
 
     // 初始化路由（async，等待项目元数据同步完成后再渲染首屏）
     await router.initRouter()
-    router.onNavigate(() => this._renderGlobalActions())
+    router.onNavigate(() => {
+      this._smartDedup?.syncProject(state.currentProjectId)
+      this._renderGlobalActions()
+    })
 
     this._smartDedup = createSmartDedupManager({
       api,
@@ -57,7 +60,7 @@ const App = {
       onRenderActions: () => this._renderGlobalActions(),
       getCurrentProjectId: () => state.currentProjectId,
     })
-    this._smartDedup.recoverWorkflow(state.currentProjectId)
+    this._smartDedup.syncProject(state.currentProjectId)
     this._renderGlobalActions()
 
     // 检查后端连接
@@ -93,7 +96,8 @@ const App = {
   },
 
   _bindGlobalActions() {
-    document.getElementById("view-actions")?.addEventListener("click", (event) => {
+    const workspace = document.getElementById("workspace")
+    workspace?.addEventListener("click", (event) => {
       const button = event.target.closest("[data-action]")
       if (!button) return
       const action = button.getAttribute("data-action")
@@ -101,29 +105,25 @@ const App = {
         this._smartDedup?.handleAction(action)
       }
     })
+    workspace?.addEventListener("workspace:content-rendered", () => {
+      this._renderGlobalActions()
+    })
   },
 
   _renderGlobalActions() {
-    const actions = document.getElementById("view-actions")
-    if (!actions) return
-    const sceneWorkbenchActive = state.currentView === "outline" && state.currentSubView === "scenes"
-    const workspaceHeader = actions.closest("#workspace-header")
-    workspaceHeader?.classList.toggle("hidden", sceneWorkbenchActive)
-    if (sceneWorkbenchActive) {
-      actions.innerHTML = ""
-      const localDedupAction = document.querySelector('[data-role="scene-smart-dedup-action"]')
-      if (localDedupAction && this._smartDedup) {
-        localDedupAction.innerHTML = this._smartDedup.renderActionButton(
-          this._smartDedup.getState().progress,
-        )
-      }
+    const mount = document.querySelector(
+      '#workspace-content [data-role="smart-dedup-action"]',
+    )
+    if (!mount) return
+
+    const supportedView = state.currentView === "world" || state.currentView === "outline"
+    if (!state.currentProjectId || !supportedView || !this._smartDedup) {
+      mount.innerHTML = ""
       return
     }
-    if (!state.currentProjectId || state.currentView === "project") {
-      actions.innerHTML = ""
-      return
-    }
-    actions.innerHTML = this._smartDedup?.renderActionButton(this._smartDedup.getState().progress) || ""
+    mount.innerHTML = this._smartDedup.renderActionButton(
+      this._smartDedup.getState().progress,
+    )
   },
 
   updateWordcountDashboard({
@@ -241,7 +241,11 @@ const App = {
     state.mode = "NORMAL"
     const bar = document.getElementById("command-bar")
     const suggestions = document.getElementById("command-suggestions")
-    if (bar) bar.classList.remove("active", "has-suggestions")
+    if (bar) {
+      bar.classList.remove("active", "has-suggestions")
+      bar.inert = true
+      bar.setAttribute("aria-hidden", "true")
+    }
     if (suggestions) suggestions.replaceChildren()
   },
 
@@ -447,6 +451,8 @@ const App = {
     if (!input || !bar) return
 
     input.value = prefix
+    bar.inert = false
+    bar.setAttribute("aria-hidden", "false")
     bar.classList.add("active")
     input.focus()
     state.mode = prefix === ":" ? "COMMAND" : "SEARCH"
@@ -466,27 +472,6 @@ const App = {
       return
     }
 
-    const actions = document.getElementById("view-actions")
-    if (actions) {
-      const candidates = actions.querySelectorAll(".btn")
-      const actionMap = {
-        new: ["新建", "创建", "新增"],
-        edit: ["编辑"],
-        generate: ["生成"],
-        review: ["复查"],
-        confirm: ["确认"],
-        ignore: ["忽略"],
-        delete: ["删除", "废弃"],
-        select: ["打开", "查看"],
-      }
-      const texts = actionMap[action] || []
-      for (const b of candidates) {
-        if (texts.some((t) => b.textContent.includes(t))) {
-          b.click()
-          return
-        }
-      }
-    }
   },
 
   /**

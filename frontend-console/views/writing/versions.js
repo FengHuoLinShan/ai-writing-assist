@@ -6,6 +6,9 @@
  */
 
 import { confirmAsync } from "../../shared/confirmAsync.js"
+import { buildVersionDiff, renderVersionDiff } from "./versionDiff.js"
+
+const MAX_DIFF_DRAFT_CACHE_ENTRIES = 8
 
 export function createVersionManager({ state, api, toast, modal, esc, onSwitch }) {
   let _versions = []
@@ -13,8 +16,12 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
   let _currentDraftId = null
   let _currentVersionNumber = null
   let _loadGeneration = 0
+  let _diffGeneration = 0
+  let _loadedProjectId = null
+  const _draftCache = new Map()
 
   function isActiveVersion(version) {
+    if (!version) return false
     if (version?.display_state) return version.display_state === "active"
     return !["candidate", "deprecated"].includes(version?.status)
   }
@@ -51,13 +58,18 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
 
   async function load(chapterIndex) {
     const loadGeneration = ++_loadGeneration
+    const projectId = state.currentProjectId
+    _diffGeneration += 1
+    _draftCache.clear()
     _currentChapter = chapterIndex
+    _loadedProjectId = null
     _currentDraftId = null
     _currentVersionNumber = null
     try {
-      const history = await api.writing.getVersionHistory(chapterIndex, state.currentProjectId)
-      if (loadGeneration !== _loadGeneration) return false
+      const history = await api.writing.getVersionHistory(chapterIndex, projectId)
+      if (loadGeneration !== _loadGeneration || state.currentProjectId !== projectId) return false
       _versions = history.versions || []
+      _loadedProjectId = projectId
       const latest = latestActiveVersion()
       if (latest) {
         _currentDraftId = latest.id
@@ -65,15 +77,16 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
       }
       return true
     } catch (err) {
-      if (loadGeneration !== _loadGeneration) return false
+      if (loadGeneration !== _loadGeneration || state.currentProjectId !== projectId) return false
       _versions = []
+      _loadedProjectId = projectId
       toast("版本历史加载失败：" + (err.message || "未知错误"), "error")
       return false
     }
   }
 
   function render() {
-    if (!_currentChapter || _versions.length === 0) return ""
+    if (!_currentChapter || _versions.length === 0 || _loadedProjectId !== state.currentProjectId) return ""
     const current = _versions.find((version) => version.id === _currentDraftId)
     const canManageCurrent = isActiveVersion(current)
 
@@ -97,6 +110,7 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
           </select>
         </span>
         <button class="btn btn-sm writing-btn-compact" data-action="version-history" title="版本历史">历史</button>
+        ${diffVersions().length >= 2 ? '<button class="btn btn-sm writing-btn-compact" data-action="version-diff" title="比较两个版本">比较</button>' : ""}
         ${canManageCurrent ? '<button class="btn btn-sm writing-version-delete" id="btn-delete-version" data-action="delete-version" title="删除当前版本" aria-label="删除当前版本">🗑</button>' : ""}
         <span id="publish-status-dot" class="publish-status-dot" title="发布任务进行中"></span>
       </div>
@@ -119,6 +133,11 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
     const historyBtn = container.querySelector('[data-action="version-history"]')
     if (historyBtn) {
       historyBtn.onclick = () => showVersionHistory()
+    }
+
+    const diffBtn = container.querySelector('[data-action="version-diff"]')
+    if (diffBtn) {
+      diffBtn.onclick = () => showVersionDiff()
     }
 
     const deleteBtn = container.querySelector('[data-action="delete-version"]')
@@ -218,7 +237,13 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
       return
     }
     const latest = latestActiveVersion()
-    let listHtml = '<div class="writing-version-history-list">'
+    let listHtml = `
+      <div class="writing-version-history-toolbar">
+        ${diffVersions().length >= 2 ? '<button class="btn btn-sm btn-primary" data-action="version-diff" type="button">比较版本</button>' : ""}
+        <span>比较仅在当前页面临时计算，不会创建、恢复或采用版本。</span>
+      </div>
+      <div class="writing-version-history-list">
+    `
     for (const v of _versions) {
       const isLatest = v.id === latest?.id
       const canRestore = isActiveVersion(v)
@@ -248,6 +273,9 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
   }
 
   function bindVersionHistoryEvents(container = document) {
+    container.querySelectorAll('[data-action="version-diff"]').forEach((btn) => {
+      btn.onclick = () => showVersionDiff()
+    })
     container.querySelectorAll(".version-preview-btn").forEach((btn) => {
       btn.onclick = () => _handlePreviewClick(btn)
     })
@@ -278,8 +306,215 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
     }
   }
 
+  function showVersionDiff() {
+    if (_loadedProjectId !== state.currentProjectId) {
+      toast("版本列表已过期，请重新选择章节", "warning")
+      return
+    }
+    const availableVersions = diffVersions()
+    if (!_currentChapter || availableVersions.length < 2) {
+      toast("至少需要两个版本才能比较", "info")
+      return
+    }
+    const currentDraftId = normalizeDraftId(_currentDraftId)
+    const rightId = availableVersions.some((version) => normalizeDraftId(version.id) === currentDraftId)
+      ? currentDraftId
+      : normalizeDraftId(availableVersions[0]?.id)
+    const leftId = normalizeDraftId(availableVersions.find(
+      (version) => normalizeDraftId(version.id) !== rightId,
+    )?.id)
+    if (!leftId || !rightId) {
+      toast("至少需要两个版本才能比较", "info")
+      return
+    }
+    const options = availableVersions.map((version) => `
+      <option value="${esc(normalizeDraftId(version.id))}">${esc(versionOptionLabel(version))}</option>
+    `).join("")
+    const body = `
+      <div class="writing-version-diff-dialog">
+        <div class="writing-version-diff-controls">
+          <label>
+            <span>左侧版本</span>
+            <select id="writing-version-diff-left" class="form-select" aria-label="选择左侧版本">
+              ${options}
+            </select>
+          </label>
+          <button class="btn btn-sm writing-version-diff-swap" data-action="swap-version-diff" type="button" title="交换左右版本" aria-label="交换左右版本">⇄</button>
+          <label>
+            <span>右侧版本</span>
+            <select id="writing-version-diff-right" class="form-select" aria-label="选择右侧版本">
+              ${options}
+            </select>
+          </label>
+          <button class="btn btn-sm btn-primary" data-action="refresh-version-diff" type="button">比较</button>
+        </div>
+        <p class="writing-version-diff-readonly">只读临时比较：包含工作稿、待审核与历史版本；不会修改任何版本状态。</p>
+        <div id="writing-version-diff-result" class="writing-version-diff-result" aria-live="polite"></div>
+      </div>
+    `
+    modal.showHtml(`第 ${_currentChapter} 章 — 版本比较`, body, [], {
+      size: "large",
+      protectUnsaved: false,
+    })
+    const leftSelect = document.getElementById("writing-version-diff-left")
+    const rightSelect = document.getElementById("writing-version-diff-right")
+    if (leftSelect) leftSelect.value = leftId
+    if (rightSelect) rightSelect.value = rightId
+    bindVersionDiffEvents()
+    loadVersionDiff(leftId, rightId)
+  }
+
+  function bindVersionDiffEvents(container = document) {
+    const leftSelect = container.querySelector("#writing-version-diff-left")
+    const rightSelect = container.querySelector("#writing-version-diff-right")
+    if (!leftSelect || !rightSelect) return
+    const compare = () => loadVersionDiff(leftSelect.value, rightSelect.value, container)
+    leftSelect.onchange = compare
+    rightSelect.onchange = compare
+    const swapBtn = container.querySelector('[data-action="swap-version-diff"]')
+    if (swapBtn) {
+      swapBtn.onclick = () => {
+        const leftValue = leftSelect.value
+        leftSelect.value = rightSelect.value
+        rightSelect.value = leftValue
+        compare()
+      }
+    }
+    const refreshBtn = container.querySelector('[data-action="refresh-version-diff"]')
+    if (refreshBtn) refreshBtn.onclick = compare
+  }
+
+  async function loadVersionDiff(leftId, rightId, container = document) {
+    const resultEl = container.querySelector?.("#writing-version-diff-result")
+      || document.getElementById("writing-version-diff-result")
+    const requestGeneration = ++_diffGeneration
+    if (!resultEl) return false
+    const normalizedLeftId = normalizeDraftId(leftId)
+    const normalizedRightId = normalizeDraftId(rightId)
+    if (!normalizedLeftId || !normalizedRightId) {
+      resultEl.textContent = "请选择两个版本"
+      return false
+    }
+    if (normalizedLeftId === normalizedRightId) {
+      resultEl.textContent = "左右两侧不能选择同一版本"
+      return false
+    }
+
+    const projectId = state.currentProjectId
+    const chapterIndex = _currentChapter
+    if (_loadedProjectId !== projectId || !chapterIndex) {
+      resultEl.textContent = "版本列表已过期，请重新加载章节"
+      return false
+    }
+    const availableIds = new Set(diffVersions().map((version) => normalizeDraftId(version.id)))
+    if (!availableIds.has(normalizedLeftId) || !availableIds.has(normalizedRightId)) {
+      resultEl.textContent = "所选版本不属于当前章节，请重新选择"
+      return false
+    }
+    resultEl.textContent = "正在读取并比较版本…"
+    try {
+      const [leftDraft, rightDraft] = await Promise.all([
+        getDraftForDiff(normalizedLeftId, projectId, chapterIndex),
+        getDraftForDiff(normalizedRightId, projectId, chapterIndex),
+      ])
+      if (!isCurrentDiffRequest(requestGeneration, projectId, chapterIndex, resultEl)) return false
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      if (!isCurrentDiffRequest(requestGeneration, projectId, chapterIndex, resultEl)) return false
+      const diff = buildVersionDiff(leftDraft?.content || "", rightDraft?.content || "")
+      resultEl.innerHTML = renderVersionDiff(diff, {
+        esc,
+        leftLabel: versionLabelById(normalizedLeftId),
+        rightLabel: versionLabelById(normalizedRightId),
+      })
+      return true
+    } catch (err) {
+      if (!isCurrentDiffRequest(requestGeneration, projectId, chapterIndex, resultEl)) return false
+      resultEl.textContent = `版本比较失败：${err?.message || "未知错误"}`
+      return false
+    }
+  }
+
+  function getDraftForDiff(draftId, projectId, chapterIndex) {
+    const cacheKey = `${projectId}:${draftId}`
+    if (_draftCache.has(cacheKey)) {
+      const cached = _draftCache.get(cacheKey)
+      _draftCache.delete(cacheKey)
+      _draftCache.set(cacheKey, cached)
+      return cached
+    }
+    const request = api.writing.get(draftId, projectId)
+      .then((draft) => {
+        assertDiffDraftIdentity(draft, draftId, projectId, chapterIndex)
+        return draft
+      })
+      .catch((error) => {
+        if (_draftCache.get(cacheKey) === request) _draftCache.delete(cacheKey)
+        throw error
+      })
+    _draftCache.set(cacheKey, request)
+    while (_draftCache.size > MAX_DIFF_DRAFT_CACHE_ENTRIES) {
+      _draftCache.delete(_draftCache.keys().next().value)
+    }
+    return request
+  }
+
+  function isCurrentDiffRequest(generation, projectId, chapterIndex, resultEl) {
+    return (
+      generation === _diffGeneration &&
+      projectId === state.currentProjectId &&
+      projectId === _loadedProjectId &&
+      chapterIndex === _currentChapter &&
+      isActiveDiffTarget(resultEl)
+    )
+  }
+
+  function isActiveDiffTarget(resultEl) {
+    if (!resultEl?.isConnected) return false
+    if (document.getElementById("writing-version-diff-result") !== resultEl) return false
+    const overlay = resultEl.closest?.("#modal-overlay")
+    return !overlay?.classList.contains("hidden")
+  }
+
+  function assertDiffDraftIdentity(draft, draftId, projectId, chapterIndex) {
+    if (!draft || normalizeDraftId(draft.id) !== draftId) {
+      throw new Error("版本响应与所选版本不一致")
+    }
+    if (draft.novel_id != null && String(draft.novel_id) !== String(projectId)) {
+      throw new Error("版本响应不属于当前项目")
+    }
+    if (draft.chapter_index != null && String(draft.chapter_index) !== String(chapterIndex)) {
+      throw new Error("版本响应不属于当前章节")
+    }
+  }
+
+  function normalizeDraftId(draftId) {
+    return draftId == null ? "" : String(draftId)
+  }
+
+  function diffVersions() {
+    const seen = new Set()
+    return _versions.filter((version) => {
+      const draftId = normalizeDraftId(version?.id)
+      if (!draftId || seen.has(draftId)) return false
+      seen.add(draftId)
+      return true
+    })
+  }
+
+  function versionOptionLabel(version) {
+    return `v${version.version_number} · ${historyVersionLabel(version)}`
+  }
+
+  function versionLabelById(draftId) {
+    const version = _versions.find((item) => String(item.id) === String(draftId))
+    return version ? versionOptionLabel(version) : "未知版本"
+  }
+
   function setVersions(versions, chapterIndex) {
+    _diffGeneration += 1
+    _draftCache.clear()
     _versions = Array.isArray(versions) ? versions : []
+    _loadedProjectId = state.currentProjectId
     _currentChapter = chapterIndex ?? _currentChapter
     const latest = latestActiveVersion()
     _currentDraftId = latest?.id || null
@@ -288,7 +523,10 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
 
   function dispose() {
     _loadGeneration += 1
+    _diffGeneration += 1
+    _draftCache.clear()
     _versions = []
+    _loadedProjectId = null
     _currentChapter = null
     _currentDraftId = null
     _currentVersionNumber = null
@@ -303,6 +541,9 @@ export function createVersionManager({ state, api, toast, modal, esc, onSwitch }
     deleteVersion,
     setVersions,
     bindVersionHistoryEvents,
+    showVersionDiff,
+    bindVersionDiffEvents,
+    loadVersionDiff,
     _handlePreviewClick,
     _handleRestoreClick,
     dispose,

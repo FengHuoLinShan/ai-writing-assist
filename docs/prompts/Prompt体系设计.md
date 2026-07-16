@@ -32,6 +32,7 @@
 | `world_bible_synopsis_service.py` | 内联 step `world.world_bible.synopsis.structured`：把已采用世界事实压缩为作者版 P1 世界观简介 | world 世界书简介刷新任务 |
 | `generation_prompt_template_service.py` | 内置创作视角与项目级自定义模板；作为 author brief 进入生成中心 | world 对象共创 |
 | `writing/services.py` | 内联 step `writing.generation.candidate.generate`：根据已确认上下文生成正文候选 | writing 正文生成 |
+| `outline/ai_workflow_service.py` | 内联 step `outline.ai_workflow.analyze.generate`：回答作者指定的大纲结构问题 | outline 手动大纲分析 |
 
 ## 3. Prompt Contract System
 
@@ -138,6 +139,26 @@ provenance 由 outline 确定性逻辑保持。调用失败时只返回带 warni
 RAG 证据的关联顺序取 Top-K；人物上限 6，相关世界对象上限 16。
 该 Prompt 不预设字数、段落数量、描写比例或统一节奏模板，允许模型补充
 不改变重大设定的局部、可逆写作细节。结果只保存为 candidate，仍需作者显式采用。
+
+### 手动大纲分析类
+
+`outline.ai_workflow.analyze.generate` 把模型定位为与作者共同判断结构的长篇小说叙事顾问，
+而不是固定节拍表的评分器。作者未指定问题时，模型自行识别最影响后续创作的结构关系；
+作者给出明确目标时直接回答该问题。模型可按资料选择因果、冲突、节奏、铺垫与兑现、
+信息揭示、Scene 功能、人物能动性或主题等有解释力的角度，但不要求逐项覆盖，不预设
+三幕式、英雄旅程或统一标题/条数/篇幅。分析区分资料支持的观察、结构推断和供作者选择的
+建议；提出改动时说明预期效果与代价，现有结构成立时也应直接说明。
+
+上下文先在 confirmation 中固定：`chapter_index..visible_until_chapter` 表示作者确认的分析
+范围，范围内 Scene 按叙事顺序呈现，并包含重叠篇章、区间重叠或被范围资产显式关联的
+剧情线，以及伏笔和揭示计划；关联人物
+取 Top-6，相关世界对象取 Top-16。任务按确认记录重编译上下文，确认指纹一致后才消费
+确认后的 Markdown 和范围元数据，二者均作为
+有边界的不可信 user/context JSON 注入，不能覆盖 system 规则；task range 与 confirmation
+不一致时拒绝执行，显式范围未成功加载时确认或回放失败关闭。`confirmation.task` 是唯一经作者
+确认的分析目标，任务 metadata 中的兼容性 `instruction` 不能覆盖它。输出是自由中文 Markdown，
+只作为只读分析返回，不提供 apply、不写入
+剧情线、篇章、Scene、伏笔、揭示或正史事实。
 
 #### 单角色 POV 正文候选
 

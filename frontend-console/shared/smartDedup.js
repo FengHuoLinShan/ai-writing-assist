@@ -41,6 +41,7 @@ export function createSmartDedupManager({
     _groupDraft: {},
     _activeGroupId: null,
     _groupResults: {},
+    _activeProjectId: null,
     _currentProjectId() {
       return typeof getCurrentProjectId === "function" ? getCurrentProjectId() : null
     },
@@ -68,13 +69,28 @@ export function createSmartDedupManager({
       if (typeof fn === "function") fn()
     },
 
+    syncProject(projectId) {
+      const nextProjectId = projectId || null
+      if (this._activeProjectId === nextProjectId) return
+
+      this._clearScanState()
+      this._activeProjectId = nextProjectId
+      if (nextProjectId) this.recoverWorkflow(nextProjectId)
+      this._notifyRender()
+    },
+
     recoverWorkflow(projectId) {
-      if (!projectId) return
-      const workflow = recoverActiveWorkflows(projectId)
+      const nextProjectId = projectId || null
+      if (!nextProjectId) return
+      if (this._activeProjectId !== nextProjectId) {
+        this._clearScanState()
+        this._activeProjectId = nextProjectId
+      }
+      const workflow = recoverActiveWorkflows(nextProjectId)
         .find((item) => item.workflowType === "smart_dedup_scan")
       if (!workflow?.taskId) return
       this._taskId = workflow.taskId
-      this._scanProjectId = projectId
+      this._scanProjectId = nextProjectId
       this._progress = normalizeTaskProgress({
         task_id: workflow.taskId,
         task_type: "smart_dedup_scan",
@@ -90,6 +106,7 @@ export function createSmartDedupManager({
         toast("请先选择项目", "warning")
         return
       }
+      this.syncProject(projectId)
       if (this._progress && !this._progress.terminal) {
         this.showProgress()
         return
@@ -104,21 +121,29 @@ export function createSmartDedupManager({
         this._activeGroupId = null
         this._groupResults = {}
         const result = await api.projects.startSmartDedupScan(projectId, {})
-        this._taskId = result.task_id
-        this._progress = normalizeTaskProgress({
-          ...result,
-          task_type: "smart_dedup_scan",
-        }, "smart_dedup_scan")
         persistActiveWorkflow({
           taskId: result.task_id,
           workflowType: "smart_dedup_scan",
           label: "智能去重扫描",
           projectId,
         })
+        if (this._currentProjectId() !== projectId) {
+          this.syncProject(this._currentProjectId())
+          return
+        }
+        this._taskId = result.task_id
+        this._progress = normalizeTaskProgress({
+          ...result,
+          task_type: "smart_dedup_scan",
+        }, "smart_dedup_scan")
         toast("智能去重扫描已提交", "success")
-        this._startPolling(result.task_id)
+        this._startPolling(result.task_id, projectId)
         this._notifyRender()
       } catch (err) {
+        if (this._currentProjectId() !== projectId) {
+          this.syncProject(this._currentProjectId())
+          return
+        }
         toast(`智能去重启动失败：${err.message}`, "error")
       }
     },
@@ -173,19 +198,16 @@ export function createSmartDedupManager({
       if (typeof onRenderActions === "function") onRenderActions()
     },
 
-    _startPolling(taskId) {
+    _startPolling(taskId, projectId = this._activeProjectId || this._currentProjectId()) {
       this._stopPolling()
-      const capturedProjectId = this._currentProjectId()
+      const capturedProjectId = projectId
       this._poller = pollTaskProgress({
         taskId,
         workflowType: "smart_dedup_scan",
         apiClient: api,
         onUpdate: (progress) => {
           if (this._currentProjectId() !== capturedProjectId) {
-            this._stopPolling()
-            this._taskId = null
-            this._progress = null
-            this._groupDraft = {}
+            this.syncProject(this._currentProjectId())
             return
           }
           this._progress = progress
@@ -193,10 +215,7 @@ export function createSmartDedupManager({
         },
         onDone: (progress) => {
           if (this._currentProjectId() !== capturedProjectId) {
-            this._stopPolling()
-            this._taskId = null
-            this._progress = null
-            this._groupDraft = {}
+            this.syncProject(this._currentProjectId())
             return
           }
           clearActiveWorkflow(progress.taskId || taskId)
@@ -209,10 +228,7 @@ export function createSmartDedupManager({
         },
         onFailed: (progress) => {
           if (this._currentProjectId() !== capturedProjectId) {
-            this._stopPolling()
-            this._taskId = null
-            this._progress = null
-            this._groupDraft = {}
+            this.syncProject(this._currentProjectId())
             return
           }
           clearActiveWorkflow(progress.taskId || taskId)
@@ -229,13 +245,8 @@ export function createSmartDedupManager({
       this._poller = null
     },
 
-    _resetResult() {
-      const taskId = this._taskId
-        || this._progress?.taskId
-        || this._progress?.id
-        || this._progress?.raw?.result?.task_id
+    _clearScanState() {
       this._stopPolling()
-      if (taskId) clearActiveWorkflow(taskId)
       this._taskId = null
       this._progress = null
       this._scanTaskId = null
@@ -246,6 +257,15 @@ export function createSmartDedupManager({
       this._groupDraft = {}
       this._activeGroupId = null
       this._groupResults = {}
+    },
+
+    _resetResult() {
+      const taskId = this._taskId
+        || this._progress?.taskId
+        || this._progress?.id
+        || this._progress?.raw?.result?.task_id
+      if (taskId) clearActiveWorkflow(taskId)
+      this._clearScanState()
       this._notifyRender()
     },
 

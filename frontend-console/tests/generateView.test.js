@@ -550,7 +550,6 @@ describe("generateView chatbox", () => {
 
   it("在页面标题栏挂载生成中心说明，离开时清理", () => {
     document.body.innerHTML = `
-      <header id="workspace-header"><div id="view-actions"></div></header>
       <div class="topbar-center"><span id="topbar-module">生成中心</span></div>
     `
 

@@ -15,6 +15,11 @@ describe("editorial archive theme", () => {
     )
   })
 
+  it("does not keep the obsolete global action strip", () => {
+    expect(indexHtml).not.toContain('id="workspace-header"')
+    expect(indexHtml).not.toContain('id="view-actions"')
+  })
+
   it("keeps the paper, navy and vermillion language across all three themes", () => {
     expect(theme).toMatch(/:root\s*\{[\s\S]*--archive-paper:[^;]+;[\s\S]*--archive-ink:[^;]+;[\s\S]*--archive-red:[^;]+;/)
     expect(theme).toMatch(/\[data-theme="warm"\]\s*\{[\s\S]*--archive-paper:[^;]+;[\s\S]*--archive-red:[^;]+;/)
@@ -71,6 +76,14 @@ describe("editorial archive theme", () => {
     expect(theme).toContain("counter-increment: archive-settings-section;")
     expect(theme).toContain('#workspace-content[data-workspace-view="generate"] .generate-chat-panel::after')
     expect(theme).toContain("#modal-content")
-    expect(theme).toMatch(/#main-layout,[\s\S]*#workspace-header\s*\{[^}]*background-color:\s*var\(--archive-paper\);/s)
+    expect(theme).toMatch(/#main-layout,[\s\S]*#workspace\s*\{[^}]*background-color:\s*var\(--archive-paper\);/s)
+  })
+
+  it("keeps settings technology ornaments behind the interaction layer", () => {
+    expect(theme).toContain('#workspace-content[data-workspace-view="settings"]::after')
+    expect(theme).toContain('#workspace-content[data-workspace-view="project-settings"]::after')
+    expect(theme).toContain('content: "⚙︎";')
+    expect(theme).toMatch(/\.global-settings-view,[\s\S]*\.project-settings-view\s*\{[^}]*position:\s*relative;[^}]*z-index:\s*1;/s)
+    expect(theme).toMatch(/content:\s*"⚙︎";[\s\S]*pointer-events:\s*none;[\s\S]*z-index:\s*0;/s)
   })
 })

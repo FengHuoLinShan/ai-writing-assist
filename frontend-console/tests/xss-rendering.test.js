@@ -18,6 +18,26 @@ beforeEach(() => {
 })
 
 describe("command suggestions", () => {
+  it("keeps the hidden command bar out of keyboard navigation", () => {
+    document.body.innerHTML = `
+      <div id="command-bar" inert aria-hidden="true">
+        <input id="command-input" />
+        <div id="command-suggestions"></div>
+      </div>
+    `
+
+    globalThis.App._focusCommandBar(":")
+    const bar = document.getElementById("command-bar")
+    expect(bar.inert).toBe(false)
+    expect(bar.getAttribute("aria-hidden")).toBe("false")
+    expect(bar.classList.contains("active")).toBe(true)
+
+    globalThis.App._hideCommandBar()
+    expect(bar.inert).toBe(true)
+    expect(bar.getAttribute("aria-hidden")).toBe("true")
+    expect(bar.classList.contains("active")).toBe(false)
+  })
+
   it("renders suggestions via DOM construction without executing HTML", () => {
     const bar = document.createElement("div")
     bar.id = "command-bar"

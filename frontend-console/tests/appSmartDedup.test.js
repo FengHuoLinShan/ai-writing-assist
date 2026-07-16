@@ -6,7 +6,13 @@ import { resetState, clearDocument } from "./helpers.js"
 beforeEach(() => {
   resetState({ currentProjectId: "p1", currentView: "world" })
   clearDocument()
-  document.body.innerHTML = '<div id="view-actions"></div>'
+  document.body.innerHTML = `
+    <main id="workspace">
+      <div id="workspace-content">
+        <span data-role="smart-dedup-action"></span>
+      </div>
+    </main>
+  `
   App._smartDedup = createSmartDedupManager({
     api,
     router,
@@ -22,34 +28,31 @@ beforeEach(() => {
 })
 
 describe("App smart dedup integration", () => {
-  it("renders one global smart dedup button for active projects", () => {
+  it("renders one local smart dedup button on the world page", () => {
     App._renderGlobalActions()
 
-    const actions = document.getElementById("view-actions")
+    const actions = document.querySelector('[data-role="smart-dedup-action"]')
     expect(actions.innerHTML).toContain("智能去重")
     expect(actions.querySelectorAll('[data-action="start-smart-dedup"]')).toHaveLength(1)
   })
 
-  it("does not render the smart dedup button on project list", () => {
-    state.currentView = "project"
+  it.each(["project", "writing", "map", "rag", "generate", "settings", "project-settings"])(
+    "does not render the smart dedup button on %s",
+    (viewName) => {
+      state.currentView = viewName
 
-    App._renderGlobalActions()
+      App._renderGlobalActions()
 
-    expect(document.getElementById("view-actions").innerHTML).toBe("")
-  })
+      expect(document.querySelector('[data-role="smart-dedup-action"]').innerHTML).toBe("")
+    },
+  )
 
-  it("moves the smart dedup button into the Scene subnav and hides the empty header", () => {
+  it("renders the smart dedup button in an outline-local mount", () => {
     state.currentView = "outline"
     state.currentSubView = "scenes"
-    document.body.innerHTML = `
-      <header id="workspace-header"><div id="view-actions"></div></header>
-      <span data-role="scene-smart-dedup-action"></span>
-    `
 
     App._renderGlobalActions()
 
-    expect(document.getElementById("view-actions").innerHTML).toBe("")
-    expect(document.getElementById("workspace-header").classList.contains("hidden")).toBe(true)
     expect(document.querySelectorAll('[data-action="start-smart-dedup"]')).toHaveLength(1)
   })
 
@@ -59,7 +62,17 @@ describe("App smart dedup integration", () => {
     App._renderGlobalActions()
     document.querySelector('[data-action="start-smart-dedup"]').click()
 
-    expect(startScan).toHaveBeenCalled()
+    expect(startScan).toHaveBeenCalledTimes(1)
+  })
+
+  it("repaints exactly one action after a local workspace rerender", () => {
+    App._renderGlobalActions()
+    const content = document.getElementById("workspace-content")
+    content.innerHTML = '<span data-role="smart-dedup-action"></span>'
+
+    content.dispatchEvent(new Event("workspace:content-rendered", { bubbles: true }))
+
+    expect(content.querySelectorAll('[data-action="start-smart-dedup"]')).toHaveLength(1)
   })
 
   it("delegates show-smart-dedup-progress action to the manager", async () => {
@@ -75,7 +88,7 @@ describe("App smart dedup integration", () => {
     App._renderGlobalActions()
     document.querySelector('[data-action="show-smart-dedup-progress"]').click()
 
-    expect(showProgress).toHaveBeenCalled()
+    expect(showProgress).toHaveBeenCalledTimes(1)
     App._smartDedup.dispose()
   })
 })

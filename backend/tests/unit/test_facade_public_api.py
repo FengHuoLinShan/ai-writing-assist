@@ -81,6 +81,7 @@ OUTLINE_FACADE_API = {
     "get_deep_import_structure_category_targets",
     "get_deep_import_structure_output_count",
     "get_next_scene_index",
+    "get_outline_analysis_context",
     "get_plot_threads_for_context",
     "get_reader_reveal_decision",
     "get_scene",
