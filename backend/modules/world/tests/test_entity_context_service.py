@@ -311,6 +311,29 @@ async def test_list_entity_terms_extracts_aliases(
 
 
 @pytest.mark.asyncio
+async def test_list_entity_terms_excludes_inactive_aliases(
+    novel_id: str,
+    entity_service: EntityContextService,
+) -> None:
+    entity = _make_entity(
+        name="Arthur",
+        content_json={
+            "aliases": [
+                {"alias": "Active", "status": "canonical"},
+                {"alias": "Ignored", "status": "ignored"},
+                {"alias": "Rolled", "status": "candidate", "rolled_back": True},
+                {"alias": "Legacy"},
+            ]
+        },
+    )
+    entity_service._repo.list_by_novel = AsyncMock(return_value=[entity])
+
+    terms = await entity_service.list_entity_terms(AsyncMock(), novel_id)
+
+    assert terms[0]["terms"] == ["Arthur", "Active", "Legacy"]
+
+
+@pytest.mark.asyncio
 async def test_find_by_name_found_returns_id(
     novel_id: str,
     entity_service: EntityContextService,

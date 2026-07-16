@@ -559,6 +559,11 @@ class EntityDedupService:
                 )
 
         await db.flush()
+        from modules.world.services.core.entity_activity_invalidation import (
+            request_entity_activity_reannotation,
+        )
+
+        await request_entity_activity_reannotation(db, novel_id)
 
         return MergeResult(
             target_entity_id=str(tid),
@@ -606,6 +611,11 @@ class EntityDedupService:
                 CoreEntityUpdate(status="canonical"),
             )
             await db.flush()
+            from modules.world.services.core.entity_activity_invalidation import (
+                request_entity_activity_reannotation,
+            )
+
+            await request_entity_activity_reannotation(db, novel_id)
             return ResolveResult(
                 action="promoted",
                 promoted_entity_id=str(cid),

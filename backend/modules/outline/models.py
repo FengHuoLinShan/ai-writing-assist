@@ -6,6 +6,7 @@ from sqlalchemy import (
     JSON,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -15,6 +16,106 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.base import Base, NovelMixin, StatusMixin, TimestampMixin, UUIDMixin, UUIDType
+
+
+class StoryOutlineRevision(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """Immutable, author-adopted revision of the novel-level story outline."""
+
+    __tablename__ = "story_outline_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "version_number",
+            name="uq_story_outline_revision_version",
+        ),
+        UniqueConstraint(
+            "novel_id",
+            "idempotency_key",
+            name="uq_story_outline_revision_idempotency",
+        ),
+        UniqueConstraint(
+            "id",
+            "novel_id",
+            name="uq_story_outline_revision_id_novel",
+        ),
+        ForeignKeyConstraint(
+            ["base_revision_id", "novel_id"],
+            ["story_outline_revisions.id", "story_outline_revisions.novel_id"],
+            name="fk_story_outline_revision_base_novel",
+        ),
+        ForeignKeyConstraint(
+            ["restored_from_revision_id", "novel_id"],
+            ["story_outline_revisions.id", "story_outline_revisions.novel_id"],
+            name="fk_story_outline_revision_restored_novel",
+        ),
+        Index(
+            "ix_story_outline_revisions_novel_version",
+            "novel_id",
+            "version_number",
+        ),
+        {"comment": "小说总纲不可变修订"},
+    )
+
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    creative_core_json: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+    )
+    outline_markdown: Mapped[str] = mapped_column(Text, nullable=False)
+    major_storylines_json: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
+    macro_movements_json: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
+    open_decisions_json: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    provenance_json: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+    )
+    base_revision_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType,
+        nullable=True,
+    )
+    restored_from_revision_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType,
+        nullable=True,
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class StoryOutlineHead(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """One novel-scoped pointer to the current StoryOutline revision."""
+
+    __tablename__ = "story_outline_heads"
+    __table_args__ = (
+        UniqueConstraint("novel_id", name="uq_story_outline_head_novel"),
+        ForeignKeyConstraint(
+            ["current_revision_id", "novel_id"],
+            ["story_outline_revisions.id", "story_outline_revisions.novel_id"],
+            name="fk_story_outline_head_current_novel",
+        ),
+        {"comment": "小说总纲当前修订指针"},
+    )
+
+    current_revision_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType,
+        nullable=True,
+    )
 
 
 class PlotThread(Base, UUIDMixin, TimestampMixin, StatusMixin, NovelMixin):

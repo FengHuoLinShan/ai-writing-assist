@@ -247,11 +247,17 @@ test.describe("世界对象模块", () => {
     await reloadWorkbench(page, "world", "candidates")
     await expect(page.locator(SEL.dataTable)).toContainText("候选实体")
 
-    // When: 在待处理列表中点击合并，输入目标 ID
+    // When: 在待处理列表中点击合并，按名称选择目标对象
     await page.locator('tr:has-text("候选实体") [data-action="merge-entity"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("合并对象")
-    await page.locator("#merge-target-id").selectOption(target.id)
+    const mergePicker = page.locator("#merge-target-picker")
+    await mergePicker.locator("[data-reference-query]").fill("目标实体")
+    await mergePicker.locator("[data-reference-result]", { hasText: "目标实体" }).click()
+    await expect(mergePicker.locator("[data-reference-selected]")).toContainText("目标实体")
+    await expect(page.locator("#merge-target-id")).toHaveValue(target.id)
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("确认操作")
+    await page.locator(SEL.modalFooter).locator(SEL.btnDanger).click()
 
     // Then: 提示合并完成
     await expect(page.locator(SEL.toastContainer)).toContainText("实体已合并", { timeout: 10000 })
@@ -292,11 +298,13 @@ test.describe("世界对象模块", () => {
 
     await candidateItem(candidates[0].id).locator('[data-action="merge-entity"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("合并对象")
-    await page.locator("#merge-target-query").fill("同名目标")
-    await page.locator("#merge-target-search").click()
-    await expect(page.locator("#merge-target-id")).toContainText("同名目标")
-    await page.locator("#merge-target-id").selectOption(target.id)
+    const mergePicker = page.locator("#merge-target-picker")
+    await mergePicker.locator("[data-reference-query]").fill("同名目标")
+    await mergePicker.locator("[data-reference-result]", { hasText: "同名目标" }).click()
+    await expect(page.locator("#merge-target-id")).toHaveValue(target.id)
     await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("确认操作")
+    await page.locator(SEL.modalFooter).locator(SEL.btnDanger).click()
 
     await expect(page.locator(SEL.toastContainer)).toContainText("实体已合并", { timeout: 10000 })
     await expect(candidateItem(candidates[0].id)).toHaveCount(0)

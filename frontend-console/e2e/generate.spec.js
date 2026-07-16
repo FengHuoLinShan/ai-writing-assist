@@ -6,6 +6,8 @@ import {
   cleanupProject,
   createWorldBibleDraft,
   createWorldBiblePage,
+  createEntity,
+  createScene,
   getWorldBiblePage,
   waitForBackend,
 } from "./helpers/api-client.js"
@@ -379,15 +381,34 @@ test.describe("生成中心模块", () => {
     await page.getByRole("button", { name: "任务" }).click()
     await page.locator(".gen-form-section summary").click()
     await page.locator("#gen-reveal").selectOption("character")
-    await page.locator("#gen-viewpoint-character").fill("")
     await page.locator("#gen-task").fill("写角色视角场景")
     await page.getByRole("button", { name: "编译上下文" }).click()
 
-    await expect(page.locator(SEL.toastContainer)).toContainText("角色视角模式必须选择或输入视角人物 ID", { timeout: 10000 })
+    await expect(page.locator(SEL.toastContainer)).toContainText("角色视角模式必须选择视角人物", { timeout: 10000 })
     expect(compileCalled).toBeFalsy()
   })
 
-  test("角色视角模式提交 reveal_mode=character 与视角人物 ID", async ({ page }) => {
+  test("按名称选择生成上下文，payload 仍提交稳定 ID", async ({ page }) => {
+    const relatedEntity = await createEntity(testProjectId, {
+      name: "北境密钥",
+      entity_type: "item",
+      status: "canonical",
+      summary: "用于打开王宫暗门",
+    })
+    const viewpointCharacter = await createEntity(testProjectId, {
+      name: "顾临渊",
+      entity_type: "character",
+      status: "canonical",
+      summary: "此次潜入行动的视角人物",
+    })
+    const scene = await createScene(testProjectId, {
+      scene_index: 0,
+      title: "潜入王宫",
+      goal: "取得密信",
+      narrative_tag: "draft",
+      chapter_ids: [],
+      scene_chunks: [],
+    })
     const requests = []
     await page.route("**/api/context/compile", async (route) => {
       const body = route.request().postDataJSON()
@@ -417,15 +438,27 @@ test.describe("生成中心模块", () => {
     await page.getByRole("button", { name: "任务" }).click()
     await page.locator(".gen-form-section summary").click()
     await page.locator("#gen-reveal").selectOption("character")
-    await page.locator("#gen-viewpoint-character").fill("00000000-0000-0000-0000-000000000123")
+
+    const selectReference = async (rootSelector, query, label) => {
+      const root = page.locator(rootSelector)
+      await root.locator("[data-reference-query]").fill(query)
+      await root.locator("[data-reference-result]", { hasText: label }).click()
+      await expect(root.locator("[data-reference-selected]")).toContainText(label)
+    }
+    await selectReference("#gen-entities-picker", "北境密钥", "北境密钥")
+    await selectReference("#gen-characters-picker", "顾临渊", "顾临渊")
+    await selectReference("#gen-scene-picker", "潜入王宫", "潜入王宫")
+    await selectReference("#gen-viewpoint-character-picker", "顾临渊", "顾临渊")
     await page.locator("#gen-task").fill("写角色视角场景")
     await page.getByRole("button", { name: "编译上下文" }).click()
 
     await expect(page.locator("#workspace-content")).toContainText("误以为", { timeout: 10000 })
     await expect(page.locator("#workspace-content")).not.toContainText("隐藏真相")
     expect(requests.at(-1).reveal_mode).toBe("character")
-    expect(requests.at(-1).character_ids).toEqual(["00000000-0000-0000-0000-000000000123"])
-    expect(requests.at(-1).viewpoint_character_id).toBe("00000000-0000-0000-0000-000000000123")
+    expect(requests.at(-1).entity_ids).toEqual([relatedEntity.id])
+    expect(requests.at(-1).character_ids).toEqual([viewpointCharacter.id])
+    expect(requests.at(-1).scene_id).toBe(scene.id)
+    expect(requests.at(-1).viewpoint_character_id).toBe(viewpointCharacter.id)
   })
 
   test("编辑模板弹窗可查看提示词并创建新模板", async ({ page }) => {

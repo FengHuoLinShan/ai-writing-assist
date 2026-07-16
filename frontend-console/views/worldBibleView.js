@@ -5,6 +5,7 @@ import { pollTaskProgress } from "../shared/workflowProgress.js"
 import { displayStateBadgeClass, worldAssetDisplay } from "../shared/assetDisplayState.js"
 import { renderWorkspaceRail, workspaceRailKey } from "../shared/workspaceRail.js"
 import { buildMapQuery } from "./mapRouteContext.js"
+import { createReferencePicker } from "../shared/referencePicker.js"
 
 const PROJECTION_TYPE = "context_brief"
 const BIBLE_DISPLAY_MODES = new Set(["editor", "gallery", "filter"])
@@ -53,6 +54,9 @@ const worldBibleView = {
   _suggestionBatchKey: null,
   _editorBaseline: null,
   _editorBaselineKey: null,
+  _assetRefPicker: null,
+  _activationTargetPicker: null,
+  _assetRefWireRefs: [],
 
   async render() {
     if (!state.currentProjectId) {
@@ -144,9 +148,14 @@ const worldBibleView = {
       this._activationTrace = null
       router.renderCurrentView()
     })
+    this._mountAssetRefPicker()
   },
 
   onLeave() {
+    this._assetRefPicker?.destroy?.()
+    this._assetRefPicker = null
+    this._activationTargetPicker?.destroy?.()
+    this._activationTargetPicker = null
     this._stopProjectionPolling()
     this._stopSynopsisPolling()
   },
@@ -516,15 +525,28 @@ const worldBibleView = {
   },
 
   _formatAssetRefs(refs) {
-    return (Array.isArray(refs) ? refs : []).map((ref) => {
-      const type = ref.type || ref.source_type || ref.target_type || ""
-      const id = ref.id || ref.source_id || ref.target_id || ""
-      return type && id ? `${type}:${id}` : ""
-    }).filter(Boolean).join("\n")
+    return JSON.stringify(Array.isArray(refs) ? refs : [])
+  },
+
+  _assetRefType(ref) {
+    return ref?.type || ref?.source_type || ref?.target_type || ""
+  },
+
+  _assetRefId(ref) {
+    return ref?.id || ref?.source_id || ref?.target_id || ""
   },
 
   _parseAssetRefs(value) {
-    return String(value || "").split(/\n+/).map((line) => line.trim()).filter(Boolean).map((line) => {
+    const raw = String(value || "").trim()
+    if (!raw) return []
+    if (raw.startsWith("[")) {
+      const parsed = JSON.parse(raw)
+      if (!Array.isArray(parsed) || parsed.some((item) => !item || typeof item !== "object" || Array.isArray(item))) {
+        throw new Error("无效资产引用")
+      }
+      return parsed.map((item) => ({ ...item }))
+    }
+    return raw.split(/\n+/).map((line) => line.trim()).filter(Boolean).map((line) => {
       const separator = line.indexOf(":")
       if (separator < 1 || separator === line.length - 1) {
         throw new Error(`无效资产引用：${line}`)
@@ -533,24 +555,203 @@ const worldBibleView = {
     })
   },
 
-  _renderAssetRefCards(refs) {
-    const items = Array.isArray(refs) ? refs : []
-    if (!items.length) return ""
-    return `
-      <div class="world-bible-suggestion-list">
-        ${items.map((ref) => {
-          const type = ref.type || ref.source_type || ref.target_type || ""
-          const id = ref.id || ref.source_id || ref.target_id || ""
-          return `
-            <div class="world-bible-suggestion-item">
-              <span class="badge">${esc(type)}</span> ${esc(id)}
-              <button class="btn btn-sm" data-action="bible-open-asset-ref"
-                data-ref-type="${esc(type)}" data-ref-id="${esc(id)}">跳转编辑</button>
-            </div>
-          `
-        }).join("")}
-      </div>
-    `
+  _canonicalAssetRefType(type) {
+    if (["core_entity", "entity", "profile", "event"].includes(type)) return "core_entity"
+    if (["relation", "entity_relation"].includes(type)) return "entity_relation"
+    if (["world_bible_page", "page"].includes(type)) return "world_bible_page"
+    return type
+  },
+
+  _entityAssetRefItem(item) {
+    const display = worldAssetDisplay(item)
+    const adopted = item?.status === "canonical"
+    return {
+      kind: "core_entity",
+      id: item?.id || item?.entity_id,
+      label: item?.name || "未命名对象",
+      description: [item?.entity_type || "世界对象", item?.summary || item?.description].filter(Boolean).join(" · "),
+      status: display.label,
+      unavailable: !adopted || display.isHistory || Boolean(item?.unavailable),
+    }
+  },
+
+  _relationAssetRefItem(item) {
+    const sourceName = item?.source_name || item?.source_entity_name || item?.source?.name
+    const targetName = item?.target_name || item?.target_entity_name || item?.target?.name
+    return {
+      kind: "entity_relation",
+      id: item?.id || item?.relationship_id,
+      label: sourceName && targetName ? `${sourceName} → ${targetName}` : "未命名关系",
+      description: [item?.relation_type || "关系", item?.description].filter(Boolean).join(" · "),
+      status: "已采用",
+    }
+  },
+
+  _pageAssetRefItem(item) {
+    const display = worldAssetDisplay(item)
+    const published = ["canonical", "confirmed"].includes(item?.status)
+    return {
+      kind: "world_bible_page",
+      id: item?.id,
+      label: item?.title || "未命名世界书页面",
+      description: this._typeMeta(item?.page_type).label,
+      status: display.isHistory ? "历史" : "已发布",
+      unavailable: !published || display.isHistory || Boolean(item?.unavailable),
+    }
+  },
+
+  _mapFactAssetRefItem(item, mapName = "") {
+    const typeLabels = {
+      location: "人物/事件位置",
+      route_state: "线路状态",
+      boundary: "势力范围",
+      state: "状态变化",
+    }
+    return {
+      kind: "map_fact",
+      id: item?.id,
+      label: item?.target_name || typeLabels[item?.dynamic_type] || "地图事实",
+      description: [mapName, typeLabels[item?.dynamic_type] || item?.dynamic_type, item?.scene_index ? `Scene ${item.scene_index}` : ""].filter(Boolean).join(" · "),
+      status: "已采用",
+    }
+  },
+
+  async _loadMapFactAssetRefs(query = "", wantedIds = null, projectId = "") {
+    const ownerProjectId = String(projectId || "")
+    if (!ownerProjectId) return []
+    const mapsData = await api.world.listMaps({ novel_id: ownerProjectId, status: "active", skip: 0, limit: 50 })
+    const maps = Array.isArray(mapsData) ? mapsData : (mapsData?.items || [])
+    const pages = await Promise.all(maps.map(async (map) => {
+      try {
+        const facts = await api.world.listMapFacts(map.id, ownerProjectId, "confirmed")
+        return (Array.isArray(facts) ? facts : (facts?.items || []))
+          .map((item) => this._mapFactAssetRefItem(item, map.name || "未命名地图"))
+      } catch {
+        return []
+      }
+    }))
+    const wanted = wantedIds ? new Set(wantedIds.map(String)) : null
+    const needle = String(query || "").toLowerCase()
+    const matched = pages.flat().filter((item) => {
+      if (wanted) return wanted.has(String(item.id))
+      return !needle || [item.label, item.description].some((value) => String(value || "").toLowerCase().includes(needle))
+    })
+    return wanted ? matched : matched.slice(0, 20)
+  },
+
+  _assetRefSources() {
+    return [
+      {
+        kind: "core_entity",
+        label: "世界对象",
+        search: async (query, { projectId, limit }) => {
+          const data = await api.world.listEntities({
+            novel_id: projectId,
+            display_state: "active",
+            q: query || undefined,
+            skip: 0,
+            limit,
+          })
+          return (data?.items || [])
+            .filter((item) => item?.status === "canonical")
+            .map((item) => this._entityAssetRefItem(item))
+        },
+        resolve: async (ids, { projectId }) => Promise.all(ids.map(async (id) => {
+          try {
+            return this._entityAssetRefItem(await api.world.getEntity(id, projectId))
+          } catch {
+            return { kind: "core_entity", id, label: "不可用引用", unavailable: true }
+          }
+        })),
+      },
+      {
+        kind: "entity_relation",
+        label: "关系",
+        search: async (query, { projectId, limit }) => {
+          const data = await api.world.listRelationships({
+            novel_id: projectId,
+            status: "canonical",
+            q: query || undefined,
+            skip: 0,
+            limit,
+          })
+          return (data?.items || data || []).map((item) => this._relationAssetRefItem(item))
+        },
+        resolve: async (ids, { projectId }) => {
+          const data = await api.world.listRelationships({ novel_id: projectId, status: "canonical", skip: 0, limit: 100 })
+          const wanted = new Set(ids.map(String))
+          return (data?.items || data || []).filter((item) => wanted.has(String(item.id || item.relationship_id))).map((item) => this._relationAssetRefItem(item))
+        },
+      },
+      {
+        kind: "map_fact",
+        label: "地图事实",
+        search: (query, { projectId }) => this._loadMapFactAssetRefs(query, null, projectId),
+        resolve: (ids, { projectId }) => this._loadMapFactAssetRefs("", ids, projectId),
+      },
+      {
+        kind: "world_bible_page",
+        label: "世界书页面",
+        search: async (query) => {
+          const needle = String(query || "").toLowerCase()
+          return this._pages
+            .filter((page) => ["canonical", "confirmed"].includes(page.status))
+            .filter((page) => !needle || String(page.title || "").toLowerCase().includes(needle))
+            .slice(0, 20)
+            .map((page) => this._pageAssetRefItem(page))
+        },
+        resolve: async (ids, { projectId }) => Promise.all(ids.map(async (id) => {
+          const loaded = this._pages.find((page) => page.id === id)
+          if (loaded) return this._pageAssetRefItem(loaded)
+          try {
+            return this._pageAssetRefItem(await api.world.getBiblePage(id, projectId))
+          } catch {
+            return { kind: "world_bible_page", id, label: "不可用引用", unavailable: true }
+          }
+        })),
+      },
+    ]
+  },
+
+  _mountAssetRefPicker() {
+    const root = document.getElementById("bible-asset-ref-picker")
+    if (!root) return
+    this._assetRefPicker?.destroy?.()
+    const input = document.getElementById("bible-asset-refs")
+    let wireRefs = []
+    try {
+      wireRefs = this._parseAssetRefs(input?.value || "")
+    } catch {
+      wireRefs = []
+    }
+    this._assetRefWireRefs = wireRefs.map((item) => ({ ...item }))
+    this._assetRefPicker = createReferencePicker({
+      root,
+      projectId: state.currentProjectId,
+      sources: this._assetRefSources(),
+      mode: "multiple",
+      maxItems: 50,
+      placeholder: "按名称搜索关联资产",
+      onOpen: (item) => this._openAssetRef(item.kind, item.id),
+      onChange: (_items, refs) => {
+        const nextWireRefs = refs.flatMap((ref) => {
+          const originals = this._assetRefWireRefs.filter((item) => (
+            this._assetRefId(item) === ref.id
+            && this._canonicalAssetRefType(this._assetRefType(item)) === ref.kind
+          ))
+          return originals.length
+            ? originals.map((item) => ({ ...item }))
+            : [{ type: ref.kind, id: ref.id }]
+        })
+        this._assetRefWireRefs = nextWireRefs
+        if (input) input.value = this._formatAssetRefs(nextWireRefs)
+      },
+    })
+    const canonicalRefs = wireRefs.map((ref) => ({
+      kind: this._canonicalAssetRefType(this._assetRefType(ref)),
+      id: this._assetRefId(ref),
+    })).filter((ref) => ref.kind && ref.id)
+    void this._assetRefPicker.resolve(canonicalRefs)
   },
 
   _openAssetRef(type, id) {
@@ -736,10 +937,11 @@ const worldBibleView = {
             <textarea class="form-textarea world-bible-editor" id="bible-free-text" rows="8">${esc(source.free_text || "")}</textarea>
           </label>
           ${this._renderSectionEditor(source.sections_json)}
-          <label class="bible-ai-field">关联资产（每行 type:id；世界书只保存引用，不内联修改资产）
-            <textarea class="form-textarea" id="bible-asset-refs" rows="3">${esc(this._formatAssetRefs(source.linked_asset_refs_json))}</textarea>
+          <label class="bible-ai-field">关联资产
+            <span class="world-bible-page-meta">按名称选择已采用的对象、关系、地图事实或已发布页面；这里只保存引用，不内联修改资产。</span>
+            <div id="bible-asset-ref-picker"></div>
+            <textarea id="bible-asset-refs" hidden>${esc(this._formatAssetRefs(source.linked_asset_refs_json))}</textarea>
           </label>
-          ${this._renderAssetRefCards(source.linked_asset_refs_json)}
           ${page?.id ? this._renderProjectionStatus(page) : ""}
         </div>
       </div>
@@ -891,7 +1093,12 @@ const worldBibleView = {
       <div class="form-group"><label>规则名称</label><input class="form-input" id="bible-rule-name" value="${esc(rule?.name || "命中关键词时加入资料")}" /></div>
       <div class="form-group"><label>正向词（逗号分隔）</label><input class="form-input" id="bible-rule-positive" value="${esc((rule?.match?.positive_terms || []).join(","))}" /></div>
       <div class="form-group"><label>排除词（逗号分隔）</label><input class="form-input" id="bible-rule-negative" value="${esc((rule?.match?.negative_terms || []).join(","))}" /></div>
-      <div class="form-group"><label>资料目标（type:id）</label><input class="form-input" id="bible-rule-target" value="${esc(target?.target_type && target?.target_id ? `${target.target_type}:${target.target_id}` : "")}" /></div>
+      <div class="form-group">
+        <label>固定资料目标</label>
+        <div id="bible-rule-target-picker"></div>
+        <input type="hidden" id="bible-rule-target" value="${esc(target?.target_type && target?.target_id ? `${target.target_type}:${target.target_id}` : "")}" />
+        <p class="form-help">只可选择已采用的世界对象或已发布的世界书页面。</p>
+      </div>
       <div class="generate-form-grid">
         <label>优先级<input class="form-input" id="bible-rule-priority" type="number" min="0" max="1000" value="${esc(rule?.rank?.priority ?? 700)}" /></label>
         <label>Top-K<input class="form-input" id="bible-rule-top-k" type="number" min="1" max="256" value="${esc(rule?.rank?.top_k ?? 12)}" /></label>
@@ -903,6 +1110,31 @@ const worldBibleView = {
       class: "btn-primary",
       handler: () => this._saveActivationProfileEditor(profile),
     }], { size: "large" })
+    this._mountActivationTargetPicker(target)
+  },
+
+  _mountActivationTargetPicker(target) {
+    const root = document.getElementById("bible-rule-target-picker")
+    if (!root) return
+    this._activationTargetPicker?.destroy?.()
+    const input = document.getElementById("bible-rule-target")
+    this._activationTargetPicker = createReferencePicker({
+      root,
+      projectId: state.currentProjectId,
+      sources: this._assetRefSources().filter((source) => (
+        source.kind === "core_entity" || source.kind === "world_bible_page"
+      )),
+      placeholder: "按名称搜索资料目标",
+      onChange: (_items, refs) => {
+        if (input) input.value = refs[0] ? `${refs[0].kind}:${refs[0].id}` : ""
+      },
+    })
+    if (target?.target_id) {
+      this._activationTargetPicker.resolve([{
+        kind: this._canonicalAssetRefType(target.target_type),
+        id: target.target_id,
+      }])
+    }
   },
 
   async _saveActivationProfileEditor(profile) {
@@ -951,6 +1183,8 @@ const worldBibleView = {
           rules_json: [rule],
         })
       closeModal()
+      this._activationTargetPicker?.destroy?.()
+      this._activationTargetPicker = null
       this._activeActivationProfileId = saved.id
       this._activationTrace = null
       toast("规则工作稿已保存；发布前不会影响真实调用", "success")

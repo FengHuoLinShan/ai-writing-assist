@@ -314,6 +314,28 @@ describe("前后端 API 契约", () => {
       .toBe("/outline/generate/apply")
     expect(getApiContract("outline.applyStructurePreview").requiredBody)
       .toEqual(["novel_id", "context_confirmation_id", "source_task_id", "draft_structure", "confirmed"])
+    expect(contractPath("outline.getStoryOutline", {}, { novel_id: "novel-1" }))
+      .toBe("/outline/story-outline?novel_id=novel-1")
+    expect(contractPath("outline.listStoryOutlineRevisions", {}, {
+      novel_id: "novel-1",
+      skip: 0,
+      limit: 20,
+    })).toBe("/outline/story-outline/revisions?novel_id=novel-1&skip=0&limit=20")
+    expect(contractPath("outline.getStoryOutlineRevision", { revisionId: "rev-1" }, {
+      novel_id: "novel-1",
+    })).toBe("/outline/story-outline/revisions/rev-1?novel_id=novel-1")
+    expect(contractPath("outline.restoreStoryOutlineRevision", { revisionId: "rev-1" }, {
+      novel_id: "novel-1",
+    })).toBe("/outline/story-outline/revisions/rev-1/apply?novel_id=novel-1")
+    expect(contractPath("outline.generateStoryOutline"))
+      .toBe("/outline/story-outline/generate")
+    expect(getApiContract("outline.generateStoryOutline")).toMatchObject({
+      method: "POST",
+      timeoutKind: "default",
+      timeout: 15000,
+    })
+    expect(contractPath("outline.applyStoryOutlinePreview"))
+      .toBe("/outline/story-outline/generate/apply")
     expect(contractPath("outline.applyChapterScenePreview"))
       .toBe("/outline/chapter-scenes/apply")
     expect(getApiContract("outline.applyChapterScenePreview").requiredBody)
@@ -368,6 +390,41 @@ describe("前后端 API 契约", () => {
   })
 
   it("contractRequest 校验 requiredBody 并生成不可改写 method 的请求", () => {
+    expect(() => contractRequest(
+      "outline.generateStoryOutline",
+      {},
+      {},
+      {
+        body: {
+          novel_id: "novel-1",
+          author_intent: "写一部长篇",
+          planned_scale: "百万字",
+          coverage: "全书",
+          selected_character_ids: [],
+          selected_entity_ids: [],
+        },
+      },
+    )).toThrow(/include_current_outline.*outline\.generateStoryOutline/)
+    expect(() => contractRequest(
+      "outline.applyStoryOutlinePreview",
+      {},
+      {},
+      {
+        body: {
+          novel_id: "novel-1",
+          source_task_id: "task-1",
+          title: "总纲",
+          creative_core: {},
+          outline_markdown: "正文",
+          major_storylines: [],
+          macro_movements: [],
+          open_decisions: [],
+          base_revision_id: null,
+          idempotency_key: "story-outline-key",
+        },
+      },
+    )).toThrow(/confirmed.*outline\.applyStoryOutlinePreview/)
+
     expect(() => contractRequest(
       "world.applyMapEditor",
       { mapId: "map-1" },

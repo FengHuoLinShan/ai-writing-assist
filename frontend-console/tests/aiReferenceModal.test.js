@@ -66,6 +66,8 @@ describe("aiReferenceModal", () => {
     expect(document.body.textContent).not.toContain("candidate asset")
     expect(document.body.textContent).not.toContain("Markdown")
     expect(document.querySelector("#ai-ref-markdown")).toBeNull()
+    expect(document.querySelector("#ai-ref-excluded")).toBeNull()
+    expect(document.body.textContent).not.toContain("排除资产 ID")
   })
 
   it("没有章节上下文时默认使用项目范围，不回退到章节 1", () => {

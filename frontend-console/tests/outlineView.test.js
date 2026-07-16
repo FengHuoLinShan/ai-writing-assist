@@ -293,6 +293,27 @@ describe("outlineView 批量操作", () => {
 })
 
 describe("outlineView render", () => {
+  it("子导航从小说总纲到篇章纲/剧情线再到 Scene，保留旧入口", async () => {
+    state.currentProjectId = "p1"
+    state.currentSubView = "threads"
+    outlineView._loading = false
+
+    const html = await outlineView.render()
+
+    const storyIndex = html.indexOf('data-action="nav-story-outline"')
+    const arcIndex = html.indexOf('data-action="nav-arcs"')
+    const threadIndex = html.indexOf('data-action="nav-threads"')
+    const sceneIndex = html.indexOf('data-action="nav-scenes"')
+    const foreshadowingIndex = html.indexOf('data-action="nav-foreshadowing"')
+    const revealIndex = html.indexOf('data-action="nav-reveals"')
+    expect(storyIndex).toBeGreaterThanOrEqual(0)
+    expect(storyIndex).toBeLessThan(arcIndex)
+    expect(arcIndex).toBeLessThan(threadIndex)
+    expect(threadIndex).toBeLessThan(sceneIndex)
+    expect(sceneIndex).toBeLessThan(foreshadowingIndex)
+    expect(foreshadowingIndex).toBeLessThan(revealIndex)
+  })
+
   it("加载中显示加载提示", async () => {
     outlineView._loading = true
     state.currentSubView = "threads"

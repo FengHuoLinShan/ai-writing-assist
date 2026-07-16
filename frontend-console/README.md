@@ -98,6 +98,7 @@ frontend-console/
 ├── app.js                  # 应用主入口（快捷键绑定）
 ├── shared/                 # 可复用业务组件与工具
 │   ├── smartDedup.js       # 智能去重管理器
+│   ├── referencePicker.js  # 作者向对象名称搜索与稳定 ID 回写
 │   ├── confirmAsync.js     # 异步二次确认封装
 │   ├── writingToolsResult.js # 工具结果应用到 orchestrator
 │   ├── sceneLocator.js     # 光标/章节定位当前 Scene
@@ -135,6 +136,7 @@ frontend-console/
 │   ├── mapTerrainRenderer.js # 程序化 Canvas 覆盖素材渲染
 │   ├── mapRouteContext.js  # 地图路由上下文
 │   ├── outlineView.js      # 剧情结构
+│   ├── storyOutlineView.js # 小说总纲当前版、修订历史与 AI 预览采用
 │   ├── sceneWorkbenchView.js # Scene 一级工作台
 │   ├── ragView.js          # RAG 检索
 │   ├── contextView.js      # 旧上下文页代码；当前 hash 入口重定向到生成中心任务页
@@ -165,12 +167,13 @@ frontend-console/
   只有未被标签/控件消费的背景指针才进入 Canvas。
 - 覆盖地形使用自然环境、城市交通、奇幻危机三个内置程序化素材包及标准/柔和/高对比预设；未知素材显示中性占位并保留原 asset key，不支持用户上传。
 - 所有 UI 文字为中文
+- 作者主流程的对象引用统一按名称搜索和选择；共享 `referencePicker` 仅把 ID 回写到现有隐藏字段/请求 payload。同名项用类型、状态和摘要消歧，无法解析的旧引用保留为“不可用引用”。Workflow、任务和原始 Scene ID 只位于折叠诊断区，并标记 `data-diagnostic-field`。
 - 编辑档案主题以米白纸张、深蓝结构线和朱红索引色为主，支持暖色与暗色模式
 
 ## 路由与设置
 
 - 项目回收站支持单个恢复、单个永久删除、批量恢复和批量永久删除；永久删除必须二次确认，批量删除使用后端原子接口，不做部分成功。回收站每页 20 条，桌面端大模态框用双列完整展示当前页，并提供上一页、下一页和总数。
-- 一级路由包含 `project`、`writing`、`world`、`map`、`outline`、`rag`、`generate`、`settings`、`project-settings`；Scene 工作台位于 `outline/scenes`，旧 `scene` 路由会自动跳转到该入口。快速切换项目或初始化期间使用浏览器前进/后退时，晚到的项目元数据请求不会继续提交旧路由和页面，也不会覆盖当前工作区。新鲜渲染由路由提交 view 返回的 HTML 后再调用 `onRendered()`；需要访问新 DOM 的事件绑定应放在该生命周期中，keep-alive 恢复仍使用 `onActivate()`，不要用零延时定时器猜测 DOM 提交时机。
+- 一级路由包含 `project`、`writing`、`world`、`map`、`outline`、`rag`、`generate`、`settings`、`project-settings`；`outline` 默认进入层级最高的 `story-outline`，子导航再依次进入篇章纲、剧情线、Scene 等结构资产。Scene 工作台位于 `outline/scenes`，旧 `scene` 路由会自动跳转到该入口。快速切换项目或初始化期间使用浏览器前进/后退时，晚到的项目元数据请求不会继续提交旧路由和页面，也不会覆盖当前工作区。新鲜渲染由路由提交 view 返回的 HTML 后再调用 `onRendered()`；需要访问新 DOM 的事件绑定应放在该生命周期中，keep-alive 恢复仍使用 `onActivate()`，不要用零延时定时器猜测 DOM 提交时机。
 - 地图 hash 使用 `overview` / `recent` / `dashboard` / `live` / `lens` 规范模式；旧
   `mode=map` 首次读取后使用 replace 规范为 `mode=live`。跨地图/返回总览使用
   history push，同地图的模式、Scene 和聚焦变更使用 replace。
@@ -188,6 +191,7 @@ frontend-console/
   Markdown 和已确认资料摘要展示，不提供应用入口，也不会直接修改大纲资产。同一项目只保持一个运行中的
   手动分析；后端允许时可二次确认取消，取消状态按终态恢复而不伪装成失败。新请求只在获得有效 `task_id`
   后替换上一份已完成报告，并以所属项目隔离持久化与轮询，避免晚到响应在项目切换后回写当前页面。
+- `outline/story-outline` 展示当前小说总纲的全部 creative core、Markdown 正文、主要剧情线、宏观推进和开放决策。手工保存、采用 AI preview 和采用历史内容都会使用 current revision 作为 CAS base 创建新 revision；历史不会被原地改写或回退版本号。AI 表单只包含作者意图、计划尺度、覆盖描述、显式可选人物/世界对象和是否参考当前总纲，不包含起止章；人物/对象不显式选择时由后端自动取 Top-K，结果完整可编辑且不自动采用。生成任务只恢复匹配 project / `story_outline_generate` / `outline.story_outline.generate` 的记录，接受受管 LLM provenance 但拒绝其他结果字段；轮询与取消显式携带 `novel_id`。409 保留当前 DOM 编辑内容，重新加载后更新 CAS base；同一 apply payload 重试复用幂等键，内容或 base 改变时轮换。
 - Scene 融合与拆分使用大尺寸字段对比表，完整展示 AI 建议、原 Scene 引用、叙事标签、POV 和章节映射；默认显示全部字段，可只看服务端初始预览中的差异。融合预览属于同步 LLM 请求，使用 90 秒生成窗口，不受普通 API 的 15 秒超时限制。长来源证据按需展开，AI 建议始终可见。叙事标签统一用 `draft` 表示“未标注”，拆分时显式清空的字段会按空值保存。废弃融合来源需要在预览内再次确认；保存请求期间所有融合操作保持锁定，失败后恢复控件并保留当前编辑内容。
 - 深度导入和 Scene 自动提取任务以 `taskId + projectId` 持久化；查询与取消都显式携带 `novel_id`。Scene stage 百分比是基于历史实测的耗时估算，Phase 0 只显示准备状态。Scene 工作台轮询只局部更新进度卡，不重绘正在浏览的列表。运行中的进度卡可在二次确认后取消当前任务；瞬时查询失败保留恢复记录，只有明确 404 或用户关闭时清理失败/已取消任务。
 - 共享任务卡只在后端 `available_actions` 包含 `retry` 时显示重试；`restart_origin` 与深度导入 `resume/abandon` 继续走各自领域流程。
@@ -264,6 +268,8 @@ frontend-console/
 ## 管理页批量操作约定
 
 - 列表型管理页支持多选、当前可见列表全选和批量工具条，包括项目、世界对象/待处理项/关系/别名、剧情结构、Scene 工作台、写作章节树和地图列表。
+- 世界对象库与 Scene 工作台标题区提供“普通 / 热点”模式。URL 的 `mode` 优先；未指定时按项目和页面读取本地偏好，首次默认热点。模式切换保留搜索、类型、状态等通用筛选，并清除热点阶段/focus、分页偏移和批量选择。
+- 世界对象热点模式使用后端全量智能排序，不再按自动入库批次切断顺序；顶部显示“重要 / 近期热点 / 其他”聚合和索引覆盖提示，表格与卡片共用热点标签。普通模式保留原批次分组与既有排序。Scene 热点模式仍按剧情顺序，新增“当前 / 后续 / 已写过 / 未定位”进度聚合并默认定位当前 Scene；健康卡继续独立显示整理待办。
 - “全选”只作用于当前可见列表或当前分页，不跨分页选择全部筛选结果。
 - 世界对象的对象库与待处理对象/别名/关系子标签都在批量工具条提供显式全选；所有筛选区默认折叠，展开状态按项目缓存在浏览器本地，折叠后仍保留当前筛选条件。
 - 待处理关系默认按有向对象对分组，别名按所属对象分组；每页可选 20 / 50 组，全选只作用于当前可见项，不隐式选中全部筛选结果。

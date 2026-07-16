@@ -119,6 +119,7 @@ beforeEach(() => {
     chapter_from: "",
     chapter_to: "",
     confidence_band: "",
+    segment: "",
     skip: 0,
     limit: 20,
   }
@@ -132,6 +133,99 @@ beforeEach(() => {
   sceneWorkbenchView._fusionSuggestions = []
   sceneWorkbenchView._mobileDetailOpen = false
   sceneWorkbenchView._selectedSceneIdValue = null
+  sceneWorkbenchView._viewMode = "hot"
+  sceneWorkbenchView._mergeReferencePicker = null
+  sceneWorkbenchView._mergePreviewRequestGeneration = 0
+})
+
+describe("Scene 工作台普通/热点模式", () => {
+  it("无 URL 和历史偏好时默认热点并锚定最新剧情", async () => {
+    state.currentView = "outline"
+    state.currentSubView = "scenes"
+    window.history.replaceState({}, "", "#workbench/p1/outline/scenes")
+    api.outline.getSceneWorkbench.mockResolvedValue({
+      ...workbenchPayload,
+      selected_scene_id: null,
+      progress: { as_of_chapter: 3, current: 1, upcoming: 0, past: 1, unassigned: 0 },
+    })
+
+    await sceneWorkbenchView.onEnter()
+
+    expect(sceneWorkbenchView._viewMode).toBe("hot")
+    expect(api.outline.getSceneWorkbench).toHaveBeenCalledWith("p1", null, {
+      skip: 0,
+      limit: 20,
+      view_mode: "hot",
+      anchor: "latest",
+    })
+  })
+
+  it("URL 普通模式覆盖热点偏好且不请求进度锚点", async () => {
+    state.currentView = "outline"
+    state.currentSubView = "scenes"
+    localStorage.setItem("novel_view_mode:p1:scene-workbench", "hot")
+    window.history.replaceState({}, "", "#workbench/p1/outline/scenes?mode=normal")
+
+    await sceneWorkbenchView.onEnter()
+
+    expect(sceneWorkbenchView._viewMode).toBe("normal")
+    expect(api.outline.getSceneWorkbench).toHaveBeenCalledWith("p1", null, {
+      skip: 0,
+      limit: 20,
+      view_mode: "normal",
+    })
+  })
+
+  it("热点进度可按阶段筛选并清理当前选择", async () => {
+    state.currentView = "outline"
+    state.currentSubView = "scenes"
+    window.history.replaceState({}, "", "#workbench/p1/outline/scenes?mode=hot&scene_id=s1")
+    sceneWorkbenchView._viewMode = "hot"
+    sceneWorkbenchView._workbench = {
+      ...workbenchPayload,
+      progress: { as_of_chapter: 3, current: 1, upcoming: 1, past: 0, unassigned: 0 },
+    }
+    api.outline.getSceneWorkbench.mockResolvedValue(sceneWorkbenchView._workbench)
+
+    const html = await sceneWorkbenchView.render()
+    expect(html).toContain("当前剧情定位")
+    expect(html).toContain("截至第 3 章")
+
+    await sceneWorkbenchView._toggleProgressSegment("upcoming")
+
+    expect(window.location.hash).toBe("#workbench/p1/outline/scenes?mode=hot")
+    expect(api.outline.getSceneWorkbench).toHaveBeenLastCalledWith("p1", null, {
+      skip: 0,
+      limit: 20,
+      view_mode: "hot",
+      segment: "upcoming",
+    })
+  })
+
+  it("模式切换保留通用筛选并按项目页面记忆", async () => {
+    state.currentView = "outline"
+    state.currentSubView = "scenes"
+    window.history.replaceState({}, "", "#workbench/p1/outline/scenes?mode=hot&scene_id=s1")
+    sceneWorkbenchView._viewMode = "hot"
+    sceneWorkbenchView._filters = {
+      ...sceneWorkbenchView._filters,
+      q: "潜入",
+      segment: "current",
+      skip: 20,
+    }
+    sceneWorkbenchView._selectedFusionSceneIds = new Set(["s1"])
+
+    await sceneWorkbenchView._setViewMode("normal")
+
+    expect(localStorage.getItem("novel_view_mode:p1:scene-workbench")).toBe("normal")
+    expect(sceneWorkbenchView._filters.q).toBe("潜入")
+    expect(sceneWorkbenchView._filters.segment).toBe("")
+    expect(sceneWorkbenchView._filters.skip).toBe(0)
+    expect(sceneWorkbenchView._selectedFusionSceneIds.size).toBe(0)
+    const query = router.navigate.mock.calls.at(-1)[3]
+    expect(query.get("mode")).toBe("normal")
+    expect(query.get("scene_id")).toBe(null)
+  })
 })
 
 describe("sceneWorkbenchView", () => {
@@ -235,7 +329,7 @@ describe("sceneWorkbenchView", () => {
     document.querySelector('.scene-workbench-row[data-id="s2"] [data-action="select-workbench-scene"]').click()
 
     expect(state.currentSubView).toBe("s2")
-    expect(window.location.hash).toBe("#workbench/p1/scene/s2")
+    expect(window.location.hash).toBe("#workbench/p1/scene/s2?mode=hot")
     expect(organize.scrollTop).toBe(96)
     expect(document.querySelector('.scene-workbench-row[data-id="s1"]').classList.contains("is-selected")).toBe(false)
     expect(document.querySelector('.scene-workbench-row[data-id="s2"]').classList.contains("is-selected")).toBe(true)
@@ -260,7 +354,7 @@ describe("sceneWorkbenchView", () => {
     expect(state.currentView).toBe("outline")
     expect(state.currentSubView).toBe("scenes")
     expect(sceneWorkbenchView._selectedSceneId()).toBe("s2")
-    expect(window.location.hash).toBe("#workbench/p1/outline/scenes?scene_id=s2")
+    expect(window.location.hash).toBe("#workbench/p1/outline/scenes?mode=hot&scene_id=s2")
   })
 
   it("restores the embedded scene selection from browser history", () => {
@@ -427,6 +521,7 @@ describe("sceneWorkbenchView", () => {
     expect(api.outline.getSceneWorkbench).toHaveBeenCalledWith("p1", "s1", {
       skip: 0,
       limit: 20,
+      view_mode: "hot",
     })
     expect(sceneWorkbenchView._workbench.items[0].scene.title).toBe("潜入")
     expect(sceneWorkbenchView._total).toBe(2)
@@ -609,6 +704,7 @@ describe("sceneWorkbenchView", () => {
     expect(api.outline.getSceneWorkbench).toHaveBeenCalledWith("p1", "s25", {
       skip: 0,
       limit: 20,
+      view_mode: "hot",
     })
     expect(sceneWorkbenchView._filters.skip).toBe(20)
     expect(sceneWorkbenchView._selectedSceneId()).toBe("s25")
@@ -638,6 +734,7 @@ describe("sceneWorkbenchView", () => {
     expect(api.outline.getSceneWorkbench).toHaveBeenCalledWith("p1", "s1", {
       skip: 20,
       limit: 20,
+      view_mode: "hot",
     })
     expect(router.refresh).toHaveBeenCalled()
   })
@@ -659,6 +756,7 @@ describe("sceneWorkbenchView", () => {
     expect(api.outline.getSceneWorkbench).toHaveBeenCalledWith("p1", null, {
       skip: 20,
       limit: 20,
+      view_mode: "hot",
     })
   })
 
@@ -729,6 +827,7 @@ describe("sceneWorkbenchView", () => {
       health: "missing_setup",
       skip: 0,
       limit: 20,
+      view_mode: "hot",
     })
     expect(router.refresh).toHaveBeenCalled()
   })
@@ -917,7 +1016,7 @@ describe("sceneWorkbenchView", () => {
     document.querySelector('[data-action="open-overlap-scene"]').click()
 
     expect(state.currentSubView).toBe("s2")
-    expect(window.location.hash).toBe("#workbench/p1/scene/s2")
+    expect(window.location.hash).toBe("#workbench/p1/scene/s2?mode=hot")
     expect(document.body.textContent).not.toContain("s2")
   })
 
@@ -1242,8 +1341,8 @@ describe("sceneWorkbenchView", () => {
     await sceneWorkbenchView._saveSceneDetails("s1")
 
     expect(api.outline.getSceneWorkbench.mock.calls.slice(-2)).toEqual([
-      ["p1", "s1", { health: "unreviewed", skip: 0, limit: 20 }],
-      ["p1", null, { health: "unreviewed", skip: 0, limit: 20 }],
+      ["p1", "s1", { health: "unreviewed", skip: 0, limit: 20, view_mode: "hot" }],
+      ["p1", null, { health: "unreviewed", skip: 0, limit: 20, view_mode: "hot" }],
     ])
     expect(window.location.hash).toBe("#workbench/p1/outline/scenes")
     expect(toast).toHaveBeenCalledWith("Scene 已保存", "success")
@@ -2007,6 +2106,69 @@ describe("sceneWorkbenchView", () => {
       source_scene_ids: ["s2"],
       confirmed: true,
     })
+  })
+
+  it("单行合并通过名称选择 Scene，并继续提交原有 ID payload", async () => {
+    sceneWorkbenchView._workbench = workbenchPayload
+    api.outline.getSceneWorkbench.mockResolvedValue({
+      items: [{
+        scene: {
+          id: "s2",
+          title: "潜入王宫",
+          status: "canonical",
+          chapter_ids: ["2"],
+          goal: "取得密信",
+        },
+      }],
+      total: 1,
+    })
+    api.outline.previewSceneMerge.mockResolvedValue({
+      operation: "merge",
+      chapter_mapping_change: {},
+      field_changes: {},
+      warnings: [],
+    })
+    document.body.innerHTML = '<div id="scene-merge-reference-picker"></div>'
+
+    await sceneWorkbenchView._startMerge("s1")
+    const query = document.querySelector("[data-reference-query]")
+    query.value = "王宫"
+    query.dispatchEvent(new Event("input"))
+    await new Promise((resolve) => setTimeout(resolve, 230))
+    document.querySelector("[data-reference-result]").click()
+    const buttons = showModal.mock.calls[0][2]
+    await buttons.find((button) => button.text === "预览合并影响").handler()
+
+    expect(showModal.mock.calls[0][0]).toBe("选择要合并的 Scene")
+    expect(showModal.mock.calls[0][1].html).not.toContain("Scene ID")
+    expect(api.outline.previewSceneMerge).toHaveBeenCalledWith("p1", {
+      target_scene_id: "s1",
+      source_scene_ids: ["s2"],
+    })
+  })
+
+  it("项目切换后丢弃晚到的合并预览，不打开旧项目弹窗", async () => {
+    let resolvePreview
+    api.outline.previewSceneMerge.mockImplementation(() => new Promise((resolve) => {
+      resolvePreview = resolve
+    }))
+
+    const pending = sceneWorkbenchView._previewAndMerge("s1", ["s2"])
+    state.currentProjectId = "p2"
+    sceneWorkbenchView.onLeave()
+    resolvePreview({
+      operation: "merge",
+      chapter_mapping_change: {},
+      field_changes: {},
+      warnings: [],
+    })
+
+    await expect(pending).resolves.toBe(false)
+    expect(api.outline.previewSceneMerge).toHaveBeenCalledWith("p1", {
+      target_scene_id: "s1",
+      source_scene_ids: ["s2"],
+    })
+    expect(showModal).not.toHaveBeenCalled()
   })
 
   it("keeps merge preview open and shows feedback when merge fails", async () => {

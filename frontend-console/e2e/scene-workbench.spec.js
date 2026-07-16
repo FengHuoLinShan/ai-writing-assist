@@ -54,6 +54,14 @@ test.describe("Scene 工作台", () => {
 
     await openWorkbench(page, project, "outline", "scenes")
 
+    await expect(page.locator('[data-action="set-scene-view-mode"][data-mode="hot"]')).toHaveClass(/btn-primary/)
+    await page.locator('[data-action="set-scene-view-mode"][data-mode="normal"]').click()
+    await expect(page).toHaveURL(/outline\/scenes\?mode=normal$/)
+    await expect(page.locator('[data-action="set-scene-view-mode"][data-mode="normal"]')).toHaveClass(/btn-primary/)
+    await expect.poll(() => page.evaluate(
+      (projectId) => localStorage.getItem(`novel_view_mode:${projectId}:scene-workbench`),
+      project.id,
+    )).toBe("normal")
     await expect(page.locator('[data-action="scene-auto-extract"]')).toHaveCount(1)
     await expect(page.locator('[data-action="start-smart-dedup"], [data-action="show-smart-dedup-progress"]')).toHaveCount(1)
     await expect(page.locator("#workspace-header")).toHaveCount(0)
@@ -69,6 +77,39 @@ test.describe("Scene 工作台", () => {
     })
     expect(positions.actionsInsideSubnav).toBe(true)
     expect(Math.abs(positions.activeTabTop - positions.actionsTop)).toBeLessThan(8)
+  })
+
+  test("热点进度忽略空白占位章并可筛选当前剧情", async ({ page }) => {
+    const project = await createProject({ title: "Scene 热点定位", genre: "fantasy", language: "zh" })
+    testProjectId = project.id
+    const past = await createScene(project.id, {
+      scene_index: 0,
+      title: "已经写过",
+      chapter_ids: ["1"],
+    })
+    const current = await createScene(project.id, {
+      scene_index: 1,
+      title: "正在发生",
+      chapter_ids: ["2", "4"],
+    })
+    const upcoming = await createScene(project.id, {
+      scene_index: 2,
+      title: "未来事件",
+      chapter_ids: ["5"],
+    })
+    await createDraft(project.id, 1, "第一章", "已完成正文")
+    await createDraft(project.id, 3, "第三章", "当前正文")
+    await createDraft(project.id, 99, "占位章", " \n\t　")
+
+    await openWorkbench(page, project, "outline", "scenes")
+
+    await expect(page.locator(".scene-progress-panel")).toContainText("截至第 3 章")
+    await expect(page.locator(`.scene-workbench-row[data-id="${current.id}"]`)).toContainText("当前剧情")
+    await page.locator('[data-action="filter-progress-segment"][data-segment="current"]').click()
+    await expect(page.locator('[data-action="filter-progress-segment"][data-segment="current"]')).toHaveClass(/active/)
+    await expect(page.locator(`.scene-workbench-row[data-id="${current.id}"]`)).toBeVisible()
+    await expect(page.locator(`.scene-workbench-row[data-id="${past.id}"]`)).toHaveCount(0)
+    await expect(page.locator(`.scene-workbench-row[data-id="${upcoming.id}"]`)).toHaveCount(0)
   })
 
   test("选择 Scene 写入 URL，浏览器后退恢复未选中列表", async ({ page }) => {
@@ -92,7 +133,7 @@ test.describe("Scene 工作台", () => {
     await openWorkbench(page, project, "outline", "scenes")
     await page.locator(`.scene-workbench-row[data-id="${second.id}"] [data-action="select-workbench-scene"]`).click()
 
-    await expect(page).toHaveURL(new RegExp(`outline/scenes\\?scene_id=${second.id}$`))
+    await expect(page).toHaveURL(new RegExp(`outline/scenes\\?mode=hot&scene_id=${second.id}$`))
     await expect(page.locator(`.scene-workbench-row[data-id="${second.id}"]`)).toHaveClass(/is-selected/)
 
     await page.goBack()

@@ -1484,6 +1484,52 @@ const api = {
   // 大纲
   // ============================================================
   outline: {
+    async getStoryOutline(novelId) {
+      return contractFetch("outline.getStoryOutline", {}, { novel_id: novelId })
+    },
+
+    async listStoryOutlineRevisions(novelId, skip = 0, limit = 20) {
+      return contractFetch(
+        "outline.listStoryOutlineRevisions",
+        {},
+        { novel_id: novelId, skip, limit },
+      )
+    },
+
+    async getStoryOutlineRevision(revisionId, novelId) {
+      return contractFetch(
+        "outline.getStoryOutlineRevision",
+        { revisionId },
+        { novel_id: novelId },
+      )
+    },
+
+    async createStoryOutlineRevision(novelId, payload) {
+      return contractJson(
+        "outline.createStoryOutlineRevision",
+        {},
+        { novel_id: novelId },
+        payload,
+      )
+    },
+
+    async restoreStoryOutlineRevision(revisionId, novelId, payload) {
+      return contractJson(
+        "outline.restoreStoryOutlineRevision",
+        { revisionId },
+        { novel_id: novelId },
+        payload,
+      )
+    },
+
+    async generateStoryOutline(payload) {
+      return contractJson("outline.generateStoryOutline", {}, {}, payload)
+    },
+
+    async applyStoryOutlinePreview(payload) {
+      return contractJson("outline.applyStoryOutlinePreview", {}, {}, payload)
+    },
+
     async listThreads(novelId, params = {}) {
       return request(withQuery("/outline/threads", { novel_id: novelId, ...params }))
     },

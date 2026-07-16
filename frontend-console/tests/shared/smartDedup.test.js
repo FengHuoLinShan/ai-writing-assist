@@ -361,6 +361,27 @@ describe("Smart Dedup Manager", () => {
     manager.dispose()
   })
 
+  it("destroys legacy manual primary pickers when the project changes", () => {
+    let currentProjectId = "p1"
+    const manager = createManager({ getCurrentProjectId: () => currentProjectId })
+    document.body.innerHTML = '<div data-smart-dedup-manual-picker="0"></div>'
+    const suggestions = [{
+      asset_type: "world_entity",
+      action: "merge",
+      source_asset_id: "source-1",
+      target_asset_id: "target-1",
+    }]
+    manager._mountManualPrimaryPickers(suggestions)
+    const root = document.querySelector("[data-smart-dedup-manual-picker]")
+    expect(root.classList.contains("reference-picker")).toBe(true)
+
+    currentProjectId = "p2"
+    manager.syncProject("p2")
+
+    expect(root.classList.contains("reference-picker")).toBe(false)
+    expect(manager._manualPrimaryPickers).toEqual([])
+  })
+
   it("restores the matching active workflow when projects switch", () => {
     vi.useFakeTimers()
     localStorage.setItem("novel_active_workflows_v1", JSON.stringify([

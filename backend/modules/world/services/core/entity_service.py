@@ -7,11 +7,13 @@ subclass override)。
 from __future__ import annotations
 
 import logging
+import math
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get as _container_get
 from core.crud import CrudService
 from core.errors import ConflictError, ValidationError
 from modules.world.repositories import CoreEntityRepository
@@ -22,7 +24,11 @@ from modules.world.schemas import (
     CoreEntityUpdate,
     EntityPromoteRequest,
     EntityPromoteResponse,
+    EntityRankingContext,
+    EntityRankingFacets,
+    EntityRankingResponse,
     EntityTypeCatalogResponse,
+    EntityTypeFacet,
     EntityTypeOption,
 )
 from modules.world.services.common import parse_uuid
@@ -111,6 +117,11 @@ class WorldEntityService(
                 source_type="core_entity",
                 source_id=str(obj.id),
             )
+            from modules.world.services.core.entity_activity_invalidation import (
+                request_entity_activity_reannotation,
+            )
+
+            await request_entity_activity_reannotation(db, novel_id)
         return self._to_response(obj)
 
     # ============================================================
@@ -136,6 +147,8 @@ class WorldEntityService(
         source_chapter_index: int | None = None,
         confidence_min: float | None = None,
         confidence_max: float | None = None,
+        view_mode: str = "normal",
+        focus: str | None = None,
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
     ) -> CoreEntityListResponse:
@@ -144,23 +157,43 @@ class WorldEntityService(
         if display_state not in {None, "active", "review", "archived"}:
             raise ValidationError("Invalid display_state")
         limit = min(limit, MAX_PAGE_SIZE)
+        if view_mode not in {"normal", "hot"}:
+            raise ValidationError("Invalid view_mode")
+        if focus not in {None, "important", "hot", "other"}:
+            raise ValidationError("Invalid focus")
+        if focus is not None and view_mode != "hot":
+            raise ValidationError("focus requires hot view_mode")
+        filter_kwargs = {
+            "entity_type": entity_type,
+            "status": status,
+            "display_state": display_state,
+            "q": q,
+            "source": source,
+            "workflow_id": workflow_id,
+            "needs_review": needs_review,
+            "auto_ingested": auto_ingested,
+            "suggested_action": suggested_action,
+            "scene_id": scene_id,
+            "scene_index": scene_index,
+            "source_chapter_index": source_chapter_index,
+            "confidence_min": confidence_min,
+            "confidence_max": confidence_max,
+        }
+        if view_mode == "hot":
+            return await self._list_hot(
+                db,
+                nid,
+                novel_id=novel_id,
+                focus=focus,
+                skip=skip,
+                limit=limit,
+                filter_kwargs=filter_kwargs,
+            )
+
         items, total = await self.repo.get_by_novel(
             db,
             nid,
-            entity_type=entity_type,
-            status=status,
-            display_state=display_state,
-            q=q,
-            source=source,
-            workflow_id=workflow_id,
-            needs_review=needs_review,
-            auto_ingested=auto_ingested,
-            suggested_action=suggested_action,
-            scene_id=scene_id,
-            scene_index=scene_index,
-            source_chapter_index=source_chapter_index,
-            confidence_min=confidence_min,
-            confidence_max=confidence_max,
+            **filter_kwargs,
             skip=skip,
             limit=limit,
         )
@@ -168,6 +201,172 @@ class WorldEntityService(
             items=[CoreEntityResponse.model_validate(e) for e in items],
             total=total,
         )
+
+    async def _list_hot(
+        self,
+        db: AsyncSession,
+        nid,
+        *,
+        novel_id: str,
+        focus: str | None,
+        skip: int,
+        limit: int,
+        filter_kwargs: dict[str, Any],
+    ) -> CoreEntityListResponse:
+        candidates = await self.repo.list_ranking_candidates(
+            db,
+            nid,
+            **filter_kwargs,
+        )
+        activity = None
+        try:
+            activity = await _container_get("rag.get_entity_activity_stats")(
+                db,
+                novel_id,
+            )
+        except Exception:
+            logger.warning(
+                "world_entity_hot_activity_unavailable novel_id=%s",
+                novel_id,
+                exc_info=True,
+            )
+        activity_by_id = {
+            item.entity_id: item for item in (getattr(activity, "items", None) or [])
+        }
+        as_of_chapter = getattr(activity, "as_of_chapter", None)
+        ranked: list[dict[str, Any]] = []
+        type_counts: dict[str, int] = {}
+        important_count = 0
+        hot_count = 0
+        other_count = 0
+        for candidate in candidates:
+            entity_id = str(candidate["id"])
+            semantic = self._semantic_importance(
+                candidate.get("importance"),
+                candidate.get("importance_level"),
+            )
+            stat = activity_by_id.get(entity_id)
+            chapters = list(getattr(stat, "appearance_chapters", None) or [])
+            heat = self._recent_heat(chapters, as_of_chapter)
+            combined = 0.65 * semantic + 0.35 * heat
+            important = (
+                semantic >= 0.75
+                or candidate.get("importance_level") in {"core", "important"}
+            )
+            hot = heat >= 0.55
+            labels = [
+                label
+                for label, enabled in (("important", important), ("hot", hot))
+                if enabled
+            ]
+            ranking = EntityRankingResponse(
+                semantic_importance=semantic,
+                recent_heat=heat,
+                combined_score=min(1.0, max(0.0, combined)),
+                labels=labels,
+                last_appearance_chapter=(max(chapters) if chapters else None),
+                recent_12_chapter_occurrences=(
+                    sum(
+                        1
+                        for chapter in chapters
+                        if as_of_chapter is not None
+                        and as_of_chapter - 11 <= chapter <= as_of_chapter
+                    )
+                ),
+            )
+            candidate["ranking"] = ranking
+            candidate["is_important"] = important
+            candidate["is_hot"] = hot
+            type_name = str(candidate.get("entity_type") or "unknown")
+            type_counts[type_name] = type_counts.get(type_name, 0) + 1
+            important_count += int(important)
+            hot_count += int(hot)
+            other_count += int(not important and not hot)
+            ranked.append(candidate)
+
+        facets = EntityRankingFacets(
+            important=important_count,
+            hot=hot_count,
+            other=other_count,
+            by_type=[
+                EntityTypeFacet(entity_type=entity_type, count=count)
+                for entity_type, count in sorted(
+                    type_counts.items(),
+                    key=lambda item: (-item[1], item[0]),
+                )
+            ],
+        )
+        if focus == "important":
+            ranked = [item for item in ranked if item["is_important"]]
+        elif focus == "hot":
+            ranked = [item for item in ranked if item["is_hot"]]
+        elif focus == "other":
+            ranked = [
+                item
+                for item in ranked
+                if not item["is_important"] and not item["is_hot"]
+            ]
+
+        has_query = bool(str(filter_kwargs.get("q") or "").strip())
+        ranked.sort(
+            key=lambda item: (
+                -float(item.get("search_rank") or 0) if has_query else 0,
+                -item["ranking"].combined_score,
+                -(item["ranking"].last_appearance_chapter or 0),
+                str(item.get("name") or ""),
+                str(item["id"]),
+            )
+        )
+        total = len(ranked)
+        page = ranked[skip : skip + limit]
+        page_ids = [item["id"] for item in page]
+        models = await self.repo.get_by_ids(db, nid, page_ids)
+        models_by_id = {model.id: model for model in models}
+        responses = []
+        for item in page:
+            model = models_by_id.get(item["id"])
+            if model is None:
+                continue
+            responses.append(
+                CoreEntityResponse.model_validate(model).model_copy(
+                    update={"ranking": item["ranking"]}
+                )
+            )
+        return CoreEntityListResponse(
+            items=responses,
+            total=total,
+            facets=facets,
+            ranking_context=EntityRankingContext(
+                status=getattr(activity, "status", "unavailable"),
+                as_of_chapter=as_of_chapter,
+                covered_chapters=getattr(activity, "covered_chapters", 0),
+                total_chapters=getattr(activity, "total_chapters", 0),
+            ),
+        )
+
+    @staticmethod
+    def _semantic_importance(value: Any, level: Any) -> float:
+        try:
+            importance = float(value)
+        except (TypeError, ValueError):
+            importance = 0.5
+        importance = min(1.0, max(0.0, importance))
+        if level == "core":
+            return max(importance, 0.85)
+        if level == "important":
+            return max(importance, 0.65)
+        return importance
+
+    @staticmethod
+    def _recent_heat(chapters: list[int], as_of_chapter: int | None) -> float:
+        if as_of_chapter is None:
+            return 0.0
+        weighted = sum(
+            2 ** (-(as_of_chapter - chapter) / 6)
+            for chapter in chapters
+            if chapter <= as_of_chapter
+        )
+        return min(1.0, max(0.0, 1 - math.exp(-weighted / 3)))
 
     async def list_entity_types(
         self,
@@ -331,6 +530,12 @@ class WorldEntityService(
                 source_type="core_entity",
                 source_id=id,
             )
+        if {"name", "entity_type", "status", "content_json"}.intersection(changed):
+            from modules.world.services.core.entity_activity_invalidation import (
+                request_entity_activity_reannotation,
+            )
+
+            await request_entity_activity_reannotation(db, novel_id)
         return result
 
     @staticmethod
@@ -397,6 +602,11 @@ class WorldEntityService(
             source_type="core_entity",
             source_id=id,
         )
+        from modules.world.services.core.entity_activity_invalidation import (
+            request_entity_activity_reannotation,
+        )
+
+        await request_entity_activity_reannotation(db, novel_id)
 
         try:
             async with db.begin_nested():
@@ -562,6 +772,11 @@ class WorldEntityService(
             source_type="core_entity",
             source_id=entity_id,
         )
+        from modules.world.services.core.entity_activity_invalidation import (
+            request_entity_activity_reannotation,
+        )
+
+        await request_entity_activity_reannotation(db, novel_id)
 
         return EntityPromoteResponse(
             entity_id=str(updated.id),

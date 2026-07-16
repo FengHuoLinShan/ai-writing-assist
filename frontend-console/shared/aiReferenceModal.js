@@ -116,9 +116,6 @@ function renderBody(options) {
             <span>包含待处理内容</span>
           </label>
         </div>
-        <label>排除资产 ID
-          <input id="ai-ref-excluded" class="form-input" placeholder="逗号分隔，可留空" />
-        </label>
         <label>已发布 AI 参考规则（显式启用）
           <select id="ai-ref-activation-profile" class="form-select">
             <option value="">不启用</option>
@@ -151,8 +148,6 @@ function buildPayload(options, excludedSectionKeys = new Set()) {
   const scope = scopeEl?.dataset.userChanged === "1" ? scopeEl.value : fallbackScope
   const chapterRaw = document.getElementById("ai-ref-chapter")?.value
   const chapter = chapterRaw ? parseInt(chapterRaw, 10) : options.chapter_index
-  const excludedRaw = document.getElementById("ai-ref-excluded")?.value || ""
-  const excludedIds = excludedRaw.split(",").map((s) => s.trim()).filter(Boolean)
   const payload = {
     novel_id: options.novel_id,
     action: options.action,
@@ -179,9 +174,8 @@ function buildPayload(options, excludedSectionKeys = new Set()) {
   const excludedContextSections = Array.from(excludedSectionKeys)
   const optionExcluded = options.excluded_asset_ids || {}
   const hasOptionExcluded = Object.keys(optionExcluded).length > 0
-  if (hasOptionExcluded || excludedIds.length || excludedContextSections.length) {
+  if (hasOptionExcluded || excludedContextSections.length) {
     payload.excluded_asset_ids = { ...optionExcluded }
-    if (excludedIds.length) payload.excluded_asset_ids.manual = excludedIds
     if (excludedContextSections.length) payload.excluded_asset_ids.context_sections = excludedContextSections
   }
   return payload

@@ -73,5 +73,7 @@ class CompletedTaskPayloadContract:
     result: dict[str, Any] = field(default_factory=dict)
     revision_token: datetime | None = None
     context_confirmation_id: str | None = None
+    action: str | None = None
+    context_provenance: dict[str, Any] = field(default_factory=dict)
     start_chapter: int | None = None
     end_chapter: int | None = None

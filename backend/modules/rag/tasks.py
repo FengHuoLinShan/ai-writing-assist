@@ -153,6 +153,24 @@ async def handle_rag_reindex_novel(db, task):
     }
 
 
+@task_handler("rag_reannotate_entities", recovery_policy="auto_requeue", max_attempts=2)
+async def handle_rag_reannotate_entities(db, task):
+    """Refresh chunk entity links and appearance rows without embeddings."""
+    novel_id = str((task.meta or {}).get("novel_id") or "")
+    if not novel_id:
+        raise ValueError("novel_id is required for rag_reannotate_entities")
+    from modules.rag.entity_activity import EntityActivityService
+
+    result = await EntityActivityService().reannotate_project(
+        db,
+        novel_id,
+        progress_callback=task.update_progress,
+    )
+    task.update_progress(1.0)
+    await db.flush()
+    return result
+
+
 @task_handler("rag_retry_embeddings", recovery_policy="auto_requeue", max_attempts=2)
 async def handle_rag_retry_embeddings(db, task):
     """重试 failed / pending_vectorization chunk 的 embedding。"""

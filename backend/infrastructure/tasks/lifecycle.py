@@ -121,6 +121,15 @@ class TaskLifecycleService:
             context_confirmation_id, str
         ):
             return None
+        action = meta.get("action")
+        if action is not None and not isinstance(action, str):
+            return None
+        context_provenance = meta.get("context_provenance")
+        if context_provenance is not None and not isinstance(
+            context_provenance,
+            dict,
+        ):
+            return None
         start_chapter = self._optional_task_integer(meta, "start_chapter")
         end_chapter = self._optional_task_integer(meta, "end_chapter")
         if start_chapter is _INVALID_TASK_META or end_chapter is _INVALID_TASK_META:
@@ -132,6 +141,8 @@ class TaskLifecycleService:
             result=deepcopy(dict(row["result"] or {})),
             revision_token=row["updated_at"],
             context_confirmation_id=context_confirmation_id,
+            action=action,
+            context_provenance=deepcopy(dict(context_provenance or {})),
             start_chapter=start_chapter,
             end_chapter=end_chapter,
         )

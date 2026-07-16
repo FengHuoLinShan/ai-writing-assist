@@ -1232,6 +1232,14 @@ async def list_entities(
     source_chapter_index: int | None = Query(None, description="来源章节索引"),
     confidence_min: float | None = Query(None, ge=0.0, le=1.0, description="最低置信度"),
     confidence_max: float | None = Query(None, ge=0.0, le=1.0, description="最高置信度"),
+    view_mode: Literal["normal", "hot"] = Query(
+        "normal",
+        description="列表浏览模式：normal / hot",
+    ),
+    focus: Literal["important", "hot", "other"] | None = Query(
+        None,
+        description="热点模式聚合筛选",
+    ),
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
     limit: int = Query(
         default=DEFAULT_PAGE_SIZE,
@@ -1257,6 +1265,8 @@ async def list_entities(
         source_chapter_index=source_chapter_index,
         confidence_min=confidence_min,
         confidence_max=confidence_max,
+        view_mode=view_mode,
+        focus=focus,
         skip=skip,
         limit=limit,
     )

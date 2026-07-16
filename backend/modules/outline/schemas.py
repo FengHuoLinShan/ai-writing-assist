@@ -337,10 +337,19 @@ class SceneWorkbenchItem(BaseModel):
     summary: str | None = None
     span_summaries: list[SceneSpanSummary] = []
     overlap_details: list[SceneSpanOverlapDetail] = []
+    segment: Literal["current", "upcoming", "past", "unassigned"] | None = None
 
 
 class SceneFusionSuggestionSummary(BaseModel):
     pending_count: int = 0
+
+
+class SceneProgressSummary(BaseModel):
+    as_of_chapter: int | None = Field(default=None, ge=1)
+    current: int = Field(default=0, ge=0)
+    upcoming: int = Field(default=0, ge=0)
+    past: int = Field(default=0, ge=0)
+    unassigned: int = Field(default=0, ge=0)
 
 
 class SceneWorkbenchResponse(BaseModel):
@@ -353,6 +362,7 @@ class SceneWorkbenchResponse(BaseModel):
     fusion_suggestions: SceneFusionSuggestionSummary = (
         SceneFusionSuggestionSummary()
     )
+    progress: SceneProgressSummary | None = None
 
 
 class SceneReviewRequest(BaseModel):

@@ -72,6 +72,7 @@ _MODULE_API_ONLY_TASK_TYPES = {
     "chapter_scene_generate",
     "outline_analyze",
     "outline_generate",
+    "story_outline_generate",
     "writing_generate",
     "writing_conflict_ai_review",
     "publish_chapter",

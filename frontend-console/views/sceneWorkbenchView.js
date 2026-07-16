@@ -16,6 +16,7 @@ import { structureAssetDisplay } from "../shared/assetDisplayState.js"
 import { importAuthorizationNotice, importAuthorizationPayload } from "../shared/importAuthorization.js"
 import { confirmAsync } from "../shared/confirmAsync.js"
 import { renderWorkspaceRail, workspaceRailKey } from "../shared/workspaceRail.js"
+import { createReferencePicker } from "../shared/referencePicker.js"
 
 const HEALTH_ORDER = [
   ["unreviewed", "未复核"],
@@ -65,6 +66,7 @@ const SCENE_FILTER_DEFAULTS = {
   chapter_from: "",
   chapter_to: "",
   confidence_band: "",
+  segment: "",
   skip: 0,
   limit: 20,
 }
@@ -115,6 +117,9 @@ const sceneWorkbenchView = {
   _activeDraftReview: null,
   _mobileDetailOpen: false,
   _selectedSceneIdValue: null,
+  _viewMode: "hot",
+  _mergeReferencePicker: null,
+  _mergePreviewRequestGeneration: 0,
 
   async onEnter() {
     this._loading = true
@@ -122,6 +127,7 @@ const sceneWorkbenchView = {
     this._total = 0
     this._selectedFusionSceneIds = new Set()
     this._fusionSuggestions = []
+    this._viewMode = this._initialViewMode()
     this._selectedSceneIdValue = this._routeSceneId()
     if (this._selectedSceneIdValue) {
       this._filters = { ...SCENE_FILTER_DEFAULTS }
@@ -151,6 +157,8 @@ const sceneWorkbenchView = {
   },
 
   onLeave() {
+    this._destroyMergeReferencePicker()
+    this._mergePreviewRequestGeneration += 1
     this._stopAutoExtractPolling()
     this._mobileDetailOpen = false
   },
@@ -175,6 +183,7 @@ const sceneWorkbenchView = {
         <div class="scene-workbench ${narrow ? "is-narrow" : ""}">
           <section class="scene-workbench__organize">
             ${this._renderManagementFilters()}
+            ${this._renderProgressFilters()}
             ${this._renderHealthFilters()}
             ${this._renderFusionToolbar()}
             ${this._renderSceneList()}
@@ -201,6 +210,7 @@ const sceneWorkbenchView = {
   renderHeaderActions() {
     return `
       <div class="scene-workbench-actions" aria-label="Scene 工作台操作">
+        ${this._renderViewModeToggle()}
         <button class="btn btn-sm btn-primary" data-action="scene-auto-extract">场景（scene）自动提取</button>
         <span data-role="smart-dedup-action"></span>
       </div>
@@ -264,6 +274,7 @@ const sceneWorkbenchView = {
     const params = {
       skip: this._filters.skip,
       limit: this._filters.limit,
+      view_mode: this._viewMode,
     }
     for (const key of [
       "health",
@@ -284,15 +295,81 @@ const sceneWorkbenchView = {
       else if (value) params[key] = value
     }
     if (this._filters.phase1a_fallback) params.phase1a_fallback = true
+    if (this._viewMode === "hot") {
+      if (this._filters.segment) params.segment = this._filters.segment
+      if (this._shouldAnchorLatest()) params.anchor = "latest"
+    }
     return params
+  },
+
+  _sceneQuery() {
+    if (typeof window !== "undefined") {
+      const queryIndex = window.location.hash.indexOf("?")
+      return new URLSearchParams(
+        queryIndex >= 0 ? window.location.hash.slice(queryIndex + 1) : "",
+      )
+    }
+    const query = router.getCurrentQuery?.()
+    return new URLSearchParams(query?.toString ? query.toString() : "")
+  },
+
+  _modePreferenceKey() {
+    return `novel_view_mode:${state.currentProjectId || "none"}:scene-workbench`
+  },
+
+  _initialViewMode() {
+    const requested = this._sceneQuery().get("mode")
+    if (requested === "normal" || requested === "hot") return requested
+    try {
+      const stored = localStorage.getItem(this._modePreferenceKey())
+      if (stored === "normal" || stored === "hot") return stored
+    } catch {
+      // localStorage 不可用时使用热点默认值。
+    }
+    return "hot"
+  },
+
+  _rememberViewMode(mode) {
+    try {
+      localStorage.setItem(this._modePreferenceKey(), mode)
+    } catch {
+      // 偏好写入失败不阻断工作台。
+    }
+  },
+
+  _hasManagementFilters() {
+    return [
+      "health", "q", "status", "source", "workflow_id", "needs_review",
+      "boundary_status", "phase", "chapter_from", "chapter_to", "confidence_band",
+    ].some((key) => Boolean(this._filters[key])) || Boolean(this._filters.phase1a_fallback)
+  },
+
+  _shouldAnchorLatest() {
+    return this._viewMode === "hot"
+      && !this._routeSceneId()
+      && !this._filters.segment
+      && Number(this._filters.skip || 0) === 0
+      && !this._hasManagementFilters()
+  },
+
+  _renderViewModeToggle() {
+    return `
+      <span class="scene-view-mode-toggle" aria-label="Scene 检索模式">
+        <button class="btn btn-sm ${this._viewMode === "normal" ? "btn-primary" : ""}" data-action="set-scene-view-mode" data-mode="normal">普通</button>
+        <button class="btn btn-sm ${this._viewMode === "hot" ? "btn-primary" : ""}" data-action="set-scene-view-mode" data-mode="hot">热点</button>
+      </span>
+    `
   },
 
   _renderManagementFilters() {
     const advancedFilters = this._advancedFiltersOpen ? `
-      <label class="scene-filter-field scene-filter-field--wide">
-        <span>Workflow</span>
-        <input class="form-input" id="scene-filter-workflow-id" value="${esc(this._filters.workflow_id)}" placeholder="workflow_id" />
-      </label>
+      <details class="scene-filter-field scene-filter-field--wide" ${this._filters.workflow_id ? "open" : ""}>
+        <summary>诊断筛选${this._filters.workflow_id ? "（1）" : ""}</summary>
+        <label>
+          <span>Workflow 诊断 ID</span>
+          <input class="form-input" id="scene-filter-workflow-id" data-diagnostic-field value="${esc(this._filters.workflow_id)}" placeholder="workflow_id" />
+        </label>
+      </details>
       ${this._filterSelect("scene-filter-boundary-status", "边界", this._filters.boundary_status, BOUNDARY_STATUS_OPTIONS, "全部边界")}
       ${this._filterSelect("scene-filter-phase", "阶段", this._filters.phase, PHASE_OPTIONS, "全部阶段")}
       ${this._filterSelect("scene-filter-confidence-band", "置信度", this._filters.confidence_band, CONFIDENCE_BAND_OPTIONS, "全部置信度")}
@@ -371,6 +448,32 @@ const sceneWorkbenchView = {
           待整理总数按 Scene 去重；结构、正文定位和融合等原因可在同一 Scene 上重叠，原因数不能相加作为总数。
         </p>
       ` : ""}
+    `
+  },
+
+  _renderProgressFilters() {
+    if (this._viewMode !== "hot" || !this._workbench?.progress) return ""
+    const progress = this._workbench.progress
+    const items = [
+      ["current", "当前", progress.current],
+      ["upcoming", "后续", progress.upcoming],
+      ["past", "已写过", progress.past],
+      ["unassigned", "未定位", progress.unassigned],
+    ]
+    return `
+      <section class="scene-progress-panel" aria-label="剧情进度">
+        <div class="scene-progress-panel__heading">
+          <strong>当前剧情定位</strong>
+          <span>${progress.as_of_chapter == null ? "尚无有效章节" : `截至第 ${esc(progress.as_of_chapter)} 章`}</span>
+        </div>
+        <div class="scene-progress-bar">
+          ${items.map(([key, label, count]) => `
+            <button class="scene-progress-filter ${this._filters.segment === key ? "active" : ""}" data-action="filter-progress-segment" data-segment="${key}">
+              <span>${label}</span><strong>${esc(count ?? 0)}</strong>
+            </button>
+          `).join("")}
+        </div>
+      </section>
     `
   },
 
@@ -589,6 +692,12 @@ const sceneWorkbenchView = {
       return `<button class="scene-health-chip" data-action="handle-scene-health" data-id="${esc(scene.id)}" data-health="${esc(key)}" title="${esc(action.label)}">${esc(label)}</button>`
     }).join("")
     const contextAction = this._contextAction(item)
+    const segmentLabel = {
+      current: "当前剧情",
+      upcoming: "后续",
+      past: "已写过",
+      unassigned: "未定位",
+    }[item.segment]
     return `
       <article class="scene-workbench-row ${selected}" data-id="${esc(scene.id)}">
         <label class="scene-fusion-select selection-checkbox" title="选择用于批量操作">
@@ -607,6 +716,7 @@ const sceneWorkbenchView = {
               <span>${esc(this._sceneStatusLabel(scene))}</span>
               <span>${esc(this._sourceLabel(scene.source))}</span>
               <span>${esc(item.chapter_range || "未关联章节")}</span>
+              ${segmentLabel ? `<span class="scene-progress-chip scene-progress-chip--${esc(item.segment)}">${esc(segmentLabel)}</span>` : ""}
             </div>
             <div class="scene-workbench-row__title">${esc(scene.title || "未命名 Scene")}</div>
             <div class="scene-workbench-row__summary">${esc(item.summary || scene.goal || "暂无目标")}</div>
@@ -832,9 +942,12 @@ const sceneWorkbenchView = {
   _pushSceneHistory(sceneId) {
     if (typeof window === "undefined" || !window.history || !state.currentProjectId) return
     const embedded = state.currentView === "outline" && state.currentSubView === "scenes"
+    const query = this._sceneQuery()
+    query.set("mode", this._viewMode)
+    query.set("scene_id", sceneId)
     const hash = embedded
-      ? `#workbench/${encodeURIComponent(state.currentProjectId)}/outline/scenes?scene_id=${encodeURIComponent(sceneId)}`
-      : `#workbench/${encodeURIComponent(state.currentProjectId)}/scene/${encodeURIComponent(sceneId)}`
+      ? `#workbench/${encodeURIComponent(state.currentProjectId)}/outline/scenes?${query.toString()}`
+      : `#workbench/${encodeURIComponent(state.currentProjectId)}/scene/${encodeURIComponent(sceneId)}?mode=${encodeURIComponent(this._viewMode)}`
     if (window.location.hash === hash) return
     window.history.pushState(
       {
@@ -935,6 +1048,7 @@ const sceneWorkbenchView = {
     root.innerHTML = `
       <section class="scene-workbench__organize">
         ${this._renderManagementFilters()}
+        ${this._renderProgressFilters()}
         ${this._renderHealthFilters()}
         ${this._renderFusionToolbar()}
         ${this._renderSceneList()}
@@ -1433,25 +1547,104 @@ const sceneWorkbenchView = {
   },
 
   async _startMerge(targetSceneId) {
-    const sourceId = prompt("输入要合并进来的 Scene ID：")
-    if (!sourceId) return
-    await this._previewAndMerge(targetSceneId, [sourceId])
+    this._destroyMergeReferencePicker()
+    const ownerProjectId = state.currentProjectId
+    const targetScene = this._findScene(targetSceneId)
+    const body = `
+      <p>选择要合并到<strong>「${esc(targetScene?.title || "当前 Scene")}」</strong>中的另一个 Scene。</p>
+      <div id="scene-merge-reference-picker"></div>
+      <p class="form-help">可按标题、目标或冲突搜索；历史 Scene 和当前 Scene 不会出现在结果中。</p>
+    `
+    showModalHtml("选择要合并的 Scene", body, [
+      { text: "取消", class: "", handler: () => {
+        this._destroyMergeReferencePicker()
+        closeModal()
+      } },
+      {
+        text: "预览合并影响",
+        class: "btn-primary",
+        handler: async () => {
+          if (!ownerProjectId || state.currentProjectId !== ownerProjectId) {
+            this._destroyMergeReferencePicker()
+            closeModal()
+            toast("项目已切换，请在当前项目重新选择 Scene", "warning")
+            return false
+          }
+          const sourceId = this._mergeReferencePicker?.getRefs()?.[0]?.id
+          if (!sourceId) {
+            toast("请选择要合并的 Scene", "warning")
+            return false
+          }
+          this._destroyMergeReferencePicker()
+          closeModal()
+          await this._previewAndMerge(targetSceneId, [sourceId], ownerProjectId)
+          return false
+        },
+      },
+    ], { size: "large" })
+    const root = document.getElementById("scene-merge-reference-picker")
+    if (!root) return
+    this._mergeReferencePicker = createReferencePicker({
+      root,
+      projectId: ownerProjectId,
+      sources: [{
+        kind: "scene",
+        label: "Scene",
+        search: async (query, { projectId, limit }) => {
+          if (state.currentProjectId !== ownerProjectId || projectId !== ownerProjectId) return []
+          const data = await api.outline.getSceneWorkbench(projectId, null, {
+            q: query || undefined,
+            view_mode: "normal",
+            skip: 0,
+            limit,
+          })
+          return (data?.items || [])
+            .map((entry) => entry.scene || entry)
+            .filter((scene) => scene.id !== targetSceneId && scene.status !== "deprecated")
+            .map((scene) => ({
+              id: scene.id,
+              label: scene.title || "未命名 Scene",
+              description: [this._sceneChapterLabel(scene), scene.goal || scene.core_conflict].filter(Boolean).join(" · "),
+              status: this._statusLabel(scene.status),
+            }))
+        },
+      }],
+      placeholder: "搜索 Scene 标题、目标或冲突",
+    })
   },
 
-  async _previewAndMerge(targetSceneId, sourceSceneIds) {
+  _destroyMergeReferencePicker() {
+    this._mergeReferencePicker?.destroy?.()
+    this._mergeReferencePicker = null
+  },
+
+  async _previewAndMerge(targetSceneId, sourceSceneIds, ownerProjectId = state.currentProjectId) {
+    const requestGeneration = ++this._mergePreviewRequestGeneration
     const request = {
       target_scene_id: targetSceneId,
       source_scene_ids: sourceSceneIds,
     }
-    const preview = await api.outline.previewSceneMerge(state.currentProjectId, request)
+    const preview = await api.outline.previewSceneMerge(ownerProjectId, request)
+    if (
+      requestGeneration !== this._mergePreviewRequestGeneration
+      || state.currentProjectId !== ownerProjectId
+    ) return false
     showModalHtml("合并 Scene 影响预览", this._renderPreview(preview), [
       { text: "取消", class: "", handler: () => closeModal() },
       {
         text: "确认合并",
         class: "btn-primary",
         handler: async () => {
+          if (
+            requestGeneration !== this._mergePreviewRequestGeneration
+            || state.currentProjectId !== ownerProjectId
+          ) {
+            closeModal()
+            toast("项目已切换，未执行 Scene 合并", "warning")
+            return false
+          }
           try {
-            await api.outline.mergeScenes(state.currentProjectId, {
+            await api.outline.mergeScenes(ownerProjectId, {
               ...request,
               confirmed: true,
             })
@@ -2193,6 +2386,7 @@ const sceneWorkbenchView = {
       chapter_from: read("scene-filter-chapter-from"),
       chapter_to: read("scene-filter-chapter-to"),
       confidence_band: read("scene-filter-confidence-band"),
+      segment: this._filters.segment,
       skip: 0,
     }
     this._activeHealth = this._filters.health || null
@@ -2222,6 +2416,38 @@ const sceneWorkbenchView = {
     this._activeHealth = nextHealth || null
     this._selectedFusionSceneIds = new Set()
     this._clearEmbeddedSceneHistory()
+    await this._loadWorkbench()
+    await router.refresh()
+  },
+
+  async _toggleProgressSegment(segment) {
+    if (this._viewMode !== "hot") return
+    this._filters = {
+      ...this._filters,
+      segment: this._filters.segment === segment ? "" : segment,
+      skip: 0,
+    }
+    this._selectedFusionSceneIds = new Set()
+    this._clearEmbeddedSceneHistory()
+    await this._loadWorkbench()
+    await router.refresh()
+  },
+
+  async _setViewMode(mode) {
+    if (mode !== "normal" && mode !== "hot") return
+    if (mode === this._viewMode) return
+    this._viewMode = mode
+    this._rememberViewMode(mode)
+    this._filters = { ...this._filters, segment: "", skip: 0 }
+    this._selectedFusionSceneIds = new Set()
+    this._clearEmbeddedSceneHistory()
+    const query = this._sceneQuery()
+    query.delete("scene_id")
+    query.set("mode", mode)
+    if (state.currentView === "outline" && state.currentSubView === "scenes") {
+      await router.navigate("outline", "scenes", true, query)
+      return
+    }
     await this._loadWorkbench()
     await router.refresh()
   },
@@ -2903,6 +3129,8 @@ const sceneWorkbenchView = {
       "filter-health": (_e, _t, ctx) => {
         this._toggleHealthFilter(ctx.id)
       },
+      "filter-progress-segment": (_e, t) => this._toggleProgressSegment(t.getAttribute("data-segment")),
+      "set-scene-view-mode": (_e, t) => this._setViewMode(t.getAttribute("data-mode")),
       "apply-scene-filters": () => this._applyManagementFilters(),
       "reset-scene-filters": () => this._resetManagementFilters(),
       "toggle-advanced-scene-filters": () => this._toggleAdvancedFilters(),

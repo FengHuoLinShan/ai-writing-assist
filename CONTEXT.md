@@ -43,6 +43,7 @@ README、ORM 模型与 Alembic migration。
 
 | 概念 | 当前承载 | 含义 |
 |---|---|---|
+| 小说总纲 | `story_outline_heads` / `story_outline_revisions` | outline 拥有的小说级上位结构资产；按 `World → StoryOutline → OutlineArc → Scene` 约束粒度。revision 不可变，head 以 base/current CAS 指向当前版；手工采用总纲不会创建剧情线、篇章纲、Scene、伏笔或揭示。 |
 | 剧情线 / 篇章纲 | `plot_threads` / `outline_arcs` | 组织可执行的剧情结构。 |
 | Scene | `scenes` | 最小叙事单元，包含逻辑顺序、结构字段、来源和结构整理 metadata。 |
 | Scene 章节映射 | `scene_chapter_links` | Scene 与章节的轻量关联。 |

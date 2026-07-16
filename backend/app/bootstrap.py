@@ -25,14 +25,17 @@ from modules.outline.services import (
     SceneService,
 )
 from modules.rag.facade import (
+    get_entity_activity_stats as _rag_get_entity_activity_stats,
     get_ordered_chapter_chunks as _rag_get_chunks,
     index_chapter_with_report as _rag_index,
+    request_entity_activity_reannotation as _rag_request_entity_reannotation,
 )
 from modules.rag.indexing import IndexingService as _RagIndexingService
 from modules.project.facade import require_active_project as _project_require_active
 from modules.writing.facade import (
     get_latest_draft_for_chapter as _writing_get_draft,
     list_chapter_indices as _writing_list_indices,
+    list_effective_chapter_indices as _writing_list_effective_indices,
     list_latest_drafts_for_chapters as _writing_list_latest_drafts,
 )
 from modules.world.facade import (
@@ -73,7 +76,13 @@ def _container_services() -> Iterable[tuple[str, Any]]:
         ("rag.index_chapter", _rag_index),
         ("rag.index_chapter_for_task", rag_indexing.index_chapter_for_task),
         ("rag.get_ordered_chapter_chunks", _rag_get_chunks),
+        ("rag.get_entity_activity_stats", _rag_get_entity_activity_stats),
+        (
+            "rag.request_entity_activity_reannotation",
+            _rag_request_entity_reannotation,
+        ),
         ("writing.list_chapter_indices", _writing_list_indices),
+        ("writing.list_effective_chapter_indices", _writing_list_effective_indices),
         ("writing.get_latest_draft_for_chapter", _writing_get_draft),
         ("writing.list_latest_drafts_for_chapters", _writing_list_latest_drafts),
         ("outline.generate_structure", PlotStructureGenerator().generate),

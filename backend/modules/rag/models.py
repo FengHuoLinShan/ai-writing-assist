@@ -205,6 +205,73 @@ class RagChunk(Base, UUIDMixin, TimestampMixin):
         )
 
 
+class RagEntityAppearance(Base, UUIDMixin, TimestampMixin):
+    """Rebuildable entity appearance derived from chapter-text chunks."""
+
+    __tablename__ = "rag_entity_appearances"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "content_mode",
+            "entity_id",
+            "occurrence_key",
+            name="uq_rag_entity_appearance_occurrence",
+        ),
+        Index(
+            "ix_rag_entity_appearances_entity_chapter",
+            "novel_id",
+            "entity_id",
+            "chapter_index",
+        ),
+        Index(
+            "ix_rag_entity_appearances_mode_chapter",
+            "novel_id",
+            "content_mode",
+            "chapter_index",
+        ),
+        {"comment": "RAG 正文对象出场派生索引"},
+    )
+
+    novel_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    entity_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=False,
+        comment="CoreEntity ID；派生索引不建立跨模块外键",
+    )
+    content_mode: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="canonical / working",
+    )
+    chapter_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    scene_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=True,
+        comment="精确 Scene；无法定位时为空并按章节降级",
+    )
+    occurrence_key: Mapped[str] = mapped_column(
+        String(80),
+        nullable=False,
+        comment="scene:<uuid> 或 chapter:<index>",
+    )
+    source_content_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        index=True,
+    )
+    chunk_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        comment="同一出场单元命中的 chunk 数，仅用于解释",
+    )
+
+
 class RagIndexState(Base, UUIDMixin, TimestampMixin):
     """Coalesced, rebuildable chapter index state for one content mode."""
 

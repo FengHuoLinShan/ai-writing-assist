@@ -884,6 +884,15 @@ class WritingDraftService:
         nid = _parse_uuid(novel_id, "novel")
         return await self._repo.list_chapter_indices(db, nid)
 
+    async def list_effective_chapter_indices(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> list[int]:
+        """列出最新工作版本含实质正文的章节索引。"""
+        nid = _parse_uuid(novel_id, "novel")
+        return await self._repo.list_effective_chapter_indices(db, nid)
+
     async def lock_chapter_versions_for_revalidation(
         self,
         db: AsyncSession,

@@ -87,8 +87,15 @@ class EntityStatsService:
     ) -> int:
         """Soft-deprecate auto-ingested entities created by one workflow."""
         nid = parse_uuid(novel_id, "novel_id")
-        return await self._repo.deprecate_deep_import_entities_by_workflow(
+        count = await self._repo.deprecate_deep_import_entities_by_workflow(
             db,
             nid,
             workflow_id,
         )
+        if count:
+            from modules.world.services.core.entity_activity_invalidation import (
+                request_entity_activity_reannotation,
+            )
+
+            await request_entity_activity_reannotation(db, novel_id)
+        return count

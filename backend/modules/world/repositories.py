@@ -204,7 +204,7 @@ class CoreEntityRepository:
             public_info=data.public_info,
             hidden_truth=data.hidden_truth,
             content_json=data.content_json or {},
-            importance=data.importance or 0.5,
+            importance=data.importance if data.importance is not None else 0.5,
             importance_level=data.importance_level or "normal",
             reveal_level=data.reveal_level or "author_only",
             status=data.status or "canonical",
@@ -524,6 +524,96 @@ class CoreEntityRepository:
             limit=limit,
         )
         return items, total
+
+    async def list_ranking_candidates(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        entity_type: str | None = None,
+        status: str | None = None,
+        display_state: str | None = None,
+        q: str | None = None,
+        source: str | None = None,
+        workflow_id: str | None = None,
+        needs_review: bool | None = None,
+        auto_ingested: bool | None = None,
+        suggested_action: str | None = None,
+        scene_id: str | None = None,
+        scene_index: int | None = None,
+        source_chapter_index: int | None = None,
+        confidence_min: float | None = None,
+        confidence_max: float | None = None,
+    ) -> list[dict[str, Any]]:
+        """Load only scalar fields needed for project-wide smart ranking."""
+        conditions = self._entity_conditions(
+            novel_id,
+            entity_type=entity_type,
+            status=status,
+            display_state=display_state,
+            q=q,
+            source=source,
+            workflow_id=workflow_id,
+            needs_review=needs_review,
+            auto_ingested=auto_ingested,
+            suggested_action=suggested_action,
+            scene_id=scene_id,
+            scene_index=scene_index,
+            source_chapter_index=source_chapter_index,
+            confidence_min=confidence_min,
+            confidence_max=confidence_max,
+        )
+        rank = self._entity_search_rank(q)
+        columns = [
+            CoreEntity.id.label("id"),
+            CoreEntity.entity_type.label("entity_type"),
+            CoreEntity.name.label("name"),
+            CoreEntity.importance.label("importance"),
+            CoreEntity.importance_level.label("importance_level"),
+        ]
+        if rank is not None:
+            columns.append(rank.label("search_rank"))
+        stmt = select(*columns).where(*conditions)
+        result = await db.execute(stmt)
+        rows = [dict(row) for row in result.mappings().all()]
+        if rows or not q or not q.strip():
+            return rows
+
+        fuzzy_conditions = self._entity_conditions(
+            novel_id,
+            entity_type=entity_type,
+            status=status,
+            display_state=display_state,
+            source=source,
+            workflow_id=workflow_id,
+            needs_review=needs_review,
+            auto_ingested=auto_ingested,
+            suggested_action=suggested_action,
+            scene_id=scene_id,
+            scene_index=scene_index,
+            source_chapter_index=source_chapter_index,
+            confidence_min=confidence_min,
+            confidence_max=confidence_max,
+        )
+        fuzzy, _total = await self._fuzzy_entities_by_novel(
+            db,
+            conditions=fuzzy_conditions,
+            query=q,
+            skip=0,
+            limit=10000,
+        )
+        size = len(fuzzy)
+        return [
+            {
+                "id": entity.id,
+                "entity_type": entity.entity_type,
+                "name": entity.name,
+                "importance": entity.importance,
+                "importance_level": entity.importance_level,
+                "search_rank": size - index,
+            }
+            for index, entity in enumerate(fuzzy)
+        ]
 
     async def get_by_ids(
         self,

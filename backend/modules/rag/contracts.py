@@ -139,6 +139,26 @@ class RagTaskIndexOutcome:
 
 
 @dataclass(frozen=True)
+class RagEntityActivityStatContract:
+    """Raw, rebuildable appearance positions for one CoreEntity."""
+
+    entity_id: str
+    appearance_chapters: list[int] = field(default_factory=list)
+    last_chapter_index: int | None = None
+
+
+@dataclass(frozen=True)
+class RagEntityActivityBundleContract:
+    """Project entity activity plus index coverage metadata."""
+
+    items: list[RagEntityActivityStatContract] = field(default_factory=list)
+    as_of_chapter: int | None = None
+    covered_chapters: int = 0
+    total_chapters: int = 0
+    status: str = "unavailable"
+
+
+@dataclass(frozen=True)
 class RagSceneMappingCoverageContract:
     """Scene/SceneSpan mapping health for chapter-text chunks."""
 

@@ -655,6 +655,38 @@ class CoreEntityUpdate(BaseModel):
         return _normalize_author_entity_type(v)
 
 
+class EntityRankingResponse(BaseModel):
+    semantic_importance: float = Field(ge=0.0, le=1.0)
+    recent_heat: float = Field(ge=0.0, le=1.0)
+    combined_score: float = Field(ge=0.0, le=1.0)
+    labels: list[Literal["important", "hot"]] = Field(default_factory=list)
+    last_appearance_chapter: int | None = Field(default=None, ge=1)
+    recent_12_chapter_occurrences: int = Field(default=0, ge=0)
+
+
+class EntityTypeFacet(BaseModel):
+    entity_type: str
+    count: int = Field(ge=0)
+
+
+class EntityRankingFacets(BaseModel):
+    important: int = Field(default=0, ge=0)
+    hot: int = Field(default=0, ge=0)
+    other: int = Field(default=0, ge=0)
+    by_type: list[EntityTypeFacet] = Field(default_factory=list)
+
+
+class EntityRankingContext(BaseModel):
+    version: Literal["importance_recent_v1"] = "importance_recent_v1"
+    status: Literal["ready", "partial", "unavailable"] = "unavailable"
+    as_of_chapter: int | None = Field(default=None, ge=1)
+    covered_chapters: int = Field(default=0, ge=0)
+    total_chapters: int = Field(default=0, ge=0)
+    half_life_chapters: int = 6
+    importance_weight: float = 0.65
+    heat_weight: float = 0.35
+
+
 class CoreEntityResponse(BaseModel):
     """核心实体响应"""
 
@@ -684,6 +716,7 @@ class CoreEntityResponse(BaseModel):
     approved_by: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    ranking: EntityRankingResponse | None = None
 
     @field_validator("id", "novel_id", mode="before")
     @classmethod
@@ -715,6 +748,8 @@ class CoreEntityListResponse(BaseModel):
 
     items: list[CoreEntityResponse]
     total: int
+    facets: EntityRankingFacets | None = None
+    ranking_context: EntityRankingContext | None = None
 
 
 class EntityTypeOption(BaseModel):

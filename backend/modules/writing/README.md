@@ -95,6 +95,7 @@ async def adopt_candidate_to_working(db: AsyncSession, novel_id: str, draft_id: 
 async def get_latest_draft_for_chapter(db: AsyncSession, novel_id: str, chapter_index: int) -> WritingDraftContract | None
 async def list_latest_drafts_for_chapters(db: AsyncSession, novel_id: str, chapter_indices: list[int], *, content_limit: int | None = None) -> list[WritingDraftContract]
 async def list_chapter_indices(db: AsyncSession, novel_id: str) -> list[int]
+async def list_effective_chapter_indices(db: AsyncSession, novel_id: str) -> list[int]
 async def lock_chapter_versions_for_revalidation(db: AsyncSession, novel_id: str, chapter_indices: list[int]) -> None
 async def list_manuscript_sources(db, novel_id, chapter_indices=None, *, content_mode="canonical") -> list[WritingDraftContract]
 async def grep_manuscript(db, novel_id, pattern, *, content_mode="canonical", ...) -> ManuscriptSearchPageContract
@@ -121,6 +122,8 @@ snapshot 失败，任务重新从发布源发起时会合并 fresh RAG，只补�
 一个代表命中，`match_count` 表示该章的字面出现次数，分页与 `total` 都按章节组计算。
 
 `facade.list_latest_drafts_for_chapters(..., content_limit=N)` 供跨模块批量加载正文时做 DB-side 截断；默认 `None` 保持返回完整最新正文。`content_limit` 必须为正整数，启用时仅投影跨模块契约必要字段，不加载完整 `WritingDraft` ORM。
+
+`facade.list_effective_chapter_indices()` 只返回每章最新 working 版本中含有实质正文的章节；空值、空串和仅含 Unicode 空白的占位稿不会推进 Scene 工作台或热点统计的“当前章节”。原 `list_chapter_indices()` 继续表示存在 working 草稿记录的章节，保持既有 API 与管理流程语义。
 
 ## 跨模块依赖
 

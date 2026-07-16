@@ -39,6 +39,7 @@ from modules.outline.schemas import (
     SceneImpactPreview,
     SceneMappingUpdate,
     SceneMergeRequest,
+    SceneProgressSummary,
     SceneReplacementApplyRequest,
     SceneReplacementApplyResponse,
     SceneResponse,
@@ -54,7 +55,11 @@ from modules.outline.schemas import (
     SceneWorkbenchResponse,
 )
 from modules.outline.services import SceneService
-from modules.writing.facade import get_draft, list_chapter_indices
+from modules.writing.facade import (
+    get_draft,
+    list_chapter_indices,
+    list_effective_chapter_indices,
+)
 from shared.utils import parse_uuid
 
 HEALTH_DEFS = {
@@ -203,6 +208,9 @@ class SceneWorkbenchService:
         chapter_from: int | None = None,
         chapter_to: int | None = None,
         confidence_band: str | None = None,
+        view_mode: str = "normal",
+        segment: str | None = None,
+        anchor: str | None = None,
         skip: int = 0,
         limit: int | None = None,
     ) -> SceneWorkbenchResponse:
@@ -212,6 +220,14 @@ class SceneWorkbenchService:
             chapter_to=chapter_to,
             confidence_band=confidence_band,
         )
+        if view_mode not in {"normal", "hot"}:
+            raise ValueError("Invalid view_mode")
+        if segment not in {None, "current", "upcoming", "past", "unassigned"}:
+            raise ValueError("Invalid segment")
+        if anchor not in {None, "latest"}:
+            raise ValueError("Invalid anchor")
+        if view_mode != "hot" and (segment is not None or anchor is not None):
+            raise ValueError("segment and anchor require hot view_mode")
         nid = parse_uuid(novel_id, "novel_id")
         all_matching_scenes = await self.repo.get_workbench_health_projections(
             db,
@@ -235,7 +251,12 @@ class SceneWorkbenchService:
             all_matching_scenes = [
                 scene for scene in all_matching_scenes if scene.status != "deprecated"
             ]
-        chapter_indices = await list_chapter_indices(db, novel_id)
+        chapter_indices = await list_effective_chapter_indices(db, novel_id)
+        as_of_chapter = max(chapter_indices) if chapter_indices else None
+        progress_segment_by_scene = {
+            scene.id: self._progress_segment(scene, as_of_chapter)
+            for scene in all_matching_scenes
+        }
         assigned_chapter_indices = await self.repo.get_active_assigned_chapter_indices(
             db,
             nid,
@@ -304,8 +325,39 @@ class SceneWorkbenchService:
                 for scene in all_matching_scenes
                 if health in health_by_scene[scene.id]
             ]
+        progress_counts = {
+            key: sum(
+                1
+                for scene in filtered_scenes
+                if progress_segment_by_scene[scene.id] == key
+            )
+            for key in ("current", "upcoming", "past", "unassigned")
+        }
+        if segment:
+            filtered_scenes = [
+                scene
+                for scene in filtered_scenes
+                if progress_segment_by_scene[scene.id] == segment
+            ]
 
         effective_skip = skip
+        has_explicit_navigation = skip > 0 or segment is not None or any(
+            value is not None
+            for value in (
+                status,
+                source,
+                workflow_id,
+                needs_review,
+                boundary_status,
+                phase,
+                phase1a_fallback,
+                health,
+                q,
+                chapter_from,
+                chapter_to,
+                confidence_band,
+            )
+        )
         normalized_selected_scene_id: str | None = None
         if selected_scene_id:
             selected_id = parse_uuid(selected_scene_id, "selected_scene_id")
@@ -324,6 +376,18 @@ class SceneWorkbenchService:
                 effective_skip <= selected_index < effective_skip + limit
             ):
                 effective_skip = (selected_index // limit) * limit
+        elif (
+            anchor == "latest"
+            and not has_explicit_navigation
+            and limit is not None
+            and as_of_chapter is not None
+        ):
+            anchor_index = self._latest_anchor_index(
+                filtered_scenes,
+                as_of_chapter,
+            )
+            if anchor_index is not None:
+                effective_skip = (anchor_index // limit) * limit
 
         if limit is not None:
             visible_scenes = filtered_scenes[effective_skip : effective_skip + limit]
@@ -359,6 +423,11 @@ class SceneWorkbenchService:
                         visible_spans_by_scene.get(scene.id, [])
                     ),
                     overlap_details=overlap_details_by_scene.get(scene.id, []),
+                    segment=(
+                        progress_segment_by_scene[scene.id]
+                        if view_mode == "hot"
+                        else None
+                    ),
                 )
             )
 
@@ -378,9 +447,7 @@ class SceneWorkbenchService:
             for group in reason_groups:
                 breakdown[group] += 1
         counts["unassigned"] += len(unassigned_chapters)
-        total = len(all_matching_scenes)
-        if health:
-            total = counts[health]
+        total = len(filtered_scenes)
 
         return SceneWorkbenchResponse(
             health={
@@ -396,13 +463,72 @@ class SceneWorkbenchService:
             total=total,
             skip=effective_skip,
             unassigned_chapters=(
-                unassigned_chapters if health in {None, "unassigned"} else []
+                unassigned_chapters
+                if health in {None, "unassigned"}
+                and segment in {None, "unassigned"}
+                else []
             ),
             selected_scene_id=normalized_selected_scene_id,
             fusion_suggestions=SceneFusionSuggestionSummary(
                 pending_count=len(pending_suggestions)
             ),
+            progress=(
+                SceneProgressSummary(
+                    as_of_chapter=as_of_chapter,
+                    **progress_counts,
+                )
+                if view_mode == "hot"
+                else None
+            ),
         )
+
+    @staticmethod
+    def _progress_chapters(scene) -> list[int]:
+        result: list[int] = []
+        for raw in scene.chapter_ids or []:
+            try:
+                chapter = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if chapter >= 1:
+                result.append(chapter)
+        return sorted(set(result))
+
+    @classmethod
+    def _progress_segment(cls, scene, as_of_chapter: int | None) -> str:
+        chapters = cls._progress_chapters(scene)
+        if not chapters:
+            return "unassigned"
+        if as_of_chapter is None:
+            return "upcoming"
+        if chapters[0] <= as_of_chapter <= chapters[-1]:
+            return "current"
+        if chapters[0] > as_of_chapter:
+            return "upcoming"
+        return "past"
+
+    @classmethod
+    def _latest_anchor_index(cls, scenes, as_of_chapter: int) -> int | None:
+        if not scenes:
+            return None
+        current = [
+            index
+            for index, scene in enumerate(scenes)
+            if cls._progress_segment(scene, as_of_chapter) == "current"
+        ]
+        if current:
+            return current[0]
+
+        best: tuple[int, int] | None = None
+        for index, scene in enumerate(scenes):
+            chapters = cls._progress_chapters(scene)
+            if not chapters:
+                continue
+            distance = min(abs(chapter - as_of_chapter) for chapter in chapters)
+            candidate = (distance, index)
+            if best is None or candidate < best:
+                best = candidate
+        return best[1] if best is not None else None
 
     async def review_scenes(
         self,

@@ -1,7 +1,7 @@
 /**
  * 大纲视图
  *
- * 子标签：场景卡 | 剧情线 | 篇章纲 | 伏笔 | 揭示
+ * 子标签：小说总纲 | 篇章纲 | 剧情线 | 场景卡 | 伏笔 | 揭示
  */
 import {
   bulkResultMessage,
@@ -41,6 +41,7 @@ import {
   structureAssetDisplay,
 } from "../shared/assetDisplayState.js"
 import { importAuthorizationNotice, importAuthorizationPayload } from "../shared/importAuthorization.js"
+import storyOutlineView from "./storyOutlineView.js"
 
 const SCENE_ALLOWED_TAGS = new Set(["draft", "hook", "inciting_incident", "rising_action", "climax", "valley", "transition", "payoff"])
 const ENTITY_ALLOWED_STATUSES = new Set(["canonical", "draft", "candidate", "deprecated"])
@@ -172,6 +173,7 @@ const outlineView = {
   _outlineAnalysisSubmitting: false,
   _bulkSelections: {},
   _sceneWorkbenchActive: false,
+  _storyOutlineActive: false,
 
   async onEnter() {
     const loadRequestId = ++this._structureLoadRequestId
@@ -190,9 +192,13 @@ const outlineView = {
     }
     clearAllBulkSelections(this)
 
-    const subView = state.currentSubView || "threads"
+    const subView = state.currentSubView || "story-outline"
     delete this._structureLoadErrors[subView]
     if (subView === "scenes") {
+      if (this._storyOutlineActive) {
+        storyOutlineView.onLeave()
+        this._storyOutlineActive = false
+      }
       this._sceneWorkbenchActive = true
       this._loading = false
       await sceneWorkbenchView.onEnter()
@@ -201,6 +207,16 @@ const outlineView = {
     if (this._sceneWorkbenchActive) {
       sceneWorkbenchView.onLeave()
       this._sceneWorkbenchActive = false
+    }
+    if (subView === "story-outline") {
+      this._storyOutlineActive = true
+      this._loading = false
+      await storyOutlineView.onEnter()
+      return
+    }
+    if (this._storyOutlineActive) {
+      storyOutlineView.onLeave()
+      this._storyOutlineActive = false
     }
 
     if (!state.currentProjectId) {
@@ -303,6 +319,10 @@ const outlineView = {
       sceneWorkbenchView.onLeave()
       this._sceneWorkbenchActive = false
     }
+    if (this._storyOutlineActive) {
+      storyOutlineView.onLeave()
+      this._storyOutlineActive = false
+    }
   },
 
   onActivate() {
@@ -311,6 +331,9 @@ const outlineView = {
     if (state.currentSubView === "scenes") {
       this._sceneWorkbenchActive = true
       sceneWorkbenchView.onActivate()
+    } else if (state.currentSubView === "story-outline") {
+      this._storyOutlineActive = true
+      storyOutlineView.onActivate()
     } else {
       this._recoverOutlineAnalysisWorkflow()
       this._bindEvents()
@@ -331,6 +354,7 @@ const outlineView = {
       state.viewStates = state.viewStates || {}
       state.viewStates.outline = { scrollTop: container.scrollTop }
     }
+    if (this._storyOutlineActive) storyOutlineView.onDeactivate()
   },
 
   async _refreshCurrentSubViewInPlace({ preserveScroll = true } = {}) {
@@ -353,6 +377,7 @@ const outlineView = {
   },
 
   _renderOutlineHeaderTitle(subView) {
+    if (subView === "story-outline") return `小说总纲${this._renderProjectChip()}`
     if (subView === "threads") return `剧情线 <span class="view-header__count">共 ${esc(this._structureTotals.threads)} 个</span>${this._renderProjectChip()}`
     if (subView === "arcs") return `篇章纲 <span class="view-header__count">共 ${esc(this._structureTotals.arcs)} 个</span>${this._renderProjectChip()}`
     if (subView === "foreshadowing") return `伏笔 <span class="view-header__count">共 ${esc(this._structureTotals.foreshadowing)} 个</span>${this._renderProjectChip()}`
@@ -398,13 +423,14 @@ const outlineView = {
     return ""
   },
 
-  _renderOutlineHeader(subView = state.currentSubView || "threads") {
+  _renderOutlineHeader(subView = state.currentSubView || "story-outline") {
     if (subView === "scenes") {
       return `
         <div class="subnav">
-          <span class="subnav-item ${subView === "scenes" ? "active" : ""}" data-action="nav-scenes">场景工作台</span>
-          <span class="subnav-item ${subView === "threads" ? "active" : ""}" data-action="nav-threads">剧情线</span>
+          <span class="subnav-item ${subView === "story-outline" ? "active" : ""}" data-action="nav-story-outline">小说总纲</span>
           <span class="subnav-item ${subView === "arcs" ? "active" : ""}" data-action="nav-arcs">篇章纲</span>
+          <span class="subnav-item ${subView === "threads" ? "active" : ""}" data-action="nav-threads">剧情线</span>
+          <span class="subnav-item ${subView === "scenes" ? "active" : ""}" data-action="nav-scenes">场景工作台</span>
           <span class="subnav-item ${subView === "foreshadowing" ? "active" : ""}" data-action="nav-foreshadowing">伏笔</span>
           <span class="subnav-item ${subView === "reveals" ? "active" : ""}" data-action="nav-reveals">揭示</span>
           ${sceneWorkbenchView.renderHeaderActions()}
@@ -414,9 +440,10 @@ const outlineView = {
     return `
       <div class="view-header view-header--with-tabs outline-toolbar">
         <div class="subnav">
-          <span class="subnav-item ${subView === "scenes" ? "active" : ""}" data-action="nav-scenes">场景工作台</span>
-          <span class="subnav-item ${subView === "threads" ? "active" : ""}" data-action="nav-threads">剧情线</span>
+          <span class="subnav-item ${subView === "story-outline" ? "active" : ""}" data-action="nav-story-outline">小说总纲</span>
           <span class="subnav-item ${subView === "arcs" ? "active" : ""}" data-action="nav-arcs">篇章纲</span>
+          <span class="subnav-item ${subView === "threads" ? "active" : ""}" data-action="nav-threads">剧情线</span>
+          <span class="subnav-item ${subView === "scenes" ? "active" : ""}" data-action="nav-scenes">场景工作台</span>
           <span class="subnav-item ${subView === "foreshadowing" ? "active" : ""}" data-action="nav-foreshadowing">伏笔</span>
           <span class="subnav-item ${subView === "reveals" ? "active" : ""}" data-action="nav-reveals">揭示</span>
         </div>
@@ -433,13 +460,15 @@ const outlineView = {
 
   async render() {
     this._syncOutlineAnalysisProject()
-    const subView = state.currentSubView || "threads"
+    const subView = state.currentSubView || "story-outline"
     let html = ""
 
     html += this._renderOutlineHeader(subView)
 
     if (subView === "scenes") {
       html += await sceneWorkbenchView.render()
+    } else if (subView === "story-outline") {
+      html += await storyOutlineView.render()
     } else if (this._loading) {
       html += renderLoadingSkeleton("大纲数据加载中...")
     } else if (this._structureLoadErrors[subView]) {
@@ -461,6 +490,8 @@ const outlineView = {
   onRendered() {
     if (state.currentSubView === "scenes") {
       sceneWorkbenchView.onRendered()
+    } else if (state.currentSubView === "story-outline") {
+      storyOutlineView.onRendered()
     } else {
       this._bindEvents()
     }
@@ -842,7 +873,7 @@ const outlineView = {
           <summary>诊断筛选${workflowFilterActive ? "（1）" : ""}</summary>
           <label class="scene-filter-field scene-filter-field--wide">
             <span>Workflow 诊断 ID</span>
-            <input class="form-input" id="outline-filter-workflow-id" value="${esc(filters.workflow_id)}" placeholder="按 workflow_id 精确筛选" />
+            <input class="form-input" id="outline-filter-workflow-id" data-diagnostic-field value="${esc(filters.workflow_id)}" placeholder="按 workflow_id 精确筛选" />
           </label>
         </details>
         <div class="scene-filter-actions">
@@ -2505,7 +2536,12 @@ const outlineView = {
       sceneWorkbenchView._bindEvents()
       return
     }
+    if (state.currentSubView === "story-outline") {
+      storyOutlineView._bindEvents()
+      return
+    }
     bindWorkspaceClick(this, {
+      "nav-story-outline": () => router.navigate("outline", "story-outline"),
       "nav-scenes": () => router.navigate("outline", "scenes"),
       "nav-threads": () => router.navigate("outline", "threads"),
       "nav-arcs": () => router.navigate("outline", "arcs"),

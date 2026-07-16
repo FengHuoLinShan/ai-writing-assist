@@ -10,6 +10,7 @@ import { resetState, autoConfirm, captureModalHandler, renderHtml } from "./help
 
 beforeEach(() => {
   resetState()
+  worldView._destroyReferencePickers()
   worldView._entities = []
   worldView._candidates = []
   worldView._candidateTotal = 0
@@ -38,8 +39,11 @@ beforeEach(() => {
   worldView._candidateFilters = { skip: 0, limit: 20 }
   worldView._total = 0
   worldView._entitiesLoadError = null
+  worldView._rankingFacets = null
+  worldView._rankingContext = null
   worldView._filters = { entity_type: "", display_state: "active", q: "", skip: 0, limit: 20 }
   worldView._objectViewMode = "table"
+  worldView._discoveryMode = "hot"
   worldView._advancedFiltersOpen = false
   worldView._filterPanelsOpen = {
     objects: false,
@@ -65,6 +69,8 @@ beforeEach(() => {
   localStorage.removeItem("novel_active_workflows_v1")
   localStorage.removeItem("novel_world_filter_panels:p1")
   localStorage.removeItem("novel_world_filter_panels:p2")
+  localStorage.removeItem("novel_view_mode:p1:world-objects")
+  localStorage.removeItem("novel_view_mode:p2:world-objects")
   vi.clearAllMocks()
   api.world.getReviewTypeCatalog.mockReset().mockResolvedValue(worldView._reviewTypeCatalog)
   api.world.listRelationReviewGroups.mockReset().mockResolvedValue({ groups: [], group_total: 0, item_total: 0 })
@@ -73,6 +79,78 @@ beforeEach(() => {
   api.world.reviewAliasesBatch.mockReset()
   router.refresh.mockReset()
   api.world.getEntityMapPresence.mockReset().mockResolvedValue({ items: [], total: 0 })
+})
+
+describe("对象库普通/热点模式", () => {
+  it("URL 模式优先于项目页面偏好并传给后端", async () => {
+    state.currentProjectId = "p1"
+    state.currentSubView = "objects"
+    localStorage.setItem("novel_view_mode:p1:world-objects", "hot")
+    await router.navigate("world", "objects", true, new URLSearchParams("mode=normal"))
+    api.world.listEntities.mockResolvedValue({ items: [], total: 0 })
+
+    await worldView._syncRouteQueryState("objects", { loadOnChange: true })
+
+    expect(worldView._discoveryMode).toBe("normal")
+    expect(api.world.listEntities).toHaveBeenCalledWith(expect.objectContaining({
+      novel_id: "p1",
+      view_mode: "normal",
+    }))
+  })
+
+  it("切换模式按项目页面记忆并清理热点筛选、分页和选择", async () => {
+    state.currentProjectId = "p1"
+    state.currentSubView = "objects"
+    worldView._discoveryMode = "hot"
+    worldView._filters = {
+      ...worldView._filters,
+      q: "王都",
+      focus: "hot",
+      skip: 40,
+    }
+    worldView._bulkSelections["world-objects"] = new Set(["e1"])
+
+    await worldView._setDiscoveryMode("normal")
+
+    expect(localStorage.getItem("novel_view_mode:p1:world-objects")).toBe("normal")
+    expect(worldView._bulkSelections["world-objects"]?.size || 0).toBe(0)
+    const query = router.navigate.mock.calls.at(-1)[3]
+    expect(query.get("mode")).toBe("normal")
+    expect(query.get("q")).toBe("王都")
+    expect(query.get("focus")).toBe(null)
+    expect(query.get("page")).toBe(null)
+  })
+
+  it("热点概览显示重叠标签、降级提示并保留 importance 零值", () => {
+    worldView._discoveryMode = "hot"
+    worldView._rankingFacets = { important: 1, hot: 1, other: 0, by_type: [] }
+    worldView._rankingContext = {
+      status: "unavailable",
+      covered_chapters: 0,
+      total_chapters: 8,
+    }
+    worldView._entities = [{
+      id: "e1",
+      name: "信使",
+      entity_type: "character",
+      importance: 0,
+      status: "canonical",
+      ranking: {
+        combined_score: 0.7,
+        labels: ["important", "hot"],
+        last_appearance_chapter: 8,
+        recent_12_chapter_occurrences: 3,
+      },
+    }]
+    worldView._total = 1
+
+    const html = worldView._renderEntityList()
+
+    expect(html).toContain("近期出场索引暂不可用")
+    expect(html).toContain("近期热点")
+    expect(html).toContain('data-label="重要度">0</td>')
+    expect(html).not.toContain("自动入库 —")
+  })
 })
 
 // ============================================================
@@ -110,7 +188,7 @@ describe("onEnter", () => {
 
     await worldView.onEnter()
 
-    expect(api.world.listEntities).toHaveBeenCalledWith({ novel_id: "p1", display_state: "active", skip: 0, limit: 20 })
+    expect(api.world.listEntities).toHaveBeenCalledWith({ novel_id: "p1", display_state: "active", skip: 0, limit: 20, view_mode: "hot" })
     expect(api.world.listEntities).toHaveBeenCalledWith({
       novel_id: "p1",
       display_state: "review",
@@ -217,7 +295,7 @@ describe("对象库搜索", () => {
 
     expect(worldView._filters).toMatchObject({ entity_type: "location", q: "王都", skip: 20 })
     expect(worldView._advancedFiltersOpen).toBe(false)
-    expect(router.getCurrentQuery().toString()).toBe("display_state=active")
+    expect(router.getCurrentQuery().toString()).toBe("display_state=active&mode=hot")
 
     await worldView.render()
 
@@ -228,6 +306,7 @@ describe("对象库搜索", () => {
       display_state: "active",
       skip: 0,
       limit: 20,
+      view_mode: "hot",
     })
   })
 
@@ -557,6 +636,20 @@ describe("候选清洗", () => {
     it("空列表显示空状态", () => {
       const html = worldView._renderCandidatesList()
       expect(html).toContain("没有待处理对象")
+    })
+
+    it("待处理对象保留 importance 零值", () => {
+      worldView._candidates = [{
+        id: "c-zero",
+        name: "零重要度对象",
+        entity_type: "item",
+        importance: 0,
+        status: "candidate",
+      }]
+
+      const html = worldView._renderCandidatesList()
+
+      expect(html).toContain('data-label="重要度">0</td>')
     })
 
     it("别名建议显示目标对象名称并提供设为别名入口", () => {
@@ -1254,7 +1347,7 @@ describe("对象库", () => {
       expect(api.world.listEntities).not.toHaveBeenCalled()
       expect(router.navigate).toHaveBeenCalledWith("world", "objects", true, expect.any(URLSearchParams))
       const query = router.navigate.mock.calls.at(-1)[3]
-      expect(query.toString()).toBe("entity_type=location&display_state=active&q=%E7%8E%8B%E9%83%BD")
+      expect(query.toString()).toBe("entity_type=location&display_state=active&q=%E7%8E%8B%E9%83%BD&mode=hot")
     })
 
     it("应用深度导入筛选参数并停留在对象管理视图 URL", async () => {
@@ -2340,24 +2433,29 @@ describe("别名", () => {
       expect(body).not.toContain("<strong>Workflow：</strong>")
     })
 
-    it("别名目标搜索排除 suggestion shadow", async () => {
+    it("别名目标选择器排除 suggestion shadow", async () => {
       state.currentProjectId = "p1"
       document.body.innerHTML = `
-        <input id="alias-target-query" value="克莱恩" />
-        <button id="alias-target-search"></button>
-        <select id="alias-target-id"></select>
+        <div id="alias-target-picker"></div>
+        <input type="hidden" id="alias-target-id" />
       `
       api.world.listEntities.mockResolvedValue({ items: [
         { id: "shadow", name: "克莱恩建议影子", status: "candidate", content_json: { _meta: { compatibility_shadow: true } } },
         { id: "valid", name: "克莱恩", status: "canonical", content_json: {} },
       ] })
 
-      worldView._bindAliasTargetSearch({ sourceId: "source" })
-      document.getElementById("alias-target-search").click()
+      worldView._mountEntityReferencePicker({
+        rootId: "alias-target-picker",
+        inputId: "alias-target-id",
+        sourceId: "source",
+      })
+      const query = document.querySelector("[data-reference-query]")
+      query.value = "克莱恩"
+      query.dispatchEvent(new Event("input"))
       await vi.waitFor(() => expect(api.world.listEntities).toHaveBeenCalled())
 
-      expect(document.getElementById("alias-target-id").innerHTML).toContain('value="valid"')
-      expect(document.getElementById("alias-target-id").innerHTML).not.toContain('value="shadow"')
+      expect(document.querySelector("[data-reference-results]").textContent).toContain("克莱恩")
+      expect(document.querySelector("[data-reference-results]").textContent).not.toContain("克莱恩建议影子")
     })
 
     it("别名批处理超过 50 条时不发请求", () => {
@@ -2798,19 +2896,60 @@ describe("合并、回滚与知识边界", () => {
     state.currentProjectId = "p1"
   })
 
-  it("合并目标列表不包含候选对象，避免候选互相合并后两条同时离开候选清洗", () => {
+  it("合并目标选择器不包含候选对象，避免候选互相合并后两条同时离开候选清洗", async () => {
     const source = { id: "c1", name: "阿兹克", status: "candidate" }
-    worldView._entities = [
+    const entities = [
       source,
       { id: "c2", name: "阿兹克", entity_type: "character", status: "candidate" },
       { id: "d1", name: "阿兹克", entity_type: "character", status: "draft" },
       { id: "k1", name: "阿兹克", entity_type: "character", status: "canonical" },
       { id: "i1", name: "阿兹克", entity_type: "character", status: "ignored" },
     ]
+    worldView._entities = entities
+    document.body.innerHTML = '<div id="merge-target-picker"></div><input type="hidden" id="merge-target-id" />'
+    api.world.listEntities.mockResolvedValue({ items: entities })
 
-    const targets = worldView._mergeTargetCandidates(source, "", "阿兹克")
+    worldView._mountEntityReferencePicker({
+      rootId: "merge-target-picker",
+      inputId: "merge-target-id",
+      sourceId: "c1",
+      canonicalOnly: true,
+    })
+    const query = document.querySelector("[data-reference-query]")
+    query.value = "阿兹克"
+    query.dispatchEvent(new Event("input"))
+    await vi.waitFor(() => expect(api.world.listEntities).toHaveBeenCalled())
 
-    expect(targets.map((item) => item.id)).toEqual(["k1"])
+    const results = Array.from(document.querySelectorAll("[data-reference-result]"))
+    expect(results).toHaveLength(1)
+    expect(results[0].getAttribute("data-reference-result")).toContain("k1")
+  })
+
+  it("对象名称选定后仍需二次确认才执行合并", async () => {
+    const source = { id: "candidate-1", name: "待合并对象", status: "candidate" }
+    const target = { id: "target-1", name: "保留对象", status: "canonical" }
+    worldView._entities = [source, target]
+    worldView._candidates = [source]
+    const merge = vi.spyOn(worldView, "_mergeEntity").mockResolvedValue()
+    confirmAction.mockImplementation(() => {})
+
+    worldView.showMergeForm(source.id)
+    document.getElementById("merge-target-id").value = target.id
+    document.getElementById("merge-target-id").dataset.referenceLabel = target.name
+    await showModal.mock.calls.at(-1)[2].find((button) => button.text === "合并").handler()
+
+    expect(merge).not.toHaveBeenCalled()
+    expect(confirmAction).toHaveBeenCalledWith(
+      expect.stringContaining("待合并对象"),
+      expect.any(Function),
+      "确认合并",
+    )
+    expect(confirmAction.mock.calls.at(-1)[0]).toContain("保留对象")
+
+    await confirmAction.mock.calls.at(-1)[1]()
+    expect(merge).toHaveBeenCalledWith("candidate-1", "target-1")
+    merge.mockRestore()
+    confirmAction.mockReset()
   })
 
   it.each([

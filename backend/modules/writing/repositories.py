@@ -10,14 +10,14 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import and_, func, select, text, update
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.writing.conflict_evidence import snapshot_location
 from modules.writing.models import WritingConflictCheck, WritingConflictItem, WritingDraft
 from modules.writing.schemas import WritingDraftCreate, WritingDraftUpdate
-from modules.writing.source_hashing import hash_text
+from modules.writing.source_hashing import hash_text, substantive_text
 
 WORKING_DRAFT_STATUSES = ("draft", "published", "canonical")
 AI_REVIEW_TASK_OWNER_KEY = "_ai_review_task_id"
@@ -315,6 +315,48 @@ class WritingDraftRepository:
         )
         result = await db.execute(stmt)
         return [row[0] for row in result.all()]
+
+    async def list_effective_chapter_indices(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> list[int]:
+        """List latest working chapters whose body contains substantive text."""
+        latest = (
+            select(
+                WritingDraft.chapter_index.label("chapter_index"),
+                func.max(WritingDraft.version_number).label("version_number"),
+            )
+            .where(
+                WritingDraft.novel_id == novel_id,
+                WritingDraft.status.in_(WORKING_DRAFT_STATUSES),
+            )
+            .group_by(WritingDraft.chapter_index)
+            .subquery()
+        )
+        stmt = (
+            select(WritingDraft.chapter_index, WritingDraft.content)
+            .join(
+                latest,
+                and_(
+                    WritingDraft.chapter_index == latest.c.chapter_index,
+                    WritingDraft.version_number == latest.c.version_number,
+                ),
+            )
+            .where(
+                WritingDraft.novel_id == novel_id,
+                WritingDraft.status.in_(WORKING_DRAFT_STATUSES),
+                WritingDraft.content.is_not(None),
+                func.length(WritingDraft.content) > 0,
+            )
+            .order_by(WritingDraft.chapter_index)
+        )
+        rows = (await db.execute(stmt)).all()
+        return [
+            chapter_index
+            for chapter_index, content in rows
+            if substantive_text(content)
+        ]
 
     async def list_chapter_summaries(
         self,

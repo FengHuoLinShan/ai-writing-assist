@@ -20,7 +20,11 @@ def novel_id() -> str:
 
 @pytest.fixture
 def alias_service() -> EntityAliasService:
-    return EntityAliasService(repo=MagicMock(), context_marker=AsyncMock(return_value=0))
+    return EntityAliasService(
+        repo=MagicMock(),
+        context_marker=AsyncMock(return_value=0),
+        activity_requester=AsyncMock(return_value=None),
+    )
 
 
 @pytest.mark.asyncio
@@ -802,6 +806,7 @@ async def test_rollback_deep_import_candidate_aliases_is_scoped_and_preserves_ac
     assert aliases[0]["rolled_back"] is True
     assert aliases[1]["status"] == "canonical"
     assert aliases[2]["status"] == "candidate"
+    alias_service._activity_requester.assert_awaited_once_with(db, novel_id)
 
 
 @pytest.mark.asyncio

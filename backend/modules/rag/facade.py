@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.rag.chunking import ChunkingService
 from modules.rag.contracts import (
     RagChunkContract,
+    RagEntityActivityBundleContract,
     RagIndexReport,
     RagResultBundle,
     RagSceneMappingCoverageContract,
@@ -90,6 +91,16 @@ async def get_chunk_contract(
     if chunk is None or chunk.novel_id != nid:
         return None
     return _to_chunk_contract(chunk)
+
+
+async def request_entity_activity_reannotation(
+    db: AsyncSession,
+    novel_id: str,
+) -> str:
+    """Coalesce a lightweight entity-term and appearance refresh."""
+    from modules.rag.entity_activity import EntityActivityService
+
+    return await EntityActivityService(_repo).request_reannotation(db, novel_id)
 
 
 async def get_index_status(db: AsyncSession, novel_id: str) -> dict:
@@ -173,6 +184,16 @@ async def get_scene_mapping_coverage(
         novel_id,
         content_mode=content_mode,
     )
+
+
+async def get_entity_activity_stats(
+    db: AsyncSession,
+    novel_id: str,
+) -> RagEntityActivityBundleContract:
+    """Return current effective chapter appearances through a stable seam."""
+    from modules.rag.entity_activity import EntityActivityService
+
+    return await EntityActivityService().get_stats(db, novel_id)
 
 
 async def get_index_freshness(

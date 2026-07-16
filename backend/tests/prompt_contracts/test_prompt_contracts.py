@@ -31,6 +31,7 @@ def test_registry_loads_all_deep_import_contracts() -> None:
         "phase2_alias_relation",
         "phase3_structure_simple",
         "scene_entity_extraction",
+        "story_outline",
     }
 
 

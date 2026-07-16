@@ -39,11 +39,11 @@
 |------|----------|
 | `projectView` | 编辑式作品档案首页、项目检索/排序/批量选择、项目 CRUD、回收站与导入入口 |
 | `writingView` | Scene 树 + 工作稿编辑器 + AI 建议采用 + Scene 面板；版本历史；授权深度导入；Scene 地图摘要跳转 |
-| `worldView` | 对象库、统一待处理（对象/关系/别名）、历史筛选；世界书编辑概览/结构化 sections、管理页面模板和 AI 参考规则，并以“工作稿保存 → 明确发布”维护页面；不承载 AI 对话侧栏，只提供“用 AI 完善此页”保存后跳转；展示只读作者版世界观简介及版本/自动维护状态；`map` 子标签现在只做兼容跳转 |
+| `worldView` | 对象库普通/热点双模式、统一待处理（对象/关系/别名）、历史筛选；热点模式显示重要/近期热点聚合并使用服务端全量排序；世界书编辑概览/结构化 sections、管理页面模板和 AI 参考规则，并以“工作稿保存 → 明确发布”维护页面；不承载 AI 对话侧栏，只提供“用 AI 完善此页”保存后跳转；展示只读作者版世界观简介及版本/自动维护状态；`map` 子标签现在只做兼容跳转 |
 | `mapWorkspaceView` | 地图一级工作台，总览、最近地图、地图树、图层开关、搜索、聚焦；世界动态总控台、活地图、叙事透镜、Scene 时间轴与连续性检查 |
 | `mapView` | 具体地图渲染与编辑：地形、地点绑定、标记、势力范围；浏览态地点标签避让与聚合 |
-| `outlineView` | 大纲子导航与结构生成；在 `scenes` 子标签组合 Scene 工作台，其余子标签管理剧情线、篇章纲、伏笔和揭示 |
-| `sceneWorkbenchView` | 由 `outline/scenes` 承载的 Scene 管理、筛选、拆分/合并、复核与深度导入 Scene 整理；旧 `scene` 路由仅作兼容重定向 |
+| `outlineView` | 大纲子导航与结构生成；默认组合 `storyOutlineView` 管理项目级小说总纲的 current / revision history / AI preview，在 `scenes` 子标签组合 Scene 工作台，其余子标签管理篇章纲、剧情线、伏笔和揭示 |
+| `sceneWorkbenchView` | 由 `outline/scenes` 承载的 Scene 普通/热点双模式、管理筛选、当前剧情定位、拆分/合并、复核与深度导入 Scene 整理；旧 `scene` 路由仅作兼容重定向 |
 | `ragView` | 智能/字面检索说明、同章结果聚合、章节索引、索引重建，以及隐私安全的近期检索追踪诊断 |
 | `generateView` | 生成中心：world 工作区承载对象/完善当前页/新建页面的共创对话、来源与上下文选择、结构化预览和工作稿应用；同时保留上下文任务预览/编译、POV 与其他既有领域流程 |
 | `globalSettingsView` | `settings` 路由；管理全局 LLM 默认、全局作者偏好、引用此默认的项目列表和本地偏好迁移；全局 LLM 默认不存 API Key |
@@ -52,13 +52,32 @@
 ## 路由与状态特性
 
 - `router.js` 维护 `_lastSubViewMap`，在主视图切换后恢复最后子标签
+- `outline` 的规范默认子视图是 `story-outline`，导航层级为“小说总纲 → 篇章纲 → 剧情线 → Scene → 伏笔/揭示”；旧 `outline/scenes` 和 `scene` 兼容跳转仍保留。
 - `writing` 与 `outline` 被标记为 KeepAlive 视图；`outline/scenes` 为避免复用过期工作台 DOM，不进入 KeepAlive 缓存
-- Scene 工作台的筛选、详情和复核状态由 `sceneWorkbenchView` 持有；当前 Scene 通过 `outline/scenes?scene_id=...` 写入浏览器历史
+- 世界对象库和 Scene 工作台使用 `mode=normal|hot`；URL 优先于按“项目 + 页面”保存的 localStorage 偏好，无偏好默认热点。切换模式保留通用筛选，清除模式专属筛选、分页偏移和批量选择。
+- Scene 工作台的筛选、详情和复核状态由 `sceneWorkbenchView` 持有；当前 Scene 与模式通过 `outline/scenes?mode=...&scene_id=...` 写入浏览器历史。热点默认请求 `anchor=latest`，显式 Scene、分页、阶段或管理筛选时不自动锚定。
 - `map` 路由会解析 query 上下文，用于承接写作页和世界页跳转
 - `world/map` 仍保留入口，但现在会自动跳转到一级 `map`
 - `settings` 是无项目也可访问的全局设置页；`project-settings` 依赖当前项目，未进入项目时显示空态并提供返回全局设置
 - `llm` 是旧入口兼容别名：有当前项目时跳转 `project-settings`，否则跳转 `settings`
 - 旧 `context` hash 会重定向到 `generate?tab=task`；上下文任务预览和编译入口由生成中心承担
+
+## 对象引用交互契约
+
+- 作者操作区以名称和语义信息选择对象，不要求记忆或粘贴 UUID。`shared/referencePicker.js`
+  统一提供单选、多选、数量上限、类型切换、异步搜索、已选标签、键盘操作和不可用引用展示。
+- 选择器内部条目统一为 `{ kind, id, label, description, status }`；页面提交时仍只向现有
+  `*_id` 或 ID 数组字段写入 `id`。HTTP API、URL、缓存、Pydantic schema 和 wire shape 不因展示改造而变更。
+- 各领域使用本模块现有列表/详情接口实现 `search(query, context)` 和
+  `resolve(ids, context)`，不增加跨模块聚合 API。查询必须携带当前 `novel_id`，并使用 abort、
+  项目 ID 和页面生命周期代数拒绝搜索或项目切换后的晚到结果。
+- 同名结果必须附带类型、状态、章节/Scene 或摘要消歧；UUID 不作为主标签。历史数据中
+  已归档或无法解析的引用显示为“不可用引用”，只有作者主动移除时才会从编辑值中删除。
+- Scene 单行合并、生成中心的相关对象/人物/Scene/POV、智能去重兼容面板和世界书资产引用
+  均按名称选择。世界书固定 AI 参考目标只允许已采用世界对象或已发布页面；通用 AI
+  参考弹窗通过资料卡执行“本次排除”，不再暴露手填排除 ID。
+- Workflow、任务和原始 Scene ID 只能出现在折叠的诊断区，可用于粘贴、复制和精确排障，
+  并必须标记 `data-diagnostic-field`。
 
 ## 内容优先布局契约
 
@@ -100,6 +119,7 @@
   abort/generation/project/drawer 门禁，关闭抽屉或切换项目后不接受旧正文、引用或导航结果。
 - 任务进度卡仅依据后端 `available_actions` 显示 retry；RAG 和世界书投影在 retry 成功后恢复原 task id 的轮询，请求失败时保留原失败卡。
 - 生成中心 world 工作区默认开启作者版世界观简介，可按会话关闭；“查看本次上下文”读取响应中的实际 `context_usage`，不事后重编译。来源页面正文始终由服务器重载，本地 v2 会话只缓存对话、选择项和 suggestion ID，并按项目 + 来源页 + target 隔离。任务页签只编译/预览上下文；POV 明示并强制禁用作者全知简介。
+- 生成中心任务页签选择章节后，Scene 选择器先展示该章的可用 Scene，同时仍可按名称搜索项目内其他活跃 Scene。
 - 世界书、生成中心和通用 AI 参考弹窗只列出已发布 Activation Profile；只有作者显式选择后才随请求发送。世界书规则编辑器提供受限表单和 dry-run trace，不提供 raw JSON、regex 或 Prompt 插槽。世界书存在未保存修改时，“用 AI 完善此页”必须先保存成功再跳转；生成中心页面 apply 只写工作稿，成功后带页面/工作稿 ID 返回世界书。中等宽度把第三栏下移，窄屏改为单栏且不得产生页面级横向溢出。
 - 世界书编辑器把“保存并发布”作为始终可见的主操作；只有“保存工作稿”不会改变正式页。
   世界观简介的终止任务 ID 不得在同一页面生命周期内重新挂回轮询，避免失败刷新反复重绘并
@@ -146,6 +166,10 @@
 - 桌面使用右侧抽屉；390px 变为全屏复核页，复核搜索和主操作按钮高度不小于 44px。
 
 ## 结构整理补充
+
+- `storyOutlineView` 只管理 StoryOutline 聚合，不会因为采用总纲而创建 PlotThread、OutlineArc 或 Scene。当前版完整展示 title、creative core 四字段、`outline_markdown`、`major_storylines`、`macro_movements` 和 `open_decisions`。手工保存、AI preview apply 和历史采用都带 current `base_revision_id` 与 `idempotency_key` 创建新 revision；同一 payload 重试保持 key，内容或 base 改变后轮换。409 保留当前 DOM 编辑草稿，显式重新加载后把它 rebase 到最新 current。
+- StoryOutline AI 请求只接受作者意图、计划尺度、覆盖描述、可为空的显式人物/世界对象选择和 `include_current_outline`，不提供起止章或强制模板/数量；显式选择为空时由后端自动使用 Top-K。返回内容以 strict 完整 preview 编辑，三个嵌套数组用带字段说明与错误提示的 JSON 编辑区。导航数组是辅助摘要，不要求名称唯一或精确字符串引用；生成完成不自动采用。
+- 生成恢复复用通用 workflow 记录与 `/tasks/{id}` 轮询/取消，但只恢复同一 project、`task_type=story_outline_generate` 且 `action=outline.story_outline.generate` 的任务。完成结果允许服务端附带 `managed_llm_steps` provenance；已标记 adopted 的 task 不重复恢复为可采用 preview。路由离开或项目切换后丢弃晚到响应；取消、过期、任务上下文不匹配和短暂查询失败保持不同的作者可读状态。
 
 - `sceneWorkbenchView` 是 Scene 管理主入口，支持按 status / source / workflow_id / needs_review / phase 等条件筛选深度导入结果。
 - Scene 工作台把机械合并和 AI 融合建议分成两个入口。AI 融合前必须在卡片中选择主 Scene，随后在大尺寸语义表格中并列展示 AI 建议、主 Scene 原值和其他来源 Scene 原值；拆分使用“原 Scene / 建议 A / 建议 B”对比。两类预览覆盖语义字段、叙事标签、POV 和章节映射，默认显示全部字段并可只看初始差异；AI 建议保持完整可编辑，长来源证据按需展开。融合预览是同步 LLM 请求，API contract 使用 90 秒生成窗口。叙事标签把空值规范为 `draft`（未标注），拆分字段支持显式清空。保存模式包括保留原 Scene、保存并废弃原 Scene、放弃结果、继续编辑后保存；废弃来源必须在预览内再次确认，所有融合保存入口共享单次请求锁，失败时恢复操作并保留当前编辑。手动融合输出使用 `source="manual_fusion"`。

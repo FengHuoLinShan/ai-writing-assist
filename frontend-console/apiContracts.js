@@ -339,6 +339,35 @@
       hasBody: true,
       requiredBody: ["novel_id", "context_confirmation_id", "source_task_id", "draft_structure", "confirmed"],
     }),
+    "outline.getStoryOutline": define("GET", () => "/outline/story-outline", {
+      requiredQuery: ["novel_id"],
+    }),
+    "outline.listStoryOutlineRevisions": define("GET", () => "/outline/story-outline/revisions", {
+      requiredQuery: ["novel_id", "skip", "limit"],
+    }),
+    "outline.getStoryOutlineRevision": define("GET", ({ revisionId }) => `/outline/story-outline/revisions/${required(revisionId, "revisionId", "outline.getStoryOutlineRevision")}`, {
+      requiredParams: ["revisionId"],
+      requiredQuery: ["novel_id"],
+    }),
+    "outline.createStoryOutlineRevision": define("POST", () => "/outline/story-outline/revisions", {
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+      requiredBody: ["title", "creative_core", "outline_markdown", "major_storylines", "macro_movements", "open_decisions", "base_revision_id", "idempotency_key"],
+    }),
+    "outline.restoreStoryOutlineRevision": define("POST", ({ revisionId }) => `/outline/story-outline/revisions/${required(revisionId, "revisionId", "outline.restoreStoryOutlineRevision")}/apply`, {
+      requiredParams: ["revisionId"],
+      requiredQuery: ["novel_id"],
+      hasBody: true,
+      requiredBody: ["base_revision_id", "idempotency_key", "confirmed"],
+    }),
+    "outline.generateStoryOutline": define("POST", () => "/outline/story-outline/generate", {
+      hasBody: true,
+      requiredBody: ["novel_id", "author_intent", "planned_scale", "coverage", "selected_character_ids", "selected_entity_ids", "include_current_outline"],
+    }),
+    "outline.applyStoryOutlinePreview": define("POST", () => "/outline/story-outline/generate/apply", {
+      hasBody: true,
+      requiredBody: ["novel_id", "source_task_id", "title", "creative_core", "outline_markdown", "major_storylines", "macro_movements", "open_decisions", "base_revision_id", "idempotency_key", "confirmed"],
+    }),
     "outline.applyChapterScenePreview": define("POST", () => "/outline/chapter-scenes/apply", {
       hasBody: true,
       requiredBody: ["novel_id", "context_confirmation_id", "source_task_id", "draft_scenes", "confirmed"],

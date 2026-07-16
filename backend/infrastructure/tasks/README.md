@@ -148,6 +148,14 @@ submit；其 `meta` 先按该 schema 重建，再在存在 `novel_id` 时执行�
 422 只返回受控字段位置与错误类型，不回显提交值或动态 mapping key。
 infrastructure 仅依赖 DI 容器键，不 import project 模块。
 
+`story_outline_generate` 是 outline 模块专属的 `restart_origin` 任务：只能通过
+`POST /api/outline/story-outline/generate` 提交。它在 provider 前持久化无 secret 的 project
+LLM execution snapshot 和 StoryOutline context provenance；worker 首次 prepare 必须匹配
+提交时 `submission_context_hash`，不允许排队期间静默换用新上下文，然后做 lease-fenced
+checkpoint；provider 等待期间不持有数据库事务，结束后重验 context hash。返回值是 strict
+preview，不自动写已采用资产。之后的窄 apply seam 只暴露 completed task 的
+`action / context_provenance` 白名单投影，并在同一事务内标记采用结果。
+
 本轮已收敛或新增的跨模块 lifecycle 操作只通过 `contracts.py` 和 `facade.py`
 读取投影，不新增对 `models.py` 或 `lifecycle.py` 的依赖。deep-import orchestrator
 和 World Bible projection coalescing 仍有已登记的直接 ORM 边界债务；它们需要后续

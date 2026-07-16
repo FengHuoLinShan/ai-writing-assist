@@ -6,6 +6,7 @@ outline 模块把事实层资产组织成剧情结构资产，服务写作、地
 
 ## 负责
 
+- 小说总纲 `story_outline_heads` / `story_outline_revisions`
 - 剧情线 `plot_threads`
 - 篇章纲 `outline_arcs`
 - Scene `scenes`
@@ -16,6 +17,7 @@ outline 模块把事实层资产组织成剧情结构资产，服务写作、地
 
 ## 关键服务
 
+- `StoryOutlineService`
 - `PlotThreadService`
 - `OutlineArcService`
 - `SceneService`
@@ -35,6 +37,13 @@ outline 模块把事实层资产组织成剧情结构资产，服务写作、地
 不存在和已进入回收站的项目统一返回 404，不读取结构资产或创建任务。
 
 ```http
+GET  /api/outline/story-outline
+POST /api/outline/story-outline/generate
+POST /api/outline/story-outline/generate/apply
+POST /api/outline/story-outline/revisions
+GET  /api/outline/story-outline/revisions
+GET  /api/outline/story-outline/revisions/{revision_id}
+POST /api/outline/story-outline/revisions/{revision_id}/apply
 POST/GET/PATCH/DELETE /api/outline/threads...
 POST/GET/PATCH/DELETE /api/outline/arcs...
 POST/GET/PATCH/DELETE /api/outline/scenes...
@@ -47,6 +56,60 @@ POST /api/outline/analyze
 POST /api/outline/chapter-scenes/extract
 POST /api/outline/chapter-scenes/apply
 ```
+
+## 小说总纲
+
+`StoryOutline` 是 outline 拥有的小说级上位结构资产，层级为
+`World → StoryOutline → OutlineArc → Scene`。它通常覆盖整部、至少覆盖半部小说的
+长期创作方向，不是篇章纲、Scene 或逐章计划的提前展开；剧情线是总纲导航中可描述的
+长期方向，但现有 `plot_threads` 仍是独立的可执行结构资产。
+
+总纲使用每项目唯一的 `story_outline_heads` 和不可变的
+`story_outline_revisions` 持久化。revision 保存标题、creative core、可读的
+`outline_markdown`、主要剧情线导航、宏观推进、开放决策及 source/provenance；版本号在
+项目内单调递增。所有查询显式带 `novel_id`。创建新版或应用历史版都必须提交调用方看到的
+`base_revision_id`，服务在锁定 head 后执行 CAS；冲突返回 409。每次写入还要求项目内唯一
+`idempotency_key`，相同请求重试返回首次 revision，键被不同请求复用时返回 409。
+head 的 current 指针以及 revision 的 base/restore 来源都使用 `(revision_id, novel_id)`
+复合外键，数据库不能把一个项目的版本挂到另一个项目；revision 更新另由数据库 trigger
+拒绝，历史内容只能复制成更高版本的新 revision。
+
+`POST .../generate` 创建 `story_outline_generate` 异步任务，请求固定包含
+`novel_id / author_intent / planned_scale / coverage`，可显式选择人物和世界对象，
+并可以通过 `include_current_outline` 或 `base_revision_id` 引入一份已有总纲。
+返回的 task result 是通过 `StoryOutlineContent` strict schema 校验的可编辑 preview；
+任务不建 revision，更不写 PlotThread、OutlineArc、Scene、伏笔或揭示计划。
+作者编辑后通过 `POST .../generate/apply` 提交 `source_task_id`、strict content、
+`base_revision_id / idempotency_key / confirmed=true` 明确采用。服务端严格校验
+completed task 的 `task_type / novel_id / action / result / context provenance`，并重建
+provenance 后写 `source=ai_generated` revision；请求不接受 provenance，无法伪造
+manual 来源或引用跨项目 task。
+
+生成上下文是预写阶段的独立策略：
+
+- 必带项目标题、题材、基调、目标规模和当前阶段；
+- 使用已采用的 World Bible synopsis / page 与核心规则；人物和普通世界对象有显式选择时
+  只使用选择项，没有显式选择时分别按稳定 importance 顺序自动取 Top-K；各自动来源超过
+  上限时记录省略项，显式选择永远优先；
+- 不加载章节正文、Scene、RAG、OutlineArc、PlotThread、伏笔和揭示计划；
+- task meta 记录实际纳入/省略 ID、Top-K reason、source refs、投影 hash 和整体
+  context hash。worker 先把首次重建的 hash 与提交时 hash 比较，排队期间来源漂移则要求
+  重新提交；provider 前 checkpoint，provider 后再次重建 hash，等待期间漂移时丢弃 preview。
+
+结构化导航字段是 `outline_markdown` 的辅助浏览投影，不是关系键。服务只校验 exact shape、
+文本/数组类型、长度和禁用持久化字段，不要求名称全局唯一，也不要求
+`advanced_storylines` 与 `major_storylines.name` 做字符串精确相等；这些语义差异留给作者在
+完整预览中编辑，不因命名措辞整批拒绝高质量输出。
+
+LLM 通过 project execution snapshot seam 恢复提交时的 provider / model，使用固定
+action `outline.story_outline.generate`、受管 structured step、输入/输出预算和 180 秒超时。
+system 固定来自 `load_prompt("story_outline")`；作者意图和所有资料都是转义后的
+user JSON 数据块，不能闭合或覆盖 system 边界。任务冻结策略为 `restart_origin`。
+
+`POST .../revisions` 是手工保存并采用新版本的明确动作。应用历史 revision 必须提交
+`confirmed=true`；服务会复制其内容形成新的不可变 revision，再推进 current，而不是改写
+历史或把版本号倒退。两种动作都只写 StoryOutline 聚合，绝不创建或修改 PlotThread、
+OutlineArc、Scene、伏笔或揭示计划。
 
 结构资产列表筛选：
 
@@ -69,6 +132,18 @@ GET /api/outline/reveals
 Scene 工作台是 Scene 管理、章节映射和结构整理的主入口，直接挂载在前端
 `outline/scenes` 子标签。旧 `scene/{scene_id}` 路由会兼容重定向到该入口并通过
 `scene_id` query 定位 Scene，不再维护第二套 Scene 管理 UI。
+
+`GET /api/outline/scene-workbench` 支持 `view_mode=normal|hot`；省略时仍为
+`normal`。普通模式保持健康聚合、管理筛选、`scene_index` 顺序和显式分页。热点模式同样
+保持剧情顺序，不为 Scene 虚构 importance；它额外按最新有效正文章返回
+`progress` 聚合和每项 `segment=current|upcoming|past|unassigned`。章节范围覆盖截至章为
+current，起始章更晚为 upcoming，结束章更早为 past，无可靠映射为 unassigned。
+“最新有效正文章”只计算每章最新 working 版本中含实质正文的章节；空值、空串或纯 Unicode
+空白占位稿不会推进 progress 或自动锚点。
+
+热点模式可传 `anchor=latest`，服务端把分页窗口定位到覆盖截至章的 Scene；没有精确覆盖时
+选择章节距离最近的 Scene。显式 `selected_scene_id`、非零分页、segment 或管理筛选优先于
+自动锚点。健康聚合继续回答“需要处理什么”，progress 回答“现在写到哪里”，两套口径并存。
 
 Scene mutation 的稳定内部接口是 `SceneWorkbenchService`。旧
 `/api/outline/scenes/*` 路由仅作为兼容 adapter，创建、更新、删除、重排和

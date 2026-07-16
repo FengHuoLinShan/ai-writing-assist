@@ -20,6 +20,7 @@
 | `shared_rules.md` | 所有结构化 Prompt 的共享规则 | 全部结构化 Prompt |
 | `structure_world_character.md` | 创意启动阶段的世界/人物结构生成 | 手动生成流 |
 | `structure_plot.md` | 剧情结构生成 | outline 结构生成 |
+| `story_outline.md` | 预写阶段的小说总纲 strict preview | `StoryOutlineGenerationService` |
 | `structure_chapter_scene.md` | 章节与场景结构生成 | 手动生成流 |
 | `structure_extraction.md` | 从章节正文补抽世界对象 | world 抽取任务 |
 | `scene_segmentation.md` | 正式 Scene 字段切分 / 小样本与单章恢复路径 | imports |
@@ -38,7 +39,7 @@
 
 深度导入链路和生成中心结构化建议链路使用 `backend/tools/prompt_contracts/` 做开发期漂移检查，覆盖
 Phase 1a Scene slicing、Phase 1b Scene enrichment、Phase 1c Scene fusion、Phase 2 world extraction、
-Phase 2b alias/relation、Phase 3 simple structure，以及 Generation Center 的
+Phase 2b alias/relation、Phase 3 simple structure、StoryOutline preview，以及 Generation Center 的
 `world_generation_core_entity`、`world_generation_world_bible_page`、
 `world_generation_world_bible_new_page` 和 `world_bible_synopsis`。检查入口是
 `make prompt-contracts` 或 `cd backend && python -m tools.prompt_contracts check`。
@@ -86,6 +87,29 @@ repair 最多两次；预算由调用配置控制，不在 Prompt 中硬编码�
 - Prompt 只输出经过 schema 校验的建议内容；调用方根据领域语义决定结果进入待处理建议、临时预览，还是在已持久化用户授权的流水线中直接落目标表
 - `candidate` / `proposal` 可作为兼容或算法内部状态，但作者界面统一显示“待处理”；人工采用后由目标领域服务写入当前有效资产
 - 文档不要再把旧版 `entity_candidates` / `geo_candidates` / `timeline_candidates` 当作数据库设计权威
+
+### 小说总纲类
+
+`outline.story_outline.generate.structured` 用于世界设定之后、正式写作之前的长篇总纲创设。
+system 只加载 `story_outline.md`；作者意图、项目概况、世界书简介/页面、核心规则、
+显式选择或自动 Top-K 的人物/对象和可选当前总纲全部作为不可信 user JSON 数据块注入。
+输入不加载章节正文、Scene、RAG、OutlineArc、PlotThread、伏笔或揭示计划。World Bible
+page / 核心规则始终走有界 Top-K；人物和普通对象仅在没有显式选择时自动 Top-K，作者
+显式选择始终优先。
+
+结构化输出严格只有 `title / creative_core / outline_markdown / major_storylines /
+macro_movements / open_decisions`，数组无固定数量；禁止 ID、status、版本号和章号字段。
+导航数组只辅助浏览，不作为关系键；schema 不要求名称唯一或字符串精确交叉引用。
+结果只是可编辑 preview，不创建 StoryOutline revision，也不写任何下层结构资产。
+任务使用 project LLM execution snapshot，worker 先核对提交时 context hash，再做 provider 前
+checkpoint，并在 provider 后重验 context hash，同时在 task meta 保留实际纳入/省略 ID、
+Top-K reason、source refs 和 hash。
+
+作者编辑 preview 后通过 `POST /api/outline/story-outline/generate/apply` 显式采用。
+该入口只接受 task ID、编辑后的 strict content、CAS base revision 和 idempotency key；
+服务端会校验 completed task 的 `task_type / novel_id / action / result / context provenance`，
+然后写入 `source=ai_generated` revision。客户端不能提交 provenance，因此不能把 AI
+preview 伪装成 manual revision，也不能引用其他项目的 task。
 
 ### 抽取类
 
