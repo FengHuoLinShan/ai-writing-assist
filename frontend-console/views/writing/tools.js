@@ -42,7 +42,6 @@ export function createWritingTools({
             <button class="btn btn-sm" data-action="auto-extract-stage" data-stage="scenes">场景（scene）自动提取</button>
             <button class="btn btn-sm" data-action="auto-extract-stage" data-stage="world_objects">世界对象与别名/关系自动提取</button>
             <button class="btn btn-sm" data-action="auto-extract-stage" data-stage="plot_structure">剧情线自动提取</button>
-            ${(projectState._chapterList || []).length > 0 ? `<button class="btn btn-sm" data-action="extract-cards">从正文整理 Scene</button>` : ""}
           </div>` : ""}
           <div class="writing-tools-menu__group">
             <strong>检查</strong>

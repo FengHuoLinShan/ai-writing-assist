@@ -328,15 +328,16 @@ class TestFileValidation:
 class TestFileLimits:
     """测试文件大小和编码限制"""
 
-    def test_oversized_file(self):
-        """超过 50MB 的文件应拒绝"""
-        from modules.imports.parsers import MAX_FILE_SIZE
+    def test_small_plain_text_without_heading_uses_parser_fallback(self):
+        """解析器只验证小样本功能，50MB 边界由 service 测试拒绝。"""
+        chapters = parse_txt(b"plain text without a chapter heading")
 
-        large_data = b"x" * (MAX_FILE_SIZE + 1)
-        # parsers 本身不校验大小，由 service 层拒绝
-        # 这里测试 parsers 处理大文件无内存异常
-        chapters = parse_txt(large_data)
-        assert len(chapters) >= 1
+        assert chapters == [
+            {
+                "title": "全文",
+                "content": "plain text without a chapter heading",
+            }
+        ]
 
     def test_non_utf8_content(self):
         """GBK 等常见中文编码的文本应被正确检测并解码"""
@@ -572,7 +573,11 @@ class TestImportService:
         imports_test_project_id: str,
     ):
         """超过 50MB 的文件应返回 413"""
-        large_data = b"x" * (MAX_FILE_SIZE + 1)
+        class OversizedPayload(bytes):
+            def __len__(self) -> int:
+                return MAX_FILE_SIZE + 1
+
+        large_data = OversizedPayload(b"x")
         with pytest.raises(DomainValidationError) as exc:
             await service.upload_and_import(
                 db_session,

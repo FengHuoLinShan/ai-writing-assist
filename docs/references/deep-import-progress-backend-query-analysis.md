@@ -291,7 +291,7 @@ task.available_actions          → 或根据状态推断
 
 | 视图 | 工作流类型 | 轮询机制 | 间隔 | 渲染方式 | 错误行为 |
 |------|-----------|---------|------|---------|---------|
-| `deepImportRecovery.js` | `deep_import` / `scene_auto_extraction` / `world_object_auto_extraction` / `plot_structure_auto_extraction` / `chapter_card_generation` / `outline_chapter_scenes_extract` | **单请求递归 `setTimeout`** | **3000ms + 退避** | `renderFixedProgress` | 仅 404 清理，瞬时错误重试 |
+| `deepImportRecovery.js` | `deep_import` / `scene_auto_extraction` / `world_object_auto_extraction` / `plot_structure_auto_extraction` / `chapter_card_generation` | **单请求递归 `setTimeout`** | **3000ms + 退避** | `renderFixedProgress` | 仅 404 清理，瞬时错误重试 |
 | `sceneWorkbenchView` | `scene_auto_extraction` | `pollTaskProgress` | 1500ms | `renderWorkflowCard` | 错误后继续 |
 | `outlineView` | `outline_generate` / `plot_structure_auto_extraction` | `pollTaskProgress` | 1500ms | `renderWorkflowCard` | 错误后继续 |
 | `worldView` | `world_object_auto_extraction` / `world_entity_fusion_suggestions` | `pollTaskProgress` | 1500ms | `renderWorkflowCard` | 错误后继续 |

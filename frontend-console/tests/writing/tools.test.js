@@ -75,7 +75,7 @@ describe("createWritingTools", () => {
     expect(html).toContain("AI 工具")
     expect(html).toContain('data-action="ai-generate-pov-draft"')
     expect(html).toContain('data-action="auto-extract-stage"')
-    expect(html).toContain('data-action="extract-cards"')
+    expect(html).toContain('data-stage="scenes"')
     expect(html).toContain('data-action="open-map"')
   })
 

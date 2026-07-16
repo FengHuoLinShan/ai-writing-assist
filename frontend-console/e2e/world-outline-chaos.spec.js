@@ -1,4 +1,4 @@
-import { test } from "@playwright/test"
+import { test } from "./fixtures.js"
 
 const CASES = [
   "S5-DNG-001 cancelling merge or rollback should keep entity list unchanged",

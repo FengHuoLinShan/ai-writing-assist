@@ -191,7 +191,7 @@ HTTP 请求在认证、CORS 和路由之前经过进程级 token bucket。限流
 |------|------|
 | project | `smart_dedup_scan` |
 | world | `world_entity_extraction`、`world_alias_relation_extraction`、`world_entity_fusion_suggestions`、`world_bible_projection_refresh`、`world_bible_synopsis_refresh` |
-| outline | `plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate`、`outline_analyze`、`outline_generate`、`outline_chapter_scenes_extract` |
+| outline | `plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate`、`outline_analyze`、`outline_generate` |
 | rag | `rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings` |
 | writing | `publish_chapter`、`writing_generate`、`writing_conflict_ai_review` |
 | imports | `deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、`plot_structure_auto_extraction` |

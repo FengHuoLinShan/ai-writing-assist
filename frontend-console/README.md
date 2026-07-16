@@ -19,9 +19,12 @@ npm run dev
 npm run test
 npm run test:watch
 npm run test:e2e
+npm run test:e2e:functional
 npm run test:e2e:smoke
 npm run test:e2e:map
 npm run test:e2e:map-perf
+npm run test:e2e:real-llm
+npm run test:e2e:worker
 npm run test:all
 ```
 
@@ -35,25 +38,31 @@ npm run test:all
 
 ## E2E 测试
 
-Playwright 默认启动 fresh backend/frontend，只有显式设置
-`PW_REUSE_EXISTING_SERVER=1` 时才复用本机已有服务。可通过环境变量避开端口冲突：
+Playwright 的所有 profile 都 fail-closed：必须显式提供名称含独立 `audit` / `e2e` / `test`
+标记的 PostgreSQL `DATABASE_URL`，并设置 `PW_REUSE_EXISTING_SERVER=0`。配置在创建
+`webServer` 之前完成校验，因此缺失 URL、非 PostgreSQL、开发库名或复用未知服务都会在
+migration 前失败。可通过环境变量避开端口冲突：
 
 ```bash
-BACKEND_PORT=8010 FRONTEND_PORT=8090 npm run test:e2e:smoke
+DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 \
+  BACKEND_PORT=8010 FRONTEND_PORT=8090 npm run test:e2e:smoke
 ```
 
 启动命令会在后端启动前执行 `APP_ENV=test alembic upgrade head`；
-`PW_REUSE_EXISTING_SERVER=0` 可作为显式的 fresh-server 声明：
+默认 `test:e2e` / `test:e2e:functional` 只收集功能测试，排除地图性能、真实 LLM 和
+worker 套件。各专用入口分别为：
 
 ```bash
-BACKEND_PORT=8010 FRONTEND_PORT=8090 PW_REUSE_EXISTING_SERVER=0 npm run test:e2e
+DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:functional
+DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:map-perf
+DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:real-llm
+DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:worker
 ```
 
-如果默认端口已有旧服务，先停止旧服务，或像上面一样指定备用端口。
+如果默认端口已有旧服务，先停止旧服务，或像上面一样指定备用端口；测试配置不会复用它。
 `APP_ENV=test` 只切换应用模式与测试路由，不会自动改写 `DATABASE_URL`。
-若本机同时运行开发 worker，应为 Playwright 显式传入独立测试库的
-`DATABASE_URL`，避免 worker 抢占 E2E 创建的任务。`scripts/e2e-servers.sh`
-也是 E2E 专用入口，会先迁移当前 `DATABASE_URL` 指向的数据库再启动
+若本机同时运行开发 worker，应确保它不连接同一个 E2E 数据库，避免抢占 E2E 创建的任务。
+`scripts/e2e-servers.sh` 使用同一 fail-closed guard，会先校验并迁移当前 `DATABASE_URL` 再启动
 backend；通用 `backend/scripts/dev_server.py` 不自动迁移。
 
 地图功能回归使用 `npm run test:e2e:map`；专用性能采样使用
@@ -202,7 +211,7 @@ frontend-console/
 - 生成中心 world 工作区提供项目/来源页状态、对象/完善当前页/新建页面目标、大尺寸共创对话、章节/Scene/剧情线/人物/世界对象/简介/Profile 上下文面板，以及可编辑的完整页面预览。页面应用只写服务器工作稿，成功后返回世界书；正式页仍需作者显式发布。
 - 世界书默认使用中文类别和任务状态；投影恢复键、任务 ID、原始状态与后端 warning
   收入折叠的“诊断信息”，不占用作者阅读和编辑设定的主界面。
-- 写作台自动保存以编辑序号保护请求期间的新输入；版本切换触发局部重绘时不会用旧响应覆盖正文。发布成功提示只在章节状态刷新完成后出现；后台 RAG / 记忆后处理完成只收起进度，不再次重载当前编辑器，且已 dispose 或已被新任务取代的轮询响应不会回写。恢复历史正文时保留选择当时的最新版本快照，发布前若其他会话已更新则提示 409 冲突。“AI 工具”菜单与“专注模式”位于编辑器顶部同一操作行，正文反向提取入口统一显示为“从正文整理 Scene”。
+- 写作台自动保存以编辑序号保护请求期间的新输入；版本切换触发局部重绘时不会用旧响应覆盖正文。发布成功提示只在章节状态刷新完成后出现；后台 RAG / 记忆后处理完成只收起进度，不再次重载当前编辑器，且已 dispose 或已被新任务取代的轮询响应不会回写。恢复历史正文时保留选择当时的最新版本快照，发布前若其他会话已更新则提示 409 冲突。“AI 工具”菜单与“专注模式”位于编辑器顶部同一操作行，正文 Scene 提取统一使用 imports 的“场景（scene）自动提取”入口。
 - 写作页右侧“写作副驾驶”常驻显示当前 Scene 的确定性警报摘要，并在“警报”标签中组合 Scene 结构、must/must_not 字面覆盖、地图风险和最近冲突检查；编辑后旧检查立即标记过期，切换项目、章节、Scene 或草稿时晚到响应不会覆盖当前驾驶舱。警报不自动运行 LLM，也不创建 finding。
 - 版本条与版本历史提供只读“比较版本”，可临时比较工作稿、待审核、已发布和归档版本。Diff 先按段落对齐，再在变化段落内标记中文字符、标点和英文词，识别稳定段落移动并对超长输入安全降级；动态正文统一转义，比较本身不创建、恢复或采用版本。
 - 390px 速记输入会实时同步同一编辑器状态；首次保存返回的 draft id/version 会立即回写，连续保存复用同一工作稿，切换“完整编辑器”时保留尚未保存的正文。

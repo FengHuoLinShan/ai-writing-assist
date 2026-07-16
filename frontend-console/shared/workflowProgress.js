@@ -21,7 +21,6 @@ const WORKFLOW_LABELS = {
   outline_generate: "生成剧情结构",
   story_outline_generate: "AI 小说总纲",
   outline_analyze: "AI 分析大纲",
-  outline_chapter_scenes_extract: "从正文整理 Scene",
   chapter_card_generation: "生成章节卡",
   chapter_scene_generate: "生成章节与场景结构",
   writing_generate: "生成正文",
@@ -166,10 +165,7 @@ function inferMessage({ status, workflowType, result, meta, percent }) {
   if (
     workflowType === "chapter_card_generation"
     || workflowType === "chapter_scene_generate"
-    || workflowType === "outline_chapter_scenes_extract"
-  ) return workflowType === "outline_chapter_scenes_extract"
-    ? "正在从正文整理 Scene"
-    : "正在生成章节与场景结构"
+  ) return "正在生成章节与场景结构"
   if (workflowType === "writing_generate") return "正在生成正文"
   if (workflowType === "plot_analysis") return "正在分析剧情"
   return RUNNING_STATUSES.has(status) ? "任务运行中" : STATUS_LABELS[status] || "任务状态未知"
@@ -227,7 +223,7 @@ function buildResultSummary(result, workflowType) {
     if (result.total_scenes != null) parts.push(`Scene ${result.total_scenes}`)
     return parts.length ? parts.join("，") : result.summary || null
   }
-  if (workflowType === "chapter_scene_generate" || workflowType === "outline_chapter_scenes_extract") {
+  if (workflowType === "chapter_scene_generate") {
     if (result.total_scenes != null) return `Scene ${result.total_scenes}`
     return result.summary || null
   }

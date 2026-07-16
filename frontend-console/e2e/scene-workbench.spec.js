@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test"
+import { test, expect } from "./fixtures.js"
 import { openWorkbench } from "./helpers/workbench.js"
 import { expectNoPageOverflow, expectWithinViewport } from "./helpers/responsive.js"
 import {

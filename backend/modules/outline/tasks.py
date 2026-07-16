@@ -281,35 +281,3 @@ async def handle_outline_generate(db, task):
         result["total_arcs"],
     )
     return result
-
-
-@task_handler("outline_chapter_scenes_extract", recovery_policy="restart_origin")
-async def handle_outline_chapter_scenes_extract(db, task):
-    """处理确认后的章节/Scene 卡提取任务。"""
-    from modules.outline.ai_workflow_service import OutlineAIWorkflowService
-
-    meta = task.meta or {}
-    novel_id = _require_str(meta, "novel_id", "outline_chapter_scenes_extract")
-    confirmation_id = _require_str(
-        meta,
-        "context_confirmation_id",
-        "outline_chapter_scenes_extract",
-    )
-    chapter_index = _int_or_default(meta.get("chapter_index"), 1)
-    llm_execution_snapshot = await _require_llm_execution_snapshot(
-        db,
-        task,
-        meta,
-        novel_id,
-    )
-
-    return await OutlineAIWorkflowService().extract_chapter_scenes_for_task(
-        db,
-        novel_id=novel_id,
-        confirmation_id=confirmation_id,
-        task_id=str(task.id),
-        chapter_index=chapter_index,
-        instruction=meta.get("instruction"),
-        llm_execution_snapshot=llm_execution_snapshot,
-        progress_callback=task.update_progress,
-    )

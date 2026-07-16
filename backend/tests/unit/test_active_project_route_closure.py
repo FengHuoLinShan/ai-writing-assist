@@ -5,13 +5,13 @@ from __future__ import annotations
 import ast
 import inspect
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from fastapi.routing import APIRoute
 
 from app.main import app
+from tests.support.inventory import python_ast
 
 PROJECT_ID_NAMES = {"novel_id", "project_id"}
 GUARD_CALLS = {
@@ -128,9 +128,8 @@ def _all_api_routes() -> dict[str, APIRoute]:
     }
 
 
-@lru_cache
 def _module_ast(source_file: str) -> ModuleAst:
-    tree = ast.parse(Path(source_file).read_text(encoding="utf-8"))
+    tree = python_ast(Path(source_file))
     functions = {
         node.name: node
         for node in tree.body

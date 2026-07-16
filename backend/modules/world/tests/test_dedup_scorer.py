@@ -92,9 +92,21 @@ class TestSubstringSignals:
         s = scorer.compute_signals("张三", "张三")
         assert s.substring_match == 1.0
 
-    def test_bidirectional_contains(self, scorer: DedupScorer) -> None:
-        s = scorer.compute_signals("张三", "张三")
-        assert s.substring_match == 1.0
+    @pytest.mark.parametrize(
+        ("query_name", "candidate_name"),
+        [
+            ("张三", "张三丰科技有限公司"),
+            ("张三丰科技有限公司", "张三"),
+        ],
+    )
+    def test_contains_is_bidirectional(
+        self,
+        scorer: DedupScorer,
+        query_name: str,
+        candidate_name: str,
+    ) -> None:
+        s = scorer.compute_signals(query_name, candidate_name)
+        assert s.substring_match == 0.85
 
     def test_unidirectional_contains(self, scorer: DedupScorer) -> None:
         s = scorer.compute_signals("张三", "张三丰科技有限公司")

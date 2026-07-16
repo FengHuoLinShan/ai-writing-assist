@@ -45,3 +45,22 @@ jobs:
           uv run --project backend --locked --extra ci --
           make test-fast-coverage TEST_WORKERS=2
           ARGS="-W error::RuntimeWarning"
+
+  frontend-unit-quality:
+    name: Frontend unit quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: frontend-console
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install locked frontend dependencies
+        run: npm ci
+
+      - name: Run frontend unit tests
+        run: npm test

@@ -1,4 +1,4 @@
-import { test } from "@playwright/test"
+import { test } from "./fixtures.js"
 
 const CASES = [
   "S4-REC-001 localStorage restore flow should preserve unsaved content after refresh",

@@ -616,7 +616,6 @@ class OutlineAiTaskRequest(BaseModel):
     context_confirmation_id: str
     start_chapter: int | None = Field(None, ge=1)
     end_chapter: int | None = Field(None, ge=1)
-    chapter_index: int | None = Field(None, ge=1)
     instruction: str | None = None
 
 
@@ -639,22 +638,6 @@ class OutlineStructurePreviewApplyRequest(BaseModel):
 
 class OutlineStructurePreviewApplyResponse(PlotStructureGenerateResponse):
     status: Literal["applied"] = "applied"
-
-
-class OutlineScenePreviewApplyRequest(BaseModel):
-    """将章节 Scene preview 显式采用为工作 Scene。"""
-
-    novel_id: str
-    context_confirmation_id: str
-    source_task_id: str
-    draft_scenes: list[dict[str, Any]] = Field(..., min_length=1)
-    confirmed: bool = False
-
-
-class OutlineScenePreviewApplyResponse(BaseModel):
-    status: Literal["applied"] = "applied"
-    scene_ids: list[str] = Field(default_factory=list)
-    total_scenes: int = 0
 
 
 # ============================================================

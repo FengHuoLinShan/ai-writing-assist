@@ -50,6 +50,7 @@ from app.main import _register_container_services, app
 from core.base import Base
 from core.container import reset as reset_container
 from core.dependencies import get_db
+from tests.support.http import XhrAsyncClient
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -58,17 +59,6 @@ TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 def _compile_postgres_uuid_as_text_for_sqlite(_type, _compiler, **_kwargs) -> str:
     """Keep UUID hex values in SQLite text affinity instead of NUMERIC affinity."""
     return "CHAR(32)"
-
-
-class XhrAsyncClient(AsyncClient):
-    """Test client that mirrors the frontend write-request CSRF marker."""
-
-    async def request(self, method: str, url, **kwargs):  # noqa: ANN001, ANN201
-        if method.upper() not in {"GET", "HEAD", "OPTIONS"}:
-            headers = dict(kwargs.pop("headers", {}) or {})
-            headers.setdefault("X-Requested-With", "XMLHttpRequest")
-            kwargs["headers"] = headers
-        return await super().request(method, url, **kwargs)
 
 
 @pytest.fixture(autouse=True)
@@ -136,22 +126,37 @@ async def db_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
 
 
 @pytest_asyncio.fixture
-async def test_project_id(db_session: AsyncSession) -> str:
-    """Create a Project row for tests that need a valid novel_id."""
+async def project_factory(db_session: AsyncSession):  # noqa: ANN201
+    """Persist Project rows with the shared session and return their UUIDs."""
+    from types import SimpleNamespace
+
     from modules.project.models import Project
 
-    project_id = uuid.uuid4()
-    db_session.add(
-        Project(
-            id=project_id,
-            title="测试小说",
-            genre="奇幻悬疑",
-            tone="黑暗",
-            language="zh",
-            current_stage="世界构建中",
-        )
+    async def create_project(title: str = "T", **overrides) -> uuid.UUID:  # noqa: ANN003
+        payload = {
+            "title": title,
+            "language": "zh",
+            "default_reveal_policy": "author_safe",
+            "settings": {},
+            **overrides,
+        }
+        project = Project(**payload)
+        db_session.add(project)
+        await db_session.flush()
+        return project.id
+
+    return SimpleNamespace(create_project=create_project)
+
+
+@pytest_asyncio.fixture
+async def test_project_id(project_factory) -> str:  # noqa: ANN001
+    """Create a Project row for tests that need a valid novel_id."""
+    project_id = await project_factory.create_project(
+        title="测试小说",
+        genre="奇幻悬疑",
+        tone="黑暗",
+        current_stage="世界构建中",
     )
-    await db_session.flush()
     return str(project_id)
 
 

@@ -42,6 +42,7 @@ Three layers:
 |---|---|---|
 | `make test` / `make test-fast` | Modules, infrastructure, unit, SQLite integration, prompt contracts | None; excludes E2E, real LLM, and external source data |
 | `make test-fast-coverage TEST_WORKERS=2` | Same fast layer with parallel production-code coverage and an 85% gate | None |
+| `make test-ci TEST_WORKERS=2` | Local equivalent of secret hygiene, Ruff, backend coverage/RuntimeWarning, and frontend Vitest CI jobs | Locked backend/frontend dependencies |
 | `make secret-hygiene` | Tracked/indexed runtime env, private-key, and high-confidence credential gate | Git working tree; no Python dependency install required |
 | `make test-integration` | SQLite cross-module flows | None |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e` | PostgreSQL/pgvector behavior | Explicit dedicated test database at Alembic head; fails fast if missing, non-dedicated, unavailable, or stale |
@@ -80,10 +81,13 @@ or silently fall back to the developer database.
 
 ### Continuous integration
 
-GitHub Actions 在 pull request 和 `main` push 上运行 `Backend quality`：checkout 后先用
+GitHub Actions 在 pull request 和 `main` push 上并行运行 `Backend quality` 和
+`Frontend unit quality`。后端 job checkout 后先用
 系统 Python 执行零依赖的 repository secret hygiene gate，再通过 `backend/uv.lock` 安装
 Python 3.12 的窄 `ci` 依赖（不安装本地 embedding 运行时），然后依次执行 `make lint` 与
 `make test-fast-coverage TEST_WORKERS=2 ARGS="-W error::RuntimeWarning"`。
+Frontend job 使用 `frontend-console/package-lock.json` 执行 `npm ci` 和完整 Vitest；
+Playwright 仍属于需要显式专用 PostgreSQL 的验收层，不进入默认 CI。
 secret hygiene gate 同时检查 Git index 的各 stage 和已跟踪工作区版本，拒绝运行时 `.env`、
 常见私钥文件名、私钥块与高置信服务凭据；测试/文档中的显式占位值仅在受控路径豁免。
 失败日志只包含安全化路径、规则名和不可逆短指纹，不输出凭据原文。等价本地入口是
@@ -93,7 +97,8 @@ secret hygiene gate 同时检查 Git index 的各 stage 和已跟踪工作区版
 `app/core/shared/infrastructure/modules` 中的生产 Python 文件，排除测试目录、pytest
 支持的测试文件命名和 `conftest.py`，输出缺失行并要求总覆盖率不低于 85.0%。该检查不连接 PostgreSQL、真实
 LLM 或本地语料；这些验收层仍按上表显式触发，且不继承 fast 层超时。远端启用分支保护
-后，应把 `Backend quality` 设为合并前必需状态检查。
+后，应把 `Backend quality` 和 `Frontend unit quality` 设为合并前必需状态检查。
+本地等价聚合入口是 `make test-ci TEST_WORKERS=2`；它不包含上述显式验收层。
 
 `make format` 暂未纳入 CI：当前仓库仍有历史格式债务，应先在独立机械变更中形成干净
 基线，避免新门禁因无关存量文件持续失败。
@@ -164,6 +169,8 @@ Key points:
 - 异步 fixture 必须使用 `@pytest_asyncio.fixture`，而非 `@pytest.fixture` + `async def`。虽然 `asyncio_mode = "auto"` 下后者技术上可运行，但 `@pytest_asyncio.fixture` 是显式约定，与 `conftest.py` 用法一致
 - `asyncio_mode = "auto"` 启用后，`@pytest.mark.asyncio` 是冗余装饰器。新测试无需添加；旧测试可逐步清理
 - 模块级 fixture 应放在模块的 `conftest.py` 中；E2E 共用的 `ctx` fixture 应提取到 `e2e/conftest.py`，避免 20+ 次重复实现
+- 静态结构门禁应通过 `tests.support.inventory` 共用缓存的 Python 文件、源码和 AST inventory；各门禁仍保持独立的文件筛选与断言，不合并安全规则
+- PostgreSQL E2E 通用种子优先请求 `base_scene` / `full_scene` / `project_client` 等语义 fixture；专用扩展数据仍留在所属测试中
 
 ### Future subpackage test paths
 

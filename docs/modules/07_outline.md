@@ -4,8 +4,9 @@
 
 outline 模块负责把事实层资产组织成“可执行的剧情计划”。
 
-作者界面把人工 Scene/结构编辑视为普通工作内容；AI 合并、拆分、补全和章节 Scene 抽取
-先返回可编辑预览，只有显式应用后才写入普通 Scene。旧 `candidate` 仅兼容读取，不再允许
+作者界面把人工 Scene/结构编辑视为普通工作内容；AI 合并、拆分和补全
+先返回可编辑预览，只有显式应用后才写入普通 Scene。正文 Scene 提取统一由 imports 的
+Scene stage 负责。旧 `candidate` 仅兼容读取，不再允许
 作为新 Scene 写入状态；`needs_review` 是注意原因，不是第二套生命周期。
 
 当前活跃对象：
@@ -89,8 +90,6 @@ POST   /api/outline/scene-workbench/fusion/preview
 POST   /api/outline/scene-workbench/fusion/save
 GET    /api/outline/scene-workbench/fusion-suggestions
 POST   /api/outline/scene-workbench/fusion-suggestions/dismiss
-POST   /api/outline/chapter-scenes/extract
-POST   /api/outline/chapter-scenes/apply
 
 POST   /api/outline/foreshadowing
 GET    /api/outline/foreshadowing

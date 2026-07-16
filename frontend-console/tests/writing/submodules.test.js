@@ -3,12 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { createWritingSubModules } from "../../views/writing/submodules.js"
-import { confirmAiReference } from "../../shared/aiReferenceModal.js"
 import { resetState, clearDocument } from "../helpers.js"
-
-vi.mock("../../shared/aiReferenceModal.js", () => ({
-  confirmAiReference: vi.fn(),
-}))
 
 function createMockOrchestrator(overrides = {}) {
   return {
@@ -60,7 +55,6 @@ beforeEach(() => {
   clearDocument()
   localStorage.clear()
   vi.clearAllMocks()
-  confirmAiReference.mockReset()
   state._currentChapter = null
   state._currentSceneId = null
   state._scenes = []
@@ -210,30 +204,6 @@ describe("createWritingSubModules", () => {
     expect(orchestrator._rerender).toHaveBeenCalled()
     expect(modules._editor.isReadonly()).toBe(false)
     expect(modules._editor.getDraftId()).toBe("working-2")
-  })
-
-  it("routes autoExtraction task start to orchestrator", async () => {
-    state.currentProjectId = "p1"
-    state._chapterList = [1, 2]
-    confirmAiReference.mockResolvedValue({ id: "conf-1" })
-    api.outline.extractChapterScenes.mockResolvedValue({ task_id: "c1" })
-    const orchestrator = createMockOrchestrator()
-    orchestrator._onTaskStarted = vi.fn()
-    const modules = createWritingSubModules(orchestrator, createDeps())
-
-    await modules._autoExtraction.extractChapterCards()
-    const [, , buttons] = showModalHtml.mock.calls[0]
-    document.body.innerHTML = `
-      <input id="extract-start" value="1" />
-      <input id="extract-end" value="2" />
-    `
-    await buttons[0].handler()
-
-    expect(orchestrator._onTaskStarted).toHaveBeenCalledWith(expect.objectContaining({
-      taskId: "c1",
-      workflowType: "outline_chapter_scenes_extract",
-      confirmationId: "conf-1",
-    }))
   })
 
   it("routes focusMode change to orchestrator state through public API", () => {

@@ -368,10 +368,6 @@
       hasBody: true,
       requiredBody: ["novel_id", "source_task_id", "title", "creative_core", "outline_markdown", "major_storylines", "macro_movements", "open_decisions", "base_revision_id", "idempotency_key", "confirmed"],
     }),
-    "outline.applyChapterScenePreview": define("POST", () => "/outline/chapter-scenes/apply", {
-      hasBody: true,
-      requiredBody: ["novel_id", "context_confirmation_id", "source_task_id", "draft_scenes", "confirmed"],
-    }),
     "outline.previewSceneFusion": define("POST", () => "/outline/scene-workbench/fusion/preview", {
       requiredQuery: ["novel_id"],
       hasBody: true,

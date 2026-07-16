@@ -7,26 +7,20 @@ import subprocess
 import tomllib
 from pathlib import Path
 
+from tests.support.inventory import (
+    production_python_files,
+    python_ast,
+    python_source,
+    repository_python_files,
+)
+from tests.support.inventory import (
+    test_python_files as repository_test_python_files,
+)
+
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 MODULES_ROOT = BACKEND_ROOT / "modules"
-IGNORED_TEST_SCAN_DIRECTORIES = {".venv"}
-
-
-def _python_test_files() -> list[Path]:
-    return sorted(
-        path
-        for path in BACKEND_ROOT.rglob("*.py")
-        if not (IGNORED_TEST_SCAN_DIRECTORIES & set(path.relative_to(BACKEND_ROOT).parts))
-        and (
-            path == BACKEND_ROOT / "conftest.py"
-            or path.name.startswith("test_")
-            or "tests" in path.relative_to(BACKEND_ROOT).parts
-        )
-    )
-
-
 def _fixture_names(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    tree = python_ast(path)
     names: set[str] = set()
     for node in tree.body:
         if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
@@ -52,6 +46,18 @@ def _fixture_names(path: Path) -> set[str]:
                         public_name = keyword.value.value
             names.add(public_name)
     return names
+
+
+def test_repository_inventory_caches_files_sources_and_asts() -> None:
+    inventory = repository_python_files()
+    support_file = BACKEND_ROOT / "tests/support/inventory.py"
+
+    assert inventory is repository_python_files()
+    assert support_file in inventory
+    assert support_file in repository_test_python_files()
+    assert support_file not in production_python_files()
+    assert python_source(support_file) is python_source(support_file)
+    assert python_ast(support_file) is python_ast(support_file)
 
 
 def _unautospecced_patch_calls(source: str, *, filename: str) -> list[int]:
@@ -135,10 +141,10 @@ with unit_mock.patch.object(object(), "attribute", autospec=True):
 
 def test_all_unittest_patch_calls_use_literal_autospec_true() -> None:
     violations: list[str] = []
-    for path in _python_test_files():
+    for path in repository_test_python_files():
         relative_path = path.relative_to(BACKEND_ROOT)
         lines = _unautospecced_patch_calls(
-            path.read_text(encoding="utf-8"),
+            python_source(path),
             filename=str(path),
         )
         violations.extend(f"{relative_path}:{line}" for line in lines)
@@ -162,8 +168,8 @@ def test_tests_do_not_import_conftest_as_python_module() -> None:
     def is_conftest_module(module: str | None) -> bool:
         return bool(module and (module == "conftest" or module.endswith(".conftest")))
 
-    for path in _python_test_files():
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for path in repository_test_python_files():
+        tree = python_ast(path)
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and is_conftest_module(node.module):
                 violations.append(f"{path.relative_to(BACKEND_ROOT)}:{node.lineno}")
@@ -213,7 +219,7 @@ def _async_pytest_fixture_definitions(source: str, *, filename: str) -> list[str
 
 
 def test_async_fixture_guard_covers_root_conftest() -> None:
-    assert BACKEND_ROOT / "conftest.py" in _python_test_files()
+    assert BACKEND_ROOT / "conftest.py" in repository_test_python_files()
 
 
 def test_async_fixture_guard_recognizes_aliases_calls_and_nested_classes() -> None:
@@ -267,10 +273,10 @@ def sync_fixture():
 def test_async_fixtures_use_pytest_asyncio_decorator() -> None:
     violations: list[str] = []
 
-    for path in _python_test_files():
+    for path in repository_test_python_files():
         relative_path = path.relative_to(BACKEND_ROOT)
         definitions = _async_pytest_fixture_definitions(
-            path.read_text(encoding="utf-8"),
+            python_source(path),
             filename=str(path),
         )
         violations.extend(f"{relative_path}:{definition}" for definition in definitions)
@@ -291,10 +297,7 @@ def test_module_conftests_do_not_shadow_root_fixtures() -> None:
 
 
 def test_root_conftest_registers_all_orm_metadata() -> None:
-    tree = ast.parse(
-        (BACKEND_ROOT / "conftest.py").read_text(encoding="utf-8"),
-        filename="conftest.py",
-    )
+    tree = python_ast(BACKEND_ROOT / "conftest.py")
     imported_modules = {
         alias.name
         for node in ast.walk(tree)
@@ -376,6 +379,11 @@ def test_fast_layer_has_timeout_parallel_and_coverage_ci_guards() -> None:
     )
     assert "make test-fast-coverage TEST_WORKERS=2" in workflow
     assert 'ARGS="-W error::RuntimeWarning"' in workflow
+    assert "name: Frontend unit quality" in workflow
+    assert "working-directory: frontend-console" in workflow
+    assert "run: npm ci" in workflow
+    assert "run: npm test" in workflow
+    assert "test-ci:" in makefile
 
 
 def _make_dry_run(target: str, *variables: str) -> str:
@@ -414,6 +422,16 @@ def test_coverage_target_reuses_parallel_fast_layer() -> None:
     ):
         coverage = coverage.replace(flag, "")
     assert coverage == parallel
+
+
+def test_aggregate_targets_reuse_existing_backend_and_frontend_targets() -> None:
+    makefile = (BACKEND_ROOT.parent / "Makefile").read_text(encoding="utf-8")
+
+    assert '$(MAKE) test-fast ARGS="$(BACKEND_ARGS)"' in makefile
+    assert '$(MAKE) test-frontend FRONTEND_ARGS="$(FRONTEND_ARGS)"' in makefile
+    assert "test-ci: secret-hygiene lint" in makefile
+    assert "$(MAKE) test-fast-coverage TEST_WORKERS=$(TEST_WORKERS)" in makefile
+    assert 'ARGS="$(ARGS) -W error::RuntimeWarning"' in makefile
 
 
 def test_timeout_is_not_forced_onto_explicit_acceptance_layers() -> None:

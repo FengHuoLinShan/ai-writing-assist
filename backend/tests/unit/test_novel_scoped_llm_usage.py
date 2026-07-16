@@ -10,8 +10,14 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from tests.support.inventory import (
+    module_python_files,
+    production_python_files,
+    python_ast,
+    python_source,
+)
+
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
-MODULES_ROOT = BACKEND_ROOT / "modules"
 
 # These are deliberately narrow legacy/project-snapshot/embedding adapters.
 # Any new entry requires a reason and a migration decision.
@@ -33,17 +39,10 @@ ALLOWED_DIRECT_CLIENT_CALLS: dict[tuple[str, str], str] = {
 
 def test_production_code_does_not_import_or_detect_mock() -> None:
     violations: list[str] = []
-    for path in BACKEND_ROOT.rglob("*.py"):
+    for path in production_python_files():
         relative_path = path.relative_to(BACKEND_ROOT)
-        if (
-            any(part.startswith(".") for part in relative_path.parts)
-            or "tests" in relative_path.parts
-            or path.name == "conftest.py"
-            or path.name.startswith("test_")
-        ):
-            continue
-        source = path.read_text(encoding="utf-8")
-        tree = ast.parse(source, filename=str(path))
+        source = python_source(path)
+        tree = python_ast(path)
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and (
                 node.module == "unittest.mock"
@@ -119,10 +118,8 @@ def _call_kind(
 
 def test_business_modules_have_no_unclassified_direct_llm_clients() -> None:
     discovered: set[tuple[str, str]] = set()
-    for path in MODULES_ROOT.rglob("*.py"):
-        if "tests" in path.relative_to(MODULES_ROOT).parts:
-            continue
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for path in module_python_files():
+        tree = python_ast(path)
         client_aliases, module_aliases = _llm_client_import_aliases(tree)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
@@ -153,7 +150,7 @@ def test_novel_scoped_generation_modules_use_project_runtime_seam() -> None:
     )
 
     for relative_path in managed_modules:
-        source = (BACKEND_ROOT / relative_path).read_text(encoding="utf-8")
+        source = python_source(BACKEND_ROOT / relative_path)
         assert "open_project_llm_client" in source, relative_path
 
 
@@ -174,7 +171,7 @@ def test_every_db_backed_workflow_passes_its_novel_id_to_runtime_seam() -> None:
     violations: list[str] = []
     for relative_path in expected_call_counts:
         path = BACKEND_ROOT / relative_path
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        tree = python_ast(path)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
@@ -213,7 +210,7 @@ def test_import_workflows_use_project_owned_snapshot_runtime_seam() -> None:
     missing_scope: list[str] = []
     for relative_path in expected:
         path = BACKEND_ROOT / relative_path
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        tree = python_ast(path)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
@@ -236,7 +233,7 @@ def test_import_workflows_use_project_owned_snapshot_runtime_seam() -> None:
 
 def test_active_import_phases_bind_novel_id_to_snapshot_runtime() -> None:
     path = BACKEND_ROOT / "modules/imports/workflow.py"
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    tree = python_ast(path)
     expected = {
         "_Phase1aSceneSlicingLLM": 1,
         "_Phase1bSceneEnrichmentLLM": 1,
@@ -267,13 +264,11 @@ def test_active_import_phases_bind_novel_id_to_snapshot_runtime() -> None:
 
 def test_legacy_scene_segmentation_entrypoint_has_no_production_caller() -> None:
     callers: list[str] = []
-    for path in MODULES_ROOT.rglob("*.py"):
+    for path in module_python_files():
         relative = path.relative_to(BACKEND_ROOT)
-        if "tests" in relative.parts or str(relative) == (
-            "modules/imports/scene_segmentation.py"
-        ):
+        if str(relative) == "modules/imports/scene_segmentation.py":
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        tree = python_ast(path)
         for node in ast.walk(tree):
             if (
                 isinstance(node, ast.Call)

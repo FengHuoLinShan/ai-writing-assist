@@ -3,6 +3,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from tests.support.inventory import module_python_files, python_ast
+
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 MODULES_ROOT = BACKEND_ROOT / "modules"
 
@@ -12,7 +14,7 @@ _EXPLICIT_BUDGET_ALLOWLIST = {
 
 
 def _llm_request_calls(path: Path) -> list[tuple[int, bool]]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    tree = python_ast(path)
     calls: list[tuple[int, bool]] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -35,7 +37,7 @@ def _llm_request_calls(path: Path) -> list[tuple[int, bool]]:
 
 def test_only_deep_import_requests_set_explicit_max_tokens() -> None:
     violations: list[str] = []
-    for path in MODULES_ROOT.rglob("*.py"):
+    for path in module_python_files():
         relative = path.relative_to(BACKEND_ROOT).as_posix()
         if "/tests/" in f"/{relative}/":
             continue
@@ -53,8 +55,8 @@ def test_only_deep_import_requests_set_explicit_max_tokens() -> None:
 def test_every_deep_import_request_keeps_an_explicit_stage_budget() -> None:
     deep_import_paths = [
         path
-        for path in (MODULES_ROOT / "imports").rglob("*.py")
-        if "/tests/" not in f"/{path.as_posix()}/"
+        for path in module_python_files()
+        if path.is_relative_to(MODULES_ROOT / "imports")
     ]
     deep_import_paths.extend(BACKEND_ROOT / path for path in _EXPLICIT_BUDGET_ALLOWLIST)
 

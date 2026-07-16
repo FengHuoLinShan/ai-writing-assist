@@ -26,7 +26,6 @@
 | `scene_segmentation.md` | 正式 Scene 字段切分 / 小样本与单章恢复路径 | imports |
 | `scene_entity_extraction.md` | 深度导入 Phase 2a，Scene 世界对象/Delta 与四类显式地图 proposal 抽取 | imports |
 | `alias_relation_extraction.md` | 深度导入 Phase 2b，基于工作对象索引提取别名/关系 | imports |
-| `extract_chapter_scene.md` | 从正文提取章节卡信息 | 写作/大纲辅助 |
 | `extract_character.md` | 从正文片段提取人物档案字段 | 人物信息补全 |
 | `scene_fusion_draft.py` | 内联 step `outline.scene_fusion.draft.structured`：基于选中 Scene 卡和精确正文生成融合语义草稿 | Scene 工作台 |
 | `world_generation_center_service.py` | 内联 steps `world.generation.chat.generate`、`world.generation.core_entity.structured`、`world.generation.world_bible_page.structured`、`world.generation.world_bible_new_page.structured`：世界设定共创与结构化建议 | world 生成中心 |
@@ -58,6 +57,7 @@ shell、表达式或动态代码执行。默认只有 P0/P1 阻断；文档漂�
 | 文件 | 状态 | 说明 |
 |------|------|------|
 | `structure_review_memory.md` | 已删除 | `review` 模块已移除，不再保留 Prompt 文件 |
+| `extract_chapter_scene.md` | 已删除 | 与 imports Scene stage 的 Phase 1a/1b 重复；正文到 Scene 统一由深度导入场景阶段负责 |
 
 ## 5. 当前设计约束
 
@@ -128,13 +128,14 @@ preview 伪装成 manual revision，也不能引用其他项目的 task。
 ### 切分类
 
 - `scene_segmentation.md`
-- `extract_chapter_scene.md`
 
 这类 Prompt 服务于 Scene 和章节结构整理，不负责正史对象落库策略。
 深度导入 60 章主链的 Phase 0 / Phase 1a / Phase 1b / Phase 1c prompt 不再由
 `scene_segmentation.md` 单独代表，而是在 imports 的 `workflow_llm_adapters.py`
 中按阶段组装，并通过 adapter、token budget 和 schema guard 输出中间候选或融合候选。
 `scene_segmentation.md` 仍用于正式 Scene 字段切分、小样本检测和单章恢复等受控路径。
+原 outline `extract_chapter_scene.md` 及其独立 preview/apply 工作流已删除；手写正文和
+导入正文都通过 `POST /api/imports/stages/scenes` 复用同一 Scene 提取能力。
 
 ### Scene 工作台融合类
 

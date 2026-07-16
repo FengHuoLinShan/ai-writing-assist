@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
@@ -46,3 +47,27 @@ def test_root_fixture_clears_dependency_overrides_before_each_test() -> None:
     """The autouse fixture gives every test an initially clean FastAPI app."""
     assert app.dependency_overrides == {}
     app.dependency_overrides[get_db] = lambda: None
+
+
+@pytest.mark.asyncio
+async def test_project_factory_persists_common_and_override_fields(
+    db_session: AsyncSession,
+    project_factory,
+) -> None:
+    deleted_at = datetime(2026, 1, 2, tzinfo=UTC)
+    project_id = await project_factory.create_project(
+        title="shared factory",
+        genre="mystery",
+        deleted_at=deleted_at,
+    )
+
+    project = await db_session.get(Project, project_id)
+
+    assert project is not None
+    assert project.title == "shared factory"
+    assert project.language == "zh"
+    assert project.default_reveal_policy == "author_safe"
+    assert project.settings == {}
+    assert project.genre == "mystery"
+    assert project.deleted_at is not None
+    assert project.deleted_at.replace(tzinfo=UTC) == deleted_at

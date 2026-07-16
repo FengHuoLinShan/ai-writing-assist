@@ -1,39 +1,16 @@
 from __future__ import annotations
 
-import ast
-import inspect
-import textwrap
 import uuid
 
 import pytest
-from fastapi.routing import APIRoute
 from httpx import AsyncClient
 
 from modules.writing.api import router
+from tests.support.project_gate import routes_without_leading_active_project_guard
 
 
 def test_every_writing_route_starts_with_active_project_guard() -> None:
-    unguarded: list[str] = []
-    for route in router.routes:
-        if not isinstance(route, APIRoute):
-            continue
-        tree = ast.parse(textwrap.dedent(inspect.getsource(route.endpoint)))
-        function = tree.body[0]
-        statements = function.body
-        if statements and isinstance(statements[0], ast.Expr):
-            if isinstance(statements[0].value, ast.Constant):
-                statements = statements[1:]
-        first = statements[0] if statements else None
-        guarded = (
-            isinstance(first, ast.Expr)
-            and isinstance(first.value, ast.Await)
-            and isinstance(first.value.value, ast.Call)
-            and isinstance(first.value.value.func, ast.Name)
-            and first.value.value.func.id == "require_active_project"
-        )
-        if not guarded:
-            unguarded.append(route.name)
-    assert unguarded == []
+    assert routes_without_leading_active_project_guard(router) == []
 
 
 @pytest.mark.asyncio

@@ -2,7 +2,7 @@ import os from "node:os"
 import { execFile } from "node:child_process"
 import { writeFile } from "node:fs/promises"
 import { promisify } from "node:util"
-import { test, expect } from "@playwright/test"
+import { test, expect } from "./fixtures.js"
 import { cleanupProject } from "./helpers/api-client.js"
 import {
   createMapPerformanceFixture,

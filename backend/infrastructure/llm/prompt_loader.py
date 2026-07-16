@@ -5,10 +5,7 @@
 
     from infrastructure.llm.prompt_loader import load_prompt
 
-    prompt = load_prompt("extract_chapter_scene",
-        chapter_index=3,
-        entity_names="王都、旧王都",
-    )
+    prompt = load_prompt("shared_rules")
 """
 
 from pathlib import Path

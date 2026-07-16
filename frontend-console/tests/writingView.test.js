@@ -1344,7 +1344,7 @@ describe("writingView offline recovery", () => {
   })
 })
 
-describe("writingView AI extract chapter cards", () => {
+describe("writingView Scene auto extraction", () => {
   beforeEach(async () => {
     state.currentProjectId = "p1"
     mockChapterList()
@@ -1354,7 +1354,7 @@ describe("writingView AI extract chapter cards", () => {
     await writingView._selectChapter(1)
   })
 
-  it("AI 工具菜单在专注模式同一行并显示正文整理入口", async () => {
+  it("AI 工具菜单在专注模式同一行并显示唯一 Scene 提取入口", async () => {
     const html = await writingView.render()
     document.body.innerHTML = `<div id="workspace-content">${html}</div>`
     const toolsMenu = document.querySelector(".writing-tools-menu")
@@ -1365,8 +1365,10 @@ describe("writingView AI extract chapter cards", () => {
     expect(focusButton?.closest(".writing-editor-buttons")).toBe(
       toolsMenu?.closest(".writing-editor-buttons"),
     )
-    expect(toolsMenu?.textContent).toContain("从正文整理 Scene")
-    expect(toolsMenu?.querySelector('[data-action="extract-cards"]')).not.toBeNull()
+    expect(toolsMenu?.textContent).toContain("场景（scene）自动提取")
+    expect(toolsMenu?.querySelectorAll(
+      '[data-action="auto-extract-stage"][data-stage="scenes"]',
+    )).toHaveLength(1)
   })
 
   it("完整重渲染保留已展开的 AI 工具菜单", async () => {
@@ -1380,16 +1382,6 @@ describe("writingView AI extract chapter cards", () => {
     expect(document.querySelector(".writing-tools-menu")?.open).toBe(true)
   })
 
-  it("点击提取章节卡打开弹窗", async () => {
-    document.body.innerHTML = `<div id="workspace-content">${await writingView.render()}</div>`
-    writingView._bindEvents()
-    document.querySelector('[data-action="extract-cards"]').click()
-    await vi.waitFor(() => {
-      expect(showModal).toHaveBeenCalled()
-    })
-    const modal = latestModal()
-    expect(modal.title).toContain("从正文整理 Scene")
-  })
 })
 
 describe("writingView scene map summary", () => {
