@@ -17,6 +17,7 @@ from modules.world.schemas import (
     WorldBiblePageDraftUpdate,
     WorldBiblePageTemplateCreate,
     WorldBiblePageTemplateUpdate,
+    WorldBiblePageUpdate,
     WorldBibleSection,
 )
 from modules.world.services.worldbuilding.page_template_service import (
@@ -25,7 +26,6 @@ from modules.world.services.worldbuilding.page_template_service import (
 from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
     WorldBibleLifecycleService,
 )
-from modules.world.services.worldbuilding.world_bible_service import WorldBibleService
 from shared.target_ref import TargetRef
 
 
@@ -183,9 +183,10 @@ async def test_page_template_cas_revision_restore_and_apply(
         ),
     )
     assert updated.version_number == 2
-    assert [item.version_number for item in await templates.list_revisions(
-        db_session, novel_id, created.id
-    )] == [2, 1]
+    assert [
+        item.version_number
+        for item in await templates.list_revisions(db_session, novel_id, created.id)
+    ] == [2, 1]
 
     restored = await templates.restore_revision(
         db_session,
@@ -242,9 +243,8 @@ async def test_projection_hash_and_spans_include_eligible_sections(
     published = await lifecycle.publish_draft(db_session, project_novel_id, draft.id)
     page = await db_session.get(WorldBiblePage, uuid.UUID(published.id))
     assert page is not None
-    service = WorldBibleService()
-    first_hash = service._projection_source_hash(page)
-    spans = service._projection_source_spans(page)
+    first_hash = lifecycle.projection_source_hash(page)
+    spans = lifecycle.projection_source_spans(page)
     assert any(item.get("section_id") == "currency" for item in spans)
 
     working = await lifecycle.get_or_create_page_draft(
@@ -260,7 +260,7 @@ async def test_projection_hash_and_spans_include_eligible_sections(
     )
     await lifecycle.publish_draft(db_session, project_novel_id, working.id)
     await db_session.refresh(page)
-    second_hash = service._projection_source_hash(page)
+    second_hash = lifecycle.projection_source_hash(page)
     assert second_hash != first_hash
 
     projection = await db_session.scalar(
@@ -270,3 +270,136 @@ async def test_projection_hash_and_spans_include_eligible_sections(
     )
     if projection is not None:
         assert projection.stale is True
+
+
+@pytest.mark.asyncio
+async def test_metadata_update_keeps_historical_refs_and_stales_projection(
+    db_session,
+    project_novel_id: str,
+) -> None:
+    lifecycle = WorldBibleLifecycleService()
+    entity = CoreEntity(
+        novel_id=uuid.UUID(project_novel_id),
+        entity_type="location",
+        name="已归档旧城",
+        status="canonical",
+    )
+    db_session.add(entity)
+    await db_session.flush()
+    draft = await lifecycle.create_draft(
+        db_session,
+        WorldBiblePageDraftCreate(
+            novel_id=project_novel_id,
+            title="旧城档案",
+            page_type="location",
+            linked_asset_refs_json=[{"type": "core_entity", "id": str(entity.id)}],
+        ),
+    )
+    published = await lifecycle.publish_draft(
+        db_session,
+        project_novel_id,
+        draft.id,
+    )
+    page = await db_session.get(WorldBiblePage, uuid.UUID(published.id))
+    assert page is not None
+    projection = WorldBiblePageProjection(
+        novel_id=uuid.UUID(project_novel_id),
+        page_id=page.id,
+        projection_type="context",
+        source_page_version=page.version_number,
+        source_hash=lifecycle.projection_source_hash(page),
+        content="旧城摘要",
+        stale=False,
+        status="ready",
+    )
+    db_session.add(projection)
+    entity.status = "archived"
+    await db_session.flush()
+
+    updated = await lifecycle.update_page(
+        db_session,
+        project_novel_id,
+        published.id,
+        WorldBiblePageUpdate(title="旧城历史档案"),
+    )
+
+    assert updated.version_number == 2
+    assert projection.stale is True
+    assert projection.stale_checked_at is not None
+    with pytest.raises(ValidationError, match="adopted asset"):
+        await lifecycle.update_page(
+            db_session,
+            project_novel_id,
+            published.id,
+            WorldBiblePageUpdate(
+                linked_asset_refs_json=[{"type": "core_entity", "id": str(entity.id)}]
+            ),
+        )
+
+
+@pytest.mark.asyncio
+async def test_page_source_state_owns_generation_baseline_identity(
+    db_session,
+    project_novel_id: str,
+) -> None:
+    lifecycle = WorldBibleLifecycleService()
+    draft = await lifecycle.create_draft(
+        db_session,
+        WorldBiblePageDraftCreate(
+            novel_id=project_novel_id,
+            title="生成基线",
+            page_type="background",
+            free_text="正式内容",
+        ),
+    )
+    published = await lifecycle.publish_draft(
+        db_session,
+        project_novel_id,
+        draft.id,
+    )
+    published_state = await lifecycle.load_page_source(
+        db_session,
+        project_novel_id,
+        published.id,
+    )
+    published_hash = lifecycle.page_source_hash(published_state)
+    assert (
+        lifecycle.baseline_mismatch(
+            published_state,
+            page_version=published.version_number,
+            draft_id=None,
+            draft_updated_at=None,
+            content_hash=published_hash,
+        )
+        is None
+    )
+
+    working = await lifecycle.get_or_create_page_draft(
+        db_session,
+        project_novel_id,
+        published.id,
+    )
+    draft_state = await lifecycle.load_page_source(
+        db_session,
+        project_novel_id,
+        published.id,
+    )
+    assert (
+        lifecycle.baseline_mismatch(
+            draft_state,
+            page_version=published.version_number,
+            draft_id=None,
+            draft_updated_at=None,
+        )
+        == "draft_created"
+    )
+    assert (
+        lifecycle.baseline_mismatch(
+            draft_state,
+            page_version=published.version_number,
+            draft_id=working.id,
+            draft_updated_at=working.updated_at,
+            content_hash=lifecycle.page_source_hash(draft_state),
+        )
+        is None
+    )

@@ -11,11 +11,8 @@ from modules.world.map_schemas import (
 from modules.world.services.common import parse_uuid
 
 
-class MapPlaybackService:
-    """Delegated dynamic-map service."""
-
-    def __init__(self, owner: Any) -> None:
-        self.owner = owner
+class MapPlaybackMixin:
+    """Internal playback projection owned by MapDynamicFactService."""
 
     async def get_playback(
         self,
@@ -28,7 +25,7 @@ class MapPlaybackService:
         include_candidates: bool = True,
     ) -> MapPlaybackResponse:
         """构建只读电影化播放事件流。"""
-        owner = self.owner
+        owner = self
         await owner._ctx.require_map(db, novel_id, map_id)
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
@@ -93,3 +90,16 @@ class MapPlaybackService:
             tracks=owner._build_playback_tracks(events),
             low_motion_recommended=len(events) > 40,
         )
+
+
+class MapPlaybackService(MapPlaybackMixin):
+    """Compatibility adapter for former owner-bound imports."""
+
+    def __init__(self, owner: Any) -> None:
+        self._owner = owner
+
+    def __getattr__(self, name):
+        return getattr(self._owner, name)
+
+
+__all__ = ["MapPlaybackMixin", "MapPlaybackService"]

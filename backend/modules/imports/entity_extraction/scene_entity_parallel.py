@@ -15,20 +15,14 @@ from modules.imports.entity_extraction.scene_entity_config import (
     phase2_parallel_scene_concurrency,
     phase2_parallel_scene_max_tokens,
 )
-from modules.imports.entity_extraction.scene_entity_runtime import (
-    SceneEntityExtractionRuntime,
-)
 
 logger = logging.getLogger(__name__)
 
 
-class ParallelSceneEntityExtractor:
-    """Runs LLM extraction concurrently, then persists results serially."""
+class ParallelSceneEntityExtractionMixin:
+    """Internal concurrent LLM and ordered persistence implementation."""
 
-    def __init__(self, service: SceneEntityExtractionRuntime) -> None:
-        self.service = service
-
-    async def run(
+    async def _process_scenes_parallel_llm(
         self,
         db: AsyncSession,
         nid,
@@ -44,7 +38,7 @@ class ParallelSceneEntityExtractor:
         existing_alias_relation_checkpoints: dict[str, Any] | None = None,
         visible_until_chapter: int | None = None,
     ) -> dict[str, Any]:
-        service = self.service
+        service = self
         configured_concurrency = phase2_parallel_scene_concurrency()
         scene_max_tokens = phase2_parallel_scene_max_tokens()
         provider_timeout_seconds = phase2_parallel_provider_timeout_seconds()
@@ -544,3 +538,20 @@ class ParallelSceneEntityExtractor:
         else:
             alias_result = {"alias_relation_skipped": True}
         return service._merge_alias_relation_result(phase2_result, alias_result)
+
+
+class ParallelSceneEntityExtractor(ParallelSceneEntityExtractionMixin):
+    """Compatibility adapter for the former helper class."""
+
+    def __init__(self, service) -> None:
+        self.service = service
+
+    def __getattr__(self, name):
+        return getattr(self.service, name)
+
+    async def run(self, *args, **kwargs):
+        return await ParallelSceneEntityExtractionMixin._process_scenes_parallel_llm(
+            self.service,
+            *args,
+            **kwargs,
+        )

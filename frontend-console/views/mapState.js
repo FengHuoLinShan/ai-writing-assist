@@ -5,6 +5,8 @@
  * 地图数据本身由后端 MapStateResponse 提供，缓存在 mapView._state。
  */
 
+import { MapEditingSession } from "./mapEditingSession.js"
+
 /** 地图会话状态 */
 export const mapState = {
   /** 当前查看/编辑的地图 ID */
@@ -97,6 +99,9 @@ export const mapState = {
   factionColors: {},
 }
 
+/** 深层编辑会话；mapState 只保留兼容的可观察状态形状。 */
+export const mapEditingSession = new MapEditingSession(mapState)
+
 /** 重置会话状态（切换地图时调用） */
 export function resetMapState() {
   mapState.currentMapId = null
@@ -153,6 +158,7 @@ export function resetMapState() {
   mapState.focusRelatedHexes = new Set()
   mapState.selectedFactionId = null
   mapState.factionColors = {}
+  mapEditingSession.resetBaseline()
 }
 
 /**
@@ -195,47 +201,19 @@ export function setEditorLayer(layer) {
 }
 
 export function recordEditorCommand(layer, command) {
-  const key = layer || mapState.editorLayer || "none"
-  if (!mapState.editorHistory[key]) mapState.editorHistory[key] = []
-  mapState.editorHistory[key].push(command)
-  if (mapState.editorHistory[key].length > 50) mapState.editorHistory[key].shift()
-  mapState.editorRedo[key] = []
+  mapEditingSession.recordCommand(layer, command)
 }
 
 export function popEditorUndo(layer = mapState.editorLayer) {
-  const history = mapState.editorHistory[layer] || []
-  const command = history.pop() || null
-  if (command) {
-    if (!mapState.editorRedo[layer]) mapState.editorRedo[layer] = []
-    mapState.editorRedo[layer].push(command)
-  }
-  return command
+  return mapEditingSession.undo(layer)
 }
 
 export function popEditorRedo(layer = mapState.editorLayer) {
-  const redo = mapState.editorRedo[layer] || []
-  const command = redo.pop() || null
-  if (command) {
-    if (!mapState.editorHistory[layer]) mapState.editorHistory[layer] = []
-    mapState.editorHistory[layer].push(command)
-  }
-  return command
+  return mapEditingSession.redo(layer)
 }
 
 export function hasMapDraftChanges() {
-  return Boolean(
-    Object.keys(mapState.pendingTerrainChanges).length
-    || Object.keys(mapState.pendingBindings).length
-    || Object.keys(mapState.pendingLocationLayouts).length
-    || mapState.pendingTerrainOverlay
-    || mapState.pendingTerrainLayerDeletes.length
-    || Object.keys(mapState.pendingMarkerChanges).length
-    || mapState.pendingLayerTree
-    || Object.keys(mapState.pendingPathChanges).length
-    || Object.keys(mapState.pendingPathLayerChanges).length
-    || Object.keys(mapState.pendingTerritoryChanges.add).length
-    || Object.keys(mapState.pendingTerritoryChanges.remove).length,
-  )
+  return mapEditingSession.hasDraftChanges()
 }
 
 /**

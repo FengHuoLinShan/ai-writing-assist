@@ -3,15 +3,29 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import asdict, replace
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass, replace
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import ValidationError
+from core.errors import NotFoundError, ValidationError
 from modules.context.contracts import EvidenceHitContract, VisibilityContextContract
 from modules.context.evidence_repository import EvidenceLinkRepository
+from modules.rag.contracts import RagChunkContract
 from modules.writing.contracts import SourceRangeRefContract
 from shared.target_ref import TargetRef, normalize_target_ref
+
+_PRELOADED_SOURCE_UNSET = object()
+
+
+@dataclass(frozen=True)
+class ManuscriptCandidateReadBatch:
+    """Version-bound original-text reads for one RAG candidate batch."""
+
+    reads_by_chunk_id: dict[str, dict]
+    drop_reason_by_chunk_id: dict[str, str]
+    visibility: VisibilityContextContract
+    warnings: tuple[str, ...] = ()
 
 
 class NovelEvidenceService:
@@ -185,6 +199,148 @@ class NovelEvidenceService:
         )
         if not _source_visible(asdict(source_ref), visibility):
             raise ValueError("来源超出当前可见截止位置")
+        return await self._read_visible_source_ref(
+            db,
+            novel_id=novel_id,
+            source_ref=source_ref,
+            visibility=visibility,
+            visibility_warnings=visibility_warnings,
+            before=before,
+            after=after,
+        )
+
+    async def rehydrate_manuscript_candidates(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        content_mode: str,
+        visibility: VisibilityContextContract,
+        chunks: Sequence[RagChunkContract],
+    ) -> ManuscriptCandidateReadBatch:
+        """Read RAG candidates only after binding them to current manuscript text."""
+
+        self._require_visibility(visibility)
+        return await self._rehydrate_manuscript_candidates(
+            db,
+            novel_id=novel_id,
+            content_mode=content_mode,
+            visibility=visibility,
+            chunks=chunks,
+        )
+
+    async def _rehydrate_manuscript_candidates(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        content_mode: str,
+        visibility: VisibilityContextContract,
+        visibility_warnings: Sequence[str] = (),
+        chunks: Sequence[RagChunkContract],
+    ) -> ManuscriptCandidateReadBatch:
+        from modules.writing.facade import (
+            build_manuscript_range_ref,
+            list_manuscript_sources,
+        )
+
+        chapter_set = {
+            int(chunk.chapter_index)
+            for chunk in chunks
+            if chunk.chapter_index is not None
+        }
+        if visibility.mode != "author" and visibility.cutoff_scene_id:
+            chapter_set.add(int(visibility.cutoff_chapter or 0))
+        chapters = sorted(chapter for chapter in chapter_set if chapter > 0)
+        current_sources = await list_manuscript_sources(
+            db,
+            novel_id,
+            chapters,
+            content_mode=content_mode,
+        )
+        current_by_chapter = {source.chapter_index: source for source in current_sources}
+        resolver_kwargs = {}
+        if visibility.mode != "author" and visibility.cutoff_scene_id:
+            resolver_kwargs["cutoff_source"] = current_by_chapter.get(
+                int(visibility.cutoff_chapter or 0)
+            )
+        visibility, batch_visibility_warnings = await self._resolve_visibility_cursor(
+            db,
+            novel_id=novel_id,
+            content_mode=content_mode,
+            visibility=visibility,
+            **resolver_kwargs,
+        )
+        combined_visibility_warnings = tuple(
+            dict.fromkeys([*visibility_warnings, *batch_visibility_warnings])
+        )
+        reads: dict[str, dict] = {}
+        drops: dict[str, str] = {}
+        for chunk in chunks:
+            chunk_id = str(chunk.id)
+            source = current_by_chapter.get(chunk.chapter_index or 0)
+            drop_reason = _candidate_source_drop_reason(
+                chunk,
+                source,
+                novel_id=novel_id,
+                content_mode=content_mode,
+            )
+            if drop_reason is not None:
+                drops[chunk_id] = drop_reason
+                continue
+            try:
+                source_ref = await build_manuscript_range_ref(
+                    db,
+                    novel_id,
+                    draft_id=chunk.source_id or "",
+                    start_offset=int(chunk.start_offset or 0),
+                    end_offset=int(chunk.end_offset or 0),
+                    content_mode=content_mode,
+                )
+                if source_ref.draft_id != source.id:
+                    drops[chunk_id] = "source_id_mismatch"
+                    continue
+                if source_ref.content_mode != content_mode:
+                    drops[chunk_id] = "content_mode_mismatch"
+                    continue
+                if (
+                    source_ref.source_hash != source.content_hash
+                    or source_ref.source_hash != chunk.source_content_hash
+                ):
+                    drops[chunk_id] = "source_hash_mismatch"
+                    continue
+                if not _source_visible(asdict(source_ref), visibility):
+                    drops[chunk_id] = "visibility_denied"
+                    continue
+                reads[chunk_id] = await self._read_visible_source_ref(
+                    db,
+                    novel_id=novel_id,
+                    source_ref=source_ref,
+                    visibility=visibility,
+                    visibility_warnings=combined_visibility_warnings,
+                    before=0,
+                    after=0,
+                )
+            except (NotFoundError, ValidationError, ValueError) as exc:
+                drops[chunk_id] = _candidate_read_drop_reason(exc)
+        return ManuscriptCandidateReadBatch(
+            reads_by_chunk_id=reads,
+            drop_reason_by_chunk_id=drops,
+            visibility=visibility,
+            warnings=combined_visibility_warnings,
+        )
+
+    async def _read_visible_source_ref(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        source_ref: SourceRangeRefContract,
+        visibility: VisibilityContextContract,
+        visibility_warnings: Sequence[str],
+        before: int,
+        after: int,
+    ) -> dict:
         from modules.writing.facade import read_manuscript_range
 
         item = await read_manuscript_range(
@@ -643,7 +799,6 @@ class NovelEvidenceService:
 
     async def _search_manuscript(self, db, **kwargs):
         from modules.rag.facade import get_index_freshness, retrieve
-        from modules.writing.facade import build_manuscript_range_ref
 
         visibility = kwargs["visibility"]
         requested_top_k = kwargs["top_k"]
@@ -673,68 +828,41 @@ class NovelEvidenceService:
         if freshness["stale"]:
             label = "工作稿" if kwargs["content_mode"] == "working" else "已发布正文"
             warnings.append(f"{label}索引更新中/需重建，过期片段不会返回")
-        from modules.writing.facade import list_manuscript_sources
-
-        chapter_indices = sorted(
-            {
-                int(chunk.chapter_index)
-                for chunk in result.chunks
-                if chunk.chapter_index is not None
-            }
-        )
-        current_sources = await list_manuscript_sources(
+        hydrated = await self._rehydrate_manuscript_candidates(
             db,
-            kwargs["novel_id"],
-            chapter_indices,
+            novel_id=kwargs["novel_id"],
             content_mode=kwargs["content_mode"],
+            visibility=visibility,
+            chunks=result.chunks,
         )
-        current_by_chapter = {source.chapter_index: source for source in current_sources}
+        visibility = hydrated.visibility
+        warnings.extend(hydrated.warnings)
         for chunk in result.chunks:
-            if (
-                chunk.source_type != "chapter_text"
-                or not chunk.source_id
-                or not chunk.source_content_hash
-                or chunk.start_offset is None
-                or chunk.end_offset is None
-            ):
-                continue
             if (
                 kwargs.get("chapter_from")
                 and (chunk.chapter_index or 0) < kwargs["chapter_from"]
             ):
                 continue
-            current = current_by_chapter.get(chunk.chapter_index or 0)
-            if (
-                current is None
-                or current.id != chunk.source_id
-                or current.content_hash != chunk.source_content_hash
-            ):
+            drop_reason = hydrated.drop_reason_by_chunk_id.get(str(chunk.id))
+            if drop_reason in {
+                "source_missing",
+                "source_id_mismatch",
+                "source_hash_mismatch",
+                "invalid_range",
+                "novel_id_mismatch",
+                "content_mode_mismatch",
+            }:
                 warnings.append("索引未跟上当前正文版本，旧片段已剔除")
                 continue
-            try:
-                source_ref = await build_manuscript_range_ref(
-                    db,
-                    kwargs["novel_id"],
-                    draft_id=chunk.source_id,
-                    start_offset=chunk.start_offset,
-                    end_offset=chunk.end_offset,
-                    content_mode=kwargs["content_mode"],
-                )
-            except Exception:
+            if drop_reason == "read_failed":
+                warnings.append("检索候选的原文引用已失效，已剔除")
                 continue
-            if source_ref.source_hash != chunk.source_content_hash:
-                warnings.append("检测到过期索引片段，已从结果中剔除")
+            if drop_reason is not None:
                 continue
-            if not _source_visible(asdict(source_ref), visibility):
+            read = hydrated.reads_by_chunk_id.get(str(chunk.id))
+            if read is None:
                 continue
-            read = await self.read(
-                db,
-                novel_id=kwargs["novel_id"],
-                source_ref=source_ref,
-                visibility=visibility,
-                before=0,
-                after=0,
-            )
+            source_ref = SourceRangeRefContract(**read["source_ref"])
             hits.append(
                 EvidenceHitContract(
                     kind="manuscript",
@@ -1125,6 +1253,7 @@ class NovelEvidenceService:
         novel_id: str,
         content_mode: str,
         visibility: VisibilityContextContract,
+        cutoff_source=_PRELOADED_SOURCE_UNSET,
     ) -> tuple[VisibilityContextContract, list[str]]:
         if visibility.mode == "author" or not visibility.cutoff_scene_id:
             return visibility, []
@@ -1138,13 +1267,16 @@ class NovelEvidenceService:
             visibility.cutoff_scene_id,
             content_mode=content_mode,
         )
-        sources = await list_manuscript_sources(
-            db,
-            novel_id,
-            [chapter],
-            content_mode=content_mode,
-        )
-        source = sources[0] if sources else None
+        if cutoff_source is _PRELOADED_SOURCE_UNSET:
+            sources = await list_manuscript_sources(
+                db,
+                novel_id,
+                [chapter],
+                content_mode=content_mode,
+            )
+            source = sources[0] if sources else None
+        else:
+            source = cutoff_source
         end_offsets = [
             int(span.end_offset)
             for span in spans
@@ -1231,6 +1363,40 @@ def _effective_chapter_to(
     if chapter_to is None:
         return visibility.cutoff_chapter
     return min(chapter_to, visibility.cutoff_chapter)
+
+
+def _candidate_source_drop_reason(
+    chunk: RagChunkContract,
+    source,
+    *,
+    novel_id: str,
+    content_mode: str,
+) -> str | None:
+    if str(chunk.novel_id) != str(novel_id):
+        return "novel_id_mismatch"
+    if chunk.content_mode != content_mode:
+        return "content_mode_mismatch"
+    if chunk.source_type != "chapter_text" or source is None:
+        return "source_missing"
+    if not chunk.source_id or source.id != chunk.source_id:
+        return "source_id_mismatch"
+    if not chunk.source_content_hash or source.content_hash != chunk.source_content_hash:
+        return "source_hash_mismatch"
+    if (
+        chunk.start_offset is None
+        or chunk.end_offset is None
+        or chunk.start_offset < 0
+        or chunk.end_offset <= chunk.start_offset
+    ):
+        return "invalid_range"
+    return None
+
+
+def _candidate_read_drop_reason(exc: Exception) -> str:
+    message = str(exc)
+    if "可见截止" in message or "超出当前可见" in message:
+        return "visibility_denied"
+    return "read_failed"
 
 
 def _source_visible(source_ref: dict, visibility: VisibilityContextContract) -> bool:

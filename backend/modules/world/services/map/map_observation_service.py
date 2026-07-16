@@ -36,7 +36,6 @@ from modules.world.map_schemas import (
     validate_map_observation_payload,
 )
 from modules.world.services.common import parse_uuid
-from modules.world.services.map.map_dynamic_lifecycle import MapDynamicLifecycle
 from modules.world.services.map.map_dynamic_projection import (
     canonical_dynamic_type,
     equivalent_dynamic_types,
@@ -45,13 +44,8 @@ from modules.world.services.map.map_dynamic_projection import (
 )
 
 
-class MapObservationService:
-    """Delegated dynamic-map service."""
-
-    def __init__(self, owner: MapDynamicLifecycle) -> None:
-        self.owner = owner
-        self._path_repo = MapPathRepository()
-        self._path_node_repo = MapPathNodeRepository()
+class MapObservationMixin:
+    """Internal observation lifecycle owned directly by MapDynamicFactService."""
 
     _MISSING_LABELS = {
         "map": "未选择地图",
@@ -109,7 +103,7 @@ class MapObservationService:
             missing.append("map")
         else:
             try:
-                config = await self.owner._ctx.require_map(
+                config = await self._ctx.require_map(
                     db,
                     novel_id,
                     str(observation.map_id),
@@ -132,7 +126,7 @@ class MapObservationService:
                     missing.append("target_entity")
             else:
                 try:
-                    target = await self.owner._ctx.require_entity(
+                    target = await self._ctx.require_entity(
                         db,
                         novel_id,
                         str(observation.target_entity_id),
@@ -159,7 +153,7 @@ class MapObservationService:
                 )
                 if location_id:
                     try:
-                        location = await self.owner._ctx.require_entity(
+                        location = await self._ctx.require_entity(
                             db,
                             novel_id,
                             str(location_id),
@@ -181,7 +175,7 @@ class MapObservationService:
             if value["type"] == "boundary":
                 controller = None
                 try:
-                    controller = await self.owner._ctx.require_entity(
+                    controller = await self._ctx.require_entity(
                         db,
                         novel_id,
                         value["controller_entity_id"],
@@ -248,7 +242,7 @@ class MapObservationService:
         novel_id: str,
         observation_id: uuid.UUID,
     ) -> None:
-        latest = await self.owner._observation_repo.get(db, observation_id)
+        latest = await self._observation_repo.get(db, observation_id)
         context: dict[str, Any] = {}
         if latest is not None and latest.novel_id == parse_uuid(novel_id, "novel_id"):
             context["latest"] = (await self._response(db, novel_id, latest)).model_dump(
@@ -287,7 +281,7 @@ class MapObservationService:
         if payload is None:
             canonical_type = canonical_dynamic_type(dynamic_type)
             if canonical_type == "location" and value.get("location_entity_id"):
-                location = await self.owner._ctx.require_entity(
+                location = await self._ctx.require_entity(
                     db,
                     novel_id,
                     str(value["location_entity_id"]),
@@ -308,7 +302,7 @@ class MapObservationService:
             ):
                 raw_entity_ids.extend(str(item) for item in value["related_entity_ids"])
             if raw_entity_ids:
-                await self.owner._ctx.require_entities(
+                await self._ctx.require_entities(
                     db,
                     novel_id,
                     raw_entity_ids,
@@ -345,7 +339,7 @@ class MapObservationService:
         entity_ids: list[str] = []
         value_type = payload["type"]
         if value_type == "location" and payload.get("location_entity_id"):
-            location = await self.owner._ctx.require_entity(
+            location = await self._ctx.require_entity(
                 db,
                 novel_id,
                 payload["location_entity_id"],
@@ -361,7 +355,7 @@ class MapObservationService:
                 entity_ids.append(payload[key])
         entity_ids.extend(payload.get("related_entity_ids") or [])
         if entity_ids:
-            await self.owner._ctx.require_entities(db, novel_id, entity_ids)
+            await self._ctx.require_entities(db, novel_id, entity_ids)
 
         path_id = payload.get("path_id")
         if path_id:
@@ -420,7 +414,7 @@ class MapObservationService:
         *,
         require_active_path: bool = True,
     ) -> dict[str, Any]:
-        payload = self.owner._spatial_anchor_payload(spatial_anchor)
+        payload = self._spatial_anchor_payload(spatial_anchor)
         path_id = payload.get("path_id")
         if path_id:
             payload.setdefault("map_id", str(config.id))
@@ -431,7 +425,7 @@ class MapObservationService:
             )
         location_entity_id = payload.get("location_entity_id")
         if location_entity_id:
-            location = await self.owner._ctx.require_entity(
+            location = await self._ctx.require_entity(
                 db,
                 novel_id,
                 location_entity_id,
@@ -470,9 +464,7 @@ class MapObservationService:
                     "已归档线路不能用于新的待处理观察",
                     code="map_path_archived",
                 )
-        return self.owner._spatial_anchor_payload(
-            MapSpatialAnchor.model_validate(payload)
-        )
+        return self._spatial_anchor_payload(MapSpatialAnchor.model_validate(payload))
 
     async def _fact_anchor_snapshot(
         self,
@@ -484,7 +476,7 @@ class MapObservationService:
         dynamic_type: str,
         value_json: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        config = await self.owner._ctx.require_map(db, novel_id, str(map_id))
+        config = await self._ctx.require_map(db, novel_id, str(map_id))
         payload = await self._validated_anchor(
             db,
             novel_id,
@@ -539,9 +531,7 @@ class MapObservationService:
         )
         if representative is not None:
             payload["representative_q"], payload["representative_r"] = representative
-        return self.owner._spatial_anchor_payload(
-            MapSpatialAnchor.model_validate(payload)
-        )
+        return self._spatial_anchor_payload(MapSpatialAnchor.model_validate(payload))
 
     @staticmethod
     def _path_midpoint(nodes: list[Any]) -> tuple[float, float]:
@@ -640,7 +630,7 @@ class MapObservationService:
         skip: int = 0,
         limit: int = 100,
     ) -> MapObservationListResponse:
-        owner = self.owner
+        owner = self
         mid = None
         if map_id:
             await owner._ctx.require_map(db, novel_id, map_id)
@@ -679,7 +669,7 @@ class MapObservationService:
             await self._validated_scene(db, novel_id, scene_id, None)
             scene_uuid = parse_uuid(scene_id, "scene_id")
         advanced_filters = any((source, confidence, eligibility))
-        items, total = await self.owner._observation_repo.list_project_inbox(
+        items, total = await self._observation_repo.list_project_inbox(
             db,
             nid,
             dynamic_types=(
@@ -722,7 +712,7 @@ class MapObservationService:
         map_id: str,
         data: MapObservationCreate,
     ) -> MapObservationResponse:
-        owner = self.owner
+        owner = self
         config = await owner._ctx.require_map(db, novel_id, map_id)
         if data.target_entity_id:
             await owner._ctx.require_entity(db, novel_id, data.target_entity_id)
@@ -762,7 +752,7 @@ class MapObservationService:
         data: MapObservationAuthorUpdate,
         required_map_id: str | None = None,
     ) -> MapObservationResponse:
-        owner = self.owner
+        owner = self
         nid = parse_uuid(novel_id, "novel_id")
         oid = parse_uuid(observation_id, "observation_id")
         observation = await owner._observation_repo.get(db, oid)
@@ -928,7 +918,7 @@ class MapObservationService:
         observation_id: str,
         data: MapObservationAssignmentRequest,
     ) -> MapObservationResponse:
-        owner = self.owner
+        owner = self
         nid = parse_uuid(novel_id, "novel_id")
         oid = parse_uuid(observation_id, "observation_id")
         observation = await owner._observation_repo.get(db, oid)
@@ -1007,7 +997,7 @@ class MapObservationService:
         observation_id: str,
         data: MapObservationRevisionRequest,
     ) -> MapFactResponse:
-        owner = self.owner
+        owner = self
         await owner._ctx.require_map(db, novel_id, map_id)
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
@@ -1110,7 +1100,7 @@ class MapObservationService:
         map_id: str,
         data: MapObservationBatchReviewRequest,
     ) -> MapObservationBatchReviewResponse:
-        owner = self.owner
+        owner = self
         await owner._ctx.require_map(db, novel_id, map_id)
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
@@ -1327,7 +1317,7 @@ class MapObservationService:
         if not candidates:
             return MapObservationCandidateBatchResult()
 
-        owner = self.owner
+        owner = self
         nid = parse_uuid(novel_id, "novel_id")
         prepared: dict[
             uuid.UUID,
@@ -1544,7 +1534,7 @@ class MapObservationService:
         该方法宽容处理不完整 LLM 输出：缺失地图、实体或空间锚点时仍保留候选
         观察，但不会写入可疑跨 novel_id 的实体引用。
         """
-        owner = self.owner
+        owner = self
 
         nid = parse_uuid(novel_id, "novel_id")
         meta = event.get("meta") or {}
@@ -1726,3 +1716,18 @@ class MapObservationService:
         }
         observation = await owner._observation_repo.create(db, nid, values)
         return await self._response(db, novel_id, observation)
+
+
+class MapObservationService(MapObservationMixin):
+    """Compatibility adapter for former owner-bound imports."""
+
+    def __init__(self, owner) -> None:
+        self._owner = owner
+        self._path_repo = MapPathRepository()
+        self._path_node_repo = MapPathNodeRepository()
+
+    def __getattr__(self, name):
+        return getattr(self._owner, name)
+
+
+__all__ = ["MapObservationMixin", "MapObservationService"]

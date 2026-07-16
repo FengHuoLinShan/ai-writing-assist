@@ -100,6 +100,11 @@ World Bible 页面是作者组织和解释世界事实的手册层；`CoreEntity
    `POST /api/world/generation-center/suggestions/{id}/apply-page-draft` 落服务器工作稿；
    generic `/confirm` 明确拒绝该 suggestion target，AI 不能直接发布页面或改写 canonical。
 
+`WorldBibleLifecycleService` 统一拥有正式页创建/更新、工作稿发布、revision、projection /
+简介 / context 失效，以及生成中心使用的页面/工作稿 source baseline。生成建议与应用建议
+复用同一内容 hash、draft identity 和更新时间比较；`WorldBibleService` 只保留页面查询与
+projection 任务编排，激活解析不再调用它的私有 hash helper。
+
 编辑器始终显示主操作“保存并发布”；即使当前只打开正式页、尚未显式创建工作稿，也会先
 保存服务器工作稿再发布。单独的“保存工作稿”只保存，不改变正式页。
 
@@ -480,9 +485,10 @@ class ResolveResult:
 - `map_layer_tree.py`：递归图层树、继承锁定/显隐/透明度/缩放及旧 terrain 字段兼容投影。
 - `map_path.py`：连续道路/水系、控制点、端点吸附、归档恢复、容量与路径引用影响统计。
 - `map_entity_presence.py`：世界对象跨 active 地图的只读空间 presence 聚合。
-- `map_dynamic_service.py`：保留 `MapDynamicFactService` 名称，作为 observation、fact、dashboard、playback、open target 的兼容 facade。
-- `map_observation_service.py` / `map_fact_service.py`：观察事实候选、确认流转和正式事实状态。
-- `map_dashboard_service.py` / `map_playback_service.py` / `map_open_target_service.py`：只读派生视图、播放事件流和地图打开目标。
+- `map_dynamic_service.py`：`MapDynamicFactService` 是 observation、fact、dashboard、playback、open target 的深层生命周期拥有者，并保留原稳定方法表面。
+- `map_observation_service.py` / `map_fact_service.py`：观察事实候选、确认流转和正式事实状态的内部 mixin；旧 helper 类只作 import/test 兼容。
+- `map_dashboard_service.py` / `map_playback_service.py` / `map_open_target_service.py`：只读派生视图、播放事件流和地图打开目标的内部 mixin。
+- `map_timeline_service.py`：以明确 context/repository 依赖保留独立时间线投影；不依赖 owner Protocol。
 - `map_dynamic_helpers.py`：动态地图 formatter、risk/priority/label、UUID 安全解析、空间锚点校验等私有 helper。
 - `map_state_assembler.py`、`map_scene_summary.py`、`map_terrain.py`、`map_location_layout.py`、`map_quick_create.py`：独立地图入口，不通过 `map_service.py` 承载业务实现。
 

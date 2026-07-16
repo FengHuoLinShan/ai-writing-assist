@@ -19,9 +19,6 @@ from modules.imports.entity_extraction.scene_entity_config import (
     PHASE2_SMALL_SAMPLE_SUPPLEMENT_TIMEOUT_SECONDS,
     PHASE2_SMALL_SAMPLE_TARGET_ENTITIES,
 )
-from modules.imports.entity_extraction.scene_entity_runtime import (
-    SceneEntityExtractionRuntime,
-)
 from modules.imports.entity_extraction.scene_entity_text import (
     scene_chapter_indices,
     scene_text_from_drafts,
@@ -80,13 +77,10 @@ def bulk_entity_memory_context(scenes: list[dict[str, Any]]) -> str:
     return base
 
 
-class BulkSceneEntityExtractor:
-    """Runs bulk extraction and small-sample supplementation."""
+class BulkSceneEntityExtractionMixin:
+    """Internal bulk and small-sample Phase 2a implementation."""
 
-    def __init__(self, service: SceneEntityExtractionRuntime) -> None:
-        self.service = service
-
-    async def run(
+    async def _process_scenes_bulk(
         self,
         db: AsyncSession,
         nid,
@@ -96,7 +90,7 @@ class BulkSceneEntityExtractor:
         workflow_id: str | None = None,
         authorization_snapshot: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        service = self.service
+        service = self
         first_scene = scenes[0]
         source_chapter_index = service._scene_source_chapter_index(first_scene)
         from modules.writing.facade import list_latest_drafts_for_chapters
@@ -281,7 +275,7 @@ class BulkSceneEntityExtractor:
             "input_fingerprints": input_fingerprints,
         }
 
-    async def supplement_small_sample(
+    async def _supplement_small_sample_entities(
         self,
         db: AsyncSession,
         nid,
@@ -290,7 +284,7 @@ class BulkSceneEntityExtractor:
         current_count: int,
         workflow_id: str | None,
     ) -> dict[str, Any]:
-        service = self.service
+        service = self
         if len(scenes) < PHASE2_SMALL_SAMPLE_MIN_SCENES:
             return {
                 "created": 0,
@@ -401,7 +395,7 @@ class BulkSceneEntityExtractor:
             "supplemental_error_kind": supplemental_error_kind,
         }
 
-    async def supplement_with_llm(
+    async def _supplement_small_sample_entities_with_llm(
         self,
         db: AsyncSession,
         nid,
@@ -410,7 +404,7 @@ class BulkSceneEntityExtractor:
         needed: int,
         workflow_id: str | None,
     ) -> dict[str, Any]:
-        service = self.service
+        service = self
         chapters_text = await service._load_small_sample_chapters_text(db, scenes)
         if not chapters_text:
             return {"created": 0, "created_entity_ids": []}
@@ -478,7 +472,7 @@ class BulkSceneEntityExtractor:
             "created_entity_ids": service._result_ref_ids(result_refs, "core_entity"),
         }
 
-    async def call_bulk_llm_extractions(
+    async def _call_bulk_llm_extractions(
         self,
         scene_texts: list[str],
         existing_context: str,
@@ -489,7 +483,7 @@ class BulkSceneEntityExtractor:
     ) -> (
         list[SceneEntityExtractionOutput] | list[tuple[int, SceneEntityExtractionOutput]]
     ):
-        service = self.service
+        service = self
         groups = [
             scene_texts[index : index + PHASE2_BULK_GROUP_SIZE]
             for index in range(0, len(scene_texts), PHASE2_BULK_GROUP_SIZE)
@@ -534,3 +528,43 @@ class BulkSceneEntityExtractor:
             RuntimeError("bulk phase2 produced no extraction results"),
         )
         raise first_error
+
+
+class BulkSceneEntityExtractor(BulkSceneEntityExtractionMixin):
+    """Compatibility adapter for the former helper class."""
+
+    def __init__(self, service) -> None:
+        self.service = service
+
+    def __getattr__(self, name):
+        return getattr(self.service, name)
+
+    async def run(self, *args, **kwargs):
+        return await BulkSceneEntityExtractionMixin._process_scenes_bulk(
+            self.service,
+            *args,
+            **kwargs,
+        )
+
+    async def supplement_small_sample(self, *args, **kwargs):
+        return await BulkSceneEntityExtractionMixin._supplement_small_sample_entities(
+            self.service,
+            *args,
+            **kwargs,
+        )
+
+    async def supplement_with_llm(self, *args, **kwargs):
+        return await (
+            BulkSceneEntityExtractionMixin._supplement_small_sample_entities_with_llm(
+                self.service,
+                *args,
+                **kwargs,
+            )
+        )
+
+    async def call_bulk_llm_extractions(self, *args, **kwargs):
+        return await BulkSceneEntityExtractionMixin._call_bulk_llm_extractions(
+            self.service,
+            *args,
+            **kwargs,
+        )

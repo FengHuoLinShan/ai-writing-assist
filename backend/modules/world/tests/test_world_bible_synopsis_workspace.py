@@ -49,19 +49,21 @@ class _FakeSynopsisClient:
 
     async def generate_structured(self, _request, schema, **_kwargs):
         return schema(
-            sections=[{
-                "title": "世界结构",
-                "claims": [
+            sections=[
                 {
-                    "text": "星海帝国建立于长夜之后。",
-                    "source_keys": self.source_keys,
-                },
-                {
-                    "text": "这条声明没有合法来源，应被丢弃。",
-                    "source_keys": ["K-missing"],
-                },
-                ],
-            }],
+                    "title": "世界结构",
+                    "claims": [
+                        {
+                            "text": "星海帝国建立于长夜之后。",
+                            "source_keys": self.source_keys,
+                        },
+                        {
+                            "text": "这条声明没有合法来源，应被丢弃。",
+                            "source_keys": ["K-missing"],
+                        },
+                    ],
+                }
+            ],
             omitted_reasons=[],
         )
 
@@ -152,11 +154,18 @@ async def _prepare_synopsis_task(
     head.stale = True
     await db_session.flush()
     db_session.expunge(task)
-    return task, page, source_hash, [{
-        "type": source["type"],
-        "id": source["id"],
-        "source_key": source["source_key"],
-    }]
+    return (
+        task,
+        page,
+        source_hash,
+        [
+            {
+                "type": source["type"],
+                "id": source["id"],
+                "source_key": source["source_key"],
+            }
+        ],
+    )
 
 
 def _task_handler_session(
@@ -1063,7 +1072,7 @@ async def test_suggestion_edit_applies_to_working_draft_only(
     )
     page = await lifecycle.publish_draft(db_session, project_novel_id, source.id)
     queue = SuggestionQueueService()
-    baseline_hash = queue._world_bible_source_hash(
+    baseline_hash = lifecycle.source_content_hash(
         title=page.title,
         page_type=page.page_type,
         free_text=page.free_text,
@@ -1148,7 +1157,7 @@ async def test_suggestion_explicit_empty_page_text_does_not_restore_ai_text(
     )
     page = await lifecycle.publish_draft(db_session, project_novel_id, source.id)
     queue = SuggestionQueueService()
-    baseline_hash = queue._world_bible_source_hash(
+    baseline_hash = lifecycle.source_content_hash(
         title=page.title,
         page_type=page.page_type,
         free_text=page.free_text,
@@ -1197,7 +1206,7 @@ async def test_suggestion_explicit_empty_page_text_does_not_restore_ai_text(
                 sections_json=[],
                 linked_asset_refs_json=[],
             )
-        )
+        ),
     )
 
     canonical = await db_session.get(WorldBiblePage, uuid.UUID(page.id))
@@ -1272,17 +1281,19 @@ async def test_synopsis_uses_fallback_when_all_claims_are_unsupported() -> None:
     )
     assert claims == [
         {
-            "claims": [{
-                "source_keys": ["K1"],
-                "source_refs": [
-                    {
-                        "id": "page-1",
-                        "source_hash": None,
-                        "type": "world_bible_page",
-                    }
-                ],
-                "text": "世界背景：星海帝国建立于长夜之后。",
-            }],
+            "claims": [
+                {
+                    "source_keys": ["K1"],
+                    "source_refs": [
+                        {
+                            "id": "page-1",
+                            "source_hash": None,
+                            "type": "world_bible_page",
+                        }
+                    ],
+                    "text": "世界背景：星海帝国建立于长夜之后。",
+                }
+            ],
             "title": "世界观参考",
         }
     ]

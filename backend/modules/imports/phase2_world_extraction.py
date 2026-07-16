@@ -85,7 +85,7 @@ class _WindowWorldResult(BaseModel):
     owned_scene_ids: list[str] = Field(default_factory=list)
 
 
-class Phase2WorldExtractor:
+class Phase2WorldExtractor(SceneEntityExtractionService):
     """Extract durable world assets from Phase1b Scenes and chapter text."""
 
     def __init__(
@@ -107,7 +107,6 @@ class Phase2WorldExtractor:
                 default=PHASE2_WORLD_WINDOW_CONCURRENCY,
             ),
         )
-        self._legacy = SceneEntityExtractionService()
 
     async def run(
         self,
@@ -123,8 +122,8 @@ class Phase2WorldExtractor:
     ) -> dict[str, Any]:
         del existing_checkpoints
         nid = parse_uuid(novel_id, "novel_id")
-        scenes = self._legacy._filter_scenes_by_range(
-            await self._legacy._get_scenes(db, nid),
+        scenes = self._filter_scenes_by_range(
+            await self._get_scenes(db, nid),
             start_chapter=start_chapter,
             end_chapter=end_chapter,
         )
@@ -184,13 +183,13 @@ class Phase2WorldExtractor:
             workflow_id=workflow_id,
             authorization_snapshot=authorization_snapshot,
         )
-        flush_status = await self._legacy._phase2_flush_with_timeout(db)
-        audit_summary = await self._legacy._phase2_audit_summary(
+        flush_status = await self._phase2_flush_with_timeout(db)
+        audit_summary = await self._phase2_audit_summary(
             db,
             str(nid),
             workflow_id=workflow_id,
         )
-        snapshot_health_summary = await self._legacy._phase2_snapshot_health_summary(
+        snapshot_health_summary = await self._phase2_snapshot_health_summary(
             db,
             str(nid),
             workflow_id=workflow_id,
@@ -208,7 +207,7 @@ class Phase2WorldExtractor:
         ]
         completed_scenes = len(completed_scene_ids)
         checkpoints = _checkpoints(
-            self._legacy,
+            self,
             scenes,
             window_results,
             workflow_id=workflow_id,
@@ -481,7 +480,7 @@ class Phase2WorldExtractor:
                     continue
                 entities = [_to_extracted_entity(item)]
                 total_aliases += len(item.aliases or [])
-                total_created += await self._legacy._persist_entities(
+                total_created += await self._persist_entities(
                     db,
                     nid,
                     entities,
@@ -490,7 +489,7 @@ class Phase2WorldExtractor:
                     seen_entity_keys=seen_entity_keys,
                     workflow_id=workflow_id,
                     scene_id=_scene_id(scene),
-                    scene_provenance_key=self._legacy._scene_provenance_key(
+                    scene_provenance_key=self._scene_provenance_key(
                         workflow_id,
                         scene,
                     ),
@@ -498,7 +497,7 @@ class Phase2WorldExtractor:
                     persistence_stats=persistence_stats,
                 )
 
-        await self._legacy._phase2_flush_with_timeout(db)
+        await self._phase2_flush_with_timeout(db)
 
         for result in window_results:
             if result.final_status != "success":
@@ -508,7 +507,7 @@ class Phase2WorldExtractor:
                 if scene is None:
                     uncertain_count += 1
                     continue
-                total_relations += await self._legacy._persist_relations(
+                total_relations += await self._persist_relations(
                     db,
                     nid,
                     [_to_extracted_relation(relation)],
@@ -522,14 +521,14 @@ class Phase2WorldExtractor:
                 if scene is None:
                     uncertain_count += 1
                     continue
-                total_deltas += await self._legacy._record_deltas(
+                total_deltas += await self._record_deltas(
                     db,
                     nid,
                     [_to_delta_event(delta)],
                     _scene_index(scene),
                     workflow_id=workflow_id,
                     scene_id=_scene_id(scene),
-                    scene_provenance_key=self._legacy._scene_provenance_key(
+                    scene_provenance_key=self._scene_provenance_key(
                         workflow_id,
                         scene,
                     ),
@@ -548,7 +547,7 @@ class Phase2WorldExtractor:
                 proposals_by_scene.setdefault(_scene_id(scene), []).append(proposal)
             for proposal_scene_id, proposals in proposals_by_scene.items():
                 scene = scenes_by_id[proposal_scene_id]
-                counts = await self._legacy._record_map_observation_proposals(
+                counts = await self._record_map_observation_proposals(
                     db,
                     nid,
                     proposals,

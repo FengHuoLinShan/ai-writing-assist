@@ -412,29 +412,28 @@ if (!apiContractHelpers) {
   throw new Error("apiContracts.js must load before api.js")
 }
 
-function contractOptions(name, options = {}) {
-  const contract = apiContractHelpers.getApiContract(name)
-  return {
-    timeout: contract.timeout,
-    ...options,
-  }
-}
-
 function contractPath(name, params = {}, query = {}) {
   return apiContractHelpers.contractPath(name, params, query)
 }
 
 function contractFetch(name, params = {}, query = {}, options = {}) {
-  const contract = apiContractHelpers.getApiContract(name)
-  return request(contractPath(name, params, query), {
-    method: contract.method,
-    ...contractOptions(name, options),
-  })
+  const contractRequest = apiContractHelpers.contractRequest(
+    name,
+    params,
+    query,
+    options,
+  )
+  return request(contractRequest.path, contractRequest.options)
 }
 
 function contractJson(name, params = {}, query = {}, payload, options = {}) {
-  const contract = apiContractHelpers.getApiContract(name)
-  return jsonRequest(contractPath(name, params, query), contract.method, payload, contractOptions(name, options))
+  const contractRequest = apiContractHelpers.contractRequest(
+    name,
+    params,
+    query,
+    { ...options, body: payload },
+  )
+  return request(contractRequest.path, contractRequest.options)
 }
 
 // ============================================================

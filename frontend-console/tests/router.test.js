@@ -35,6 +35,19 @@ function registerBasicView(name) {
 }
 
 describe("renderCurrentView error handling", () => {
+  it("stamps route markers for view-scoped presentation without changing rendered markup", async () => {
+    const content = addWorkspace()
+    registerBasicView("world")
+    state.currentView = "world"
+    state.currentSubView = "bible"
+
+    await window.router.renderCurrentView()
+
+    expect(content.dataset.workspaceView).toBe("world")
+    expect(content.dataset.workspaceSubview).toBe("bible")
+    expect(content.innerHTML).toContain("world:bible")
+  })
+
   it("does not let an older async render overwrite the current route", async () => {
     const content = addWorkspace()
     let resolveOld

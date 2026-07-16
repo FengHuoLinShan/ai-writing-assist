@@ -405,6 +405,11 @@ async function renderCurrentView() {
   const subView = state.currentSubView || ""
   const content = document.getElementById("workspace-content")
   if (!content) return
+  // Keep visual scoping independent from rendered copy and business data. The
+  // editorial theme uses these route markers to tune dense workspaces without
+  // changing their DOM contracts or interaction handlers.
+  content.dataset.workspaceView = viewName || "unknown"
+  content.dataset.workspaceSubview = subView || "root"
   const isCurrentRender = () => (
     renderGeneration === _renderGeneration
     && state.currentView === viewName

@@ -82,6 +82,11 @@ def test_bootstrap_registers_app_and_worker_services():
     for service_name in expected_services:
         assert get(service_name) is not None
 
+    alias_relation_port = get("world.run_alias_relation_extraction")
+    assert callable(alias_relation_port.prepare_alias_relation_task)
+    assert callable(alias_relation_port.execute_alias_relation_task)
+    assert callable(alias_relation_port.finalize_alias_relation_task)
+
 
 def test_bootstrap_duplicate_register_raises_by_default():
     from app.bootstrap import register_container_services

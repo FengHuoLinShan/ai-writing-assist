@@ -8,14 +8,10 @@ from modules.world.map_schemas import (
     MapFactStatusUpdate,
 )
 from modules.world.services.common import parse_uuid
-from modules.world.services.map.map_dynamic_lifecycle import MapDynamicLifecycle
 
 
-class MapFactService:
-    """Delegated dynamic-map service."""
-
-    def __init__(self, owner: MapDynamicLifecycle) -> None:
-        self.owner = owner
+class MapFactMixin:
+    """Internal fact lifecycle owned directly by MapDynamicFactService."""
 
     async def list_facts(
         self,
@@ -27,7 +23,7 @@ class MapFactService:
         skip: int = 0,
         limit: int = 100,
     ) -> MapFactListResponse:
-        owner = self.owner
+        owner = self
         mid = None
         if map_id:
             await owner._ctx.require_map(db, novel_id, map_id)
@@ -55,7 +51,7 @@ class MapFactService:
         fact_id: str,
         data: MapFactStatusUpdate,
     ) -> MapFactResponse:
-        owner = self.owner
+        owner = self
         await owner._ctx.require_map(db, novel_id, map_id)
         nid = parse_uuid(novel_id, "novel_id")
         mid = parse_uuid(map_id, "map_id")
@@ -75,3 +71,16 @@ class MapFactService:
             source_id=fact_id,
         )
         return MapFactResponse.model_validate(updated)
+
+
+class MapFactService(MapFactMixin):
+    """Compatibility adapter for former owner-bound imports."""
+
+    def __init__(self, owner) -> None:
+        self._owner = owner
+
+    def __getattr__(self, name):
+        return getattr(self._owner, name)
+
+
+__all__ = ["MapFactMixin", "MapFactService"]

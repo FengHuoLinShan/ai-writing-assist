@@ -15,6 +15,8 @@ from modules.context.facade import (
     search_novel_evidence,
     trace_novel_evidence,
 )
+from modules.context.novel_evidence import NovelEvidenceService
+from modules.rag.contracts import RagChunkContract
 from modules.writing.contracts import SourceRangeRefContract
 from modules.writing.facade import create_published_draft_only, grep_manuscript
 
@@ -182,6 +184,211 @@ async def test_trace_rehydrates_valid_original_text(
     assert len(trace["links"]) == 1
     assert "密钥藏在钟后" in trace["links"][0]["read"]["text"]
     assert trace["links"][0]["source_ref"]["range_hash"]
+
+
+@pytest.mark.asyncio
+async def test_rag_candidate_rehydration_uses_current_source_and_visibility(
+    db_session,
+    test_project_id,
+    monkeypatch,
+) -> None:
+    visible_text = "当前章节的铜铃线索。"
+    hidden_text = "未来章节的黑日密钥。"
+    visible = await create_published_draft_only(
+        db_session,
+        test_project_id,
+        30,
+        "第三十章",
+        visible_text,
+    )
+    hidden = await create_published_draft_only(
+        db_session,
+        test_project_id,
+        31,
+        "第三十一章",
+        hidden_text,
+    )
+    good_id = str(uuid.uuid4())
+    stale_id = str(uuid.uuid4())
+    hidden_id = str(uuid.uuid4())
+    foreign_id = str(uuid.uuid4())
+    wrong_mode_id = str(uuid.uuid4())
+    chunks = [
+        RagChunkContract(
+            id=good_id,
+            novel_id=test_project_id,
+            source_type="chapter_text",
+            source_id=visible.id,
+            source_content_hash=visible.content_hash,
+            content_mode="canonical",
+            chapter_index=30,
+            start_offset=0,
+            end_offset=len(visible_text),
+            text="过期缓存",
+        ),
+        RagChunkContract(
+            id=stale_id,
+            novel_id=test_project_id,
+            source_type="chapter_text",
+            source_id=visible.id,
+            source_content_hash="f" * 64,
+            content_mode="canonical",
+            chapter_index=30,
+            start_offset=0,
+            end_offset=len(visible_text),
+            text="过期缓存",
+        ),
+        RagChunkContract(
+            id=hidden_id,
+            novel_id=test_project_id,
+            source_type="chapter_text",
+            source_id=hidden.id,
+            source_content_hash=hidden.content_hash,
+            content_mode="canonical",
+            chapter_index=31,
+            start_offset=0,
+            end_offset=len(hidden_text),
+            text="越界缓存",
+        ),
+        RagChunkContract(
+            id=foreign_id,
+            novel_id=str(uuid.uuid4()),
+            source_type="chapter_text",
+            source_id=visible.id,
+            source_content_hash=visible.content_hash,
+            content_mode="canonical",
+            chapter_index=30,
+            start_offset=0,
+            end_offset=len(visible_text),
+            text="跨项目伪造候选",
+        ),
+        RagChunkContract(
+            id=wrong_mode_id,
+            novel_id=test_project_id,
+            source_type="chapter_text",
+            source_id=visible.id,
+            source_content_hash=visible.content_hash,
+            content_mode="working",
+            chapter_index=30,
+            start_offset=0,
+            end_offset=len(visible_text),
+            text="错误正文模式候选",
+        ),
+    ]
+
+    batch = await NovelEvidenceService().rehydrate_manuscript_candidates(
+        db_session,
+        novel_id=test_project_id,
+        content_mode="canonical",
+        visibility=VisibilityContextContract(mode="reader", cutoff_chapter=30),
+        chunks=chunks,
+    )
+
+    assert batch.reads_by_chunk_id[good_id]["text"] == visible_text
+    assert batch.drop_reason_by_chunk_id == {
+        stale_id: "source_hash_mismatch",
+        hidden_id: "visibility_denied",
+        foreign_id: "novel_id_mismatch",
+        wrong_mode_id: "content_mode_mismatch",
+    }
+
+    service = NovelEvidenceService()
+
+    async def fail_original_read(*_args, **_kwargs):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(service, "_read_visible_source_ref", fail_original_read)
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        await service.rehydrate_manuscript_candidates(
+            db_session,
+            novel_id=test_project_id,
+            content_mode="canonical",
+            visibility=VisibilityContextContract(mode="author"),
+            chunks=[chunks[0]],
+        )
+
+
+@pytest.mark.asyncio
+async def test_scene_cursor_rebinds_to_candidate_batch_source_version(
+    db_session,
+    test_project_id,
+) -> None:
+    from modules.outline.facade import bind_scene_spans_to_source
+    from modules.outline.repositories import SceneRepository
+    from modules.outline.schemas import SceneCreate
+    from modules.writing.facade import create_draft_only
+
+    old_text = "截止 Scene 只包含铜铃。"
+    old_draft = await create_draft_only(
+        db_session,
+        test_project_id,
+        40,
+        content=old_text,
+    )
+    scene = await SceneRepository().create(
+        db_session,
+        uuid.UUID(test_project_id),
+        SceneCreate(
+            scene_index=40,
+            title="铜铃截止点",
+            chapter_ids=["40"],
+            scene_chunks=[
+                {
+                    "chapter_index": 40,
+                    "start_offset": 0,
+                    "end_offset": len(old_text),
+                }
+            ],
+            status="canonical",
+        ),
+    )
+    await bind_scene_spans_to_source(
+        db_session,
+        novel_id=test_project_id,
+        chapter_index=40,
+        content_mode="working",
+        source_draft_id=old_draft.id or "",
+        source_content_hash=old_draft.content_hash,
+        content=old_text,
+    )
+    new_text = "铜铃之后新增了尚未重锚的黑日密钥。"
+    new_draft = await create_draft_only(
+        db_session,
+        test_project_id,
+        40,
+        content=new_text,
+    )
+    chunk_id = str(uuid.uuid4())
+
+    batch = await NovelEvidenceService().rehydrate_manuscript_candidates(
+        db_session,
+        novel_id=test_project_id,
+        content_mode="working",
+        visibility=VisibilityContextContract(
+            mode="reader",
+            cutoff_chapter=40,
+            cutoff_scene_id=str(scene.id),
+        ),
+        chunks=[
+            RagChunkContract(
+                id=chunk_id,
+                novel_id=test_project_id,
+                source_type="chapter_text",
+                source_id=new_draft.id,
+                source_content_hash=new_draft.content_hash,
+                content_mode="working",
+                chapter_index=40,
+                start_offset=0,
+                end_offset=len(new_text),
+                text="不应直接信任的索引文本",
+            )
+        ],
+    )
+
+    assert batch.reads_by_chunk_id == {}
+    assert batch.drop_reason_by_chunk_id == {chunk_id: "visibility_denied"}
+    assert batch.visibility.cutoff_offset == 0
+    assert any("保守排除" in warning for warning in batch.warnings)
 
 
 @pytest.mark.asyncio

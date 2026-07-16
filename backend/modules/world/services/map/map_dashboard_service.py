@@ -6,14 +6,10 @@ from modules.world.map_schemas import (
     MapDashboardResponse,
 )
 from modules.world.services.common import parse_uuid
-from modules.world.services.map.map_dynamic_lifecycle import MapDynamicLifecycle
 
 
-class MapDashboardService:
-    """Delegated dynamic-map service."""
-
-    def __init__(self, owner: MapDynamicLifecycle) -> None:
-        self.owner = owner
+class MapDashboardMixin:
+    """Internal dashboard projection owned by MapDynamicFactService."""
 
     async def get_dashboard(
         self,
@@ -25,7 +21,7 @@ class MapDashboardService:
         focus_entity_id: str | None = None,
         focus_item_id: str | None = None,
     ) -> MapDashboardResponse:
-        owner = self.owner
+        owner = self
         """构建世界动态总控台派生视图。"""
         await owner._ctx.require_map(db, novel_id, map_id)
         nid = parse_uuid(novel_id, "novel_id")
@@ -84,3 +80,16 @@ class MapDashboardService:
             batch_groups=owner._build_batch_groups(dashboard_queue),
             risk_summary=risk_summary,
         )
+
+
+class MapDashboardService(MapDashboardMixin):
+    """Compatibility adapter for former owner-bound imports."""
+
+    def __init__(self, owner) -> None:
+        self._owner = owner
+
+    def __getattr__(self, name):
+        return getattr(self._owner, name)
+
+
+__all__ = ["MapDashboardMixin", "MapDashboardService"]

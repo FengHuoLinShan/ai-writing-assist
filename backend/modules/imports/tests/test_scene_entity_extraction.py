@@ -54,6 +54,15 @@ from modules.imports.llm_schemas import (
 from modules.writing.contracts import WritingDraftContract
 
 
+def test_phase2_runtime_protocol_remains_import_compatible() -> None:
+    from modules.imports.entity_extraction import SceneEntityExtractionRuntime
+    from modules.imports.entity_extraction.scene_entity_runtime import (
+        SceneEntityExtractionRuntime as RuntimeFromModule,
+    )
+
+    assert SceneEntityExtractionRuntime is RuntimeFromModule
+
+
 class _FakeSavepoint:
     async def __aenter__(self):
         return self
@@ -1044,8 +1053,8 @@ async def test_persist_entities_skips_duplicate_names_in_phase() -> None:
             return_value={"id": "entity-1"},
         ) as create_entity,
         patch(
-            "modules.imports.entity_extraction.scene_entity_persistence."
-            "SceneEntityPersistenceGateway._record_quote_evidence",
+            "modules.imports.entity_extraction.scene_entity_extraction."
+            "SceneEntityExtractionService._record_quote_evidence",
             autospec=True,
         ),
     ):
@@ -1234,8 +1243,8 @@ async def test_persist_relations_resolves_entities_in_one_batch() -> None:
             return_value={"action": "created", "relation": Mock(id="relation-1")},
         ),
         patch(
-            "modules.imports.entity_extraction.scene_entity_persistence."
-            "SceneEntityPersistenceGateway._record_quote_evidence",
+            "modules.imports.entity_extraction.scene_entity_extraction."
+            "SceneEntityExtractionService._record_quote_evidence",
             autospec=True,
         ),
     ):
@@ -1276,8 +1285,8 @@ async def test_persist_relations_records_relation_merge_stats() -> None:
             return_value={"action": "merged", "relation": Mock(id="relation-1")},
         ),
         patch(
-            "modules.imports.entity_extraction.scene_entity_persistence."
-            "SceneEntityPersistenceGateway._record_quote_evidence",
+            "modules.imports.entity_extraction.scene_entity_extraction."
+            "SceneEntityExtractionService._record_quote_evidence",
             autospec=True,
         ),
     ):
@@ -1512,8 +1521,8 @@ async def test_phase2b_persistence_resolves_working_entities_in_one_batch() -> N
             return_value={"action": "created", "relation": relation},
         ),
         patch(
-            "modules.imports.entity_extraction.scene_entity_persistence."
-            "SceneEntityPersistenceGateway._record_quote_evidence",
+            "modules.imports.entity_extraction.scene_entity_extraction."
+            "SceneEntityExtractionService._record_quote_evidence",
             autospec=True,
         ),
     ):
@@ -2070,7 +2079,8 @@ async def test_phase2b_watchdog_timeout_returns_degraded_result(
         0,
     )
     monkeypatch.setattr(
-        "modules.imports.entity_extraction.scene_entity_extraction.AliasRelationExtractor.run",
+        "modules.imports.entity_extraction.scene_entity_extraction."
+        "SceneEntityExtractionService._execute_alias_relation_phase",
         stuck_alias_relation_run,
     )
 
@@ -2114,7 +2124,8 @@ async def test_phase2b_watchdog_uses_dynamic_timeout_for_large_scene_sets(
 
     monkeypatch.delenv("PHASE2_ALIAS_RELATION_TOTAL_TIMEOUT_SECONDS", raising=False)
     monkeypatch.setattr(
-        "modules.imports.entity_extraction.scene_entity_extraction.AliasRelationExtractor.run",
+        "modules.imports.entity_extraction.scene_entity_extraction."
+        "SceneEntityExtractionService._execute_alias_relation_phase",
         quick_alias_relation_run,
     )
 

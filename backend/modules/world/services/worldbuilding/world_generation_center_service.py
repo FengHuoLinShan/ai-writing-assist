@@ -8,7 +8,6 @@ import logging
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -30,7 +29,6 @@ from modules.world.models import (
     CoreEntity,
     EntityRelation,
     WorldBiblePage,
-    WorldBiblePageDraft,
 )
 from modules.world.schemas import (
     CoreEntityDraftSuggestionPayload,
@@ -673,108 +671,53 @@ class WorldGenerationCenterService:
                 "source_draft": None,
                 "source_page_data": None,
             }
-        page = await self._bible.get_page(
+        state = await self._lifecycle.load_page_source(
             db,
             data.novel_id,
             data.source_context.page_id,
         )
-        draft_model = await db.scalar(
-            select(WorldBiblePageDraft).where(
-                WorldBiblePageDraft.novel_id == parse_uuid(data.novel_id, "novel_id"),
-                WorldBiblePageDraft.page_id == parse_uuid(page.id, "page_id"),
-            )
+        baseline = data.source_context.baseline
+        draft_id = baseline.draft_id if baseline.kind == "draft" else None
+        draft_updated_at = baseline.draft_updated_at if baseline.kind == "draft" else None
+        mismatch = self._lifecycle.baseline_mismatch(
+            state,
+            page_version=baseline.page_version,
+            draft_id=draft_id,
+            draft_updated_at=draft_updated_at,
         )
-        draft = (
-            None
-            if draft_model is None
-            else {
-                "id": str(draft_model.id),
-                "title": draft_model.title,
-                "page_type": draft_model.page_type,
-                "free_text": draft_model.free_text,
-                "sections_json": list(draft_model.sections_json or []),
-                "linked_asset_refs_json": list(draft_model.linked_asset_refs_json or []),
-                "template_key": draft_model.template_key,
-                "template_version": draft_model.template_version,
-                "updated_at": draft_model.updated_at,
-            }
-        )
-        self._validate_expected_source(data.source_context, page, draft)
-        active = draft or {
-            "id": None,
-            "title": page.title,
-            "page_type": page.page_type,
-            "free_text": page.free_text,
-            "sections_json": [
-                item.model_dump(mode="json") for item in page.sections_json
-            ],
-            "linked_asset_refs_json": list(page.linked_asset_refs_json or []),
-            "template_key": page.template_key,
-            "template_version": page.template_version,
-            "updated_at": None,
-        }
-        content_hash = self._hash_json(
-            {
-                "title": active["title"],
-                "page_type": active["page_type"],
-                "free_text": active["free_text"],
-                "sections_json": active["sections_json"],
-                "linked_asset_refs_json": active["linked_asset_refs_json"],
-                "template_key": active["template_key"],
-                "template_version": active["template_version"],
-                "page_version": page.version_number,
-            }
-        )
+        self._raise_source_mismatch(mismatch)
+        active = state.content()
+        draft = active if state.draft is not None else None
         snapshot = WorldGenerationSourceSnapshot(
             kind="world_bible_page",
-            page_id=page.id,
-            page_version=page.version_number,
+            page_id=str(state.page.id),
+            page_version=state.page.version_number,
             draft_id=draft["id"] if draft else None,
             draft_updated_at=draft["updated_at"] if draft else None,
-            content_hash=content_hash,
+            content_hash=self._lifecycle.page_source_hash(state),
             title=active["title"],
         )
         return {
             "source_snapshot": snapshot,
-            "source_page": page,
+            "source_page": state.page,
             "source_draft": draft,
             "source_page_data": active,
         }
 
     @staticmethod
-    def _validate_expected_source(source, page, draft: dict[str, Any] | None) -> None:
-        baseline = source.baseline
-        if page.version_number != baseline.page_version:
+    def _raise_source_mismatch(mismatch: str | None) -> None:
+        if mismatch == "page_version":
             raise WorldGenerationSourceConflictError(
                 "World Bible page version changed before generation"
             )
-        if baseline.kind == "published":
-            if draft is not None:
-                raise WorldGenerationSourceConflictError(
-                    "World Bible working draft was created before generation"
-                )
-            return
-        if draft is None or draft["id"] != baseline.draft_id:
+        if mismatch == "draft_created":
+            raise WorldGenerationSourceConflictError(
+                "World Bible working draft was created before generation"
+            )
+        if mismatch == "draft_changed":
             raise WorldGenerationSourceConflictError(
                 "World Bible working draft changed before generation"
             )
-        if not WorldGenerationCenterService._same_datetime(
-            draft["updated_at"],
-            baseline.draft_updated_at,
-        ):
-            raise WorldGenerationSourceConflictError(
-                "World Bible working draft changed before generation"
-            )
-
-    @staticmethod
-    def _same_datetime(left: datetime | None, right: datetime | None) -> bool:
-        if left is None or right is None:
-            return left is right
-        if left.tzinfo is None:
-            left = left.replace(tzinfo=UTC)
-        if right.tzinfo is None:
-            right = right.replace(tzinfo=UTC)
-        return left.astimezone(UTC) == right.astimezone(UTC)
 
     async def _resolve_page_template(
         self,
@@ -1598,18 +1541,6 @@ class WorldGenerationCenterService:
                     snapshot_id,
                     exc_info=True,
                 )
-
-    @staticmethod
-    def _hash_json(value: Any) -> str:
-        return hashlib.sha256(
-            json.dumps(
-                value,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-                default=str,
-            ).encode("utf-8")
-        ).hexdigest()
 
 
 def _best_focus_match(text: str, focus_text: str) -> int | None:

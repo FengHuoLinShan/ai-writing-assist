@@ -81,6 +81,7 @@ import {
 import { bindDelegation } from "../shared/viewHelper.js"
 import {
   mapState,
+  mapEditingSession,
   resetMapState,
   stageTerrainChange,
   consumePendingChanges,
@@ -97,10 +98,6 @@ import {
   endDragDraw,
   recordDragHex,
   setEditorLayer,
-  recordEditorCommand,
-  popEditorUndo,
-  popEditorRedo,
-  hasMapDraftChanges,
 } from "./mapState.js"
 
 const LEAFLET_VERSION = "1.9.4"
@@ -112,14 +109,7 @@ const LEAFLET_CSS_INTEGRITY = "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BM
 const LEAFLET_JS_INTEGRITY = "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
 const MAP_TILE_BATCH_LIMIT = 10000
 const MAP_LOCATION_BINDING_HEX_LIMIT = 5000
-const MAP_TERRITORY_HEX_LIMIT = 5000
-const MAP_LOCATION_ITEM_LIMIT = 2000
-const MAP_TERRAIN_REGION_LIMIT = 200
-const MAP_TERRAIN_PATCH_LIMIT = 20000
-const MAP_LAYER_NODE_LIMIT = 500
-const MAP_EDITOR_COMMAND_LIMIT = 200
 const MAP_PATH_NODE_LIMIT = 500
-const MAP_PATH_BATCH_NODE_LIMIT = 2000
 
 let leafletLoadPromise = null
 
@@ -232,6 +222,9 @@ const mapView = {
   _mountContext: {},
   /** 使异步编辑过渡在 unmount/重新 mount 后失效。 */
   _lifecycleEpoch: 0,
+  /** apply 请求至服务端状态重载完成期间锁定整个地图编辑工作区。 */
+  _applyingEditorChanges: false,
+  _editorApplyToken: null,
   /** Scene 时间轴只读投影；不进入编辑草稿或 editor_revision。 */
   _timelineProjection: null,
   _timelineProjectionSignature: "",
@@ -290,6 +283,7 @@ const mapView = {
   /** 退出时清理 Leaflet 实例 */
   unmount() {
     this._lifecycleEpoch += 1
+    this._setEditorApplyBusy(false)
     this._clearPendingTimers()
     this._teardownInteractiveSurface()
     this._state = null
@@ -314,6 +308,25 @@ const mapView = {
 
   _isLifecycleCurrent(lifecycleEpoch, mountContext = this._mountContext) {
     return lifecycleEpoch === this._lifecycleEpoch && this._mountContext === mountContext
+  },
+
+  _setEditorApplyBusy(active, attemptId = null) {
+    if (!active && attemptId != null && this._editorApplyToken !== attemptId) {
+      return false
+    }
+    this._applyingEditorChanges = Boolean(active)
+    this._editorApplyToken = active ? attemptId : null
+    const targets = [
+      document.getElementById(this._mountRootId || "map-root")
+        || document.getElementById("workspace-content"),
+      document.getElementById("modal-overlay"),
+    ].filter(Boolean)
+    for (const element of targets) {
+      element.inert = Boolean(active)
+      if (active) element.setAttribute("aria-busy", "true")
+      else element.removeAttribute("aria-busy")
+    }
+    return true
   },
 
   _defer(fn) {
@@ -412,7 +425,11 @@ const mapView = {
     }
   },
 
-  async _loadMapState(mapId, sceneId = mapState.currentSceneId) {
+  async _loadMapState(
+    mapId,
+    sceneId = mapState.currentSceneId,
+    { beforeStateReplace = null } = {},
+  ) {
     const lifecycleEpoch = this._lifecycleEpoch
     const projectId = state.currentProjectId
     try {
@@ -421,6 +438,7 @@ const mapView = {
       if (lifecycleEpoch !== this._lifecycleEpoch || state.currentProjectId !== projectId) {
         return false
       }
+      if (typeof beforeStateReplace === "function") beforeStateReplace()
       this._state = nextState
       const loadedAt = performance.now()
       const serialized = JSON.stringify(this._state)
@@ -452,6 +470,7 @@ const mapView = {
       )
       resetMapState()
       mapState.currentMapId = mapId
+      mapEditingSession.syncBaseline(mapId, this._state.map?.editor_revision)
       if (sceneId) setCurrentScene(sceneId)
       this._rebuildIndexes()
       this._notifyMapOpened()
@@ -476,94 +495,38 @@ const mapView = {
   ) {
     const lifecycleEpoch = this._lifecycleEpoch
     const mountContext = this._mountContext
-    const session = {
-      mode: mapState.mode,
-      activeTool: mapState.activeTool,
-      editorLayer: mapState.editorLayer,
-      selectedTerrain: mapState.selectedTerrain,
-      selectedLocationEntityId: mapState.selectedLocationEntityId,
-      bindCenterMode: mapState.bindCenterMode,
+    const snapshotSession = () => ({
+      editing: mapEditingSession.snapshotForReload(),
       currentSceneId: mapState.currentSceneId,
       sceneList: mapState.sceneList,
       currentScene: mapState.currentScene,
-      selectedMarkerType: mapState.selectedMarkerType,
-      selectedMarkerEntityId: mapState.selectedMarkerEntityId,
-      selectedMarkerLabel: mapState.selectedMarkerLabel,
       focusMode: mapState.focusMode,
       focusEntityId: mapState.focusEntityId,
       focusRelatedHexes: new Set(mapState.focusRelatedHexes),
-      selectedFactionId: mapState.selectedFactionId,
       factionColors: { ...mapState.factionColors },
-      pendingTerrainChanges: { ...mapState.pendingTerrainChanges },
-      pendingBindings: { ...mapState.pendingBindings },
-      pendingLocationLayouts: { ...mapState.pendingLocationLayouts },
-      pendingTerrainOverlay: mapState.pendingTerrainOverlay
-        ? JSON.parse(JSON.stringify(mapState.pendingTerrainOverlay))
-        : null,
-      pendingTerrainLayerDeletes: [...mapState.pendingTerrainLayerDeletes],
-      pendingMarkerChanges: JSON.parse(JSON.stringify(mapState.pendingMarkerChanges)),
-      pendingLayerTree: mapState.pendingLayerTree
-        ? JSON.parse(JSON.stringify(mapState.pendingLayerTree))
-        : null,
-      layerTreeBaselineStale: mapState.layerTreeBaselineStale,
       activeLayerChildIds: { ...mapState.activeLayerChildIds },
       isolateLayerNodeId: mapState.isolateLayerNodeId,
-      pendingPathChanges: JSON.parse(JSON.stringify(mapState.pendingPathChanges)),
-      pendingPathLayerChanges: JSON.parse(JSON.stringify(mapState.pendingPathLayerChanges)),
-      selectedPathLayerId: mapState.selectedPathLayerId,
-      selectedPathId: mapState.selectedPathId,
-      selectedPathNodeIndex: mapState.selectedPathNodeIndex,
-      selectedPathType: mapState.selectedPathType,
-      pathTool: mapState.pathTool,
       workingMarkers: JSON.parse(JSON.stringify(this._state?.markers || [])),
-      selectedTerrainLayerId: mapState.selectedTerrainLayerId,
-      selectedTerrainAssetKey: mapState.selectedTerrainAssetKey,
-      selectedTerrainPreset: mapState.selectedTerrainPreset,
-      overlayBrushSize: mapState.overlayBrushSize,
-      overlayTool: mapState.overlayTool,
-      territoryEraseMode: mapState.territoryEraseMode,
-      pendingTerritoryChanges: JSON.parse(JSON.stringify(mapState.pendingTerritoryChanges)),
-      editorHistory: mapState.editorHistory,
-      editorRedo: mapState.editorRedo,
-    }
+    })
+    let session = snapshotSession()
 
-    const loaded = await this._loadMapState(mapId, sceneId)
+    const loaded = await this._loadMapState(mapId, sceneId, {
+      beforeStateReplace: () => {
+        session = snapshotSession()
+      },
+    })
     if (!loaded || !this._isLifecycleCurrent(lifecycleEpoch, mountContext)) return false
 
-    mapState.mode = session.mode
-    mapState.activeTool = session.activeTool
-    mapState.editorLayer = session.editorLayer
-    mapState.selectedTerrain = session.selectedTerrain
-    mapState.selectedLocationEntityId = session.selectedLocationEntityId
-    mapState.bindCenterMode = session.bindCenterMode
+    mapEditingSession.restoreAfterReload(session.editing, { preserveMarkers })
     mapState.currentSceneId = session.currentSceneId
     mapState.sceneList = session.sceneList
     mapState.currentScene = session.currentScene
-    mapState.selectedMarkerType = session.selectedMarkerType
-    mapState.selectedMarkerEntityId = session.selectedMarkerEntityId
-    mapState.selectedMarkerLabel = session.selectedMarkerLabel
     mapState.focusMode = session.focusMode
     mapState.focusEntityId = session.focusEntityId
     mapState.focusRelatedHexes = session.focusRelatedHexes
-    mapState.selectedFactionId = session.selectedFactionId
     mapState.factionColors = session.factionColors
-    mapState.pendingTerrainChanges = session.pendingTerrainChanges
-    mapState.pendingBindings = session.pendingBindings
-    mapState.pendingLocationLayouts = session.pendingLocationLayouts
-    mapState.pendingTerrainOverlay = session.pendingTerrainOverlay
-    mapState.pendingTerrainLayerDeletes = session.pendingTerrainLayerDeletes
-    mapState.pendingMarkerChanges = preserveMarkers ? session.pendingMarkerChanges : {}
-    mapState.pendingLayerTree = session.pendingLayerTree
-    mapState.layerTreeBaselineStale = session.layerTreeBaselineStale
     mapState.activeLayerChildIds = session.activeLayerChildIds
     mapState.isolateLayerNodeId = session.isolateLayerNodeId
-    mapState.pendingPathChanges = session.pendingPathChanges
-    mapState.pendingPathLayerChanges = session.pendingPathLayerChanges
-    mapState.selectedPathLayerId = session.selectedPathLayerId
-    mapState.selectedPathId = session.selectedPathId
-    mapState.selectedPathNodeIndex = session.selectedPathNodeIndex
-    mapState.selectedPathType = session.selectedPathType
-    mapState.pathTool = session.pathTool
     if (this._state && preserveMarkers) {
       const localMarkers = new Map(
         session.workingMarkers.map((marker) => [marker.id, marker]),
@@ -571,7 +534,9 @@ const mapView = {
       const mergedMarkers = new Map(
         (this._state.markers || []).map((marker) => [marker.id, marker]),
       )
-      for (const [markerId, change] of Object.entries(session.pendingMarkerChanges)) {
+      for (const [markerId, change] of Object.entries(
+        session.editing.pendingMarkerChanges,
+      )) {
         if (change.operation === "delete") {
           mergedMarkers.delete(markerId)
           continue
@@ -581,15 +546,6 @@ const mapView = {
       }
       this._state.markers = [...mergedMarkers.values()]
     }
-    mapState.selectedTerrainLayerId = session.selectedTerrainLayerId
-    mapState.selectedTerrainAssetKey = session.selectedTerrainAssetKey
-    mapState.selectedTerrainPreset = session.selectedTerrainPreset
-    mapState.overlayBrushSize = session.overlayBrushSize
-    mapState.overlayTool = session.overlayTool
-    mapState.territoryEraseMode = session.territoryEraseMode
-    mapState.pendingTerritoryChanges = session.pendingTerritoryChanges
-    mapState.editorHistory = session.editorHistory
-    mapState.editorRedo = session.editorRedo
     this._rebuildIndexes()
     return true
   },
@@ -2137,7 +2093,7 @@ const mapView = {
     updatePendingCount(Object.keys(mapState.pendingTerrainChanges).length)
     const after = this._snapshotActiveDraft()
     if (JSON.stringify(before) !== JSON.stringify(after)) {
-      recordEditorCommand("baseTerrain", { kind: "draft", before, after })
+      mapEditingSession.recordCommand("baseTerrain", { kind: "draft", before, after })
       this._notifyEditingChanged()
     }
   },
@@ -2243,7 +2199,7 @@ const mapView = {
       __draft: true,
     }
     this._state.markers = [...(this._state.markers || []), created]
-    recordEditorCommand("marker", { kind: "markerCreate", marker: { ...created } })
+    mapEditingSession.recordCommand("marker", { kind: "markerCreate", marker: { ...created } })
     this._rebuildPendingMarkerChanges()
     this._rebuildIndexes()
     this._notifyEditingChanged()
@@ -2260,7 +2216,7 @@ const mapView = {
         handler: () => {
           const deleted = { ...marker }
           this._state.markers = (this._state.markers || []).filter((item) => item.id !== marker.id)
-          recordEditorCommand("marker", { kind: "markerDelete", marker: deleted })
+          mapEditingSession.recordCommand("marker", { kind: "markerDelete", marker: deleted })
           this._rebuildPendingMarkerChanges()
           this._rebuildIndexes()
           this._notifyEditingChanged()
@@ -2278,7 +2234,7 @@ const mapView = {
             visible: Boolean(document.getElementById("map-marker-edit-visible")?.checked),
           }
           Object.assign(marker, updated)
-          recordEditorCommand("marker", {
+          mapEditingSession.recordCommand("marker", {
             kind: "marker",
             markerId: marker.id,
             before,
@@ -2460,7 +2416,7 @@ const mapView = {
           delete mapState.pendingLocationLayouts[locationId]
         }
       } else if (before && after && (before.center_hex_q !== after.center_hex_q || before.center_hex_r !== after.center_hex_r)) {
-        recordEditorCommand("location", { kind: "location", locationId, before, after: { ...after } })
+        mapEditingSession.recordCommand("location", { kind: "location", locationId, before, after: { ...after } })
       }
       this._dragLocationId = null
       this._pointerStartSnapshot = null
@@ -2493,7 +2449,7 @@ const mapView = {
         setTimeout(() => { this._suppressNextCanvasClick = false }, 250)
       }
       if (markerMoved) {
-        recordEditorCommand("marker", {
+        mapEditingSession.recordCommand("marker", {
           kind: "marker",
           markerId,
           before,
@@ -2522,7 +2478,7 @@ const mapView = {
     }
     const after = this._snapshotActiveDraft()
     if (JSON.stringify(this._pointerStartSnapshot) !== JSON.stringify(after)) {
-      recordEditorCommand(mapState.editorLayer, {
+      mapEditingSession.recordCommand(mapState.editorLayer, {
         kind: "draft",
         before: this._pointerStartSnapshot,
         after,
@@ -2829,7 +2785,7 @@ const mapView = {
     this._stagePathUpdate(path, data)
     const after = this._snapshotActiveDraft()
     if (JSON.stringify(before) !== JSON.stringify(after)) {
-      recordEditorCommand("path", { kind: "draft", before, after })
+      mapEditingSession.recordCommand("path", { kind: "draft", before, after })
       this._pathGeometryCache.clear()
       this._notifyEditingChanged()
     }
@@ -2881,7 +2837,7 @@ const mapView = {
     this._dragPathNode = null
     const after = this._snapshotActiveDraft()
     if (JSON.stringify(before) !== JSON.stringify(after)) {
-      recordEditorCommand("path", { kind: "draft", before, after })
+      mapEditingSession.recordCommand("path", { kind: "draft", before, after })
       this._notifyEditingChanged()
     }
     this._pointerStartSnapshot = null
@@ -3157,7 +3113,7 @@ const mapView = {
       mapState.selectedTerrainAssetKey = overlayAsset.value
       this._ensureOverlayDraft()
       const after = this._snapshotActiveDraft()
-      recordEditorCommand("terrainOverlay", { kind: "draft", before, after })
+      mapEditingSession.recordCommand("terrainOverlay", { kind: "draft", before, after })
       this._notifyEditingChanged()
     })
     const overlayPreset = document.getElementById("map-overlay-preset")
@@ -3166,7 +3122,7 @@ const mapView = {
       mapState.selectedTerrainPreset = overlayPreset.value
       this._ensureOverlayDraft()
       const after = this._snapshotActiveDraft()
-      recordEditorCommand("terrainOverlay", { kind: "draft", before, after })
+      mapEditingSession.recordCommand("terrainOverlay", { kind: "draft", before, after })
       this._notifyEditingChanged()
     })
     const overlayBrushSize = document.getElementById("map-overlay-brush-size")
@@ -3260,6 +3216,7 @@ const mapView = {
     this._keyHandler = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && mapState.mode === "edit") {
         e.preventDefault()
+        if (this._applyingEditorChanges || mapEditingSession.isApplying()) return
         if (e.shiftKey) this._redo()
         else this._undo()
       }
@@ -3450,6 +3407,10 @@ const mapView = {
   },
 
   _guardEditorLayerWritable(layer = mapState.editorLayer) {
+    if (this._applyingEditorChanges || mapEditingSession.isApplying()) {
+      toast("地图编辑正在应用，请稍候", "warning")
+      return false
+    }
     const effective = this._editorLayerEffectiveState(layer)
     if (!effective.visible) {
       toast(`当前编辑图层${effective.sessionReason ? `处于「${effective.sessionReason}」` : "不可见"}，请先切换当前子层`, "warning")
@@ -3555,7 +3516,7 @@ const mapView = {
   },
 
   _recordLayerTreeChange(before) {
-    recordEditorCommand("layerTree", {
+    mapEditingSession.recordCommand("layerTree", {
       kind: "layerTree",
       before,
       after: JSON.parse(JSON.stringify(mapState.pendingLayerTree)),
@@ -3767,7 +3728,7 @@ const mapView = {
   },
 
   async _undoLayerTree() {
-    const command = popEditorUndo("layerTree")
+    const command = mapEditingSession.undo("layerTree")
     if (!command) {
       toast("无可撤销的图层结构操作", "info")
       return
@@ -3776,7 +3737,7 @@ const mapView = {
   },
 
   async _redoLayerTree() {
-    const command = popEditorRedo("layerTree")
+    const command = mapEditingSession.redo("layerTree")
     if (!command) {
       toast("无可重做的图层结构操作", "info")
       return
@@ -3814,7 +3775,7 @@ const mapView = {
         }
         mapState.selectedPathLayerId = clientId
         mapState.selectedPathType = category === "water" ? "river" : "major_road"
-        recordEditorCommand("path", {
+        mapEditingSession.recordCommand("path", {
           kind: "draft",
           before,
           after: this._snapshotActiveDraft(),
@@ -3864,7 +3825,7 @@ const mapView = {
       mapState.selectedPathLayerId = this._effectivePathLayers().find(
         (item) => item.id !== layerId && item.status !== "archived",
       )?.id || null
-      recordEditorCommand("path", {
+      mapEditingSession.recordCommand("path", {
         kind: "draft",
         before,
         after: this._snapshotActiveDraft(),
@@ -3900,7 +3861,7 @@ const mapView = {
       data.nodes = this._normalizedPathNodes(nodes)
     }
     this._stagePathUpdate(path, data)
-    recordEditorCommand("path", {
+    mapEditingSession.recordCommand("path", {
       kind: "draft",
       before,
       after: this._snapshotActiveDraft(),
@@ -3925,7 +3886,7 @@ const mapView = {
     if (!Number.isInteger(nextIndex)) return false
     mapState.selectedPathNodeIndex = nextIndex
     this._stagePathUpdate(path, { nodes: this._normalizedPathNodes(nodes) })
-    recordEditorCommand("path", {
+    mapEditingSession.recordCommand("path", {
       kind: "draft",
       before,
       after: this._snapshotActiveDraft(),
@@ -3979,7 +3940,7 @@ const mapView = {
       const before = this._snapshotActiveDraft()
       delete mapState.pendingPathChanges[pathId]
       mapState.selectedPathId = null
-      recordEditorCommand("path", {
+      mapEditingSession.recordCommand("path", {
         kind: "draft",
         before,
         after: this._snapshotActiveDraft(),
@@ -3992,7 +3953,7 @@ const mapView = {
     if (["archive", "restore"].includes(pending?.operation)) {
       const before = this._snapshotActiveDraft()
       delete mapState.pendingPathChanges[pathId]
-      recordEditorCommand("path", {
+      mapEditingSession.recordCommand("path", {
         kind: "draft",
         before,
         after: this._snapshotActiveDraft(),
@@ -4024,7 +3985,7 @@ const mapView = {
     const stage = () => {
       const before = this._snapshotActiveDraft()
       mapState.pendingPathChanges[pathId] = { operation: action, id: pathId }
-      recordEditorCommand("path", {
+      mapEditingSession.recordCommand("path", {
         kind: "draft",
         before,
         after: this._snapshotActiveDraft(),
@@ -4073,7 +4034,7 @@ const mapView = {
     }
     const next = { ...current, locked: !current.locked, layout_source: "user_lock" }
     mapState.pendingLocationLayouts[locationId] = next
-    recordEditorCommand("location", {
+    mapEditingSession.recordCommand("location", {
       kind: "location",
       locationId,
       before: { ...current },
@@ -4084,13 +4045,13 @@ const mapView = {
   },
 
   async _undo() {
-    const command = popEditorUndo()
+    const command = mapEditingSession.undo()
     if (command) {
       try {
         await this._applyEditorCommand(command, "before")
         toast("已撤销上一步操作", "info")
       } catch (err) {
-        popEditorRedo()
+        mapEditingSession.redo()
         toast(`撤销失败：${err.message}`, "error")
       }
       return
@@ -4115,7 +4076,7 @@ const mapView = {
   },
 
   async _redo() {
-    const command = popEditorRedo()
+    const command = mapEditingSession.redo()
     if (!command) {
       toast("无可重做的操作", "info")
       return
@@ -4124,7 +4085,7 @@ const mapView = {
       await this._applyEditorCommand(command, "after")
       toast("已重做上一步操作", "info")
     } catch (err) {
-      popEditorUndo()
+      mapEditingSession.undo()
       toast(`重做失败：${err.message}`, "error")
     }
   },
@@ -4239,51 +4200,16 @@ const mapView = {
   },
 
   _snapshotActiveDraft() {
-    if (mapState.editorLayer === "terrainOverlay") {
-      return mapState.pendingTerrainOverlay
-        ? JSON.parse(JSON.stringify(mapState.pendingTerrainOverlay))
-        : null
-    }
-    if (mapState.editorLayer === "location") {
-      return JSON.parse(JSON.stringify({
-        layouts: mapState.pendingLocationLayouts || {},
-        bindings: mapState.pendingBindings || {},
-      }))
-    }
-    if (mapState.editorLayer === "baseTerrain") {
-      return JSON.parse(JSON.stringify(mapState.pendingTerrainChanges || {}))
-    }
-    if (mapState.editorLayer === "territory") {
-      return JSON.parse(JSON.stringify(mapState.pendingTerritoryChanges || { add: {}, remove: {} }))
-    }
-    if (mapState.editorLayer === "path") {
-      return JSON.parse(JSON.stringify({
-        paths: mapState.pendingPathChanges || {},
-        layers: mapState.pendingPathLayerChanges || {},
-        selectedPathLayerId: mapState.selectedPathLayerId,
-        selectedPathId: mapState.selectedPathId,
-      }))
-    }
-    return null
+    return mapEditingSession.snapshotActiveDraft()
   },
 
   _restoreActiveDraft(snapshot) {
-    if (mapState.editorLayer === "terrainOverlay") {
-      mapState.pendingTerrainOverlay = snapshot
-    } else if (mapState.editorLayer === "location") {
-      mapState.pendingLocationLayouts = snapshot?.layouts || {}
-      mapState.pendingBindings = snapshot?.bindings || {}
-      updateBindingPendingCount(Object.keys(mapState.pendingBindings).length)
-    } else if (mapState.editorLayer === "baseTerrain") {
-      mapState.pendingTerrainChanges = snapshot || {}
-      updatePendingCount(Object.keys(mapState.pendingTerrainChanges).length)
-    } else if (mapState.editorLayer === "territory") {
-      mapState.pendingTerritoryChanges = snapshot || { add: {}, remove: {} }
-    } else if (mapState.editorLayer === "path") {
-      mapState.pendingPathChanges = snapshot?.paths || {}
-      mapState.pendingPathLayerChanges = snapshot?.layers || {}
-      mapState.selectedPathLayerId = snapshot?.selectedPathLayerId || null
-      mapState.selectedPathId = snapshot?.selectedPathId || null
+    const restored = mapEditingSession.restoreActiveDraft(snapshot)
+    if (restored.layer === "location") {
+      updateBindingPendingCount(restored.bindingPendingCount)
+    } else if (restored.layer === "baseTerrain") {
+      updatePendingCount(restored.terrainPendingCount)
+    } else if (restored.layer === "path") {
       this._pathGeometryCache.clear()
     }
   },
@@ -4294,7 +4220,7 @@ const mapView = {
     if (typeof callback === "function") {
       callback({
         editing: mapState.mode === "edit",
-        dirty: hasMapDraftChanges(),
+        dirty: mapEditingSession.hasDraftChanges(),
         editorLayer: mapState.editorLayer,
       })
     }
@@ -4416,24 +4342,17 @@ const mapView = {
   },
 
   _guardDirty() {
-    if (!hasMapDraftChanges() || this._ignoreDirtyGuard) return true
+    if (this._applyingEditorChanges || mapEditingSession.isApplying()) {
+      toast("地图编辑正在应用，请稍候再离开", "warning")
+      return false
+    }
+    if (!mapEditingSession.hasDraftChanges() || this._ignoreDirtyGuard) return true
     if (typeof window.confirm !== "function") return false
     return window.confirm("地图仍有未保存修改，确定放弃并离开吗？")
   },
 
   _discardDrafts() {
-    mapState.pendingTerrainChanges = {}
-    mapState.pendingBindings = {}
-    mapState.pendingLocationLayouts = {}
-    mapState.pendingTerrainOverlay = null
-    mapState.pendingTerrainLayerDeletes = []
-    mapState.pendingMarkerChanges = {}
-    mapState.pendingLayerTree = null
-    mapState.pendingTerritoryChanges = { add: {}, remove: {} }
-    mapState.pendingPathChanges = {}
-    mapState.pendingPathLayerChanges = {}
-    mapState.editorHistory = {}
-    mapState.editorRedo = {}
+    mapEditingSession.discardDrafts()
     if (this._state) {
       this._state.markers = [...this._markerBaselineById.values()].map(
         (marker) => ({ ...marker }),
@@ -4944,132 +4863,75 @@ const mapView = {
     return commands
   },
 
-  _editorCommandLimitError(commands) {
-    if (commands.length > MAP_EDITOR_COMMAND_LIMIT) {
-      return `单次最多应用 ${MAP_EDITOR_COMMAND_LIMIT} 个编辑命令，请减少本次变更`
-    }
-    let changedPathNodes = 0
-    for (const command of commands) {
-      if (command.type === "base_terrain_replace" && command.changes.length > MAP_TILE_BATCH_LIMIT) {
-        return `单次最多应用 ${MAP_TILE_BATCH_LIMIT} 个地形变更，请撤销部分变更后分批保存`
-      }
-      if (command.type === "location_layout_replace" && command.layouts.length > MAP_LOCATION_ITEM_LIMIT) {
-        return `单次最多应用 ${MAP_LOCATION_ITEM_LIMIT} 个地点布局，请减少本次变更`
-      }
-      if (command.type === "location_binding_replace") {
-        if (command.items.length > MAP_LOCATION_ITEM_LIMIT) {
-          return `单次最多应用 ${MAP_LOCATION_ITEM_LIMIT} 个地点绑定组，请减少本次变更`
-        }
-        if (command.items.some((item) => item.hexes.length > MAP_LOCATION_BINDING_HEX_LIMIT)) {
-          return `单个地点单次最多绑定 ${MAP_LOCATION_BINDING_HEX_LIMIT} 个地图格，请减少选中范围`
-        }
-      }
-      if (command.type === "terrain_patch_replace") {
-        if (command.data.regions.length > MAP_TERRAIN_REGION_LIMIT) {
-          return `单个覆盖图层最多包含 ${MAP_TERRAIN_REGION_LIMIT} 个区域，请减少本次变更`
-        }
-        if (command.data.patches.length > MAP_TERRAIN_PATCH_LIMIT) {
-          return `单个覆盖图层最多包含 ${MAP_TERRAIN_PATCH_LIMIT} 个覆盖格，请减少本次变更`
-        }
-      }
-      if (command.type === "territory_replace" && command.hexes.length > MAP_TERRITORY_HEX_LIMIT) {
-        return `单个阵营单次最多应用 ${MAP_TERRITORY_HEX_LIMIT} 个领地格，请减少选中范围`
-      }
-      if (["path_create", "path_update"].includes(command.type) && command.data.nodes) {
-        changedPathNodes += command.data.nodes.length
-        if (command.data.nodes.length > MAP_PATH_NODE_LIMIT) {
-          return `每条线路最多包含 ${MAP_PATH_NODE_LIMIT} 个节点`
-        }
-      }
-      if (command.type === "layer_tree_replace") {
-        if (!command.nodes.length) return "图层树至少需要保留一个图层节点"
-        if (command.nodes.length > MAP_LAYER_NODE_LIMIT) {
-          return `图层树最多包含 ${MAP_LAYER_NODE_LIMIT} 个节点，请减少本次变更`
-        }
-      }
-    }
-    if (changedPathNodes > MAP_PATH_BATCH_NODE_LIMIT) {
-      return `单批最多变更 ${MAP_PATH_BATCH_NODE_LIMIT} 个线路节点，请分批保存`
-    }
-    return null
-  },
-
-  _clearAppliedDrafts({ onlyLayer = false, onlyLayerTree = false } = {}) {
-    const active = mapState.editorLayer
-    const clear = (layer) => !onlyLayerTree && (!onlyLayer || active === layer)
-    if (clear("baseTerrain")) mapState.pendingTerrainChanges = {}
-    if (clear("location")) {
-      mapState.pendingBindings = {}
-      mapState.pendingLocationLayouts = {}
-    }
-    if (clear("terrainOverlay")) {
-      mapState.pendingTerrainOverlay = null
-      mapState.pendingTerrainLayerDeletes = []
-    }
-    if (clear("marker")) mapState.pendingMarkerChanges = {}
-    if (clear("territory")) {
-      mapState.pendingTerritoryChanges = { add: {}, remove: {} }
-    }
-    if (clear("path")) {
-      mapState.pendingPathChanges = {}
-      mapState.pendingPathLayerChanges = {}
-    }
-    if (onlyLayerTree || !onlyLayer) {
-      mapState.pendingLayerTree = null
-      mapState.layerTreeBaselineStale = false
-    }
-    if (onlyLayerTree) {
-      mapState.editorHistory.layerTree = []
-      mapState.editorRedo.layerTree = []
-    } else if (!onlyLayer) {
-      mapState.editorHistory = {}
-      mapState.editorRedo = {}
-    } else {
-      mapState.editorHistory[active] = []
-      mapState.editorRedo[active] = []
-    }
-  },
-
   async _applyAllChanges({ onlyLayer = false, onlyLayerTree = false } = {}) {
+    if (this._applyingEditorChanges || mapEditingSession.isApplying()) {
+      toast("地图编辑正在应用，请等待当前请求完成", "warning")
+      return false
+    }
+    if (
+      mapState.dragDrawing
+      || this._dragLocationId
+      || this._dragMarkerId
+      || this._dragPathNode
+      || this._pathPointerSamples
+    ) {
+      toast("请先结束当前拖拽或绘制，再应用地图变更", "warning")
+      return false
+    }
     const commands = this._buildEditorCommands({ onlyLayer, onlyLayerTree })
     if (!commands.length) {
       toast("没有待应用的变更", "info")
       return true
     }
-    const limitError = this._editorCommandLimitError(commands)
-    if (limitError) {
-      toast(limitError, "error")
-      return false
-    }
-    const applyingMarkers = commands.some((command) => command.type.startsWith("marker_"))
     const lifecycleEpoch = this._lifecycleEpoch
     const mountContext = this._mountContext
     const mapId = this._state?.map?.id
     if (!mapId) return false
+    mapEditingSession.syncBaseline(mapId, this._state.map.editor_revision)
+    const { validationError, attempt } = mapEditingSession.beginApply(commands, {
+      onlyLayer,
+      onlyLayerTree,
+    })
+    if (validationError) {
+      toast(validationError, "error")
+      return false
+    }
+    const applyingMarkers = attempt.commands.some(
+      (command) => command.type.startsWith("marker_"),
+    )
+    this._setEditorApplyBusy(true, attempt.id)
     try {
-      const result = await api.world.applyMapEditor(mapId, {
-        expected_revision: Number(this._state.map.editor_revision || 0),
-        commands,
-      }, state.currentProjectId)
-      if (!this._isLifecycleCurrent(lifecycleEpoch, mountContext)) return true
+      const result = await api.world.applyMapEditor(
+        mapId,
+        mapEditingSession.requestFor(attempt),
+        state.currentProjectId,
+      )
+      if (!this._isLifecycleCurrent(lifecycleEpoch, mountContext)) {
+        mapEditingSession.cancelApply(attempt)
+        return true
+      }
       this._state.map.editor_revision = result.editor_revision
       const clientIdMap = result.client_id_map || {}
-      mapState.selectedTerrainLayerId = clientIdMap[mapState.selectedTerrainLayerId]
-        || mapState.selectedTerrainLayerId
-      mapState.selectedPathLayerId = clientIdMap[mapState.selectedPathLayerId]
-        || mapState.selectedPathLayerId
-      mapState.selectedPathId = clientIdMap[mapState.selectedPathId]
-        || mapState.selectedPathId
-      this._clearAppliedDrafts({ onlyLayer, onlyLayerTree })
+      const transition = mapEditingSession.commitApply(attempt, result)
+      if (!transition) {
+        toast("地图应用会话已失效，请刷新后确认当前状态", "warning")
+        return false
+      }
+      const preserveMarkerDraft = Boolean(
+        transition?.preservedLayers?.includes("marker"),
+      )
       await this._reloadMapStatePreservingSession(
         mapId,
         mapState.currentSceneId,
-        { preserveMarkers: !applyingMarkers },
+        { preserveMarkers: !applyingMarkers || preserveMarkerDraft },
       )
       if (!this._isLifecycleCurrent(lifecycleEpoch, mountContext)) return true
       await this._loadLayerTree()
       if (!this._isLifecycleCurrent(lifecycleEpoch, mountContext)) return true
-      this._reconcilePendingLayerTreeAfterPathLayerApply(commands, clientIdMap)
+      this._reconcilePendingLayerTreeAfterPathLayerApply(
+        attempt.commands,
+        clientIdMap,
+      )
       await this._loadPaths()
       if (!this._isLifecycleCurrent(lifecycleEpoch, mountContext)) return true
       updatePendingCount(Object.keys(mapState.pendingTerrainChanges).length)
@@ -5077,26 +4939,39 @@ const mapView = {
       this._notifyEditingChanged()
       if (mapState.mode === "edit") this._rerenderEditor()
       else this._redraw()
+      if (transition.preservedLayers.length) {
+        toast("保存期间检测到新的同层草稿，已保留；请确认后再次应用", "warning")
+        return false
+      }
       toast(`已原子应用 ${commands.length} 个编辑命令`, "success")
       return true
     } catch (err) {
-      if (!this._isLifecycleCurrent(lifecycleEpoch, mountContext)) return false
+      if (!this._isLifecycleCurrent(lifecycleEpoch, mountContext)) {
+        mapEditingSession.cancelApply(attempt)
+        return false
+      }
       const conflictCode = err.body?.error || err.body?.code
       if (err.status === 409 && conflictCode === "map_editor_revision_conflict") {
+        mapEditingSession.markConflict(
+          attempt,
+          err.body?.context?.current_revision,
+        )
         await this._reloadMapStatePreservingSession(
           this._state.map.id,
           mapState.currentSceneId,
         )
         await this._loadLayerTree()
         await this._loadPaths()
-        if (mapState.pendingLayerTree) mapState.layerTreeBaselineStale = true
         this._redraw()
         const current = this._state?.map?.editor_revision
         toast(`地图已有新版本${current != null ? `（revision ${current}）` : ""}，已刷新基线，草稿已保留；检查后可再次应用`, "warning")
       } else {
+        mapEditingSession.cancelApply(attempt)
         toast(`应用失败：${err.message}`, "error")
       }
       return false
+    } finally {
+      this._setEditorApplyBusy(false, attempt.id)
     }
   },
 
@@ -5351,7 +5226,7 @@ const mapView = {
         })
       }
     }
-    recordEditorCommand("terrainOverlay", { kind: "draft", before, after: this._snapshotActiveDraft() })
+    mapEditingSession.recordCommand("terrainOverlay", { kind: "draft", before, after: this._snapshotActiveDraft() })
     this._notifyEditingChanged()
     this._redraw()
   },
@@ -5459,6 +5334,10 @@ const mapView = {
     const saved = await this._applyAllChanges()
     if (!saved) return false
     if (!this._isLifecycleCurrent(lifecycleEpoch, mountContext)) return true
+    if (mapEditingSession.hasDraftChanges()) {
+      toast("仍有未保存的地图草稿，请再次应用后再退出", "warning")
+      return false
+    }
     this._teardownInteractiveSurface()
     mapState.mode = "browse"
     setEditorLayer("none")
@@ -5925,7 +5804,7 @@ const mapView = {
             draft.remove[territory.id] = { ...territory }
           }
         }
-        recordEditorCommand("territory", {
+        mapEditingSession.recordCommand("territory", {
           kind: "draft",
           before,
           after: this._snapshotActiveDraft(),

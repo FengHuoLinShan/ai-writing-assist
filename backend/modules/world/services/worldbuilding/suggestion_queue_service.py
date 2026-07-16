@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -502,90 +500,28 @@ class SuggestionQueueService:
         baseline = payload.baseline
         if baseline is None or payload.target_page_id is None:
             raise ValidationError("Existing-page suggestion is missing its baseline")
-        nid = parse_uuid(novel_id, "novel_id")
-        pid = parse_uuid(payload.target_page_id, "page_id")
-        page = await db.scalar(
-            select(WorldBiblePage)
-            .where(WorldBiblePage.id == pid, WorldBiblePage.novel_id == nid)
-            .with_for_update()
+        state = await self._lifecycle.load_page_source(
+            db,
+            novel_id,
+            payload.target_page_id,
+            for_update=True,
         )
-        if page is None:
-            raise NotFoundError("World Bible page not found")
-        draft = await db.scalar(
-            select(WorldBiblePageDraft)
-            .where(
-                WorldBiblePageDraft.novel_id == nid,
-                WorldBiblePageDraft.page_id == pid,
-            )
-            .with_for_update()
+        mismatch = self._lifecycle.baseline_mismatch(
+            state,
+            page_version=baseline.page_version,
+            draft_id=baseline.draft_id,
+            draft_updated_at=baseline.draft_updated_at,
+            content_hash=baseline.content_hash,
         )
-        if page.version_number != baseline.page_version:
+        if mismatch == "page_version":
             raise ConflictError("World Bible page changed after suggestion generation")
-        if baseline.draft_id is None:
-            if draft is not None:
-                raise ConflictError(
-                    "World Bible working draft was created after generation"
-                )
-        elif draft is None or str(draft.id) != baseline.draft_id:
+        if mismatch == "draft_created":
+            raise ConflictError("World Bible working draft was created after generation")
+        if mismatch == "draft_changed":
             raise ConflictError("World Bible working draft changed after generation")
-        elif not self._same_datetime(draft.updated_at, baseline.draft_updated_at):
-            raise ConflictError("World Bible working draft changed after generation")
-        active = draft or page
-        content_hash = self._world_bible_source_hash(
-            title=active.title,
-            page_type=active.page_type,
-            free_text=active.free_text,
-            sections_json=list(active.sections_json or []),
-            linked_asset_refs_json=list(active.linked_asset_refs_json or []),
-            template_key=active.template_key,
-            template_version=active.template_version,
-            page_version=page.version_number,
-        )
-        if content_hash != baseline.content_hash:
+        if mismatch == "content_hash":
             raise ConflictError("World Bible source content changed after generation")
-        return page, draft
-
-    @staticmethod
-    def _same_datetime(left: datetime | None, right: datetime | None) -> bool:
-        if left is None or right is None:
-            return left is right
-        if left.tzinfo is None:
-            left = left.replace(tzinfo=UTC)
-        if right.tzinfo is None:
-            right = right.replace(tzinfo=UTC)
-        return left.astimezone(UTC) == right.astimezone(UTC)
-
-    @staticmethod
-    def _world_bible_source_hash(
-        *,
-        title: str,
-        page_type: str,
-        free_text: str | None,
-        sections_json: list[dict[str, Any]],
-        linked_asset_refs_json: list[dict[str, Any]],
-        template_key: str | None,
-        template_version: int,
-        page_version: int,
-    ) -> str:
-        value = {
-            "title": title,
-            "page_type": page_type,
-            "free_text": free_text,
-            "sections_json": sections_json,
-            "linked_asset_refs_json": linked_asset_refs_json,
-            "template_key": template_key,
-            "template_version": template_version,
-            "page_version": page_version,
-        }
-        return hashlib.sha256(
-            json.dumps(
-                value,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-                default=str,
-            ).encode("utf-8")
-        ).hexdigest()
+        return state.page, state.draft
 
     async def merge_core_entity(
         self,

@@ -15,6 +15,7 @@ from modules.world.map_repositories import (
     MapLocationBindingRepository,
     MapMarkerRepository,
     MapObservationRepository,
+    MapPathNodeRepository,
     MapPathRepository,
     MapTerritoryRepository,
 )
@@ -41,17 +42,24 @@ from modules.world.map_schemas import (
 from modules.world.repositories import CoreEntityRepository
 from modules.world.services.common import parse_uuid
 from modules.world.services.map.map_context import MapContext
-from modules.world.services.map.map_dashboard_service import MapDashboardService
+from modules.world.services.map.map_dashboard_service import MapDashboardMixin
 from modules.world.services.map.map_dynamic_helpers import MapDynamicHelperMixin
-from modules.world.services.map.map_fact_service import MapFactService
-from modules.world.services.map.map_observation_service import MapObservationService
-from modules.world.services.map.map_open_target_service import MapOpenTargetService
-from modules.world.services.map.map_playback_service import MapPlaybackService
+from modules.world.services.map.map_fact_service import MapFactMixin
+from modules.world.services.map.map_observation_service import MapObservationMixin
+from modules.world.services.map.map_open_target_service import MapOpenTargetMixin
+from modules.world.services.map.map_playback_service import MapPlaybackMixin
 from modules.world.services.map.map_timeline_service import MapTimelineService
 
 
-class MapDynamicFactService(MapDynamicHelperMixin):
-    """Compatibility facade for dynamic map facts and observations."""
+class MapDynamicFactService(
+    MapObservationMixin,
+    MapFactMixin,
+    MapDashboardMixin,
+    MapPlaybackMixin,
+    MapOpenTargetMixin,
+    MapDynamicHelperMixin,
+):
+    """Deep dynamic-map lifecycle with one stable facade surface."""
 
     def __init__(
         self,
@@ -64,6 +72,7 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         marker_repo: MapMarkerRepository | None = None,
         territory_repo: MapTerritoryRepository | None = None,
         path_repo: MapPathRepository | None = None,
+        path_node_repo: MapPathNodeRepository | None = None,
     ) -> None:
         self._observation_repo = observation_repo or MapObservationRepository()
         self._fact_repo = fact_repo or MapFactRepository()
@@ -74,22 +83,7 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         self._marker_repo = marker_repo or MapMarkerRepository()
         self._territory_repo = territory_repo or MapTerritoryRepository()
         self._path_repo = path_repo or MapPathRepository()
-
-    @property
-    def _observations(self) -> MapObservationService:
-        return MapObservationService(self)
-
-    @property
-    def _facts(self) -> MapFactService:
-        return MapFactService(self)
-
-    @property
-    def _dashboard(self) -> MapDashboardService:
-        return MapDashboardService(self)
-
-    @property
-    def _playback(self) -> MapPlaybackService:
-        return MapPlaybackService(self)
+        self._path_node_repo = path_node_repo or MapPathNodeRepository()
 
     @property
     def _timeline(self) -> MapTimelineService:
@@ -98,24 +92,6 @@ class MapDynamicFactService(MapDynamicHelperMixin):
             fact_repo=self._fact_repo,
             observation_repo=self._observation_repo,
             path_repo=self._path_repo,
-        )
-
-    @property
-    def _open_targets(self) -> MapOpenTargetService:
-        return MapOpenTargetService(self)
-
-    async def _map_id_for_entity_focus(
-        self,
-        db: AsyncSession,
-        novel_id: Any,
-        entity_id: Any,
-        entity_type: str,
-    ) -> str | None:
-        return await self._open_targets._map_id_for_entity_focus(
-            db,
-            novel_id,
-            entity_id,
-            entity_type,
         )
 
     async def list_observations(
@@ -128,7 +104,8 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         skip: int = 0,
         limit: int = 100,
     ) -> MapObservationListResponse:
-        return await self._observations.list_observations(
+        return await MapObservationMixin.list_observations(
+            self,
             db,
             novel_id,
             map_id=map_id,
@@ -150,7 +127,8 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         skip: int = 0,
         limit: int = 100,
     ) -> MapObservationListResponse:
-        return await self._observations.list_project_inbox(
+        return await MapObservationMixin.list_project_inbox(
+            self,
             db,
             novel_id,
             dynamic_type=dynamic_type,
@@ -168,7 +146,8 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         novel_id: str,
         workflow_id: str,
     ) -> int:
-        return await self._observations.count_deep_import_observations_by_workflow(
+        return await MapObservationMixin.count_deep_import_observations_by_workflow(
+            self,
             db,
             novel_id,
             workflow_id,
@@ -180,7 +159,8 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         novel_id: str,
         workflow_id: str,
     ) -> int:
-        return await self._observations.rollback_deep_import_observations_by_workflow(
+        return await MapObservationMixin.rollback_deep_import_observations_by_workflow(
+            self,
             db,
             novel_id,
             workflow_id,
@@ -194,7 +174,8 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         map_id: str,
         data: MapObservationCreate,
     ) -> MapObservationResponse:
-        return await self._observations.create_observation(
+        return await MapObservationMixin.create_observation(
+            self,
             db,
             novel_id,
             map_id=map_id,
@@ -210,7 +191,8 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         observation_id: str,
         data: MapObservationAuthorUpdate,
     ) -> MapObservationResponse:
-        return await self._observations.update_observation_review(
+        return await MapObservationMixin.update_observation_review(
+            self,
             db,
             novel_id,
             map_id=map_id,
@@ -226,7 +208,8 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         observation_id: str,
         data: MapObservationAuthorUpdate,
     ) -> MapObservationResponse:
-        return await self._observations.update_project_observation(
+        return await MapObservationMixin.update_project_observation(
+            self,
             db,
             novel_id,
             observation_id=observation_id,
@@ -241,7 +224,8 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         observation_id: str,
         data: MapObservationAssignmentRequest,
     ) -> MapObservationResponse:
-        return await self._observations.assign_project_observation(
+        return await MapObservationMixin.assign_project_observation(
+            self,
             db,
             novel_id,
             observation_id=observation_id,
@@ -256,7 +240,8 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         observation_id: str,
         data: MapObservationRevisionRequest,
     ) -> MapObservationResponse:
-        return await self._observations.ignore_project_observation(
+        return await MapObservationMixin.ignore_project_observation(
+            self,
             db,
             novel_id,
             observation_id=observation_id,
@@ -272,7 +257,8 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         observation_id: str,
         data: MapObservationRevisionRequest,
     ) -> MapObservationResponse:
-        return await self._observations.ignore_observation(
+        return await MapObservationMixin.ignore_observation(
+            self,
             db,
             novel_id,
             map_id=map_id,
@@ -289,7 +275,8 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         observation_id: str,
         data: MapObservationRevisionRequest,
     ) -> MapFactResponse:
-        return await self._observations.confirm_observation(
+        return await MapObservationMixin.confirm_observation(
+            self,
             db,
             novel_id,
             map_id=map_id,
@@ -305,7 +292,8 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         map_id: str,
         data: MapObservationBatchReviewRequest,
     ) -> MapObservationBatchReviewResponse:
-        return await self._observations.batch_review_observations(
+        return await MapObservationMixin.batch_review_observations(
+            self,
             db,
             novel_id,
             map_id=map_id,
@@ -322,7 +310,8 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         context_snapshot_id: str | None = None,
         delta_log_id: str | None = None,
     ) -> MapObservationResponse:
-        return await self._observations.create_observation_from_delta_event(
+        return await MapObservationMixin.create_observation_from_delta_event(
+            self,
             db,
             novel_id,
             event=event,
@@ -338,7 +327,8 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         *,
         candidates: list[MapObservationCandidateInput],
     ) -> MapObservationCandidateBatchResult:
-        return await self._observations.create_observation_candidates(
+        return await MapObservationMixin.create_observation_candidates(
+            self,
             db,
             novel_id,
             candidates=candidates,
@@ -354,7 +344,8 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         skip: int = 0,
         limit: int = 100,
     ) -> MapFactListResponse:
-        return await self._facts.list_facts(
+        return await MapFactMixin.list_facts(
+            self,
             db,
             novel_id,
             map_id=map_id,
@@ -372,7 +363,8 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         fact_id: str,
         data: MapFactStatusUpdate,
     ) -> MapFactResponse:
-        return await self._facts.update_fact_status(
+        return await MapFactMixin.update_fact_status(
+            self,
             db,
             novel_id,
             map_id=map_id,
@@ -388,7 +380,8 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         scene_id: str | None = None,
         focus_entity_id: str | None = None,
     ) -> MapOpenTarget:
-        return await self._open_targets.get_open_target(
+        return await MapOpenTargetMixin.get_open_target(
+            self,
             db,
             novel_id,
             scene_id=scene_id,
@@ -485,7 +478,8 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         focus_entity_id: str | None = None,
         focus_item_id: str | None = None,
     ) -> MapDashboardResponse:
-        return await self._dashboard.get_dashboard(
+        return await MapDashboardMixin.get_dashboard(
+            self,
             db,
             novel_id,
             map_id=map_id,
@@ -504,7 +498,8 @@ class MapDynamicFactService(MapDynamicHelperMixin):
         focus_entity_id: str | None = None,
         include_candidates: bool = True,
     ) -> MapPlaybackResponse:
-        return await self._playback.get_playback(
+        return await MapPlaybackMixin.get_playback(
+            self,
             db,
             novel_id,
             map_id=map_id,

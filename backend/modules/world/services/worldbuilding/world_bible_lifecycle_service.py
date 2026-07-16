@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import uuid
-from typing import Any
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any, Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,17 +21,20 @@ from modules.world.models import (
     WorldBibleCategory,
     WorldBiblePage,
     WorldBiblePageDraft,
+    WorldBiblePageProjection,
     WorldBiblePageRevision,
 )
 from modules.world.schemas import (
     WorldBibleCategoryCreate,
     WorldBibleCategoryResponse,
     WorldBibleCategoryUpdate,
+    WorldBiblePageCreate,
     WorldBiblePageDraftCreate,
     WorldBiblePageDraftResponse,
     WorldBiblePageDraftUpdate,
     WorldBiblePageResponse,
     WorldBiblePageRevisionResponse,
+    WorldBiblePageUpdate,
     WorldBibleSection,
 )
 from shared.target_ref import TargetRef
@@ -94,8 +101,153 @@ BUILTIN_WORLD_BIBLE_CATEGORIES: tuple[dict[str, Any], ...] = (
 _BUILTIN_KEYS = frozenset(item["category_key"] for item in BUILTIN_WORLD_BIBLE_CATEGORIES)
 logger = logging.getLogger(__name__)
 
+WorldBibleBaselineMismatch = Literal[
+    "page_version",
+    "draft_created",
+    "draft_changed",
+    "content_hash",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class WorldBiblePageSourceState:
+    """One locked or observed page/draft source used by generation workflows."""
+
+    page: WorldBiblePage
+    draft: WorldBiblePageDraft | None
+
+    @property
+    def active(self) -> WorldBiblePage | WorldBiblePageDraft:
+        return self.draft or self.page
+
+    def content(self) -> dict[str, Any]:
+        active = self.active
+        return {
+            "id": str(active.id) if self.draft is not None else None,
+            "title": active.title,
+            "page_type": active.page_type,
+            "free_text": active.free_text,
+            "sections_json": list(active.sections_json or []),
+            "linked_asset_refs_json": list(active.linked_asset_refs_json or []),
+            "template_key": active.template_key,
+            "template_version": active.template_version,
+            "updated_at": self.draft.updated_at if self.draft is not None else None,
+        }
+
 
 class WorldBibleLifecycleService:
+    _ADOPTED_STATUSES = frozenset({"canonical", "confirmed"})
+
+    async def create_page(
+        self,
+        db: AsyncSession,
+        data: WorldBiblePageCreate,
+    ) -> WorldBiblePageResponse:
+        """Create through the legacy direct-page API while owning its lifecycle."""
+        nid = parse_uuid(data.novel_id, "novel_id")
+        await self._validate_page_content(
+            db,
+            novel_id=nid,
+            template_key=data.template_key,
+            sections=data.sections_json,
+            refs=data.linked_asset_refs_json,
+        )
+        page = WorldBiblePage(
+            novel_id=nid,
+            page_type=data.page_type,
+            page_key=data.page_key or self._default_page_key(data.page_type, data.title),
+            title=data.title,
+            status=data.status,
+            page_meta_json=data.page_meta_json,
+            free_text=data.free_text,
+            sections_json=self._serialize_sections(data.sections_json),
+            linked_asset_refs_json=data.linked_asset_refs_json,
+            activation_defaults_json=data.activation_defaults_json,
+            template_key=data.template_key,
+            sort_order=data.sort_order,
+            created_by=data.created_by,
+            updated_by=data.created_by,
+        )
+        db.add(page)
+        await db.flush()
+        if page.status in self._ADOPTED_STATUSES:
+            await self._record_adopted_page_change(
+                db,
+                page,
+                revision_reason="legacy_create",
+            )
+            await db.flush()
+        return WorldBiblePageResponse.model_validate(page)
+
+    async def update_page(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        page_id: str,
+        data: WorldBiblePageUpdate,
+    ) -> WorldBiblePageResponse:
+        """Update a published page and atomically maintain its derived lifecycle."""
+        page = await self._get_page_model(db, novel_id, page_id, for_update=True)
+        if await self.has_active_draft(db, page.novel_id, page.id):
+            raise ConflictError("World Bible page has an active working draft")
+        payload = data.model_dump(mode="json", exclude_unset=True)
+        next_sections = payload.get("sections_json", page.sections_json)
+        next_refs = payload.get("linked_asset_refs_json", page.linked_asset_refs_json)
+        await self._validate_page_content(
+            db,
+            novel_id=page.novel_id,
+            template_key=payload.get("template_key"),
+            sections=next_sections or [],
+            refs=next_refs or [],
+            validate_template="template_key" in payload,
+            validate_asset_refs="linked_asset_refs_json" in payload,
+        )
+        meaningful_fields = {
+            "title",
+            "status",
+            "page_meta_json",
+            "free_text",
+            "sections_json",
+            "linked_asset_refs_json",
+            "activation_defaults_json",
+            "template_key",
+            "sort_order",
+        }
+        meaningful_change = any(
+            key in meaningful_fields and getattr(page, key) != value
+            for key, value in payload.items()
+        )
+        free_text_changed = (
+            "free_text" in payload and payload["free_text"] != page.free_text
+        )
+        before_status = page.status
+        for key, value in payload.items():
+            setattr(page, key, value)
+        projection_input_changed = free_text_changed or any(
+            key in payload
+            for key in {
+                "sections_json",
+                "linked_asset_refs_json",
+                "template_key",
+            }
+        )
+        adopted_change = meaningful_change and (
+            page.status in self._ADOPTED_STATUSES
+            or before_status in self._ADOPTED_STATUSES
+        )
+        if projection_input_changed or adopted_change:
+            await self._mark_page_projections_stale(db, page)
+        if adopted_change:
+            page.version_number += 1
+            await self._record_adopted_page_change(
+                db,
+                page,
+                revision_reason="legacy_update",
+                context_reason="world_bible_page_updated",
+            )
+        await db.flush()
+        return WorldBiblePageResponse.model_validate(page)
+
     async def list_categories(
         self,
         db: AsyncSession,
@@ -373,7 +525,33 @@ class WorldBibleLifecycleService:
         *,
         published_by: str | None = None,
     ) -> WorldBiblePageResponse:
-        draft = await self._get_draft_model(db, novel_id, draft_id, for_update=True)
+        observed_draft = await self._get_draft_model(db, novel_id, draft_id)
+        page: WorldBiblePage | None = None
+        if observed_draft.page_id is not None:
+            # Keep the global lifecycle lock order page -> draft. Generation
+            # suggestion application uses the same order through
+            # load_page_source(for_update=True).
+            page = await self._get_page_model(
+                db,
+                novel_id,
+                str(observed_draft.page_id),
+                for_update=True,
+            )
+            draft = await self._get_draft_model(
+                db,
+                novel_id,
+                draft_id,
+                for_update=True,
+            )
+            if draft.page_id != page.id:
+                raise ConflictError("World Bible draft page changed during publish")
+        else:
+            draft = await self._get_draft_model(
+                db,
+                novel_id,
+                draft_id,
+                for_update=True,
+            )
         await self._ensure_category_key(db, draft.novel_id, draft.page_type)
         if draft.template_key:
             await self._ensure_page_template_key(
@@ -406,12 +584,8 @@ class WorldBibleLifecycleService:
             db.add(page)
             await db.flush()
         else:
-            page = await self._get_page_model(
-                db,
-                novel_id,
-                str(draft.page_id),
-                for_update=True,
-            )
+            if page is None:
+                raise ConflictError("World Bible draft page changed during publish")
             if page.version_number != draft.base_version_number:
                 raise ConflictError(
                     "World Bible page changed after this draft was created"
@@ -427,20 +601,19 @@ class WorldBibleLifecycleService:
             page.status = "canonical"
             page.version_number += 1
             page.updated_by = published_by or draft.updated_by
-        await self._add_revision(db, page, revision_reason="manual_publish")
-        await self._mark_page_projections_stale(db, page)
         await self._mark_draft_context_changed(
             db,
             draft,
             reason="world_bible_draft_published",
         )
-        await self.mark_page_context_changed(
+        await self._record_adopted_page_change(
             db,
             page,
-            reason="world_bible_page_published",
+            revision_reason="manual_publish",
+            mark_projections_stale=True,
+            context_reason="world_bible_page_published",
         )
         await db.delete(draft)
-        await self._mark_synopsis_stale(db, str(page.novel_id))
         await db.flush()
         return WorldBiblePageResponse.model_validate(page)
 
@@ -453,7 +626,12 @@ class WorldBibleLifecycleService:
         *,
         restored_by: str | None = None,
     ) -> WorldBiblePageDraftResponse:
-        page = await self._get_page_model(db, novel_id, page_id)
+        page = await self._get_page_model(
+            db,
+            novel_id,
+            page_id,
+            for_update=True,
+        )
         existing = await db.scalar(
             select(WorldBiblePageDraft.id).where(
                 WorldBiblePageDraft.novel_id == page.novel_id,
@@ -574,6 +752,159 @@ class WorldBibleLifecycleService:
             for_update=for_update,
         )
 
+    async def get_page_model(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        page_id: str,
+        *,
+        for_update: bool = False,
+    ) -> WorldBiblePage:
+        return await self._get_page_model(
+            db,
+            novel_id,
+            page_id,
+            for_update=for_update,
+        )
+
+    async def load_page_source(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        page_id: str,
+        *,
+        for_update: bool = False,
+    ) -> WorldBiblePageSourceState:
+        """Load one novel-scoped page and its exact active working draft."""
+        page = await self._get_page_model(
+            db,
+            novel_id,
+            page_id,
+            for_update=for_update,
+        )
+        stmt = select(WorldBiblePageDraft).where(
+            WorldBiblePageDraft.novel_id == page.novel_id,
+            WorldBiblePageDraft.page_id == page.id,
+        )
+        if for_update:
+            stmt = stmt.with_for_update()
+        draft = await db.scalar(stmt)
+        return WorldBiblePageSourceState(page=page, draft=draft)
+
+    @classmethod
+    def page_source_hash(cls, state: WorldBiblePageSourceState) -> str:
+        content = state.content()
+        return cls.source_content_hash(
+            title=content["title"],
+            page_type=content["page_type"],
+            free_text=content["free_text"],
+            sections_json=content["sections_json"],
+            linked_asset_refs_json=content["linked_asset_refs_json"],
+            template_key=content["template_key"],
+            template_version=content["template_version"],
+            page_version=state.page.version_number,
+        )
+
+    @staticmethod
+    def source_content_hash(
+        *,
+        title: str,
+        page_type: str,
+        free_text: str | None,
+        sections_json: list[dict[str, Any]],
+        linked_asset_refs_json: list[dict[str, Any]],
+        template_key: str | None,
+        template_version: int,
+        page_version: int,
+    ) -> str:
+        value = {
+            "title": title,
+            "page_type": page_type,
+            "free_text": free_text,
+            "sections_json": sections_json,
+            "linked_asset_refs_json": linked_asset_refs_json,
+            "template_key": template_key,
+            "template_version": template_version,
+            "page_version": page_version,
+        }
+        return hashlib.sha256(
+            json.dumps(
+                value,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest()
+
+    @classmethod
+    def baseline_mismatch(
+        cls,
+        state: WorldBiblePageSourceState,
+        *,
+        page_version: int,
+        draft_id: str | None,
+        draft_updated_at: datetime | None,
+        content_hash: str | None = None,
+    ) -> WorldBibleBaselineMismatch | None:
+        if state.page.version_number != page_version:
+            return "page_version"
+        if draft_id is None:
+            if state.draft is not None:
+                return "draft_created"
+        elif (
+            state.draft is None
+            or str(state.draft.id) != draft_id
+            or not cls._same_datetime(state.draft.updated_at, draft_updated_at)
+        ):
+            return "draft_changed"
+        if content_hash is not None and cls.page_source_hash(state) != content_hash:
+            return "content_hash"
+        return None
+
+    @staticmethod
+    def projection_source_hash(page: WorldBiblePage) -> str:
+        payload = {
+            "free_text": page.free_text or "",
+            "linked_asset_refs_json": page.linked_asset_refs_json or [],
+            "sections_json": page.sections_json or [],
+            "template_key": page.template_key,
+            "template_version": page.template_version,
+            "version_number": page.version_number,
+        }
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def projection_source_spans(page: WorldBiblePage) -> list[dict[str, Any]]:
+        spans: list[dict[str, Any]] = []
+        if page.free_text:
+            spans.append(
+                {
+                    "page_id": str(page.id),
+                    "section_id": "overview",
+                    "start": 0,
+                    "end": len(page.free_text),
+                }
+            )
+        for section in page.sections_json or []:
+            body = str(section.get("body_markdown") or "")
+            if body and section.get("projection_policy", "eligible") == "eligible":
+                spans.append(
+                    {
+                        "page_id": str(page.id),
+                        "section_id": section.get("section_id"),
+                        "start": 0,
+                        "end": len(body),
+                    }
+                )
+        return spans
+
     async def mark_draft_context_changed(
         self,
         db: AsyncSession,
@@ -614,6 +945,49 @@ class WorldBibleLifecycleService:
         refs: list[dict[str, Any]],
     ) -> None:
         self._validate_section_refs(self._serialize_sections(sections), refs)
+
+    async def _validate_page_content(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: uuid.UUID,
+        template_key: str | None,
+        sections: list[dict[str, Any]] | list[WorldBibleSection],
+        refs: list[dict[str, Any]],
+        validate_template: bool = True,
+        validate_asset_refs: bool = True,
+    ) -> None:
+        if validate_template and template_key:
+            await self._ensure_page_template_key(db, str(novel_id), template_key)
+        if validate_asset_refs:
+            await self._validate_asset_refs(db, novel_id, refs)
+        self._validate_section_refs(self._serialize_sections(sections), refs)
+
+    async def _record_adopted_page_change(
+        self,
+        db: AsyncSession,
+        page: WorldBiblePage,
+        *,
+        revision_reason: str,
+        mark_projections_stale: bool = False,
+        context_reason: str | None = None,
+    ) -> None:
+        await self._add_revision(db, page, revision_reason=revision_reason)
+        if mark_projections_stale:
+            await self._mark_page_projections_stale(db, page)
+        if context_reason:
+            await self.mark_page_context_changed(db, page, reason=context_reason)
+        await self._mark_synopsis_stale(db, str(page.novel_id))
+
+    @staticmethod
+    def _same_datetime(left: datetime | None, right: datetime | None) -> bool:
+        if left is None or right is None:
+            return left is right
+        if left.tzinfo is None:
+            left = left.replace(tzinfo=UTC)
+        if right.tzinfo is None:
+            right = right.replace(tzinfo=UTC)
+        return left.astimezone(UTC) == right.astimezone(UTC)
 
     async def _get_category(
         self,
@@ -807,8 +1181,6 @@ class WorldBibleLifecycleService:
         db: AsyncSession,
         page: WorldBiblePage,
     ) -> None:
-        from modules.world.models import WorldBiblePageProjection
-
         result = await db.execute(
             select(WorldBiblePageProjection).where(
                 WorldBiblePageProjection.novel_id == page.novel_id,
@@ -817,6 +1189,7 @@ class WorldBibleLifecycleService:
         )
         for projection in result.scalars().all():
             projection.stale = True
+            projection.stale_checked_at = datetime.now(UTC)
 
     @staticmethod
     async def _mark_synopsis_stale(db: AsyncSession, novel_id: str) -> None:
@@ -889,10 +1262,7 @@ class WorldBibleLifecycleService:
     @staticmethod
     def _asset_ref_hash(ref: dict[str, Any]) -> str:
         target_type = str(
-            ref.get("target_type")
-            or ref.get("type")
-            or ref.get("source_type")
-            or ""
+            ref.get("target_type") or ref.get("type") or ref.get("source_type") or ""
         )
         target_id = str(
             ref.get("target_id") or ref.get("id") or ref.get("source_id") or ""

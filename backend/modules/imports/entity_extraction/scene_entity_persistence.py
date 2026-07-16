@@ -9,9 +9,6 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.imports.context_snapshot_helpers import build_result_ref
-from modules.imports.entity_extraction.scene_entity_runtime import (
-    SceneEntityExtractionRuntime,
-)
 from modules.imports.llm_schemas import (
     AliasRelationExtractionOutput,
     DeltaEvent,
@@ -131,11 +128,8 @@ def _relation_review_meta(
     }
 
 
-class SceneEntityPersistenceGateway:
-    """Persists Phase 2 entities, aliases, relations, deltas, and map observations."""
-
-    def __init__(self, service: SceneEntityExtractionRuntime) -> None:
-        self.service = service
+class SceneEntityPersistenceMixin:
+    """Internal Phase 2 persistence implementation."""
 
     async def _record_quote_evidence(
         self,
@@ -192,7 +186,7 @@ class SceneEntityPersistenceGateway:
             provenance={**provenance, "review_reason": reason},
         )
 
-    async def persist_alias_relation_output(
+    async def _persist_alias_relation_output(
         self,
         db: AsyncSession,
         novel_id: str,
@@ -327,7 +321,7 @@ class SceneEntityPersistenceGateway:
 
         return {"aliases": aliases_created, "relations": relations_created}
 
-    async def persist_entities(
+    async def _persist_entities(
         self,
         db: AsyncSession,
         nid,
@@ -342,7 +336,7 @@ class SceneEntityPersistenceGateway:
         result_refs: list[dict[str, str]] | None = None,
         persistence_stats: dict[str, Any] | None = None,
     ) -> int:
-        service = self.service
+        service = self
         from modules.world.facade import (
             create_entity,
             find_entity_id_by_name,
@@ -513,7 +507,7 @@ class SceneEntityPersistenceGateway:
 
         return created
 
-    async def persist_relations(
+    async def _persist_relations(
         self,
         db: AsyncSession,
         nid,
@@ -614,7 +608,7 @@ class SceneEntityPersistenceGateway:
                 )
         return created
 
-    async def record_deltas(
+    async def _record_deltas(
         self,
         db: AsyncSession,
         nid,
@@ -703,7 +697,7 @@ class SceneEntityPersistenceGateway:
                 )
         return result.count
 
-    async def record_map_observation_proposals(
+    async def _record_map_observation_proposals(
         self,
         db: AsyncSession,
         nid,
@@ -759,3 +753,28 @@ class SceneEntityPersistenceGateway:
                 for item in result.items
             )
         return {"created": result.created_count, "reused": result.reused_count}
+
+
+class SceneEntityPersistenceGateway(SceneEntityPersistenceMixin):
+    """Compatibility adapter for the former persistence gateway."""
+
+    def __init__(self, service) -> None:
+        self.service = service
+
+    def __getattr__(self, name):
+        return getattr(self.service, name)
+
+    async def persist_alias_relation_output(self, *args, **kwargs):
+        return await self._persist_alias_relation_output(*args, **kwargs)
+
+    async def persist_entities(self, *args, **kwargs):
+        return await self._persist_entities(*args, **kwargs)
+
+    async def persist_relations(self, *args, **kwargs):
+        return await self._persist_relations(*args, **kwargs)
+
+    async def record_deltas(self, *args, **kwargs):
+        return await self._record_deltas(*args, **kwargs)
+
+    async def record_map_observation_proposals(self, *args, **kwargs):
+        return await self._record_map_observation_proposals(*args, **kwargs)

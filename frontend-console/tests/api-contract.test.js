@@ -1,12 +1,22 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { readFileSync, readdirSync } from "node:fs"
 import { dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import "../apiContracts.js"
+import "../api.js"
+import {
+  applyMapEditor as applyMapEditorForE2E,
+  listMaps as listMapsForE2E,
+} from "../e2e/helpers/api-client.js"
 
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)))
-const { API_CONTRACTS, contractPath, getApiContract } = globalThis.apiContracts
+const {
+  API_CONTRACTS,
+  contractPath,
+  contractRequest,
+  getApiContract,
+} = globalThis.apiContracts
 
 function viewFiles() {
   const viewsDir = join(projectRoot, "views")
@@ -36,29 +46,14 @@ function productionJsFiles() {
 }
 
 function definedApiMethods() {
-  const apiSource = readFileSync(join(projectRoot, "api.js"), "utf8")
-  const groups = [...apiSource.matchAll(/\n\s{2}([a-zA-Z0-9_]+):\s*\{/g)]
-    .map((match) => [match[1], match.index])
   const methods = new Set()
-
-  for (let i = 0; i < groups.length; i++) {
-    const [group, start] = groups[i]
-    const end = i + 1 < groups.length ? groups[i + 1][1] : apiSource.length
-    const block = apiSource.slice(start, end)
-    for (const match of block.matchAll(/\n\s{4}(?:\/\*\*[\s\S]*?\*\/\s*)?(?:async\s+)?([a-zA-Z0-9_]+)\s*[\(=:]/g)) {
-      methods.add(`${group}.${match[1]}`)
+  const runtimeApi = globalThis.window?.api
+  for (const [groupName, group] of Object.entries(runtimeApi || {})) {
+    if (!group || typeof group !== "object") continue
+    for (const [methodName, method] of Object.entries(group)) {
+      if (typeof method === "function") methods.add(`${groupName}.${methodName}`)
     }
   }
-
-  const settingsStart = apiSource.indexOf("const settingsApi = {")
-  const settingsEnd = apiSource.indexOf("api.settings = settingsApi")
-  if (settingsStart >= 0 && settingsEnd > settingsStart) {
-    const settingsBlock = apiSource.slice(settingsStart, settingsEnd)
-    for (const match of settingsBlock.matchAll(/\n\s{2}([a-zA-Z0-9_]+):\s*\(?/g)) {
-      methods.add(`settings.${match[1]}`)
-    }
-  }
-
   return methods
 }
 
@@ -370,6 +365,119 @@ describe("前后端 API 契约", () => {
       .toBe("/writing/drafts/draft-1/discard?novel_id=novel-1")
     expect(contractPath("writing.enqueueConflictAiReview", { checkId: "check-1" }))
       .toBe("/writing/conflict-checks/check-1/ai-review-task")
+  })
+
+  it("contractRequest 校验 requiredBody 并生成不可改写 method 的请求", () => {
+    expect(() => contractRequest(
+      "world.applyMapEditor",
+      { mapId: "map-1" },
+      { novel_id: "novel-1" },
+      { body: { expected_revision: 3 } },
+    )).toThrow(/commands.*world\.applyMapEditor/)
+    expect(() => contractRequest(
+      "world.applyMapEditor",
+      { mapId: "map-1" },
+      { novel_id: "novel-1" },
+      { body: { expected_revision: 3, commands: undefined } },
+    )).toThrow(/commands.*world\.applyMapEditor/)
+
+    const requestSpec = contractRequest(
+      "world.applyMapEditor",
+      { mapId: "map-1" },
+      { novel_id: "novel-1" },
+      {
+        method: "DELETE",
+        timeout: 4321,
+        body: { expected_revision: 3, commands: [] },
+      },
+    )
+
+    expect(requestSpec).toEqual({
+      path: "/world/maps/map-1/editor/apply?novel_id=novel-1",
+      method: "POST",
+      options: {
+        method: "POST",
+        timeout: 4321,
+        body: JSON.stringify({ expected_revision: 3, commands: [] }),
+      },
+    })
+    expect(() => contractRequest(
+      "world.assignProjectMapObservation",
+      { observationId: "obs-1" },
+      { novel_id: "novel-1" },
+      { body: { map_id: null, expected_updated_at: "2026-07-16T00:00:00Z" } },
+    )).not.toThrow()
+  })
+
+  it("E2E 地图适配器通过共享契约生成请求", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({ editor_revision: 4 }),
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      await expect(applyMapEditorForE2E("novel-1", "map-1", {
+        expected_revision: 3,
+        commands: [],
+      })).resolves.toEqual({ editor_revision: 4 })
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      const [url, options] = fetchMock.mock.calls[0]
+      expect(url).toMatch(/\/api\/world\/maps\/map-1\/editor\/apply\?novel_id=novel-1$/)
+      expect(options).toMatchObject({
+        method: "POST",
+        body: JSON.stringify({ expected_revision: 3, commands: [] }),
+        headers: {
+          "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+      })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("E2E GET 请求与浏览器客户端使用相同的安全头规则", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue([]),
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      await listMapsForE2E("novel-1")
+
+      const [, options] = fetchMock.mock.calls[0]
+      expect(options.headers).toEqual({ Accept: "application/json" })
+      expect(options).not.toHaveProperty("timeout")
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("E2E 共享契约的 timeout 会真正中止 fetch", async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn((_url, options) => new Promise((_resolve, reject) => {
+      options.signal.addEventListener("abort", () => {
+        const error = new Error("Aborted")
+        error.name = "AbortError"
+        reject(error)
+      }, { once: true })
+    }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      const assertion = expect(listMapsForE2E("novel-1"))
+        .rejects.toThrow("timed out after 15000ms")
+      await vi.advanceTimersByTimeAsync(15000)
+      await assertion
+    } finally {
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+    }
   })
 
   it("视图调用的 api.* 方法必须在 api.js 中定义", () => {

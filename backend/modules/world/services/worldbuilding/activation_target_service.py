@@ -23,7 +23,9 @@ from modules.world.models import (
     WorldBiblePageProjection,
 )
 from modules.world.services.worldbuilding.shared import CONFIRMED_STATUSES
-from modules.world.services.worldbuilding.world_bible_service import WorldBibleService
+from modules.world.services.worldbuilding.world_bible_lifecycle_service import (
+    WorldBibleLifecycleService,
+)
 from shared.target_ref import TargetRef, normalize_target_ref
 from shared.utils import parse_uuid
 
@@ -52,9 +54,7 @@ class WorldBibleActivationTargetService:
             try:
                 queue.append((normalize_target_ref(raw), 0, None, "explicit"))
             except Exception:
-                excluded.append(
-                    self._excluded(novel_id, raw, reason="target_missing")
-                )
+                excluded.append(self._excluded(novel_id, raw, reason="target_missing"))
 
         items: list[WorldBibleActivationTargetContract] = []
         visited: set[str] = set()
@@ -144,17 +144,15 @@ class WorldBibleActivationTargetService:
                 WorldBiblePage.id.in_(parsed_ids),
             )
         )
-        service = WorldBibleService()
         return [
             {
                 "page_id": str(page.id),
                 "version_number": page.version_number,
                 "template_key": page.template_key,
                 "template_version": page.template_version,
-                "source_hash": service._projection_source_hash(page),
+                "source_hash": WorldBibleLifecycleService.projection_source_hash(page),
                 "section_ids": [
-                    str(item.get("section_id"))
-                    for item in page.sections_json or []
+                    str(item.get("section_id")) for item in page.sections_json or []
                 ],
                 "status": page.status,
             }
@@ -323,7 +321,7 @@ class WorldBibleActivationTargetService:
                 status=page.status,
                 expanded_from=expanded_from,
             )
-        source_hash = WorldBibleService()._projection_source_hash(page)
+        source_hash = WorldBibleLifecycleService.projection_source_hash(page)
         projection = await db.scalar(
             select(WorldBiblePageProjection).where(
                 WorldBiblePageProjection.novel_id == novel_id,
@@ -390,11 +388,7 @@ class WorldBibleActivationTargetService:
             )
         )
         targets = {
-            str(
-                relation.target_id
-                if relation.source_id == seed
-                else relation.source_id
-            )
+            str(relation.target_id if relation.source_id == seed else relation.source_id)
             for relation in result.scalars().all()
         }
         return [

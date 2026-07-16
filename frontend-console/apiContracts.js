@@ -29,6 +29,16 @@
     return value
   }
 
+  function requiredBodyField(body, name, contractName) {
+    if (
+      !body
+      || !Object.prototype.hasOwnProperty.call(body, name)
+      || body[name] === undefined
+    ) {
+      throw new Error(`Missing required API contract value ${name} for ${contractName}`)
+    }
+  }
+
   function stagePath(params, contractName) {
     const stage = required(params.stage, "stage", contractName)
     const endpoints = {
@@ -359,27 +369,36 @@
     return contract
   }
 
-  function validateRequired(contractName, contract, params, query) {
+  function validatePathRequired(contractName, contract, params, query) {
     for (const key of contract.requiredParams) required(params?.[key], key, contractName)
     for (const key of contract.requiredQuery) required(query?.[key], key, contractName)
   }
 
+  function validateRequired(contractName, contract, params, query, body) {
+    validatePathRequired(contractName, contract, params, query)
+    for (const key of contract.requiredBody) requiredBodyField(body, key, contractName)
+  }
+
   function contractPath(name, params = {}, query = {}) {
     const contract = getApiContract(name)
-    validateRequired(name, contract, params, query)
+    validatePathRequired(name, contract, params, query)
     return contract.path(params || {}) + queryString(query || {})
   }
 
   function contractRequest(name, params = {}, query = {}, options = {}) {
     const contract = getApiContract(name)
+    const { body, ...transportOptions } = options || {}
+    validateRequired(name, contract, params, query, body)
+    const requestOptions = {
+      ...transportOptions,
+      method: contract.method,
+      timeout: transportOptions.timeout ?? contract.timeout,
+    }
+    if (body !== undefined) requestOptions.body = JSON.stringify(body)
     return {
       path: contractPath(name, params, query),
       method: contract.method,
-      options: {
-        method: contract.method,
-        timeout: contract.timeout,
-        ...options,
-      },
+      options: requestOptions,
     }
   }
 

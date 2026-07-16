@@ -25,20 +25,14 @@ from modules.imports.entity_extraction.scene_entity_config import (
     phase2_alias_relation_total_timeout_seconds,
     phase2_postprocess_timeout_seconds,
 )
-from modules.imports.entity_extraction.scene_entity_runtime import (
-    SceneEntityExtractionRuntime,
-)
 
 logger = logging.getLogger(__name__)
 
 
-class AliasRelationExtractor:
-    """Runs alias/relation extraction against working world objects."""
+class AliasRelationExtractionMixin:
+    """Internal Phase 2b alias and relation implementation."""
 
-    def __init__(self, service: SceneEntityExtractionRuntime) -> None:
-        self.service = service
-
-    async def run(
+    async def _execute_alias_relation_phase(
         self,
         db: AsyncSession,
         nid,
@@ -48,7 +42,7 @@ class AliasRelationExtractor:
         on_scene_progress: Callable[[int, int], Awaitable[None]] | None = None,
         existing_checkpoints: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        service = self.service
+        service = self
         total_aliases = 0
         total_relations = 0
         completed_scenes = 0
@@ -401,7 +395,7 @@ class AliasRelationExtractor:
             },
         }
 
-    async def build_entity_index(
+    async def _build_alias_relation_entity_index(
         self,
         db: AsyncSession,
         novel_id: str,
@@ -540,7 +534,7 @@ def _effective_alias_relation_total_timeout_seconds(
 
 
 async def _run_alias_relation_llm_calls(
-    service: SceneEntityExtractionRuntime,
+    service: Any,
     prepared: list[dict[str, Any]],
     *,
     started_at: float,
@@ -717,3 +711,27 @@ def _scene_indices_for_failure(
             )
         )
     return indices
+
+
+class AliasRelationExtractor(AliasRelationExtractionMixin):
+    """Compatibility adapter for the former helper class."""
+
+    def __init__(self, service) -> None:
+        self.service = service
+
+    def __getattr__(self, name):
+        return getattr(self.service, name)
+
+    async def run(self, *args, **kwargs):
+        return await AliasRelationExtractionMixin._execute_alias_relation_phase(
+            self.service,
+            *args,
+            **kwargs,
+        )
+
+    async def build_entity_index(self, *args, **kwargs):
+        return await AliasRelationExtractionMixin._build_alias_relation_entity_index(
+            self.service,
+            *args,
+            **kwargs,
+        )

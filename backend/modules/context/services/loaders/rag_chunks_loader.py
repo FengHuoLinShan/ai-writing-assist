@@ -272,25 +272,7 @@ class RagChunksLoader(Loader):
         activations: dict[str, dict],
     ) -> tuple[list[dict], dict[str, int]]:
         from modules.context.novel_evidence import NovelEvidenceService
-        from modules.writing.facade import (
-            build_manuscript_range_ref,
-            list_manuscript_sources,
-        )
 
-        chapters = sorted(
-            {
-                int(chunk.chapter_index)
-                for chunk in chunks
-                if getattr(chunk, "chapter_index", None) is not None
-            }
-        )
-        current_sources = await list_manuscript_sources(
-            db,
-            options.novel_id,
-            chapters,
-            content_mode=options.content_mode,
-        )
-        current_by_chapter = {source.chapter_index: source for source in current_sources}
         visibility = VisibilityContextContract(
             mode=(
                 options.reveal_mode
@@ -303,53 +285,42 @@ class RagChunksLoader(Loader):
             character_id=options.viewpoint_character_id,
         )
         evidence = NovelEvidenceService()
-        visibility, cursor_warnings = await evidence.resolve_visibility_cursor(
+        rehydrated = await evidence.rehydrate_manuscript_candidates(
             db,
             novel_id=options.novel_id,
             content_mode=options.content_mode,
             visibility=visibility,
+            chunks=chunks,
         )
-        for warning in cursor_warnings:
+        for warning in rehydrated.warnings:
             if warning not in bundle.warnings:
                 bundle.warnings.append(warning)
         hydrated: list[dict] = []
         drops: Counter[str] = Counter()
         for chunk in chunks:
-            source = current_by_chapter.get(getattr(chunk, "chapter_index", None))
-            drop_reason = _source_drop_reason(chunk, source)
+            chunk_id = str(chunk.id)
+            drop_reason = rehydrated.drop_reason_by_chunk_id.get(chunk_id)
             if drop_reason is not None:
                 drops[drop_reason] += 1
-                warning = "RAG 候选未匹配当前正文版本，已剔除"
+                warning = (
+                    "RAG 候选未匹配当前正文版本，已剔除"
+                    if drop_reason
+                    in {
+                        "source_missing",
+                        "source_id_mismatch",
+                        "source_hash_mismatch",
+                        "invalid_range",
+                        "novel_id_mismatch",
+                        "content_mode_mismatch",
+                    }
+                    else "RAG 候选原文引用已失效，已剔除"
+                )
                 if warning not in bundle.warnings:
                     bundle.warnings.append(warning)
                 continue
-            try:
-                source_ref = await build_manuscript_range_ref(
-                    db,
-                    options.novel_id,
-                    draft_id=chunk.source_id,
-                    start_offset=chunk.start_offset,
-                    end_offset=chunk.end_offset,
-                    content_mode=options.content_mode,
-                )
-                read = await evidence.read(
-                    db,
-                    novel_id=options.novel_id,
-                    source_ref=source_ref,
-                    visibility=visibility,
-                    before=0,
-                    after=0,
-                )
-            except Exception as exc:
-                reason = (
-                    "visibility_denied"
-                    if "可见截止" in str(exc) or "超出当前可见" in str(exc)
-                    else "read_failed"
-                )
-                drops[reason] += 1
-                warning = "RAG 候选原文引用已失效，已剔除"
-                if warning not in bundle.warnings:
-                    bundle.warnings.append(warning)
+            read = rehydrated.reads_by_chunk_id.get(chunk_id)
+            if read is None:
+                drops["read_failed"] += 1
                 continue
             raw = chunk.model_dump() if hasattr(chunk, "model_dump") else asdict(chunk)
             raw["text"] = read["text"]
@@ -385,23 +356,6 @@ class RagChunksLoader(Loader):
                 bundle.warnings.append(warning)
 
 
-def _source_drop_reason(chunk: Any, source: Any) -> str | None:
-    if getattr(chunk, "source_type", None) != "chapter_text" or source is None:
-        return "source_missing"
-    if not getattr(chunk, "source_id", None) or source.id != chunk.source_id:
-        return "source_id_mismatch"
-    if (
-        not getattr(chunk, "source_content_hash", None)
-        or source.content_hash != chunk.source_content_hash
-    ):
-        return "source_hash_mismatch"
-    start = getattr(chunk, "start_offset", None)
-    end = getattr(chunk, "end_offset", None)
-    if start is None or end is None or int(start) < 0 or int(end) <= int(start):
-        return "invalid_range"
-    return None
-
-
 def _safe_empty_reason(trace: dict, *, strict_scene_filter: bool) -> str | None:
     if int(trace.get("hydrated_count") or 0) > 0:
         return None
@@ -420,6 +374,8 @@ def _safe_empty_reason(trace: dict, *, strict_scene_filter: bool) -> str | None:
             "source_id_mismatch",
             "source_hash_mismatch",
             "invalid_range",
+            "novel_id_mismatch",
+            "content_mode_mismatch",
             "read_failed",
         }
         if set(drops) <= source_invalid_reasons:

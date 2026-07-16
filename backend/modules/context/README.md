@@ -255,6 +255,11 @@ RAG loader 不会直接把 chunk text 视为事实。它按 `source_id` 从 writ
 当前原文、校验 source hash，然后才生成 section 的 source refs/hash metadata；
 过期块被丢弃并返回降级警告。
 
+手动智能检索与 `RagChunksLoader` 复用 `NovelEvidenceService` 的同一候选回读链路：
+候选必须同时通过 `novel_id`、正文来源类型/ID、当前 source hash、offset/range 和
+reader/character 可见性校验，随后才从 writing 读取当前原文。RAG 只负责候选排序，
+任何缓存 chunk text 都不能绕过该链路进入证据响应或编译上下文。
+
 ## 小说证据服务与可见性
 
 `NovelEvidenceService` 在 context 内集中编排 writing、RAG、outline 和 world，

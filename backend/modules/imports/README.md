@@ -231,6 +231,11 @@ Phase 2 的 Scene 实体抽取实现位于 `entity_extraction/` 子包；
 `scene_entity_extraction.py` 兼容 hub 已删除；测试和生产 monkeypatch 路径应指向
 `modules.imports.entity_extraction` 或其具体实现子模块。
 
+生产路径由 `SceneEntityExtractionService` 直接组合 single/parallel/bulk、Phase 2b task、
+alias/relation 和 persistence 内部 mixin；`Phase2WorldExtractor` 继承同一实现，不再创建
+第二个 legacy service。原先只描述唯一实现私有方法的 runtime Protocol 已删除；保留的
+helper 类仅用于旧测试/import 兼容，不是生产 DI seam。
+
 - `entity_extraction/scene_entity_strategy.py` — 选择 empty / small-sample parallel / bulk / batched / checkpoint resume 路由
 - `entity_extraction/scene_entity_single_scene.py` — 单 Scene 串行 Phase 2a
 - `entity_extraction/scene_entity_parallel.py` — 小样本并发抽取与 bulk 失败 fallback

@@ -1,6 +1,6 @@
 # 小说结构化创作控制台 — 前端
 
-面向中文作者的**小说结构化创作控制台**，采用 Apple 极简 + 杂志留白风格的浅色主题，同时支持暗色模式。
+面向中文作者的**小说结构化创作控制台**。全站采用“编辑档案”视觉系统：米白纸张、深蓝结构线、朱红功能索引和克制的几何编排，同时支持暖色与暗色主题。
 
 ## 快速启动
 
@@ -87,7 +87,8 @@ python scripts/doctor.py --json
 ```
 frontend-console/
 ├── index.html              # 单页应用入口
-├── styles.css              # 完整样式表（浅色主题 + 暗色模式，设计 Token 驱动）
+├── styles.css              # 基础布局、组件和页面样式（设计 Token 驱动）
+├── editorial-theme.css     # 全站编辑档案主题覆层（浅色 / 暖色 / 暗色）
 ├── state.js                # 全局响应式状态管理
 ├── stateSlices.js          # 状态副作用、listener 通知、DOM 同步调度 helper
 ├── api.js                  # API 封装（projects/world/rag/context/writing/imports/tasks）
@@ -121,7 +122,8 @@ frontend-console/
 │   ├── worldView.js        # 世界对象 / 关系 / 别名 / 世界书 / 地图子标签
 │   ├── mapWorkspaceView.js # 地图一级工作台
 │   ├── mapView.js          # 动态地图主视图
-│   ├── mapState.js         # 地图前端会话状态
+│   ├── mapState.js         # 地图前端可观察会话状态
+│   ├── mapEditingSession.js # 编辑草稿、历史、CAS 基线与 apply 生命周期
 │   ├── mapHexRenderer.js   # 六边形渲染
 │   ├── mapEditPanel.js     # 地图编辑面板
 │   ├── mapLayerSession.js  # exclusive/floor 当前子层与 isolate 会话投影
@@ -145,7 +147,7 @@ frontend-console/
 
 - 纯原生 HTML + CSS + JavaScript
 - 无前端框架；地图视口按需加载 Leaflet（ADR-0003）
-- 地图编辑器用 `editorLayer` 区分地点、正式底图、覆盖地形、连续线路、标记和领地；各内容层独立保存草稿及 Undo/Redo，图层树另有独立 draft/history。revision CAS 支持“应用当前图层”“应用图层结构”或原子“保存全部”，409 会刷新基线但保留本地草稿。
+- 地图编辑器用 `editorLayer` 区分地点、正式底图、覆盖地形、连续线路、标记和领地；`mapEditingSession.js` 统一拥有各内容层草稿、Undo/Redo、冻结的提交范围、临时 ID 对账和 revision CAS baseline，图层树保留独立 draft/history。“应用当前图层”“应用图层结构”或原子“保存全部”共享该生命周期；从请求发出到服务端状态、图层树和线路重载完成期间，整个地图工作区保持锁定并拒绝二次提交，409 会刷新基线但保留本地草稿。
 - 图层面板使用递归树，展示祖先继承后的有效显隐、锁定、透明度与 zoom；exclusive/floor 当前子层由 route + localStorage 会话投影管理，isolate 不持久化。世界对象通过 map presence 在多张地图和多条线路间选择并双向定位。
 - 连续道路/水系由 `mapPathRenderer.js` 负责 RDP 简化、平滑采样、变宽绘制、AABB 裁剪和命中测试；Pointer 手绘、节点拖动、端点吸附与线路草稿由 `mapView` 编排。地图 Canvas 使用单 RAF 和 revision/viewport 缓存。
 - Scene 时间轴由 `mapWorkspaceView` 消费 timeline/state-at 只读投影，支持 Scene 游标、前后步进、
@@ -161,7 +163,7 @@ frontend-console/
   只有未被标签/控件消费的背景指针才进入 Canvas。
 - 覆盖地形使用自然环境、城市交通、奇幻危机三个内置程序化素材包及标准/柔和/高对比预设；未知素材显示中性占位并保留原 asset key，不支持用户上传。
 - 所有 UI 文字为中文
-- 浅色主题（#F5F5F7）为主，支持暗色模式
+- 编辑档案主题以米白纸张、深蓝结构线和朱红索引色为主，支持暖色与暗色模式
 
 ## 路由与设置
 
@@ -206,6 +208,13 @@ frontend-console/
 - 项目页采用编辑式“作品档案”布局：米白纸张、深蓝与朱红索引色、几何拼贴项目封面；
   当前项目置顶并占主版面，搜索、批量选择、导入和回收站仍沿用原有交互与接口。
   `720px` 以下改为单栏，390px 保持完整统计与主操作且不横向溢出。
+- `editorial-theme.css` 将同一档案语言扩展到全部一级页面、子标签、弹窗、表格与辅助栏；
+  `styles.css` 继续拥有结构布局，主题覆层不得改变路由、DOM 事件契约或 API/wire shape。
+- 项目页以外的工作区使用独立档案编号、英文索引角标和克制的几何切线；一级空状态采用分栏海报式构图，
+  窄屏自动收敛为单栏，不以装饰遮挡操作或业务反馈。
+- 功能控件必须保持可辨识：主操作使用深蓝实体面与朱红索引线；普通按钮有明确边框；文本输入、
+  选择器和编辑区使用纸张底、完整边框与左侧功能线，聚焦时切换朱红并显示焦点环。暗色主题
+  保留同一层级，`760px` 以下常用控件高度不低于 `42px`，表单输入不低于 `44px`。
 - 写作、Scene、世界书、地图和生成中心采用统一的内容优先分栏；桌面端正文、主列表、编辑区或画布获得约三分之二的可用宽度。
 - 辅助栏使用统一的主题化折叠控件，折叠选择按项目和页面保存在当前浏览器会话中；写作专注模式仍优先隐藏两侧栏。
 - 中等宽度会重排第三栏，`760px` 及以下改为单栏、抽屉或手风琴；折叠控件完整支持浅色、暗色、键盘焦点和减少动效偏好。
@@ -220,7 +229,7 @@ frontend-console/
 - `index.html` 配置 CSP meta baseline：脚本仅允许本源和 Leaflet CDN，连接仅允许本源及本地开发后端；`style-src` 暂保留 inline style 兼容。
 - 封闭测试服的 `APP_ACCESS_TOKEN` 只保存在 `api.js` 当前页面的 module memory，不读写 Web Storage；刷新页面后需要重新输入。普通请求、导入上传和前端错误上报共用该内存令牌，被后端以 401 拒绝后立即清除。
 - 动态内容默认使用 `textContent`；必须拼 HTML 时先走 `esc()`。
-- 当前已落地 vanilla JS 共享 API 契约校验第一阶段：`apiContracts.js` 注册高风险 wrapper 的 method/path/query/body/timeout，`api.js` 对应 wrapper 消费该 registry，Vitest 覆盖加载顺序与代表 endpoint 映射。
+- 当前已落地 vanilla JS 共享 API 契约校验第一阶段：`apiContracts.js` 注册高风险 wrapper 的 method/path/query/body/timeout，浏览器 `api.js` 与 Playwright API helper 共用同一 registry 和序列化规则；Vitest 覆盖加载顺序、必填 body、method 固定与代表 endpoint 映射。
 - TypeScript / OpenAPI codegen 仍是未来设计项；当前契约层不覆盖响应字段级 schema drift，设计记录见 `docs/frontend/typescript-api-contracts.md`。
 
 ## 快捷键

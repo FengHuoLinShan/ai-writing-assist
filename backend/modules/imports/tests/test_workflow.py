@@ -5504,8 +5504,8 @@ class TestSceneEntityExtractionProgress:
         fake_db = FakeDb()
         novel_id = uuid.uuid4()
         with patch(
-            "modules.imports.entity_extraction.scene_entity_persistence."
-            "SceneEntityPersistenceGateway._record_quote_evidence",
+            "modules.imports.entity_extraction.scene_entity_extraction."
+            "SceneEntityExtractionService._record_quote_evidence",
             autospec=True,
         ):
             created = await service._persist_entities(

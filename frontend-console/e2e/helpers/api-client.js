@@ -4,32 +4,81 @@
  * 绕过前端，直接调用后端 REST API 创建/清理测试数据。
  */
 
+import "../../apiContracts.js"
+
 const backendPort = process.env.BACKEND_PORT || "8000"
 const rawApiHost = process.env.API_HOST || `http://localhost:${backendPort}`
 export const API_HOST = rawApiHost.endsWith("/api") ? rawApiHost.slice(0, -4) : rawApiHost
 export const API_BASE = `${API_HOST}/api`
+const DEFAULT_TIMEOUT = 15000
 
 async function request(path, options = {}) {
-  const method = (options.method || "GET").toUpperCase()
+  const { timeout, signal: externalSignal, ...fetchOptions } = options
+  const method = (fetchOptions.method || "GET").toUpperCase()
   const headers = {
-    "Content-Type": "application/json",
     Accept: "application/json",
-    ...options.headers,
   }
   if (method !== "GET" && method !== "HEAD") {
-    headers["X-Requested-With"] ||= "XMLHttpRequest"
+    headers["X-Requested-With"] = "XMLHttpRequest"
+  }
+  const isFormData = typeof FormData !== "undefined"
+    && fetchOptions.body instanceof FormData
+  if (method !== "GET" && method !== "DELETE" && !isFormData) {
+    headers["Content-Type"] = "application/json"
   }
 
-  const resp = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  })
-  if (!resp.ok) {
-    const text = await resp.text()
-    throw new Error(`API ${path} failed (${resp.status}): ${text}`)
+  const controller = new AbortController()
+  const timeoutMs = timeout || DEFAULT_TIMEOUT
+  let timeoutFired = false
+  const timeoutId = setTimeout(() => {
+    timeoutFired = true
+    controller.abort()
+  }, timeoutMs)
+  let signal = controller.signal
+  let externalAbortHandler = null
+  if (externalSignal) {
+    if (typeof AbortSignal !== "undefined" && AbortSignal.any) {
+      signal = AbortSignal.any([controller.signal, externalSignal])
+    } else {
+      externalAbortHandler = () => controller.abort()
+      if (externalSignal.aborted) controller.abort()
+      else externalSignal.addEventListener("abort", externalAbortHandler, { once: true })
+    }
   }
-  if (resp.status === 204) return null
-  return resp.json()
+
+  try {
+    const resp = await fetch(`${API_BASE}${path}`, {
+      ...fetchOptions,
+      headers: { ...headers, ...fetchOptions.headers },
+      signal,
+    })
+    if (!resp.ok) {
+      const text = await resp.text()
+      throw new Error(`API ${path} failed (${resp.status}): ${text}`)
+    }
+    if (resp.status === 204) return null
+    return resp.json()
+  } catch (err) {
+    if (timeoutFired && err?.name === "AbortError") {
+      throw new Error(`API ${path} timed out after ${timeoutMs}ms`)
+    }
+    throw err
+  } finally {
+    clearTimeout(timeoutId)
+    if (externalAbortHandler && externalSignal) {
+      externalSignal.removeEventListener("abort", externalAbortHandler)
+    }
+  }
+}
+
+async function requestContract(name, params = {}, query = {}, options = {}) {
+  const requestSpec = globalThis.apiContracts.contractRequest(
+    name,
+    params,
+    query,
+    options,
+  )
+  return request(requestSpec.path, requestSpec.options)
 }
 
 export async function createProject(payload) {
@@ -253,33 +302,28 @@ export async function seedEntityArchive(novelId, entityId, textContent, opts = {
 // ---- Map helpers ----
 
 export async function listMaps(novelId, params = {}) {
-  const query = new URLSearchParams({ novel_id: novelId })
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== null && value !== "") query.set(key, String(value))
-  }
-  return request(`/world/maps?${query.toString()}`)
+  return requestContract("world.listMaps", {}, { novel_id: novelId, ...params })
 }
 
 export async function applyMapEditor(novelId, mapId, data) {
-  return request(`/world/maps/${mapId}/editor/apply?novel_id=${encodeURIComponent(novelId)}`, {
-    method: "POST",
-    body: JSON.stringify(data),
+  return requestContract("world.applyMapEditor", { mapId }, { novel_id: novelId }, {
+    body: data,
   })
 }
 
 export async function getMapLayerTree(novelId, mapId) {
-  return request(`/world/maps/${mapId}/layer-tree?novel_id=${encodeURIComponent(novelId)}`)
+  return requestContract("world.getMapLayerTree", { mapId }, { novel_id: novelId })
 }
 
 export async function getMapPaths(novelId, mapId, status = "active") {
-  const query = new URLSearchParams({ novel_id: novelId, status })
-  return request(`/world/maps/${mapId}/paths?${query.toString()}`)
+  return requestContract("world.getMapPaths", { mapId }, { novel_id: novelId, status })
 }
 
 export async function getEntityMapPresence(novelId, entityId, includeCandidates = false) {
-  const query = new URLSearchParams({ novel_id: novelId })
-  if (includeCandidates) query.set("include_candidates", "true")
-  return request(`/world/entities/${entityId}/map-presence?${query.toString()}`)
+  return requestContract("world.getEntityMapPresence", { id: entityId }, {
+    novel_id: novelId,
+    include_candidates: includeCandidates || undefined,
+  })
 }
 
 export async function createMap(novelId, data) {
@@ -290,26 +334,27 @@ export async function createMap(novelId, data) {
 }
 
 export async function getMapState(novelId, mapId, sceneId = null) {
-  const params = new URLSearchParams({ novel_id: novelId })
-  if (sceneId) params.set("scene_id", sceneId)
-  return request(`/world/maps/${mapId}/state?${params.toString()}`)
+  return requestContract("world.getMapState", { mapId }, {
+    novel_id: novelId,
+    scene_id: sceneId,
+  })
 }
 
 export async function getMapDashboard(novelId, mapId, params = {}) {
-  const query = new URLSearchParams({ novel_id: novelId })
-  if (params.sceneId) query.set("scene_id", params.sceneId)
-  if (params.focusEntityId) query.set("focus_entity_id", params.focusEntityId)
-  return request(`/world/maps/${mapId}/dashboard?${query.toString()}`)
+  return requestContract("world.getMapDashboard", { mapId }, {
+    novel_id: novelId,
+    scene_id: params.sceneId,
+    focus_entity_id: params.focusEntityId,
+  })
 }
 
 export async function getMapPlayback(novelId, mapId, params = {}) {
-  const query = new URLSearchParams({ novel_id: novelId })
-  if (params.sceneId) query.set("scene_id", params.sceneId)
-  if (params.focusEntityId) query.set("focus_entity_id", params.focusEntityId)
-  if (params.includeCandidates !== undefined) {
-    query.set("include_candidates", String(params.includeCandidates))
-  }
-  return request(`/world/maps/${mapId}/playback?${query.toString()}`)
+  return requestContract("world.getMapPlayback", { mapId }, {
+    novel_id: novelId,
+    scene_id: params.sceneId,
+    focus_entity_id: params.focusEntityId,
+    include_candidates: params.includeCandidates,
+  })
 }
 
 export async function createMapObservation(novelId, mapId, data) {
@@ -325,12 +370,11 @@ export async function assignProjectMapObservation(novelId, observation, mapId) {
   if (!expectedUpdatedAt) {
     throw new Error("assignProjectMapObservation requires observation.updated_at")
   }
-  return request(`/world/maps/project-observations/${observationId}/assign?novel_id=${encodeURIComponent(novelId)}`, {
-    method: "POST",
-    body: JSON.stringify({
+  return requestContract("world.assignProjectMapObservation", { observationId }, { novel_id: novelId }, {
+    body: {
       map_id: mapId || null,
       expected_updated_at: expectedUpdatedAt,
-    }),
+    },
   })
 }
 
@@ -342,9 +386,8 @@ export async function confirmMapObservation(novelId, mapId, observation) {
   const observationId = typeof observation === "object" ? observation.id : observation
   const expectedUpdatedAt = typeof observation === "object" ? observation.updated_at : null
   if (!expectedUpdatedAt) throw new Error("confirmMapObservation requires observation.updated_at")
-  return request(`/world/maps/${mapId}/observations/${observationId}/confirm?novel_id=${encodeURIComponent(novelId)}`, {
-    method: "POST",
-    body: JSON.stringify({ expected_updated_at: expectedUpdatedAt }),
+  return requestContract("world.confirmMapObservation", { mapId, observationId }, { novel_id: novelId }, {
+    body: { expected_updated_at: expectedUpdatedAt },
   })
 }
 
@@ -383,9 +426,8 @@ export async function createMapMarker(novelId, mapId, data) {
 }
 
 export async function updateMapTerrainLayer(novelId, mapId, layerId, data) {
-  return request(`/world/maps/${mapId}/terrain/layers/${layerId}?novel_id=${encodeURIComponent(novelId)}`, {
-    method: "PATCH",
-    body: JSON.stringify(data),
+  return requestContract("world.updateTerrainLayer", { mapId, layerId }, { novel_id: novelId }, {
+    body: data,
   })
 }
 

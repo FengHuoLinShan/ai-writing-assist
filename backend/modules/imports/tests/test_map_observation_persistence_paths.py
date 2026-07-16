@@ -191,7 +191,7 @@ async def test_window_path_persists_proposal_only_against_owned_scene(
     )
 
     with patch.object(
-        extractor._legacy,
+        extractor,
         "_phase2_flush_with_timeout",
         autospec=True,
         return_value={"degraded": False},

@@ -1,4 +1,10 @@
-"""Typed runtime interfaces for Phase 2 entity extraction strategies."""
+"""Deprecated typing compatibility for the former Phase 2 runtime seam.
+
+Production extraction now composes capability mixins directly on
+``SceneEntityExtractionService``.  This protocol remains importable only to
+preserve the package's previously documented Python surface for integrations
+and type-checking consumers.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +13,7 @@ from typing import Any, Protocol
 
 
 class SceneEntityExtractionRuntime(Protocol):
-    """Methods consumed by Phase 2 extraction strategy helpers."""
+    """Compatibility protocol for methods consumed by extraction helpers."""
 
     def _entity_key(self, entity_type: str, name: str) -> tuple[str, str]: ...
 
@@ -113,7 +119,9 @@ class SceneEntityExtractionRuntime(Protocol):
     def _record_deltas(self, *args: Any, **kwargs: Any) -> Awaitable[Any]: ...
 
     def _record_map_observation_proposals(
-        self, *args: Any, **kwargs: Any
+        self,
+        *args: Any,
+        **kwargs: Any,
     ) -> Awaitable[Any]: ...
 
     def _persist_alias_relation_output(
@@ -159,3 +167,6 @@ class SceneEntityExtractionRuntime(Protocol):
         *args: Any,
         **kwargs: Any,
     ) -> Awaitable[Any]: ...
+
+
+__all__ = ["SceneEntityExtractionRuntime"]

@@ -12,11 +12,8 @@ from modules.world.map_schemas import (
 from modules.world.services.common import parse_uuid
 
 
-class MapOpenTargetService:
-    """Delegated dynamic-map service."""
-
-    def __init__(self, owner: Any) -> None:
-        self.owner = owner
+class MapOpenTargetMixin:
+    """Internal navigation target lifecycle owned by MapDynamicFactService."""
 
     async def get_open_target(
         self,
@@ -26,7 +23,7 @@ class MapOpenTargetService:
         scene_id: str | None = None,
         focus_entity_id: str | None = None,
     ) -> MapOpenTarget:
-        owner = self.owner
+        owner = self
         nid = parse_uuid(novel_id, "novel_id")
         if scene_id:
             from modules.world.services.map.map_scene_summary import (
@@ -79,7 +76,7 @@ class MapOpenTargetService:
         entity_id: uuid.UUID,
         entity_type: str,
     ) -> uuid.UUID | None:
-        owner = self.owner
+        owner = self
         binding = await owner._binding_repo.find_any_for_entity(db, novel_id, entity_id)
         if binding is not None:
             return binding.map_id
@@ -98,3 +95,16 @@ class MapOpenTargetService:
         if path is not None:
             return path.map_id
         return None
+
+
+class MapOpenTargetService(MapOpenTargetMixin):
+    """Compatibility adapter for former owner-bound imports."""
+
+    def __init__(self, owner: Any) -> None:
+        self._owner = owner
+
+    def __getattr__(self, name):
+        return getattr(self._owner, name)
+
+
+__all__ = ["MapOpenTargetMixin", "MapOpenTargetService"]

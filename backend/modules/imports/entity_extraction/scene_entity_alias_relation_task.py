@@ -243,11 +243,8 @@ def _validated_receipt_payload(
     return payload
 
 
-class AliasRelationTaskWorkflow:
-    """Three-stage task workflow used through the existing world DI seam."""
-
-    def __init__(self, service: Any) -> None:
-        self.service = service
+class AliasRelationTaskMixin:
+    """Internal three-stage task implementation for the existing world DI seam."""
 
     async def prepare(
         self,
@@ -319,24 +316,24 @@ class AliasRelationTaskWorkflow:
         confirmation_hash = _stable_hash(confirmation_payload)
         directive = _confirmation_directive(confirmation_payload)
 
-        all_scenes = await self.service._get_scenes(db, nid)
+        all_scenes = await self._get_scenes(db, nid)
         selected: list[dict[str, Any]] = []
         requested = set(requested_scene_ids)
         seen_ids: set[str] = set()
         for scene in all_scenes:
             if str(scene.get("novel_id") or "") != str(novel_id):
                 raise ValueError("scene novel_id mismatch")
-            scene_id = str(self.service._scene_id(scene) or "")
+            scene_id = str(self._scene_id(scene) or "")
             if not scene_id or scene_id in seen_ids:
                 raise ValueError("scene identity is missing or duplicated")
             seen_ids.add(scene_id)
             if requested and scene_id not in requested:
                 continue
-            chapter_index = int(self.service._scene_source_chapter_index(scene) or 0)
+            chapter_index = int(self._scene_source_chapter_index(scene) or 0)
             if chapter_index < start_chapter or chapter_index > end_chapter:
                 continue
             selected.append(scene)
-        selected_ids = {str(self.service._scene_id(scene)) for scene in selected}
+        selected_ids = {str(self._scene_id(scene)) for scene in selected}
         if requested and selected_ids != requested:
             missing = sorted(requested - selected_ids)
             raise ValueError(
@@ -384,8 +381,8 @@ class AliasRelationTaskWorkflow:
             if isinstance(item, dict)
         }
         for position, scene in enumerate(selected):
-            scene_id = str(self.service._scene_id(scene))
-            full_text = await self.service._load_scene_chapters(db, scene)
+            scene_id = str(self._scene_id(scene))
+            full_text = await self._load_scene_chapters(db, scene)
             consumed_text = _trim_phase2b_scene_text(full_text) if full_text else ""
             compact_index = _compact_entity_index_for_scene(
                 entity_index,
@@ -417,7 +414,7 @@ class AliasRelationTaskWorkflow:
                     raise ValueError("prepared context snapshot is missing")
                 item["context_snapshot_id"] = snapshot_id or None
             elif consumed_text:
-                snapshot = await self.service._create_phase2b_snapshot(
+                snapshot = await self._create_phase2b_snapshot(
                     db,
                     nid,
                     scene,
@@ -512,7 +509,7 @@ class AliasRelationTaskWorkflow:
                 ),
             )
             results = await _run_alias_relation_llm_calls(
-                self.service,
+                self,
                 prepared,
                 started_at=started_at,
                 total_timeout_seconds=total_timeout_s,
@@ -557,7 +554,7 @@ class AliasRelationTaskWorkflow:
                 receipt_item.update(
                     {
                         "status": "failed",
-                        "error_kind": self.service._error_kind(exc),
+                        "error_kind": self._error_kind(exc),
                         "error": redact_diagnostic(exc, limit=300),
                     }
                 )
@@ -689,7 +686,7 @@ class AliasRelationTaskWorkflow:
                 )
                 if status == "succeeded":
                     scene_result_refs: list[dict[str, str]] = []
-                    persisted = await self.service._persist_alias_relation_output(
+                    persisted = await self._persist_alias_relation_output(
                         db,
                         novel_id,
                         output,
@@ -773,3 +770,13 @@ class AliasRelationTaskWorkflow:
             },
             "result_refs": result_refs,
         }
+
+
+class AliasRelationTaskWorkflow(AliasRelationTaskMixin):
+    """Compatibility adapter for the former owner-bound workflow."""
+
+    def __init__(self, service: Any) -> None:
+        self.service = service
+
+    def __getattr__(self, name):
+        return getattr(self.service, name)

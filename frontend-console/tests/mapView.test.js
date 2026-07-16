@@ -103,6 +103,7 @@ beforeEach(() => {
   mapView._suppressNextCanvasClick = false
   mapView._lifecycleEpoch = 0
   mapView._mountContext = {}
+  mapView._setEditorApplyBusy(false)
   document.getElementById("leaflet-css-dynamic")?.remove()
   document.getElementById("leaflet-js-dynamic")?.remove()
   delete window.L
@@ -1589,6 +1590,122 @@ describe("mapView 编辑生命周期", () => {
     expect(mapState.mode).toBe("browse")
     expect(render).not.toHaveBeenCalled()
     expect(toast).not.toHaveBeenCalledWith("已保存", "success")
+    apply.mockRestore()
+    render.mockRestore()
+  })
+
+  it("应用到状态重载完成期间锁定工作区并拒绝二次提交", async () => {
+    document.body.append(renderHtml(`
+      <div id="map-root"><button>应用</button></div>
+      <div id="modal-overlay"><button>确认</button></div>
+    `))
+    state.currentProjectId = "p1"
+    mapView._mountRootId = "map-root"
+    mapView._state = {
+      map: { id: "m1", editor_revision: 1 },
+      markers: [],
+      territories: [],
+    }
+    mapState.mode = "edit"
+    mapState.editorLayer = "marker"
+    mapState.pendingMarkerChanges = {
+      marker1: { operation: "update", id: "marker1", data: { label: "新标签" } },
+    }
+    let releaseApply
+    let releaseReload
+    api.world.applyMapEditor.mockImplementation(() => new Promise((resolve) => {
+      releaseApply = resolve
+    }))
+    const reload = vi.spyOn(mapView, "_reloadMapStatePreservingSession")
+      .mockImplementation(() => new Promise((resolve) => {
+        releaseReload = resolve
+      }))
+    const tree = vi.spyOn(mapView, "_loadLayerTree").mockResolvedValue()
+    const paths = vi.spyOn(mapView, "_loadPaths").mockResolvedValue()
+    const rerender = vi.spyOn(mapView, "_rerenderEditor").mockImplementation(() => {})
+
+    const first = mapView._applyAllChanges({ onlyLayer: true })
+    await vi.waitFor(() => expect(releaseApply).toBeTypeOf("function"))
+
+    expect(document.getElementById("map-root").inert).toBe(true)
+    expect(document.getElementById("map-root").getAttribute("aria-busy")).toBe("true")
+    expect(document.getElementById("modal-overlay").inert).toBe(true)
+    expect(mapView.canLeave()).toBe(false)
+    await expect(mapView._applyAllChanges({ onlyLayer: true })).resolves.toBe(false)
+    expect(api.world.applyMapEditor).toHaveBeenCalledTimes(1)
+
+    releaseApply({ editor_revision: 2, client_id_map: {} })
+    await vi.waitFor(() => expect(releaseReload).toBeTypeOf("function"))
+    expect(document.getElementById("map-root").inert).toBe(true)
+    expect(document.getElementById("map-root").getAttribute("aria-busy")).toBe("true")
+    releaseReload(true)
+    await expect(first).resolves.toBe(true)
+    expect(document.getElementById("map-root").inert).toBe(false)
+    expect(document.getElementById("map-root").hasAttribute("aria-busy")).toBe(false)
+    expect(document.getElementById("modal-overlay").inert).toBe(false)
+
+    reload.mockRestore()
+    tree.mockRestore()
+    paths.mockRestore()
+    rerender.mockRestore()
+  })
+
+  it("重载在替换服务端状态前抓取最新草稿而不是请求发出时的旧快照", async () => {
+    state.currentProjectId = "p1"
+    mapView._mountContext = { mapId: "m1" }
+    mapView._state = {
+      map: { id: "m1", editor_revision: 1, grid_width: 10, grid_height: 10 },
+      markers: [{ id: "marker1", label: "请求前" }],
+      location_bindings: [],
+      location_layouts: [],
+      tiles: [],
+      territories: [],
+    }
+    mapState.editorLayer = "marker"
+    mapState.pendingMarkerChanges = {
+      marker1: { operation: "update", id: "marker1", data: { label: "请求前" } },
+    }
+    let releaseState
+    api.world.getMapState.mockImplementation(() => new Promise((resolve) => {
+      releaseState = resolve
+    }))
+
+    const pending = mapView._reloadMapStatePreservingSession("m1")
+    await vi.waitFor(() => expect(releaseState).toBeTypeOf("function"))
+    mapState.pendingMarkerChanges.marker1.data.label = "请求期间的最新草稿"
+    mapView._state.markers[0].label = "请求期间的最新草稿"
+    releaseState({
+      map: { id: "m1", editor_revision: 2, grid_width: 10, grid_height: 10 },
+      markers: [{ id: "marker1", label: "远端版本" }],
+      location_bindings: [],
+      location_layouts: [],
+      tiles: [],
+      territories: [],
+    })
+
+    await expect(pending).resolves.toBe(true)
+    expect(mapState.pendingMarkerChanges.marker1.data.label)
+      .toBe("请求期间的最新草稿")
+    expect(mapView._state.markers[0].label).toBe("请求期间的最新草稿")
+  })
+
+  it("保存全部后若仍有草稿则不退出编辑态", async () => {
+    mapView._state = { map: { id: "m1" } }
+    mapState.mode = "edit"
+    mapState.pendingMarkerChanges = {
+      marker1: { operation: "update", id: "marker1", data: { label: "尚未保存" } },
+    }
+    const apply = vi.spyOn(mapView, "_applyAllChanges").mockResolvedValue(true)
+    const render = vi.spyOn(mapView, "_render").mockImplementation(() => {})
+
+    await expect(mapView._saveAndExit()).resolves.toBe(false)
+    expect(mapState.mode).toBe("edit")
+    expect(render).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith(
+      "仍有未保存的地图草稿，请再次应用后再退出",
+      "warning",
+    )
+
     apply.mockRestore()
     render.mockRestore()
   })

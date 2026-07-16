@@ -513,8 +513,8 @@ async def test_task_strict_persistence_does_not_swallow_relation_failure() -> No
             side_effect=RuntimeError("relation write failed"),
         ),
         mock.patch(
-            "modules.imports.entity_extraction.scene_entity_persistence."
-            "SceneEntityPersistenceGateway._record_quote_evidence",
+            "modules.imports.entity_extraction.scene_entity_extraction."
+            "SceneEntityExtractionService._record_quote_evidence",
             autospec=True,
         ),
     ):

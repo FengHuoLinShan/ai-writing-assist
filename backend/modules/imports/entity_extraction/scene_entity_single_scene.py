@@ -9,10 +9,6 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.imports.entity_extraction.scene_entity_runtime import (
-    SceneEntityExtractionRuntime,
-)
-
 logger = logging.getLogger(__name__)
 
 
@@ -25,13 +21,10 @@ async def _optional_lock(lock):
         yield
 
 
-class SingleSceneEntityExtractor:
-    """Processes one Scene through Phase 2a entity and delta extraction."""
+class SingleSceneEntityExtractionMixin:
+    """Internal one-Scene Phase 2a implementation."""
 
-    def __init__(self, service: SceneEntityExtractionRuntime) -> None:
-        self.service = service
-
-    async def process(
+    async def _process_scene(
         self,
         db: AsyncSession,
         nid,
@@ -45,7 +38,7 @@ class SingleSceneEntityExtractor:
         persistence_stats: dict[str, Any] | None = None,
         db_lock=None,
     ) -> dict[str, Any]:
-        service = self.service
+        service = self
         scene_index = scene["scene_index"]
         scene_id = service._scene_id(scene)
         scene_provenance_key = service._scene_provenance_key(workflow_id, scene)
@@ -236,3 +229,20 @@ class SingleSceneEntityExtractor:
             "structured_format_diagnostics": format_diagnostics[:20],
             "input_fingerprint": input_fingerprint,
         }
+
+
+class SingleSceneEntityExtractor(SingleSceneEntityExtractionMixin):
+    """Compatibility adapter for the former helper class."""
+
+    def __init__(self, service) -> None:
+        self.service = service
+
+    def __getattr__(self, name):
+        return getattr(self.service, name)
+
+    async def process(self, *args, **kwargs):
+        return await SingleSceneEntityExtractionMixin._process_scene(
+            self.service,
+            *args,
+            **kwargs,
+        )

@@ -13,11 +13,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.imports.entity_extraction import scene_entity_config as _phase2_config
 from modules.imports.entity_extraction.scene_entity_alias_relation import (
-    AliasRelationExtractor,
+    AliasRelationExtractionMixin,
     _effective_alias_relation_total_timeout_seconds,
 )
+from modules.imports.entity_extraction.scene_entity_alias_relation_task import (
+    AliasRelationTaskMixin,
+)
 from modules.imports.entity_extraction.scene_entity_bulk import (
-    BulkSceneEntityExtractor,
+    BulkSceneEntityExtractionMixin,
     bulk_entity_memory_context,
     fallback_entity_label,
 )
@@ -39,14 +42,14 @@ from modules.imports.entity_extraction.scene_entity_llm_adapters import (
     call_llm_extraction,
 )
 from modules.imports.entity_extraction.scene_entity_parallel import (
-    ParallelSceneEntityExtractor,
+    ParallelSceneEntityExtractionMixin,
 )
 from modules.imports.entity_extraction.scene_entity_persistence import (
-    SceneEntityPersistenceGateway,
+    SceneEntityPersistenceMixin,
     entity_key,
 )
 from modules.imports.entity_extraction.scene_entity_single_scene import (
-    SingleSceneEntityExtractor,
+    SingleSceneEntityExtractionMixin,
 )
 from modules.imports.entity_extraction.scene_entity_snapshots import (
     create_phase2_snapshot,
@@ -76,9 +79,6 @@ from modules.imports.entity_extraction.scene_entity_text import (
 )
 from modules.imports.llm_schemas import (
     AliasRelationExtractionOutput,
-    DeltaEvent,
-    ExtractedEntity,
-    ExtractedRelation,
     SceneEntityExtractionOutput,
 )
 from shared.utils import parse_uuid
@@ -126,32 +126,35 @@ PHASE2_SMALL_SAMPLE_SUPPLEMENT_TOTAL_CHAR_LIMIT = (
 )
 
 
-class SceneEntityExtractionService:
+class SceneEntityExtractionService(
+    AliasRelationTaskMixin,
+    SingleSceneEntityExtractionMixin,
+    ParallelSceneEntityExtractionMixin,
+    BulkSceneEntityExtractionMixin,
+    AliasRelationExtractionMixin,
+    SceneEntityPersistenceMixin,
+):
     """Phase 2: coordinates scene entity, delta, alias, and relation extraction."""
 
-    async def prepare_alias_relation_task(self, db: AsyncSession, **kwargs) -> dict:
-        """Prepare the manual task's immutable inputs before provider I/O."""
-        from modules.imports.entity_extraction.scene_entity_alias_relation_task import (
-            AliasRelationTaskWorkflow,
-        )
-
-        return await AliasRelationTaskWorkflow(self).prepare(db, **kwargs)
+    async def prepare_alias_relation_task(
+        self,
+        db: AsyncSession,
+        **kwargs,
+    ) -> dict:
+        """Keep the stable world task port while executing the inherited workflow."""
+        return await AliasRelationTaskMixin.prepare(self, db, **kwargs)
 
     async def execute_alias_relation_task(self, **kwargs) -> dict:
-        """Execute a prepared manual task without accepting a DB session."""
-        from modules.imports.entity_extraction.scene_entity_alias_relation_task import (
-            AliasRelationTaskWorkflow,
-        )
+        """Execute provider I/O through the stable task-only DI port."""
+        return await AliasRelationTaskMixin.execute(self, **kwargs)
 
-        return await AliasRelationTaskWorkflow(self).execute(**kwargs)
-
-    async def finalize_alias_relation_task(self, db: AsyncSession, **kwargs) -> dict:
-        """Revalidate and stage the manual task's atomic final writes."""
-        from modules.imports.entity_extraction.scene_entity_alias_relation_task import (
-            AliasRelationTaskWorkflow,
-        )
-
-        return await AliasRelationTaskWorkflow(self).finalize(db, **kwargs)
+    async def finalize_alias_relation_task(
+        self,
+        db: AsyncSession,
+        **kwargs,
+    ) -> dict:
+        """Finalize through the stable task-only DI port without a helper owner."""
+        return await AliasRelationTaskMixin.finalize(self, db, **kwargs)
 
     async def extract_alias_relations(
         self,
@@ -953,34 +956,6 @@ class SceneEntityExtractionService:
             end_chapter=end_chapter,
         )
 
-    async def _process_scene(
-        self,
-        db: AsyncSession,
-        nid,
-        scene: dict[str, Any],
-        scene_idx: int,
-        existing_context: str,
-        accumulated_memory: list[dict],
-        seen_entity_keys: set[tuple[str, str]],
-        workflow_id: str | None = None,
-        authorization_snapshot: dict[str, Any] | None = None,
-        persistence_stats: dict[str, Any] | None = None,
-        db_lock: asyncio.Lock | None = None,
-    ) -> dict[str, Any]:
-        return await SingleSceneEntityExtractor(self).process(
-            db,
-            nid,
-            scene,
-            scene_idx,
-            existing_context,
-            accumulated_memory,
-            seen_entity_keys,
-            workflow_id=workflow_id,
-            authorization_snapshot=authorization_snapshot,
-            persistence_stats=persistence_stats,
-            db_lock=db_lock,
-        )
-
     async def _process_scenes_batched(
         self,
         db: AsyncSession,
@@ -1445,90 +1420,6 @@ class SceneEntityExtractionService:
             "failed": False,
         }
 
-    async def _process_scenes_parallel_llm(
-        self,
-        db: AsyncSession,
-        nid,
-        scenes: list[dict[str, Any]],
-        existing_context: str,
-        *,
-        workflow_id: str | None,
-        authorization_snapshot: dict[str, Any] | None = None,
-        on_scene_progress: Callable[[int, int], Awaitable[None]] | None,
-        bulk_error_kind: str | None,
-        include_alias_relations: bool = True,
-        existing_checkpoints: dict[str, dict[str, Any]] | None = None,
-        existing_alias_relation_checkpoints: dict[str, Any] | None = None,
-        visible_until_chapter: int | None = None,
-    ) -> dict[str, Any]:
-        return await ParallelSceneEntityExtractor(self).run(
-            db,
-            nid,
-            scenes,
-            existing_context,
-            workflow_id=workflow_id,
-            authorization_snapshot=authorization_snapshot,
-            on_scene_progress=on_scene_progress,
-            bulk_error_kind=bulk_error_kind,
-            include_alias_relations=include_alias_relations,
-            existing_checkpoints=existing_checkpoints,
-            existing_alias_relation_checkpoints=existing_alias_relation_checkpoints,
-            visible_until_chapter=visible_until_chapter,
-        )
-
-    async def _process_scenes_bulk(
-        self,
-        db: AsyncSession,
-        nid,
-        scenes: list[dict[str, Any]],
-        existing_context: str,
-        *,
-        workflow_id: str | None = None,
-        authorization_snapshot: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        return await BulkSceneEntityExtractor(self).run(
-            db,
-            nid,
-            scenes,
-            existing_context,
-            workflow_id=workflow_id,
-            authorization_snapshot=authorization_snapshot,
-        )
-
-    async def _supplement_small_sample_entities(
-        self,
-        db: AsyncSession,
-        nid,
-        scenes: list[dict[str, Any]],
-        *,
-        current_count: int,
-        workflow_id: str | None,
-    ) -> dict[str, Any]:
-        return await BulkSceneEntityExtractor(self).supplement_small_sample(
-            db,
-            nid,
-            scenes,
-            current_count=current_count,
-            workflow_id=workflow_id,
-        )
-
-    async def _supplement_small_sample_entities_with_llm(
-        self,
-        db: AsyncSession,
-        nid,
-        scenes: list[dict[str, Any]],
-        *,
-        needed: int,
-        workflow_id: str | None,
-    ) -> dict[str, Any]:
-        return await BulkSceneEntityExtractor(self).supplement_with_llm(
-            db,
-            nid,
-            scenes,
-            needed=needed,
-            workflow_id=workflow_id,
-        )
-
     async def _load_small_sample_chapters_text(
         self,
         db: AsyncSession,
@@ -1547,25 +1438,6 @@ class SceneEntityExtractionService:
     @staticmethod
     def _fallback_entity_label(entity_type: str) -> str:
         return fallback_entity_label(entity_type)
-
-    async def _call_bulk_llm_extractions(
-        self,
-        scene_texts: list[str],
-        existing_context: str,
-        memory_context: str,
-        *,
-        diagnostics: list[dict[str, Any]] | None = None,
-        with_source_indexes: bool = False,
-    ) -> (
-        list[SceneEntityExtractionOutput] | list[tuple[int, SceneEntityExtractionOutput]]
-    ):
-        return await BulkSceneEntityExtractor(self).call_bulk_llm_extractions(
-            scene_texts,
-            existing_context,
-            memory_context,
-            diagnostics=diagnostics,
-            with_source_indexes=with_source_indexes,
-        )
 
     @staticmethod
     def _bulk_entity_memory_context(scenes: list[dict[str, Any]]) -> str:
@@ -1909,7 +1781,7 @@ class SceneEntityExtractionService:
         watchdog_seconds = total_timeout_seconds + PHASE2_SCENE_TIMEOUT_GRACE_SECONDS
         try:
             return await asyncio.wait_for(
-                AliasRelationExtractor(self).run(
+                self._execute_alias_relation_phase(
                     db,
                     nid,
                     scenes,
@@ -1941,13 +1813,6 @@ class SceneEntityExtractionService:
                 "alias_relation_concurrency": concurrency,
             }
 
-    async def _build_alias_relation_entity_index(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-    ) -> str:
-        return await AliasRelationExtractor(self).build_entity_index(db, novel_id)
-
     async def _create_phase2b_snapshot(
         self,
         db: AsyncSession,
@@ -1968,138 +1833,6 @@ class SceneEntityExtractionService:
             workflow_id=workflow_id,
         )
 
-    async def _persist_alias_relation_output(
-        self,
-        db: AsyncSession,
-        novel_id: str,
-        output: AliasRelationExtractionOutput,
-        *,
-        scene_index: int,
-        workflow_id: str | None = None,
-        scene_id: str | None = None,
-        result_refs: list[dict[str, str]] | None = None,
-        strict: bool = False,
-    ) -> dict[str, int]:
-        return await SceneEntityPersistenceGateway(self).persist_alias_relation_output(
-            db,
-            novel_id,
-            output,
-            scene_index=scene_index,
-            workflow_id=workflow_id,
-            scene_id=scene_id,
-            result_refs=result_refs,
-            strict=strict,
-        )
-
-    async def _persist_entities(
-        self,
-        db: AsyncSession,
-        nid,
-        entities: list[ExtractedEntity],
-        scene_index: int,
-        source_chapter_index: int,
-        seen_entity_keys: set[tuple[str, str]] | None = None,
-        workflow_id: str | None = None,
-        scene_id: str | None = None,
-        scene_provenance_key: str | None = None,
-        context_snapshot_id: str | None = None,
-        result_refs: list[dict[str, str]] | None = None,
-        persistence_stats: dict[str, Any] | None = None,
-    ) -> int:
-        return await SceneEntityPersistenceGateway(self).persist_entities(
-            db,
-            nid,
-            entities,
-            scene_index,
-            source_chapter_index,
-            seen_entity_keys=seen_entity_keys,
-            workflow_id=workflow_id,
-            scene_id=scene_id,
-            scene_provenance_key=scene_provenance_key,
-            context_snapshot_id=context_snapshot_id,
-            result_refs=result_refs,
-            persistence_stats=persistence_stats,
-        )
-
     @staticmethod
     def _entity_key(entity_type: str, name: str) -> tuple[str, str]:
         return entity_key(entity_type, name)
-
-    async def _persist_relations(
-        self,
-        db: AsyncSession,
-        nid,
-        relations: list[ExtractedRelation],
-        scene_index: int,
-        source_chapter_index: int | None = None,
-        workflow_id: str | None = None,
-        scene_id: str | None = None,
-        context_snapshot_id: str | None = None,
-        result_refs: list[dict[str, str]] | None = None,
-        persistence_stats: dict[str, Any] | None = None,
-    ) -> int:
-        return await SceneEntityPersistenceGateway(self).persist_relations(
-            db,
-            nid,
-            relations,
-            scene_index,
-            source_chapter_index=source_chapter_index,
-            workflow_id=workflow_id,
-            scene_id=scene_id,
-            context_snapshot_id=context_snapshot_id,
-            result_refs=result_refs,
-            persistence_stats=persistence_stats,
-        )
-
-    async def _record_deltas(
-        self,
-        db: AsyncSession,
-        nid,
-        delta_events: list[DeltaEvent],
-        scene_index: int,
-        workflow_id: str | None = None,
-        scene_id: str | None = None,
-        scene_provenance_key: str | None = None,
-        context_snapshot_id: str | None = None,
-        result_refs: list[dict[str, str]] | None = None,
-    ) -> int:
-        return await SceneEntityPersistenceGateway(self).record_deltas(
-            db,
-            nid,
-            delta_events,
-            scene_index,
-            workflow_id=workflow_id,
-            scene_id=scene_id,
-            scene_provenance_key=scene_provenance_key,
-            context_snapshot_id=context_snapshot_id,
-            result_refs=result_refs,
-        )
-
-    async def _record_map_observation_proposals(
-        self,
-        db: AsyncSession,
-        nid,
-        proposals,
-        *,
-        scene_index: int,
-        source_chapter_index: int | None,
-        workflow_id: str | None,
-        scene_id: str | None,
-        scene_source_fingerprint: str | None,
-        authorization_snapshot: dict[str, Any] | None,
-        context_snapshot_id: str | None = None,
-        result_refs: list[dict[str, str]] | None = None,
-    ) -> dict[str, int]:
-        return await SceneEntityPersistenceGateway(self).record_map_observation_proposals(
-            db,
-            nid,
-            proposals,
-            scene_index=scene_index,
-            source_chapter_index=source_chapter_index,
-            workflow_id=workflow_id,
-            scene_id=scene_id,
-            scene_source_fingerprint=scene_source_fingerprint,
-            authorization_snapshot=authorization_snapshot,
-            context_snapshot_id=context_snapshot_id,
-            result_refs=result_refs,
-        )
