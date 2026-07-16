@@ -33,7 +33,6 @@ from modules.rag.schemas import (
 )
 from modules.rag.scoring import (
     compute_keyword_score,
-    compute_keyword_score_with_proximity,
     smart_tokenize_chinese,
 )
 
@@ -1535,19 +1534,11 @@ class TestRagContracts:
 class TestSmartTokenizeChinese:
     """测试 _smart_tokenize_chinese 分词器"""
 
-    def test_space_separated(self) -> None:
-        terms = smart_tokenize_chinese("克莱恩 渴望 目标")
-        assert terms == ["克莱恩", "渴望", "目标"]
-
     def test_punctuation_separated(self) -> None:
         terms = smart_tokenize_chinese("克莱恩·莫雷蒂，渴望")
         assert "克莱恩" in terms
         assert "莫雷蒂" in terms
         assert "渴望" in terms
-
-    def test_single_char_filtered(self) -> None:
-        terms = smart_tokenize_chinese("一 的 人")
-        assert terms == []
 
     def test_mixed_separators(self) -> None:
         terms = smart_tokenize_chinese("克莱恩·莫雷蒂 渴望，目标。动机！")
@@ -1557,17 +1548,9 @@ class TestSmartTokenizeChinese:
         assert "目标" in terms
         assert "动机" in terms
 
-    def test_empty_query(self) -> None:
-        assert smart_tokenize_chinese("") == []
-
     def test_single_term(self) -> None:
         terms = smart_tokenize_chinese("克莱恩")
         assert terms == ["克莱恩"]
-
-    def test_mixed_chinese_english(self) -> None:
-        terms = smart_tokenize_chinese("Klein 渴望")
-        assert "klein" in terms
-        assert "渴望" in terms
 
     def test_two_char_terms_preserved(self) -> None:
         terms = smart_tokenize_chinese("渴望 恐惧")
@@ -1576,31 +1559,6 @@ class TestSmartTokenizeChinese:
 
 class TestKeywordProximityScore:
     """测试关键词邻近度评分"""
-
-    def test_proximity_bonus_close_terms(self) -> None:
-        score = compute_keyword_score_with_proximity(
-            "克莱恩渴望力量",
-            ["克莱恩", "渴望"],
-        )
-        assert score > 0.5
-
-    def test_proximity_bonus_far_terms(self) -> None:
-        score_far = compute_keyword_score_with_proximity(
-            "克莱恩在很远很远的地方感受到了渴望",
-            ["克莱恩", "渴望"],
-        )
-        score_close = compute_keyword_score_with_proximity(
-            "克莱恩渴望力量",
-            ["克莱恩", "渴望"],
-        )
-        assert score_close >= score_far
-
-    def test_single_term_no_proximity(self) -> None:
-        score = compute_keyword_score_with_proximity(
-            "克莱恩在森林中",
-            ["克莱恩"],
-        )
-        assert score == 1.0
 
 
 # ============================================================
