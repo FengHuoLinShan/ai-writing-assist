@@ -163,7 +163,7 @@ async def test_generation_center_loads_relevance_before_object_topk(
         novel_id=str(uuid.uuid4()),
         task="设计黑曜钥匙",
         scope="generation_center",
-        consumer_action="world.object_draft.generate",
+        consumer_action="world.generation.core_entity",
     )
 
     await compiler.compile(db_session, options)
@@ -175,7 +175,65 @@ async def test_generation_center_loads_relevance_before_object_topk(
 
 
 @pytest.mark.asyncio
-async def test_writing_entity_and_character_selection_uses_relevance_topk(
+async def test_generation_center_scene_chapter_is_effective_anchor(
+    db_session: AsyncSession,
+) -> None:
+    from modules.context.services.context_compiler import ContextCompiler
+
+    seen_chapters: dict[str, int | None] = {}
+    calls: list[str] = []
+
+    class FakeLoader:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        async def load(self, _db, options, bundle) -> None:
+            calls.append(self.name)
+            if self.name == "scene":
+                bundle.scene = {
+                    "id": "scene-1",
+                    "scene_chunks": [{"chapter_index": 3}],
+                }
+            if self.name in {"outline_arc", "rag_chunks", "plot_threads"}:
+                seen_chapters[self.name] = options.chapter_index
+
+    names = [
+        "scene",
+        "project",
+        "world_entities",
+        "characters",
+        "rag_chunks",
+        "plot_threads",
+        "outline_arc",
+        "world_bible",
+    ]
+    compiler = ContextCompiler([FakeLoader(name) for name in names])
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="以 Scene 为主键参考第 20 章",
+        scope="generation_center",
+        consumer_action="world.generation.core_entity",
+        chapter_index=20,
+        scene_id="scene-1",
+    )
+
+    bundle = await compiler.compile(db_session, options)
+
+    assert options.chapter_index == 3
+    assert bundle.chapter_index == 3
+    assert seen_chapters == {
+        "outline_arc": 3,
+        "rag_chunks": 3,
+        "plot_threads": 3,
+    }
+    assert calls.index("scene") < calls.index("outline_arc")
+    assert calls.index("scene") < calls.index("rag_chunks")
+    assert calls.index("scene") < calls.index("plot_threads")
+    assert "当前 Scene 章节锚点优先于请求中的参考章节" in bundle.warnings
+
+
+@pytest.mark.asyncio
+async def test_generation_center_entity_and_character_selection_uses_relevance_topk(
     db_session: AsyncSession,
 ) -> None:
     from modules.context.services.loaders.characters_loader import CharactersLoader
@@ -221,9 +279,9 @@ async def test_writing_entity_and_character_selection_uses_relevance_topk(
 
     options = CompileOptions(
         novel_id=str(uuid.uuid4()),
-        task="生成正文",
-        scope="chapter",
-        consumer_action="writing.generate",
+        task="生成世界设定",
+        scope="generation_center",
+        consumer_action="world.generation.core_entity",
         entity_ids=["explicit-item"],
         character_ids=["explicit-character"],
     )
@@ -260,9 +318,9 @@ async def test_writing_entity_and_character_selection_uses_relevance_topk(
     )
 
     await WorldEntitiesLoader(fake_world_context).load(db_session, options, bundle)
-    await CharactersLoader(
-        get_characters_context_fn=fake_character_context
-    ).load(db_session, options, bundle)
+    await CharactersLoader(get_characters_context_fn=fake_character_context).load(
+        db_session, options, bundle
+    )
 
     assert seen_entity_ids[:3] == ["explicit-item", "scene-item", "arc-item"]
     assert len(seen_entity_ids) == 16
@@ -272,6 +330,56 @@ async def test_writing_entity_and_character_selection_uses_relevance_topk(
         "scene-character",
     ]
     assert len(seen_character_ids) == 6
+    character_trace = bundle.selection_trace["characters"]
+    assert character_trace["included"][0] == {
+        "id": "explicit-character",
+        "reason": "explicit",
+    }
+    assert character_trace["top_k"] == 6
+    assert any(
+        item["exclusion_reason"] == "top_k" for item in character_trace["excluded"]
+    )
+    entity_trace = bundle.selection_trace["world_entities"]
+    assert entity_trace["included"][0] == {
+        "id": "explicit-item",
+        "reason": "explicit_or_source",
+    }
+    assert entity_trace["top_k"] == 16
+    assert any(item["exclusion_reason"] == "top_k" for item in entity_trace["excluded"])
+    assert any("人物候选超过 Top-6" in item for item in bundle.warnings)
+    assert any("世界对象候选超过 Top-16" in item for item in bundle.warnings)
+
+
+@pytest.mark.asyncio
+async def test_generation_center_plot_threads_do_not_fallback_to_first_chapter(
+    db_session: AsyncSession,
+) -> None:
+    from modules.context.services.loaders.plot_threads_loader import PlotThreadsLoader
+
+    calls: list[dict] = []
+
+    async def fake_get_threads(*_args, **kwargs):
+        calls.append(kwargs)
+        return []
+
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="无剧情锚点的世界设定",
+        scope="generation_center",
+        consumer_action="world.generation.core_entity",
+    )
+    bundle = StructureContextBundle(
+        novel_id=options.novel_id,
+        task=options.task,
+        scope=options.scope,
+        budget_used={key: 0 for key in CONTEXT_BUDGET},
+    )
+
+    await PlotThreadsLoader(fake_get_threads).load(db_session, options, bundle)
+
+    assert calls == []
+    assert bundle.plot_threads == []
+    assert bundle.budget_used["plot_threads"] == 0
 
 
 @pytest.mark.asyncio
@@ -1650,6 +1758,55 @@ class TestContextConfirmation:
         assert result.budget_events[1].before_tokens == 200
         assert result.budget_events[1].after_tokens < 200
 
+    @pytest.mark.parametrize(
+        ("section_key", "tier"),
+        [
+            ("world_entities", 2),
+            ("open_narrative_obligations", 2),
+            ("retrieval_evidence_packs", 2),
+            ("pov_knowledge", 1),
+        ],
+    )
+    def test_line_item_budget_truncation_keeps_sources_in_lockstep(
+        self,
+        section_key: str,
+        tier: int,
+    ) -> None:
+        from infrastructure.llm.token_estimation import estimate_token_count
+        from modules.context.services.compiled_context import (
+            CompiledContext,
+            ContextSection,
+            Tier,
+        )
+
+        lines = [
+            f"item-{index}: " + "复杂世界运行机制与人物冲突。" * 80 for index in range(4)
+        ]
+        content = "\n".join(lines)
+        total_tokens = estimate_token_count(content)
+        section = ContextSection(
+            key=section_key,
+            tier=Tier(tier),
+            content=content,
+            token_count=total_tokens,
+            truncatable_per_item=tier == int(Tier.P2),
+            sources=[{"type": "test", "id": f"source-{index}"} for index in range(4)],
+        )
+        context = CompiledContext(
+            sections=[section],
+            total_tokens=total_tokens,
+            budget_tokens=total_tokens // 3,
+        )
+
+        result = context.enforce_budget()
+
+        truncated = result.sections[0]
+        kept_line_count = len(truncated.content.splitlines())
+        assert 0 < kept_line_count < len(lines)
+        assert [item["id"] for item in truncated.sources] == [
+            f"source-{index}" for index in range(kept_line_count)
+        ]
+
     @pytest.mark.asyncio
     async def test_confirm_context_api_creates_summary_without_rendered_context(
         self,
@@ -2829,7 +2986,7 @@ class TestContextCompiler:
                     "desire": "想夺取王位。",
                     "relationship_summary": "他是秦岚失散多年的兄长。",
                     "voice_style": "话少，常用短句。",
-                }
+                },
             ],
             plot_threads=[
                 {

@@ -15,6 +15,36 @@ from modules.world.services.map.map_open_target_service import MapOpenTargetServ
 from modules.world.tests.helpers import _create_entity, _create_project
 
 
+def _revision_payload(observation: dict) -> dict[str, str]:
+    return {"expected_updated_at": observation["updated_at"]}
+
+
+def _review_items(observations: list[dict]) -> list[dict[str, str]]:
+    return [
+        {
+            "observation_id": observation["id"],
+            "expected_updated_at": observation["updated_at"],
+        }
+        for observation in observations
+    ]
+
+
+def _confirmable_status_payload(name: str) -> dict:
+    return {
+        "target_name": name,
+        "dynamic_type": "status",
+        "time_anchor": {"kind": "initial_state"},
+        "value_json": {
+            "schema_version": 1,
+            "type": "status",
+            "field_key": "state",
+            "value": name,
+        },
+        "confidence": 0.8,
+        "source_ref": {"source": "manual_test"},
+    }
+
+
 @pytest.mark.asyncio
 async def test_observation_values_serialize_validated_spatial_anchor() -> None:
     from modules.world.map_schemas import MapObservationCreate
@@ -57,6 +87,11 @@ async def test_map_observation_confirm_flow_keeps_candidate_until_confirmed(
         name="沈砚",
         status="canonical",
     )
+    scene = await create_scene(
+        db_session,
+        nid,
+        {"scene_index": 42, "title": "沈砚穿过东门", "status": "canonical"},
+    )
     map_resp = await async_client.post(
         "/api/world/maps",
         params={"novel_id": nid},
@@ -74,10 +109,15 @@ async def test_map_observation_confirm_flow_keeps_candidate_until_confirmed(
             "dynamic_type": "location",
             "time_anchor": {"scene_index": 42},
             "spatial_anchor": {"hex_q": 2, "hex_r": 3},
-            "value_json": {"state": "arrived"},
+            "value_json": {
+                "schema_version": 1,
+                "type": "location",
+                "state": "arrived",
+            },
             "confidence": 0.82,
             "source_ref": {"source": "deep_import", "chapter_index": 12},
             "evidence_text": "沈砚穿过东门。",
+            "scene_id": scene["id"],
             "scene_index": 42,
             "source_chapter_index": 12,
         },
@@ -98,6 +138,7 @@ async def test_map_observation_confirm_flow_keeps_candidate_until_confirmed(
     confirm_resp = await async_client.post(
         f"/api/world/maps/{map_id}/observations/{observation['id']}/confirm",
         params={"novel_id": nid},
+        json=_revision_payload(observation),
     )
     assert confirm_resp.status_code == 200, confirm_resp.text
     fact = confirm_resp.json()
@@ -138,11 +179,13 @@ async def test_map_observation_can_be_ignored_without_creating_fact(
             "source_ref": {"source": "draft_analysis"},
         },
     )
-    observation_id = create_resp.json()["id"]
+    observation = create_resp.json()
+    observation_id = observation["id"]
 
     ignore_resp = await async_client.post(
         f"/api/world/maps/{map_id}/observations/{observation_id}/ignore",
         params={"novel_id": nid},
+        json=_revision_payload(observation),
     )
     assert ignore_resp.status_code == 200
     assert ignore_resp.json()["review_state"] == "ignored"
@@ -179,6 +222,7 @@ async def test_dashboard_includes_candidate_queue_inspector_and_batch_groups(
             "old": "open",
             "new": "blocked",
             "meta": {
+                "map_id": map_id,
                 "dynamic_type": "crisis",
                 "target_name": "洛阳外城",
                 "target_entity_type": "location",
@@ -207,7 +251,10 @@ async def test_dashboard_includes_candidate_queue_inspector_and_batch_groups(
     conflict_resp = await async_client.patch(
         f"/api/world/maps/{map_id}/observations/{create_resp.json()['id']}",
         params={"novel_id": nid},
-        json={"review_state": "conflicted"},
+        json={
+            "expected_updated_at": create_resp.json()["updated_at"],
+            "review_state": "conflicted",
+        },
     )
     assert conflict_resp.status_code == 200, conflict_resp.text
 
@@ -284,6 +331,7 @@ async def test_dashboard_formats_deep_import_delta_candidates_for_authors(
                 "summary": "克莱恩在塔罗会提出的政治改革方案。",
             },
             "meta": {
+                "map_id": map_id,
                 "dynamic_type": "entity_created",
                 "target_name": "entity_created",
                 "confidence": 0.5,
@@ -349,6 +397,7 @@ async def test_dashboard_uses_scalar_delta_candidate_as_title(
             "old": None,
             "new": "离奇自杀事件",
             "meta": {
+                "map_id": map_id,
                 "dynamic_type": "entity_created",
                 "confidence": 0.5,
             },
@@ -403,6 +452,7 @@ async def test_dashboard_uses_named_delta_field_as_title(
                 "summary": "魔药序列的晋升途径，每途径有多个序列。",
             },
             "meta": {
+                "map_id": map_id,
                 "dynamic_type": "entity_created",
                 "confidence": 0.5,
             },
@@ -453,6 +503,7 @@ async def test_dashboard_uses_scalar_when_delta_field_is_technical(
             "old": None,
             "new": "占卜家扮演法",
             "meta": {
+                "map_id": map_id,
                 "dynamic_type": "entity_created",
                 "confidence": 0.5,
             },
@@ -498,6 +549,7 @@ async def test_dashboard_formats_entity_updated_delta_title(
             "old": "未下水",
             "new": "已下水并试射",
             "meta": {
+                "map_id": map_id,
                 "dynamic_type": "entity_updated",
                 "confidence": 0.5,
             },
@@ -550,15 +602,23 @@ async def test_dashboard_deduplicates_confirmed_observations_and_main_characters
             "target_entity_id": str(character.id),
             "target_entity_type": "character",
             "target_name": "沈砚",
-            "dynamic_type": "position_change",
+            "dynamic_type": "location",
+            "time_anchor": {"kind": "initial_state"},
+            "spatial_anchor": {"hex_q": 1, "hex_r": 1},
+            "value_json": {
+                "schema_version": 1,
+                "type": "location",
+                "state": "present",
+            },
             "confidence": 0.82,
-            "scene_index": 1,
+            "source_ref": {"source": "manual_test"},
         },
     )
     assert character_obs.status_code == 201, character_obs.text
     await async_client.post(
         f"/api/world/maps/{map_id}/observations/{character_obs.json()['id']}/confirm",
         params={"novel_id": nid},
+        json=_revision_payload(character_obs.json()),
     )
 
     location_obs = await async_client.post(
@@ -840,37 +900,46 @@ async def test_observation_review_rejects_cross_map_and_public_confirmed_create(
         json={"target_name": "沈砚", "dynamic_type": "location"},
     )
     assert created.status_code == 201, created.text
-    observation_id = created.json()["id"]
+    observation = created.json()
+    observation_id = observation["id"]
 
     patch_resp = await async_client.patch(
         f"/api/world/maps/{map_b_id}/observations/{observation_id}",
         params={"novel_id": nid},
-        json={"review_state": "conflicted"},
+        json={
+            "expected_updated_at": observation["updated_at"],
+            "review_state": "conflicted",
+        },
     )
     assert patch_resp.status_code == 404
 
     direct_confirm = await async_client.patch(
         f"/api/world/maps/{map_a_id}/observations/{observation_id}",
         params={"novel_id": nid},
-        json={"review_state": "confirmed"},
+        json={
+            "expected_updated_at": observation["updated_at"],
+            "review_state": "confirmed",
+        },
     )
     assert direct_confirm.status_code == 422
 
     ignore_resp = await async_client.post(
         f"/api/world/maps/{map_b_id}/observations/{observation_id}/ignore",
         params={"novel_id": nid},
+        json=_revision_payload(observation),
     )
     assert ignore_resp.status_code == 404
 
     confirm_resp = await async_client.post(
         f"/api/world/maps/{map_b_id}/observations/{observation_id}/confirm",
         params={"novel_id": nid},
+        json=_revision_payload(observation),
     )
     assert confirm_resp.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_observation_field_patch_is_copied_to_confirmed_fact(
+async def test_observation_author_patch_preserves_read_only_source_fields(
     async_client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
@@ -888,46 +957,65 @@ async def test_observation_field_patch_is_copied_to_confirmed_fact(
         json={
             "target_name": "沈砚",
             "target_entity_type": "character",
-            "dynamic_type": "position_change",
-            "time_anchor": {"chapter": 1},
-            "spatial_anchor": {"q": 1, "r": 1},
-            "value_json": {"field": "location", "old": "东门", "new": "内城"},
+            "dynamic_type": "status",
+            "time_anchor": {"kind": "initial_state"},
+            "value_json": {
+                "schema_version": 1,
+                "type": "status",
+                "field_key": "location",
+                "value": "内城",
+            },
             "confidence": 0.4,
+            "source_ref": {"source": "manual_test"},
             "evidence_text": "原始证据",
         },
     )
     assert created.status_code == 201, created.text
     observation_id = created.json()["id"]
 
-    patched = await async_client.patch(
+    forbidden = await async_client.patch(
         f"/api/world/maps/{map_id}/observations/{observation_id}",
         params={"novel_id": nid},
         json={
-            "review_state": "candidate",
-            "target_name": "沈砚修订",
+            "expected_updated_at": created.json()["updated_at"],
             "time_anchor": {"chapter": 2},
-            "spatial_anchor": {"q": 2, "r": 3},
-            "value_json": {"field": "location", "old": "东门", "new": "内城西侧"},
             "confidence": 0.88,
             "evidence_text": "用户修订证据",
         },
     )
+    assert forbidden.status_code == 422, forbidden.text
+
+    patched = await async_client.patch(
+        f"/api/world/maps/{map_id}/observations/{observation_id}",
+        params={"novel_id": nid},
+        json={
+            "expected_updated_at": created.json()["updated_at"],
+            "target_name": "沈砚修订",
+            "value_json": {
+                "schema_version": 1,
+                "type": "status",
+                "field_key": "location",
+                "value": "内城西侧",
+            },
+        },
+    )
     assert patched.status_code == 200, patched.text
     assert patched.json()["target_name"] == "沈砚修订"
-    assert patched.json()["value_json"]["new"] == "内城西侧"
+    assert patched.json()["value_json"]["value"] == "内城西侧"
 
     confirmed = await async_client.post(
         f"/api/world/maps/{map_id}/observations/{observation_id}/confirm",
         params={"novel_id": nid},
+        json=_revision_payload(patched.json()),
     )
     assert confirmed.status_code == 200, confirmed.text
     fact = confirmed.json()
     assert fact["target_name"] == "沈砚修订"
-    assert fact["time_anchor"] == {"chapter": 2}
-    assert fact["spatial_anchor"] == {"q": 2, "r": 3}
-    assert fact["value_json"]["new"] == "内城西侧"
-    assert fact["confidence"] == 0.88
-    assert fact["evidence_text"] == "用户修订证据"
+    assert fact["time_anchor"] == {"kind": "initial_state"}
+    assert fact["value_json"]["value"] == "内城西侧"
+    assert fact["confidence"] == 0.4
+    assert fact["evidence_text"] == "原始证据"
+    assert fact["source_ref"]["source"] == "manual_test"
 
 
 @pytest.mark.asyncio
@@ -943,25 +1031,20 @@ async def test_batch_review_and_fact_status_soft_updates_dashboard_and_playback(
         json={"name": "九州", "map_type": "world", "grid_width": 6, "grid_height": 6},
     )
     map_id = map_resp.json()["id"]
-    created_ids = []
+    created_observations = []
     for name in ["沈砚", "林照"]:
         resp = await async_client.post(
             f"/api/world/maps/{map_id}/observations",
             params={"novel_id": nid},
-            json={
-                "target_name": name,
-                "target_entity_type": "character",
-                "dynamic_type": "position_change",
-                "confidence": 0.8,
-            },
+            json=_confirmable_status_payload(name),
         )
         assert resp.status_code == 201, resp.text
-        created_ids.append(resp.json()["id"])
+        created_observations.append(resp.json())
 
     batch = await async_client.post(
         f"/api/world/maps/{map_id}/observations/batch-review",
         params={"novel_id": nid},
-        json={"observation_ids": created_ids, "action": "confirm"},
+        json={"items": _review_items(created_observations), "action": "confirm"},
     )
     assert batch.status_code == 200, batch.text
     batch_body = batch.json()
@@ -1022,20 +1105,15 @@ async def test_batch_review_ignore_updates_observations_in_one_statement(
         json={"name": "九州", "map_type": "world", "grid_width": 6, "grid_height": 6},
     )
     map_id = map_resp.json()["id"]
-    created_ids = []
+    created_observations = []
     for name in ["沈砚", "林照", "陆离"]:
         resp = await async_client.post(
             f"/api/world/maps/{map_id}/observations",
             params={"novel_id": nid},
-            json={
-                "target_name": name,
-                "target_entity_type": "character",
-                "dynamic_type": "position_change",
-                "confidence": 0.8,
-            },
+            json=_confirmable_status_payload(name),
         )
         assert resp.status_code == 201, resp.text
-        created_ids.append(resp.json()["id"])
+        created_observations.append(resp.json())
 
     engine = db_session.bind.sync_engine
     observation_selects: list[str] = []
@@ -1060,7 +1138,7 @@ async def test_batch_review_ignore_updates_observations_in_one_statement(
         batch = await async_client.post(
             f"/api/world/maps/{map_id}/observations/batch-review",
             params={"novel_id": nid},
-            json={"observation_ids": created_ids, "action": "ignore"},
+            json={"items": _review_items(created_observations), "action": "ignore"},
         )
     finally:
         event.remove(engine, "before_cursor_execute", count_observation_statements)
@@ -1073,7 +1151,7 @@ async def test_batch_review_ignore_updates_observations_in_one_statement(
         "ignored",
         "ignored",
     ]
-    assert len(observation_selects) == 2
+    assert len(observation_selects) == 1
     assert len(observation_updates) == 1
 
 
@@ -1090,20 +1168,15 @@ async def test_batch_review_confirm_reuses_prefetched_observations(
         json={"name": "九州", "map_type": "world", "grid_width": 6, "grid_height": 6},
     )
     map_id = map_resp.json()["id"]
-    created_ids = []
+    created_observations = []
     for name in ["沈砚", "林照", "陆离"]:
         resp = await async_client.post(
             f"/api/world/maps/{map_id}/observations",
             params={"novel_id": nid},
-            json={
-                "target_name": name,
-                "target_entity_type": "character",
-                "dynamic_type": "position_change",
-                "confidence": 0.8,
-            },
+            json=_confirmable_status_payload(name),
         )
         assert resp.status_code == 201, resp.text
-        created_ids.append(resp.json()["id"])
+        created_observations.append(resp.json())
 
     engine = db_session.bind.sync_engine
     observation_selects: list[str] = []
@@ -1131,7 +1204,7 @@ async def test_batch_review_confirm_reuses_prefetched_observations(
         batch = await async_client.post(
             f"/api/world/maps/{map_id}/observations/batch-review",
             params={"novel_id": nid},
-            json={"observation_ids": created_ids, "action": "confirm"},
+            json={"items": _review_items(created_observations), "action": "confirm"},
         )
     finally:
         event.remove(engine, "before_cursor_execute", count_batch_confirm_statements)
@@ -1146,7 +1219,7 @@ async def test_batch_review_confirm_reuses_prefetched_observations(
         "confirmed",
     ]
     assert len(batch_body["facts"]) == 3
-    assert len(observation_selects) == 2
+    assert len(observation_selects) == 1
     assert len(observation_updates) == 1
     assert len(fact_selects) == 1
 
@@ -1167,21 +1240,16 @@ async def test_batch_actions_review_candidates_and_update_fact_status(
     obs_resp = await async_client.post(
         f"/api/world/maps/{map_id}/observations",
         params={"novel_id": nid},
-        json={
-            "target_name": "沈砚",
-            "target_entity_type": "character",
-            "dynamic_type": "position_change",
-            "confidence": 0.8,
-        },
+        json=_confirmable_status_payload("沈砚"),
     )
-    observation_id = obs_resp.json()["id"]
+    observation = obs_resp.json()
 
     confirmed = await async_client.post(
         f"/api/world/maps/{map_id}/batch-actions",
         params={"novel_id": nid},
         json={
             "action": "confirm_observations",
-            "observation_ids": [observation_id],
+            "observation_items": _review_items([observation]),
             "confirmation_text": "确认批量修改",
         },
     )
@@ -1225,16 +1293,13 @@ async def test_batch_action_update_fact_status_updates_facts_in_one_statement(
         obs_resp = await async_client.post(
             f"/api/world/maps/{map_id}/observations",
             params={"novel_id": nid},
-            json={
-                "target_name": name,
-                "target_entity_type": "character",
-                "dynamic_type": "position_change",
-                "confidence": 0.8,
-            },
+            json=_confirmable_status_payload(name),
         )
+        observation = obs_resp.json()
         fact_resp = await async_client.post(
-            f"/api/world/maps/{map_id}/observations/{obs_resp.json()['id']}/confirm",
+            f"/api/world/maps/{map_id}/observations/{observation['id']}/confirm",
             params={"novel_id": nid},
+            json=_revision_payload(observation),
         )
         assert fact_resp.status_code == 200, fact_resp.text
         fact_ids.append(fact_resp.json()["id"])
@@ -1307,11 +1372,13 @@ async def test_batch_actions_reject_cross_novel_fact(
     obs_resp = await async_client.post(
         f"/api/world/maps/{map_a.json()['id']}/observations",
         params={"novel_id": nid_a},
-        json={"target_name": "沈砚", "dynamic_type": "position_change"},
+        json=_confirmable_status_payload("沈砚"),
     )
+    observation = obs_resp.json()
     fact = await async_client.post(
-        f"/api/world/maps/{map_a.json()['id']}/observations/{obs_resp.json()['id']}/confirm",
+        f"/api/world/maps/{map_a.json()['id']}/observations/{observation['id']}/confirm",
         params={"novel_id": nid_a},
+        json=_revision_payload(observation),
     )
 
     rejected = await async_client.post(
@@ -1357,11 +1424,16 @@ async def test_playback_derives_typed_tracks_from_facts_and_candidates(
             "target_entity_type": "character",
             "target_name": "沈砚",
             "dynamic_type": "position_change",
-            "value_json": {"field": "位置", "old": "东门", "new": "内城"},
+            "time_anchor": {"kind": "initial_state"},
+            "value_json": {
+                "schema_version": 1,
+                "type": "location",
+                "state": "present",
+            },
             "spatial_anchor": {"hex_q": 2, "hex_r": 2},
             "confidence": 0.9,
             "scene_index": 1,
-            "source_ref": {"source": "deep_import"},
+            "source_ref": {"source": "manual_test"},
             "evidence_text": "沈砚进入内城。",
         },
     )
@@ -1369,6 +1441,7 @@ async def test_playback_derives_typed_tracks_from_facts_and_candidates(
     await async_client.post(
         f"/api/world/maps/{map_id}/observations/{position_resp.json()['id']}/confirm",
         params={"novel_id": nid},
+        json=_revision_payload(position_resp.json()),
     )
 
     crisis_resp = await async_client.post(
@@ -1396,7 +1469,7 @@ async def test_playback_derives_typed_tracks_from_facts_and_candidates(
     assert [track["track"] for track in body["tracks"]] == ["journey", "crisis"]
     assert body["events"][0]["typed_observation"] == "position_change"
     assert body["events"][0]["track"] == "journey"
-    assert body["events"][0]["change_summary"] == "位置：东门 → 内城"
+    assert body["events"][0]["change_summary"] == "沈砚进入内城。"
     assert body["events"][1]["typed_observation"] == "crisis_spread"
     assert body["events"][1]["track"] == "crisis"
     assert body["events"][1]["status_label"] == "待处理"

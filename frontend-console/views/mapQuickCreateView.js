@@ -24,8 +24,15 @@ const mapQuickCreateView = {
   _baseTemplate: "blank",
   _dragLocationId: null,
   _onCreated: null,
+  _projectId: null,
+  _openGeneration: 0,
 
-  async open({ onCreated = null } = {}) {
+  async open({ onCreated = null, projectId = null } = {}) {
+    const frozenProjectId = projectId || state.currentProjectId
+    if (!frozenProjectId || state.currentProjectId !== frozenProjectId) return false
+    this._openGeneration += 1
+    const generation = this._openGeneration
+    this._projectId = frozenProjectId
     this._onCreated = onCreated
     this._includeCandidates = false
     this._activeLayouts = []
@@ -43,8 +50,20 @@ const mapQuickCreateView = {
     this._gridHeight = 30
     this._baseTemplate = "blank"
     await this._loadContext()
+    if (!this._isCurrentOpen(generation, frozenProjectId)) return false
     await this._loadPreview()
+    if (!this._isCurrentOpen(generation, frozenProjectId)) return false
     this._showModal()
+    return true
+  },
+
+  _isCurrentOpen(generation = this._openGeneration, projectId = this._projectId) {
+    return Boolean(
+      projectId
+      && generation === this._openGeneration
+      && this._projectId === projectId
+      && state.currentProjectId === projectId
+    )
   },
 
   async setIncludeCandidates(enabled) {
@@ -134,14 +153,35 @@ const mapQuickCreateView = {
   },
 
   async _loadContext() {
-    this._context = await api.world.getMapQuickCreateContext(
-      state.currentProjectId,
+    const projectId = this._projectId || state.currentProjectId
+    const generation = this._openGeneration
+    if (!this._isCurrentOpen(generation, projectId)) {
+      throw new Error("当前项目已切换")
+    }
+    const context = await api.world.getMapQuickCreateContext(
+      projectId,
       this._includeCandidates,
     )
+    if (!this._isCurrentOpen(generation, projectId)) {
+      throw new Error("当前项目已切换")
+    }
+    this._context = context
   },
 
   async _loadPreview() {
-    this._preview = await api.world.previewQuickCreateMap(this._previewPayload(), state.currentProjectId)
+    const projectId = this._projectId || state.currentProjectId
+    const generation = this._openGeneration
+    if (!this._isCurrentOpen(generation, projectId)) {
+      throw new Error("当前项目已切换")
+    }
+    const preview = await api.world.previewQuickCreateMap(
+      this._previewPayload(),
+      projectId,
+    )
+    if (!this._isCurrentOpen(generation, projectId)) {
+      throw new Error("当前项目已切换")
+    }
+    this._preview = preview
     this._gridWidth = Number(this._preview?.map?.grid_width || this._gridWidth)
     this._gridHeight = Number(this._preview?.map?.grid_height || this._gridHeight)
     this._mapType = this._preview?.map?.map_type || this._mapType
@@ -682,6 +722,12 @@ const mapQuickCreateView = {
   },
 
   async _confirm() {
+    const projectId = this._projectId || state.currentProjectId
+    const generation = this._openGeneration
+    if (!this._isCurrentOpen(generation, projectId)) {
+      toast("当前项目已切换，请返回原项目重新打开快速创建", "warning")
+      return false
+    }
     const selectedLayouts = this._selectedLayouts()
     if (!selectedLayouts.length) {
       toast("请至少选择一个地点", "warning")
@@ -701,7 +747,11 @@ const mapQuickCreateView = {
         ...this._previewPayload(),
         name: nameInput?.value?.trim() || this._preview?.map?.name || undefined,
         layouts: selectedLayouts,
-      }, state.currentProjectId)
+      }, projectId)
+      if (!this._isCurrentOpen(generation, projectId)) {
+        toast("地图已在原项目创建，当前项目已切换", "warning")
+        return false
+      }
       toast("地图已快速创建", "success")
       await this._onCreated?.(created.map)
       return created

@@ -84,13 +84,19 @@ async def call_llm_extraction(
             step_name="imports.scene_entity.extraction.structured",
             max_fix_attempts=max_fix_attempts,
             transport_retries=transport_retries,
-            partial_list_fields={"entities", "relations", "delta_events"},
+            partial_list_fields={
+                "entities",
+                "relations",
+                "delta_events",
+                "map_observation_proposals",
+            },
             diagnostics=diagnostics,
             format_repair_attempts=1,
             fix_prompt=(
                 "上一轮实体抽取输出不是合法 JSON 或不符合 schema。"
                 "请重新输出一个完整 JSON 对象，只包含 entities、relations、"
-                "delta_events、memory_update，不要 Markdown 或解释。"
+                "delta_events、map_observation_proposals、memory_update，"
+                "不要 Markdown 或解释。"
             ),
         )
     finally:

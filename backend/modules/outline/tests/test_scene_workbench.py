@@ -2350,6 +2350,140 @@ class TestSceneWorkbenchApi:
         spans[1].source_content_hash = "b" * 64
         assert service._overlapping_span_chapters(spans) == {}
 
+    async def test_workbench_explains_scene_spans_and_overlap_counterparts(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+        sample_novel_id: str,
+    ) -> None:
+        source_hash = "a" * 64
+        first = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 0,
+                "title": "追逐开端",
+                "chapter_ids": ["1"],
+                "scene_chunks": [
+                    {
+                        "chapter_index": 1,
+                        "start_offset": 10,
+                        "end_offset": 50,
+                        "start_paragraph": 1,
+                        "end_paragraph": 3,
+                        "source_content_hash": source_hash,
+                        "anchor_excerpt": "  枪声响起\n众人开始追逐  ",
+                    }
+                ],
+                "status": "canonical",
+            },
+        )
+        second = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 1,
+                "title": "追逐转折",
+                "chapter_ids": ["1"],
+                "scene_chunks": [
+                    {
+                        "chapter_index": 1,
+                        "start_offset": 40,
+                        "end_offset": 80,
+                        "source_content_hash": source_hash,
+                    }
+                ],
+                "status": "canonical",
+            },
+        )
+        chapter_only = await _create_scene(
+            async_client,
+            test_project_id,
+            {
+                "scene_index": 2,
+                "title": "只有段落定位",
+                "chapter_ids": ["3"],
+                "scene_chunks": [
+                    {
+                        "chapter_index": 3,
+                        "start_paragraph": 0,
+                        "end_paragraph": 2,
+                    }
+                ],
+                "status": "canonical",
+            },
+        )
+        other_novel_scene = await _create_scene(
+            async_client,
+            sample_novel_id,
+            {
+                "scene_index": 0,
+                "title": "其他项目的重叠",
+                "chapter_ids": ["1"],
+                "scene_chunks": [
+                    {
+                        "chapter_index": 1,
+                        "start_offset": 20,
+                        "end_offset": 30,
+                        "source_content_hash": source_hash,
+                    }
+                ],
+                "status": "canonical",
+            },
+        )
+
+        response = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={"novel_id": test_project_id},
+        )
+
+        assert response.status_code == 200, response.text
+        items = {item["scene"]["id"]: item for item in response.json()["items"]}
+        first_summary = items[first["id"]]["span_summaries"][0]
+        assert first_summary == {
+            "chapter_index": 1,
+            "content_mode": "canonical",
+            "part_no": 0,
+            "mapping_status": "exact",
+            "mapping_status_label": "精确定位",
+            "start_offset": 10,
+            "end_offset": 50,
+            "start_paragraph": 1,
+            "end_paragraph": 3,
+            "anchor_excerpt": "枪声响起 众人开始追逐",
+            "range_label": "第 1 章 · 字符 10–50 · 精确定位",
+        }
+        first_overlap = items[first["id"]]["overlap_details"]
+        assert first_overlap == [
+            {
+                "counterpart_scene_id": second["id"],
+                "counterpart_scene_title": "追逐转折",
+                "counterpart_scene_label": "追逐转折",
+                "chapter_index": 1,
+                "scene_start_offset": 10,
+                "scene_end_offset": 50,
+                "counterpart_start_offset": 40,
+                "counterpart_end_offset": 80,
+                "overlap_start_offset": 40,
+                "overlap_end_offset": 50,
+                "range_label": "第 1 章 · 字符 40–50 与「追逐转折」重叠",
+            }
+        ]
+        assert items[second["id"]]["overlap_details"][0][
+            "counterpart_scene_id"
+        ] == first["id"]
+        assert other_novel_scene["id"] not in {
+            detail["counterpart_scene_id"]
+            for item in items.values()
+            for detail in item["overlap_details"]
+        }
+        chapter_only_summary = items[chapter_only["id"]]["span_summaries"][0]
+        assert chapter_only_summary["mapping_status"] == "chapter_only"
+        assert chapter_only_summary["range_label"] == (
+            "第 3 章 · 第 1–3 段 · 仅关联章节"
+        )
+        assert items[chapter_only["id"]]["overlap_details"] == []
+
     async def test_apply_replacement_adopts_new_and_archives_source(
         self,
         async_client: AsyncClient,

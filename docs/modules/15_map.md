@@ -217,7 +217,16 @@ localStorage，嵌套组沿全部祖先选择共同决定会话有效可见性�
 | `evidence_text` | TEXT | 可读来源证据摘要 |
 | `scene_id` / `scene_index` / `source_chapter_index` | UUID / INT | 来源时间锚点 |
 
-`deep import` Phase 2 仍写 `memory.delta_log`，同时把每条 `delta_event` 接入 `map_observations`，默认原始 `review_state="candidate"`，不直接写 Fact；作者界面统一显示“待处理”。
+`deep import` Phase 2 仍写 `memory.delta_log`。新的地图动态链只接受人物地点、事件地点、
+线路状态、势力范围四类显式 proposal，并经稳定 world contract/facade 写入
+`map_observations(review_state="candidate")`；旧 `delta_event` → observation 路径仅保留兼容。
+候选 UUIDv5 由项目、workflow、Scene、source item 和 proposal type 决定，`source_ref` 保存
+Scene 输入指纹、context snapshot、evidence anchor 与原始 payload hash。同一重试复用；身份相同
+但 payload 改变时 409 fail closed，不覆盖作者字段，也不直接写 Fact。`source_item_key`
+继续细分为 Scene 输入指纹 + proposal type + evidence anchor + 同源局部序号，避免同类
+proposal 重排导致假冲突。任务提交时的冻结授权快照须跨 imports/world seam 原样携带；
+world 验证 novel/章节 scope 并持久化快照指纹。PostgreSQL 用确定性事务锁串行化尚未
+存在的候选身份；导入 proposal type 属于不可变来源身份。
 
 ### `map_facts` — 已采用时间化地图事实（世界动态 P0）
 
@@ -360,10 +369,14 @@ active map row 并比较 revision，任一命令失败则 savepoint 回滚整批
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
+| GET | `/project-observations/inbox?novel_id={}&dynamic_type={}&scene_id={}&source={}&confidence={low\|high}&eligibility={ready\|missing}&skip={}&limit={}` | 项目级未分配 candidate/conflicted 收件箱；筛选在分页前生效 |
+| PATCH | `/project-observations/{observation_id}?novel_id={}` | 用 `expected_updated_at` 更新作者字段 |
+| POST | `/project-observations/{observation_id}/assign?novel_id={}` | 分配到 active 地图、换图或以 `map_id=null` 退回收件箱 |
+| POST | `/project-observations/{observation_id}/ignore?novel_id={}` | 用 `expected_updated_at` 忽略项目候选 |
 | GET | `/{map_id}/observations?novel_id={}&review_state={}` | 地图 observation 列表（未转 Fact 项显示为待处理） |
 | POST | `/{map_id}/observations?novel_id={}` | 创建地图 observation |
-| PATCH | `/{map_id}/observations/{observation_id}?novel_id={}` | 更新 observation 审查状态 |
-| POST | `/{map_id}/observations/batch-review?novel_id={}` | 批量确认、忽略或标记冲突 observation |
+| PATCH | `/{map_id}/observations/{observation_id}?novel_id={}` | 用 `expected_updated_at` 更新作者字段或候选审查状态 |
+| POST | `/{map_id}/observations/batch-review?novel_id={}` | 用带 revision 的 `items` 批量确认、忽略或标记冲突 |
 | POST | `/{map_id}/batch-actions?novel_id={}` | 批量动作入口：采用/忽略/冲突 observation、更新 fact 状态、记录图层可见性 patch |
 | POST | `/{map_id}/observations/{observation_id}/confirm?novel_id={}` | 采用 observation 并生成/复用 `map_facts`（路径名保留兼容） |
 | POST | `/{map_id}/observations/{observation_id}/ignore?novel_id={}` | 忽略 observation，不生成正式事实 |
@@ -382,6 +395,22 @@ active map row 并比较 revision，任一命令失败则 savepoint 回滚整批
 同一 Scene、对象和维度的相同值合并证据，不同值产生 conflict，不按创建时间覆盖。
 candidate 即使通过 `include_candidates=true` 返回，也只进入独立预览，不参与有效状态、差分、
 连续性问题或 canonical projection token。
+
+人物位置、事件发生地、线路/阻隔和势力范围可以先以显式
+`payload_kind="proposal"` proposal union 进入 observation；proposal 不伪装成 canonical typed
+value，读取时保持 `normalization_state="untyped"`。响应附加由服务端计算的 `eligibility`：
+从 proposal 首次转为 canonical value 时，服务端会在只读来源中保留
+`proposal_type`；因此人物位置仍只能绑定已采用人物，事件发生地仍只能绑定已采用事件，
+且事件发生地不得只靠 path 通过采用门禁。
+只有 canonical value、同项目已采用目标对象、active 地图、合法 location/path/hex，以及
+Scene/章节来源或人工 `initial_state` 齐全时 `can_confirm=true`。
+
+公共作者 PATCH 只允许目标对象、作者值、空间锚点和候选状态；来源、证据、workflow、原始
+置信度、Scene/章节来源与来源时间均只读，额外字段返回 422。PATCH、assign、ignore、confirm
+和 batch-review 都要求 `expected_updated_at`；409 响应 context 带最新只读 observation。
+confirm 在 observation 行锁内重验资格并创建或复用 Fact，批量操作按 UUID 稳定锁定并在写入
+前验证全部项目。项目收件箱只返回 `map_id IS NULL` 的待处理项，具体地图的
+list/dashboard/playback 不会混入未分配候选。
 
 ### `MapStateResponse` 结构
 
@@ -480,12 +509,16 @@ layout/binding/marker/territory/terrain presence，并给出代表坐标、角�
 
 ## 前端实现现状
 
-- `mapWorkspaceView`：总览、最近地图、地图树、搜索、图层开关、打开具体地图；具体地图默认进入世界动态总控台，并提供“总控台 / 活地图 / 叙事透镜”切换、上方语义气泡带、低动效开关、电影化播放面板和动态对象信息框。
+- `mapWorkspaceView`：总览、项目级地图收件箱、最近地图、地图树、搜索、图层开关、打开具体地图；收件箱支持类型/Scene/来源/置信度/资格筛选、分页、分配后继续编辑和忽略。导入事件来源先转换为作者可读标签，原始 Scene ID 收进诊断筛选，且已有 Scene/章节锚点不会再显示矛盾的缺失提示。具体地图默认进入世界动态总控台，并提供“总控台 / 活地图 / 叙事透镜”切换、上方语义气泡带、低动效开关、电影化播放面板和动态对象信息框。
 - `worldView`：对象行先读取全部 map presence；一张时直接定位，多张时展示地图角色与绑定数量选择器，无 presence 时回退 `open-target`。
 - `writingView`：Scene 面板展示地图摘要、危机、风险和 warning，并通过 `open_target` 打开地图工作台。
 - `mapView`：浏览模式以 typed selection 区分地点、marker、territory、terrain 与底图，fact/observation 仍走 dashboard inspector。Canvas 使用单 RAF、视口裁剪和 revision/viewport 缓存，隐藏、zoom 外和视口外节点不进入绘制队列。
+- 地点标签与聚合簇使用专用 `mapLabels` Leaflet pane；pane 本身不拦截背景，
+  仅可交互 marker 消费点击。地点点击先打开信息框，详图/创建预览由信息框内按钮触发。
 - `mapLayoutEngine.js`：纯前端布局引擎，根据视图模式、焦点、风险、待处理/已采用状态和视口空间，派生标签、聚合簇、语义气泡与低动效状态。
-- `mapRouteContext.js`：处理从写作页或其他工作流带入的 `map_id` / `scene_id` / `focus_entity_id`
+- `mapRouteContext.js`：统一解析/生成 `overview/recent/dashboard/live/lens` 规范 hash；
+  旧 `mode=map` 首次读取后 replace 为 `mode=live`。跨地图/总览使用 push，同地图的
+  mode、Scene、entity/hex/path/layer focus 使用 replace。
 
 ### 跨 novel 隔离
 
@@ -508,6 +541,8 @@ layout/binding/marker/territory/terrain presence，并给出代表坐标、角�
 | 父地图 / 父实体不存在 | 404 | 创建地图时 |
 | 同层级同名地图 | 409 | 业务层校验 |
 | `expected_revision` 过期 | 409 | 返回当前 revision，前端保留本地草稿 |
+| observation `expected_updated_at` 过期 | 409 | 返回最新只读 observation，前端保留当前作者输入 |
+| observation 缺少 canonical 对象、空间或时间条件 | 422 | `map_observation_not_eligible`，响应 context 含 eligibility |
 | 图层或祖先锁定 | 409 | 新旧视觉写入口统一拒绝 |
 
 ---
@@ -595,7 +630,17 @@ layout/binding/marker/territory/terrain presence，并给出代表坐标、角�
 - **撤销**：每个编辑层保存独立 session 历史；新操作清空该层 redo。已经成功提交到后端的操作不提供跨会话历史回滚。
 - **地点锚点**：旧地图读取时按 layout → center binding → footprint 质心最近格确定锚点但不写库；首次显式保存才物化缺失 layout/center binding。
 - **内置素材**：仅支持自然环境、城市交通、奇幻危机三个程序化素材包和三套预设，不支持用户上传。
-- **全量 state wire**：本批保持完整 tile wire shape；前端记录 payload、请求/解析、首绘和 total/queued hex 指标并做视口裁剪。Playwright 使用固定 Chromium 1280×720、200×200 地图、20 帧预热和 100 帧采样，附加 `map-canvas-performance.json`；相对同轮未裁剪基线退化超过 20% 才失败。
+- **全量 state wire**：本批保持完整 tile wire shape。专用 Playwright 性能用例通过现有 API
+  建立固定 24×18 与 200×200 混合地形 manifest/checksum 样本，重新读取完整 API payload
+  并核对规范化 checksum；在 Chromium 1280×720、workers=1、retries=0 下断言真实 Leaflet
+  1.9.4 已加载，再从
+  `map:interactive` / `map:performance-sample` 公开事件采集冷启动、预热、10 次热导航、
+  100 帧和真实 pointer/wheel/touch 输入。每个 profile 的 JSON 附件保存原始 frame/input 数组、
+  fixture 语义 payload/checksum 与环境元数据；热导航 p75 分别强制 `≤2s` / `≤3s`，任一
+  热样本不超过预算两倍，真实输入到下一帧 p95 强制 `≤33ms`。
+- **390px 边界**：地图保留只读状态、标签 tap、Canvas 拖动和桌面端转交；
+  quick-create 支持预览、地点微调和确认；地形绘制、线路节点精修、势力 hex 涂抹和递归
+  图层编辑不在窄屏提供。
 - **Scene 时间轴 UI**：按后端返回的 Scene stop 使用前后按钮、下拉与游标导航；Scene 序号
   是逻辑顺序，不是经过时长，播放节奏也不代表人物移动速度。
 - **聚焦模式**：仅按组织过滤势力范围；人物 / 事件聚焦未实现。

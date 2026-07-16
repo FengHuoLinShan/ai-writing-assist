@@ -285,7 +285,34 @@ export function createSmartDedupManager({
       this._bindSuggestionControls(suggestions)
     },
 
-    _showGroupWorkbench() {
+    _captureGroupWorkbenchScroll() {
+      const modalBody = document.getElementById("modal-body")
+      const queue = document.querySelector(".smart-dedup-queue")
+      const decision = document.querySelector(".smart-dedup-decision")
+      const comparison = document.querySelector(".smart-dedup-compare-scroll")
+      if (!modalBody && !queue && !decision && !comparison) return null
+      return {
+        modalBodyTop: modalBody?.scrollTop || 0,
+        queueTop: queue?.scrollTop || 0,
+        decisionTop: decision?.scrollTop || 0,
+        comparisonLeft: comparison?.scrollLeft || 0,
+      }
+    },
+
+    _restoreGroupWorkbenchScroll(snapshot) {
+      if (!snapshot) return
+      const modalBody = document.getElementById("modal-body")
+      const queue = document.querySelector(".smart-dedup-queue")
+      const decision = document.querySelector(".smart-dedup-decision")
+      const comparison = document.querySelector(".smart-dedup-compare-scroll")
+      if (modalBody) modalBody.scrollTop = snapshot.modalBodyTop
+      if (queue) queue.scrollTop = snapshot.queueTop
+      if (decision) decision.scrollTop = snapshot.decisionTop
+      if (comparison) comparison.scrollLeft = snapshot.comparisonLeft
+    },
+
+    _showGroupWorkbench({ preserveScroll = false } = {}) {
+      const scrollSnapshot = preserveScroll ? this._captureGroupWorkbenchScroll() : null
       if (this._scanProjectId !== this._currentProjectId()) {
         this._resetResult()
         return
@@ -323,6 +350,7 @@ export function createSmartDedupManager({
         }] : []),
       ], { size: "large", protectUnsaved: true })
       this._bindGroupControls(groups)
+      this._restoreGroupWorkbenchScroll(scrollSnapshot)
     },
 
     _groups(result) {
@@ -369,7 +397,7 @@ export function createSmartDedupManager({
           scenePreview: null,
         }
       })
-      const draft = { primaryId, operations, onlyDifferences: false }
+      const draft = { primaryId, operations, onlyDifferences: true }
       if (this._groupResults[group.group_id]?.status !== "success") {
         this._groupDraft[key] = draft
       }
@@ -451,7 +479,7 @@ export function createSmartDedupManager({
       const readiness = this._groupReadiness(group)
       const primaryChoices = group.eligible_primary_asset_ids.map((id) => {
         const member = group.members.find((item) => item.asset_id === id)
-        return `<label class="smart-dedup-primary-option"><input type="radio" name="smart-dedup-group-primary" data-smart-dedup-group-primary="${esc(id)}" ${draft.primaryId === id ? "checked" : ""} ${locked ? "disabled" : ""}/><span>${esc(member?.title || id)}</span><small>${esc(member?.status || "-")}</small></label>`
+        return `<label class="smart-dedup-primary-option"><input type="radio" name="smart-dedup-group-primary" value="${esc(id)}" data-smart-dedup-group-primary="${esc(id)}" ${draft.primaryId === id ? "checked" : ""} ${locked ? "disabled" : ""}/><span>${esc(member?.title || id)}</span><small>${esc(member?.status || "-")}</small></label>`
       }).join("")
       const operationCards = group.members
         .filter((member) => member.asset_id !== draft.primaryId)
@@ -513,16 +541,18 @@ export function createSmartDedupManager({
       document.querySelectorAll("[data-smart-dedup-group-primary]").forEach((input) => input.addEventListener("change", () => {
         const group = groups.find((item) => item.group_id === this._activeGroupId)
         if (!group) return
+        const selectedPrimaryId = input.getAttribute("data-smart-dedup-group-primary") || input.value
+        if (!group.eligible_primary_asset_ids.includes(selectedPrimaryId)) return
         const key = this._draftKey(group.group_id)
         delete this._groupDraft[key]
-        this._groupDraftFor({ ...group, recommended_primary_asset_id: input.value }).primaryId = input.value
-        this._showGroupWorkbench()
+        this._groupDraftFor({ ...group, recommended_primary_asset_id: selectedPrimaryId }).primaryId = selectedPrimaryId
+        this._showGroupWorkbench({ preserveScroll: true })
       }))
       document.querySelector("[data-smart-dedup-diff]")?.addEventListener("change", (event) => {
         const group = groups.find((item) => item.group_id === this._activeGroupId)
         if (!group) return
         this._groupDraftFor(group).onlyDifferences = Boolean(event.target.checked)
-        this._showGroupWorkbench()
+        this._showGroupWorkbench({ preserveScroll: true })
       })
       document.querySelectorAll("[data-smart-dedup-operation]").forEach((select) => select.addEventListener("change", () => {
         const group = groups.find((item) => item.group_id === this._activeGroupId)
@@ -532,14 +562,14 @@ export function createSmartDedupManager({
         operation.action = select.value
         operation.scenePreviewConfirmed = false
         operation.scenePreview = null
-        this._showGroupWorkbench()
+        this._showGroupWorkbench({ preserveScroll: true })
       }))
       const bindConfirm = (selector, field) => document.querySelectorAll(selector).forEach((input) => input.addEventListener("change", () => {
         const group = groups.find((item) => item.group_id === this._activeGroupId)
         const sourceId = input.getAttribute(selector.slice(1, -1))
         if (!group || !sourceId) return
         this._groupDraftFor(group).operations[sourceId][field] = Boolean(input.checked)
-        this._showGroupWorkbench()
+        this._showGroupWorkbench({ preserveScroll: true })
       }))
       bindConfirm("[data-smart-dedup-confirm-merge]", "allowCanonicalMerge")
       bindConfirm("[data-smart-dedup-confirm-alias]", "allowCanonicalAlias")
@@ -556,7 +586,7 @@ export function createSmartDedupManager({
             confirmed: false,
           })
           operation.scenePreviewConfirmed = false
-          this._showGroupWorkbench()
+          this._showGroupWorkbench({ preserveScroll: true })
         } catch (error) {
           toast(`Scene 预览失败：${error.message}`, "error")
         }

@@ -16,6 +16,8 @@ import { createOutlineFloat } from "./outlineFloat.js"
 import { createFocusModeManager } from "./focusMode.js"
 import { createWritingTools } from "./tools.js"
 import { createMobileQuickNote } from "./mobileQuickNote.js"
+import mapQuickCreateView from "../mapQuickCreateView.js"
+import { buildMapUrl } from "../mapRouteContext.js"
 
 export function createWritingSubModules(orchestrator, deps) {
   const { state, api, toast, esc, modal, router } = deps
@@ -85,6 +87,64 @@ export function createWritingSubModules(orchestrator, deps) {
     onPrompt: () => orchestrator._rerender(),
     onStatusChange: () => orchestrator._rerender(),
     onDone: () => orchestrator._onDeepImportDone?.(),
+    mapNextStep: {
+      openQuickCreate: async (next = {}) => {
+        const { projectId: taskProjectId } = next
+        const projectId = taskProjectId || state.currentProjectId
+        if (!projectId || state.currentProjectId !== projectId) return false
+        return mapQuickCreateView.open({
+          projectId,
+          onCreated: async (createdMap) => {
+            if (state.currentProjectId !== projectId) return false
+            let remaining = 0
+            try {
+              const inbox = await api.world.listProjectMapObservationInbox(
+                projectId,
+                { limit: 1 },
+              )
+              remaining = Number(inbox?.total || 0)
+            } catch {
+              remaining = 0
+            }
+            if (state.currentProjectId !== projectId) return false
+            const mapUrl = buildMapUrl({
+              projectId,
+              mapId: createdMap?.id || null,
+              mode: createdMap?.id ? "dashboard" : "overview",
+            })
+            const opened = window.open(mapUrl, "_blank")
+            if (opened) opened.opener = null
+            else window.location.assign(mapUrl)
+            toast(
+              remaining > 0
+                ? `地图已创建，收件箱还有 ${remaining} 条待处理动态`
+                : "地图已创建",
+              "success",
+            )
+            return deepImportRecovery.completeMapNextStep(next)
+          },
+        })
+      },
+      openReviewLocations: async ({ workflowId }) => {
+        const query = new URLSearchParams({
+          entity_type: "location",
+          source: "deep_import",
+        })
+        if (workflowId) query.set("workflow_id", workflowId)
+        return router.navigate("world", "review-objects", true, query)
+      },
+      openInbox: async ({ projectId: taskProjectId } = {}) => {
+        const projectId = taskProjectId || state.currentProjectId
+        if (!projectId || state.currentProjectId !== projectId) return false
+        const opened = window.open(buildMapUrl({
+          projectId,
+          mode: "overview",
+        }), "_blank")
+        if (opened) opened.opener = null
+        if (!opened) toast("浏览器阻止了新窗口，请允许后重试", "warning")
+        return Boolean(opened)
+      },
+    },
   })
 
   const autoExtraction = createAutoExtraction({

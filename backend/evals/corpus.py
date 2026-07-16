@@ -98,8 +98,8 @@ _FIXTURE_SOURCES: tuple[tuple[str, str, str], ...] = (
     ),
     (
         "world",
-        "world.object-draft",
-        "tools/prompt_contracts/fixtures/generation_center_world_object_draft.json",
+        "world.generation.core_entity.structured",
+        "tools/prompt_contracts/fixtures/world_generation_core_entity.json",
     ),
 )
 

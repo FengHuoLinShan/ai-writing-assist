@@ -16,6 +16,8 @@ beforeEach(() => {
   mapQuickCreateView._target = "world"
   mapQuickCreateView._replaceMapId = null
   mapQuickCreateView._onCreated = null
+  mapQuickCreateView._projectId = "p1"
+  mapQuickCreateView._openGeneration = 0
 })
 
 function mockQuickCreateApis() {
@@ -302,5 +304,42 @@ describe("mapQuickCreateView", () => {
       center_hex_q: 11,
       occupy_radius: 1,
     })
+  })
+
+  it("项目切换后拒绝用原弹窗向新项目确认", async () => {
+    mockQuickCreateApis()
+    await mapQuickCreateView.open({ projectId: "p1" })
+    state.currentProjectId = "p2"
+
+    const result = await mapQuickCreateView._confirm()
+
+    expect(result).toBe(false)
+    expect(api.world.confirmQuickCreateMap).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith(
+      "当前项目已切换，请返回原项目重新打开快速创建",
+      "warning",
+    )
+  })
+
+  it("确认期间切换项目不触发原任务完成回调", async () => {
+    mockQuickCreateApis()
+    const onCreated = vi.fn()
+    await mapQuickCreateView.open({ projectId: "p1", onCreated })
+    let resolveConfirm
+    api.world.confirmQuickCreateMap.mockReturnValue(new Promise((resolve) => {
+      resolveConfirm = resolve
+    }))
+    const confirming = mapQuickCreateView._confirm()
+    state.currentProjectId = "p2"
+    resolveConfirm({ map: { id: "m1", name: "原项目地图" } })
+
+    const result = await confirming
+
+    expect(result).toBe(false)
+    expect(api.world.confirmQuickCreateMap).toHaveBeenCalledWith(
+      expect.any(Object),
+      "p1",
+    )
+    expect(onCreated).not.toHaveBeenCalled()
   })
 })

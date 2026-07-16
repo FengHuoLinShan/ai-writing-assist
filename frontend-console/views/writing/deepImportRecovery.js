@@ -88,6 +88,7 @@ export function createDeepImportRecovery({
   onPrompt,
   onStatusChange,
   onDone,
+  mapNextStep = {},
 }) {
   const projectState = state
   const modalApi = modal
@@ -102,6 +103,8 @@ export function createDeepImportRecovery({
   let pollingActive = false
   let taskProjectId = null
   let cancelPending = false
+  let disposed = false
+  let lifecycleGeneration = 0
 
   function currentProjectId() {
     return projectState.currentProjectId
@@ -127,6 +130,7 @@ export function createDeepImportRecovery({
   }
 
   function hasRecoveryPrompt(p = progress) {
+    if (p?.phase === "done" || p?.phase === "cancelled") return false
     const actions = Array.isArray(p?.availableActions) ? p.availableActions : []
     return Boolean(
       (actions.includes("resume") && actions.includes("abandon"))
@@ -145,6 +149,11 @@ export function createDeepImportRecovery({
     return {
       phase: result.phase || task?.status || "running",
       workflowType: result.workflow_type || task?.task_type || "deep_import",
+      workflowId: result.workflow_id
+        || task?.meta?.workflow_id
+        || progress?.workflowId
+        || taskId
+        || null,
       stage: result.stage || null,
       label: result.stage ? stageConfig(result.stage).label : null,
       step: result.current_step || "",
@@ -192,6 +201,85 @@ export function createDeepImportRecovery({
         : (result.recovery_required || false),
       lifecycle: task?.lifecycle || {},
       availableActions,
+    }
+  }
+
+  function lifecycleContextIsCurrent(generation, projectId) {
+    return !disposed
+      && generation === lifecycleGeneration
+      && currentProjectId() === projectId
+  }
+
+  function lifecycleIsCurrent(generation, projectId, expectedTaskId = taskId) {
+    return lifecycleContextIsCurrent(generation, projectId)
+      && taskId === expectedTaskId
+  }
+
+  async function prepareMapNextStep(projectId = taskProjectId || currentProjectId()) {
+    if (progress?.workflowType !== "deep_import" || progress?.phase !== "done" || !projectId) {
+      return null
+    }
+    const generation = lifecycleGeneration
+    const expectedTaskId = taskId
+    const workflowId = progress.workflowId || expectedTaskId || null
+    try {
+      const context = await api.world.getMapQuickCreateContext(projectId, true)
+      if (!lifecycleIsCurrent(generation, projectId, expectedTaskId)) return null
+      const existingMaps = Array.isArray(context?.existing_maps) ? context.existing_maps : []
+      const locations = Array.isArray(context?.locations) ? context.locations : []
+      const candidateLocations = Array.isArray(context?.candidate_locations)
+        ? context.candidate_locations
+        : []
+      let next = null
+      if (existingMaps.length > 0) {
+        let observationCount = 0
+        try {
+          const inbox = await api.world.listProjectMapObservationInbox(projectId, { limit: 1 })
+          if (!lifecycleIsCurrent(generation, projectId, expectedTaskId)) return null
+          observationCount = Number(inbox?.total || 0)
+        } catch {
+          if (!lifecycleIsCurrent(generation, projectId, expectedTaskId)) return null
+          observationCount = 0
+        }
+        next = { action: "inbox", count: observationCount, projectId, workflowId }
+      } else if (locations.length > 0) {
+        next = { action: "quick-create", count: locations.length, projectId, workflowId }
+      } else if (candidateLocations.length > 0) {
+        let candidateCount = candidateLocations.length
+        if (workflowId && typeof api.world.listEntities === "function") {
+          const response = await api.world.listEntities({
+            novel_id: projectId,
+            display_state: "review",
+            entity_type: "location",
+            source: "deep_import",
+            workflow_id: workflowId,
+            skip: 0,
+            limit: 1,
+          })
+          if (!lifecycleIsCurrent(generation, projectId, expectedTaskId)) return null
+          candidateCount = Number(response?.total ?? response?.items?.length ?? 0)
+        }
+        if (candidateCount > 0) {
+          next = {
+            action: "review-locations",
+            count: candidateCount,
+            projectId,
+            workflowId,
+          }
+        }
+      }
+      progress = { ...progress, mapNextStep: next, mapNextStepError: "" }
+      notifyStatus()
+      return next
+    } catch (err) {
+      if (!lifecycleIsCurrent(generation, projectId, expectedTaskId)) return null
+      progress = {
+        ...progress,
+        mapNextStep: null,
+        mapNextStepError: err?.message || "地图下一步加载失败",
+      }
+      notifyStatus()
+      return null
     }
   }
 
@@ -255,6 +343,9 @@ export function createDeepImportRecovery({
   }
 
   async function recover() {
+    disposed = false
+    lifecycleGeneration += 1
+    const recoverGeneration = lifecycleGeneration
     const pid = currentProjectId()
     if (!pid) return
 
@@ -278,6 +369,7 @@ export function createDeepImportRecovery({
       const recoveredProjectId = workflow?.projectId || pid
       taskProjectId = recoveredProjectId
       const task = await api.tasks.get(recoveredTaskId, recoveredProjectId)
+      if (!lifecycleContextIsCurrent(recoverGeneration, recoveredProjectId)) return
       if (!task || task.status === "done" || task.status === "failed" || task.status === "cancelled") {
         if (task) {
           const result = task.result || {}
@@ -291,7 +383,7 @@ export function createDeepImportRecovery({
           recoveryProgress.confirmationId = recoveryProgress.confirmationId
             || workflow?.meta?.confirmationId
             || null
-          if (hasRecoveryPrompt(recoveryProgress)) {
+          if (task.status !== "done" && hasRecoveryPrompt(recoveryProgress)) {
             taskId = recoveredTaskId
             progress = { ...recoveryProgress, workflowType, stage, label }
             notifyPrompt()
@@ -324,7 +416,17 @@ export function createDeepImportRecovery({
           notifyStatus()
           return
         }
-        if (progress?.phase === "done") clearWorkflow(recoveredTaskId)
+        if (progress?.phase === "done") {
+          const nextStep = await prepareMapNextStep(recoveredProjectId)
+          if (!lifecycleIsCurrent(
+            recoverGeneration,
+            recoveredProjectId,
+            recoveredTaskId,
+          )) return
+          if (!nextStep && !progress?.mapNextStepError) {
+            clearWorkflow(recoveredTaskId)
+          }
+        }
         notifyStatus()
         return
       }
@@ -368,6 +470,9 @@ export function createDeepImportRecovery({
       }
       startPolling(workflow?.projectId || pid, false)
     } catch (err) {
+      if (!lifecycleContextIsCurrent(recoverGeneration, workflow?.projectId || pid)) {
+        return
+      }
       if (err?.status === 404) {
         pausePolling()
         clearWorkflow(recoveredTaskId)
@@ -410,7 +515,9 @@ export function createDeepImportRecovery({
     highQuality = false,
     confirmationId = null,
   }) {
+    disposed = false
     if (!newTaskId) return
+    lifecycleGeneration += 1
     clearCompletionTimer()
     const config = stageConfig(stage || "scenes")
     taskId = newTaskId
@@ -458,6 +565,7 @@ export function createDeepImportRecovery({
     pausePolling()
     pollingActive = true
     const generation = pollingGeneration
+    const lifecycle = lifecycleGeneration
     const capturedProjectId = projectId
     const capturedTaskId = taskId
     let inFlight = false
@@ -465,6 +573,8 @@ export function createDeepImportRecovery({
     const scheduleNext = (delayMs) => {
       if (
         generation !== pollingGeneration
+        || lifecycle !== lifecycleGeneration
+        || disposed
         || !taskId
         || taskId !== capturedTaskId
         || currentProjectId() !== capturedProjectId
@@ -487,6 +597,13 @@ export function createDeepImportRecovery({
       let nextDelay = null
       try {
         const task = await api.tasks.get(capturedTaskId, capturedProjectId)
+        if (
+          disposed
+          || lifecycle !== lifecycleGeneration
+          || generation !== pollingGeneration
+          || taskId !== capturedTaskId
+          || currentProjectId() !== capturedProjectId
+        ) return
         const result = task.result || {}
         const currentWorkflowType = result.workflow_type || task.task_type
           || progress?.workflowType || "deep_import"
@@ -523,13 +640,6 @@ export function createDeepImportRecovery({
             || result.audit_summary || result.auditSummary || {},
         }
 
-        if (hasRecoveryPrompt(progress)) {
-          pausePolling()
-          notifyPrompt()
-          notifyStatus()
-          return
-        }
-
         if (task.status === "done" || result.phase === "done") {
           progress.percent = 100
           progress.phase = "done"
@@ -540,20 +650,32 @@ export function createDeepImportRecovery({
             return
           }
           pausePolling()
-          clearWorkflow(capturedTaskId)
-          taskId = null
-          taskProjectId = null
           if (progress.qualityStatus === "partial") {
             toast?.(`${currentLabel}部分完成，请查看降级原因`, "warning")
           } else {
             toast?.(`${currentLabel}完成！`, "success")
           }
           api.clearCache?.()
-          completionTimer = setTimeout(() => {
-            completionTimer = null
-            progress = null
-            onDone?.()
-          }, 1500)
+          const nextStep = await prepareMapNextStep(capturedProjectId)
+          if (!lifecycleIsCurrent(lifecycle, capturedProjectId, capturedTaskId)) return
+          if (nextStep || progress?.mapNextStepError) {
+            await onDone?.()
+          } else {
+            clearWorkflow(capturedTaskId)
+            taskId = null
+            taskProjectId = null
+            completionTimer = setTimeout(() => {
+              completionTimer = null
+              progress = null
+              onDone?.()
+            }, 1500)
+          }
+          return
+        }
+        if (hasRecoveryPrompt(progress)) {
+          pausePolling()
+          notifyPrompt()
+          notifyStatus()
           return
         }
         if (task.status === "failed") {
@@ -577,6 +699,12 @@ export function createDeepImportRecovery({
         pollFailures = 0
         nextDelay = 3000
       } catch (err) {
+        if (
+          disposed
+          || lifecycle !== lifecycleGeneration
+          || taskId !== capturedTaskId
+          || currentProjectId() !== capturedProjectId
+        ) return
         if (err?.status === 404) {
           pausePolling()
           clearWorkflow(capturedTaskId)
@@ -944,7 +1072,7 @@ export function createDeepImportRecovery({
   function renderBar() {
     if (!progress) return ""
     const normalized = normalizeProgress()
-    const actionsHtml = normalized.failed || normalized.cancelled
+    const actionsHtml = normalized.failed || normalized.cancelled || progress?.phase === "done"
       ? `<button class="btn btn-sm writing-deep-import-btn" data-action="dismiss-deep-import">关闭</button>`
       : `<button class="btn btn-sm writing-deep-import-btn" data-action="cancel-deep-import" ${cancelPending ? "disabled" : ""}>${cancelPending ? "取消中..." : "取消任务"}</button>`
     const recoveryHtml = renderRecoveryPrompt()
@@ -957,16 +1085,103 @@ export function createDeepImportRecovery({
       message: normalized.message,
       showTaskId: false,
       className: aliveClass,
-      attentionRequired: Boolean(normalized.failed || progress?.recoveryRequired || hasPendingScenePreview()),
+      attentionRequired: Boolean(
+        normalized.failed
+        || progress?.recoveryRequired
+        || hasPendingScenePreview()
+        || progress?.mapNextStep,
+      ),
       actionsHtml: [
         currentPositionHtml,
         qualityStatsHtml,
         recoveryHtml,
         renderScenePreviewActions(),
+        renderMapNextStep(),
         renderAuditSummary(),
         actionsHtml,
       ].filter(Boolean).join(""),
     })
+  }
+
+  function renderMapNextStep() {
+    const next = progress?.mapNextStep
+    if (!next && progress?.mapNextStepError) {
+      return `
+        <div class="deep-import-recovery__actions" aria-label="地图下一步加载失败">
+          <span class="writing-empty-hint">地图下一步暂时无法加载：${escapeHtml(progress.mapNextStepError)}</span>
+          <button class="btn btn-sm btn-primary writing-deep-import-btn" data-action="retry-deep-import-map-next">
+            重试
+          </button>
+        </div>
+      `
+    }
+    if (!next) return ""
+    const labels = {
+      "quick-create": `一键创建地图（${next.count} 个地点）`,
+      "review-locations": `先审核 ${next.count} 个地点`,
+      inbox: next.count > 0 ? `查看地图收件箱（${next.count}）` : "查看地图收件箱",
+    }
+    return `
+      <div class="deep-import-recovery__actions" aria-label="深度导入地图下一步">
+        <span class="writing-empty-hint">地图资料已就绪，建议下一步：</span>
+        <button class="btn btn-sm btn-primary writing-deep-import-btn" data-action="deep-import-map-next">
+          ${escapeHtml(labels[next.action] || "查看地图")}
+        </button>
+      </div>
+    `
+  }
+
+  async function runMapNextStep() {
+    const next = progress?.mapNextStep
+    if (!next) return false
+    const generation = lifecycleGeneration
+    const expectedTaskId = taskId
+    const projectId = next.projectId || taskProjectId || currentProjectId()
+    if (projectId && currentProjectId() !== projectId) {
+      toast?.("当前项目已切换，请返回原项目继续", "warning")
+      return false
+    }
+    try {
+      if (next.action === "quick-create") {
+        const opened = await mapNextStep.openQuickCreate?.(next)
+        if (!lifecycleIsCurrent(generation, projectId, expectedTaskId)) return false
+        return opened !== false
+      }
+      if (next.action === "review-locations") {
+        const opened = await mapNextStep.openReviewLocations?.({
+          ...next,
+          workflowId: next.workflowId || progress.workflowId,
+        })
+        if (!lifecycleIsCurrent(generation, projectId, expectedTaskId)) return false
+        if (opened === false) return false
+        dismiss()
+        return true
+      }
+      const opened = await mapNextStep.openInbox?.(next)
+      if (!lifecycleIsCurrent(generation, projectId, expectedTaskId)) return false
+      if (opened === false) return false
+      dismiss()
+      return true
+    } catch (err) {
+      toast?.(err?.message || "地图下一步打开失败，可重试", "error")
+      return false
+    }
+  }
+
+  function completeMapNextStep(expectedNext) {
+    if (
+      !expectedNext
+      || progress?.mapNextStep !== expectedNext
+      || (expectedNext.projectId && currentProjectId() !== expectedNext.projectId)
+    ) {
+      return false
+    }
+    dismiss()
+    return true
+  }
+
+  async function retryMapNextStep() {
+    return prepareMapNextStep(taskProjectId || currentProjectId())
   }
 
   function updateBar(container) {
@@ -977,8 +1192,13 @@ export function createDeepImportRecovery({
   async function resume() {
     const currentTaskId = taskId
     if (!currentTaskId) return
+    disposed = false
+    lifecycleGeneration += 1
+    const generation = lifecycleGeneration
+    const projectId = taskProjectId || currentProjectId()
     try {
       const response = await api.imports.resumeDeepImport(currentTaskId)
+      if (!lifecycleIsCurrent(generation, projectId, currentTaskId)) return
       const result = response?.result || {}
       taskId = response?.task_id || currentTaskId
       progress = {
@@ -996,6 +1216,7 @@ export function createDeepImportRecovery({
       notifyStatus()
       toast?.("已继续深度导入恢复", "success")
     } catch (err) {
+      if (!lifecycleIsCurrent(generation, projectId, currentTaskId)) return
       toast?.(err.message || "继续恢复失败", "error")
     }
   }
@@ -1064,6 +1285,7 @@ export function createDeepImportRecovery({
   }
 
   function dismiss() {
+    lifecycleGeneration += 1
     pausePolling()
     clearCompletionTimer()
     const capturedTaskId = taskId
@@ -1134,6 +1356,8 @@ export function createDeepImportRecovery({
   }
 
   function dispose() {
+    disposed = true
+    lifecycleGeneration += 1
     pausePolling()
     clearCompletionTimer()
   }
@@ -1150,6 +1374,9 @@ export function createDeepImportRecovery({
     showScenePreview,
     applyScenePreview,
     discardScenePreview,
+    runMapNextStep,
+    completeMapNextStep,
+    retryMapNextStep,
     dismiss,
     dispose,
     getState,

@@ -327,7 +327,7 @@ async def test_create_alias_adds_to_content_json(
     alias_service: EntityAliasService,
 ) -> None:
     entity = _make_entity(novel_id=novel_id)
-    alias_service.repo.get = AsyncMock(return_value=entity)
+    alias_service.repo.get_for_update = AsyncMock(return_value=entity)
     db = AsyncMock()
 
     result = await alias_service.create_alias(
@@ -356,7 +356,7 @@ async def test_create_alias_appends_to_existing_content_json(
         novel_id=novel_id,
         content_json={"aliases": [{"alias": "Art", "type": "nickname"}]},
     )
-    alias_service.repo.get = AsyncMock(return_value=entity)
+    alias_service.repo.get_for_update = AsyncMock(return_value=entity)
     db = AsyncMock()
 
     result = await alias_service.create_alias(
@@ -384,7 +384,7 @@ async def test_delete_alias_removes_from_content_json(
         novel_id=novel_id,
         content_json={"aliases": [{"alias": "Art", "type": "nickname"}]},
     )
-    alias_service.repo.get = AsyncMock(return_value=entity)
+    alias_service.repo.get_for_update = AsyncMock(return_value=entity)
     db = AsyncMock()
 
     result = await alias_service.delete_alias(db, novel_id, str(entity.id), "Art")
@@ -405,9 +405,9 @@ async def test_create_alias_not_found_variants(
 ) -> None:
     if scenario == "cross_novel":
         entity = _make_entity(novel_id=str(uuid.uuid4()))
-        alias_service.repo.get = AsyncMock(return_value=entity)
+        alias_service.repo.get_for_update = AsyncMock(return_value=entity)
     else:
-        alias_service.repo.get = AsyncMock(return_value=None)
+        alias_service.repo.get_for_update = AsyncMock(return_value=None)
 
     db = MagicMock()
     with pytest.raises(NotFoundError) as exc_info:
@@ -425,7 +425,7 @@ async def test_create_alias_duplicate_returns_409(
         novel_id=novel_id,
         content_json={"aliases": [{"alias": "Art", "type": "nickname"}]},
     )
-    alias_service.repo.get = AsyncMock(return_value=entity)
+    alias_service.repo.get_for_update = AsyncMock(return_value=entity)
     db = MagicMock()
 
     with pytest.raises(ConflictError) as exc_info:
@@ -453,7 +453,7 @@ async def test_update_alias_updates_metadata_and_removes_none_fields(
             ]
         },
     )
-    alias_service.repo.get = AsyncMock(return_value=entity)
+    alias_service.repo.get_for_update = AsyncMock(return_value=entity)
     db = AsyncMock()
 
     result = await alias_service.update_alias(
@@ -508,7 +508,7 @@ async def test_edit_alias_renames_type_and_confirms_review_preserving_provenance
             ]
         },
     )
-    alias_service.repo.get = AsyncMock(return_value=entity)
+    alias_service.repo.get_many_for_update = AsyncMock(return_value=[entity])
     db = AsyncMock()
 
     result = await alias_service.edit_alias(
@@ -553,7 +553,7 @@ async def test_edit_alias_moves_to_target_entity(
         name="Nighthawks",
         content_json={"aliases": []},
     )
-    alias_service.repo.get = AsyncMock(side_effect=[source, target])
+    alias_service.repo.get_many_for_update = AsyncMock(return_value=[source, target])
     db = AsyncMock()
 
     result = await alias_service.edit_alias(
@@ -585,7 +585,7 @@ async def test_edit_alias_rejects_duplicate_on_target(
         novel_id=novel_id,
         content_json={"aliases": [{"alias": "Blackthorn", "type": "name"}]},
     )
-    alias_service.repo.get = AsyncMock(side_effect=[source, target])
+    alias_service.repo.get_many_for_update = AsyncMock(return_value=[source, target])
     db = AsyncMock()
 
     with pytest.raises(ConflictError):
@@ -609,7 +609,7 @@ async def test_edit_alias_rejects_cross_novel_target(
         content_json={"aliases": [{"alias": "Blackthorn"}]},
     )
     target = _make_entity(novel_id=str(uuid.uuid4()))
-    alias_service.repo.get = AsyncMock(side_effect=[source, target])
+    alias_service.repo.get_many_for_update = AsyncMock(return_value=[source])
     db = AsyncMock()
 
     with pytest.raises(NotFoundError) as exc_info:
@@ -634,7 +634,7 @@ async def test_edit_alias_rejects_invalid_target_status(
         status="merged",
         content_json={"aliases": [{"alias": "Blackthorn"}]},
     )
-    alias_service.repo.get = AsyncMock(return_value=entity)
+    alias_service.repo.get_many_for_update = AsyncMock(return_value=[entity])
     db = AsyncMock()
 
     with pytest.raises(DomainValidationError):
@@ -663,7 +663,7 @@ async def test_delete_alias_not_found_variants(
         )
     else:
         entity = _make_entity(novel_id=novel_id, content_json={})
-    alias_service.repo.get = AsyncMock(return_value=entity)
+    alias_service.repo.get_for_update = AsyncMock(return_value=entity)
     db = MagicMock()
 
     with pytest.raises(NotFoundError) as exc_info:
@@ -701,7 +701,7 @@ async def test_append_candidate_alias_does_not_demote_existing_active_alias(
         novel_id=novel_id,
         content_json={"aliases": [{"alias": "Art", "type": "nickname"}]},
     )
-    alias_service.repo.get = AsyncMock(return_value=entity)
+    alias_service.repo.get_for_update = AsyncMock(return_value=entity)
     db = AsyncMock()
 
     appended = await alias_service.append_candidate_alias(
@@ -737,7 +737,7 @@ async def test_append_candidate_alias_rejects_pending_suggestion_shadow(
             }
         },
     )
-    alias_service.repo.get = AsyncMock(return_value=entity)
+    alias_service.repo.get_for_update = AsyncMock(return_value=entity)
 
     with pytest.raises(DomainValidationError, match="authoritative suggestion queue"):
         await alias_service.append_candidate_alias(
@@ -785,6 +785,7 @@ async def test_rollback_deep_import_candidate_aliases_is_scoped_and_preserves_ac
         },
     )
     alias_service.repo.list_by_novel = AsyncMock(return_value=[entity])
+    alias_service.repo.get_many_for_update = AsyncMock(return_value=[entity])
 
     db = MagicMock()
     db.flush = AsyncMock()
@@ -823,7 +824,7 @@ async def test_rollback_preserves_manually_edited_unconfirmed_candidate_alias(
             ]
         },
     )
-    alias_service.repo.get = AsyncMock(return_value=entity)
+    alias_service.repo.get_many_for_update = AsyncMock(return_value=[entity])
     alias_service.repo.list_by_novel = AsyncMock(return_value=[entity])
     db = MagicMock()
     db.flush = AsyncMock()
@@ -855,7 +856,7 @@ async def test_append_candidate_alias_missing_entity_raises_domain_not_found(
     novel_id: str,
     alias_service: EntityAliasService,
 ) -> None:
-    alias_service.repo.get = AsyncMock(return_value=None)
+    alias_service.repo.get_for_update = AsyncMock(return_value=None)
     db = MagicMock()
 
     with pytest.raises(NotFoundError) as exc_info:
@@ -884,7 +885,7 @@ async def test_append_candidate_alias_keeps_enriched_duplicate_unchanged(
         "needs_review": True,
     }
     entity = _make_entity(novel_id=novel_id, content_json={"aliases": [existing]})
-    alias_service.repo.get = AsyncMock(return_value=entity)
+    alias_service.repo.get_for_update = AsyncMock(return_value=entity)
     db = AsyncMock()
 
     appended = await alias_service.append_candidate_alias(

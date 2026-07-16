@@ -290,6 +290,10 @@ const writingView = {
       "resume-deep-import": () => this._deepImportRecovery?.resume?.(),
       "abandon-deep-import": () => this._deepImportRecovery?.abandon?.(),
       "view-deep-import-audit": () => this._deepImportRecovery?.showAuditDetails?.(),
+      "deep-import-map-next": () => this._deepImportRecovery?.runMapNextStep?.(),
+      "retry-deep-import-map-next": () => (
+        this._deepImportRecovery?.retryMapNextStep?.()
+      ),
       "view-scene-preview": () => this._deepImportRecovery?.showScenePreview?.(),
       "discard-scene-preview": () => this._deepImportRecovery?.discardScenePreview?.(),
       "open-outline": () => router.navigate("outline", null),
@@ -764,6 +768,7 @@ const writingView = {
     const treeScrollTop = treeEl?.scrollTop || 0
     const pageScroller = document.scrollingElement || document.documentElement
     const pageScrollTop = pageScroller?.scrollTop || 0
+    const toolsMenuOpen = Boolean(document.querySelector(".writing-tools-menu")?.open)
     const editorEl = document.getElementById("writing-editor")
     const hasSelection = this._currentChapter !== null
     const needsFullRender = !treeEl || (hasSelection && !editorEl) || (!hasSelection && editorEl)
@@ -771,6 +776,8 @@ const writingView = {
       container.innerHTML = await this.render()
       const nextTreeEl = document.getElementById("writing-tree-container")
       if (nextTreeEl) nextTreeEl.scrollTop = treeScrollTop
+      const nextToolsMenu = document.querySelector(".writing-tools-menu")
+      if (toolsMenuOpen && nextToolsMenu) nextToolsMenu.open = true
       if (pageScroller) pageScroller.scrollTop = pageScrollTop
       this._bindEvents()
       return

@@ -1,5 +1,5 @@
 {
-  "id": "generation_center_world_object_draft",
+  "id": "world_generation_core_entity",
   "version": 1,
   "owner": "world",
   "schema_model": "modules.world.llm_schemas.GeneratedObjectDraftOutput",
@@ -11,11 +11,12 @@
     "importance_level",
     "reveal_level",
     "details",
-    "character_card"
+    "character_card",
+    "review_notes"
   ],
   "forbidden_fields": ["status", "approved_by", "novel_id", "id"],
   "required_evidence_field": null,
-  "strict_schema_coverage": false,
+  "strict_schema_coverage": true,
   "required_mappings": [
     {"source": "name", "target": "core_entities.name"},
     {"source": "summary", "target": "core_entities.summary"},
@@ -24,7 +25,7 @@
     {"source": "details", "target": "core_entities.content_json.details"},
     {"source": "character_card", "target": "core_entities.content_json.character_card"}
   ],
-  "observed_fields": ["importance_level", "reveal_level"],
+  "observed_fields": ["importance_level", "reveal_level", "review_notes"],
   "ignored_fields": [],
   "probes": [
     "generation_center_builtin_templates_validate",

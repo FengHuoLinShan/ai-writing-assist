@@ -114,6 +114,37 @@ describe("createChapterTree", () => {
     expect(html).toContain("Scene 1")
   })
 
+  it("同章多 Scene 保留各自入口并显示精确字符范围", async () => {
+    state.currentProjectId = "p1"
+    api.writing.listChapters.mockResolvedValue({
+      chapters: [
+        { chapter_index: 1, title: "开篇", word_count: 200, version_number: 1 },
+      ],
+    })
+    api.outline.listScenesOrdered.mockResolvedValue([
+      {
+        id: "s1",
+        title: "前半段",
+        chapter_ids: ["1"],
+        scene_chunks: [{ chapter_index: 1, start_pos: 0, end_pos: 100 }],
+      },
+      {
+        id: "s2",
+        title: "后半段",
+        chapter_ids: ["1"],
+        scene_chunks: [{ chapter_index: 1, start_offset: 100, end_offset: 200 }],
+      },
+    ])
+
+    const tree = createTestTree()
+    await tree.load()
+    document.body.innerHTML = tree.render()
+
+    expect(document.querySelectorAll('[data-action="select-chapter"][data-chapter="1"]')).toHaveLength(2)
+    expect(document.body.textContent).toContain("第 1 章字符 1–100")
+    expect(document.body.textContent).toContain("第 1 章字符 101–200")
+  })
+
   it("HTML 转义动态内容防止 XSS", async () => {
     state.currentProjectId = "p1"
     api.writing.listChapters.mockResolvedValue({
@@ -176,6 +207,39 @@ describe("createChapterTree", () => {
 
     expect(onSelect).toHaveBeenCalledWith(1)
     expect(onSceneSelect).toHaveBeenCalledWith("s1")
+  })
+
+  it("Scene 分组按最早章节和片段起点展示，不受导入顺序影响", async () => {
+    state.currentProjectId = "p1"
+    api.writing.listChapters.mockResolvedValue({
+      chapters: [4, 14, 53, 60].map((chapter_index) => ({
+        chapter_index,
+        title: `第 ${chapter_index} 章`,
+        word_count: 100,
+        version_number: 1,
+      })),
+    })
+    api.outline.listScenesOrdered.mockResolvedValue([
+      { id: "s60", title: "第六十章 Scene", scene_index: 2, chapter_ids: ["60"], scene_chunks: [{ chapter_index: 60, start_offset: 0, end_offset: 80 }] },
+      { id: "s53-late", title: "第五十三章后段", scene_index: 4, chapter_ids: ["53"], scene_chunks: [{ chapter_index: 53, start_offset: 1200, end_offset: 1800 }] },
+      { id: "s14", title: "第十四章 Scene", scene_index: 1, chapter_ids: ["14"], scene_chunks: [{ chapter_index: 14, start_offset: 300, end_offset: 900 }] },
+      { id: "s4", title: "第四章 Scene", scene_index: 0, chapter_ids: ["4"], scene_chunks: [{ chapter_index: 4, start_offset: 0, end_offset: 500 }] },
+      { id: "s53-early", title: "第五十三章前段", scene_index: 3, chapter_ids: ["53"], scene_chunks: [{ chapter_index: 53, start_offset: 20, end_offset: 800 }] },
+    ])
+
+    const tree = createTestTree()
+    await tree.load()
+    document.body.innerHTML = tree.render()
+
+    const labels = [...document.querySelectorAll('[data-action="select-scene"]')]
+      .map((node) => node.textContent.trim())
+    expect(labels.map((label) => label.split(" · ")[0])).toEqual([
+      "第四章 Scene",
+      "第十四章 Scene",
+      "第五十三章前段",
+      "第五十三章后段",
+      "第六十章 Scene",
+    ])
   })
 
   it("Scene 分组三角按钮与标题均可折叠/展开", async () => {

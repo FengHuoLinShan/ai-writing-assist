@@ -41,12 +41,14 @@ from modules.world.map_schemas import (
     MapMarkerCreate,
     MapMarkerResponse,
     MapMarkerUpdate,
+    MapObservationAssignmentRequest,
+    MapObservationAuthorUpdate,
     MapObservationBatchReviewRequest,
     MapObservationBatchReviewResponse,
     MapObservationCreate,
     MapObservationListResponse,
     MapObservationResponse,
-    MapObservationReviewUpdate,
+    MapObservationRevisionRequest,
     MapOpenTarget,
     MapPathArchiveImpactResponse,
     MapPathResponse,
@@ -865,6 +867,92 @@ async def get_focus_mode(
 # ============================================================
 
 
+@router.get(
+    "/project-observations/inbox",
+    response_model=MapObservationListResponse,
+)
+async def list_project_map_observation_inbox(
+    db: DbSession,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    dynamic_type: str | None = Query(None),
+    scene_id: str | None = Query(None),
+    source: str | None = Query(None, max_length=64),
+    confidence: Literal["low", "high"] | None = Query(None),
+    eligibility: Literal["ready", "missing"] | None = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+) -> MapObservationListResponse:
+    return await _dynamic_fact_service.list_project_observation_inbox(
+        db,
+        novel_id,
+        dynamic_type=dynamic_type,
+        scene_id=scene_id,
+        source=source,
+        confidence=confidence,
+        eligibility=eligibility,
+        skip=skip,
+        limit=limit,
+    )
+
+
+@router.patch(
+    "/project-observations/{observation_id}",
+    response_model=MapObservationResponse,
+)
+async def update_project_map_observation(
+    db: DbSession,
+    observation_id: str,
+    data: MapObservationAuthorUpdate,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> MapObservationResponse:
+    return await _dynamic_fact_service.update_project_observation(
+        db,
+        novel_id,
+        observation_id=observation_id,
+        data=data,
+    )
+
+
+@router.post(
+    "/project-observations/{observation_id}/assign",
+    response_model=MapObservationResponse,
+)
+async def assign_project_map_observation(
+    db: DbSession,
+    observation_id: str,
+    data: MapObservationAssignmentRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> MapObservationResponse:
+    return await _dynamic_fact_service.assign_project_observation(
+        db,
+        novel_id,
+        observation_id=observation_id,
+        data=data,
+    )
+
+
+@router.post(
+    "/project-observations/{observation_id}/ignore",
+    response_model=MapObservationResponse,
+)
+async def ignore_project_map_observation(
+    db: DbSession,
+    observation_id: str,
+    data: MapObservationRevisionRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> MapObservationResponse:
+    return await _dynamic_fact_service.ignore_project_observation(
+        db,
+        novel_id,
+        observation_id=observation_id,
+        data=data,
+    )
+
+
 @router.get("/{map_id}/observations", response_model=MapObservationListResponse)
 async def list_map_observations(
     db: DbSession,
@@ -909,7 +997,7 @@ async def update_map_observation_review(
     db: DbSession,
     map_id: str,
     observation_id: str,
-    data: MapObservationReviewUpdate,
+    data: MapObservationAuthorUpdate,
     *,
     novel_id: ActiveNovelIdQuery,
 ) -> MapObservationResponse:
@@ -949,6 +1037,7 @@ async def confirm_map_observation(
     db: DbSession,
     map_id: str,
     observation_id: str,
+    data: MapObservationRevisionRequest,
     *,
     novel_id: ActiveNovelIdQuery,
 ) -> MapFactResponse:
@@ -957,6 +1046,7 @@ async def confirm_map_observation(
         novel_id,
         map_id=map_id,
         observation_id=observation_id,
+        data=data,
     )
 
 
@@ -968,6 +1058,7 @@ async def ignore_map_observation(
     db: DbSession,
     map_id: str,
     observation_id: str,
+    data: MapObservationRevisionRequest,
     *,
     novel_id: ActiveNovelIdQuery,
 ) -> MapObservationResponse:
@@ -976,6 +1067,7 @@ async def ignore_map_observation(
         novel_id,
         map_id=map_id,
         observation_id=observation_id,
+        data=data,
     )
 
 

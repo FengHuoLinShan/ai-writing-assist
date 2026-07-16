@@ -62,6 +62,7 @@ from modules.world.event_facade import (  # noqa: F401
 )
 from modules.world.map_facade import (  # noqa: F401
     count_deep_import_map_observations_by_workflow,
+    create_map_observation_candidates,
     create_map_observation_from_delta_event,
     rollback_deep_import_map_observations_by_workflow,
 )
@@ -88,6 +89,7 @@ __all__ = [
     "create_character",
     "create_entity",
     "create_event",
+    "create_map_observation_candidates",
     "create_map_observation_from_delta_event",
     "create_or_merge_relation",
     "create_relation",

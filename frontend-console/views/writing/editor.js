@@ -607,8 +607,8 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
             ${editor._draftStatus === "draft" && editor._currentVersionNumber > 1 ? '<button class="btn btn-ghost" data-action="discard-writing-changes">放弃未发布更改</button>' : ""}
             <button class="btn btn-primary" data-action="publish" id="btn-publish" ${hasSelection && !editor._isReadonly ? "" : "disabled"} title="${hasSelection && !editor._isReadonly ? "发布当前章节版本" : esc(disabledReason)}">发布</button>
             <button class="btn btn-primary" data-action="run-conflict-check" id="btn-conflict-check" ${hasSelection && !editor._isReadonly ? "" : "disabled"}>剧情设定冲突检查</button>
-            <button class="btn btn-sm btn-ghost" data-action="ai-continue" title="AI 续写：基于当前上下文生成后续内容">AI 续写</button>
-            <button class="btn btn-sm btn-ghost" data-action="export-chapter" title="导出当前章节为 .txt">导出</button>
+            <button class="btn btn-sm btn-ghost" data-action="ai-continue" ${hasSelection ? "" : "disabled"} title="${hasSelection ? "AI 续写：基于当前上下文生成后续内容" : "请先选择章节"}">AI 续写</button>
+            <button class="btn btn-sm btn-ghost" data-action="export-chapter" ${hasSelection ? "" : "disabled"} title="${hasSelection ? "导出当前章节为 .txt" : "请先选择章节"}">导出</button>
             <button class="btn btn-sm btn-ghost" data-action="toggle-outline-float" ${hasSelection ? "" : "disabled"} title="大纲浮窗 (Ctrl+Shift+O)">大纲</button>
             ${toolbarActionsHtml}
             <button class="btn btn-sm" data-action="toggle-focus-mode" ${hasSelection ? "" : "disabled"} title="专注模式（隐藏两侧面板）">${focusMode ? "退出专注" : "专注模式"}</button>
@@ -987,7 +987,10 @@ export function createEditor({ state, api, toast, onWordcountUpdate, onSaveStatu
   // ============================================================
 
   function _paragraphCount(text) {
-    return (text || "").split(/\n{2,}/).filter((part) => part.trim()).length
+    return String(text || "")
+      .replace(/\r\n?/g, "\n")
+      .split(/\n+/)
+      .filter((part) => part.trim()).length
   }
 
   function _readTimeMinutes(chars) {

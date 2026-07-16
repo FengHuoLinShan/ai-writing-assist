@@ -352,9 +352,17 @@ async def test_path_anchor_fact_snapshot_presence_and_archive_lifecycle(
         f"/api/world/maps/{map_data['id']}/observations",
         params={"novel_id": novel_id},
         json={
-            "dynamic_type": "movement",
+            "dynamic_type": "route_state",
             "target_name": "北上行程",
+            "time_anchor": {"kind": "initial_state"},
             "spatial_anchor": {"path_id": path_id},
+            "value_json": {
+                "schema_version": 1,
+                "type": "route_state",
+                "path_id": path_id,
+                "state": "open",
+            },
+            "source_ref": {"source": "manual_test"},
         },
     )
     assert observation.status_code == 201, observation.text
@@ -364,6 +372,7 @@ async def test_path_anchor_fact_snapshot_presence_and_archive_lifecycle(
         f"/api/world/maps/{map_data['id']}/observations/"
         f"{observation.json()['id']}/confirm",
         params={"novel_id": novel_id},
+        json={"expected_updated_at": observation.json()["updated_at"]},
     )
     assert confirmed.status_code == 200, confirmed.text
     anchor = confirmed.json()["spatial_anchor"]
@@ -387,9 +396,17 @@ async def test_path_anchor_fact_snapshot_presence_and_archive_lifecycle(
         f"/api/world/maps/{map_data['id']}/observations",
         params={"novel_id": novel_id},
         json={
-            "dynamic_type": "movement",
+            "dynamic_type": "route_state",
             "target_name": "待确认行程",
+            "time_anchor": {"kind": "initial_state"},
             "spatial_anchor": {"path_id": path_id},
+            "value_json": {
+                "schema_version": 1,
+                "type": "route_state",
+                "path_id": path_id,
+                "state": "open",
+            },
+            "source_ref": {"source": "manual_test"},
         },
     )
     assert pending.status_code == 201, pending.text
@@ -415,9 +432,14 @@ async def test_path_anchor_fact_snapshot_presence_and_archive_lifecycle(
         f"/api/world/maps/{map_data['id']}/observations/"
         f"{pending.json()['id']}/confirm",
         params={"novel_id": novel_id},
+        json={"expected_updated_at": pending.json()["updated_at"]},
     )
-    assert blocked.status_code == 409
-    assert blocked.json()["error"] == "map_path_archived"
+    assert blocked.status_code == 422
+    assert blocked.json()["error"] == "map_observation_not_eligible"
+    assert (
+        blocked.json()["context"]["eligibility"]["conflict_reason"]
+        == "map_path_archived"
+    )
 
     layer_id = applied["client_id_map"]["transport-layer"]
     non_empty = await async_client.post(

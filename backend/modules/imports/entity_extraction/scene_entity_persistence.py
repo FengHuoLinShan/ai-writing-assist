@@ -16,10 +16,13 @@ from modules.imports.llm_schemas import (
     AliasRelationExtractionOutput,
     DeltaEvent,
     ExtractedEntity,
+    ExtractedMapObservationProposal,
     ExtractedRelation,
 )
 
 logger = logging.getLogger(__name__)
+
+_EXTRACTION_ALIAS_PLACEHOLDERS = frozenset({"变量", "variable", "placeholder"})
 
 
 def entity_key(entity_type: str, name: str) -> tuple[str, str]:
@@ -56,6 +59,11 @@ def _high_confidence_duplicate_id(similar_items: list[Any]) -> str | None:
     return best_id
 
 
+def _is_extraction_alias_placeholder(alias: object) -> bool:
+    normalized = " ".join(str(alias or "").strip().split()).casefold()
+    return normalized in _EXTRACTION_ALIAS_PLACEHOLDERS
+
+
 def normalize_candidate_alias_item(
     alias_item: Any,
     *,
@@ -71,7 +79,7 @@ def normalize_candidate_alias_item(
         raw_alias = alias_item
         alias_type = "alias"
     alias_text = " ".join(str(raw_alias).strip().split())
-    if not alias_text:
+    if not alias_text or _is_extraction_alias_placeholder(alias_text):
         return None
     return {
         "alias": alias_text,
@@ -215,6 +223,8 @@ class SceneEntityPersistenceGateway:
         aliases_created = 0
         relations_created = 0
         for alias in output.aliases:
+            if _is_extraction_alias_placeholder(alias.alias):
+                continue
             entity_id = entity_ids.get(alias.entity_name)
             if not entity_id:
                 continue
@@ -392,6 +402,9 @@ class SceneEntityPersistenceGateway:
                             alias.get("alias", "")
                             for alias in (ent.aliases or [])
                             if isinstance(alias, dict)
+                            and not _is_extraction_alias_placeholder(
+                                alias.get("alias", "")
+                            )
                         ],
                         entity_type=ent.entity_type,
                     )
@@ -689,3 +702,60 @@ class SceneEntityPersistenceGateway:
                     exc,
                 )
         return result.count
+
+    async def record_map_observation_proposals(
+        self,
+        db: AsyncSession,
+        nid,
+        proposals: list[ExtractedMapObservationProposal],
+        *,
+        scene_index: int,
+        source_chapter_index: int | None,
+        workflow_id: str | None,
+        scene_id: str | None,
+        scene_source_fingerprint: str | None,
+        authorization_snapshot: dict[str, Any] | None,
+        context_snapshot_id: str | None = None,
+        result_refs: list[dict[str, str]] | None = None,
+    ) -> dict[str, int]:
+        if not isinstance(proposals, list) or not proposals:
+            return {"created": 0, "reused": 0}
+        if not workflow_id or not scene_id or source_chapter_index is None:
+            raise ValueError(
+                "typed map proposals require workflow_id, scene_id, and source chapter"
+            )
+        if not scene_source_fingerprint:
+            raise ValueError(
+                "typed map proposals require a frozen Scene source fingerprint"
+            )
+        if not isinstance(authorization_snapshot, dict) or not authorization_snapshot:
+            raise ValueError("typed map proposals require an authorization snapshot")
+
+        from modules.imports.map_observation_candidates import (
+            build_map_observation_candidates,
+        )
+        from modules.world.facade import create_map_observation_candidates
+
+        candidates = build_map_observation_candidates(
+            proposals,
+            novel_id=str(nid),
+            workflow_id=workflow_id,
+            scene_id=scene_id,
+            scene_index=scene_index,
+            source_chapter_index=source_chapter_index,
+            scene_source_fingerprint=scene_source_fingerprint,
+            context_snapshot_id=context_snapshot_id,
+            task_id=workflow_id,
+            authorization_snapshot=authorization_snapshot,
+        )
+        result = await create_map_observation_candidates(
+            db,
+            str(nid),
+            candidates=candidates,
+        )
+        if result_refs is not None:
+            result_refs.extend(
+                build_result_ref("map_observation", item.observation_id)
+                for item in result.items
+            )
+        return {"created": result.created_count, "reused": result.reused_count}

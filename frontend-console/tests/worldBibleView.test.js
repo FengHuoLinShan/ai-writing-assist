@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import worldBibleView from "../views/worldBibleView.js"
-import { clearDocument, resetState } from "./helpers.js"
+import { clickModalButtonByText, clearDocument, resetState } from "./helpers.js"
 
 const page = {
   id: "page-1",
@@ -37,20 +37,15 @@ beforeEach(() => {
   worldBibleView._synopsisTask = null
   if (worldBibleView._synopsisPoller?.stop) worldBibleView._synopsisPoller.stop()
   worldBibleView._synopsisPoller = null
+  worldBibleView._synopsisTerminalTaskId = null
   worldBibleView._suggestions = []
   worldBibleView._suggestionBatchKey = null
   worldBibleView._conflicts = []
   worldBibleView._task = null
   worldBibleView._projectionConflictHint = null
   worldBibleView._projectionRetryPending = false
-  worldBibleView._aiOpen = false
-  worldBibleView._aiMessages = []
-  worldBibleView._aiOutputTarget = "chat"
-  worldBibleView._aiTemplateId = "builtin:none"
-  worldBibleView._aiQualityMode = "fast"
-  worldBibleView._aiSelectedChapters = ""
-  worldBibleView._aiIncludeSynopsis = true
-  worldBibleView._aiResult = null
+  worldBibleView._editorBaseline = null
+  worldBibleView._editorBaselineKey = null
   worldBibleView._displayMode = "editor"
   worldBibleView._activeCategory = "all"
   worldBibleView._galleryCategory = null
@@ -75,6 +70,28 @@ beforeEach(() => {
 })
 
 describe("worldBibleView", () => {
+  it("为页面概览和分区正文提供程序化标签，并把 AI 入口交给生成中心", () => {
+    worldBibleView._activePage = page
+    worldBibleView._activeDraft = {
+      ...page,
+      sections_json: [{
+        section_id: "overview",
+        title: "概述",
+        section_type: "markdown",
+        sensitivity_hint: "author_safe",
+        projection_policy: "eligible",
+        body_markdown: "分区内容",
+        linked_asset_ref_hashes: [],
+      }],
+    }
+    document.body.innerHTML = worldBibleView._renderActivePage()
+
+    expect(document.getElementById("bible-free-text").labels[0].textContent).toContain("页面概览")
+    expect(document.querySelector('[data-section-field="body_markdown"]').labels[0].textContent).toContain("分区正文")
+    expect(document.querySelector('[data-action="bible-improve-with-ai"]')).not.toBeNull()
+    expect(document.querySelector(".bible-ai-sidebar")).toBeNull()
+  })
+
   it("结构化分区可编辑并随工作稿保存", async () => {
     api.world.listBiblePages.mockResolvedValue({
       items: [{
@@ -152,6 +169,71 @@ describe("worldBibleView", () => {
 
     expect(worldBibleView._activeDraft.free_text).toBe("尚未保存的新概览")
     expect(worldBibleView._activeDraft.sections_json).toHaveLength(1)
+    expect(document.getElementById("bible-free-text").value).toBe("尚未保存的新概览")
+    expect(document.querySelectorAll(".world-bible-section-editor")).toHaveLength(1)
+    expect(router.renderCurrentView).not.toHaveBeenCalled()
+    expect(router.refresh).not.toHaveBeenCalled()
+    expect(worldBibleView._editorHasUnsavedChanges()).toBe(true)
+  })
+
+  it("AI 提案的 0/1 分区排序不会被误判为未保存修改", () => {
+    worldBibleView._activeDraft = {
+      id: "draft-ai",
+      page_id: "page-1",
+      updated_at: "2026-07-15T10:00:00Z",
+      title: "AI 整页提案",
+      page_type: "background",
+      free_text: "概览",
+      linked_asset_refs_json: [],
+      sections_json: [
+        {
+          section_id: "first",
+          section_type: "markdown",
+          title: "第一节",
+          body_markdown: "A",
+          sort_order: 0,
+          linked_asset_ref_hashes: [],
+          projection_policy: "eligible",
+          sensitivity_hint: "author_safe",
+        },
+        {
+          section_id: "second",
+          section_type: "markdown",
+          title: "第二节",
+          body_markdown: "B",
+          sort_order: 1,
+          linked_asset_ref_hashes: [],
+          projection_policy: "eligible",
+          sensitivity_hint: "author_safe",
+        },
+      ],
+    }
+    worldBibleView._setEditorBaseline(worldBibleView._activeDraft)
+    document.body.innerHTML = worldBibleView._renderActivePage()
+
+    expect(worldBibleView._editorHasUnsavedChanges()).toBe(false)
+    document.querySelector('[data-section-id="second"] [data-section-field="body_markdown"]').value = "B2"
+    expect(worldBibleView._editorHasUnsavedChanges()).toBe(true)
+  })
+
+  it("未保存编辑会阻止页面切换和离开", () => {
+    worldBibleView._activePage = { ...page }
+    worldBibleView._pages = [page, speciesPage]
+    worldBibleView._drafts = []
+    worldBibleView._setEditorBaseline(worldBibleView._activePage)
+    document.body.innerHTML = worldBibleView._renderActivePage()
+    document.getElementById("bible-free-text").value = "尚未保存的修改"
+    const originalConfirm = window.confirm
+    const confirmSpy = vi.fn(() => false)
+    window.confirm = confirmSpy
+
+    worldBibleView._openPageCard("page-2")
+
+    expect(worldBibleView._activePage.id).toBe("page-1")
+    expect(router.refresh).not.toHaveBeenCalled()
+    expect(worldBibleView.canLeave()).toBe(false)
+    expect(confirmSpy).toHaveBeenCalledTimes(2)
+    window.confirm = originalConfirm
   })
 
   it("AI 参考规则 dry-run 对动态 trace 做转义并显示排除原因", async () => {
@@ -290,6 +372,7 @@ describe("worldBibleView", () => {
       free_text: "工作稿正文",
     })
     document.body.innerHTML = worldBibleView._renderActivePage()
+    expect(document.querySelector("[data-action='bible-publish-page']").textContent).toBe("保存并发布")
     document.getElementById("bible-free-text").value = "工作稿正文"
 
     await worldBibleView._savePage()
@@ -397,7 +480,8 @@ describe("worldBibleView", () => {
 
     expect(api.world.listSuggestions).toHaveBeenCalledWith({
       novel_id: "p1",
-      source_module: "world_bible",
+      source_module: "world",
+      review_group: "generation_center",
       status: "pending",
     })
     expect(api.world.listWorldConflicts).toHaveBeenCalledWith({ novel_id: "p1", status: "pending" })
@@ -410,11 +494,18 @@ describe("worldBibleView", () => {
     api.world.listSuggestions.mockResolvedValue({
       items: [{
         id: "s1",
-        review_group: "world_bible_ai",
-        target_type: "world_bible_page_patch",
-        action_schema: "world_bible_ai.v1",
+        review_group: "generation_center",
+        target_type: "world_bible_page_draft",
+        action_schema: "world_generation.page_draft.v1",
         risk_level: "low",
-        payload_json: { append_text: "补写" },
+        payload_json: {
+          page: {
+            title: "世界基本背景",
+            page_type: "background",
+            free_text: "补写",
+            sections_json: [],
+          },
+        },
       }],
       total: 1,
     })
@@ -430,12 +521,19 @@ describe("worldBibleView", () => {
   it("编辑后的页面建议只应用到工作稿", async () => {
     const suggestion = {
       id: "s1",
-      target_type: "world_bible_page_patch",
-      payload_json: { append_text: "AI 原文" },
+      target_type: "world_bible_page_draft",
+      payload_json: {
+        page: {
+          title: "AI 标题",
+          page_type: "background",
+          free_text: "AI 原文",
+          sections_json: [],
+        },
+      },
     }
     worldBibleView._suggestions = [suggestion]
-    api.world.applySuggestionToBibleDraft.mockResolvedValue({
-      result_ref_json: { type: "world_bible_page_draft", id: "draft-1" },
+    api.generate.applyWorldPageDraft.mockResolvedValue({
+      draft: { id: "draft-1" },
     })
     api.world.listBiblePages.mockResolvedValue({ items: [page], total: 1 })
     api.world.listBibleDrafts.mockResolvedValue({
@@ -449,9 +547,17 @@ describe("worldBibleView", () => {
     document.getElementById("bible-suggestion-text").value = "作者编辑稿"
     await showModal.mock.calls[0][2][0].handler()
 
-    expect(api.world.applySuggestionToBibleDraft).toHaveBeenCalledWith(
+    expect(api.generate.applyWorldPageDraft).toHaveBeenCalledWith(
       "s1",
-      { append_text: "作者编辑稿" },
+      {
+        page: {
+          title: "AI 标题",
+          page_type: "background",
+          free_text: "作者编辑稿",
+          sections_json: [],
+          linked_asset_refs_json: [],
+        },
+      },
       "p1",
     )
     expect(api.world.confirmSuggestion).not.toHaveBeenCalled()
@@ -487,85 +593,135 @@ describe("worldBibleView", () => {
     expect(worldBibleView._synopsisTask.task_id).toBe("task-synopsis")
   })
 
-  it("世界书 AI 边栏生成建议时带当前页和输出目标", async () => {
-    api.world.listBiblePages.mockResolvedValue({ items: [page], total: 1 })
-    api.world.generateBiblePageAi.mockResolvedValue({
-      suggestions: [{
-        id: "s1",
-        target_type: "world_bible_page_patch",
-        review_group: "world_bible_ai",
-        risk_level: "low",
-        title: "补写当前页",
-      }],
-      model: "deepseek-v4-flash",
-      provider: "fake",
-    })
+  it("默认使用作者可读状态并把投影标识收进诊断信息", () => {
+    worldBibleView._synopsis = {
+      status: "failed",
+      current_revision: null,
+      warnings: ["raw warning"],
+    }
+    worldBibleView._activePage = { ...page, page_type: "faction" }
+    worldBibleView._task = null
 
-    document.body.innerHTML = await worldBibleView.render()
-    worldBibleView.bindEvents()
-    document.querySelector("[data-action='bible-toggle-ai']").click()
-    document.body.innerHTML = await worldBibleView.render()
-    worldBibleView.bindEvents()
+    const synopsisHtml = worldBibleView._renderSynopsisPanel()
+    const pageHtml = worldBibleView._renderActivePage()
 
-    expect(document.querySelector(".bible-ai-sidebar").textContent).toContain("当前页：世界基本背景")
-    document.getElementById("bible-ai-output-target").value = "page_patch"
-    document.getElementById("bible-ai-output-target").dispatchEvent(new Event("change"))
-    document.getElementById("bible-ai-input").value = "帮我补写这一页"
-    await worldBibleView._runAi()
-
-    expect(api.world.generateBiblePageAi).toHaveBeenCalledWith(
-      "page-1",
-      expect.objectContaining({
-        output_target: "page_patch",
-        include_current_page: true,
-        include_world_synopsis: true,
-        messages: [{ role: "user", content: "帮我补写这一页" }],
-      }),
-      "p1",
-    )
-    expect(worldBibleView._aiResult.suggestions[0].id).toBe("s1")
-    expect(toast).toHaveBeenCalledWith("建议已生成；页面建议编辑后只会写入工作稿", "success")
+    expect(synopsisHtml).toContain("状态：生成失败")
+    expect(synopsisHtml).not.toContain("World Core Brief")
+    expect(synopsisHtml).toContain("诊断信息")
+    expect(pageHtml).toContain("势力 ·")
+    expect(pageHtml).toContain("上下文摘要尚未刷新")
+    expect(pageHtml).toContain("本地恢复键")
+    expect(pageHtml).toContain("worldBibleProjection:p1:page-1:context_brief")
   })
 
-  it("世界书 AI 拒绝超过服务上限的章节附件", async () => {
-    worldBibleView._activePage = page
-    worldBibleView._aiSelectedChapters = Array.from(
-      { length: 21 },
-      (_, index) => String(index + 1),
-    ).join(",")
+  it("不会把已经终止的简介任务重新挂回轮询并反复刷新页面", async () => {
+    api.world.listBiblePages.mockResolvedValue({ items: [], total: 0 })
+    api.world.getBibleSynopsis.mockResolvedValue({
+      status: "failed",
+      stale: true,
+      active_task_id: "task-failed",
+      auto_refresh_enabled: true,
+    })
+    worldBibleView._synopsisTerminalTaskId = "task-failed"
+    const startPolling = vi.spyOn(worldBibleView, "_startSynopsisPolling")
 
-    const result = await worldBibleView._runAi("page_patch")
+    await worldBibleView._load()
+
+    expect(startPolling).not.toHaveBeenCalled()
+    startPolling.mockRestore()
+  })
+
+  it("世界书 AI 入口携带当前页跳转生成中心", () => {
+    worldBibleView._activePage = page
+
+    const result = worldBibleView._openInGenerationCenter()
+
+    expect(result).toBe(true)
+    expect(router.navigate).toHaveBeenCalledWith(
+      "generate",
+      null,
+      true,
+      expect.any(URLSearchParams),
+    )
+    const query = router.navigate.mock.calls[0][3]
+    expect(query.get("tab")).toBe("world")
+    expect(query.get("source_page_id")).toBe("page-1")
+    expect(query.get("target")).toBe("world_bible_page")
+  })
+
+  it("世界书有未保存修改时先要求保存，不直接跳转生成中心", () => {
+    worldBibleView._activePage = page
+    document.body.innerHTML = worldBibleView._renderActivePage()
+    document.getElementById("bible-free-text").value = "尚未保存的修改"
+
+    const result = worldBibleView._openInGenerationCenter()
 
     expect(result).toBe(false)
-    expect(api.world.generateBiblePageAi).not.toHaveBeenCalled()
-    expect(toast).toHaveBeenCalledWith("每次最多附带 20 章正文", "warning")
+    expect(showModal).toHaveBeenCalledWith(
+      "保存后进入生成中心",
+      expect.objectContaining({ html: expect.stringContaining("当前页面有未保存修改") }),
+      expect.any(Array),
+    )
+    expect(router.navigate).not.toHaveBeenCalled()
   })
 
-  it("世界书 AI 只发送最近 40 条聊天记录", async () => {
+  it("世界书保存未提交修改成功后才携带精确页面 ID 跳转", async () => {
     worldBibleView._activePage = page
-    worldBibleView._aiMessages = Array.from({ length: 41 }, (_, index) => ({
-      role: index % 2 ? "assistant" : "user",
-      content: `message-${index + 1}`,
-    }))
-    api.world.generateBiblePageAi.mockResolvedValue({ reply: "ok" })
+    document.body.innerHTML = worldBibleView._renderActivePage()
+    document.getElementById("bible-free-text").value = "保存后转交的修改"
+    api.world.createBibleDraft.mockResolvedValue({ id: "draft-1", page_id: "page-1" })
+    api.world.updateBibleDraft.mockResolvedValue({
+      id: "draft-1",
+      page_id: "page-1",
+      title: page.title,
+      page_type: page.page_type,
+      free_text: "保存后转交的修改",
+      sections_json: [],
+      linked_asset_refs_json: [],
+    })
 
-    await worldBibleView._runAi("page_patch")
+    worldBibleView._openInGenerationCenter()
+    await clickModalButtonByText("保存并继续")
 
-    const payload = api.world.generateBiblePageAi.mock.calls[0][1]
-    expect(payload.messages).toHaveLength(40)
-    expect(payload.messages[0].content).toBe("message-2")
+    expect(api.world.updateBibleDraft).toHaveBeenCalledWith(
+      "draft-1",
+      expect.objectContaining({ free_text: "保存后转交的修改" }),
+      "p1",
+    )
+    const query = router.navigate.mock.calls.at(-1)[3]
+    expect(query.get("source_page_id")).toBe("page-1")
+    expect(query.get("target")).toBe("world_bible_page")
+  })
+
+  it("世界书保存失败时留在当前页且不跳转", async () => {
+    worldBibleView._activePage = page
+    document.body.innerHTML = worldBibleView._renderActivePage()
+    document.getElementById("bible-free-text").value = "保存会失败的修改"
+    api.world.createBibleDraft.mockRejectedValue(new Error("保存服务不可用"))
+
+    worldBibleView._openInGenerationCenter()
+    await clickModalButtonByText("保存并继续")
+
+    expect(router.navigate).not.toHaveBeenCalled()
+    expect(closeModal).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith("保存服务不可用", "error")
   })
 
   it("创设建议弹窗用可读卡片展示而不是 raw JSON", async () => {
     api.world.listSuggestions.mockResolvedValue({
       items: [{
         id: "s1",
-        review_group: "world_bible_ai",
-        target_type: "world_bible_page_patch",
-        action_schema: "world_bible_ai.v1",
+        review_group: "generation_center",
+        target_type: "world_bible_page_draft",
+        action_schema: "world_generation.page_draft.v1",
         risk_level: "low",
         payload_json: {
-          append_text: "<img src=x onerror=alert(1)>补写",
+          page: {
+            title: "补写当前页",
+            page_type: "background",
+            free_text: "<img src=x onerror=alert(1)>补写",
+            sections_json: [],
+          },
           source_refs: [{ source_type: "world_bible_page", title: "世界基本背景" }],
         },
       }],
@@ -577,39 +733,102 @@ describe("worldBibleView", () => {
     const html = showModal.mock.calls[0][1].html
     expect(html).toContain("补写当前页")
     expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;补写")
-    expect(html).not.toContain("\"append_text\"")
+    expect(html).not.toContain("\"sections_json\"")
   })
 
-  it("世界书 AI 侧栏使用语义类并保留动态内容转义", () => {
+  it("整页建议编辑器可修改资产引用并与 sections 一起应用", async () => {
+    const item = {
+      id: "suggestion-assets",
+      target_type: "world_bible_page_draft",
+      payload_json: {
+        page: {
+          title: "北境规则",
+          page_type: "background",
+          free_text: "概览",
+          sections_json: [],
+          linked_asset_refs_json: [{ target_type: "core_entity", target_id: "entity-old" }],
+        },
+      },
+    }
+    worldBibleView._editSuggestionIntoDraft(item)
+    const html = showModal.mock.calls.at(-1)[1].html
+    expect(html).toContain('id="bible-suggestion-assets"')
+    document.body.innerHTML = html
+    document.getElementById("bible-suggestion-assets").value = JSON.stringify([
+      { target_type: "core_entity", target_id: "entity-new" },
+    ])
+    api.generate.applyWorldPageDraft.mockResolvedValue({ draft: { id: "draft-assets", page_id: "page-1" } })
+    const loadSpy = vi.spyOn(worldBibleView, "_load").mockResolvedValue()
+    const openDraftSpy = vi.spyOn(worldBibleView, "_openDraft").mockImplementation(() => {})
+
+    await worldBibleView._applyEditedSuggestion(item)
+
+    expect(api.generate.applyWorldPageDraft).toHaveBeenCalledWith(
+      "suggestion-assets",
+      expect.objectContaining({
+        page: expect.objectContaining({
+          linked_asset_refs_json: [{ target_type: "core_entity", target_id: "entity-new" }],
+        }),
+      }),
+      "p1",
+    )
+    loadSpy.mockRestore()
+    openDraftSpy.mockRestore()
+  })
+
+  it("世界书整页建议 409 使用与生成中心一致的不覆盖提示", async () => {
+    const item = {
+      id: "suggestion-conflict",
+      payload_json: {
+        page: {
+          title: "规则",
+          page_type: "background",
+          free_text: "",
+          sections_json: [],
+          linked_asset_refs_json: [],
+        },
+      },
+    }
+    worldBibleView._editSuggestionIntoDraft(item)
+    document.body.innerHTML = showModal.mock.calls.at(-1)[1].html
+    const conflict = new Error("baseline drift")
+    conflict.status = 409
+    api.generate.applyWorldPageDraft.mockRejectedValue(conflict)
+
+    await worldBibleView._applyEditedSuggestion(item)
+
+    expect(toast).toHaveBeenCalledWith(
+      "来源工作稿已变更，本次提案未覆盖新修改。请重新生成。",
+      "warning",
+    )
+  })
+
+  it("世界书编辑页不再内嵌第二套 AI 侧栏", () => {
     worldBibleView._activePage = page
-    worldBibleView._aiOpen = true
-    worldBibleView._aiMessages = [{ role: "user", content: "<img src=x onerror=alert(1)>" }]
+    const html = worldBibleView._renderActivePage()
 
-    const html = worldBibleView._renderAiSidebar(page)
-
-    expect(html).toContain('class="bible-ai-sidebar"')
-    expect(html).toContain("bible-ai-message--user")
-    expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;")
-    expect(html).not.toContain("<img src=x")
+    expect(html).toContain('data-action="bible-improve-with-ai"')
+    expect(html).not.toContain('class="bible-ai-sidebar"')
+    expect(html).not.toContain('id="bible-ai-input"')
   })
 
   it("不兼容创设建议可点击并自动切换批量范围", () => {
     worldBibleView._suggestions = [
       {
         id: "s1",
-        review_group: "world_bible_ai",
-        target_type: "world_bible_page",
-        action_schema: "world_bible_ai.v1",
+        review_group: "generation_center",
+        target_type: "core_entity_draft",
+        action_schema: "world_generation.core_entity.v1",
         risk_level: "low",
         payload_json: { title: "新建页面" },
       },
       {
         id: "s2",
-        review_group: "world_bible_ai",
-        target_type: "world_bible_page_patch",
-        action_schema: "world_bible_ai.v1",
+        review_group: "generation_center",
+        target_type: "world_bible_page_draft",
+        action_schema: "world_generation.page_draft.v1",
         risk_level: "low",
-        payload_json: { append_text: "补写当前页" },
+        payload_json: { page: { title: "整页提案", free_text: "重构当前页" } },
       },
     ]
     worldBibleView._suggestionBatchKey = worldBibleView._suggestionGroupKey(worldBibleView._suggestions[0])
@@ -628,22 +847,22 @@ describe("worldBibleView", () => {
 
     expect(first.checked).toBe(false)
     expect(second.checked).toBe(true)
-    expect(document.querySelector("[data-bible-batch-meta]").textContent).toContain("world_bible_page_patch")
+    expect(document.querySelector("[data-bible-batch-meta]").textContent).toContain("world_bible_page_draft")
   })
 
   it("批量提交前会拦截不一致创设建议类型", async () => {
     worldBibleView._suggestions = [
       {
         id: "s1",
-        review_group: "world_bible_ai",
-        target_type: "world_bible_page",
-        action_schema: "world_bible_ai.v1",
+        review_group: "generation_center",
+        target_type: "core_entity_draft",
+        action_schema: "world_generation.core_entity.v1",
       },
       {
         id: "s2",
-        review_group: "world_bible_ai",
-        target_type: "world_bible_page_patch",
-        action_schema: "world_bible_ai.v1",
+        review_group: "generation_center",
+        target_type: "world_bible_page_draft",
+        action_schema: "world_generation.page_draft.v1",
       },
     ]
     document.body.innerHTML = `

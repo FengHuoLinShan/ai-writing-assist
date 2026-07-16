@@ -16,6 +16,9 @@ from modules.imports.deep_import_retry import (
     DeepImportRetryResult,
     run_deep_import_llm_with_retry,
 )
+from modules.imports.entity_extraction.scene_entity_checkpoint import (
+    scene_input_fingerprint,
+)
 from modules.imports.entity_extraction.scene_entity_config import (
     current_phase2_project_settings,
 )
@@ -25,6 +28,7 @@ from modules.imports.entity_extraction.scene_entity_extraction import (
 from modules.imports.llm_schemas import (
     DeltaEvent,
     ExtractedEntity,
+    ExtractedMapObservationProposal,
     ExtractedRelation,
     Phase2WorldDelta,
     Phase2WorldExtractionOutput,
@@ -111,6 +115,7 @@ class Phase2WorldExtractor:
         novel_id: str,
         *,
         workflow_id: str | None = None,
+        authorization_snapshot: dict[str, Any] | None = None,
         on_scene_progress: Callable[..., Awaitable[None]] | None = None,
         existing_checkpoints: dict[str, Any] | None = None,
         start_chapter: int | None = None,
@@ -175,7 +180,9 @@ class Phase2WorldExtractor:
             nid,
             window_results,
             scenes,
+            plan.chapters,
             workflow_id=workflow_id,
+            authorization_snapshot=authorization_snapshot,
         )
         flush_status = await self._legacy._phase2_flush_with_timeout(db)
         audit_summary = await self._legacy._phase2_audit_summary(
@@ -433,8 +440,10 @@ class Phase2WorldExtractor:
         nid,
         window_results: Sequence[_WindowWorldResult],
         scenes: Sequence[dict[str, Any]],
+        chapters: Sequence[dict[str, Any]],
         *,
         workflow_id: str | None,
+        authorization_snapshot: dict[str, Any] | None,
     ) -> dict[str, Any]:
         scenes_by_id = {_scene_id(scene): scene for scene in scenes}
         seen_entity_keys: set[tuple[str, str]] = set()
@@ -459,6 +468,8 @@ class Phase2WorldExtractor:
         total_deltas = 0
         total_aliases = 0
         uncertain_count = 0
+        map_candidate_created = 0
+        map_candidate_reused = 0
 
         for result in window_results:
             if result.final_status != "success":
@@ -524,6 +535,36 @@ class Phase2WorldExtractor:
                     ),
                     result_refs=result_refs,
                 )
+            proposals_by_scene: dict[str, list[ExtractedMapObservationProposal]] = {}
+            for proposal in result.output.map_observation_proposals:
+                scene = _primary_scene(
+                    proposal.supporting_scene_ids,
+                    scenes_by_id,
+                    allowed_scene_ids=set(result.owned_scene_ids),
+                )
+                if scene is None:
+                    uncertain_count += 1
+                    continue
+                proposals_by_scene.setdefault(_scene_id(scene), []).append(proposal)
+            for proposal_scene_id, proposals in proposals_by_scene.items():
+                scene = scenes_by_id[proposal_scene_id]
+                counts = await self._legacy._record_map_observation_proposals(
+                    db,
+                    nid,
+                    proposals,
+                    scene_index=_scene_index(scene),
+                    source_chapter_index=_scene_start(scene),
+                    workflow_id=workflow_id,
+                    scene_id=proposal_scene_id,
+                    scene_source_fingerprint=_scene_source_fingerprint(
+                        scene,
+                        chapters,
+                    ),
+                    authorization_snapshot=authorization_snapshot,
+                    result_refs=result_refs,
+                )
+                map_candidate_created += counts["created"]
+                map_candidate_reused += counts["reused"]
             uncertain_count += len(result.output.uncertain_items)
 
         return {
@@ -532,6 +573,8 @@ class Phase2WorldExtractor:
             "total_deltas": total_deltas,
             "total_aliases": total_aliases,
             "uncertain_count": uncertain_count,
+            "map_observation_candidates_created": map_candidate_created,
+            "map_observation_candidates_reused": map_candidate_reused,
             "result_refs": result_refs,
             **persistence_stats,
         }
@@ -807,6 +850,7 @@ def _normalize_world_output(
     relations: list[Phase2WorldRelation] = []
     deltas: list[Phase2WorldDelta] = []
     uncertain: list[Phase2WorldUncertainItem] = []
+    map_proposals: list[ExtractedMapObservationProposal] = []
     diagnostic = _new_invalid_ref_diagnostic(diagnostics_context or {})
 
     def normalize_ids(
@@ -918,6 +962,19 @@ def _normalize_world_output(
         )
         invalid_refs += invalid
         uncertain.append(item.model_copy(update={"supporting_scene_ids": scene_ids}))
+    for item in output.map_observation_proposals:
+        scene_ids, invalid = normalize_ids(
+            item.supporting_scene_ids,
+            item_type="map_observation_proposal",
+            item_name=item.proposal_type,
+        )
+        invalid_refs += invalid
+        if not scene_ids:
+            continue
+        if not any(scene_id in owned_scene_ids for scene_id in scene_ids):
+            overlap_only += 1
+            continue
+        map_proposals.append(item.model_copy(update={"supporting_scene_ids": scene_ids}))
     diagnostic["total"] = invalid_refs
     return (
         Phase2WorldExtractionOutput(
@@ -925,6 +982,7 @@ def _normalize_world_output(
             relations=relations,
             deltas=deltas,
             uncertain_items=uncertain,
+            map_observation_proposals=map_proposals,
         ),
         invalid_refs,
         overlap_only,
@@ -1018,7 +1076,29 @@ def _candidate_reason(item: Phase2WorldObject) -> str:
 
 
 def _empty_world_output(output: Phase2WorldExtractionOutput) -> bool:
-    return not (output.objects or output.relations or output.deltas)
+    return not (
+        output.objects
+        or output.relations
+        or output.deltas
+        or output.map_observation_proposals
+    )
+
+
+def _scene_source_fingerprint(
+    scene: dict[str, Any],
+    chapters: Sequence[dict[str, Any]],
+) -> str:
+    """Hash semantic Scene input plus the exact chapter text consumed for it."""
+    scene_chapters = set(_scene_chapters(scene))
+    consumed_text = "\n\n".join(
+        str(chapter.get("content") or "")
+        for chapter in sorted(
+            chapters,
+            key=lambda item: int(item.get("chapter_index") or 0),
+        )
+        if int(chapter.get("chapter_index") or 0) in scene_chapters
+    )
+    return scene_input_fingerprint(scene, consumed_text)
 
 
 def _empty_result(total_scenes: int = 0) -> dict[str, Any]:
@@ -1140,9 +1220,13 @@ def _scene_end(scene: dict[str, Any]) -> int:
 def _primary_scene(
     scene_ids: Sequence[str],
     scenes_by_id: dict[str, dict[str, Any]],
+    *,
+    allowed_scene_ids: set[str] | None = None,
 ) -> dict[str, Any] | None:
     for scene_id in scene_ids:
-        if scene_id in scenes_by_id:
+        if scene_id in scenes_by_id and (
+            allowed_scene_ids is None or scene_id in allowed_scene_ids
+        ):
             return scenes_by_id[scene_id]
     return None
 

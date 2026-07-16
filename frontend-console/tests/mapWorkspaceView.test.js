@@ -14,6 +14,23 @@ beforeEach(() => {
   mapWorkspaceView._maps = []
   mapWorkspaceView._archivedMaps = []
   mapWorkspaceView._locations = []
+  mapWorkspaceView._inbox = {
+    loading: false,
+    items: [],
+    total: 0,
+    hasMore: false,
+    error: null,
+    page: 0,
+    projectId: null,
+    filters: {
+      dynamicType: "",
+      sceneId: "",
+      source: "",
+      confidence: "",
+      eligibility: "",
+    },
+  }
+  mapWorkspaceView._pendingObservationEditorId = null
   mapWorkspaceView._mode = "overview"
   mapWorkspaceView._message = null
   mapWorkspaceView._activeMapId = null
@@ -90,6 +107,75 @@ describe("mapWorkspaceView dirty guard", () => {
 })
 
 describe("mapWorkspaceView overview", () => {
+  it("pushes cross-map navigation and replaces same-map context changes", () => {
+    mapWorkspaceView._maps = [
+      { id: "m1", name: "九州", map_type: "world", parent_map_id: null },
+      { id: "m2", name: "洛阳", map_type: "city", parent_map_id: "m1" },
+    ]
+    mapWorkspaceView._rebuildMapIndexes()
+    const leave = vi.spyOn(mapView, "canLeave").mockReturnValue(true)
+
+    expect(mapWorkspaceView._openMap("m1")).toBe(true)
+    expect(router.navigate).toHaveBeenLastCalledWith(
+      "map",
+      null,
+      true,
+      expect.any(URLSearchParams),
+    )
+
+    vi.clearAllMocks()
+    expect(mapWorkspaceView._openMap("m1", { sceneId: "s1" })).toBe(true)
+    expect(router.replace).toHaveBeenLastCalledWith(
+      "map",
+      null,
+      expect.any(URLSearchParams),
+    )
+
+    vi.clearAllMocks()
+    expect(mapWorkspaceView._openMap("m2")).toBe(true)
+    expect(router.navigate).toHaveBeenLastCalledWith(
+      "map",
+      null,
+      true,
+      expect.any(URLSearchParams),
+    )
+    leave.mockRestore()
+  })
+
+  it("replaces history for view mode changes inside one map", () => {
+    mapWorkspaceView._mode = "map"
+    mapWorkspaceView._activeMapId = "m1"
+    const leave = vi.spyOn(mapView, "canLeave").mockReturnValue(true)
+    const unmount = vi.spyOn(mapView, "unmount").mockImplementation(() => {})
+
+    expect(mapWorkspaceView._setViewMode("lens")).toBe(true)
+
+    expect(router.replace).toHaveBeenCalledWith(
+      "map",
+      null,
+      expect.any(URLSearchParams),
+    )
+    const query = router.replace.mock.calls.at(-1)[2]
+    expect(query.get("map_id")).toBe("m1")
+    expect(query.get("mode")).toBe("lens")
+    expect(unmount).toHaveBeenCalledTimes(1)
+    leave.mockRestore()
+    unmount.mockRestore()
+  })
+
+  it("keeps the current mode and URL when leaving a dirty map is rejected", () => {
+    mapWorkspaceView._mode = "map"
+    mapWorkspaceView._activeMapId = "m1"
+    mapWorkspaceView._viewMode = "dashboard"
+    const leave = vi.spyOn(mapView, "canLeave").mockReturnValue(false)
+
+    expect(mapWorkspaceView._setViewMode("lens")).toBe(false)
+
+    expect(mapWorkspaceView._viewMode).toBe("dashboard")
+    expect(router.replace).not.toHaveBeenCalled()
+    leave.mockRestore()
+  })
+
   it("renders overview with recent map entry and map tree", () => {
     mapWorkspaceView._maps = [
       { id: "m1", name: "九州世界", map_type: "world", parent_map_id: null },
@@ -244,6 +330,7 @@ describe("mapWorkspaceView overview", () => {
     expect(openSpy).toHaveBeenCalledWith("m1", {
       sceneId: "s1",
       focusEntityId: "f1",
+      history: "replace",
     })
     openSpy.mockRestore()
   })
@@ -265,6 +352,7 @@ describe("mapWorkspaceView overview", () => {
       sceneId: "s1",
       focusEntityId: "f1",
       viewMode: "live",
+      history: "replace",
     })
     openSpy.mockRestore()
   })
@@ -323,6 +411,7 @@ describe("mapWorkspaceView overview", () => {
       sceneId: "s1",
       focusEntityId: "f1",
       viewMode: "live",
+      history: "replace",
     })
     expect(toast).not.toHaveBeenCalledWith("最近地图不可用，已返回地图总览", "warning")
     openSpy.mockRestore()
@@ -354,6 +443,7 @@ describe("mapWorkspaceView overview", () => {
       sceneId: "s1",
       focusEntityId: null,
       viewMode: "live",
+      history: "replace",
     })
     openSpy.mockRestore()
   })
@@ -868,6 +958,9 @@ describe("mapWorkspaceView overview", () => {
       "采用",
       "忽略",
       "标记冲突",
+      "更换地图",
+      "取消分配",
+      "复制诊断信息",
       "打开检查器",
     ])
   })
@@ -893,7 +986,7 @@ describe("mapWorkspaceView overview", () => {
           },
         ],
       },
-      observations: [{ item_id: "obs1", title: "沈砚入城" }],
+      observations: [{ item_id: "obs1", title: "沈砚入城", updated_at: "rev-1" }],
       facts: [{ item_id: "fact1", title: "林照据守" }],
     }
     api.world.updateMapObservationReview.mockResolvedValue({ id: "obs1" })
@@ -906,6 +999,7 @@ describe("mapWorkspaceView overview", () => {
         target_entity_id: "char-1",
         object_type: "character",
         review_state: "candidate",
+        updated_at: "rev-1",
       }],
       batch_groups: [{
         group_key: "character",
@@ -932,7 +1026,7 @@ describe("mapWorkspaceView overview", () => {
       "m1",
       "obs1",
       "p1",
-      "conflicted",
+      { expected_updated_at: "rev-1", review_state: "conflicted" },
     )
     expect(api.world.updateMapFactStatus).toHaveBeenCalledWith(
       "m1",
@@ -942,7 +1036,7 @@ describe("mapWorkspaceView overview", () => {
     )
   })
 
-  it("edits observation candidate fields before confirmation", async () => {
+  it("edits only author-owned observation fields before confirmation", async () => {
     mapWorkspaceView._activeMapId = "m1"
     mapWorkspaceView._dynamicSummary = {
       dashboard: { dynamic_queue: [] },
@@ -960,6 +1054,7 @@ describe("mapWorkspaceView overview", () => {
         source_ref: { source: "deep_import" },
         evidence_text: "原始证据",
         confidence: 0.4,
+        updated_at: "rev-1",
       }],
       facts: [],
     }
@@ -974,11 +1069,9 @@ describe("mapWorkspaceView overview", () => {
     const body = modalHtmlFromCall(call)
     document.body.innerHTML = body
     document.getElementById("map-object-edit-target-name").value = "沈砚修订"
-    document.getElementById("map-object-edit-time-anchor").value = '{"chapter":2}'
-    document.getElementById("map-object-edit-spatial-anchor").value = '{"q":2,"r":3}'
-    document.getElementById("map-object-edit-value-json").value = '{"field":"location","old":"东门","new":"内城西侧"}'
-    document.getElementById("map-object-edit-confidence").value = "0.88"
-    document.getElementById("map-object-edit-evidence").value = "用户修订证据"
+    expect(body).not.toMatch(/时间锚点 JSON|空间锚点 JSON|来源引用 JSON|高级 JSON/)
+    expect(document.getElementById("map-object-edit-confidence")).toBeNull()
+    expect(document.getElementById("map-object-edit-evidence")).toBeNull()
 
     await buttons[0].handler()
 
@@ -987,16 +1080,11 @@ describe("mapWorkspaceView overview", () => {
       "obs1",
       "p1",
       {
+        expected_updated_at: "rev-1",
         review_state: "candidate",
+        target_entity_id: null,
+        target_entity_type: null,
         target_name: "沈砚修订",
-        target_entity_type: "character",
-        dynamic_type: "position_change",
-        time_anchor: { chapter: 2 },
-        spatial_anchor: { q: 2, r: 3 },
-        value_json: { field: "location", old: "东门", new: "内城西侧" },
-        source_ref: { source: "deep_import" },
-        confidence: 0.88,
-        evidence_text: "用户修订证据",
       },
     )
   })
@@ -1021,7 +1109,7 @@ describe("mapWorkspaceView overview", () => {
           confirmed_count: 0,
         }],
       },
-      observations: [{ item_id: "obs1", title: "沈砚" }],
+      observations: [{ item_id: "obs1", title: "沈砚", updated_at: "rev-1" }],
       facts: [],
     }
     api.world.getMapDashboard.mockResolvedValue({
@@ -1032,6 +1120,7 @@ describe("mapWorkspaceView overview", () => {
         target_entity_id: "char-1",
         object_type: "character",
         review_state: "candidate",
+        updated_at: "rev-1",
       }],
       batch_groups: [{
         group_key: "character",
@@ -1062,16 +1151,28 @@ describe("mapWorkspaceView overview", () => {
       "p1",
       {
         action: "confirm_observations",
-        observation_ids: ["obs1"],
+        observation_items: [{
+          observation_id: "obs1",
+          expected_updated_at: "rev-1",
+        }],
       },
     )
   })
 
   it("processes oversized map groups one service-sized batch at a time", async () => {
-    mapWorkspaceView._dynamicIndexes.candidateIdsByGroup.set(
-      "large-group",
-      new Set(Array.from({ length: 101 }, (_, index) => `obs-${index + 1}`)),
-    )
+    const observations = Array.from({ length: 101 }, (_, index) => ({
+      item_id: `obs-${index + 1}`,
+      item_kind: "observation",
+      object_type: "large-group",
+      review_state: "candidate",
+      updated_at: `rev-${index + 1}`,
+    }))
+    mapWorkspaceView._dynamicSummary = {
+      dashboard: { dynamic_queue: observations },
+      observations,
+      facts: [],
+    }
+    mapWorkspaceView._rebuildDynamicIndexes()
     confirmAction.mockImplementation((_message, onConfirm) => onConfirm())
     api.world.runMapBatchAction.mockResolvedValue({ updated_count: 100 })
 
@@ -1083,7 +1184,10 @@ describe("mapWorkspaceView overview", () => {
       "p1",
       {
         action: "confirm_observations",
-        observation_ids: Array.from({ length: 100 }, (_, index) => `obs-${index + 1}`),
+        observation_items: Array.from({ length: 100 }, (_, index) => ({
+          observation_id: `obs-${index + 1}`,
+          expected_updated_at: `rev-${index + 1}`,
+        })),
       },
     )
   })
@@ -1096,6 +1200,7 @@ describe("mapWorkspaceView overview", () => {
       target_entity_id: "char-1",
       object_type: "character",
       review_state: "candidate",
+      updated_at: "rev-1",
     }
     const event = {
       event_id: "evt1",
@@ -1129,7 +1234,7 @@ describe("mapWorkspaceView overview", () => {
     expect(mapWorkspaceView._findDynamicItem("evt1")).toBe(event)
     await mapWorkspaceView._confirmObservation("obs1")
 
-    expect(api.world.confirmMapObservation).toHaveBeenCalledWith("m1", "obs1", "p1")
+    expect(api.world.confirmMapObservation).toHaveBeenCalledWith("m1", "obs1", "p1", "rev-1")
   })
 
   it("renders batch groups with object type and map time hierarchy", () => {
@@ -1335,7 +1440,11 @@ describe("mapWorkspaceView overview", () => {
 
   it("confirms a map observation and refreshes summary", async () => {
     mapWorkspaceView._activeMapId = "m1"
-    mapWorkspaceView._dynamicSummary.observations = [{ item_id: "obs1", title: "沈砚" }]
+    mapWorkspaceView._dynamicSummary.observations = [{
+      item_id: "obs1",
+      title: "沈砚",
+      updated_at: "rev-1",
+    }]
     api.world.confirmMapObservation.mockResolvedValue({ id: "fact1" })
     api.world.getMapDashboard.mockResolvedValue({
       dynamic_queue: [{ item_id: "fact1", item_kind: "fact", title: "沈砚" }],
@@ -1345,7 +1454,7 @@ describe("mapWorkspaceView overview", () => {
 
     await mapWorkspaceView._confirmObservation("obs1")
 
-    expect(api.world.confirmMapObservation).toHaveBeenCalledWith("m1", "obs1", "p1")
+    expect(api.world.confirmMapObservation).toHaveBeenCalledWith("m1", "obs1", "p1", "rev-1")
     expect(toast).toHaveBeenCalledWith("地图事实已采用", "success")
   })
 
@@ -1482,6 +1591,77 @@ describe("mapWorkspaceView map mounting", () => {
     expect(unmountSpy).toHaveBeenCalled()
     expect(mountSpy).toHaveBeenCalled()
     expect(unmountSpy.mock.invocationCallOrder[0]).toBeLessThan(mountSpy.mock.invocationCallOrder[0])
+    unmountSpy.mockRestore()
+    mountSpy.mockRestore()
+    loadSpy.mockRestore()
+  })
+
+  it("pushes the map list route from the mounted map and preserves state on cancel", async () => {
+    let context
+    const unmountSpy = vi.spyOn(mapView, "unmount").mockImplementation(() => {})
+    const mountSpy = vi.spyOn(mapView, "mount").mockImplementation((_rootId, value) => {
+      context = value
+    })
+    const loadSpy = vi.spyOn(mapWorkspaceView, "_loadDynamicSummary").mockImplementation(() => {})
+    const leaveSpy = vi.spyOn(mapView, "canLeave").mockReturnValue(false)
+
+    await mapWorkspaceView._mountMap()
+    vi.clearAllMocks()
+
+    expect(context.onBackOverview()).toBe(false)
+    expect(mapWorkspaceView._activeMapId).toBe("m1")
+    expect(router.navigate).not.toHaveBeenCalled()
+    expect(unmountSpy).not.toHaveBeenCalled()
+
+    leaveSpy.mockReturnValue(true)
+    expect(context.onBackOverview()).toBe(true)
+    expect(mapWorkspaceView._activeMapId).toBeNull()
+    expect(router.navigate).toHaveBeenCalledWith(
+      "map",
+      null,
+      true,
+      expect.any(URLSearchParams),
+    )
+    const query = router.navigate.mock.calls.at(-1)[3]
+    expect(query.toString()).toBe("mode=overview")
+    expect(unmountSpy).toHaveBeenCalledTimes(1)
+
+    leaveSpy.mockRestore()
+    unmountSpy.mockRestore()
+    mountSpy.mockRestore()
+    loadSpy.mockRestore()
+  })
+
+  it("keeps Scene and URL unchanged when a dirty-map Scene switch is rejected", async () => {
+    let context
+    mapWorkspaceView._activeSceneId = "s1"
+    const unmountSpy = vi.spyOn(mapView, "unmount").mockImplementation(() => {})
+    const mountSpy = vi.spyOn(mapView, "mount").mockImplementation((_rootId, value) => {
+      context = value
+    })
+    const loadSpy = vi.spyOn(mapWorkspaceView, "_loadDynamicSummary").mockImplementation(() => {})
+    const leaveSpy = vi.spyOn(mapView, "canLeave").mockReturnValue(false)
+
+    await mapWorkspaceView._mountMap()
+    vi.clearAllMocks()
+
+    expect(context.onSceneChange("s2")).toBe(false)
+    expect(mapWorkspaceView._activeSceneId).toBe("s1")
+    expect(router.replace).not.toHaveBeenCalled()
+    expect(unmountSpy).not.toHaveBeenCalled()
+
+    leaveSpy.mockReturnValue(true)
+    expect(context.onSceneChange("s2")).toBe(true)
+    expect(mapWorkspaceView._activeSceneId).toBe("s2")
+    expect(router.replace).toHaveBeenCalledWith(
+      "map",
+      null,
+      expect.any(URLSearchParams),
+    )
+    expect(router.replace.mock.calls.at(-1)[2].get("scene_id")).toBe("s2")
+    expect(unmountSpy).toHaveBeenCalledTimes(1)
+
+    leaveSpy.mockRestore()
     unmountSpy.mockRestore()
     mountSpy.mockRestore()
     loadSpy.mockRestore()
@@ -1874,7 +2054,7 @@ describe("mapWorkspaceView Scene timeline", () => {
 })
 
 describe("mapWorkspaceView typed dynamic candidate editor", () => {
-  it("offers all V1 dynamic forms while keeping legacy JSON behind an advanced section", () => {
+  it("keeps legacy dynamic data read-only without exposing raw JSON", () => {
     mapWorkspaceView._showDynamicEditForm({
       item_id: "obs-legacy",
       item_kind: "observation",
@@ -1887,29 +2067,11 @@ describe("mapWorkspaceView typed dynamic candidate editor", () => {
 
     const body = modalHtmlFromCall(showModal.mock.calls.at(-1))
     const container = renderHtml(body)
-    const valueTypes = [...container.querySelectorAll("#map-object-edit-value-type option")]
-      .map((option) => option.value)
-
-    expect(valueTypes).toEqual([
-      "",
-      "location",
-      "route_state",
-      "status",
-      "boundary",
-      "resource",
-      "terrain",
-      "crisis",
-      "semantic",
-    ])
-    expect(container.textContent).toContain("尚未结构化")
-    expect(container.textContent).toContain("高级 JSON")
-    expect(container.querySelector("#map-typed-location-state")).not.toBeNull()
-    expect(container.querySelector("#map-typed-route-state")).not.toBeNull()
-    expect(container.querySelector("#map-typed-boundary-hexes")).not.toBeNull()
-    expect(container.querySelector("#map-typed-resource-key")).not.toBeNull()
-    expect(container.querySelector("#map-typed-terrain-key")).not.toBeNull()
-    expect(container.querySelector("#map-typed-crisis-key")).not.toBeNull()
-    expect(container.querySelector("#map-typed-semantic-relation")).not.toBeNull()
+    expect(container.textContent).toContain("旧版格式")
+    expect(container.textContent).toContain("只读保留")
+    expect(container.textContent).not.toContain("高级 JSON")
+    expect(container.querySelector("#map-object-edit-value-type")).toBeNull()
+    expect(container.querySelector("[id^='map-typed-']")).toBeNull()
   })
 
   it("builds a typed status payload from author-facing fields", () => {
@@ -1943,7 +2105,7 @@ describe("mapWorkspaceView typed dynamic candidate editor", () => {
 
     const payload = mapWorkspaceView._readObservationEditPayload("candidate")
 
-    expect(payload.dynamic_type).toBe("status")
+    expect(payload).not.toHaveProperty("dynamic_type")
     expect(payload.value_json).toEqual({
       schema_version: 1,
       type: "status",
@@ -1980,5 +2142,437 @@ describe("mapWorkspaceView typed dynamic candidate editor", () => {
       controller_entity_id: "123e4567-e89b-12d3-a456-426614174000",
       hexes: [{ hex_q: 1, hex_r: 1 }, { hex_q: 3, hex_r: 2 }],
     })
+  })
+
+  it("renders the project inbox and assigns a proposal with its revision", async () => {
+    mapWorkspaceView._maps = [{ id: "map-1", name: "九州", map_type: "world" }]
+    mapWorkspaceView._inbox = {
+      ...mapWorkspaceView._inbox,
+      items: [{
+        id: "obs-proposal",
+        target_name: "沈砚",
+        dynamic_type: "location",
+        proposal_type: "character_location",
+        proposal_value: { proposal_type: "character_location", location_name: "东门" },
+        source: "deep_import",
+        confidence: 0.42,
+        scene_index: 3,
+        source_chapter_index: 2,
+        updated_at: "rev-1",
+        eligibility: {
+          can_confirm: false,
+          missing_item_labels: ["地图", "正式地图值"],
+        },
+      }],
+      total: 1,
+    }
+    api.world.assignProjectMapObservation.mockResolvedValue({ id: "obs-proposal" })
+
+    const html = mapWorkspaceView._renderOverview()
+    expect(html).toContain("地图收件箱")
+    expect(html).toContain("分配并继续")
+    expect(html).toContain("待补：地图、正式地图值")
+    expect(html).toContain("Scene 4 · 第 2 章")
+    expect(html).toContain("复制诊断信息")
+
+    mapWorkspaceView._showInboxAssignment("obs-proposal")
+    const call = showModal.mock.calls.at(-1)
+    document.body.innerHTML = modalHtmlFromCall(call)
+    await call[2][0].handler()
+
+    expect(api.world.assignProjectMapObservation).toHaveBeenCalledWith(
+      "obs-proposal",
+      "p1",
+      "map-1",
+      "rev-1",
+    )
+    expect(mapWorkspaceView._pendingObservationEditorId).toBe("obs-proposal")
+    expect(mapWorkspaceView._activeMapId).toBe("map-1")
+  })
+
+  it("keeps project inbox filters visible and offers retry after a load failure", () => {
+    mapWorkspaceView._inbox = {
+      ...mapWorkspaceView._inbox,
+      error: "收件箱网络失败",
+      items: [],
+      total: 0,
+      filters: {
+        ...mapWorkspaceView._inbox.filters,
+        dynamicType: "route_state",
+        confidence: "high",
+      },
+    }
+
+    const html = mapWorkspaceView._renderProjectObservationInbox()
+
+    expect(html).toContain("收件箱网络失败")
+    expect(html).toContain('data-action="map-inbox-retry"')
+    expect(html).toContain('value="route_state" selected')
+    expect(html).toContain('value="high" selected')
+    expect(html).toContain('aria-label="按动态类型筛选"')
+  })
+
+  it("distinguishes missing confidence from an explicit zero score", () => {
+    mapWorkspaceView._inbox = {
+      ...mapWorkspaceView._inbox,
+      items: [{
+        id: "no-confidence",
+        dynamic_type: "route_state",
+        confidence: null,
+        eligibility: { can_confirm: false, missing_item_labels: [] },
+      }],
+      total: 1,
+    }
+
+    expect(mapWorkspaceView._renderProjectObservationInbox()).toContain("置信度未提供")
+  })
+
+  it("keeps import diagnostics out of the author-facing inbox summary", () => {
+    mapWorkspaceView._inbox = {
+      ...mapWorkspaceView._inbox,
+      items: [{
+        id: "import-observation",
+        target_name: "廷根市",
+        proposal_type: "event_location",
+        source: "deep_import_delta_event",
+        evidence_text: "deep_import_delta_event · 克莱恩抵达廷根。",
+        scene_id: "scene-raw-id",
+        scene_index: 12,
+        source_chapter_index: 7,
+        confidence: 0.5,
+        eligibility: {
+          can_confirm: false,
+          missing_item_labels: ["未选择地图", "缺少来源 Scene", "缺少来源章节", "动态字段尚未解析完整"],
+        },
+      }],
+      total: 1,
+    }
+
+    const html = mapWorkspaceView._renderProjectObservationInbox()
+    const wrapper = document.createElement("div")
+    wrapper.innerHTML = html
+    const authorText = wrapper.textContent
+
+    expect(authorText).toContain("深度导入")
+    expect(authorText).toContain("克莱恩抵达廷根。")
+    expect(authorText).toContain("选择目标地图")
+    expect(authorText).toContain("补全空间字段")
+    expect(authorText).not.toContain("deep_import_delta_event")
+    expect(authorText).not.toContain("缺少来源 Scene")
+    expect(authorText).not.toContain("缺少来源章节")
+    expect(html).toContain("诊断筛选")
+    expect(html).toContain("Scene 原始 ID")
+  })
+
+  it("translates imported event codes in inbox cards", () => {
+    mapWorkspaceView._inbox = {
+      ...mapWorkspaceView._inbox,
+      items: [{
+        id: "relation-event",
+        dynamic_type: "relation_created",
+        source: "deep_import",
+        confidence: 0.5,
+        eligibility: { can_confirm: false, missing_item_labels: [] },
+      }],
+      total: 1,
+    }
+
+    const html = mapWorkspaceView._renderProjectObservationInbox()
+
+    expect(html).toContain("关系位置建议")
+    expect(html).not.toContain("relation_created")
+  })
+
+  it("sends source, confidence and eligibility filters to the paginated inbox API", async () => {
+    mapWorkspaceView._inbox = {
+      ...mapWorkspaceView._inbox,
+      page: 1,
+      filters: {
+        ...mapWorkspaceView._inbox.filters,
+        source: "deep_import",
+        confidence: "low",
+        eligibility: "missing",
+      },
+    }
+    api.world.listMaps.mockResolvedValue({ items: [] })
+    api.world.listEntities.mockResolvedValue({ items: [] })
+    api.world.listProjectMapObservationInbox.mockResolvedValue({
+      items: [{ id: "late-match" }],
+      total: 21,
+      has_more: false,
+    })
+
+    await mapWorkspaceView._loadData()
+
+    expect(api.world.listProjectMapObservationInbox).toHaveBeenCalledWith(
+      "p1",
+      expect.objectContaining({
+        source: "deep_import",
+        confidence: "low",
+        eligibility: "missing",
+        skip: 20,
+        limit: 20,
+      }),
+    )
+  })
+
+  it("resets inbox paging and filters when the active project changes", async () => {
+    mapWorkspaceView._inbox = {
+      ...mapWorkspaceView._inbox,
+      projectId: "p1",
+      page: 3,
+      filters: { ...mapWorkspaceView._inbox.filters, source: "deep_import" },
+    }
+    state.currentProjectId = "p2"
+    const load = vi.spyOn(mapWorkspaceView, "_loadData").mockResolvedValue(true)
+
+    await mapWorkspaceView.onEnter()
+
+    expect(mapWorkspaceView._inbox.page).toBe(0)
+    expect(mapWorkspaceView._inbox.projectId).toBe("p2")
+    expect(mapWorkspaceView._inbox.filters.source).toBe("")
+    load.mockRestore()
+  })
+
+  it("clamps an empty stale inbox page to the last available page", async () => {
+    mapWorkspaceView._inbox = { ...mapWorkspaceView._inbox, page: 1 }
+    api.world.listMaps.mockResolvedValue({ items: [] })
+    api.world.listEntities.mockResolvedValue({ items: [] })
+    api.world.listProjectMapObservationInbox
+      .mockResolvedValueOnce({ items: [], total: 1, has_more: false })
+      .mockResolvedValueOnce({ items: [{ id: "only-item" }], total: 1, has_more: false })
+
+    await mapWorkspaceView._loadData()
+
+    expect(mapWorkspaceView._inbox.page).toBe(0)
+    expect(mapWorkspaceView._inbox.items).toEqual([{ id: "only-item" }])
+    expect(api.world.listProjectMapObservationInbox).toHaveBeenNthCalledWith(
+      2,
+      "p1",
+      expect.objectContaining({ skip: 0 }),
+    )
+  })
+
+  it("turns a route proposal into a canonical selector payload", () => {
+    const pathOptions = vi.spyOn(mapView, "timelinePathOptions").mockReturnValue([
+      { id: "path-1", name: "北境古道" },
+    ])
+    mapWorkspaceView._showDynamicEditForm({
+      id: "obs-route",
+      item_id: "obs-route",
+      item_kind: "observation",
+      target_name: "北境古道",
+      dynamic_type: "route_state",
+      review_state: "candidate",
+      updated_at: "rev-route",
+      proposal_type: "route_state",
+      proposal_value: {
+        payload_kind: "proposal",
+        schema_version: 1,
+        proposal_type: "route_state",
+        path_name: "北境古道",
+        state: "blocked",
+        reason: "山洪",
+      },
+      eligibility: { can_confirm: false, missing_item_labels: ["正式地图值"] },
+    })
+    document.body.innerHTML = modalHtmlFromCall(showModal.mock.calls.at(-1))
+    mapWorkspaceView._bindTypedDynamicValueEditor()
+
+    expect(mapWorkspaceView._readObservationEditPayload("candidate", { updated_at: "rev-route" }))
+      .toMatchObject({
+        expected_updated_at: "rev-route",
+        value_json: {
+          schema_version: 1,
+          type: "route_state",
+          path_id: "path-1",
+          state: "blocked",
+          reason: "山洪",
+        },
+      })
+    pathOptions.mockRestore()
+  })
+
+  it("keeps event locations off path-only editing and marks boundary hexes as desktop work", () => {
+    mapWorkspaceView._showDynamicEditForm({
+      id: "obs-event",
+      item_id: "obs-event",
+      item_kind: "observation",
+      dynamic_type: "location",
+      proposal_type: "event_location",
+      proposal_value: {
+        payload_kind: "proposal",
+        schema_version: 1,
+        proposal_type: "event_location",
+        location_name: "王城广场",
+      },
+      review_state: "candidate",
+      eligibility: { can_confirm: false, missing_item_labels: ["地点"] },
+    })
+    let html = modalHtmlFromCall(showModal.mock.calls.at(-1))
+    expect(html).not.toContain("map-typed-location-path")
+
+    mapWorkspaceView._showDynamicEditForm({
+      id: "obs-boundary-mobile",
+      item_id: "obs-boundary-mobile",
+      item_kind: "observation",
+      dynamic_type: "boundary",
+      proposal_type: "boundary",
+      normalized_value: {
+        schema_version: 1,
+        type: "boundary",
+        controller_entity_id: "123e4567-e89b-12d3-a456-426614174000",
+        hexes: [{ hex_q: 1, hex_r: 1 }],
+      },
+      review_state: "candidate",
+      eligibility: { can_confirm: true, missing_item_labels: [] },
+    })
+    html = modalHtmlFromCall(showModal.mock.calls.at(-1))
+    expect(html).toContain("map-boundary-spatial-field")
+    expect(html).toContain("map-boundary-mobile-handoff")
+    expect(html).toContain("请在桌面端继续")
+  })
+
+  it("keeps the edit modal open when the revision is stale", async () => {
+    const item = {
+      id: "obs-stale",
+      item_id: "obs-stale",
+      item_kind: "observation",
+      title: "旧城门",
+      dynamic_type: "status",
+      review_state: "candidate",
+      updated_at: "rev-old",
+      normalized_value: {
+        schema_version: 1,
+        type: "status",
+        field_key: "state",
+        value: "closed",
+      },
+      eligibility: { can_confirm: true, missing_item_labels: [] },
+    }
+    mapWorkspaceView._dynamicSummary = {
+      dashboard: { dynamic_queue: [item] },
+      observations: [item],
+      facts: [],
+    }
+    const conflict = Object.assign(new Error("请求冲突"), {
+      status: 409,
+      body: {
+        context: {
+          latest: { ...item, id: "obs-stale", updated_at: "rev-new" },
+        },
+      },
+    })
+    api.world.updateMapObservationReview
+      .mockRejectedValueOnce(conflict)
+      .mockResolvedValueOnce({ id: "obs-stale", updated_at: "rev-saved" })
+
+    const result = await mapWorkspaceView._saveObservationEdit(item, {
+      expected_updated_at: "rev-old",
+      review_state: "candidate",
+      target_name: "新城门",
+    })
+
+    expect(result).toBe(false)
+    expect(closeModal).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining("表单未关闭"), "warning")
+    expect(mapWorkspaceView._dynamicObservation("obs-stale").updated_at).toBe("rev-new")
+
+    await mapWorkspaceView._saveObservationEdit(item, {
+      expected_updated_at: item.updated_at,
+      review_state: "candidate",
+      target_name: "新城门",
+    })
+    expect(api.world.updateMapObservationReview).toHaveBeenLastCalledWith(
+      null,
+      "obs-stale",
+      "p1",
+      expect.objectContaining({ expected_updated_at: "rev-new" }),
+    )
+  })
+
+  it("uses the latest assignment revision when retrying the same modal", async () => {
+    const item = {
+      id: "obs-assign-stale",
+      target_name: "沈砚",
+      updated_at: "rev-old",
+      eligibility: { can_confirm: false, missing_item_labels: [] },
+    }
+    mapWorkspaceView._maps = [{ id: "map-1", name: "九州", map_type: "world" }]
+    mapWorkspaceView._inbox = {
+      ...mapWorkspaceView._inbox,
+      items: [item],
+      total: 1,
+    }
+    const conflict = Object.assign(new Error("请求冲突"), {
+      status: 409,
+      body: { context: { latest: { ...item, updated_at: "rev-new" } } },
+    })
+    api.world.assignProjectMapObservation
+      .mockRejectedValueOnce(conflict)
+      .mockResolvedValueOnce({ id: item.id })
+
+    mapWorkspaceView._showInboxAssignment(item.id)
+    const call = showModal.mock.calls.at(-1)
+    document.body.innerHTML = modalHtmlFromCall(call)
+    expect(await call[2][0].handler()).toBe(false)
+    expect(item.updated_at).toBe("rev-new")
+    expect(await call[2][0].handler()).toBe(true)
+    expect(api.world.assignProjectMapObservation).toHaveBeenLastCalledWith(
+      item.id,
+      "p1",
+      "map-1",
+      "rev-new",
+    )
+  })
+
+  it("merges latest revisions for confirm, ignore, unassign and batch retries", async () => {
+    const makeConflict = (item, revision) => Object.assign(new Error("请求冲突"), {
+      status: 409,
+      body: {
+        context: {
+          latest: { ...item, id: item.item_id, updated_at: revision },
+        },
+      },
+    })
+    const item = {
+      id: "obs-actions",
+      item_id: "obs-actions",
+      item_kind: "observation",
+      title: "城门",
+      object_type: "status",
+      review_state: "candidate",
+      updated_at: "rev-1",
+      eligibility: { can_confirm: true, missing_item_labels: [] },
+    }
+    mapWorkspaceView._activeMapId = "map-1"
+    mapWorkspaceView._dynamicSummary = {
+      dashboard: { dynamic_queue: [item] },
+      observations: [item],
+      facts: [],
+    }
+    mapWorkspaceView._rebuildDynamicIndexes()
+
+    let modalHandler
+    confirmAction.mockImplementation((_message, handler) => { modalHandler = handler })
+    api.world.confirmMapObservation.mockRejectedValueOnce(makeConflict(item, "rev-2"))
+    await mapWorkspaceView._confirmObservation(item.item_id)
+    expect(await modalHandler()).toBe(false)
+    expect(item.updated_at).toBe("rev-2")
+
+    api.world.ignoreMapObservation.mockRejectedValueOnce(makeConflict(item, "rev-3"))
+    await mapWorkspaceView._ignoreObservation(item.item_id)
+    expect(await modalHandler()).toBe(false)
+    expect(item.updated_at).toBe("rev-3")
+
+    api.world.assignProjectMapObservation.mockRejectedValueOnce(makeConflict(item, "rev-4"))
+    mapWorkspaceView._unassignObservation(item.item_id)
+    expect(await modalHandler()).toBe(false)
+    expect(item.updated_at).toBe("rev-4")
+
+    api.world.runMapBatchAction.mockRejectedValueOnce(makeConflict(item, "rev-5"))
+    await mapWorkspaceView._batchReviewGroup("status", "confirm")
+    expect(await modalHandler()).toBe(false)
+    expect(item.updated_at).toBe("rev-5")
   })
 })

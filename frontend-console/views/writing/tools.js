@@ -85,6 +85,10 @@ export function createWritingTools({
   }
 
   function exportChapter() {
+    if (projectState._currentChapter == null) {
+      toast("请先选择章节", "warning")
+      return false
+    }
     const title = projectState._currentTitle || `第 ${projectState._currentChapter} 章`
     const content = (typeof editor?.getContent === "function" ? editor.getContent() : projectState._currentContent) || ""
     const text = `${title}\n\n${content}`
@@ -98,6 +102,7 @@ export function createWritingTools({
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
     toast(`已导出「${title}」`, "success")
+    return true
   }
 
   async function showSplitSceneForm() {

@@ -26,7 +26,7 @@ describe("global typography tokens", () => {
 
   it("does not use negative offsets for prominent Chinese titles", () => {
     expect(styles).toMatch(/\.editor-title\s*\{[^}]*margin-left:\s*0;/s)
-    expect(styles).toMatch(/\.project-toolbar__title\s*\{[^}]*margin-left:\s*0;/s)
+    expect(styles).toMatch(/\.project-archive-hero h1\s*\{[^}]*margin:\s*0;/s)
   })
 
   it("lets modal action buttons wrap instead of clipping long footer rows", () => {
@@ -34,11 +34,9 @@ describe("global typography tokens", () => {
     expect(styles).toMatch(/#modal-footer \.btn\s*\{[^}]*white-space:\s*normal;/s)
   })
 
-  it("keeps modal sizing and world bible AI semantic style hooks", () => {
+  it("keeps modal sizing and world bible suggestion style hooks", () => {
     expect(styles).toMatch(/#modal-content\.modal-content--large\s*\{/)
     expect(styles).toMatch(/#modal-content\.modal-content--full\s*\{/)
-    expect(styles).toMatch(/\.bible-ai-sidebar\s*\{/)
-    expect(styles).toMatch(/\.bible-ai-message--assistant/)
     expect(styles).toMatch(/\.world-bible-suggestion-preview\s*\{/)
   })
 

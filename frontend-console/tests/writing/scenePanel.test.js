@@ -45,6 +45,16 @@ describe("createScenePanel", () => {
     expect(panel.dispose).toBeTypeOf("function")
   })
 
+  it("未选章节时显示中性参考空态，不误报未关联 Scene", () => {
+    const panel = createTestPanel()
+
+    const html = panel.render()
+
+    expect(html).toContain("请先从左侧选择章节")
+    expect(html).not.toContain("当前章节未关联地图 Scene")
+    expect(html).not.toContain("scene-cockpit")
+  })
+
   it("finds current scene by cursor offset", () => {
     state.currentProjectId = "p1"
     const panel = createTestPanel()

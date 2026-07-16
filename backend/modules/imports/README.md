@@ -23,6 +23,15 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - Phase 1b 每个 Scene 一个并发 enrichment 请求，只解析补充字段；不得改写 Phase 1a 已确定的 `scene_chunks`。章节级 fallback 的语义状态仍为 fallback，但其整章 offset 和 source hash 是可确定的精确来源，两者分开记录。Phase 1b enrichment 的默认 `max_tokens` 已与其他结构化阶段统一为 32768，不再由旧的 4096 上限导致补充字段截断；实际 payload 从 effective `deep_import.phase1b.enrich_max_tokens` 生成，不再用 env/default 覆盖项目值，且该值在任务提交时进入冻结 deep-import settings。
 - Phase 1c 审核 `intra_chapter` / `cross_chapter` / `duplicate_window` 相邻候选；高置信且来源精确的结果自动融合，其余写入 outline 融合建议队列。来源指纹仍有效的 pending、dismissed、adopted 决定由该队列独占处理，项目级 Scene 去重不会重复提出来源对，或 adopted 融合结果与其来源的组合；来源变化后才恢复全局扫描资格。旧独立跨章检测链已删除。
 - Phase 1c 未显式配置 `decision_max_tokens` 时继承有效项目/全局/系统 LLM `max_tokens`，并在任务提交时冻结；单对结构化决策默认超时为 360 秒。
+- Phase 2 的逐 Scene 与窗口式输出都可返回四类显式
+  `map_observation_proposals`：人物地点、事件地点、线路状态、势力范围。imports 以
+  Scene/章节、输入指纹、context snapshot、逐字证据和稳定 `source_item_key` 构造
+  `MapObservationCandidateInput`，只通过 `modules.world.facade.create_map_observation_candidates`
+  批量写入。`source_item_key` 由 Scene 输入指纹、proposal 类型、evidence anchor
+  与同源局部序号组成，同类 proposal 重排不会改变已有身份。逐 Scene、批量和
+  窗口路径都必须沿用 task 提交时冻结的 `authorization_snapshot`；不得在映射时
+  临时伪造授权。旧通用 `delta_event` 地图入口仅保留兼容，不能承载这四类
+  proposal。
 - 深度导入保持自动流水线，不对每个 LLM step 重复弹出“AI 参考资料”确认；但首次提交必须显式传 `authorization_confirmed=true`，一次授权 `user_authorized_pipeline` 采用策略。Phase 3 结构分析显式使用 `context_mode="working"` 并包含待确认对象
 - 分阶段世界对象自动提取执行 Phase 2a / 2b：先基于已提交 Scene 抽取世界对象与 Delta，再补抽别名 / 关系
 - Phase 2a 对已持久化 Scene 以 Scene 为并发单元；每个请求只消费当前 Scene 的版本绑定精确 span 和前序 brief，写入仍按 `scene_index` 串行归并
@@ -31,6 +40,8 @@ imports 模块负责小说文件的导入与解析。它不是一个独立的创
 - Phase 2a 不接收后续 Scene 或右侧边界补充证据；需要全局信息的别名、关系和连续性对账仅在 Phase 2b 执行
 - Phase 2a 的 `ExtractedEntity` 与窗口级 `Phase2WorldObject` 在进入 world 的作者宽松 `CoreEntityCreate` 前仍执行固定系统 `entity_type` 校验；深度导入不会创建或复用项目自定义类型
 - Phase 2 入库前通过 world facade 使用名称 / 别名 / embedding 去重能力；`link_to_existing` 的目标名称必须重新解析为同项目、同类型的已采用对象 ID，未解析到已采用对象时只保留名称提示，不视为有效别名目标。高置信重复实体只记录建议目标并进入待处理，不自动融合到已有对象。重复关系走 create-or-merge，并在 progress/result 中记录 action、dedup、boundary supplement 和 degraded 统计
+- Phase 2a/2b 在写入 world 候选别名前会拒绝模型字段占位词（当前包括 `变量`、
+  `variable`、`placeholder`）；这类输出不进入待处理别名，也不参与实体别名去重。
 - Phase 3 完成后会通过 outline facade 生成结构去重建议；只自动应用同一 deep import workflow 内的高置信重复，跨已有资产的建议仅写入任务结果
 - Phase 3 结构化请求同样使用冻结的 `deep_import.phase3.structure_max_tokens`（默认 32768），不再按 prompt 长度进行 token 阶梯扩容；该字段会出现在项目设置与任务冻结快照中。格式/transport 故障可保留一次同预算修复/重试，业务质量 replacement rerun 继续是独立门禁，两者都不扩大 `max_tokens`。
 - 深度导入 Phase 2 拆为 Phase 2a 世界对象/Delta 抽取与 Phase 2b 别名/关系提取；Phase 2b 失败只降级，不丢弃已抽取对象

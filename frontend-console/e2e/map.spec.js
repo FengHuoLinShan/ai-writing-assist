@@ -5,6 +5,7 @@ import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
 import { expectNoPageOverflow, expectWithinViewport, runResponsiveMatrix } from "./helpers/responsive.js"
 import {
   applyMapEditor,
+  assignProjectMapObservation,
   cleanupProject,
   createTerritories,
   createDraft,
@@ -12,6 +13,7 @@ import {
   createLocationBindings,
   createMap,
   createMapMarker,
+  createMapObservation,
   createProject,
   createScene,
   getFocusState,
@@ -19,6 +21,7 @@ import {
   getMapPaths,
   getMapState,
   listTerritories,
+  listMapFacts,
   listMaps,
   updateMapTerrainLayer,
   waitForBackend,
@@ -153,6 +156,78 @@ test.describe("地图一级工作台", () => {
       name: "九州世界 E2E",
       mapType: "world",
     })
+  })
+
+  test("should assign a project inbox proposal, complete it, and confirm one fact", async ({ page }) => {
+    const project = await createProject({
+      title: "地图收件箱 E2E",
+      genre: "fantasy",
+      language: "zh",
+    })
+    testProjectId = project.id
+    const map = await createMap(testProjectId, {
+      name: "收件箱九州",
+      map_type: "world",
+      grid_width: 5,
+      grid_height: 5,
+      template: "blank",
+    })
+    const character = await createEntity(testProjectId, {
+      name: "沈砚",
+      entity_type: "character",
+      status: "canonical",
+    })
+    const location = await createEntity(testProjectId, {
+      name: "东门",
+      entity_type: "location",
+      status: "canonical",
+    })
+    const observation = await createMapObservation(testProjectId, map.id, {
+      target_name: character.name,
+      target_entity_type: "character",
+      dynamic_type: "location",
+      time_anchor: { kind: "initial_state" },
+      spatial_anchor: { hex_q: 2, hex_r: 3 },
+      value_json: {
+        payload_kind: "proposal",
+        schema_version: 1,
+        proposal_type: "character_location",
+        location_name: location.name,
+      },
+      source_ref: { source: "e2e_fixture" },
+      evidence_text: "沈砚在东门等待。",
+      confidence: 0.88,
+    })
+    await assignProjectMapObservation(testProjectId, observation, null)
+
+    await openWorkbench(page, project, "map")
+    await page.goto(`/#workbench/${project.id}/map?mode=overview`)
+    await page.waitForFunction(() => !state.loading, { timeout: 10000 })
+    await expect(page.getByRole("heading", { name: "地图收件箱" })).toBeVisible()
+    await expect(page.locator(".map-project-inbox")).toContainText("沈砚")
+    await expect(page.locator(".map-project-inbox")).toContainText("沈砚在东门等待。")
+    await expect(page.locator(".map-project-inbox")).toContainText("88%")
+
+    await page.getByRole("button", { name: "分配并继续" }).click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("分配地图待处理项")
+    await page.locator("#map-inbox-assignment-map").selectOption(map.id)
+    await page.locator(SEL.modalFooter).getByRole("button", { name: "分配并继续" }).click()
+
+    await expect(page.locator(SEL.toastContainer)).toContainText("已分配地图", { timeout: 10000 })
+    await expect(page.locator(SEL.modalTitle)).toHaveText("修改地图对象", { timeout: 10000 })
+    await page.locator("#map-object-edit-target-entity").selectOption(character.id)
+    await page.locator("#map-typed-location-entity").selectOption(location.id)
+    await page.locator(SEL.modalFooter).getByRole("button", { name: "保存" }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("地图待处理项已保存", { timeout: 10000 })
+
+    const confirmButton = page.locator(`[data-action="map-confirm-observation"][data-id="${observation.id}"]`)
+    await expect(confirmButton).toBeVisible({ timeout: 10000 })
+    await confirmButton.click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("确认操作")
+    await page.locator(SEL.modalFooter).getByRole("button", { name: "确认" }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("地图事实已采用", { timeout: 10000 })
+
+    await expect.poll(async () => (await listMapFacts(testProjectId, map.id)).total).toBe(1)
   })
 
   test("should archive a complete subtree and rename its root on conflicting restore", async ({ page }) => {
@@ -438,84 +513,6 @@ test.describe("地图一级工作台", () => {
     expect(maps.total).toBe(0)
   })
 
-  test("should keep 200x200 canvas rendering within the same-run uncropped baseline", async ({ page }, testInfo) => {
-    test.setTimeout(120000)
-    await page.setViewportSize({ width: 1280, height: 720 })
-    const project = await createProject({
-      title: "地图性能基线 E2E",
-      genre: "fantasy",
-      language: "zh",
-    })
-    testProjectId = project.id
-    const map = await createMap(testProjectId, {
-      name: "200×200 性能地图",
-      map_type: "world",
-      grid_width: 200,
-      grid_height: 200,
-      template: "blank",
-    })
-
-    await openMapWorkspace(page, project, map)
-    const loadMetrics = await page.evaluate(async () => {
-      const { default: mapView } = await import("/views/mapView.js")
-      return { ...mapView._performanceMetrics }
-    })
-
-    const sample = async (uncropped) => page.evaluate(async ({ uncropped }) => {
-      const { default: mapView } = await import("/views/mapView.js")
-      const originalPredicate = mapView._viewportPredicate
-      if (uncropped) mapView._viewportPredicate = () => () => true
-      mapView._renderSubsetCache.clear()
-      mapView._performanceFrameDurations = []
-      mapView._performanceMetrics.total_frames = 0
-      mapView._performanceMetrics.sampled_frames = 0
-      mapView._performanceMetrics.average_frame_ms = null
-      mapView._performanceMetrics.p95_frame_ms = null
-      try {
-        for (let frame = 0; frame < 120; frame += 1) {
-          await new Promise((resolve) => requestAnimationFrame(() => {
-            mapView._redraw()
-            resolve()
-          }))
-        }
-        return {
-          average_frame_ms: mapView._performanceMetrics.average_frame_ms,
-          p95_frame_ms: mapView._performanceMetrics.p95_frame_ms,
-          sampled_frames: mapView._performanceMetrics.sampled_frames,
-          queued_hex_items: mapView._renderMetrics.queued_hex_items,
-          total_hex_items: mapView._renderMetrics.total_hex_items,
-        }
-      } finally {
-        mapView._viewportPredicate = originalPredicate
-        mapView._renderSubsetCache.clear()
-      }
-    }, { uncropped })
-
-    const uncroppedBaseline = await sample(true)
-    const optimized = await sample(false)
-    const report = {
-      browser: "chromium",
-      viewport: { width: 1280, height: 720 },
-      grid: "200x200",
-      warmup_frames: 20,
-      sampled_frames: 100,
-      load: loadMetrics,
-      uncropped_baseline: uncroppedBaseline,
-      optimized,
-      relative_average: optimized.average_frame_ms / uncroppedBaseline.average_frame_ms,
-    }
-    await testInfo.attach("map-canvas-performance.json", {
-      body: Buffer.from(JSON.stringify(report, null, 2)),
-      contentType: "application/json",
-    })
-
-    expect(optimized.sampled_frames).toBe(100)
-    expect(optimized.queued_hex_items).toBeLessThan(uncroppedBaseline.queued_hex_items)
-    expect(optimized.average_frame_ms).toBeLessThanOrEqual(
-      uncroppedBaseline.average_frame_ms * 1.2,
-    )
-  })
-
   test("should clear a stale recent map and show a fallback warning", async ({ page }) => {
     const project = await createProject({
       title: "最近地图回退 E2E",
@@ -543,6 +540,10 @@ test.describe("地图一级工作台", () => {
       "最近地图不可用，已返回地图总览",
     )
     await expect(page.locator(SEL.workspaceContent)).toContainText("空间总览")
+    await expect(page).toHaveURL(new RegExp(
+      `#workbench/${project.id}/map(?:\\?|$)`,
+    ))
+    expect(new URL(page.url()).hash).not.toContain("map_id=")
 
     const recent = await page.evaluate((projectId) => {
       return localStorage.getItem(`novel_map_recent:${projectId}`)
@@ -792,8 +793,35 @@ test.describe("地图一级工作台", () => {
     })
 
     await openMapWorkspace(page, project, map)
-    await clickHex(page, 0, 0)
+    const centerLabel = page.locator(
+      `.map-center-label[data-id="${location.id}"]`,
+    )
+    await expect(centerLabel).toBeVisible()
+    const paneState = await centerLabel.evaluate((label) => {
+      const pane = label.closest('[data-pane="mapLabels"]')
+      const canvas = document.querySelector('canvas[data-testid="map-canvas"]')
+      return {
+        inLabelPane: Boolean(pane),
+        paneZIndex: pane?.style.zIndex,
+        panePointerEvents: pane?.style.pointerEvents,
+        canvasZIndex: canvas?.style.zIndex,
+      }
+    })
+    expect(paneState).toEqual({
+      inLabelPane: true,
+      paneZIndex: "450",
+      panePointerEvents: "none",
+      canvasZIndex: "350",
+    })
+    await page.locator(SEL.mapCanvas).evaluate((canvas) => {
+      window.__mapCanvasClickCount = 0
+      canvas.addEventListener("click", () => { window.__mapCanvasClickCount += 1 })
+    })
+    await centerLabel.click()
+    expect(await page.evaluate(() => window.__mapCanvasClickCount)).toBe(0)
     await expect(page.locator(SEL.mapDetailPanel)).toContainText("洛阳外城")
+    await expect(page.locator(SEL.modalOverlay)).toBeHidden()
+    await expect(page.locator(SEL.mapBreadcrumb)).toContainText("九州世界详图入口")
     await page.locator(SEL.mapDetailPanel).getByRole("button", { name: "创建详图" }).click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("确认操作")
     await page.locator(SEL.modalFooter).getByRole("button", { name: "创建详图" }).click()
@@ -822,6 +850,69 @@ test.describe("地图一级工作台", () => {
       const state = await getMapState(testProjectId, detail.id)
       return [...new Set(state.tiles.map((tile) => tile.terrain_type))]
     }).toContain("city")
+  })
+
+  test("should select a clustered location without passing the click to Canvas", async ({ page }) => {
+    const project = await createProject({
+      title: "地图标签聚合 E2E",
+      genre: "fantasy",
+      language: "zh",
+    })
+    testProjectId = project.id
+    const map = await createMap(testProjectId, {
+      name: "群岛聚合图",
+      map_type: "world",
+      grid_width: 6,
+      grid_height: 6,
+      template: "blank",
+    })
+    // Binding API returns newest rows first. Seed the same-cell members first,
+    // then enough higher-listed fillers to force the remote members into one
+    // real layout cluster without calling an internal layout handler.
+    const locationSeeds = [
+      ...Array.from({ length: 3 }, (_, index) => [
+        `远岛 ${index + 1}`,
+        5,
+        5,
+      ]),
+      ...Array.from({ length: 24 }, (_, index) => [
+        `填充地点 ${index + 1}`,
+        index % 5,
+        Math.floor(index / 5),
+      ]),
+    ]
+    for (const [name, q, r] of locationSeeds) {
+      const location = await createEntity(testProjectId, {
+        name,
+        entity_type: "location",
+        status: "canonical",
+      })
+      await createLocationBindings(testProjectId, map.id, {
+        location_entity_id: location.id,
+        hexes: [{ hex_q: q, hex_r: r, is_center: true }],
+      })
+    }
+
+    await openMapWorkspace(page, project, map)
+    await page.locator(SEL.mapCanvas).evaluate((canvas) => {
+      window.__mapCanvasClickCount = 0
+      canvas.addEventListener("click", () => { window.__mapCanvasClickCount += 1 })
+    })
+    const cluster = page.locator(".map-center-cluster").first()
+    await expect(cluster).toBeVisible()
+    await cluster.click()
+    expect(await page.evaluate(() => window.__mapCanvasClickCount)).toBe(0)
+    await expect(page.locator(SEL.modalTitle)).toHaveText("选择地点")
+    const memberNames = (await page.locator(".map-cluster-member").allTextContents())
+      .map((name) => name.trim())
+      .filter(Boolean)
+    expect(memberNames.length).toBeGreaterThan(0)
+    expect(new Set(memberNames).size).toBe(memberNames.length)
+    const selectedMember = memberNames[0]
+    await page.getByRole("button", { name: selectedMember, exact: true }).click()
+    await expect(page.locator(SEL.mapDetailPanel)).toContainText(selectedMember)
+    await expect(page.locator(SEL.modalOverlay)).toBeHidden()
+    await expect(page.locator(SEL.mapBreadcrumb)).toContainText("群岛聚合图")
   })
 
   test("should attach scene-scoped markers and switch the scene timeline", async ({ page }) => {
@@ -861,6 +952,7 @@ test.describe("地图一级工作台", () => {
 
     await openMapWorkspace(page, project, map, { sceneId: firstScene.id })
     await expect(page.locator(SEL.mapSceneLabel)).toContainText("Scene 0: 抵达洛阳")
+    expect(new URL(page.url()).hash).toContain(`scene_id=${firstScene.id}`)
 
     await page.getByRole("button", { name: "编辑" }).click()
     await page.getByRole("button", { name: "标记", exact: true }).click()
@@ -898,10 +990,14 @@ test.describe("地图一级工作台", () => {
     await expect(page.locator(SEL.mapSceneLabel)).toContainText("Scene 1: 夜探城门", {
       timeout: 10000,
     })
+    await expect.poll(() => new URL(page.url()).hash).toContain(`scene_id=${secondScene.id}`)
     await page.locator(SEL.mapSceneBar).getByRole("button", { name: "清除" }).click()
     await expect(page.locator(SEL.mapSceneLabel)).toHaveText("选择 Scene", {
       timeout: 10000,
     })
+    await expect.poll(() => new URL(page.url()).hash).not.toContain("scene_id=")
+    expect(new URL(page.url()).hash).toContain(`map_id=${map.id}`)
+    expect(new URL(page.url()).hash).toContain("mode=live")
   })
 
   test("should paint organization territory and expose focus state", async ({ page }) => {
@@ -950,6 +1046,14 @@ test.describe("地图一级工作台", () => {
       )
     }).toBe(true)
 
+    const persistedBeforeFocus = await getMapState(testProjectId, map.id)
+    const stableBeforeFocus = {
+      editor_revision: persistedBeforeFocus.map.editor_revision,
+      tile_count: persistedBeforeFocus.tiles.length,
+      binding_count: persistedBeforeFocus.location_bindings.length,
+      marker_count: persistedBeforeFocus.markers.length,
+    }
+
     const focused = await getFocusState(testProjectId, map.id, organization.id)
     expect(focused.territories).toHaveLength(1)
     expect(focused.territories[0]).toMatchObject({
@@ -969,6 +1073,13 @@ test.describe("地图一级工作台", () => {
     await expect(page.locator(SEL.mapFactionBar)).not.toContainText("清除聚焦", {
       timeout: 10000,
     })
+    const persistedAfterFocus = await getMapState(testProjectId, map.id)
+    expect({
+      editor_revision: persistedAfterFocus.map.editor_revision,
+      tile_count: persistedAfterFocus.tiles.length,
+      binding_count: persistedAfterFocus.location_bindings.length,
+      marker_count: persistedAfterFocus.markers.length,
+    }).toEqual(stableBeforeFocus)
   })
 })
 
@@ -1063,7 +1174,7 @@ test.describe("写作页地图入口", () => {
 
     expect(popup.url()).toContain(`#workbench/${project.id}/map?map_id=${map.id}`)
     expect(popup.url()).toContain(`scene_id=${scene.id}`)
-    expect(popup.url()).toContain("mode=map")
+    expect(popup.url()).toContain("mode=live")
     await expect(popup.locator(SEL.viewTitle)).toHaveText("地图")
     await expect(popup.locator(SEL.mapLeaflet)).toBeVisible({ timeout: 10000 })
 

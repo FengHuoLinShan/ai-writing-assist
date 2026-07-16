@@ -401,7 +401,7 @@ def test_rule_contract_rejects_undeclared_action() -> None:
                     {
                         **_rule("core_entity", str(uuid.uuid4())),
                         "scope": {
-                            "actions": ["world.object_draft.generate"],
+                            "actions": ["world.generation.core_entity"],
                             "modes": ["author_safe"],
                             "match_sources": ["task_text"],
                         },
@@ -722,12 +722,12 @@ async def test_generation_snapshot_audits_profile_and_source_hashes(
             novel_id=test_project_id,
             profile_key="generation.snapshot",
             name="生成中心快照",
-            applicable_actions_json=["world.object_draft.generate"],
+            applicable_actions_json=["world.generation.core_entity"],
             rules_json=[
                 _rule(
                     "core_entity",
                     str(entity.id),
-                    action="world.object_draft.generate",
+                    action="world.generation.core_entity",
                 )
             ],
         ),
@@ -742,7 +742,7 @@ async def test_generation_snapshot_audits_profile_and_source_hashes(
         db_session,
         novel_id=test_project_id,
         task="生成对象",
-        operation="world.object_draft.generate",
+        operation="world.generation.core_entity",
         focus_text="北境银币",
         activation_profile_id=profile.id,
     )
@@ -760,4 +760,7 @@ async def test_generation_snapshot_audits_profile_and_source_hashes(
     assert snapshot.compile_options["activation_source_hashes"]
     assert snapshot.included_asset_ids["activation_profile"] == [profile.id]
     assert snapshot.context_summary["activation"]["profile"]["version"] == 1
+    selection = snapshot.context_summary["generation_selection"]["world_entities"]
+    assert selection["top_k"] == 16
+    assert {item["id"] for item in selection["included"]} == {str(entity.id)}
     assert snapshot.prompt_hash

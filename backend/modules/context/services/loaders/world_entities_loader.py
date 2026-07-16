@@ -90,10 +90,21 @@ class WorldEntitiesLoader(Loader):
     ) -> None:
         core_limit = CONTEXT_BUDGET.get("core_entities", 8)
         normal_limit = CONTEXT_BUDGET.get("normal_entities", 8)
-        related_ids = _related_entity_ids(options, bundle)
+        all_limit = core_limit + normal_limit
+        generation_action = options.consumer_action in {
+            "world.generation.chat",
+            "world.generation.core_entity",
+            "world.generation.world_bible_page",
+        }
+        related_candidates = _related_entity_candidates(options, bundle)
+        related_ids = [entity_id for entity_id, _reason in related_candidates]
 
         if related_ids:
-            all_limit = core_limit + normal_limit
+            if len(related_ids) > all_limit:
+                bundle.warnings.append(
+                    f"世界对象候选超过 Top-{all_limit}，已按作者显式选择、Scene、"
+                    "剧情线和检索证据的顺序裁剪"
+                )
             limited_ids = related_ids[:all_limit]
             ctx = await self._get_world_context(
                 db,
@@ -109,7 +120,18 @@ class WorldEntitiesLoader(Loader):
                 raw_entities,
                 include_pending_objects=options.include_pending_objects,
             )
-            bundle.world_entities = entities
+            if generation_action:
+                entities = [
+                    item for item in entities if item.get("entity_type") != "character"
+                ]
+            rank = {item: index for index, item in enumerate(limited_ids)}
+            entities.sort(
+                key=lambda item: rank.get(
+                    str(item.get("entity_id") or item.get("id") or ""),
+                    len(rank),
+                )
+            )
+            bundle.world_entities = entities[:all_limit]
             bundle.budget_used["core_entities"] = min(len(entities), core_limit)
             bundle.budget_used["normal_entities"] = max(0, len(entities) - core_limit)
         else:
@@ -126,6 +148,10 @@ class WorldEntitiesLoader(Loader):
                 raw_entities,
                 include_pending_objects=options.include_pending_objects,
             )
+            if generation_action:
+                entities = [
+                    item for item in entities if item.get("entity_type") != "character"
+                ]
             entities.sort(key=lambda e: e.get("importance", 0.0), reverse=True)
 
             core_entities = [
@@ -140,6 +166,25 @@ class WorldEntitiesLoader(Loader):
             bundle.world_entities = core_entities + normal_entities
             bundle.budget_used["core_entities"] = len(core_entities)
             bundle.budget_used["normal_entities"] = len(normal_entities)
+
+        if options.scope == "generation_center":
+            actual_ids = [
+                str(item.get("entity_id") or item.get("id") or "")
+                for item in bundle.world_entities
+                if item.get("entity_id") or item.get("id")
+            ]
+            if related_candidates:
+                trace_candidates = related_candidates
+                selected_candidates = related_candidates[:all_limit]
+            else:
+                trace_candidates = [(item_id, "importance") for item_id in actual_ids]
+                selected_candidates = trace_candidates
+            bundle.selection_trace["world_entities"] = _selection_trace(
+                trace_candidates,
+                selected_candidates,
+                actual_ids,
+                top_k=all_limit,
+            )
 
         if any(
             entity.get("display_state") == "review" for entity in bundle.world_entities
@@ -194,32 +239,70 @@ class WorldEntitiesLoader(Loader):
         bundle.world_entities = visible
 
 
-def _related_entity_ids(
+def _related_entity_candidates(
     options: CompileOptions,
     bundle: StructureContextBundle,
-) -> list[str]:
+) -> list[tuple[str, str]]:
     """Rank explicit and current-writing references before applying Top-K."""
-    ranked: list[str] = []
+    ranked: list[tuple[str, str]] = []
+    seen: set[str] = set()
 
-    def extend(values: object) -> None:
+    def extend(values: object, reason: str) -> None:
         if not isinstance(values, list | tuple | set):
             return
         for value in values:
             entity_id = str(value or "").strip()
-            if entity_id and entity_id not in ranked:
-                ranked.append(entity_id)
+            if entity_id and entity_id not in seen:
+                seen.add(entity_id)
+                ranked.append((entity_id, reason))
 
-    extend(options.entity_ids)
+    extend(options.entity_ids, "explicit_or_source")
     scene = bundle.scene if isinstance(bundle.scene, dict) else {}
     scene_meta = scene.get("structure_meta") or {}
     if isinstance(scene_meta, dict):
-        extend(scene_meta.get("related_entity_ids"))
+        extend(scene_meta.get("related_entity_ids"), "scene")
     arc = bundle.outline_arc if isinstance(bundle.outline_arc, dict) else {}
-    extend(arc.get("related_entity_ids"))
+    extend(arc.get("related_entity_ids"), "arc")
     for thread in bundle.plot_threads:
         if isinstance(thread, dict):
-            extend(thread.get("related_entity_ids"))
+            extend(thread.get("related_entity_ids"), "plot_thread")
     for chunk in bundle.rag_chunks:
         if isinstance(chunk, dict):
-            extend(chunk.get("entity_ids"))
+            extend(chunk.get("entity_ids"), "rag")
     return ranked
+
+
+def _related_entity_ids(
+    options: CompileOptions,
+    bundle: StructureContextBundle,
+) -> list[str]:
+    """Compatibility wrapper for callers that only need ranked IDs."""
+    return [
+        entity_id for entity_id, _reason in _related_entity_candidates(options, bundle)
+    ]
+
+
+def _selection_trace(
+    candidates: list[tuple[str, str]],
+    selected: list[tuple[str, str]],
+    actual_ids: list[str],
+    *,
+    top_k: int,
+) -> dict[str, object]:
+    actual = set(actual_ids)
+    selected_ids = {item_id for item_id, _reason in selected}
+    included = [
+        {"id": item_id, "reason": reason}
+        for item_id, reason in selected
+        if item_id in actual
+    ]
+    excluded = [
+        {
+            "id": item_id,
+            "reason": reason,
+            "exclusion_reason": "not_loaded" if item_id in selected_ids else "top_k",
+        }
+        for item_id, reason in candidates
+        if item_id not in actual
+    ]
+    return {"top_k": top_k, "included": included, "excluded": excluded}

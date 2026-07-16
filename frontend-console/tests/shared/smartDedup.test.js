@@ -373,9 +373,55 @@ describe("Smart Dedup Manager", () => {
     expect(modal.title).toBe("智能去重裁决工作台")
     expect(modal.body.html).toContain("重复组队列")
     expect(modal.body.html).toContain("只看差异")
+    const rendered = document.createElement("div")
+    rendered.innerHTML = modal.body.html
+    expect(rendered.querySelector("[data-smart-dedup-diff]").checked).toBe(true)
     expect(modal.body.html).toContain("融合内容并迁移引用")
     expect(modal.body.html).not.toContain("手动主体 ID")
     expect(call[3]).toEqual({ size: "large", protectUnsaved: true })
+  })
+
+  it("keeps an eligible primary selected when the author switches it", async () => {
+    const result = groupResult()
+    result.groups[0].eligible_primary_asset_ids = ["a", "b"]
+    const manager = await runScanToDone(result)
+    document.body.innerHTML = `<div id="modal-body">${latestModal().body.html}</div>`
+    const groups = manager._groups(result)
+    manager._bindGroupControls(groups)
+
+    const nextPrimary = document.querySelector('[data-smart-dedup-group-primary="a"]')
+    nextPrimary.checked = true
+    nextPrimary.dispatchEvent(new Event("change"))
+
+    expect(manager._groupDraftFor(groups[0]).primaryId).toBe("a")
+    const rendered = document.createElement("div")
+    rendered.innerHTML = latestModal().body.html
+    expect(rendered.querySelector('[data-smart-dedup-group-primary="a"]').checked).toBe(true)
+    expect(rendered.querySelectorAll("[data-smart-dedup-operation]").length).toBe(2)
+  })
+
+  it("preserves workbench scroll positions when a checkbox rerenders the modal", async () => {
+    const result = groupResult()
+    const manager = await runScanToDone(result)
+    document.body.innerHTML = `<div id="modal-body">${latestModal().body.html}</div>`
+    const modalBody = document.getElementById("modal-body")
+    const queue = document.querySelector(".smart-dedup-queue")
+    const decision = document.querySelector(".smart-dedup-decision")
+    modalBody.scrollTop = 40
+    queue.scrollTop = 70
+    decision.scrollTop = 190
+    const restore = vi.spyOn(manager, "_restoreGroupWorkbenchScroll")
+    manager._bindGroupControls(manager._groups(result))
+
+    const checkbox = document.querySelector("[data-smart-dedup-diff]")
+    checkbox.checked = false
+    checkbox.dispatchEvent(new Event("change"))
+
+    expect(restore).toHaveBeenCalledWith(expect.objectContaining({
+      modalBodyTop: 40,
+      queueTop: 70,
+      decisionTop: 190,
+    }))
   })
 
   it("submits all ready schema v2 groups with task-bound fingerprints", async () => {

@@ -64,6 +64,9 @@ describe("createDeepImportRecovery", () => {
     expect(manager.showScenePreview).toBeTypeOf("function")
     expect(manager.applyScenePreview).toBeTypeOf("function")
     expect(manager.discardScenePreview).toBeTypeOf("function")
+    expect(manager.runMapNextStep).toBeTypeOf("function")
+    expect(manager.completeMapNextStep).toBeTypeOf("function")
+    expect(manager.retryMapNextStep).toBeTypeOf("function")
     expect(manager.dismiss).toBeTypeOf("function")
     expect(manager.dispose).toBeTypeOf("function")
   })
@@ -228,6 +231,46 @@ describe("createDeepImportRecovery", () => {
     manager.dispose()
   })
 
+  it("resume 的晚到响应不覆盖后续新任务", async () => {
+    let resolveResume
+    const api = createMockApi()
+    api.imports.resumeDeepImport.mockReturnValue(new Promise((resolve) => {
+      resolveResume = resolve
+    }))
+    api.tasks.get.mockResolvedValue({
+      task_id: "new-task",
+      task_type: "deep_import",
+      status: "running",
+      result: { phase: "running" },
+    })
+    const manager = createTestManager({ api })
+    manager.startTask({
+      taskId: "old-task",
+      workflowType: "deep_import",
+      stage: "scenes",
+      label: "旧任务",
+    })
+    const resuming = manager.resume()
+    manager.startTask({
+      taskId: "new-task",
+      workflowType: "deep_import",
+      stage: "scenes",
+      label: "新任务",
+    })
+    resolveResume({
+      task_id: "old-task",
+      status: "running",
+      result: { phase: "running", message: "旧响应" },
+    })
+
+    await resuming
+
+    expect(manager.getState().taskId).toBe("new-task")
+    expect(manager.getState().progress.label).toBe("新任务")
+    expect(toast).not.toHaveBeenCalledWith("已继续深度导入恢复", "success")
+    manager.dispose()
+  })
+
   it("abandon confirms and clears state", async () => {
     const api = createMockApi()
     api.imports.abandonDeepImport.mockResolvedValue({
@@ -308,6 +351,343 @@ describe("createDeepImportRecovery", () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it.each([
+    {
+      name: "已有地图进入地图收件箱",
+      context: { existing_maps: [{ id: "map-1" }], locations: [], candidate_locations: [] },
+      inbox: { total: 3, items: [] },
+      expectedText: "查看地图收件箱（3）",
+      callback: "openInbox",
+    },
+    {
+      name: "无地图但有已采用地点进入一键创建",
+      context: { existing_maps: [], locations: [{ id: "l1" }], candidate_locations: [] },
+      inbox: { total: 0, items: [] },
+      expectedText: "一键创建地图（1 个地点）",
+      callback: "openQuickCreate",
+    },
+    {
+      name: "只有候选地点进入精确审核",
+      context: { existing_maps: [], locations: [], candidate_locations: [{ id: "c1" }, { id: "c2" }] },
+      inbox: { total: 0, items: [] },
+      expectedText: "先审核 2 个地点",
+      callback: "openReviewLocations",
+    },
+  ])("完成深度导入后$name", async ({ context, inbox, expectedText, callback }) => {
+    const api = createMockApi({
+      tasks: {
+        get: vi.fn().mockResolvedValue({
+          task_id: "deep-map-done",
+          task_type: "deep_import",
+          status: "done",
+          result: { phase: "done", workflow_id: "workflow-map-1" },
+        }),
+        cancel: vi.fn(),
+      },
+      world: {
+        getMapQuickCreateContext: vi.fn().mockResolvedValue(context),
+        listProjectMapObservationInbox: vi.fn().mockResolvedValue(inbox),
+      },
+    })
+    persistActiveWorkflow({
+      taskId: "deep-map-done",
+      workflowType: "deep_import",
+      label: "深度导入",
+      projectId: "p1",
+      view: "writing",
+    })
+    const callbacks = {
+      openQuickCreate: vi.fn(),
+      openReviewLocations: vi.fn(),
+      openInbox: vi.fn(),
+    }
+    const manager = createTestManager({ api, mapNextStep: callbacks })
+
+    await manager.recover()
+
+    expect(api.world.getMapQuickCreateContext).toHaveBeenCalledWith("p1", true)
+    expect(manager.renderBar()).toContain(expectedText)
+    expect(manager.renderBar()).toContain('data-action="deep-import-map-next"')
+    await manager.runMapNextStep()
+    expect(callbacks[callback]).toHaveBeenCalled()
+    if (callback === "openReviewLocations") {
+      expect(callbacks.openReviewLocations).toHaveBeenCalledWith(expect.objectContaining({
+        workflowId: "workflow-map-1",
+      }))
+    }
+    if (callback === "openQuickCreate") manager.dismiss()
+  })
+
+  it("带地图行动的完成态在刷新后仍可恢复", async () => {
+    const api = createMockApi({
+      tasks: {
+        get: vi.fn().mockResolvedValue({
+          task_id: "deep-map-persist",
+          task_type: "deep_import",
+          status: "done",
+          result: { phase: "done", workflow_id: "workflow-persist" },
+        }),
+        cancel: vi.fn(),
+      },
+      world: {
+        getMapQuickCreateContext: vi.fn().mockResolvedValue({
+          existing_maps: [{ id: "map-1" }], locations: [], candidate_locations: [],
+        }),
+        listProjectMapObservationInbox: vi.fn().mockResolvedValue({ total: 2 }),
+      },
+    })
+    persistActiveWorkflow({
+      taskId: "deep-map-persist",
+      workflowType: "deep_import",
+      label: "深度导入",
+      projectId: "p1",
+      view: "writing",
+    })
+    const first = createTestManager({ api })
+    await first.recover()
+    expect(recoverActiveWorkflows("p1")).toHaveLength(1)
+    first.dispose()
+
+    const second = createTestManager({ api })
+    await second.recover()
+    expect(second.renderBar()).toContain("查看地图收件箱（2）")
+    second.dispose()
+  })
+
+  it("已完成任务忽略残留的恢复标记", async () => {
+    const api = createMockApi({
+      tasks: {
+        get: vi.fn().mockResolvedValue({
+          task_id: "deep-stale-recovery",
+          task_type: "deep_import",
+          status: "done",
+          result: {
+            phase: "done",
+            workflow_id: "workflow-stale",
+            recovery_required: true,
+            recoverable: true,
+          },
+        }),
+        cancel: vi.fn(),
+      },
+      world: {
+        getMapQuickCreateContext: vi.fn().mockResolvedValue({
+          existing_maps: [], locations: [{ id: "loc-1" }], candidate_locations: [],
+        }),
+      },
+    })
+    persistActiveWorkflow({
+      taskId: "deep-stale-recovery",
+      workflowType: "deep_import",
+      label: "深度导入",
+      projectId: "p1",
+      view: "writing",
+    })
+    const manager = createTestManager({ api })
+
+    await manager.recover()
+
+    expect(manager.renderBar()).toContain("一键创建地图")
+    expect(manager.renderRecoveryPrompt()).toBe("")
+    manager.dispose()
+  })
+
+  it("dispose 和新任务会废弃旧 recover 的晚到响应", async () => {
+    let resolveTask
+    const taskPromise = new Promise((resolve) => { resolveTask = resolve })
+    const api = createMockApi()
+    api.tasks.get.mockReturnValue(taskPromise)
+    persistActiveWorkflow({
+      taskId: "deep-late",
+      workflowType: "deep_import",
+      label: "深度导入",
+      projectId: "p1",
+      view: "writing",
+    })
+    const manager = createTestManager({ api })
+    const recovering = manager.recover()
+    manager.startTask({
+      taskId: "deep-new",
+      workflowType: "deep_import",
+      stage: "scenes",
+      label: "新导入",
+    })
+    manager.dispose()
+    resolveTask({
+      task_id: "deep-late",
+      task_type: "deep_import",
+      status: "done",
+      result: { phase: "done" },
+    })
+
+    await recovering
+
+    expect(manager.getState().taskId).toBe("deep-new")
+  })
+
+  it("候选地点数量使用当前 workflow 的精确筛选", async () => {
+    const api = createMockApi({
+      tasks: {
+        get: vi.fn().mockResolvedValue({
+          task_id: "deep-current",
+          task_type: "deep_import",
+          status: "done",
+          result: { phase: "done", workflow_id: "workflow-current" },
+        }),
+        cancel: vi.fn(),
+      },
+      world: {
+        getMapQuickCreateContext: vi.fn().mockResolvedValue({
+          existing_maps: [],
+          locations: [],
+          candidate_locations: [{ id: "old-1" }, { id: "old-2" }],
+        }),
+        listEntities: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+      },
+    })
+    persistActiveWorkflow({
+      taskId: "deep-current",
+      workflowType: "deep_import",
+      label: "深度导入",
+      projectId: "p1",
+      view: "writing",
+    })
+    const manager = createTestManager({ api })
+
+    await manager.recover()
+
+    expect(api.world.listEntities).toHaveBeenCalledWith(expect.objectContaining({
+      novel_id: "p1",
+      entity_type: "location",
+      source: "deep_import",
+      workflow_id: "workflow-current",
+    }))
+    expect(manager.renderBar()).not.toContain("先审核")
+  })
+
+  it("地图下一步加载失败时保留完成态并可重试", async () => {
+    const getContext = vi.fn()
+      .mockRejectedValueOnce(new Error("上下文暂时不可用"))
+      .mockResolvedValueOnce({
+        existing_maps: [], locations: [{ id: "loc-1" }], candidate_locations: [],
+      })
+    const api = createMockApi({
+      tasks: {
+        get: vi.fn().mockResolvedValue({
+          task_id: "deep-retry-map",
+          task_type: "deep_import",
+          status: "done",
+          result: { phase: "done", workflow_id: "workflow-retry" },
+        }),
+        cancel: vi.fn(),
+      },
+      world: { getMapQuickCreateContext: getContext },
+    })
+    persistActiveWorkflow({
+      taskId: "deep-retry-map",
+      workflowType: "deep_import",
+      label: "深度导入",
+      projectId: "p1",
+      view: "writing",
+    })
+    const manager = createTestManager({ api })
+
+    await manager.recover()
+    expect(manager.renderBar()).toContain("上下文暂时不可用")
+    expect(manager.renderBar()).toContain('data-action="retry-deep-import-map-next"')
+    expect(recoverActiveWorkflows("p1")).toHaveLength(1)
+
+    await manager.retryMapNextStep()
+    expect(manager.renderBar()).toContain("一键创建地图")
+    manager.dispose()
+  })
+
+  it("目标未打开时不清理完成条", async () => {
+    const api = createMockApi({
+      tasks: {
+        get: vi.fn().mockResolvedValue({
+          task_id: "deep-open-failed",
+          task_type: "deep_import",
+          status: "done",
+          result: { phase: "done", workflow_id: "workflow-open-failed" },
+        }),
+        cancel: vi.fn(),
+      },
+      world: {
+        getMapQuickCreateContext: vi.fn().mockResolvedValue({
+          existing_maps: [{ id: "map-1" }], locations: [], candidate_locations: [],
+        }),
+        listProjectMapObservationInbox: vi.fn().mockResolvedValue({ total: 1 }),
+      },
+    })
+    persistActiveWorkflow({
+      taskId: "deep-open-failed",
+      workflowType: "deep_import",
+      label: "深度导入",
+      projectId: "p1",
+      view: "writing",
+    })
+    const manager = createTestManager({
+      api,
+      mapNextStep: { openInbox: vi.fn().mockResolvedValue(false) },
+    })
+    await manager.recover()
+
+    expect(await manager.runMapNextStep()).toBe(false)
+    expect(manager.renderBar()).toContain("查看地图收件箱")
+    expect(recoverActiveWorkflows("p1")).toHaveLength(1)
+    manager.dispose()
+  })
+
+  it("地图行动晚到回调不清理后续新任务", async () => {
+    let resolveOpen
+    const api = createMockApi({
+      tasks: {
+        get: vi.fn().mockResolvedValue({
+          task_id: "deep-late-map-action",
+          task_type: "deep_import",
+          status: "done",
+          result: { phase: "done", workflow_id: "workflow-late-map-action" },
+        }),
+        cancel: vi.fn(),
+      },
+      world: {
+        getMapQuickCreateContext: vi.fn().mockResolvedValue({
+          existing_maps: [{ id: "map-1" }], locations: [], candidate_locations: [],
+        }),
+        listProjectMapObservationInbox: vi.fn().mockResolvedValue({ total: 1 }),
+      },
+    })
+    persistActiveWorkflow({
+      taskId: "deep-late-map-action",
+      workflowType: "deep_import",
+      label: "深度导入",
+      projectId: "p1",
+      view: "writing",
+    })
+    const manager = createTestManager({
+      api,
+      mapNextStep: {
+        openInbox: vi.fn().mockReturnValue(new Promise((resolve) => {
+          resolveOpen = resolve
+        })),
+      },
+    })
+    await manager.recover()
+    const opening = manager.runMapNextStep()
+    manager.startTask({
+      taskId: "new-task-after-map-action",
+      workflowType: "deep_import",
+      stage: "scenes",
+      label: "新任务",
+    })
+    resolveOpen(true)
+
+    expect(await opening).toBe(false)
+    expect(manager.getState().taskId).toBe("new-task-after-map-action")
+    manager.dispose()
   })
 
   it("falls back to phase-based percent when task.progress is missing", async () => {

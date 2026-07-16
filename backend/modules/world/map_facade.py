@@ -9,9 +9,27 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.world.contracts import (
+    MapObservationCandidateBatchResult,
+    MapObservationCandidateInput,
+)
 from modules.world.services.map_service import MapDynamicFactService
 
 _map_dynamic_facts = MapDynamicFactService()
+
+
+async def create_map_observation_candidates(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    candidates: list[MapObservationCandidateInput],
+) -> MapObservationCandidateBatchResult:
+    """Persist a fail-closed batch of typed deep-import map candidates."""
+    return await _map_dynamic_facts.create_observation_candidates(
+        db,
+        novel_id,
+        candidates=candidates,
+    )
 
 
 async def create_map_observation_from_delta_event(

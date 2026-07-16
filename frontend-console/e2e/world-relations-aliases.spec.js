@@ -1,7 +1,16 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
 import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
-import { createProject, cleanupProject, waitForBackend, createAlias } from "./helpers/api-client.js"
+import {
+  createAlias,
+  createEntity,
+  createProject,
+  createRelation,
+  cleanupProject,
+  listAliases,
+  listRelations,
+  waitForBackend,
+} from "./helpers/api-client.js"
 
 test.describe("世界对象 — 关系与别名", () => {
   let testProjectId = null
@@ -131,5 +140,135 @@ test.describe("世界对象 — 关系与别名", () => {
     await expect(page.locator(SEL.dataTable)).toContainText("昵称")
     await expect(page.locator(SEL.dataTable)).toContainText("代号")
     await expect(page.locator(SEL.dataTable)).toContainText("化名")
+  })
+
+  test("关系分组可搜索首批之外的端点并一次请求完成归并", async ({ page }) => {
+    const entities = []
+    for (let index = 0; index < 25; index += 1) {
+      entities.push(await createEntity(testProjectId, {
+        name: `关系端点 ${String(index + 1).padStart(2, "0")}`,
+        entity_type: "character",
+        status: "canonical",
+      }))
+    }
+    const searchedTarget = entities[0]
+    const source = entities[23]
+    const originalTarget = entities[24]
+    await createRelation(testProjectId, {
+      source_id: source.id,
+      target_id: originalTarget.id,
+      relation_type: "friend",
+      description: "朋友证据一",
+      strength: 0.8,
+      quote: "他们以朋友相称。",
+      status: "candidate",
+      review_meta: {
+        source: "deep_import",
+        scene_index: 3,
+        source_chapter_index: 2,
+        evidence_refs: [{ scene_index: 3, quote: "他们以朋友相称。" }],
+      },
+    })
+    await createRelation(testProjectId, {
+      source_id: source.id,
+      target_id: originalTarget.id,
+      relation_type: "朋友",
+      description: "朋友证据二",
+      strength: 0.7,
+      quote: "两人互相帮助。",
+      status: "candidate",
+      review_meta: {
+        source: "deep_import",
+        scene_index: 4,
+        source_chapter_index: 3,
+        evidence_refs: [{ scene_index: 4, quote: "两人互相帮助。" }],
+      },
+    })
+
+    await reloadWorkbench(page, "world", "review-relations")
+    const card = page.locator(".review-group-card").filter({ hasText: source.name })
+    await expect(card).toContainText(originalTarget.name)
+    await expect(card).toContainText("2 条候选")
+    await expect(card).not.toContainText(source.id)
+    await card.locator('[data-action="prepare-relation-review"]').click()
+    await expect(page.locator('input[name="relation-review-member"]:checked')).toHaveCount(2)
+    await expect(page.locator("#relation-review-action")).toHaveValue("merge")
+
+    const endpointResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url())
+      return url.pathname.endsWith("/api/world/entities")
+        && url.searchParams.get("q") === searchedTarget.name
+    })
+    await page.locator("#relation-target-query").fill(searchedTarget.name)
+    await page.locator("#relation-target-search").click()
+    await endpointResponse
+    await expect(page.locator("#relation-target-select")).toContainText(searchedTarget.name)
+    await page.locator("#relation-target-select").selectOption(searchedTarget.id)
+    await page.locator('[data-relation-type-suggestion="friend_of"]').first().click()
+    await expect(page.locator("#relation-final-type")).toHaveValue("friend_of")
+    await page.locator(SEL.modalFooter).getByRole("button", { name: "保存决策" }).click()
+
+    const preparedCard = page.locator(".review-group-card").filter({ hasText: source.name })
+    await preparedCard.locator('input[data-action="bulk-toggle-one"]').check()
+    let batchRequests = 0
+    page.on("request", (request) => {
+      if (request.method() === "POST" && request.url().includes("/api/world/relations/review-batch")) batchRequests += 1
+    })
+    await page.locator('[data-bulk-action="apply-relation-decisions"]').click()
+    await page.locator(SEL.modalFooter).getByRole("button", { name: "确认应用" }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("已处理 1 个关系组", { timeout: 10000 })
+    expect(batchRequests).toBe(1)
+
+    const canonical = await listRelations(testProjectId, { status: "canonical", limit: 50 })
+    const deprecated = await listRelations(testProjectId, { status: "deprecated", limit: 50 })
+    const merged = canonical.items.filter((item) => item.relation_type === "friend_of")
+    expect(merged).toHaveLength(1)
+    expect(merged[0].target_id).toBe(searchedTarget.id)
+    expect(merged[0].quote).toContain("他们以朋友相称。")
+    expect(merged[0].quote).toContain("两人互相帮助。")
+    expect(deprecated.items).toHaveLength(1)
+  })
+
+  test("别名自定义类型在 390px 工作台原样采用", async ({ page }) => {
+    const entity = await createEntity(testProjectId, {
+      name: "别名所属对象",
+      entity_type: "character",
+      status: "canonical",
+    })
+    await createAlias(testProjectId, {
+      entity_id: entity.id,
+      alias: "自定义别名",
+      alias_type: "别称",
+      status: "candidate",
+      confidence: 0.96,
+    })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await reloadWorkbench(page, "world", "review-aliases")
+
+    const row = page.locator(".review-member-row").filter({ hasText: "自定义别名" })
+    await expect(row).toContainText("自定义")
+    await expect(row).not.toContainText(entity.id)
+    await row.locator('[data-action="prepare-alias-review"]').click()
+    await expect(page.locator("#alias-edit-type")).toHaveValue("别称")
+    await expect(page.locator("#alias-edit-type option:checked")).toContainText("保留原类型：别称")
+    const modalBox = await page.locator(SEL.modalContent).boundingBox()
+    expect(Math.round(modalBox.width)).toBe(390)
+    await page.locator(SEL.modalFooter).getByRole("button", { name: "保存决策" }).click()
+
+    const preparedRow = page.locator(".review-member-row").filter({ hasText: "自定义别名" })
+    await preparedRow.locator('input[data-action="bulk-toggle-one"]').check()
+    let batchRequests = 0
+    page.on("request", (request) => {
+      if (request.method() === "POST" && request.url().includes("/api/world/aliases/review-batch")) batchRequests += 1
+    })
+    await page.locator('[data-bulk-action="review-aliases-batch"]').click()
+    await page.locator(SEL.modalFooter).getByRole("button", { name: "确认采用" }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("已处理 1 个别名", { timeout: 10000 })
+    expect(batchRequests).toBe(1)
+
+    const aliases = await listAliases(testProjectId, { display_state: "active", limit: 100 })
+    const adopted = aliases.items.find((item) => item.alias === "自定义别名")
+    expect(adopted.alias_type).toBe("别称")
+    expect(adopted.status).toBe("canonical")
   })
 })

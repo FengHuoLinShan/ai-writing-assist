@@ -75,6 +75,23 @@ function getCurrentView() {
  */
 const _navListeners = []
 
+function _queueMapTelemetry(routeState) {
+  if (routeState?.viewName !== "map") {
+    delete globalThis.__mapTelemetryPendingNavigation
+    return
+  }
+  const mapId = routeState.query?.get?.("map_id") || null
+  if (!mapId) {
+    delete globalThis.__mapTelemetryPendingNavigation
+    return
+  }
+  globalThis.__mapTelemetryPendingNavigation = {
+    mapId,
+    route: _hashForRoute(routeState),
+    startedAt: globalThis.performance?.now?.() ?? Date.now(),
+  }
+}
+
 /**
  * 注册导航监听
  * @param {function} listener
@@ -503,7 +520,7 @@ async function renderCurrentView() {
   return true
 }
 
-async function navigate(viewName, subView = null, pushHistory = true, query = null) {
+async function _navigateWithHistory(viewName, subView, query, historyMode) {
   const routeState = _normalizeRoute({
     projectId: state.currentProjectId || null,
     viewName,
@@ -516,6 +533,7 @@ async function navigate(viewName, subView = null, pushHistory = true, query = nu
   }
 
   if (!_canLeaveCurrentRoute(routeState)) return false
+  _queueMapTelemetry(routeState)
 
   if (state.currentView) {
     if (state.currentView !== routeState.viewName || state.currentSubView !== routeState.subView) {
@@ -533,16 +551,39 @@ async function navigate(viewName, subView = null, pushHistory = true, query = nu
   }
 
   // 更新 URL hash
-  if (pushHistory) {
+  if (historyMode !== "none") {
     const hash = _hashForRoute(routeState)
     if (window.location.hash !== hash) {
-      window.history.pushState({ view: routeState.viewName, subView: routeState.subView, projectId: routeState.projectId }, "", hash)
+      const method = historyMode === "replace" ? "replaceState" : "pushState"
+      window.history[method]({
+        view: routeState.viewName,
+        subView: routeState.subView,
+        projectId: routeState.projectId,
+      }, "", hash)
     }
   }
 
   // 渲染
   await renderCurrentView()
   return true
+}
+
+async function navigate(viewName, subView = null, pushHistory = true, query = null) {
+  return _navigateWithHistory(
+    viewName,
+    subView,
+    query || new URLSearchParams(),
+    pushHistory ? "push" : "none",
+  )
+}
+
+async function replace(viewName, subView = null, query = null) {
+  return _navigateWithHistory(
+    viewName,
+    subView,
+    query || new URLSearchParams(),
+    "replace",
+  )
 }
 
 /**
@@ -571,6 +612,7 @@ async function _handlePopState() {
       _restoreRenderedRouteHash()
       return false
     }
+    _queueMapTelemetry(routeState)
     const canonicalHash = _hashForRoute(routeState)
     if (window.location.hash !== canonicalHash) {
       window.history.replaceState({ view: routeState.viewName, subView: routeState.subView, projectId: routeState.projectId }, "", canonicalHash)
@@ -598,6 +640,7 @@ async function initRouter() {
   let hash = window.location.hash.slice(1) || "project"
   let parsed = _parseHash(hash)
   let routeState = _normalizeRoute(parsed)
+  _queueMapTelemetry(routeState)
   let canonicalHash = _hashForRoute(routeState)
   if (window.location.hash !== canonicalHash) {
     window.history.replaceState({ view: routeState.viewName, subView: routeState.subView, projectId: routeState.projectId }, "", canonicalHash)
@@ -610,4 +653,4 @@ async function initRouter() {
 }
 
 // 导出
-window.router = { navigate, refresh, getCurrentView, getRoute, getSubViewTitle, registerView, onNavigate, initRouter, getLastSubView, renderCurrentView, getCurrentQuery }
+window.router = { navigate, replace, refresh, getCurrentView, getRoute, getSubViewTitle, registerView, onNavigate, initRouter, getLastSubView, renderCurrentView, getCurrentQuery }

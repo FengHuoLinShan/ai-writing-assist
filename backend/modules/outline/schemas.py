@@ -286,6 +286,38 @@ class SceneHealthSummary(BaseModel):
     breakdown: dict[str, int] = {}
 
 
+class SceneSpanSummary(BaseModel):
+    """Author-facing read-only explanation of one Scene text fragment."""
+
+    chapter_index: int
+    content_mode: str = "canonical"
+    part_no: int = 0
+    mapping_status: str = "chapter_only"
+    mapping_status_label: str = "仅关联章节"
+    start_offset: int | None = None
+    end_offset: int | None = None
+    start_paragraph: int | None = None
+    end_paragraph: int | None = None
+    anchor_excerpt: str | None = None
+    range_label: str
+
+
+class SceneSpanOverlapDetail(BaseModel):
+    """A precise overlap with another Scene in the same source version."""
+
+    counterpart_scene_id: str
+    counterpart_scene_title: str | None = None
+    counterpart_scene_label: str
+    chapter_index: int
+    scene_start_offset: int
+    scene_end_offset: int
+    counterpart_start_offset: int
+    counterpart_end_offset: int
+    overlap_start_offset: int
+    overlap_end_offset: int
+    range_label: str
+
+
 class SceneHealthReason(BaseModel):
     code: str
     label: str
@@ -303,6 +335,8 @@ class SceneWorkbenchItem(BaseModel):
     health_details: dict[str, list[SceneHealthReason]] = {}
     chapter_range: str = "未关联章节"
     summary: str | None = None
+    span_summaries: list[SceneSpanSummary] = []
+    overlap_details: list[SceneSpanOverlapDetail] = []
 
 
 class SceneFusionSuggestionSummary(BaseModel):

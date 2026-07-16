@@ -12,6 +12,9 @@
 
 ## 决策
 
+> 2026-07-15 补充：第 4 节中与世界书 AI 旧接口共存有关的 additive 决定已由
+> [ADR-0007](0007-world-generation-center-consolidation.md) 取代；本 ADR 的所有权与安全边界继续有效。
+
 ### 1. world 拥有资料，context 拥有激活
 
 - `world` 拥有页面 sections、页面模板、发布/revision、TargetRef 校验和可重建投影。

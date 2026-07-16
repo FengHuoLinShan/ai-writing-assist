@@ -13,6 +13,15 @@ from pydantic import BaseModel, Field
 
 from infrastructure.llm.token_estimation import estimate_token_count
 
+_LINE_ITEM_SOURCE_KEYS = frozenset(
+    {
+        "world_entities",
+        "open_narrative_obligations",
+        "retrieval_evidence_packs",
+        "pov_knowledge",
+    }
+)
+
 
 class Tier(IntEnum):
     """Context section priority tiers.
@@ -74,6 +83,17 @@ class CompiledContext(BaseModel):
     budget_events: list[ContextBudgetEvent] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     activation_trace: dict[str, Any] = Field(default_factory=dict)
+    selection_trace: dict[str, Any] = Field(default_factory=dict)
+
+    @staticmethod
+    def _sources_for_kept_lines(
+        section: ContextSection,
+        kept_line_count: int,
+    ) -> list[dict[str, Any]]:
+        """Keep item provenance aligned with one-line-per-item section content."""
+        if section.key not in _LINE_ITEM_SOURCE_KEYS:
+            return list(section.sources)
+        return list(section.sources[:kept_line_count])
 
     def enforce_budget(self) -> CompiledContext:
         """Evict sections by tier to fit within budget_tokens.
@@ -148,7 +168,7 @@ class CompiledContext(BaseModel):
                                 preview=s.preview,
                                 status=s.status,
                                 activation_reason=s.activation_reason,
-                                sources=s.sources,
+                                sources=self._sources_for_kept_lines(s, len(kept)),
                                 can_exclude=s.can_exclude,
                                 excluded=s.excluded,
                                 truncated_reason=truncated_reason,
@@ -204,7 +224,7 @@ class CompiledContext(BaseModel):
                             preview=s.preview,
                             status=s.status,
                             activation_reason=s.activation_reason,
-                            sources=s.sources,
+                            sources=self._sources_for_kept_lines(s, len(kept)),
                             can_exclude=s.can_exclude,
                             excluded=s.excluded,
                             truncated_reason="超过预算后保留前段摘要",
@@ -238,4 +258,5 @@ class CompiledContext(BaseModel):
             budget_events=budget_events,
             warnings=list(self.warnings),
             activation_trace=dict(self.activation_trace),
+            selection_trace=dict(self.selection_trace),
         )

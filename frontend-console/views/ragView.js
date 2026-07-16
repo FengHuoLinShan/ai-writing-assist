@@ -14,6 +14,9 @@ import {
 import { renderWorkflowCard } from "../shared/progressRenderer.js"
 
 const CHARACTER_PAGE_SIZE = 50
+const RAG_RESULT_PAGE_SIZE = 20
+const RAG_RESULT_FETCH_LIMIT = 100
+const RAG_SEARCH_SCOPES = Object.freeze(["manuscript", "world", "outline"])
 
 const ragView = {
   _totalChunks: null,
@@ -40,6 +43,15 @@ const ragView = {
   _characters: [],
   _scenes: [],
   _searchHits: [],
+  _searchVisibleCount: 0,
+  _searchTotal: 0,
+  _searchResultMeta: null,
+  _searchQuery: "",
+  _searchAbortController: null,
+  _searchGeneration: 0,
+  _drawerAbortController: null,
+  _drawerGeneration: 0,
+  _lastExecutedRouteSignature: "",
   _lastSearchPayload: null,
   _drawerRefs: [],
   _evidenceHealth: null,
@@ -51,6 +63,8 @@ const ragView = {
   async onEnter() {
     this._loading = true
     this._taskRetryPending = false
+    this._resetSearchState()
+    if (this._abortController) this._abortController.abort()
     this._abortController = new AbortController()
     if (!state.currentProjectId) {
       this._totalChunks = null
@@ -157,6 +171,10 @@ const ragView = {
 
   onLeave() {
     this._stopRebuildPolling()
+    this._cancelActiveSearch()
+    this._cancelActiveDrawer()
+    this._searchGeneration += 1
+    this._lastExecutedRouteSignature = ""
     if (this._abortController) {
       this._abortController.abort()
       this._abortController = null
@@ -205,6 +223,7 @@ const ragView = {
 
   onRendered() {
     this._bindEvents()
+    this._restoreSearchFromRoute()
   },
 
   _renderStatus() {
@@ -257,11 +276,11 @@ const ragView = {
       </div>
       <div class="rag-rebuild-form">
         <div class="rag-rebuild-range">
-          <label>正文版本</label>
+          <label for="rag-rebuild-content-mode">正文版本</label>
           <select class="form-input rag-rebuild-input" id="rag-rebuild-content-mode"><option value="canonical">已发布</option><option value="working">工作稿</option></select>
-          <label>起始章节</label>
+          <label for="rag-rebuild-start">起始章节</label>
           <input class="form-input rag-rebuild-input" id="rag-rebuild-start" type="number" min="1" placeholder="起始" />
-          <label>结束章节</label>
+          <label for="rag-rebuild-end">结束章节</label>
           <input class="form-input rag-rebuild-input" id="rag-rebuild-end" type="number" min="1" placeholder="结束" />
         </div>
         <button class="btn" data-action="nav-search">返回检索</button>
@@ -655,66 +674,82 @@ const ragView = {
   },
 
   _renderSearch() {
+    const routeState = this._searchRouteState()
+    const advancedSummary = this._advancedFilterSummary(routeState)
+    const advancedOpen = advancedSummary.length > 0
     const characterOptions = (this._characters || []).map((item) => {
       const id = item.id || item.entity_id || ""
-      return `<option value="${esc(id)}">${esc(item.name || "未命名人物")}</option>`
+      const selected = routeState.characterId === id ? " selected" : ""
+      return `<option value="${esc(id)}"${selected}>${esc(item.name || "未命名人物")}</option>`
     }).join("")
     const sceneOptions = (this._scenes || []).map((item) => {
       const id = item.id || ""
       const title = item.title || `Scene ${item.scene_index ?? "-"}`
       const chapters = (item.chapter_ids || []).join("/")
-      return `<option value="${esc(id)}">${esc(title)}${chapters ? ` · 第 ${esc(chapters)} 章` : ""}</option>`
+      const selected = routeState.cutoffSceneId === id ? " selected" : ""
+      return `<option value="${esc(id)}"${selected}>${esc(title)}${chapters ? ` · 第 ${esc(chapters)} 章` : ""}</option>`
     }).join("")
+    const selected = (value, expected) => value === expected ? " selected" : ""
+    const checked = (value) => value ? " checked" : ""
     return `
       <div class="card novel-search-panel">
-        <div class="card-title">在小说中查找原文与设定证据</div>
+        <div class="card-title">查找小说资料</div>
+        <p class="rag-empty-copy">回查人物、场景、设定和原文出处，为当前创作核对事实。</p>
         <div class="rag-search-form">
-          <input class="form-input" id="rag-search-input" placeholder="输入原文、对象或结构关键词…" value="${esc(state.searchQuery || "")}" />
+          <input class="form-input" id="rag-search-input" aria-label="检索关键词" placeholder="输入原文、对象或结构关键词…" value="${esc(routeState.query)}" />
           <button class="btn btn-primary" data-action="do-search">检索</button>
         </div>
         <div class="novel-search-filters">
           <label>检索方式
             <select class="form-input" id="rag-search-kind">
-              <option value="smart">智能搜索</option>
-              <option value="literal">字面搜索</option>
+              <option value="smart"${selected(routeState.searchKind, "smart")}>智能搜索</option>
+              <option value="literal"${selected(routeState.searchKind, "literal")}>字面搜索</option>
             </select>
           </label>
           <label>正文版本
             <select class="form-input" id="rag-content-mode">
-              <option value="canonical">已发布</option>
-              <option value="working">最新工作稿</option>
+              <option value="canonical"${selected(routeState.contentMode, "canonical")}>已发布</option>
+              <option value="working"${selected(routeState.contentMode, "working")}>最新工作稿</option>
             </select>
-          </label>
-          <label>可见视角
-            <select class="form-input" id="rag-visibility-mode" data-action="visibility-change">
-              <option value="author">作者</option>
-              <option value="reader">读者</option>
-              <option value="character">角色</option>
-            </select>
-          </label>
-          <label>起始章 <input class="form-input" id="rag-chapter-from" type="number" min="1" placeholder="可选" /></label>
-          <label>结束章 <input class="form-input" id="rag-chapter-to" type="number" min="1" placeholder="可选" /></label>
-          <label id="rag-cutoff-field" hidden>可见截止章 <input class="form-input" id="rag-cutoff-chapter" type="number" min="1" /></label>
-          <label id="rag-cutoff-scene-field" hidden>截止 Scene
-            <select class="form-input" id="rag-cutoff-scene-id"><option value="">可选</option>${sceneOptions}</select>
-          </label>
-          <label id="rag-cutoff-offset-field" hidden>章内截止位置 <input class="form-input" id="rag-cutoff-offset" type="number" min="0" placeholder="可选字符偏移" /></label>
-          <label id="rag-character-field" hidden>视角人物
-            <select class="form-input" id="rag-character-id"><option value="">请选择</option>${characterOptions}</select>
           </label>
         </div>
         <p class="rag-search-kind-help" id="rag-search-kind-help">
           智能搜索：按语义相关性查找，并把同一章的相关片段聚合显示。
         </p>
-        <div class="novel-search-scopes">
-          <span>检索范围</span>
-          <label><input type="checkbox" data-search-scope="manuscript" checked /> 正文</label>
-          <label><input type="checkbox" data-search-scope="world" /> 世界对象</label>
-          <label><input type="checkbox" data-search-scope="outline" /> 结构</label>
-          <label title="待处理内容尚未采用，纳入后需人工检查">
-            <input type="checkbox" id="rag-include-pending" /> 包含待处理世界对象
-          </label>
-        </div>
+        <details class="rag-advanced-filters" data-role="rag-advanced-filters"${advancedOpen ? " open" : ""}>
+          <summary>
+            <span>高级筛选</span>
+            <span data-role="rag-advanced-summary">${advancedSummary.length ? ` · ${esc(advancedSummary.join("、"))}` : ""}</span>
+          </summary>
+          <div class="novel-search-filters">
+            <label>可见视角
+              <select class="form-input" id="rag-visibility-mode" data-rag-advanced-filter>
+                <option value="author"${selected(routeState.visibilityMode, "author")}>作者</option>
+                <option value="reader"${selected(routeState.visibilityMode, "reader")}>读者</option>
+                <option value="character"${selected(routeState.visibilityMode, "character")}>角色</option>
+              </select>
+            </label>
+            <label>起始章 <input class="form-input" id="rag-chapter-from" data-rag-advanced-filter type="number" min="1" placeholder="可选" value="${esc(routeState.chapterFrom || "")}" /></label>
+            <label>结束章 <input class="form-input" id="rag-chapter-to" data-rag-advanced-filter type="number" min="1" placeholder="可选" value="${esc(routeState.chapterTo || "")}" /></label>
+            <label id="rag-cutoff-field" hidden>可见截止章 <input class="form-input" id="rag-cutoff-chapter" data-rag-advanced-filter type="number" min="1" value="${esc(routeState.cutoffChapter || "")}" /></label>
+            <label id="rag-cutoff-scene-field" hidden>截止 Scene
+              <select class="form-input" id="rag-cutoff-scene-id" data-rag-advanced-filter><option value="">可选</option>${sceneOptions}</select>
+            </label>
+            <label id="rag-cutoff-offset-field" hidden>章内截止位置 <input class="form-input" id="rag-cutoff-offset" data-rag-advanced-filter type="number" min="0" placeholder="可选字符偏移" value="${esc(routeState.cutoffOffset ?? "")}" /></label>
+            <label id="rag-character-field" hidden>视角人物
+              <select class="form-input" id="rag-character-id" data-rag-advanced-filter><option value="">请选择</option>${characterOptions}</select>
+            </label>
+          </div>
+          <div class="novel-search-scopes">
+            <span>检索范围</span>
+            <label><input type="checkbox" data-search-scope="manuscript" data-rag-advanced-filter${checked(routeState.scopes.includes("manuscript"))} /> 正文</label>
+            <label><input type="checkbox" data-search-scope="world" data-rag-advanced-filter${checked(routeState.scopes.includes("world"))} /> 世界对象</label>
+            <label><input type="checkbox" data-search-scope="outline" data-rag-advanced-filter${checked(routeState.scopes.includes("outline"))} /> 结构</label>
+            <label title="待处理内容尚未采用，纳入后需人工检查">
+              <input type="checkbox" id="rag-include-pending" data-rag-advanced-filter${checked(routeState.includePending)} /> 包含待处理世界对象
+            </label>
+          </div>
+        </details>
       </div>
       <div id="rag-results">
         <div class="empty-state">
@@ -724,10 +759,225 @@ const ragView = {
     `
   },
 
-  async _doSearch(query) {
+  _resetSearchState() {
+    this._cancelActiveSearch()
+    this._cancelActiveDrawer()
+    this._searchGeneration += 1
+    this._searchHits = []
+    this._searchVisibleCount = 0
+    this._searchTotal = 0
+    this._searchResultMeta = null
+    this._searchQuery = ""
+    this._lastSearchPayload = null
+    this._lastExecutedRouteSignature = ""
+    this._drawerRefs = []
+  },
+
+  _advancedFilterSummary(filterState = {}) {
+    const summary = []
+    const chapterFrom = Number(filterState.chapterFrom) || null
+    const chapterTo = Number(filterState.chapterTo) || null
+    if (chapterFrom && chapterTo) summary.push(`第 ${chapterFrom}–${chapterTo} 章`)
+    else if (chapterFrom) summary.push(`第 ${chapterFrom} 章起`)
+    else if (chapterTo) summary.push(`截至第 ${chapterTo} 章`)
+
+    const visibilityMode = filterState.visibilityMode || "author"
+    if (visibilityMode === "reader") summary.push("读者视角")
+    if (visibilityMode === "character") {
+      const character = (this._characters || []).find((item) => (
+        (item.id || item.entity_id) === filterState.characterId
+      ))
+      summary.push(character?.name ? `角色视角：${character.name}` : "角色视角")
+    }
+    if (filterState.cutoffChapter) summary.push(`可见至第 ${filterState.cutoffChapter} 章`)
+    if (filterState.cutoffSceneId) {
+      const scene = (this._scenes || []).find((item) => item.id === filterState.cutoffSceneId)
+      summary.push(scene?.title ? `可见至 ${scene.title}` : "已设置 Scene 截止点")
+    }
+    if (filterState.cutoffOffset != null && filterState.cutoffOffset !== "") {
+      summary.push(`章内位置 ${filterState.cutoffOffset}`)
+    }
+
+    const scopes = Array.isArray(filterState.scopes) ? filterState.scopes : ["manuscript"]
+    if (scopes.length !== 1 || scopes[0] !== "manuscript") {
+      const labels = { manuscript: "正文", world: "世界对象", outline: "结构" }
+      summary.push(`范围：${scopes.map((scope) => labels[scope] || scope).join("、")}`)
+    }
+    if (filterState.includePending) summary.push("含待处理对象")
+    return summary
+  },
+
+  _advancedFilterStateFromForm() {
+    const value = (id) => document.getElementById(id)?.value || ""
+    const scopes = [...document.querySelectorAll("[data-search-scope]:checked")]
+      .map((item) => item.dataset.searchScope)
+    return {
+      visibilityMode: value("rag-visibility-mode") || "author",
+      chapterFrom: value("rag-chapter-from"),
+      chapterTo: value("rag-chapter-to"),
+      cutoffChapter: value("rag-cutoff-chapter"),
+      cutoffSceneId: value("rag-cutoff-scene-id"),
+      cutoffOffset: value("rag-cutoff-offset"),
+      characterId: value("rag-character-id"),
+      scopes: scopes.length ? scopes : ["manuscript"],
+      includePending: Boolean(document.getElementById("rag-include-pending")?.checked),
+    }
+  },
+
+  _refreshAdvancedFilterSummary() {
+    const summaryNode = document.querySelector('[data-role="rag-advanced-summary"]')
+    const details = document.querySelector('[data-role="rag-advanced-filters"]')
+    if (!summaryNode || !details) return
+    const summary = this._advancedFilterSummary(this._advancedFilterStateFromForm())
+    summaryNode.textContent = summary.length ? ` · ${summary.join("、")}` : ""
+    if (summary.length) details.open = true
+  },
+
+  _cancelActiveSearch() {
+    if (!this._searchAbortController) return
+    this._searchAbortController.abort()
+    this._searchAbortController = null
+  },
+
+  _cancelActiveDrawer() {
+    if (this._drawerAbortController) this._drawerAbortController.abort()
+    this._drawerAbortController = null
+    this._drawerGeneration += 1
+  },
+
+  _beginDrawerRequest(drawer = document.getElementById("rag-evidence-drawer")) {
+    this._cancelActiveDrawer()
+    const controller = new AbortController()
+    const request = {
+      controller,
+      drawer,
+      generation: this._drawerGeneration,
+      projectId: state.currentProjectId,
+    }
+    this._drawerAbortController = controller
+    return request
+  },
+
+  _isDrawerRequestCurrent(request) {
+    return Boolean(
+      request
+      && !request.controller.signal.aborted
+      && request.generation === this._drawerGeneration
+      && request.projectId === state.currentProjectId
+      && (
+        request.drawer == null
+        || (
+          request.drawer.isConnected
+          && request.drawer === document.getElementById("rag-evidence-drawer")
+        )
+      )
+    )
+  },
+
+  _searchRouteState() {
+    const current = router.getCurrentQuery ? router.getCurrentQuery() : new URLSearchParams()
+    const query = new URLSearchParams(current?.toString ? current.toString() : "")
+    const positiveInteger = (name) => {
+      const value = Number(query.get(name))
+      return Number.isInteger(value) && value >= 1 ? value : null
+    }
+    const nonNegativeInteger = (name) => {
+      const raw = query.get(name)
+      if (raw == null || raw === "") return null
+      const value = Number(raw)
+      return Number.isInteger(value) && value >= 0 ? value : null
+    }
+    const rawScopes = query.getAll("scope").filter(
+      (scope) => RAG_SEARCH_SCOPES.includes(scope),
+    )
+    return {
+      query: query.get("q") || "",
+      searchKind: query.get("kind") === "literal" ? "literal" : "smart",
+      contentMode: query.get("content_mode") === "working" ? "working" : "canonical",
+      visibilityMode: ["reader", "character"].includes(query.get("visibility"))
+        ? query.get("visibility")
+        : "author",
+      chapterFrom: positiveInteger("chapter_from"),
+      chapterTo: positiveInteger("chapter_to"),
+      cutoffChapter: positiveInteger("cutoff_chapter"),
+      cutoffSceneId: query.get("cutoff_scene_id") || "",
+      cutoffOffset: nonNegativeInteger("cutoff_offset"),
+      characterId: query.get("character_id") || "",
+      scopes: rawScopes.length ? [...new Set(rawScopes)] : ["manuscript"],
+      includePending: query.get("include_pending") === "1",
+      signature: query.toString(),
+    }
+  },
+
+  _searchRouteQuery(query) {
+    const payload = this._buildEvidencePayload(query)
+    if (!payload) return null
+    const route = new URLSearchParams()
+    route.set("q", query)
+    route.set("kind", payload.search_kind)
+    route.set("content_mode", payload.content_mode)
+    route.set("visibility", payload.visibility.mode)
+    for (const scope of payload.scopes) route.append("scope", scope)
+    if (payload.chapter_from != null) route.set("chapter_from", String(payload.chapter_from))
+    if (payload.chapter_to != null) route.set("chapter_to", String(payload.chapter_to))
+    if (payload.visibility.cutoff_chapter != null) {
+      route.set("cutoff_chapter", String(payload.visibility.cutoff_chapter))
+    }
+    if (payload.visibility.cutoff_scene_id) {
+      route.set("cutoff_scene_id", payload.visibility.cutoff_scene_id)
+    }
+    if (payload.visibility.cutoff_offset != null) {
+      route.set("cutoff_offset", String(payload.visibility.cutoff_offset))
+    }
+    if (payload.visibility.character_id) {
+      route.set("character_id", payload.visibility.character_id)
+    }
+    if (payload.include_pending_objects) route.set("include_pending", "1")
+    return route
+  },
+
+  async _submitSearchFromForm() {
+    const query = document.getElementById("rag-search-input")?.value?.trim() || ""
+    if (!query) return
+    const route = this._searchRouteQuery(query)
+    if (!route) return
+    const signature = route.toString()
+    state.searchQuery = query
+    if (router.getCurrentQuery?.().toString() === signature) {
+      this._lastExecutedRouteSignature = signature
+      await this._doSearch(query, { routeSignature: signature })
+      return
+    }
+    await router.navigate("rag", "search", true, route)
+  },
+
+  _restoreSearchFromRoute() {
+    if (state.currentView !== "rag" || state.currentSubView !== "search") return
+    const routeState = this._searchRouteState()
+    if (!routeState.query) {
+      this._resetSearchState()
+      state.searchQuery = ""
+      const input = document.getElementById("rag-search-input")
+      if (input) input.value = ""
+      return
+    }
+    if (routeState.signature === this._lastExecutedRouteSignature) return
+    this._lastExecutedRouteSignature = routeState.signature
+    state.searchQuery = routeState.query
+    void this._doSearch(routeState.query, { routeSignature: routeState.signature })
+  },
+
+  async _doSearch(query, { routeSignature = "" } = {}) {
     const results = document.getElementById("rag-results")
     if (!results || !query) return
 
+    this._cancelActiveSearch()
+    const controller = new AbortController()
+    const generation = ++this._searchGeneration
+    const projectId = state.currentProjectId
+    this._searchAbortController = controller
+    this._searchQuery = query
+    if (routeSignature) this._lastExecutedRouteSignature = routeSignature
     results.innerHTML = '<div class="loading">搜索中</div>'
 
     try {
@@ -737,7 +987,7 @@ const ragView = {
         return
       }
       this._lastSearchPayload = payload
-      const options = { signal: this._ensureAbortController().signal }
+      const options = { signal: controller.signal }
       let data
       if (payload.search_kind === "literal" && api.context?.grepEvidence) {
         const {
@@ -760,52 +1010,146 @@ const ragView = {
       } else {
         throw new Error("证据检索接口不可用，已停止使用未校验的旧索引结果")
       }
+      if (
+        controller.signal.aborted
+        || generation !== this._searchGeneration
+        || projectId !== state.currentProjectId
+      ) return
       const rawHits = Array.isArray(data?.hits)
         ? data.hits
         : (Array.isArray(data?.chunks) ? data.chunks : (Array.isArray(data) ? data : []))
       this._searchHits = rawHits.map((item) => this._normalizeEvidenceHit(item))
-      const warningHtml = this._renderSearchWarnings(data)
-      if (this._searchHits.length === 0) {
-        results.innerHTML = `${warningHtml}<div class="empty-state"><p class="rag-search-empty">未找到匹配结果</p></div>`
-        return
-      }
-
-      let html = `<div class="rag-results-list">${warningHtml}`
-      const chapterResultCount = this._searchHits.filter((hit) => hit.chapter_index).length
-      const resultLabel = chapterResultCount === this._searchHits.length ? "个章节结果" : "条结果"
-      html += `<p class="rag-result-count">找到 ${esc(String(data?.total ?? this._searchHits.length))} ${resultLabel}</p>`
-      for (const [index, hit] of this._searchHits.entries()) {
-        const score = hit.score || ""
-        const mode = hit.source_ref?.content_mode === "working" ? "工作稿" : "已发布"
-        const kind = { manuscript: "正文", world_object: "世界对象", outline_asset: "结构" }[hit.kind] || hit.kind
-        html += `
-          <article class="card rag-result-card">
-            <div class="card-title rag-result-title">
-              <span>${esc(hit.title || "检索结果")}</span>
-              ${score ? `<span class="rag-result-score">${(score * 100).toFixed(0)}%</span>` : ""}
-            </div>
-            <p class="rag-result-text">${this._highlightSnippet(hit.snippet, query)}</p>
-            <div class="card-meta">
-              ${esc(kind)}
-              ${hit.chapter_index ? ` · 第 ${esc(String(hit.chapter_index))} 章` : ""}
-              ${hit.match_count > 1 ? ` · ${hit.match_basis === "occurrence" ? `本章 ${esc(String(hit.match_count))} 处命中` : `聚合 ${esc(String(hit.match_count))} 个相关片段`}` : ""}
-              ${hit.source_ref ? ` · ${mode} v${esc(String(hit.source_ref.version_number || "-"))}` : ""}
-              ${hit.index_fresh === false ? " · 索引待更新" : ""}
-              ${(hit.scene_refs || []).length ? ` · Scene ${esc(String(hit.scene_refs.length))}` : ""}
-              ${(hit.object_refs || []).length ? ` · 对象 ${esc(String(hit.object_refs.length))}` : ""}
-            </div>
-            <div class="rag-result-actions">
-              <button class="btn btn-sm" data-action="open-hit" data-hit-index="${index}">${hit.source_ref ? "阅读原文" : "查看对象"}</button>
-              ${(hit.object_refs || []).length ? `<button class="btn btn-sm" data-action="trace-hit" data-hit-index="${index}">追踪证据</button>` : ""}
-            </div>
-          </article>
-        `
-      }
-      html += '</div><aside id="rag-evidence-drawer" class="novel-evidence-drawer" hidden></aside>'
-      results.innerHTML = html
+      this._searchVisibleCount = Math.min(RAG_RESULT_PAGE_SIZE, this._searchHits.length)
+      this._searchTotal = Number.isFinite(Number(data?.total))
+        ? Math.max(this._searchHits.length, Number(data.total))
+        : this._searchHits.length
+      this._searchResultMeta = data || {}
+      this._searchQuery = query
+      this._renderSearchResults()
     } catch (err) {
-      results.innerHTML = `<div class="empty-state"><p class="rag-error-text">搜索失败：${esc(err.message)}</p></div>`
+      if (
+        controller.signal.aborted
+        || generation !== this._searchGeneration
+        || projectId !== state.currentProjectId
+        || err?.name === "AbortError"
+      ) return
+      results.innerHTML = this._renderSearchError(err)
+    } finally {
+      if (this._searchAbortController === controller) this._searchAbortController = null
     }
+  },
+
+  _renderSearchError(error) {
+    const message = String(error?.message || "").toLowerCase()
+    const status = Number(error?.status || error?.statusCode)
+    const timeout = message.includes("超时") || message.includes("timeout")
+    const missingInterface = message.includes("证据检索接口不可用")
+    const unavailable = [502, 503, 504].includes(status)
+      || message.includes("network")
+      || message.includes("网络")
+      || message.includes("暂时不可用")
+    const reason = missingInterface
+      ? "证据检索接口不可用，本次未展示未经校验的旧索引结果。"
+      : (timeout
+          ? "请求等待时间过长，可能是索引繁忙或连接暂时不可用。"
+          : (unavailable
+              ? "检索服务暂时不可用，可以稍后重试。"
+              : "本次检索请求未能完成，可以使用原条件重试。"))
+    const searchKind = document.getElementById("rag-search-kind")?.value
+      || this._lastSearchPayload?.search_kind
+      || "smart"
+    return `
+      <section class="card rag-search-error" role="alert">
+        <div class="card-title">暂时无法完成检索</div>
+        <p class="rag-error-text">${esc(reason)}</p>
+        <p class="rag-empty-copy">关键词和筛选条件已保留，失败不会被记作空结果。</p>
+        <div class="rag-result-actions">
+          <button class="btn btn-primary" data-action="retry-search">重试</button>
+          ${searchKind === "literal" ? "" : '<button class="btn" data-action="retry-literal-search">切换字面搜索重试</button>'}
+        </div>
+      </section>
+    `
+  },
+
+  async _retrySearch({ literal = false } = {}) {
+    const input = document.getElementById("rag-search-input")
+    const query = input?.value?.trim()
+      || this._lastSearchPayload?.query
+      || this._searchQuery
+      || this._searchRouteState().query
+    if (!query) return
+    if (literal) {
+      const searchKind = document.getElementById("rag-search-kind")
+      if (searchKind) searchKind.value = "literal"
+      this._toggleSearchScopes("literal")
+      this._updateSearchKindHelp("literal")
+      this._refreshAdvancedFilterSummary()
+    }
+    return this._submitSearchFromForm()
+  },
+
+  _renderSearchResults() {
+    const results = document.getElementById("rag-results")
+    if (!results) return
+    const warningHtml = this._renderSearchWarnings(this._searchResultMeta || {})
+    if (this._searchHits.length === 0) {
+      results.innerHTML = `${warningHtml}<div class="empty-state"><p class="rag-search-empty">未找到匹配结果</p></div>`
+      return
+    }
+
+    const visibleHits = this._searchHits.slice(0, this._searchVisibleCount)
+    let html = `<div class="rag-results-list">${warningHtml}`
+    const chapterResultCount = this._searchHits.filter((hit) => hit.chapter_index).length
+    const resultLabel = chapterResultCount === this._searchHits.length ? "个章节结果" : "条结果"
+    html += `<p class="rag-result-count">找到 ${esc(String(this._searchTotal))} ${resultLabel} · 已显示 ${esc(String(visibleHits.length))}</p>`
+    for (const [index, hit] of visibleHits.entries()) {
+      const score = hit.score || ""
+      const mode = hit.source_ref?.content_mode === "working" ? "工作稿" : "已发布"
+      const kind = { manuscript: "正文", world_object: "世界对象", outline_asset: "结构" }[hit.kind] || hit.kind
+      html += `
+        <article class="card rag-result-card">
+          <div class="card-title rag-result-title">
+            <span>${esc(hit.title || "检索结果")}</span>
+            ${score ? `<span class="rag-result-score">${(score * 100).toFixed(0)}%</span>` : ""}
+          </div>
+          <p class="rag-result-text">${this._highlightSnippet(hit.snippet, this._searchQuery)}</p>
+          <div class="card-meta">
+            ${esc(kind)}
+            ${hit.chapter_index ? ` · 第 ${esc(String(hit.chapter_index))} 章` : ""}
+            ${hit.match_count > 1 ? ` · ${hit.match_basis === "occurrence" ? `本章 ${esc(String(hit.match_count))} 处命中` : `聚合 ${esc(String(hit.match_count))} 个相关片段`}` : ""}
+            ${hit.source_ref ? ` · ${mode} v${esc(String(hit.source_ref.version_number || "-"))}` : ""}
+            ${hit.index_fresh === false ? " · 索引待更新" : ""}
+            ${(hit.scene_refs || []).length ? ` · Scene ${esc(String(hit.scene_refs.length))}` : ""}
+            ${(hit.object_refs || []).length ? ` · 对象 ${esc(String(hit.object_refs.length))}` : ""}
+          </div>
+          <div class="rag-result-actions">
+            <button class="btn btn-sm" data-action="open-hit" data-hit-index="${index}">${hit.source_ref ? "阅读原文" : "查看对象"}</button>
+            ${(hit.object_refs || []).length ? `<button class="btn btn-sm" data-action="trace-hit" data-hit-index="${index}">追踪证据</button>` : ""}
+          </div>
+        </article>
+      `
+    }
+    const remaining = Math.max(0, this._searchHits.length - visibleHits.length)
+    if (remaining > 0) {
+      html += `
+        <div class="rag-load-more">
+          <button class="btn" data-action="load-more-results">加载更多</button>
+          <span>还有 ${esc(String(remaining))} 条已获取结果</span>
+        </div>
+      `
+    } else if (this._searchTotal > this._searchHits.length) {
+      html += `<p class="rag-search-limit-note">已显示本次返回的 ${esc(String(this._searchHits.length))} 条结果；可缩小章节或检索范围继续查找。</p>`
+    }
+    html += '</div><aside id="rag-evidence-drawer" class="novel-evidence-drawer" hidden></aside>'
+    results.innerHTML = html
+  },
+
+  _loadMoreSearchResults() {
+    this._searchVisibleCount = Math.min(
+      this._searchHits.length,
+      this._searchVisibleCount + RAG_RESULT_PAGE_SIZE,
+    )
+    this._renderSearchResults()
   },
 
   _buildEvidencePayload(query) {
@@ -816,8 +1160,11 @@ const ragView = {
     }
     const mode = value("rag-visibility-mode") || "author"
     const cutoffChapter = integer("rag-cutoff-chapter")
-    const cutoffOffsetValue = Number(value("rag-cutoff-offset"))
-    const cutoffOffset = Number.isInteger(cutoffOffsetValue) && cutoffOffsetValue >= 0
+    const cutoffOffsetRaw = value("rag-cutoff-offset").trim()
+    const cutoffOffsetValue = Number(cutoffOffsetRaw)
+    const cutoffOffset = cutoffOffsetRaw
+      && Number.isInteger(cutoffOffsetValue)
+      && cutoffOffsetValue >= 0
       ? cutoffOffsetValue
       : null
     const characterId = value("rag-character-id") || null
@@ -847,7 +1194,7 @@ const ragView = {
       include_pending_objects: Boolean(document.getElementById("rag-include-pending")?.checked),
       chapter_from: integer("rag-chapter-from"),
       chapter_to: integer("rag-chapter-to"),
-      top_k: 100,
+      top_k: RAG_RESULT_FETCH_LIMIT,
     }
   },
 
@@ -870,7 +1217,7 @@ const ragView = {
     if (!data.degraded && !(data.warnings || []).length) return ""
     const warnings = (data.warnings || []).map((warning) => esc(warning)).join("<br>")
     return `
-      <div class="card rag-result-card rag-status-warning-card">
+      <div class="card rag-search-warning rag-status-warning-card">
         <div class="card-title rag-status-warning-title">本次结果可能不准确</div>
         <p class="rag-empty-copy">${warnings || "检索已降级，请检查索引任务结果。"}</p>
       </div>
@@ -894,18 +1241,20 @@ const ragView = {
     const hit = this._searchHits[Number(index)]
     const drawer = document.getElementById("rag-evidence-drawer")
     if (!hit || !drawer) return
+    const request = this._beginDrawerRequest(drawer)
     drawer.hidden = false
     drawer.innerHTML = '<div class="loading">读取中</div>'
     try {
       if (hit.source_ref) {
         const result = await api.context.readEvidence({
-          novel_id: state.currentProjectId,
+          novel_id: request.projectId,
           content_mode: hit.source_ref.content_mode,
           visibility: this._visibilityFromLastSearch(),
           source_ref: hit.source_ref,
           before: 3,
           after: 3,
-        }, { signal: this._ensureAbortController().signal })
+        }, { signal: request.controller.signal })
+        if (!this._isDrawerRequestCurrent(request)) return
         this._drawerRefs = [...(result.scene_refs || []), ...(result.object_refs || [])]
         const text = String(result.text || "")
         const start = Math.max(0, Number(result.highlight_start) || 0)
@@ -920,11 +1269,12 @@ const ragView = {
         `
       } else if (hit.target_ref) {
         const result = await api.context.inspectEvidence({
-          novel_id: state.currentProjectId,
+          novel_id: request.projectId,
           content_mode: this._lastSearchPayload?.content_mode || "canonical",
           visibility: this._visibilityFromLastSearch(),
           target_ref: hit.target_ref,
-        }, { signal: this._ensureAbortController().signal })
+        }, { signal: request.controller.signal })
+        if (!this._isDrawerRequestCurrent(request)) return
         this._drawerRefs = [{ ...hit.target_ref, target_name: hit.title || "" }]
         drawer.innerHTML = `
           <div class="novel-evidence-drawer__header"><strong>${esc(hit.title)}</strong><button class="btn btn-sm" data-action="close-drawer">关闭</button></div>
@@ -935,7 +1285,10 @@ const ragView = {
         `
       }
     } catch (err) {
+      if (!this._isDrawerRequestCurrent(request) || err?.name === "AbortError") return
       drawer.innerHTML = `<p class="rag-error-text">读取失败：${esc(err.message)}</p>`
+    } finally {
+      if (this._drawerAbortController === request.controller) this._drawerAbortController = null
     }
   },
 
@@ -958,23 +1311,28 @@ const ragView = {
   async _navigateObjectRef(index) {
     const ref = this._drawerRefs[Number(index)]
     if (!ref?.target_id) return
+    const request = this._beginDrawerRequest()
     let label = ref.target_name || ref.name || ""
     if (!label && api.context?.inspectEvidence) {
       try {
         const result = await api.context.inspectEvidence({
-          novel_id: state.currentProjectId,
+          novel_id: request.projectId,
           content_mode: this._lastSearchPayload?.content_mode || "canonical",
           visibility: this._visibilityFromLastSearch(),
           target_ref: ref,
-        }, { signal: this._ensureAbortController().signal })
+        }, { signal: request.controller.signal })
+        if (!this._isDrawerRequestCurrent(request)) return
         label = result.item?.name || ""
-      } catch {
+      } catch (err) {
+        if (!this._isDrawerRequestCurrent(request) || err?.name === "AbortError") return
         // A stable object jump is still possible by ID if inspection is unavailable.
       }
     }
+    if (!this._isDrawerRequestCurrent(request)) return
     const query = new URLSearchParams()
     query.set("q", label || ref.target_id)
     router.navigate("world", "objects", true, query)
+    if (this._drawerAbortController === request.controller) this._drawerAbortController = null
   },
 
   async _traceHit(index) {
@@ -989,23 +1347,28 @@ const ragView = {
     const ref = this._drawerRefs[Number(index)]
     const drawer = document.getElementById("rag-evidence-drawer")
     if (!ref || !drawer) return
+    const request = this._beginDrawerRequest(drawer)
     drawer.hidden = false
     drawer.innerHTML = '<div class="loading">追踪中</div>'
     try {
       const result = await api.context.traceEvidence({
-        novel_id: state.currentProjectId,
+        novel_id: request.projectId,
         content_mode: this._lastSearchPayload?.content_mode || "canonical",
         visibility: this._visibilityFromLastSearch(),
         target_ref: ref,
         claim_path: ref.target_path || "",
-      }, { signal: this._ensureAbortController().signal })
+      }, { signal: request.controller.signal })
+      if (!this._isDrawerRequestCurrent(request)) return
       drawer.innerHTML = `
         <div class="novel-evidence-drawer__header"><strong>证据链</strong><button class="btn btn-sm" data-action="close-drawer">关闭</button></div>
         ${(result.links || []).map((link) => `<article class="novel-evidence-trace"><p>${esc(link.read?.text || (link.status === "needs_review" ? "待人工定位原文" : ""))}</p><small>第 ${esc(String(link.source_ref?.chapter_index || "-"))} 章 · ${esc(link.precision || "range")}</small></article>`).join("") || '<p class="rag-search-empty">暂无当前视角可见的原文证据</p>'}
         ${(result.warnings || []).map((item) => `<p class="rag-diagnostics-warning">${esc(item)}</p>`).join("")}
       `
     } catch (err) {
+      if (!this._isDrawerRequestCurrent(request) || err?.name === "AbortError") return
       drawer.innerHTML = `<p class="rag-error-text">追踪失败：${esc(err.message)}</p>`
+    } finally {
+      if (this._drawerAbortController === request.controller) this._drawerAbortController = null
     }
   },
 
@@ -1106,13 +1469,16 @@ const ragView = {
     if (searchInput) {
       searchInput.removeEventListener("keydown", this._searchEnterHandler)
       this._searchEnterHandler = (e) => {
-        if (e.key === "Enter") this._doSearch(searchInput.value)
+        if (e.key === "Enter") void this._submitSearchFromForm()
       }
       searchInput.addEventListener("keydown", this._searchEnterHandler)
     }
     const visibilitySelect = document.getElementById("rag-visibility-mode")
     if (visibilitySelect) {
-      visibilitySelect.onchange = () => this._toggleVisibilityFields(visibilitySelect.value)
+      visibilitySelect.onchange = () => {
+        this._toggleVisibilityFields(visibilitySelect.value)
+        this._refreshAdvancedFilterSummary()
+      }
       this._toggleVisibilityFields(visibilitySelect.value)
     }
     const searchKindSelect = document.getElementById("rag-search-kind")
@@ -1120,6 +1486,7 @@ const ragView = {
       searchKindSelect.onchange = () => {
         this._toggleSearchScopes(searchKindSelect.value)
         this._updateSearchKindHelp(searchKindSelect.value)
+        this._refreshAdvancedFilterSummary()
       }
       this._toggleSearchScopes(searchKindSelect.value)
       this._updateSearchKindHelp(searchKindSelect.value)
@@ -1128,10 +1495,10 @@ const ragView = {
     bindWorkspaceClick(this, {
       "nav-status": () => router.navigate("rag", "status"),
       "nav-search": () => router.navigate("rag", "search"),
-      "do-search": () => {
-        const val = document.getElementById("rag-search-input")?.value
-        if (val) this._doSearch(val)
-      },
+      "do-search": () => this._submitSearchFromForm(),
+      "retry-search": () => this._retrySearch(),
+      "retry-literal-search": () => this._retrySearch({ literal: true }),
+      "load-more-results": () => this._loadMoreSearchResults(),
       "open-hit": (_event, element) => this._openHit(element.dataset.hitIndex),
       "trace-hit": (_event, element) => this._traceHit(element.dataset.hitIndex),
       "trace-drawer-ref": (_event, element) => this._traceDrawerRef(element.dataset.refIndex),
@@ -1154,6 +1521,7 @@ const ragView = {
         router.navigate("writing")
       },
       "close-drawer": () => {
+        this._cancelActiveDrawer()
         const drawer = document.getElementById("rag-evidence-drawer")
         if (drawer) drawer.hidden = true
       },
@@ -1163,6 +1531,15 @@ const ragView = {
       "retry-task": () => this._retryFailedTask(),
       "load-retrieval-traces": () => this._loadRetrievalTraces(),
     })
+
+    for (const input of document.querySelectorAll("[data-rag-advanced-filter]")) {
+      if (input === visibilitySelect) continue
+      input.addEventListener("change", () => this._refreshAdvancedFilterSummary())
+      if (input.matches('input[type="number"]')) {
+        input.addEventListener("input", () => this._refreshAdvancedFilterSummary())
+      }
+    }
+    this._refreshAdvancedFilterSummary()
   },
 
   _toggleVisibilityFields(mode) {

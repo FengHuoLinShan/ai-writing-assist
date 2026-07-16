@@ -1458,8 +1458,12 @@ class TestEntityRelationServiceUpsert:
         svc.repo.upsert.return_value = rel
         svc._entity_repo = AsyncMock()
         svc._entity_repo.get.side_effect = [
-            SimpleNamespace(id=uuid.UUID(sid), novel_id=uuid.UUID(nid)),
-            SimpleNamespace(id=uuid.UUID(tid), novel_id=uuid.UUID(nid)),
+            SimpleNamespace(
+                id=uuid.UUID(sid), novel_id=uuid.UUID(nid), status="canonical"
+            ),
+            SimpleNamespace(
+                id=uuid.UUID(tid), novel_id=uuid.UUID(nid), status="canonical"
+            ),
         ]
 
         # Act
@@ -1528,8 +1532,8 @@ class TestEntityRelationServiceInheritedVerbs:
         svc.repo.find_duplicate_relation.return_value = None
         svc._entity_repo = AsyncMock()
         svc._entity_repo.get.side_effect = [
-            SimpleNamespace(novel_id=uuid.UUID(nid)),
-            SimpleNamespace(novel_id=uuid.UUID(nid)),
+            SimpleNamespace(novel_id=uuid.UUID(nid), status="canonical"),
+            SimpleNamespace(novel_id=uuid.UUID(nid), status="canonical"),
         ]
         data = EntityRelationCreate(
             source_id=str(source_id),

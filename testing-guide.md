@@ -45,6 +45,9 @@ Three layers:
 | `make secret-hygiene` | Tracked/indexed runtime env, private-key, and high-confidence credential gate | Git working tree; no Python dependency install required |
 | `make test-integration` | SQLite cross-module flows | None |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e` | PostgreSQL/pgvector behavior | Explicit dedicated test database at Alembic head; fails fast if missing, non-dedicated, unavailable, or stale |
+| `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_map_observation_concurrency.py -m "not real_llm and not external_data"` | Map observation confirm/ignore row-lock race | Dedicated PostgreSQL at Alembic head |
+| `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:map` | Complete map browser regression, including touch/390px | Explicit dedicated PostgreSQL and fresh backend/frontend |
+| `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:map-perf` | Fixed 24×18 and 200×200 map telemetry profiles | Dedicated PostgreSQL; Chromium 1280×720; workers=1; retries=0 |
 | `make test-real-llm` | Explicit SQLite real-model acceptance | Configured provider credentials |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-manual REAL_SOURCE_PATH=/abs/path/novel.txt` | Real source corpus and PostgreSQL/real-model acceptance | Source path, dedicated PostgreSQL, and configured provider credentials |
 
@@ -65,6 +68,15 @@ rebuilding it from ordinary application settings. This covers production paths
 that intentionally open an independent session instead of using FastAPI's
 overridden `get_db`; tests must not suppress async connection cleanup warnings
 or silently fall back to the developer database.
+
+地图性能验收与普通功能 E2E 分开。它使用固定 manifest/checksum 通过现有 API
+建立普通 24×18 和压力 200×200 混合地形语义样本，并用首次加载到的真实 Leaflet 1.9.4
+运行页面公开 telemetry。fixture 校验会重新读取完整 API payload、规范化后核对 checksum，
+真实 pointer/wheel/touch 则产生 100 帧与输入到下一帧样本。附件
+`map-performance-standard.json` / `map-performance-stress.json` 保留冷启动、预热、10 次热导航、
+原始 frame/input 数组、分段耗时和环境元数据。普通/压力热样本 p75 分别执行 `≤2s` / `≤3s`，任一热样本不得超过
+预算两倍；真实输入到下一帧 p95 执行 `≤33ms`。样本不足、retry 非零、未真实点击 hex、
+指标缺失或数据库不是独立 `audit/e2e/test` 库都会直接失败。
 
 ### Continuous integration
 

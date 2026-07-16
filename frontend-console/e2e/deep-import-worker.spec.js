@@ -14,7 +14,7 @@
  *   RUN_WORKER_E2E=1 npx playwright test deep-import-worker.spec.js --reporter=list
  */
 import { test, expect } from "@playwright/test"
-import { openProjectView } from "./helpers/workbench.js"
+import { openProjectView, openWorkbench } from "./helpers/workbench.js"
 import {
   API_BASE,
   createProject,
@@ -52,6 +52,7 @@ async function waitForTaskDone(taskId, novelId, timeoutMs = 180_000) {
 
 test.describe("深度导入异步 Worker 受理", () => {
   let testProjectId = null
+  let testProject = null
 
   test.beforeAll(async () => {
     await waitForBackend(60000)
@@ -64,6 +65,7 @@ test.describe("深度导入异步 Worker 受理", () => {
       language: "zh",
     })
     testProjectId = project.id
+    testProject = project
 
     await openProjectView(page, project)
   })
@@ -72,10 +74,11 @@ test.describe("深度导入异步 Worker 受理", () => {
     if (testProjectId) {
       try { await cleanupProject(testProjectId) } catch {}
       testProjectId = null
+      testProject = null
     }
   })
 
-  test("提交异步深度导入后，关闭页面并等待 worker 完成", async ({ page }) => {
+  test("提交异步深度导入后，关闭页面并等待 worker 完成", async ({ page, context }) => {
     const uploadResult = await page.evaluate(async ({ apiBase, projectId }) => {
       const fileContent = [
         "第一章 起风",
@@ -136,6 +139,20 @@ test.describe("深度导入异步 Worker 受理", () => {
     const { task_id: taskId } = await deepImportResponse
     expect(taskId).toBeTruthy()
 
+    await page.evaluate(({ projectId, activeTaskId }) => {
+      localStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+        id: `${projectId}:deep_import:${activeTaskId}`,
+        taskId: activeTaskId,
+        workflowType: "deep_import",
+        label: "深度导入",
+        projectId,
+        view: "writing",
+        meta: {},
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }]))
+    }, { projectId: testProjectId, activeTaskId: taskId })
+
     await page.close()
 
     const task = await waitForTaskDone(taskId, testProjectId)
@@ -149,6 +166,15 @@ test.describe("深度导入异步 Worker 受理", () => {
         "entity_extraction",
         "structure_analysis",
       ]),
+    )
+
+    const recoveryPage = await context.newPage()
+    await openWorkbench(recoveryPage, testProject, "writing")
+    await expect(
+      recoveryPage.locator('[data-action="deep-import-map-next"]'),
+    ).toBeVisible({ timeout: 15_000 })
+    await expect(recoveryPage.locator("#writing-deep-import-bar-container")).toContainText(
+      /一键创建地图|先审核 \d+ 个地点|查看地图收件箱/,
     )
   })
 })

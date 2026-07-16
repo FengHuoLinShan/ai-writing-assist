@@ -21,12 +21,16 @@ def test_registry_loads_all_deep_import_contracts() -> None:
     contracts = load_contracts()
 
     assert {contract.id for contract in contracts} == {
-        "generation_center_world_object_draft",
+        "world_generation_core_entity",
+        "world_generation_world_bible_page",
+        "world_generation_world_bible_new_page",
+        "world_bible_synopsis",
         "phase1a_scene_slicing",
         "phase1b_scene_enrichment",
         "phase2_world_extraction",
         "phase2_alias_relation",
         "phase3_structure_simple",
+        "scene_entity_extraction",
     }
 
 
@@ -73,10 +77,36 @@ def test_schema_validator_extracts_nested_list_field_paths() -> None:
     assert "relations.relation_type" in paths
     assert "deltas.subject_name" in paths
     assert "uncertain_items.supporting_scene_ids" in paths
+    assert "map_observation_proposals.proposal_type" in paths
+    assert "map_observation_proposals.quote" in paths
+    assert "map_observation_proposals.character_name" in paths
+    assert "map_observation_proposals.event_name" in paths
+    assert "map_observation_proposals.path_name" in paths
+    assert "map_observation_proposals.controller_name" in paths
+
+
+def test_strict_schema_coverage_rejects_undeclared_schema_root() -> None:
+    contract = _load_contract("scene_entity_extraction")
+    contract = replace(
+        contract,
+        declared_prompt_fields=[
+            field
+            for field in contract.declared_prompt_fields
+            if field != "map_observation_proposals"
+        ],
+    )
+
+    issues = validate_contract(contract)
+
+    assert any(
+        issue.code == "schema.strict_root_undeclared"
+        and issue.path == "map_observation_proposals"
+        for issue in issues
+    )
 
 
 def test_generation_center_schema_contract_forbids_llm_controlled_fields() -> None:
-    contract = _load_contract("generation_center_world_object_draft")
+    contract = _load_contract("world_generation_core_entity")
 
     assert {"status", "approved_by", "novel_id", "id"} <= set(contract.forbidden_fields)
     assert {
@@ -228,12 +258,12 @@ def test_generation_center_template_validator_rejects_expressions_and_loops() ->
 
 
 def test_prompt_contract_json_report_is_stable_for_generation_contract() -> None:
-    contract = _load_contract("generation_center_world_object_draft")
+    contract = _load_contract("world_generation_core_entity")
 
     payload = format_json([contract], [])
 
     assert payload == (
-        '{"contracts": ["generation_center_world_object_draft"], '
+        '{"contracts": ["world_generation_core_entity"], '
         '"issue_count": 0, "issues": []}'
     )
 

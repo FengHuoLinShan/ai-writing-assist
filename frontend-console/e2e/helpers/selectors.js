@@ -38,6 +38,7 @@ export const SEL = {
 
   // 模态框
   modalOverlay: "#modal-overlay",
+  modalContent: "#modal-content",
   modalTitle: "#modal-title",
   modalBody: "#modal-body",
   modalFooter: "#modal-footer",

@@ -251,14 +251,41 @@ class CoreEntityRepository:
         self,
         db: AsyncSession,
         entity_id: uuid.UUID,
+        *,
+        novel_id: uuid.UUID | None = None,
     ) -> CoreEntity | None:
+        conditions = [CoreEntity.id == entity_id]
+        if novel_id is not None:
+            conditions.append(CoreEntity.novel_id == novel_id)
         result = await db.execute(
             select(CoreEntity)
-            .where(CoreEntity.id == entity_id)
+            .where(*conditions)
             .with_for_update()
             .execution_options(populate_existing=True)
         )
         return result.scalar_one_or_none()
+
+    async def get_many_for_update(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        entity_ids: Sequence[uuid.UUID],
+    ) -> list[CoreEntity]:
+        """Lock project entities in one deterministic UUID order."""
+        unique_ids = sorted(set(entity_ids), key=str)
+        if not unique_ids:
+            return []
+        result = await db.execute(
+            select(CoreEntity)
+            .where(
+                CoreEntity.novel_id == novel_id,
+                CoreEntity.id.in_(unique_ids),
+            )
+            .order_by(CoreEntity.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return list(result.scalars().all())
 
     def _entity_conditions(
         self,
@@ -1122,6 +1149,172 @@ class EntityRelationRepository:
             select(EntityRelation).where(EntityRelation.id == rel_id)
         )
         result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_many_for_update(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        relation_ids: list[uuid.UUID],
+    ) -> list[EntityRelation]:
+        if not relation_ids:
+            return []
+        result = await db.execute(
+            select(EntityRelation)
+            .where(
+                EntityRelation.novel_id == novel_id,
+                EntityRelation.id.in_(relation_ids),
+            )
+            .order_by(EntityRelation.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return list(result.scalars().all())
+
+    async def get_candidate_pair_for_update(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        source_id: uuid.UUID,
+        target_id: uuid.UUID,
+    ) -> list[EntityRelation]:
+        """Lock one complete directed candidate group in stable UUID order."""
+        result = await db.execute(
+            select(EntityRelation)
+            .where(
+                EntityRelation.novel_id == novel_id,
+                EntityRelation.source_id == source_id,
+                EntityRelation.target_id == target_id,
+                EntityRelation.status == "candidate",
+            )
+            .order_by(EntityRelation.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return list(result.scalars().all())
+
+    async def list_review_candidates(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> list[EntityRelation]:
+        """Return the complete candidate queue without a silent safety cap."""
+        result = await db.execute(
+            self._with_endpoint_loads(select(EntityRelation))
+            .where(
+                EntityRelation.novel_id == novel_id,
+                EntityRelation.status == "candidate",
+            )
+            .order_by(EntityRelation.created_at.desc(), EntityRelation.id.desc())
+        )
+        return list(result.scalars().all())
+
+    async def list_candidate_pairs(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        pairs: Sequence[tuple[uuid.UUID, uuid.UUID]],
+    ) -> list[EntityRelation]:
+        unique_pairs = sorted(set(pairs), key=lambda item: (str(item[0]), str(item[1])))
+        if not unique_pairs:
+            return []
+        pair_conditions = [
+            and_(
+                EntityRelation.source_id == source_id,
+                EntityRelation.target_id == target_id,
+            )
+            for source_id, target_id in unique_pairs
+        ]
+        result = await db.execute(
+            select(EntityRelation)
+            .where(
+                EntityRelation.novel_id == novel_id,
+                EntityRelation.status == "candidate",
+                or_(*pair_conditions),
+            )
+            .order_by(EntityRelation.id)
+        )
+        return list(result.scalars().all())
+
+    async def list_canonical_pairs(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        pairs: Sequence[tuple[uuid.UUID, uuid.UUID]],
+    ) -> list[EntityRelation]:
+        unique_pairs = sorted(set(pairs), key=lambda item: (str(item[0]), str(item[1])))
+        if not unique_pairs:
+            return []
+        pair_conditions = [
+            and_(
+                EntityRelation.source_id == source_id,
+                EntityRelation.target_id == target_id,
+            )
+            for source_id, target_id in unique_pairs
+        ]
+        result = await db.execute(
+            self._with_endpoint_loads(select(EntityRelation))
+            .where(
+                EntityRelation.novel_id == novel_id,
+                EntityRelation.status == "canonical",
+                or_(*pair_conditions),
+            )
+            .order_by(EntityRelation.id)
+        )
+        return list(result.scalars().all())
+
+    async def list_canonical_targets(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        targets: Sequence[tuple[uuid.UUID, uuid.UUID, str]],
+    ) -> list[EntityRelation]:
+        unique_targets = sorted(
+            set(targets),
+            key=lambda item: (str(item[0]), str(item[1]), item[2]),
+        )
+        if not unique_targets:
+            return []
+        target_conditions = [
+            and_(
+                EntityRelation.source_id == source_id,
+                EntityRelation.target_id == target_id,
+                EntityRelation.relation_type == relation_type,
+            )
+            for source_id, target_id, relation_type in unique_targets
+        ]
+        result = await db.execute(
+            select(EntityRelation)
+            .where(
+                EntityRelation.novel_id == novel_id,
+                EntityRelation.status == "canonical",
+                or_(*target_conditions),
+            )
+            .order_by(EntityRelation.id)
+        )
+        return list(result.scalars().all())
+
+    async def find_canonical_relation(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        source_id: uuid.UUID,
+        target_id: uuid.UUID,
+        relation_type: str,
+    ) -> EntityRelation | None:
+        result = await db.execute(
+            select(EntityRelation)
+            .where(
+                EntityRelation.novel_id == novel_id,
+                EntityRelation.source_id == source_id,
+                EntityRelation.target_id == target_id,
+                EntityRelation.relation_type == relation_type,
+                EntityRelation.status == "canonical",
+            )
+            .order_by(EntityRelation.id)
+            .limit(1)
+            .with_for_update()
+        )
         return result.scalar_one_or_none()
 
     async def list_by_novel(

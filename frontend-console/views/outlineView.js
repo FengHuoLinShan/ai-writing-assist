@@ -347,7 +347,7 @@ const outlineView = {
   },
 
   _renderOutlineHeaderActions(subView) {
-    const plotAutoExtract = this._renderPlotAutoExtractAction()
+    const plotAutoExtract = this._renderPlotAutoExtractAction(subView)
     if (subView === "threads") {
       return `
         <button class="btn btn-sm btn-primary" data-action="create-thread">新建剧情线</button>
@@ -554,7 +554,7 @@ const outlineView = {
       ? `范围: 章节 ${this._plotAutoExtractMeta.start_chapter || 1}-${this._plotAutoExtractMeta.end_chapter || 10}`
       : "范围: 所选章节"
     return `<div class="outline-progress-card-wrap">${renderWorkflowCard(this._plotAutoExtractProgress, {
-      title: "剧情线自动提取",
+      title: this._plotAutoExtractMeta?.label || "剧情线自动提取",
       destinationLabel: rangeText,
     })}</div>`
   },
@@ -577,14 +577,14 @@ const outlineView = {
       onDone: async (progress) => {
         clearActiveWorkflow(progress.taskId || taskId)
         this._plotAutoExtractTaskId = null
-        toast("剧情线自动提取完成", "success")
+        toast(`${this._plotAutoExtractMeta?.label || "剧情线自动提取"}完成`, "success")
         await this.onEnter?.()
         router.refresh()
       },
       onFailed: async (progress) => {
         clearActiveWorkflow(progress.taskId || taskId)
         this._plotAutoExtractTaskId = null
-        toast(`剧情线自动提取失败: ${progress.errorMessage || "未知错误"}`, "error")
+        toast(`${this._plotAutoExtractMeta?.label || "剧情线自动提取"}失败: ${progress.errorMessage || "未知错误"}`, "error")
         router.renderCurrentView()
       },
     })
@@ -645,15 +645,19 @@ const outlineView = {
 
   _renderStructureFilters(subView) {
     const filters = this._structureFilterFor(subView)
+    const workflowFilterActive = Boolean(filters.workflow_id)
     return `
       <div class="scene-management-filters" aria-label="结构资产筛选">
         ${this._structureFilterSelect("outline-filter-status", "状态", filters.status, this._structureStatusOptions(subView), "全部状态")}
         ${this._structureFilterSelect("outline-filter-source", "来源", filters.source, STRUCTURE_SOURCE_OPTIONS, "全部来源")}
-        <label class="scene-filter-field scene-filter-field--wide">
-          <span>Workflow</span>
-          <input class="form-input" id="outline-filter-workflow-id" value="${esc(filters.workflow_id)}" placeholder="workflow_id" />
-        </label>
         ${this._structureFilterSelect("outline-filter-needs-review", "注意", filters.needs_review, [["true", "需要人工检查"], ["false", "无注意项"]], "全部注意原因")}
+        <details class="outline-structure-diagnostic-filters" ${workflowFilterActive ? "open" : ""}>
+          <summary>诊断筛选${workflowFilterActive ? "（1）" : ""}</summary>
+          <label class="scene-filter-field scene-filter-field--wide">
+            <span>Workflow 诊断 ID</span>
+            <input class="form-input" id="outline-filter-workflow-id" value="${esc(filters.workflow_id)}" placeholder="按 workflow_id 精确筛选" />
+          </label>
+        </details>
         <div class="scene-filter-actions">
           <button class="btn btn-sm btn-primary" data-action="apply-outline-structure-filters">应用</button>
           <button class="btn btn-sm" data-action="reset-outline-structure-filters">重置</button>
@@ -774,6 +778,7 @@ const outlineView = {
         <div class="empty-icon">&#128204;</div>
         <p>暂无${esc(kind)}。</p>
         <p class="outline-empty-detail">${esc(detail)}</p>
+        <button class="btn btn-sm btn-primary" data-action="nav-scenes">从已采用 Scene 开始整理</button>
       </div>
     `
   },
@@ -806,9 +811,13 @@ const outlineView = {
     return `<span class="view-toolbar__project" title="${esc(title)}">${esc(title)}</span>`
   },
 
-  _renderPlotAutoExtractAction() {
+  _plotAutoExtractLabel(subView = state.currentSubView || "threads") {
+    return subView === "arcs" ? "篇章纲自动提取" : "剧情线自动提取"
+  },
+
+  _renderPlotAutoExtractAction(subView = state.currentSubView || "threads") {
     return `
-      <button class="btn btn-sm" data-action="plot-structure-auto-extract">剧情线自动提取</button>
+      <button class="btn btn-sm" data-action="plot-structure-auto-extract">${esc(this._plotAutoExtractLabel(subView))}</button>
     `
   },
 
@@ -829,7 +838,7 @@ const outlineView = {
         ? `范围: 章节 ${this._plotAutoExtractMeta.start_chapter || 1}-${this._plotAutoExtractMeta.end_chapter || 10}`
         : "范围: 所选章节"
       parts.push(renderWorkflowCard(this._plotAutoExtractProgress, {
-        title: "剧情线自动提取",
+        title: this._plotAutoExtractMeta?.label || "剧情线自动提取",
         destinationLabel: rangeText,
         className: "outline-progress-mini",
       }))
@@ -1870,6 +1879,7 @@ const outlineView = {
   },
 
   _showPlotStructureAutoExtractForm() {
+    const actionLabel = this._plotAutoExtractLabel()
     const formHtml = `
       <div class="form-group">
         <label>起始章节</label>
@@ -1881,7 +1891,7 @@ const outlineView = {
       </div>
       <p class="writing-form-hint" role="note">${esc(importAuthorizationNotice())}</p>
     `
-    showModalHtml("剧情线自动提取", formHtml, [{
+    showModalHtml(actionLabel, formHtml, [{
       text: "确认并开始提取",
       class: "btn-primary",
       handler: async () => {
@@ -1899,7 +1909,11 @@ const outlineView = {
             importAuthorizationPayload(),
           )
           this._plotAutoExtractTaskId = result.task_id
-          this._plotAutoExtractMeta = { start_chapter: start, end_chapter: end }
+          this._plotAutoExtractMeta = {
+            start_chapter: start,
+            end_chapter: end,
+            label: actionLabel,
+          }
           this._plotAutoExtractProgress = normalizeTaskProgress({
             ...result,
             task_type: "plot_structure_auto_extraction",
@@ -1908,13 +1922,13 @@ const outlineView = {
           persistActiveWorkflow({
             taskId: result.task_id,
             workflowType: "plot_structure_auto_extraction",
-            label: "剧情线自动提取",
+            label: actionLabel,
             projectId: state.currentProjectId,
             view: "outline",
             meta: this._plotAutoExtractMeta,
           })
           closeModal()
-          toast(`剧情线自动提取任务已提交：${result.task_id || ""}`, "success")
+          toast(`${actionLabel}任务已提交：${result.task_id || ""}`, "success")
           this._startPlotAutoExtractPolling(result.task_id)
           router.renderCurrentView()
         } catch (err) {

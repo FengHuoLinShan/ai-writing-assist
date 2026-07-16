@@ -18,7 +18,18 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - “待处理”入口按对象 / 别名 / 关系三个子 tab 处理复核队列；对象库、别名、关系页仍保留全量管理能力
 - `link_to_existing` / `alias_of_existing` 候选只有在目标已解析为同项目已采用对象 ID 且不是源候选自身时，才按“已有对象”聚合展示；目标仅有名称、指向待处理对象或指向自身时仍留在普通待处理队列。确认后源候选标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不提升为正史
 - 深度导入 Phase 2b 发现的关系写入 `entity_relations(status="candidate")`，两端可解析到 canonical / draft / candidate 工作对象
+- 深度导入的类型化地图候选通过稳定 `contracts.py` / `facade.py` seam 进入 world；world 按
+  `novel_id + workflow_id + scene_id + source_item_key + proposal_type` 生成 UUIDv5，并保存原始
+  payload hash。相同重试复用已有 observation；同一身份内容变化返回 409，且不覆盖作者编辑。
+  world 同时校验冻结授权快照的 novel/章节 scope，并将快照指纹写入只读来源。
+  PostgreSQL 首次并发写入使用确定性身份锁，避免空行无法行锁导致的唯一冲突。导入
+  proposal 类型是来源身份的一部分，作者可编辑内容，但不能原地切换类型。候选只进入
+  收件箱，不自动分配地图或生成 Fact。
 - 待确认关系可在确认前修改源对象、目标对象、关系类型、描述和强度；引用和来源章节作为只读证据保留，复核审计写入 `review_meta`
+- 待处理关系按有向 `(source_id, target_id)` 分组，别名按 owner 对象分组；Scene 只用于筛选和展示，反向关系不自动归并
+- 类型目录只是推荐与保守同义词建议；关系和别名的数据库/Pydantic 契约仍接受自由字符串，自定义值未经用户点击不得替换
+- 关系筛选用来命中对象对，返回时仍包含该有向对的完整待处理成员；指纹也基于完整快照，避免筛选后提交必然过期
+- 分组列表为每组/每条别名返回 SHA-256 `execution_fingerprint`；批处理必须 `confirmed=true`，批次内先按 UUID 全局稳定顺序锁定端点和关系行，再为每个决策使用 savepoint；单组原子、组间可部分成功
 - 人物扩展表 `characters` 保留历史独立 `aliases` JSONB 字段，新别名应优先写入 `core_entities.content_json.aliases`
 - `characters` / `events` / `character_knowledge` 活跃扩展只能挂在同项目、类型匹配且已采用的 `CoreEntity` 下；列表与写作上下文默认排除父对象或 CoreEntity 目标已转为待处理/已归档的历史扩展行
 - 对象分级：core / important / normal / temporary
@@ -84,9 +95,13 @@ World Bible 页面是作者组织和解释世界事实的手册层；`CoreEntity
 2. 发布时以 `base_version_number` 做行锁 + CAS；版本冲突返回 409 并保留工作稿。
 3. 发布原子更新 `canonical` 页面、递增 `version_number`、写不可变 revision、删除工作稿，
    并标记作者版世界观简介 stale。恢复旧页面版本只创建新工作稿，不覆盖历史。
-4. 页面类 AI 建议必须先由作者编辑，再通过
-   `POST /api/world/suggestions/{id}/apply-to-world-bible-draft` 落工作稿；新版 UI 不使用
-   旧 `/confirm` 直发路径。
+4. 页面类 AI 只在生成中心产生完整页面提案。作者可先编辑标题、类别、概览、sections
+   和关联资产，再通过
+   `POST /api/world/generation-center/suggestions/{id}/apply-page-draft` 落服务器工作稿；
+   generic `/confirm` 明确拒绝该 suggestion target，AI 不能直接发布页面或改写 canonical。
+
+编辑器始终显示主操作“保存并发布”；即使当前只打开正式页、尚未显式创建工作稿，也会先
+保存服务器工作稿再发布。单独的“保存工作稿”只保存，不改变正式页。
 
 `free_text` 保留为兼容概览；`sections_json` 保存最多 64 个有稳定 `section_id` 的有序资料段。
 section 只支持 `markdown/checklist/asset_collection`，局部引用必须指向页面级已校验
@@ -104,11 +119,17 @@ TargetRef 的 hash，`projection_policy` 和 `sensitivity_hint` 只能收紧投�
 或资产激活规则。
 
 `world_bible_synopsis` 是独立的作者模式 P1 section，UI 名称为“世界观简介”。它由 LLM
-从已采用结构化世界事实和 `canonical/confirmed` 页面派生，保存不可变 revision、逐 claim
-来源、source manifest/hash、coverage、Prompt/model/provider 和项目 LLM execution snapshot。
+从已采用结构化世界事实和 `canonical/confirmed` 页面派生，允许按资料本身选择最有用的
+导航结构，不要求固定类别或穷举全部事实。输出中的短来源 key 必须映射回冻结 manifest；
+服务保存不可变 revision、来源、source manifest/hash、coverage、Prompt/model/provider 和项目
+LLM execution snapshot。
 它不能替代确定性、不可驱逐的 P0 `World Core Brief`，也永不进入 reader/character/POV。
 无成功版本时只使用有界确定性降级资料。恢复旧简介会固定 revision 并暂停自动晋升，直到
 作者取消固定并刷新。
+
+LLM 返回的 claim 若全部无法映射到当前 source manifest，不会让自动维护任务失败；服务会
+改用同一 manifest 生成带合法逐条来源的确定性降级 revision，并在 coverage / omitted reasons
+中标记 degraded。空 manifest 仍不伪造无来源事实。
 
 自动维护默认关闭。首次启用会持久化授权范围、workflow、`editable=false` 和
 `rollback=true`；现有 PostgreSQL 任务队列按项目合并刷新任务，提交前以 source hash CAS
@@ -147,6 +168,9 @@ tasks ORM。
   标记为历史态。
 - 项目级“智能去重”按钮复用同一套 world 实体融合逻辑；它只改变入口和结果聚合，
   不放宽用户确认、正史二次确认或 novel_id 隔离规则。
+- 智能去重把对象确认为别名时，如果目标对象已存在同文本的待复核别名，会原位确认该别名
+  而不是以重复冲突跳过；来源对象、关系迁移和别名复核状态在同一事务完成，因此待处理别名
+  列表可在执行后的当前页刷新中立即收敛。
 - `world_entity_fusion_suggestions` 任务使用模块内 task-only seam：先按
   `project FOR SHARE -> world read` 复制 pair / 对象摘要证据 DTO 与 semantic / execution
   fingerprint，并持久化项目 LLM execution snapshot；然后经 TaskWorker lease fence
@@ -282,13 +306,21 @@ ORM 表到同一个 `core.base.Base.metadata`。具体模型按子域拆分：
 upsert；调用方不应再实现“先查再插”的并发控制。关系复核确认走
 `PATCH /api/world/relations/{rel_id}/review-edit`；旧 `PUT /relations/{rel_id}`
 若变更 status，也会写入等价 `review_meta`，避免绕过审计。
+关系列表会按本次 `novel_id` 批量解析 `source_name` / `target_name`；前端不应把数据库 UUID
+当作正常端点名称展示。
+
+`POST /api/world/relations/review-batch` 每次最多 20 个决策、累计 50 条本次选中的关系。
+`accept` 独立采用一条；`merge` 以用户选定的主关系和最终字段归并所选证据；
+`ignore` 把所选候选改为 `deprecated`。同端点同类型已有正式关系时复用该关系；
+归并来源写入 `review_history`，其他候选记录 `merged_into_relation_id` 后进入历史，
+未选候选继续保持 `candidate`。因此大于 50 条的单组可分次处理，不要将整组成员数误作本次限额。
 
 ### aliases（内联 JSONB）
 
 存储于 `core_entities.content_json.aliases`，格式为列表：
 ```json
 [
-  {"alias": "别名文本", "type": "name|title|nickname|translation|abbreviation"}
+  {"alias": "别名文本", "type": "name|title|nickname|alias|translation|abbreviation|自定义字符串"}
 ]
 ```
 
@@ -296,6 +328,8 @@ upsert；调用方不应再实现“先查再插”的并发控制。关系复�
 - 去重检查：别名不与已有别名重复（大小写不敏感）
 - `PATCH /api/world/entities/{entity_id}/aliases` 只更新复核元数据；编辑文本或移动目标必须走 `/aliases/edit`
 - `POST /api/world/entities/{candidate_id}/resolve-as-alias` 将候选对象登记为目标对象别名，并把源候选移出待确认对象队列
+- 待处理别名的批量忽略不删除 JSONB 条目；它写入 `status="ignored"` / `needs_review=false` 和审计元数据。正式别名管理页的删除语义不变
+- 别名分组扫描会稳定分页读完项目对象，不使用隐式 10,000 条截断；所有内联别名写入都先锁定 owner/目标对象，避免 JSONB 整体回写覆盖并发复核
 
 ### entity_revisions 表（legacy 快照兜底）
 
@@ -316,7 +350,12 @@ upsert；调用方不应再实现“先查再插”的并发控制。关系复�
 - `map_configs.parent_entity_id` 和已确认的 `map_terrain_bindings` 同样只能引用已采用的 location；候选地形绑定可保留预览，但采用前会重新校验地点状态。
 - `map_observations` 是世界动态地图的证据层：deep import `delta_events`、即时分析或人工编辑先写入 observation，默认 `review_state="candidate"`。
 - observation 必须能说明目标名称/类型、动态类型、时间锚点、空间锚点、来源引用、证据摘要、置信度和审查状态；目标实体或地图尚未解析时可为空，但不得存入跨 `novel_id` 的实体引用。
+- 未分配且仍为 `candidate` / `conflicted` 的 observation 进入项目级地图收件箱；具体地图的
+  observation、dashboard 和 playback 只读取精确 `map_id`，不会混入项目收件箱候选。
 - `map_facts` 是正式时间化地图事实，由用户确认 observation 后生成，默认 `fact_status="confirmed"`。
+- 人物位置、事件发生地、线路状态和势力边界的待解析值使用显式
+  `payload_kind="proposal"` proposal union。proposal 保持 `normalization_state="untyped"`；
+  作者把它补齐为 canonical `MapDynamicValueV1` 后，服务端才可能允许确认。
 - `value_json.schema_version=1` 使用类型化地图动态 schema，覆盖 location、route_state、status、
   boundary、resource、terrain、crisis 和 semantic；响应附加 `normalized_value`、
   `dimension_key` 与 `normalization_state`。无版本旧值继续兼容读取，无法安全解释时只进入
@@ -324,12 +363,20 @@ upsert；调用方不应再实现“先查再插”的并发控制。关系复�
 - `MapFact` 是唯一持久化动态事实。Scene 状态、`MapDelta`、冲突、连续性问题和
   `WorldDynamic` 都由 confirmed facts 确定性派生；candidate 只进入显式待处理预览，不参与
   正式状态或连续性判断。
-- observation 可在确认前编辑目标名称/类型、动态类型、时间/空间锚点、字段差异、来源引用、证据文本和置信度；确认时 `map_facts` 复制编辑后的 observation 字段。
+- 公共作者 PATCH 只允许修改目标对象、作者值、空间锚点和候选审查状态；来源引用、证据、
+  workflow、原始置信度、Scene/章节来源与来源时间只读，额外字段返回 422。响应中的
+  `eligibility` 由服务端统一检查 canonical value、同项目已采用对象、active 地图、空间引用
+  及 Scene/章节或人工 initial-state；前端不复制这套资格规则。
 - 空间锚点使用类型化 `MapSpatialAnchor`。带 `path_id` 的锚点必须解析到同一
   `novel_id + map_id` 的线路；deep import 无法解析的引用不会入库，并在来源 metadata
   记录 `invalid_spatial_anchor`。确认 Fact 时固化 path revision、名称和代表坐标；线路后续
   编辑或归档不改写历史 Fact，待处理 observation 引用已归档线路时必须重新关联后才能确认。
-- `PATCH /observations/{id}` 只能更新候选字段或把 `review_state` 设为 `candidate` / `ignored` / `conflicted`；不得通过 PATCH 直接设为 `confirmed`。正式确认必须走 `/confirm`，以保证生成或复用对应 `map_facts`。
+- PATCH、assign、ignore、confirm 和 batch-review 必须携带当前 `expected_updated_at`；陈旧写入
+  返回 409 和最新只读 observation。confirm 在 observation 行锁内重验 revision 与
+  eligibility 后生成或复用 Fact；批量审查按 UUID 稳定加锁并先全量验证，避免部分写入。
+- `PATCH /observations/{id}` 只能更新作者拥有的候选字段或把 `review_state` 设为
+  `candidate` / `ignored` / `conflicted`；不得通过 PATCH 直接设为 `confirmed`。正式确认必须
+  走 `/confirm`，以保证生成或复用对应 `map_facts`。
 - 忽略候选只更新 `review_state="ignored"`，不硬删除候选记录。
 - 深度导入仍保留 `memory.delta_log`，同时把每条 `delta_event` 接入 `map_observations` 候选流；该接入不自动写正式 `map_facts`。
 - 地图移动解释使用 `dynamic_type="movement_explanation"`，地图冲突使用 `dynamic_type="map_conflict"`；二者复用 observation/fact 流，不新增独立冲突表。
@@ -451,6 +498,11 @@ observation/fact 审查不计入该版本。统一编辑入口在同一事务内
 图层树还保存 exclusive/floor 结构和每个子层的楼层编号；当前激活子层与 isolate 是不写库的
 前端会话状态。连续线路使用同一 editor apply CAS，线路本体只归档，空线路图层才允许删除。
 
+开发管理工具 `python -m scripts.reset_map_subsystem` 当前只支持 dry-run 和可选的
+`--backup-restore-drill`。它以固定 16 张 `map_*` 表 allowlist 比对 ORM/实库 schema、FK、
+活跃资产引用与运行任务，并校验显式环境和 database fingerprint。CLI 不提供
+`--execute` / `--yes` 或目标库删除分支；任何未来清空仍需单独授权和完整 cutover 流程。
+
 ## Facade
 
 Root `facade.py` 是纯 re-export hub，不定义 async wrapper 或承载业务编排；
@@ -555,15 +607,21 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 |------|------|------|
 | GET | `/api/world/entities` | 世界对象列表；可按原始 `status` 或 `display_state` 筛选，`q` 支持名称、别名和描述的模糊搜索（名称/别名优先） |
 | GET | `/api/world/entity-types` | 当前项目类型目录；固定顺序系统类型 + 全部状态对象使用过的项目自定义类型 |
+| GET | `/api/world/review-type-catalog` | 关系/别名推荐类型、中文标签和保守同义词；`custom_allowed=true` |
+| GET | `/api/world/relations/review-groups` | 按有向对象对分页返回待处理关系组、完整成员和执行指纹 |
+| POST | `/api/world/relations/review-batch` | 显式确认的关系 accept / merge / ignore 批处理 |
+| GET | `/api/world/aliases/review-groups` | 按所属对象分页返回待处理别名组 |
+| POST | `/api/world/aliases/review-batch` | 显式确认的别名采用、编辑或忽略批处理 |
 | POST | `/api/world/entities` | 手动创建世界对象；未传 `status` 时默认已采用 |
 | GET | `/api/world/suggestions` | 创设建议队列，响应包含作者态投影 |
-| POST | `/api/world/suggestions/{suggestion_id}/confirm` | 确认建议；支持对象、关系、别名与世界书目标 |
+| POST | `/api/world/suggestions/{suggestion_id}/confirm` | 确认普通建议；世界书页面工作稿建议必须走专用 apply 路由 |
 | POST | `/api/world/suggestions/{suggestion_id}/edit-confirm` | 编辑世界对象建议并原子采用 |
 | POST | `/api/world/suggestions/{suggestion_id}/merge` | 将世界对象建议合并到已采用对象 |
 | POST | `/api/world/suggestions/{suggestion_id}/resolve-as-alias` | 将世界对象建议设为已采用对象的别名 |
 | POST | `/api/world/suggestions/{suggestion_id}/reject` | 拒绝建议 |
-| POST | `/api/world/object-draft-chat` | 生成中心自由共创聊天；不写库 |
-| POST | `/api/world/object-drafts/generate` | 将生成中心聊天/粘贴内容收束为待处理建议；同时返回兼容草稿视图 |
+| POST | `/api/world/generation-center/chat` | 世界工作区共创聊天；按作者选择的来源/目标加载上下文，不创建建议、不写业务资产 |
+| POST | `/api/world/generation-center/suggestions` | 按 `core_entity` / `world_bible_page` / `world_bible_new_page` 生成结构化待处理建议 |
+| POST | `/api/world/generation-center/suggestions/{suggestion_id}/apply-page-draft` | 将经作者编辑的完整页面提案写入或创建服务器工作稿；不发布 canonical |
 | GET/POST | `/api/world/bible/page-templates` | 列出内置/项目页面模板，或创建项目模板 |
 | PATCH | `/api/world/bible/page-templates/{template_id}` | CAS 更新或归档项目页面模板 |
 | GET | `/api/world/bible/page-templates/{template_id}/revisions` | 页面模板不可变版本历史 |
@@ -610,16 +668,18 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
 ### AI 参考资料确认
 
 - `POST /api/world/entities/extract` 的确认 action 为 `world.entities.extract`。
-- entity extraction、entity fusion、对象草稿和世界书生成通过 project runtime seam 消费项目 profile；
+- entity extraction、entity fusion 和世界生成中心通过 project runtime seam 消费项目 profile；
   extraction 在成功、异常和取消路径都由 context manager 关闭 client；
   测试通过构造器显式注入 project LLM opener，不在生产代码中检测测试替身，
   也不回退零参数 client。
   LLM 输出继续只形成 suggestion/draft，不直接成为 canonical。
 - 补抽结果写入 `context_confirmations.result_refs`，类型为 `world_entity`。
 - 候选提升、合并、重命名或忽略会将相关确认记录标记为 `needs_review` 或 `stale_context`，并写入 `stale_reasons`。
-- 生成中心 Chatbox 的自由聊天不创建确认记录，也不写库；只有
-  `POST /api/world/object-drafts/generate` 会创建待处理 `CreationSuggestion`。响应中的
-  `entity` 是保留旧 wire contract 的 `status="draft"` 兼容影子，`suggestion` 才是采用流的权威对象；确认后原地提升该影子为 `canonical`。
+- 生成中心世界工作区的自由聊天不创建确认记录，也不写业务资产；只有
+  `POST /api/world/generation-center/suggestions` 创建待处理 `CreationSuggestion`。
+  服务依据作者明确选择的 target 做确定性分派，模型不能改变落库目标，也不能调用工具。
+  对象建议继续进入待处理队列；页面建议只能经专用 apply 路由进入服务器工作稿。
+  聊天虽返回自然语言，仍经只含 `reply` 的输出 schema 校验和修复。
 - 自由聊天把模型定位为世界设定共创搭档；模型可根据对话自主选择
   发散、比较、质疑、关键追问或阶段性收束，不使用固定问卷。最终结构化
   step 以作者较新的明确决定为优先级；聊天中的助手建议只有被作者
@@ -628,10 +688,17 @@ async def get_character_id_by_world_entity(db, novel_id, entity_id) -> str | Non
   只在设计确实存在隐藏层时生成，`character_card` 只用于人物且不为
   完整度填充无依据字段。`importance_level` 与 `reveal_level`
   由结构化 schema 枚举校验。
-- 生成中心背景使用专用 `generation_center` scope：基于最近作者意图先编译
-  剧情线、篇章和 RAG 证据，再按关联 ID 选择已采用世界对象与人物
-  Top-K。作者选中的章节在总预算内优先提取命中创作意图的窗口，未命中时
-  保留头尾，不再固定只取每章开头 500 字。
+- 生成中心背景使用专用 `generation_center` scope：显式选择和来源页引用优先，随后是
+  当前 Scene、当前章节活跃剧情线、相关篇章/RAG 证据，以及由这些资料关联的人物与
+  世界对象。人物自动候选最多 6 个、非人物世界对象最多 16 个；作者显式选择优先占位。
+  没有章节、Scene、引用或检索证据时不注入第一章剧情线。作者选中的章节在总预算内优先
+  提取命中创作意图的窗口，未命中时保留头尾，不固定只取每章开头 500 字。
+- `core_entity` 使用对象 Prompt 模板；现有页继承服务器加载的页面/工作稿结构；新页面
+  使用作者选择的类别和世界书页面模板。页面正文不从 URL 或浏览器缓存回传，source
+  snapshot 固定页面/工作稿 hash、简介和 Activation Profile revision 及实际纳入/裁剪来源。
+  以页面为来源的请求必须显式携带 `published(page_version)` 或
+  `draft(page_version, draft_id, draft_updated_at)` baseline；作者预期已发布页时如新工作稿已出现，
+  生成前直接返回 409，不静默替换输入。
 - 生成中心 Prompt 模板按 `novel_id` 隔离；内置模板是只读虚拟模板，自定义模板支持
   `version_number`、内容 hash 和 revision 历史。使用 `template_id` 生成时会在 LLM
   调用前做 P1 阻断校验，并把模板版本/hash 写入草稿 `_meta`，用于提示模板漂移。
@@ -716,8 +783,12 @@ cd frontend-console && BACKEND_PORT=18000 FRONTEND_PORT=18080 npx playwright tes
 | GET | `/api/world/maps/{map_id}/focus` | 聚焦模式：仅返回指定组织势力范围（P2） |
 | GET | `/api/world/maps/{map_id}/observations` | 地图观察事实候选列表，可按 `review_state` 过滤 |
 | POST | `/api/world/maps/{map_id}/observations` | 创建地图观察事实候选 |
-| PATCH | `/api/world/maps/{map_id}/observations/{observation_id}` | 更新 observation 候选字段或候选审查状态（不直接确认） |
-| POST | `/api/world/maps/{map_id}/observations/batch-review` | 批量确认、忽略或标记冲突候选 observation |
+| GET | `/api/world/maps/project-observations/inbox` | 项目级未分配地图候选收件箱，支持类型、Scene、来源、置信度、完整度与稳定分页过滤 |
+| PATCH | `/api/world/maps/project-observations/{observation_id}` | 以 `expected_updated_at` 更新未确认候选的作者字段 |
+| POST | `/api/world/maps/project-observations/{observation_id}/assign` | 以 `expected_updated_at` 分配、换图或退回项目收件箱 |
+| POST | `/api/world/maps/project-observations/{observation_id}/ignore` | 以 `expected_updated_at` 忽略项目候选 |
+| PATCH | `/api/world/maps/{map_id}/observations/{observation_id}` | 以 `expected_updated_at` 更新 observation 作者字段（不直接确认） |
+| POST | `/api/world/maps/{map_id}/observations/batch-review` | 以 `items=[{observation_id, expected_updated_at}]` 批量确认、忽略或标记冲突 |
 | POST | `/api/world/maps/{map_id}/batch-actions` | 批量动作入口：候选确认/忽略/冲突、fact 状态、图层可见性 patch |
 | POST | `/api/world/maps/{map_id}/observations/{observation_id}/confirm` | 确认 observation 并生成/复用正式 `map_facts` |
 | POST | `/api/world/maps/{map_id}/observations/{observation_id}/ignore` | 忽略 observation，不生成正式事实 |

@@ -115,8 +115,8 @@ filesystem-primary、raw Prompt 插槽、随机激活、无限递归和前端承
 
 ### 5.3 配置 AI 参考规则
 
-1. 作者在世界书右侧打开“AI 参考规则”。
-2. 选择适用操作，如 `writing.scene.generate`、`world.object_draft.generate` 或导入预检。
+1. 作者在世界书规则区打开“AI 参考规则”。
+2. 选择适用操作，如 `writing.scene.generate`、`world.generation.core_entity` 或导入预检。
 3. 选择具体页面/对象 TargetRef，配置正向词、负向词、优先级、局部 top-k 和 token cap。
 4. 用当前 Scene、任务文本或显式焦点执行 dry-run。
 5. 检查命中、落选、可见性和预算 trace。
@@ -129,6 +129,19 @@ filesystem-primary、raw Prompt 插槽、随机激活、无限递归和前端承
   `context_snapshots`。
 - 作者可以临时排除可选 section，但不能排除 P0 硬约束，也不能扩大 reader/character
   可见范围。
+
+### 5.5 用 AI 共创世界资料
+
+1. 世界书页面只提供“用 AI 完善此页”，不在窄侧栏承载聊天。页面存在未保存修改时，作者
+   必须先保存成功，前端才跳转生成中心 world 工作区。
+2. 作者在生成中心明确选择世界对象、完善当前页或新建页面；模型不能改变目标。来源条展示
+   项目/页面、工作稿状态和版本，页面正文由服务器重新加载。
+3. 共创对话可使用章节、当前 Scene、剧情线、人物、世界对象、世界观简介和已发布 Activation
+   Profile；人物与对象过多时由 context 按相关性取 Top-K，并在 snapshot 记录裁剪原因。
+4. 结构化生成只创建待处理建议。现有页和新页面都生成完整页面提案，可重组标题、类别、
+   概览、sections 和关联资产，不使用 append/patch。
+5. 作者编辑提案后应用；服务重验来源 baseline 和 `novel_id`，只创建或更新服务器工作稿。
+   baseline 漂移返回 409，不自动覆盖。作者返回世界书后仍需显式发布，canonical 才改变。
 
 ## 6. 世界书资料模型
 
@@ -575,6 +588,8 @@ TargetRef。作者必须显式重新发布 Profile。
 8. 规则结果确定性；相同 input hash、profile revision 和 asset revisions 必须得到相同顺序。
 9. `ignoreBudget` 不存在；P0 section 保护和全局模型预算不可绕过。
 10. 自动 LLM 输出不直接发布规则或写 canonical 世界事实。
+11. 页面类 LLM 输出只能进入 `world_bible_page_draft` suggestion；专用 apply 只能写工作稿，
+    generic suggestion confirm 不得绕过发布流程。
 
 ## 14. 迁移与交付顺序
 
@@ -582,7 +597,8 @@ TargetRef。作者必须显式重新发布 Profile。
 
 - 用户确认本设计。
 - 新增 ADR：世界书资料归 world、Activation Profile 归 context。
-- 冻结 Pydantic rule/section/template contract 与 additive wire 方案。
+- 冻结 Pydantic rule/section/template contract；世界书基础 API additive 演进，世界书 AI 旧接口
+  由 ADR-0007 明确全量替换，不保留 wire 兼容。
 
 ### Phase 1：统一 trace，不新增规则表
 
@@ -606,7 +622,7 @@ TargetRef。作者必须显式重新发布 Profile。
 
 - ContextCompiler 消费已发布 profile revision。
 - confirmation/snapshot/prompt hash 固定 profile 与 source hashes。
-- 生成中心和写作 Scene 生成以显式 opt-in 接入。
+- 生成中心 world 工作区和写作 Scene 生成以显式 opt-in 接入。
 
 ### Phase 5：导入与评测
 

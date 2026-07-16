@@ -194,12 +194,16 @@ async def test_archived_template_is_hidden_and_not_usable_for_generation(
     assert fetched.status_code == 404
 
     generated = await async_client.post(
-        "/api/world/object-drafts/generate",
+        "/api/world/generation-center/suggestions",
         json={
             "novel_id": novel_id,
-            "template_id": template["id"],
-            "template_version": template["version_number"] + 1,
-            "template_variables": {"trope": "赎罪圣骑士"},
+            "source_context": {"kind": "project"},
+            "target": {
+                "kind": "core_entity",
+                "template_id": template["id"],
+                "template_version": template["version_number"] + 1,
+                "template_variables": {"trope": "赎罪圣骑士"},
+            },
             "messages": [{"role": "user", "content": "生成一个圣骑士"}],
         },
     )
@@ -403,16 +407,20 @@ async def test_p2_template_warning_does_not_block_generation(
     )
 
     generated = await async_client.post(
-        "/api/world/object-drafts/generate",
+        "/api/world/generation-center/suggestions",
         json={
             "novel_id": novel_id,
-            "template_id": template["id"],
-            "template_version": template["version_number"],
+            "source_context": {"kind": "project"},
+            "target": {
+                "kind": "core_entity",
+                "template_id": template["id"],
+                "template_version": template["version_number"],
+            },
             "messages": [{"role": "user", "content": "生成一个圣骑士"}],
         },
     )
     assert generated.status_code == 201, generated.text
-    assert generated.json()["entity"]["status"] == "draft"
+    assert generated.json()["result"]["suggestion"]["status"] == "pending"
     assert len(fake.requests) == 1
 
 
@@ -435,12 +443,16 @@ async def test_generate_rejects_stale_template_version_before_llm(
     )
 
     response = await async_client.post(
-        "/api/world/object-drafts/generate",
+        "/api/world/generation-center/suggestions",
         json={
             "novel_id": novel_id,
-            "template_id": template["id"],
-            "template_version": template["version_number"],
-            "template_variables": {"trope": "赎罪圣骑士"},
+            "source_context": {"kind": "project"},
+            "target": {
+                "kind": "core_entity",
+                "template_id": template["id"],
+                "template_version": template["version_number"],
+                "template_variables": {"trope": "赎罪圣骑士"},
+            },
             "messages": [{"role": "user", "content": "生成一个圣骑士"}],
         },
     )
@@ -464,21 +476,26 @@ async def test_generate_with_template_id_writes_template_meta(
     template = await _create_template(async_client, novel_id)
 
     response = await async_client.post(
-        "/api/world/object-drafts/generate",
+        "/api/world/generation-center/suggestions",
         json={
             "novel_id": novel_id,
-            "template_id": template["id"],
-            "template_version": template["version_number"],
-            "template_variables": {"trope": "赎罪圣骑士"},
+            "source_context": {"kind": "project"},
+            "target": {
+                "kind": "core_entity",
+                "template_id": template["id"],
+                "template_version": template["version_number"],
+                "template_variables": {"trope": "赎罪圣骑士"},
+            },
             "messages": [{"role": "user", "content": "生成一个圣骑士"}],
         },
     )
 
     assert response.status_code == 201, response.text
-    entity = response.json()["entity"]
-    assert entity["status"] == "draft"
-    assert entity["entity_type"] == "character"
-    meta = entity["content_json"]["_meta"]
+    result = response.json()["result"]
+    assert result["kind"] == "core_entity"
+    assert result["suggestion"]["status"] == "pending"
+    assert result["proposal"]["entity_type"] == "character"
+    meta = result["proposal"]["content_json"]["_meta"]
     assert meta["template_id"] == template["id"]
     assert meta["template_version"] == template["version_number"]
     assert meta["template_hash"] == template["content_hash"]

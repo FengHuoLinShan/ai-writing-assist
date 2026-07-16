@@ -29,9 +29,11 @@ async def test_recycled_project_is_hidden_from_world_query_body_and_map_apis(
             params={"novel_id": novel_id},
         ),
         await async_client.post(
-            "/api/world/object-draft-chat",
+            "/api/world/generation-center/chat",
             json={
                 "novel_id": novel_id,
+                "source_context": {"kind": "project"},
+                "target": {"kind": "core_entity", "template": "none"},
                 "messages": [{"role": "user", "content": "hello"}],
             },
         ),

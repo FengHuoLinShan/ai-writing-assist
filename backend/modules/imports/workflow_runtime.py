@@ -125,6 +125,7 @@ class DeepImportWorkflowRuntime(Protocol):
         novel_id: str,
         *,
         workflow_id: str | None,
+        authorization_snapshot: dict[str, Any] | None,
         on_scene_progress: SceneProgressCallback | None,
         existing_checkpoints: dict[str, Any] | None,
         start_chapter: int | None,

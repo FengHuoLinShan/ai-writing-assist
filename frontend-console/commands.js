@@ -32,7 +32,7 @@ async function executeCommand(input) {
     const query = trimmed.slice(1).trim()
     if (query) {
       state.searchQuery = query
-      router.navigate("rag", "search")
+      router.navigate("rag", "search", true, new URLSearchParams({ q: query }))
     } else {
       toast("请在 / 后输入搜索关键词，如 /王印 旧王都", "warning")
     }
@@ -166,7 +166,7 @@ registerCommand("candidates", async () => {
 registerCommand("rag", async (args) => {
   if (args[0] === "search" && args[1]) {
     state.searchQuery = args.slice(1).join(" ")
-    router.navigate("rag", "search")
+    router.navigate("rag", "search", true, new URLSearchParams({ q: state.searchQuery }))
   } else {
     router.navigate("rag", "status")
   }

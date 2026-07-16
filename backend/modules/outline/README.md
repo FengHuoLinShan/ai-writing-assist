@@ -96,6 +96,18 @@ POST  /api/outline/scene-workbench/fusion-suggestions/dismiss
 POST  /api/outline/scene-workbench/replacement-suggestions/apply
 ```
 
+`GET /api/outline/scene-workbench` 的每个 Scene 条目在保留旧
+`scene.scene_chunks` 编辑形状的同时，额外返回两组只读解释字段：
+
+- `span_summaries` 按章节与片段顺序返回 `mapping_status`、中文状态、
+  offset / 段落边界、短 anchor 摘要和可直接展示的 `range_label`。
+- `overlap_details` 只在同一正文版本的精确 span 真实重叠时返回，
+  包含对方 Scene ID / 标题 / 作者可读标签、双方范围与实际重叠区间。
+
+这些字段由 `SceneSpan` 派生读模型生成，不是新的编辑入口；查询与
+对方 Scene 标签始终按 `novel_id` 隔离。前端应优先展示中文 label 和标题，
+只把 Scene ID 用于定位对方 Scene 或诊断复制。
+
 `scenes.structure_meta` 保存结构整理元信息，例如：
 
 - `needs_organize`
@@ -270,6 +282,8 @@ project 共享锁、复核 fresh confirmation，并重建必要上下文/生成�
 - `structure_dedup_facade.py`：outline 结构资产智能去重建议与应用
 - `deep_import_repair_facade.py`：deep import 修复、最小结构补齐和清理
 - `foreshadowing_facade.py`：伏笔计划只读上下文
+- `thread_facade.py`：按显式 ID 与真实章节锚点读取剧情线的只读 context contract；
+  不在缺少章节锚点时默认注入第一章剧情线
 
 `modules.outline.facade.*` 路径仍是唯一跨模块公共 seam，供外部模块 import 和
 测试 monkeypatch；子 facade 只是 outline 内部的 locality 拆分。root facade 的

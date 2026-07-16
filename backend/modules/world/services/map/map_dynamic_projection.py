@@ -62,12 +62,26 @@ def canonical_dynamic_type(dynamic_type: object) -> str:
     return _DYNAMIC_TYPE_ALIASES.get(normalized, normalized)
 
 
+def equivalent_dynamic_types(dynamic_type: object) -> tuple[str, ...]:
+    """Return every persisted alias represented by one canonical filter."""
+    canonical = canonical_dynamic_type(dynamic_type)
+    return tuple(
+        sorted(
+            key
+            for key, value in _DYNAMIC_TYPE_ALIASES.items()
+            if value == canonical
+        )
+    ) or (canonical,)
+
+
 def validate_versioned_dynamic_value(
     dynamic_type: str,
     value_json: dict[str, Any] | None,
 ) -> None:
     """Validate only explicitly versioned payloads; legacy JSON stays readable."""
     if not isinstance(value_json, dict) or "schema_version" not in value_json:
+        return
+    if value_json.get("payload_kind") == "proposal":
         return
     normalized = normalize_dynamic_value(dynamic_type, value_json, None)
     if normalized.state != "typed":
@@ -83,6 +97,8 @@ def normalize_dynamic_value(
     anchor = spatial_anchor if isinstance(spatial_anchor, dict) else {}
     canonical_type = canonical_dynamic_type(dynamic_type)
 
+    if value.get("payload_kind") == "proposal":
+        return NormalizedDynamicValue(state="untyped")
     if "schema_version" in value:
         return _normalize_versioned(canonical_type, value)
 

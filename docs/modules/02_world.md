@@ -8,12 +8,17 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 
 - 对象抽取不是 NER，而是长期创作资产识别
 - 人工创建对象、关系和别名时，保存即表示采用；CoreEntity 默认写入 `canonical` 并记录 `created_by / approved_by`
-- 新的普通 AI 创设入口统一先写 `creation_suggestion_queue`。为兼容旧 entity wire、批次读取和结果引用，可同时物化带 `compatibility_shadow=true` 的 draft/candidate 影子；队列仍拥有采用决策，确认时提升同一影子而不重复创建实体
+- 普通 AI 创设统一先写 `creation_suggestion_queue`。生成中心返回判别式 suggestion result，
+  不物化兼容 CoreEntity 影子；队列拥有采用决策。仍依赖旧批次/结果引用的抽取路径可在其
+  自身契约内保留 `compatibility_shadow`，不得扩散回生成中心 HTTP wire
 - 别名不建新对象，存储于 `core_entities.content_json.aliases` JSONB 字段
 - 待处理别名可在采用前修改目标对象、别名文本和别名类型；证据来源、workflow、Scene、引用和置信度保持只读
 - `link_to_existing` / `alias_of_existing` 待处理项可设为已有对象别名，源兼容对象标记 `status="merged"` 并记录 `resolved_as="alias"`，不硬删除、不采用为独立对象
 - 世界对象 UI 的“待处理”入口按对象 / 别名 / 关系三个子 tab 聚合；对象库、别名、关系页继续作为全量管理入口，历史默认隐藏
 - 待处理关系可在采用前编辑源对象、目标对象、关系类型、描述和强度；来源章节、引用等证据只读，人工审计写入 `entity_relations.review_meta`
+- 待处理关系按有向对象对分组，别名按 owner 对象分组；Scene 不是关系归并边界，反向关系不自动归并
+- 复核类型目录只提供推荐和保守同义词；`relation_type` 和 alias `type` 仍是开放字符串，自定义值必须经用户显式修改才能替换
+- 关系/别名批处理必须提交 `confirmed=true`、唯一 `client_decision_id` 和服务端 SHA-256 执行指纹；关系筛选命中对象对后仍用完整组快照返回/验证指纹，批次写入按 UUID 全局稳定顺序预锁；每个决策使用 savepoint，单组原子、组间允许部分成功
 - 对象分级：core / important / normal / temporary
 - 版本回滚基于 `TextArchive` 归档与 `EntityRevision` 兜底（活跃回滚路由优先查询 `TextArchive`，无归档时回退到最近 `EntityRevision` 快照）
 - 关系原始状态仍兼容 `candidate` / `canonical` / `deprecated`；作者界面统一投影为待处理 / 已采用 / 历史。`canonical` 关系边使用 `(novel_id, source_id, target_id, relation_type)` 作为数据库幂等键，关系写入由仓储层 upsert 兜底。
@@ -68,8 +73,11 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - **DedupScorer** — 多路信号级联评分（rapidfuzz 形似 + pinyin 音似 + 子串包含 + 语义余弦 + 长度差异 + trigram Jaccard），可选 LR 模型
 - **EntityExtractionService** — RAG 有序 chunk → LLM 抽取 → 去重 → `SuggestionQueueService`；不直接拥有 CoreEntity 采用决策
 - **SuggestionQueueService** — 校验创设建议、可选兼容影子、并发安全裁决，以及对象/关系/别名的领域采用
+- **WorldGenerationCenterService** — 按作者选择的对象/现有页/新页面 target 确定性分派
+  Prompt，重载服务器来源，编译 context，创建 suggestion 并追踪 snapshot；聊天只返回回复
 - **WorldBibleLifecycleService** — 自定义类别、工作稿、发布 CAS、页面 revision 恢复和资产引用校验
-- **WorldBibleSynopsisService** — 作者版 P1 世界观简介的 source manifest、受控 LLM 刷新、claim 引用校验、CAS 晋升与 pin/恢复
+- **WorldBibleSynopsisService** — 作者版 P1 世界观简介的 source manifest、受控 LLM 刷新、
+  section 来源 key 校验、CAS 晋升与 pin/恢复
 - **CharacterService** — 人物 CRUD + 知识边界（从 character 模块迁入）
 - **CharacterKnowledgeService** — 人物知识边界管理
 
@@ -88,7 +96,7 @@ helper 和历史兼容入口：
 - `services/worldbuilding/`：世界书、模板、投影和作者资料整理。
   `worldbuilding_service.py` 仅作为旧 import path 兼容 hub；实现按概念拆到
   `profile_service.py`、`world_bible_service.py`、`world_bible_lifecycle_service.py`、
-  `world_bible_synopsis_service.py`、`suggestion_queue_service.py`、
+  `world_bible_synopsis_service.py`、`world_generation_center_service.py`、`suggestion_queue_service.py`、
   `knowledge_tag_service.py`、`reader_safety_service.py`、`conflict_queue_service.py`、
   `activation_preview_service.py`、`activation_target_service.py` 和
   `page_template_service.py`。
@@ -192,6 +200,8 @@ GET    /api/world/entities/{id}/relations
 # 别名（inline on CoreEntity）
 GET    /api/world/aliases
 POST   /api/world/aliases
+GET    /api/world/aliases/review-groups
+POST   /api/world/aliases/review-batch
 PATCH  /api/world/entities/{entity_id}/aliases/edit
 DELETE /api/world/entities/{entity_id}/aliases
 POST   /api/world/entities/{candidate_id}/resolve-as-alias
@@ -200,8 +210,11 @@ POST   /api/world/entities/{candidate_id}/resolve-as-alias
 GET    /api/world/entity-batches
 
 # 关系（v3）
+GET    /api/world/review-type-catalog
 GET    /api/world/relations
 POST   /api/world/relations
+GET    /api/world/relations/review-groups
+POST   /api/world/relations/review-batch
 PUT    /api/world/relations/{rel_id}
 PATCH  /api/world/relations/{rel_id}/review-edit
 DELETE /api/world/relations/{rel_id}
@@ -245,8 +258,24 @@ PATCH  /api/world/bible/synopsis/auto-refresh
 GET    /api/world/bible/synopsis/revisions
 POST   /api/world/bible/synopsis/revisions/{revision_id}/restore
 POST   /api/world/bible/synopsis/unpin
-POST   /api/world/suggestions/{suggestion_id}/apply-to-world-bible-draft
+
+# 生成中心 world 工作区
+POST   /api/world/generation-center/chat
+POST   /api/world/generation-center/suggestions
+POST   /api/world/generation-center/suggestions/{suggestion_id}/apply-page-draft
 ```
+
+生成中心 target 是 `core_entity`、`world_bible_page` 或 `world_bible_new_page`。页面 suggestion
+保存完整页面提案而非 append/patch；专用 apply 在重验 pending、来源 baseline、类别、section
+和资产引用后只更新或创建服务器工作稿。generic suggestion confirm 拒绝页面工作稿 target，
+canonical 仍只能由作者在世界书发布流程中改变。旧对象草稿、页面 AI 生成和页面建议 apply
+接口不再注册。
+
+`relations/review-batch` 一次最多 20 个决策、累计 50 条本次选中的关系；
+`aliases/review-batch` 一次最多 50 条别名。关系 `merge` 复用已有同端点同类型正式关系，
+去重合并 quote / `evidence_refs`，将被归并候选改为 `deprecated` 并保留归并前快照；
+未选候选保持 `candidate`，大组可以分次处理。别名分组扫描不使用隐式总数截断；内联 JSONB 写入先锁定 owner/目标对象。别名忽略保留 JSONB 条目并写入
+`status="ignored"` / `needs_review=false` 和审计元数据，不改变正式别名管理页的删除语义。
 
 ## 回滚
 

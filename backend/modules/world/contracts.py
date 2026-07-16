@@ -8,7 +8,10 @@ World 对外契约 — v3 因果时空网
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
+from datetime import datetime
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Protocol
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -213,9 +216,7 @@ class WorldBibleActivationResolutionContract:
 
     novel_id: str
     items: list[WorldBibleActivationTargetContract] = field(default_factory=list)
-    excluded_items: list[WorldBibleActivationTargetContract] = field(
-        default_factory=list
-    )
+    excluded_items: list[WorldBibleActivationTargetContract] = field(default_factory=list)
 
 
 class GenerationBackgroundProvider(Protocol):
@@ -231,11 +232,16 @@ class GenerationBackgroundProvider(Protocol):
         selected_world_bible_draft_ids: list[str] | None = None,
         activation_profile_id: str | None = None,
         activation_profile_version: int | None = None,
-        operation: str = "world.object_draft.generate",
-        prompt_name: str = "generation_center_world_object_draft",
+        operation: str = "world.generation.core_entity",
+        prompt_name: str = "world.generation.core_entity.structured",
         model: str = "project-default",
         focus_text: str = "",
         reference_chapter_index: int | None = None,
+        scene_id: str | None = None,
+        thread_ids: list[str] | None = None,
+        character_ids: list[str] | None = None,
+        entity_ids: list[str] | None = None,
+        source_snapshot: dict[str, Any] | None = None,
     ) -> dict[str, Any]: ...
 
 
@@ -260,6 +266,138 @@ class WorldAliasRelationTaskPort(Protocol):
     ) -> dict[str, Any]: ...
 
 
+class MapObservationProposalBase(BaseModel):
+    """Stable unresolved map proposal shared with deterministic import workflows."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    payload_kind: Literal["proposal"] = "proposal"
+    schema_version: Literal[1] = 1
+
+
+class MapCharacterLocationProposal(MapObservationProposalBase):
+    proposal_type: Literal["character_location"]
+    location_name: str | None = Field(None, max_length=255)
+    movement_mode: Literal[
+        "walk", "ride", "vehicle", "rail", "water", "flight", "teleport", "unknown"
+    ] = "unknown"
+    state: str = Field("present", min_length=1, max_length=64)
+
+
+class MapEventLocationProposal(MapObservationProposalBase):
+    proposal_type: Literal["event_location"]
+    location_name: str | None = Field(None, max_length=255)
+    state: str = Field("occurred", min_length=1, max_length=64)
+
+
+class MapRouteStateProposal(MapObservationProposalBase):
+    proposal_type: Literal["route_state"]
+    path_name: str | None = Field(None, max_length=255)
+    state: Literal["open", "restricted", "blocked"]
+    reason: str | None = Field(None, max_length=1000)
+
+
+class MapBoundaryProposal(MapObservationProposalBase):
+    proposal_type: Literal["boundary"]
+    controller_name: str | None = Field(None, max_length=255)
+    area_description: str | None = Field(None, max_length=2000)
+
+
+MapObservationProposalV1 = Annotated[
+    MapCharacterLocationProposal
+    | MapEventLocationProposal
+    | MapRouteStateProposal
+    | MapBoundaryProposal,
+    Field(discriminator="proposal_type"),
+]
+
+
+class MapObservationCandidateAuthorizationScope(BaseModel):
+    """Frozen user-authorization scope carried across the imports/world seam."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    novel_id: str
+    start_chapter: int = Field(..., ge=1)
+    end_chapter: int = Field(..., ge=1)
+    stage: str | None = Field(None, max_length=64)
+
+    @field_validator("novel_id")
+    @classmethod
+    def _validate_novel_id(cls, value: str) -> str:
+        import uuid
+
+        return str(uuid.UUID(value))
+
+    @model_validator(mode="after")
+    def _validate_chapter_range(self) -> MapObservationCandidateAuthorizationScope:
+        if self.end_chapter < self.start_chapter:
+            raise ValueError("authorization end_chapter must not precede start_chapter")
+        return self
+
+
+class MapObservationCandidateAuthorization(BaseModel):
+    """Persisted authorization proof for the non-autonomous import workflow."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    adoption_policy: Literal["user_authorized_pipeline"]
+    authorization_confirmed: Literal[True]
+    authorized_at: datetime
+    scope: MapObservationCandidateAuthorizationScope
+    snapshot_fingerprint: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+
+
+class MapObservationCandidateInput(BaseModel):
+    """Stable imports -> world input; provenance fields are immutable after creation."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    workflow_id: str = Field(..., min_length=1, max_length=255)
+    task_id: str | None = Field(None, max_length=255)
+    source_item_key: str = Field(..., min_length=1, max_length=255)
+    scene_id: str
+    scene_index: int = Field(..., ge=0)
+    source_chapter_index: int = Field(..., ge=0)
+    scene_source_fingerprint: str = Field(..., min_length=1, max_length=255)
+    context_snapshot_id: str | None = Field(None, max_length=255)
+    evidence_text: str = Field(..., min_length=1, max_length=8000)
+    evidence_anchor: str = Field(..., min_length=1, max_length=255)
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    target_entity_id: str | None = None
+    target_name: str | None = Field(None, max_length=255)
+    proposal: MapObservationProposalV1
+    authorization: MapObservationCandidateAuthorization
+
+    @field_validator("scene_id", "target_entity_id")
+    @classmethod
+    def _validate_uuid(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        import uuid
+
+        return str(uuid.UUID(value))
+
+
+class MapObservationCandidateResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    observation_id: str
+    action: Literal["created", "reused"]
+    proposal_type: Literal[
+        "character_location", "event_location", "route_state", "boundary"
+    ]
+    payload_hash: str
+
+
+class MapObservationCandidateBatchResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    created_count: int = 0
+    reused_count: int = 0
+    items: list[MapObservationCandidateResult] = Field(default_factory=list)
+
+
 __all__ = [
     "CharacterContract",
     "CharacterKnowledgeContract",
@@ -268,6 +406,17 @@ __all__ = [
     "EntityRevisionContract",
     "EventContract",
     "GenerationBackgroundProvider",
+    "MapBoundaryProposal",
+    "MapCharacterLocationProposal",
+    "MapEventLocationProposal",
+    "MapObservationCandidateAuthorization",
+    "MapObservationCandidateAuthorizationScope",
+    "MapObservationCandidateBatchResult",
+    "MapObservationCandidateInput",
+    "MapObservationCandidateResult",
+    "MapObservationProposalBase",
+    "MapObservationProposalV1",
+    "MapRouteStateProposal",
     "MergeResult",
     "ResolveResult",
     "WorldBackgroundBundleContract",

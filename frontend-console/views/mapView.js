@@ -55,6 +55,16 @@ import {
   timelineProjectionSignature,
 } from "./mapTimelineProjection.js"
 import {
+  beginMapNavigation,
+  cancelMapTelemetry,
+  endMapTelemetryStage,
+  markMapTelemetryCondition,
+  recordMapFrame,
+  recordMapInput,
+  setMapTelemetryMetadata,
+  startMapTelemetryStage,
+} from "./mapTelemetry.js"
+import {
   bulkResultMessage,
   clearBulkSelection,
   getBulkSelection,
@@ -225,6 +235,7 @@ const mapView = {
   /** Scene 时间轴只读投影；不进入编辑草稿或 editor_revision。 */
   _timelineProjection: null,
   _timelineProjectionSignature: "",
+  _labelClusterItemsById: new Map(),
 
   // ============================================================
   // 生命周期：由 worldView 调用
@@ -239,11 +250,19 @@ const mapView = {
     const lifecycleEpoch = ++this._lifecycleEpoch
     this._mountRootId = rootId
     this._mountContext = context || {}
+    if (context.mapId) {
+      beginMapNavigation({
+        mapId: context.mapId,
+        route: globalThis.location?.hash || null,
+      })
+    }
     await this._loadMaps()
     if (!this._isLifecycleCurrent(lifecycleEpoch, context)) return false
     if (context.mapId) {
+      startMapTelemetryStage("api_and_parse")
       await this._loadMapState(context.mapId, context.sceneId || null)
       if (!this._isLifecycleCurrent(lifecycleEpoch, context)) return false
+      startMapTelemetryStage("state_assembly")
       await Promise.all([
         this._loadLocations(),
         this._loadAllEntities(),
@@ -252,6 +271,8 @@ const mapView = {
         this._loadPaths(),
       ])
       if (!this._isLifecycleCurrent(lifecycleEpoch, context)) return false
+      endMapTelemetryStage("state_assembly")
+      markMapTelemetryCondition("state_ready")
       if (context.sceneId) setCurrentScene(context.sceneId)
       if (context.focusEntityId && this._focusEntityHasTerritory(context.focusEntityId)) {
         setFocusMode(true, context.focusEntityId)
@@ -285,7 +306,9 @@ const mapView = {
     this._dragPathNode = null
     this._timelineProjection = null
     this._timelineProjectionSignature = ""
+    this._labelClusterItemsById.clear()
     this._pointerStartHadPending = false
+    cancelMapTelemetry()
     resetMapState()
   },
 
@@ -415,6 +438,12 @@ const mapView = {
         average_frame_ms: null,
         p95_frame_ms: null,
       }
+      endMapTelemetryStage("api_and_parse", { durationMs: loadedAt - startedAt })
+      setMapTelemetryMetadata({
+        mapId,
+        grid: this._performanceMetrics.grid,
+        payloadBytes,
+      })
       this._performanceFrameDurations = []
       this._firstDrawStartedAt = startedAt
       this._renderSubsetCache.clear()
@@ -934,6 +963,7 @@ const mapView = {
   },
 
   _renderMapShell() {
+    const compactViewport = this._isCompactViewport()
     const breadcrumbs = (this._state.breadcrumbs || [])
       .map((b, i) => {
         const isLast = i === this._state.breadcrumbs.length - 1
@@ -941,11 +971,13 @@ const mapView = {
       })
       .join('<span class="map-crumb-sep">→</span>')
 
-    const editBtn = mapState.mode === "edit"
+    const editBtn = compactViewport
+      ? `<button class="btn btn-sm" data-action="map-mobile-edit-handoff">请在桌面端编辑</button>`
+      : mapState.mode === "edit"
       ? `<button class="btn btn-sm" data-action="map-exit-edit">退出编辑</button>`
       : `<button class="btn btn-sm" data-action="map-enter-edit">编辑</button>`
 
-    const editPanelHtml = mapState.mode === "edit"
+    const editPanelHtml = mapState.mode === "edit" && !compactViewport
       ? renderEditPanel({
         locations: this._locations,
         allEntities: this._allEntities,
@@ -985,6 +1017,12 @@ const mapView = {
         ${editPanelHtml ? `<div class="map-edit-panel">${editPanelHtml}</div>` : ""}
         <div id="map-detail-panel" class="map-detail-panel"></div>
       </div>
+      ${compactViewport ? `
+        <div class="map-mobile-edit-handoff" role="note">
+          <strong>移动端为浏览模式</strong>
+          <span>当前地图包含 ${(this._state.terrain_layers || []).length} 个地形图层、${this._effectivePaths().length} 条线路、${(this._state.territories || []).length} 个势力格。地形绘制、线路节点精修、势力涂抹和图层结构编辑请在桌面端继续。</span>
+        </div>
+      ` : ""}
       ${this._renderSceneBar()}
       ${this._renderFactionList()}
       <div class="map-filter-bar">
@@ -1125,6 +1163,7 @@ const mapView = {
     let container = document.getElementById("map-leaflet")
     if (!container || !this._state || this._leaflet) return
 
+    startMapTelemetryStage("leaflet_init")
     try {
       await loadLeafletForMapView()
     } catch {
@@ -1144,6 +1183,13 @@ const mapView = {
       zoomControl: true,
       attributionControl: false,
     })
+    const labelPane = this._leaflet.getPane?.("mapLabels")
+      || this._leaflet.createPane?.("mapLabels")
+    if (labelPane) {
+      labelPane.classList?.add("map-label-pane")
+      labelPane.style.zIndex = "450"
+      labelPane.style.pointerEvents = "none"
+    }
 
     const size = cfg.hex_size || 30
     // 计算地图像素边界
@@ -1168,7 +1214,7 @@ const mapView = {
     this._canvas.style.height = "100%"
     this._canvas.style.display = "block"
     this._canvas.style.pointerEvents = "auto"
-    this._canvas.style.zIndex = "400"
+    this._canvas.style.zIndex = "350"
     container.appendChild(this._canvas)
     this._syncCanvasSize()
     this._ctx = this._canvas.getContext("2d")
@@ -1186,6 +1232,10 @@ const mapView = {
 
     // 点击：hex 命中
     this._canvas.addEventListener("click", (e) => this._handleCanvasClick(e))
+    container.addEventListener("wheel", () => {
+      recordMapInput("wheel")
+      this._scheduleRedraw()
+    }, { capture: true, passive: true })
     // Pointer Events 同时覆盖鼠标与触控；拖动期间暂停 Leaflet 平移。
     this._canvas.style.touchAction = "none"
     this._canvas.addEventListener("pointermove", (e) => this._handleCanvasMouseMove(e))
@@ -1193,6 +1243,8 @@ const mapView = {
     this._canvas.addEventListener("pointerdown", (e) => this._handleCanvasMouseDown(e))
     this._canvas.addEventListener("pointerup", (e) => this._handleCanvasMouseUp(e))
     this._canvas.addEventListener("pointercancel", (e) => this._handleCanvasMouseUp(e))
+    endMapTelemetryStage("leaflet_init")
+    markMapTelemetryCondition("leaflet_ready")
   },
 
   _renderLeafletLoadFailure(container) {
@@ -1690,6 +1742,12 @@ const mapView = {
   _recordRenderPerformance(frameStartedAt) {
     const finishedAt = performance.now()
     const duration = finishedAt - frameStartedAt
+    recordMapFrame(duration, {
+      nonEmpty: Boolean(
+        (this._renderMetrics?.queued_hex_items || 0) > 0
+        || (this._state?.tiles || []).length > 0
+      ),
+    })
     if (this._renderMetrics) this._renderMetrics.frame_duration_ms = duration
     if (!this._performanceMetrics) return
     if (this._performanceMetrics.first_draw_ms == null && this._firstDrawStartedAt != null) {
@@ -1861,6 +1919,7 @@ const mapView = {
   /** 中心点标签用 DOM（便于显示文字），通过 data-action 委托点击 */
   _renderCenterLabels() {
     if (!this._leaflet || !this._state) return
+    this._labelClusterItemsById.clear()
     // 清理旧标签
     this._leaflet.eachLayer((layer) => {
       if (layer._isMapLabel) this._leaflet.removeLayer(layer)
@@ -1873,7 +1932,10 @@ const mapView = {
       mapState.mode === "edit"
       || !this._isLayerEnabled("locations")
       || !locationLayer.visible
-    ) return // 编辑模式不显示标签
+    ) {
+      markMapTelemetryCondition("labels_ready")
+      return // 编辑模式不显示标签
+    }
 
     const cfg = this._state.map
     const size = cfg.hex_size || 30
@@ -1896,6 +1958,7 @@ const mapView = {
       }
     })
     const container = this._leaflet.getContainer?.()
+    startMapTelemetryStage("label_layout")
     const layout = buildMapLayout({
       dashboard: { dynamic_queue: layoutItems },
       viewport: {
@@ -1907,6 +1970,7 @@ const mapView = {
       sceneId: mapState.currentSceneId,
       lowMotion: Boolean(this._mountContext?.lowMotion),
     })
+    endMapTelemetryStage("label_layout")
     const labelById = new Map(layout.labels.map((label) => [label.itemId, label]))
     for (const b of centers) {
       const [x, y] = hexToPixel(b.hex_q, b.hex_r, size)
@@ -1927,25 +1991,39 @@ const mapView = {
         iconSize: [iconWidth, iconHeight],
         iconAnchor: [point.x - labelLayout.box.x, point.y - labelLayout.box.y],
       })
-      const marker = window.L.marker(latlng, { icon })
+      const marker = window.L.marker(latlng, {
+        icon,
+        pane: "mapLabels",
+        interactive: true,
+        keyboard: true,
+        title: labelLayout.title,
+      })
       marker._isMapLabel = true
       marker.addTo(this._leaflet)
     }
     for (const cluster of layout.clusters) {
+      this._labelClusterItemsById.set(cluster.id, cluster.items)
       const latlng = this._leaflet.containerPointToLatLng([
         cluster.box.x + cluster.box.width / 2,
         cluster.box.y + cluster.box.height / 2,
       ])
       const icon = window.L.divIcon({
         className: "map-center-marker map-layout-marker is-cluster",
-        html: `<div class="map-center-label map-center-cluster"><span class="map-center-name">${esc(cluster.label)}</span></div>`,
+        html: `<div class="map-center-label map-center-cluster" data-action="map-click-cluster" data-id="${esc(cluster.id)}"><span class="map-center-name">${esc(cluster.label)}</span></div>`,
         iconSize: [cluster.box.width, cluster.box.height],
         iconAnchor: [cluster.box.width / 2, cluster.box.height / 2],
       })
-      const marker = window.L.marker(latlng, { icon })
+      const marker = window.L.marker(latlng, {
+        icon,
+        pane: "mapLabels",
+        interactive: true,
+        keyboard: true,
+        title: cluster.label,
+      })
       marker._isMapLabel = true
       marker.addTo(this._leaflet)
     }
+    markMapTelemetryCondition("labels_ready")
   },
 
   _locationName(entityId) {
@@ -1965,10 +2043,12 @@ const mapView = {
 
   _handleCanvasClick(e) {
     if (!this._canvas || !this._state) return
+    if (mapState.mode === "edit" && this._isCompactViewport()) return
     const [q, r] = this._eventToHex(e)
     if (q == null) return
     const cfg = this._state.map
     if (q < 0 || q >= cfg.grid_width || r < 0 || r >= cfg.grid_height) return
+    recordMapInput("click", { clickedHex: true })
     if (mapState.mode === "edit") {
       if (!this._guardEditorLayerWritable()) return
       if (mapState.editorLayer === "path") {
@@ -1997,6 +2077,7 @@ const mapView = {
       this._redraw()
     } else {
       this._handleBrowseClick(q, r)
+      this._scheduleRedraw()
     }
   },
 
@@ -2006,8 +2087,7 @@ const mapView = {
     this._updateDetailPanel(q, r)
     const eventMarker = this._markerAt(q, r, (marker) => marker.marker_type === "event")
     if (eventMarker && eventMarker.start_scene_id) {
-      setCurrentScene(eventMarker.start_scene_id)
-      this._reloadWithScene()
+      this._notifySceneChanged(eventMarker.start_scene_id)
       return
     }
     const tile = this._visibleTileAt(q, r)
@@ -2069,8 +2149,7 @@ const mapView = {
     const newIdx = Math.max(0, Math.min(scenes.length - 1, currentIdx + direction))
     const scene = scenes[newIdx]
     if (scene) {
-      setCurrentScene(scene.id)
-      this._reloadWithScene()
+      this._notifySceneChanged(scene.id)
     }
   },
 
@@ -2083,17 +2162,22 @@ const mapView = {
       text: "跳转", class: "btn-primary", handler: async () => {
         const sel = document.getElementById("map-scene-pick-select")
         if (sel && sel.value) {
-          setCurrentScene(sel.value)
-          closeModal()
-          await this._reloadWithScene()
+          const changed = await this._notifySceneChanged(sel.value)
+          if (changed !== false) closeModal()
         }
       },
     }])
   },
 
   _clearScene() {
-    setCurrentScene(null)
-    this._reloadWithScene()
+    this._notifySceneChanged(null)
+  },
+
+  async _notifySceneChanged(sceneId) {
+    const callback = this._mountContext?.onSceneChange
+    if (typeof callback === "function") return callback(sceneId)
+    setCurrentScene(sceneId)
+    return this._reloadWithScene()
   },
 
   async _reloadWithScene() {
@@ -2212,6 +2296,12 @@ const mapView = {
 
   _handleCanvasMouseMove(e) {
     if (!this._canvas || !this._state || !this._leaflet) return
+    if (mapState.mode === "edit" && this._isCompactViewport()) return
+    recordMapInput(
+      e.pointerType === "touch"
+        ? "touch"
+        : Number(e.buttons) > 0 ? "drag" : "pointermove",
+    )
     if (mapState.mode === "edit" && mapState.editorLayer === "path") {
       if (this._pathPointerSamples || this._dragPathNode) {
         this._handlePathPointerMove(e)
@@ -2291,6 +2381,7 @@ const mapView = {
 
   _handleCanvasMouseDown(e) {
     if (!this._canvas || !this._state || mapState.mode !== "edit") return
+    if (this._isCompactViewport()) return
     if (!this._guardEditorLayerWritable()) return
     if (mapState.editorLayer === "path") {
       this._handlePathPointerDown(e)
@@ -2919,6 +3010,7 @@ const mapView = {
       "map-back-list": () => this._backToList(),
       "map-settings": () => this._showSettingsModal(),
       "map-enter-edit": () => this._enterEdit(),
+      "map-mobile-edit-handoff": () => toast("复杂地图编辑请在桌面端继续；移动端保留浏览与查看详情。", "info"),
       "map-exit-edit": () => this._exitEdit(),
       "map-breadcrumb": (_e, t) => {
         const id = t.getAttribute("data-id")
@@ -2928,9 +3020,13 @@ const mapView = {
         const id = t.getAttribute("data-id")
         if (id) this._onCenterClick(id)
       },
+      "map-click-cluster": (_e, t) => {
+        const id = t.getAttribute("data-id")
+        if (id) this._showLocationCluster(id)
+      },
       "map-detail-drill": (_e, t) => {
         const id = t.getAttribute("data-id")
-        if (id) this._onCenterClick(id)
+        if (id) this._drillToLocation(id)
       },
       "map-detail-world-object": (_e, t) => {
         const id = t.getAttribute("data-id")
@@ -3169,6 +3265,7 @@ const mapView = {
       }
     }
     document.addEventListener("keydown", this._keyHandler)
+    markMapTelemetryCondition("handlers_ready")
   },
 
   // ============================================================
@@ -3176,6 +3273,8 @@ const mapView = {
   // ============================================================
 
   async _openMap(mapId) {
+    const callback = this._mountContext?.onOpenMap
+    if (typeof callback === "function") return callback(mapId)
     if (!this._guardDirty()) return false
     this._discardDrafts()
     const rootId = this._mountRootId || "map-root"
@@ -3195,6 +3294,8 @@ const mapView = {
   },
 
   _backToList() {
+    const callback = this._mountContext?.onBackOverview
+    if (typeof callback === "function") return callback()
     if (!this._guardDirty()) return false
     this._discardDrafts()
     this.unmount()
@@ -3252,6 +3353,10 @@ const mapView = {
     const mountContext = this._mountContext
     const mapId = this._state?.map?.id
     if (!mapId) return false
+    if (this._isCompactViewport()) {
+      toast("复杂地图编辑请在桌面端继续；移动端保留浏览与查看详情。", "info")
+      return false
+    }
     await Promise.all([
       this._loadLocations(),
       this._loadAllEntities(),
@@ -3291,6 +3396,12 @@ const mapView = {
     this._notifyEditingChanged()
     this._render(this._mountRootId || "map-root")
     return true
+  },
+
+  _isCompactViewport() {
+    if (typeof window === "undefined") return false
+    return window.matchMedia?.("(max-width: 760px)")?.matches
+      ?? window.innerWidth <= 760
   },
 
   _switchTool(tool) {
@@ -3640,6 +3751,11 @@ const mapView = {
   },
 
   _replaceLayerFocusInRoute(nodeId) {
+    const callback = this._mountContext?.onLayerFocusChange
+    if (typeof callback === "function") {
+      callback(nodeId || null)
+      return
+    }
     const raw = (window.location.hash || "").replace(/^#/, "")
     if (!raw) return
     const [path, query = ""] = raw.split("?")
@@ -5353,17 +5469,56 @@ const mapView = {
   },
 
   _onCenterClick(entityId) {
-    // 点击中心点：有详图则下钻，无则提示创建
+    const binding = (this._state?.location_bindings || []).find(
+      (item) => item.location_entity_id === entityId && item.is_center,
+    )
+    if (!binding) return false
+    setSelectedHex(binding.hex_q, binding.hex_r)
+    mapState.selectedMapObject = {
+      kind: "location",
+      id: binding.id,
+      entityId,
+      q: binding.hex_q,
+      r: binding.hex_r,
+    }
+    this._updateDetailPanel(binding.hex_q, binding.hex_r)
+    return true
+  },
+
+  _showLocationCluster(clusterId) {
+    const items = this._labelClusterItemsById.get(clusterId) || []
+    const locations = items
+      .map((item) => ({
+        id: item.target_entity_id || item.location_entity_id || item.entity_id,
+        name: item.title || this._locationName(item.target_entity_id),
+      }))
+      .filter((item) => item.id)
+    if (!locations.length) return false
+    const body = `<div class="map-cluster-member-list">${locations.map((item) => `
+      <button class="btn map-cluster-member" data-map-cluster-member="${esc(item.id)}">${esc(item.name || "未命名地点")}</button>
+    `).join("")}</div>`
+    showModalHtml("选择地点", body, [{ text: "取消", class: "btn", handler: closeModal }])
+    document.querySelectorAll("[data-map-cluster-member]").forEach((button) => {
+      button.onclick = () => {
+        closeModal()
+        this._onCenterClick(button.dataset.mapClusterMember)
+      }
+    })
+    return true
+  },
+
+  _drillToLocation(entityId) {
     if (this._hasDetailMap(entityId)) {
       const detail = this._detailMapByEntityId.get(entityId)
-      if (detail) this._openMap(detail.id)
+      if (detail) return this._openMap(detail.id)
     } else {
-      confirmAction(
+      return confirmAction(
         `为该地点创建详图？`,
         () => this._showCreateDetailForm(entityId),
         "创建详图"
       )
     }
+    return false
   },
 
   _showCreateWorldForm() {

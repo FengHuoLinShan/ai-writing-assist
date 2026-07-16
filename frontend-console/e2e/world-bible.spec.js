@@ -3,8 +3,14 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { test, expect } from "@playwright/test"
 import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
-import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
+import {
+  cleanupProject,
+  createProject,
+  listWorldBibleDrafts,
+  waitForBackend,
+} from "./helpers/api-client.js"
 import { SEL } from "./helpers/selectors.js"
+import { expectNoPageOverflow, expectWithinViewportWidth } from "./helpers/responsive.js"
 
 function isExpectedProjectionConflict(response) {
   return response.status() === 409
@@ -243,5 +249,72 @@ test.describe("世界书工作台", () => {
     await expectNoAppErrors(page, "最终")
     expect(failedResponses, `失败请求: ${JSON.stringify(failedResponses)}`).toHaveLength(0)
     expect(consoleErrors, `控制台错误: ${JSON.stringify(consoleErrors)}`).toHaveLength(0)
+  })
+
+  test("390px 下世界书表单、操作区和 AI 转交入口保持可用", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await reloadWorkbench(page, "world", "bible")
+
+    await page.locator("[data-action='bible-new-page']").click()
+    await page.locator("#bible-create-title").fill("移动端世界书")
+    await page.locator(SEL.modalFooter).locator(SEL.btnPrimary).click()
+    const publishedPageResponse = page.waitForResponse((response) => (
+      response.request().method() === "POST"
+      && response.url().includes("/api/world/bible/drafts/")
+      && response.url().includes("/publish")
+      && response.status() === 200
+    ))
+    await page.locator("[data-action='bible-publish-page']").click()
+    const publishedPage = await (await publishedPageResponse).json()
+    await expect(page.locator(SEL.toastContainer)).toContainText("已发布", { timeout: 10000 })
+    const sourcePageId = publishedPage.id || null
+    expect(sourcePageId).toBeTruthy()
+
+    const header = page.locator(".world-bible-editor-panel > .world-bible-panel__header")
+    const actions = header.locator(".world-bible-panel__actions")
+    await header.scrollIntoViewIfNeeded()
+    await expectWithinViewportWidth(header)
+    await expect(page.getByLabel("页面概览")).toBeVisible()
+    await page.locator("#bible-free-text").scrollIntoViewIfNeeded()
+    await expectWithinViewportWidth(page.locator("#bible-free-text"))
+    await expectNoPageOverflow(page)
+
+    const responsiveStyles = await header.evaluate((element) => {
+      const actionElement = element.querySelector(".world-bible-panel__actions")
+      const button = actionElement?.querySelector("button")
+      return {
+        headerDirection: getComputedStyle(element).flexDirection,
+        actionsDisplay: actionElement ? getComputedStyle(actionElement).display : "",
+        actionColumns: actionElement ? getComputedStyle(actionElement).gridTemplateColumns.split(" ").length : 0,
+        buttonMinHeight: button ? Number.parseFloat(getComputedStyle(button).minHeight) : 0,
+      }
+    })
+    expect(responsiveStyles).toMatchObject({
+      headerDirection: "column",
+      actionsDisplay: "grid",
+      actionColumns: 2,
+    })
+    expect(responsiveStyles.buttonMinHeight).toBeGreaterThanOrEqual(44)
+
+    const aiHandoff = actions.locator("[data-action='bible-improve-with-ai']")
+    await expect(aiHandoff).toBeVisible()
+    await expect(aiHandoff).toHaveText("用 AI 完善此页")
+    await page.locator("#bible-free-text").fill("移动端保存后转交的页面概览")
+    await aiHandoff.click()
+    await expect(page.locator(SEL.modalTitle)).toHaveText("保存后进入生成中心")
+    await page.getByRole("button", { name: "保存并继续" }).click()
+    await expect(page.locator(SEL.toastContainer)).toContainText("工作稿已保存", { timeout: 10000 })
+    await expect(page).toHaveURL(/\/generate\?/)
+    await expect(page.locator("#generate-chat-input")).toBeVisible()
+    const query = new URLSearchParams(page.url().split("?")[1] || "")
+    expect(query.get("target")).toBe("world_bible_page")
+    expect(query.get("source_page_id")).toBe(sourcePageId)
+    const drafts = await listWorldBibleDrafts(testProject.id)
+    expect(drafts.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        page_id: sourcePageId,
+        free_text: "移动端保存后转交的页面概览",
+      }),
+    ]))
   })
 })

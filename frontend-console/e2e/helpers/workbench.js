@@ -9,7 +9,7 @@ import { API_HOST } from "./api-client.js"
 import { SEL } from "./selectors.js"
 
 async function installApiHost(page) {
-  await page.addInitScript((apiHost) => {
+  await page.context().addInitScript((apiHost) => {
     window.API_HOST = apiHost
   }, API_HOST)
 }

@@ -15,6 +15,7 @@ from infrastructure.tasks.enqueuer import enqueue_task
 from modules.outline.models import Scene, SceneFusionSuggestion, SceneSpan
 from modules.outline.repositories import (
     SceneFusionSuggestionRepository,
+    SceneIdentityProjection,
     SceneRepository,
     SceneSuggestionSourceProjection,
     SceneWorkbenchHealthProjection,
@@ -45,6 +46,8 @@ from modules.outline.schemas import (
     SceneReviewResponse,
     SceneSourceMappingReviewRequest,
     SceneSourceMappingReviewResponse,
+    SceneSpanOverlapDetail,
+    SceneSpanSummary,
     SceneSplitRequest,
     SceneUpdate,
     SceneWorkbenchItem,
@@ -83,6 +86,13 @@ HEALTH_REASON_GROUPS = {
 
 CONFIDENCE_BANDS = {"low", "medium", "high"}
 _FUSION_DECISION_STATUSES = ("pending", "dismissed", "adopted")
+MAPPING_STATUS_LABELS = {
+    "exact": "精确定位",
+    "reanchored": "已重新定位",
+    "chapter_only": "仅关联章节",
+    "unresolved": "需重新定位",
+}
+_ANCHOR_SUMMARY_LIMIT = 120
 
 
 class SceneSuggestionConflictError(RuntimeError):
@@ -238,13 +248,25 @@ class SceneWorkbenchService:
         span_review_by_scene: dict[uuid.UUID, list[SceneSpan]] = defaultdict(list)
         for span in await self.repo.get_scene_spans_needing_review(db, nid):
             span_review_by_scene[span.scene_id].append(span)
-        overlap_chapters_by_scene = self._overlapping_span_chapters(
-            await self.repo.get_scene_spans_for_coverage(
-                db,
-                nid,
-                content_mode="canonical",
-                statuses=("draft", "canonical"),
-            )
+        coverage_spans = await self.repo.get_scene_spans_for_coverage(
+            db,
+            nid,
+            content_mode="canonical",
+            statuses=("draft", "canonical"),
+        )
+        overlap_pairs = self._overlapping_span_pairs(coverage_spans)
+        overlap_chapters_by_scene = self._overlap_chapters(overlap_pairs)
+        overlap_scene_ids = {
+            span.scene_id for pair in overlap_pairs for span in pair[:2]
+        }
+        overlap_identities = await self.repo.get_scene_identity_projections(
+            db,
+            nid,
+            overlap_scene_ids,
+        )
+        overlap_details_by_scene = self._overlap_details(
+            overlap_pairs,
+            overlap_identities,
         )
         pending_suggestions = await self._active_pending_suggestions(
             db,
@@ -314,6 +336,13 @@ class SceneWorkbenchService:
             [scene.id for scene in visible_scenes],
         )
         visible_by_id = {scene.id: scene for scene in visible_models}
+        visible_spans_by_scene: dict[uuid.UUID, list[SceneSpan]] = defaultdict(list)
+        for span in await self.repo.get_scene_spans_for_scenes(
+            db,
+            nid,
+            [scene.id for scene in visible_scenes],
+        ):
+            visible_spans_by_scene[span.scene_id].append(span)
         items = []
         for projection in visible_scenes:
             scene = visible_by_id.get(projection.id)
@@ -326,6 +355,10 @@ class SceneWorkbenchService:
                     health_details=details_by_scene[scene.id],
                     chapter_range=self._chapter_range(scene.chapter_ids or []),
                     summary=scene.goal or scene.core_conflict or scene.emotional_beat,
+                    span_summaries=self._span_summaries(
+                        visible_spans_by_scene.get(scene.id, [])
+                    ),
+                    overlap_details=overlap_details_by_scene.get(scene.id, []),
                 )
             )
 
@@ -1657,6 +1690,14 @@ class SceneWorkbenchService:
     def _overlapping_span_chapters(
         spans: list[SceneSpan],
     ) -> dict[uuid.UUID, set[int]]:
+        return SceneWorkbenchService._overlap_chapters(
+            SceneWorkbenchService._overlapping_span_pairs(spans)
+        )
+
+    @staticmethod
+    def _overlapping_span_pairs(
+        spans: list[SceneSpan],
+    ) -> list[tuple[SceneSpan, SceneSpan, int, int]]:
         by_source: dict[tuple[int, str], list[SceneSpan]] = defaultdict(list)
         for span in spans:
             if (
@@ -1673,7 +1714,7 @@ class SceneWorkbenchService:
             if source_key is None:
                 continue
             by_source[(span.chapter_index, source_key)].append(span)
-        overlaps: dict[uuid.UUID, set[int]] = defaultdict(set)
+        overlaps: list[tuple[SceneSpan, SceneSpan, int, int]] = []
         for (chapter_index, _source_key), chapter_spans in by_source.items():
             ordered = sorted(
                 chapter_spans,
@@ -1685,9 +1726,126 @@ class SceneWorkbenchService:
                         break
                     if left.scene_id == right.scene_id:
                         continue
-                    overlaps[left.scene_id].add(chapter_index)
-                    overlaps[right.scene_id].add(chapter_index)
+                    overlaps.append(
+                        (
+                            left,
+                            right,
+                            max(left.start_offset or 0, right.start_offset or 0),
+                            min(left.end_offset or 0, right.end_offset or 0),
+                        )
+                    )
         return overlaps
+
+    @staticmethod
+    def _overlap_chapters(
+        pairs: list[tuple[SceneSpan, SceneSpan, int, int]],
+    ) -> dict[uuid.UUID, set[int]]:
+        chapters: dict[uuid.UUID, set[int]] = defaultdict(set)
+        for left, right, _overlap_start, _overlap_end in pairs:
+            chapters[left.scene_id].add(left.chapter_index)
+            chapters[right.scene_id].add(right.chapter_index)
+        return chapters
+
+    def _overlap_details(
+        self,
+        pairs: list[tuple[SceneSpan, SceneSpan, int, int]],
+        identities: dict[uuid.UUID, SceneIdentityProjection],
+    ) -> dict[uuid.UUID, list[SceneSpanOverlapDetail]]:
+        details: dict[uuid.UUID, list[SceneSpanOverlapDetail]] = defaultdict(list)
+        for left, right, overlap_start, overlap_end in pairs:
+            details[left.scene_id].append(
+                self._overlap_detail(left, right, overlap_start, overlap_end, identities)
+            )
+            details[right.scene_id].append(
+                self._overlap_detail(right, left, overlap_start, overlap_end, identities)
+            )
+        for scene_details in details.values():
+            scene_details.sort(
+                key=lambda item: (
+                    item.chapter_index,
+                    item.overlap_start_offset,
+                    item.overlap_end_offset,
+                    item.counterpart_scene_label,
+                    item.counterpart_scene_id,
+                )
+            )
+        return details
+
+    def _overlap_detail(
+        self,
+        scene_span: SceneSpan,
+        counterpart_span: SceneSpan,
+        overlap_start: int,
+        overlap_end: int,
+        identities: dict[uuid.UUID, SceneIdentityProjection],
+    ) -> SceneSpanOverlapDetail:
+        identity = identities.get(counterpart_span.scene_id)
+        normalized_title = identity.title.strip() if identity and identity.title else ""
+        title = normalized_title or None
+        label = title or (
+            f"Scene {identity.scene_index + 1}" if identity else "未命名 Scene"
+        )
+        return SceneSpanOverlapDetail(
+            counterpart_scene_id=str(counterpart_span.scene_id),
+            counterpart_scene_title=title,
+            counterpart_scene_label=label,
+            chapter_index=scene_span.chapter_index,
+            scene_start_offset=int(scene_span.start_offset or 0),
+            scene_end_offset=int(scene_span.end_offset or 0),
+            counterpart_start_offset=int(counterpart_span.start_offset or 0),
+            counterpart_end_offset=int(counterpart_span.end_offset or 0),
+            overlap_start_offset=overlap_start,
+            overlap_end_offset=overlap_end,
+            range_label=(
+                f"第 {scene_span.chapter_index} 章 · "
+                f"字符 {overlap_start}–{overlap_end} 与「{label}」重叠"
+            ),
+        )
+
+    def _span_summaries(self, spans: list[SceneSpan]) -> list[SceneSpanSummary]:
+        ordered = sorted(
+            spans,
+            key=lambda span: (
+                span.chapter_index,
+                span.start_offset if span.start_offset is not None else 10**12,
+                span.start_paragraph if span.start_paragraph is not None else 10**12,
+                span.part_no,
+            ),
+        )
+        return [self._span_summary(span) for span in ordered]
+
+    def _span_summary(self, span: SceneSpan) -> SceneSpanSummary:
+        status_label = MAPPING_STATUS_LABELS.get(span.mapping_status, "待确认")
+        range_parts = [f"第 {span.chapter_index} 章"]
+        if span.start_offset is not None and span.end_offset is not None:
+            range_parts.append(f"字符 {span.start_offset}–{span.end_offset}")
+        elif span.start_paragraph is not None:
+            paragraph_start = span.start_paragraph + 1
+            if span.end_paragraph is None:
+                range_parts.append(f"第 {paragraph_start} 段起")
+            else:
+                range_parts.append(
+                    f"第 {paragraph_start}–{span.end_paragraph + 1} 段"
+                )
+        else:
+            range_parts.append("整章范围待确认")
+        range_parts.append(status_label)
+        anchor = " ".join((span.anchor_excerpt or "").split()) or None
+        if anchor and len(anchor) > _ANCHOR_SUMMARY_LIMIT:
+            anchor = f"{anchor[:_ANCHOR_SUMMARY_LIMIT].rstrip()}…"
+        return SceneSpanSummary(
+            chapter_index=span.chapter_index,
+            content_mode=span.content_mode,
+            part_no=span.part_no,
+            mapping_status=span.mapping_status,
+            mapping_status_label=status_label,
+            start_offset=span.start_offset,
+            end_offset=span.end_offset,
+            start_paragraph=span.start_paragraph,
+            end_paragraph=span.end_paragraph,
+            anchor_excerpt=anchor,
+            range_label=" · ".join(range_parts),
+        )
 
     def _health_reason(
         self,

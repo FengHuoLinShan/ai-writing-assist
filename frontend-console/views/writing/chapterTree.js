@@ -338,7 +338,7 @@ export function createChapterTree({
           return null
         }).filter(Boolean)
         return { scene: s, chapters: chIds }
-      })
+      }).sort((left, right) => this._compareSceneGroups(left, right))
 
       const unassigned = this._chapterList.filter((idx) => !assignedChapters.has(idx))
       reconcileBulkSelection(this, "writing-chapters", this._chapterList.map(String))
@@ -387,6 +387,7 @@ export function createChapterTree({
           groupId,
           chapters.length > 0 || isCurrentScene || chapters.includes(this._currentChapter),
         )
+        const chunkRangeLabel = this._sceneChunkRangeLabel(scene)
 
         html += `
           <div class="scene-tree-node">
@@ -394,7 +395,7 @@ export function createChapterTree({
               <button type="button" class="scene-tree-toggle" data-action="toggle-scene-group" data-group-id="${this._esc(groupId)}" aria-expanded="${isExpanded ? "true" : "false"}" title="${isExpanded ? "折叠" : "展开"}">
                 <span class="toggle-icon">${isExpanded ? "▼" : "▶"}</span>
               </button>
-              <button type="button" class="scene-tree-label ${isCurrentScene ? "scene-tree-label--current" : ""}" data-action="select-scene" data-scene-id="${this._esc(scene.id)}">${this._esc(scene.title || "未命名")}</button>
+              <button type="button" class="scene-tree-label ${isCurrentScene ? "scene-tree-label--current" : ""}" data-action="select-scene" data-scene-id="${this._esc(scene.id)}" title="${this._esc([scene.title || "未命名", chunkRangeLabel].filter(Boolean).join(" · "))}">${this._esc(scene.title || "未命名")}${chunkRangeLabel ? ` · ${this._esc(chunkRangeLabel)}` : ""}</button>
               <span class="scene-tree-count">(${chapters.length}章)</span>
             </div>
             <div class="scene-tree-chapters" style="display:${isExpanded ? "block" : "none"};">
@@ -475,6 +476,56 @@ export function createChapterTree({
 
     _sceneGroupKey(scene) {
       return `scene:${scene.id}`
+    },
+
+    _sceneChunkRangeLabel(scene) {
+      const chunks = Array.isArray(scene?.scene_chunks) ? scene.scene_chunks : []
+      const labels = chunks.map((chunk) => {
+        const chapter = Number(chunk?.chapter_index ?? chunk?.chapter_id)
+        const start = Number(chunk?.start_offset ?? chunk?.start_pos)
+        const end = Number(chunk?.end_offset ?? chunk?.end_pos)
+        if (!Number.isInteger(chapter) || chapter < 1) return ""
+        if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) return ""
+        return `第 ${chapter} 章字符 ${Math.floor(start) + 1}–${Math.floor(end)}`
+      }).filter(Boolean)
+      if (labels.length === 0) return ""
+      const visible = labels.slice(0, 2).join(" · ")
+      return labels.length > 2 ? `${visible} · 共 ${labels.length} 段` : visible
+    },
+
+    _compareSceneGroups(left, right) {
+      const leftPosition = this._sceneGroupPosition(left)
+      const rightPosition = this._sceneGroupPosition(right)
+      if (leftPosition.chapter !== rightPosition.chapter) {
+        return leftPosition.chapter - rightPosition.chapter
+      }
+      if (leftPosition.offset !== rightPosition.offset) {
+        return leftPosition.offset - rightPosition.offset
+      }
+      return leftPosition.sceneIndex - rightPosition.sceneIndex
+    },
+
+    _sceneGroupPosition({ scene, chapters }) {
+      const chunks = Array.isArray(scene?.scene_chunks) ? scene.scene_chunks : []
+      const positionedChunks = chunks.map((chunk) => ({
+        chapter: Number(chunk?.chapter_index ?? chunk?.chapter_id),
+        offset: Number(chunk?.start_offset ?? chunk?.start_pos),
+      })).filter((chunk) => Number.isInteger(chunk.chapter) && chunk.chapter > 0)
+      positionedChunks.sort((a, b) => (
+        a.chapter - b.chapter
+        || (Number.isFinite(a.offset) ? a.offset : Number.MAX_SAFE_INTEGER)
+          - (Number.isFinite(b.offset) ? b.offset : Number.MAX_SAFE_INTEGER)
+      ))
+      return {
+        chapter: positionedChunks[0]?.chapter
+          ?? (chapters.length ? Math.min(...chapters) : Number.MAX_SAFE_INTEGER),
+        offset: Number.isFinite(positionedChunks[0]?.offset)
+          ? positionedChunks[0].offset
+          : Number.MAX_SAFE_INTEGER,
+        sceneIndex: Number.isFinite(Number(scene?.scene_index))
+          ? Number(scene.scene_index)
+          : Number.MAX_SAFE_INTEGER,
+      }
     },
 
     _isSceneGroupExpanded(groupId, defaultExpanded) {

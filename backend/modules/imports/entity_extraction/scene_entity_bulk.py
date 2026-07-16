@@ -94,6 +94,7 @@ class BulkSceneEntityExtractor:
         existing_context: str,
         *,
         workflow_id: str | None = None,
+        authorization_snapshot: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         service = self.service
         first_scene = scenes[0]
@@ -117,6 +118,7 @@ class BulkSceneEntityExtractor:
         )
         draft_by_chapter = {draft.chapter_index: draft for draft in drafts}
         scene_texts: list[str] = []
+        text_scenes: list[dict[str, Any]] = []
         input_fingerprints: dict[str, str] = {}
         for scene, chapter_indices, chunk_by_chapter in scene_chapter_payloads:
             text = scene_text_from_drafts(
@@ -130,6 +132,7 @@ class BulkSceneEntityExtractor:
                 service._scene_input_fingerprint(scene, text)
             )
             if text:
+                text_scenes.append(scene)
                 scene_texts.append(f"### Scene {scene.get('scene_index')}\n\n{text}")
         if not scene_texts:
             return {
@@ -159,11 +162,12 @@ class BulkSceneEntityExtractor:
                 workflow_id=workflow_id,
             )
             snapshot_id = snapshot.id
-            extractions = await service._call_bulk_llm_extractions(
+            indexed_extractions = await service._call_bulk_llm_extractions(
                 scene_texts,
                 existing_context,
                 memory_context,
                 diagnostics=format_diagnostics,
+                with_source_indexes=True,
             )
         except Exception as exc:
             if snapshot_id is not None:
@@ -178,14 +182,19 @@ class BulkSceneEntityExtractor:
             raise
 
         result_refs: list[dict[str, str]] = []
-        scene_index = int(first_scene.get("scene_index") or 0)
-        scene_id = service._scene_id(first_scene)
-        scene_provenance_key = service._scene_provenance_key(workflow_id, first_scene)
         seen_entity_keys: set[tuple[str, str]] = set()
         created_count = 0
         relation_count = 0
         delta_count = 0
-        for extraction in extractions:
+        map_candidate_counts = {"created": 0, "reused": 0}
+        if indexed_extractions and not isinstance(indexed_extractions[0], tuple):
+            indexed_extractions = list(enumerate(indexed_extractions))
+        for source_index, extraction in indexed_extractions:
+            scene = text_scenes[int(source_index)]
+            scene_index = int(scene.get("scene_index") or 0)
+            scene_id = service._scene_id(scene)
+            source_chapter_index = service._scene_source_chapter_index(scene)
+            scene_provenance_key = service._scene_provenance_key(workflow_id, scene)
             created_count += await service._persist_entities(
                 db,
                 nid,
@@ -221,6 +230,23 @@ class BulkSceneEntityExtractor:
                 context_snapshot_id=snapshot_id,
                 result_refs=result_refs,
             )
+            proposals = getattr(extraction, "map_observation_proposals", None)
+            if isinstance(proposals, list) and proposals:
+                counts = await service._record_map_observation_proposals(
+                    db,
+                    nid,
+                    proposals,
+                    scene_index=scene_index,
+                    source_chapter_index=source_chapter_index,
+                    workflow_id=workflow_id,
+                    scene_id=scene_id,
+                    scene_source_fingerprint=input_fingerprints.get(scene_id),
+                    authorization_snapshot=authorization_snapshot,
+                    context_snapshot_id=snapshot_id,
+                    result_refs=result_refs,
+                )
+                map_candidate_counts["created"] += counts["created"]
+                map_candidate_counts["reused"] += counts["reused"]
         if snapshot_id is not None:
             from modules.context.facade import succeed_context_snapshot
 
@@ -244,6 +270,7 @@ class BulkSceneEntityExtractor:
             "created": created_count,
             "relations": relation_count,
             "deltas": delta_count,
+            "map_observation_candidates": map_candidate_counts,
             "created_entity_ids": service._result_ref_ids(result_refs, "core_entity"),
             "created_relation_ids": service._result_ref_ids(
                 result_refs,
@@ -458,7 +485,10 @@ class BulkSceneEntityExtractor:
         memory_context: str,
         *,
         diagnostics: list[dict[str, Any]] | None = None,
-    ) -> list[SceneEntityExtractionOutput]:
+        with_source_indexes: bool = False,
+    ) -> (
+        list[SceneEntityExtractionOutput] | list[tuple[int, SceneEntityExtractionOutput]]
+    ):
         service = self.service
         groups = [
             scene_texts[index : index + PHASE2_BULK_GROUP_SIZE]
@@ -488,16 +518,17 @@ class BulkSceneEntityExtractor:
             *(call_group(group) for group in groups),
             return_exceptions=True,
         )
-        extractions = [
-            result
-            for result in results
+        indexed_extractions = [
+            (index * PHASE2_BULK_GROUP_SIZE, result)
+            for index, result in enumerate(results)
             if isinstance(result, SceneEntityExtractionOutput)
         ]
+        extractions = [result for _, result in indexed_extractions]
         if extractions:
             for result in results:
                 if isinstance(result, Exception):
                     logger.warning("Bulk phase2 group failed: %s", result)
-            return extractions
+            return indexed_extractions if with_source_indexes else extractions
         first_error = next(
             (result for result in results if isinstance(result, Exception)),
             RuntimeError("bulk phase2 produced no extraction results"),

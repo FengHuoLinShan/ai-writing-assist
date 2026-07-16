@@ -184,11 +184,56 @@ export async function createAlias(novelId, data) {
   })
 }
 
+export async function createRelation(novelId, data) {
+  return request(`/world/relations?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
+export async function listRelations(novelId, params = {}) {
+  const query = new URLSearchParams({ novel_id: novelId })
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") query.set(key, String(value))
+  }
+  return request(`/world/relations?${query.toString()}`)
+}
+
+export async function listAliases(novelId, params = {}) {
+  const query = new URLSearchParams({ novel_id: novelId })
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") query.set(key, String(value))
+  }
+  return request(`/world/aliases?${query.toString()}`)
+}
+
 export async function createCharacter(novelId, data) {
   return request(`/world/characters?novel_id=${encodeURIComponent(novelId)}`, {
     method: "POST",
     body: JSON.stringify(data),
   })
+}
+
+export async function createWorldBiblePage(novelId, data) {
+  return request("/world/bible/pages", {
+    method: "POST",
+    body: JSON.stringify({ novel_id: novelId, ...data }),
+  })
+}
+
+export async function getWorldBiblePage(novelId, pageId) {
+  return request(`/world/bible/pages/${pageId}?novel_id=${encodeURIComponent(novelId)}`)
+}
+
+export async function createWorldBibleDraft(novelId, data) {
+  return request("/world/bible/drafts", {
+    method: "POST",
+    body: JSON.stringify({ novel_id: novelId, ...data }),
+  })
+}
+
+export async function listWorldBibleDrafts(novelId) {
+  return request(`/world/bible/drafts?novel_id=${encodeURIComponent(novelId)}`)
 }
 
 /** 为实体插入 TextArchive 记录（E2E 回滚测试种子） */
@@ -274,9 +319,32 @@ export async function createMapObservation(novelId, mapId, data) {
   })
 }
 
-export async function confirmMapObservation(novelId, mapId, observationId) {
+export async function assignProjectMapObservation(novelId, observation, mapId) {
+  const observationId = typeof observation === "object" ? observation.id : observation
+  const expectedUpdatedAt = typeof observation === "object" ? observation.updated_at : null
+  if (!expectedUpdatedAt) {
+    throw new Error("assignProjectMapObservation requires observation.updated_at")
+  }
+  return request(`/world/maps/project-observations/${observationId}/assign?novel_id=${encodeURIComponent(novelId)}`, {
+    method: "POST",
+    body: JSON.stringify({
+      map_id: mapId || null,
+      expected_updated_at: expectedUpdatedAt,
+    }),
+  })
+}
+
+export async function listMapFacts(novelId, mapId) {
+  return request(`/world/maps/${mapId}/facts?novel_id=${encodeURIComponent(novelId)}`)
+}
+
+export async function confirmMapObservation(novelId, mapId, observation) {
+  const observationId = typeof observation === "object" ? observation.id : observation
+  const expectedUpdatedAt = typeof observation === "object" ? observation.updated_at : null
+  if (!expectedUpdatedAt) throw new Error("confirmMapObservation requires observation.updated_at")
   return request(`/world/maps/${mapId}/observations/${observationId}/confirm?novel_id=${encodeURIComponent(novelId)}`, {
     method: "POST",
+    body: JSON.stringify({ expected_updated_at: expectedUpdatedAt }),
   })
 }
 

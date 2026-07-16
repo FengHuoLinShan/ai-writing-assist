@@ -185,6 +185,11 @@ RAG 文本只是候选召回材料。context 或证据 API 在输出前必须通
 重读 `source_id` 对应的当前原文并校验 `source_content_hash`；不匹配的块丢弃并报
 索引过期。删除所有 RAG 派生数据后可由 writing 事实源完整恢复。
 
+作者检索页消费 context evidence API，而不是直接展示未校验的 RAG chunk。当前 HTTP/facade
+不新增分页 cursor：前端单次请求最多 100 条命中，但首批只挂载 20 张结果卡，随后按 20 条
+渐进显示；检索条件保存在前端 URL，临时显示游标不进入 wire 或 URL。该展示策略不改变
+RAG 检索排序、chunk schema 或跨模块稳定接口。
+
 ## 模块职责
 
 | 文件 | 职责 |

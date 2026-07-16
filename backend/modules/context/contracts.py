@@ -377,6 +377,8 @@ class StructureContextBundle:
     """RAG 检索片段列表"""
     retrieval_trace: dict = field(default_factory=dict)
     """本次 RAG 加载的结构化诊断；不进入 prompt 正文"""
+    selection_trace: dict = field(default_factory=dict)
+    """Generation Center Top-K 候选的纳入、裁剪与排序原因。"""
 
     geo_filtered: bool = False
     """是否执行了地缘可达性过滤"""

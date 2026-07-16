@@ -148,8 +148,7 @@ def test_novel_scoped_generation_modules_use_project_runtime_seam() -> None:
         "modules/outline/structure_dedup.py",
         "modules/world/entity_fusion.py",
         "modules/world/services/core/extraction_service.py",
-        "modules/world/services/worldbuilding/object_draft_generation_service.py",
-        "modules/world/services/worldbuilding/world_bible_ai_generation_service.py",
+        "modules/world/services/worldbuilding/world_generation_center_service.py",
         "modules/rag/retrieval.py",
     )
 
@@ -168,8 +167,7 @@ def test_every_db_backed_workflow_passes_its_novel_id_to_runtime_seam() -> None:
         "modules/outline/structure_dedup.py": 1,
         "modules/world/entity_fusion.py": 1,
         "modules/world/services/core/extraction_service.py": 1,
-        "modules/world/services/worldbuilding/object_draft_generation_service.py": 1,
-        "modules/world/services/worldbuilding/world_bible_ai_generation_service.py": 1,
+        "modules/world/services/worldbuilding/world_generation_center_service.py": 1,
         "modules/rag/retrieval.py": 1,
     }
     actual_counts: dict[str, int] = {}

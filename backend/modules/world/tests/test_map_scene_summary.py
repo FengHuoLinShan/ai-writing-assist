@@ -566,12 +566,20 @@ async def test_scene_summary_includes_confirmed_dynamic_fact_by_default(
         json={
             "target_name": "粮仓起火",
             "target_entity_type": "event",
-            "dynamic_type": "risk",
+            "dynamic_type": "crisis",
             "review_state": "candidate",
             "scene_id": str(scene.id),
             "scene_index": 1,
             "spatial_anchor": {"hex_q": 2, "hex_r": 3},
+            "value_json": {
+                "schema_version": 1,
+                "type": "crisis",
+                "crisis_key": "granary_fire",
+                "severity": 3,
+                "hexes": [{"hex_q": 2, "hex_r": 3}],
+            },
             "evidence_text": "粮仓火势正在扩大",
+            "source_chapter_index": 1,
         },
     )
     assert observation_resp.status_code == 201, observation_resp.text
@@ -579,6 +587,9 @@ async def test_scene_summary_includes_confirmed_dynamic_fact_by_default(
     confirm_resp = await async_client.post(
         f"/api/world/maps/{map_resp.id}/observations/{observation_id}/confirm",
         params={"novel_id": novel_id},
+        json={
+            "expected_updated_at": observation_resp.json()["updated_at"],
+        },
     )
     assert confirm_resp.status_code == 200, confirm_resp.text
 
@@ -732,12 +743,20 @@ async def test_scene_summary_suppresses_candidate_duplicate_of_confirmed_fact(
         json={
             "target_name": "粮仓起火",
             "target_entity_type": "event",
-            "dynamic_type": "risk",
+            "dynamic_type": "crisis",
             "review_state": "candidate",
             "scene_id": str(scene.id),
             "scene_index": 1,
             "spatial_anchor": {"hex_q": 2, "hex_r": 3},
+            "value_json": {
+                "schema_version": 1,
+                "type": "crisis",
+                "crisis_key": "granary_fire",
+                "severity": 3,
+                "hexes": [{"hex_q": 2, "hex_r": 3}],
+            },
             "evidence_text": "粮仓火势正在扩大",
+            "source_chapter_index": 1,
         },
     )
     assert confirmed_observation_resp.status_code == 201
@@ -745,6 +764,9 @@ async def test_scene_summary_suppresses_candidate_duplicate_of_confirmed_fact(
     confirm_resp = await async_client.post(
         f"/api/world/maps/{map_resp.id}/observations/{observation_id}/confirm",
         params={"novel_id": novel_id},
+        json={
+            "expected_updated_at": confirmed_observation_resp.json()["updated_at"],
+        },
     )
     assert confirm_resp.status_code == 200, confirm_resp.text
     duplicate_resp = await async_client.post(
@@ -753,11 +775,18 @@ async def test_scene_summary_suppresses_candidate_duplicate_of_confirmed_fact(
         json={
             "target_name": "粮仓起火",
             "target_entity_type": "event",
-            "dynamic_type": "risk",
+            "dynamic_type": "crisis",
             "review_state": "candidate",
             "scene_id": str(scene.id),
             "scene_index": 1,
             "spatial_anchor": {"hex_q": 2, "hex_r": 3},
+            "value_json": {
+                "schema_version": 1,
+                "type": "crisis",
+                "crisis_key": "granary_fire",
+                "severity": 3,
+                "hexes": [{"hex_q": 2, "hex_r": 3}],
+            },
             "evidence_text": "候选重复证据",
         },
     )

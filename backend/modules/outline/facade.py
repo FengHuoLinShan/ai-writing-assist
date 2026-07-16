@@ -53,6 +53,7 @@ from modules.outline.structure_dedup_facade import (  # noqa: F401
     apply_structure_dedup_group,
     suggest_structure_dedup,
 )
+from modules.outline.thread_facade import get_plot_threads_for_context  # noqa: F401
 
 # Frozen cross-module API. New names require a deletion test, contract/README
 # update, and an explicit change to the public-surface regression test.
@@ -73,6 +74,7 @@ __all__ = [
     "get_deep_import_structure_category_targets",
     "get_deep_import_structure_output_count",
     "get_next_scene_index",
+    "get_plot_threads_for_context",
     "get_reader_reveal_decision",
     "get_scene",
     "get_scene_context_window",

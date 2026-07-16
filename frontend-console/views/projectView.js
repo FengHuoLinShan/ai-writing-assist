@@ -34,97 +34,264 @@ const projectView = {
   _uploadProgress: null,
   _bulkSelections: {},
   _recycleBinSkip: 0,
+  _searchQuery: "",
+  _loadError: null,
 
   async render() {
-    const projects = [...state.projects].sort((a, b) => this._projectActivityMs(b) - this._projectActivityMs(a))
-    let html = ''
+    const allProjects = this._sortedProjects(state.projects)
+    const projects = this._filterProjects(allProjects)
+    const currentProjectId = state.currentProjectId || null
+    let html = `
+      <section class="project-catalog" aria-labelledby="project-catalog-title">
+        ${this._renderProjectHero(allProjects, currentProjectId)}
+    `
 
-    if (projects.length === 0) {
-      html = `
-        <div class="empty-state">
-          <div class="empty-icon">&#128214;</div>
-          <h2>开始你的第一部小说</h2>
-          <p>创建项目，导入正文，让 AI 协助你构建世界观与剧情。</p>
-          <div class="actions">
-            <button class="btn btn-primary" data-action="new">新建项目</button>
-            <button class="btn btn-ghost" data-action="import">导入小说</button>
+    if (this._loadError && allProjects.length === 0) {
+      html += `
+        <div class="empty-state project-catalog-state" role="alert">
+          <div class="project-catalog-state__mark" aria-hidden="true">!</div>
+          <div class="project-catalog-state__copy">
+            <span class="project-catalog-state__index">CONNECTION / 00</span>
+            <h2>项目列表暂时无法加载</h2>
+            <p>${esc(this._loadError)}</p>
+            <div class="actions">
+              <button class="btn btn-primary" data-action="retry-projects">重新连接</button>
+            </div>
+          </div>
+        </div>
+      `
+    } else if (allProjects.length === 0) {
+      html += `
+        <div class="empty-state project-catalog-state project-catalog-state--first">
+          <div class="project-catalog-state__mark" aria-hidden="true">
+            <span>新</span>
+            <i></i>
+          </div>
+          <div class="project-catalog-state__copy">
+            <span class="project-catalog-state__index">FIRST STORY / 01</span>
+            <h2>开始你的第一部小说</h2>
+            <p>从一页空白开始，或导入已有正文，让人物、世界与剧情在同一处继续生长。</p>
+            <div class="actions">
+              <button class="btn btn-primary" data-action="new">新建项目</button>
+              <button class="btn btn-ghost" data-action="import">导入小说</button>
+            </div>
           </div>
         </div>
       `
     } else {
-      const currentProjectId = state.currentProjectId || null
-      html += `
-        <div class="view-header project-toolbar">
-          <div class="view-header__title">
-            全部项目
-            <span class="view-header__count">${projects.length} 个项目</span>
-          </div>
-          <div class="view-header__actions">
-            <button class="btn btn-sm btn-ghost" data-action="recycle-bin">回收站</button>
-            <button class="btn btn-sm btn-ghost" data-action="toggle-import">${this._importSectionOpen ? "收起导入" : "导入小说"}</button>
-            <button class="btn btn-sm btn-primary" data-action="new">新建项目</button>
-            ${this._renderProjectBulkToolbar(projects)}
-          </div>
-        </div>
-      `
       if (this._importSectionOpen) {
         html += `<div class="project-import-drawer">${this._renderImportSection()}</div>`
       }
-      html += `<div class="project-grid">`
-
-      for (let i = 0; i < projects.length; i++) {
-        const p = projects[i]
-        const status = p.status || "active"
-        const isCanonical = status === "active" || status === "canonical"
-        const created = p.created_at ? new Date(p.created_at).toLocaleDateString("zh-CN") : ""
-        const stats = this._projectStats(p)
-        const activeTime = this._projectActivityTime(p)
-        const isCurrent = p.id === currentProjectId
-        html += `
-          <div class="project-card ${isCurrent ? "current" : ""}" data-id="${esc(p.id)}" data-action="open-project">
-            <div class="project-card-selection" data-action="noop">
-              ${renderSelectionCell(this, "project-cards", p.id, `选择 ${p.title || p.name || "项目"}`)}
-            </div>
-            ${isCurrent ? '<span class="project-current-badge">当前项目</span>' : ""}
-            <div class="project-status">
-              <span class="status-dot ${isCanonical ? "canonical" : "draft"}"></span>
-              <span class="pill ${isCanonical ? "pill-success" : "pill-warning"}">${isCanonical ? "进行中" : "已归档"}</span>
-            </div>
-            <div class="project-title">${esc(p.title || p.name || "未命名项目")}</div>
-            <div class="project-tags">
-              ${p.genre ? `<span class="pill">${esc(p.genre)}</span>` : ""}
-              ${p.current_stage ? `<span class="pill">${esc(this._stageLabel(p.current_stage))}</span>` : ""}
-            </div>
-            <div class="project-desc">${esc(p.tone || p.description || "暂无描述")}</div>
-            <div class="project-stats" aria-label="项目统计">
-              <span title="${esc(stats.wordCountTitle)}"><strong>${esc(stats.wordCountText)}</strong> 字</span>
-              <span title="${esc(stats.chapterCountTitle)}"><strong>${esc(stats.chapterCountText)}</strong> 章</span>
-              <span title="${esc(activeTime.full)}">${esc(activeTime.relative)}</span>
-            </div>
-            <div class="project-meta">
-              ${created ? `创建于 ${created}` : "刚刚创建"}
-            </div>
-            <div class="project-card__actions">
-              <button class="btn btn-sm btn-primary" data-action="continue-writing" data-id="${esc(p.id)}">继续写作</button>
-              <button class="btn btn-sm btn-ghost" data-action="edit-project" data-id="${esc(p.id)}">编辑</button>
-              <button class="btn btn-sm btn-danger" data-action="delete-project" data-id="${esc(p.id)}">删除</button>
-            </div>
-          </div>
-        `
+      if (this._loadError) {
+        html += `<div class="alert alert-warning" role="alert">
+          <span>项目列表刷新失败，当前显示上次已加载的内容。</span>
+          <button class="btn btn-sm" data-action="retry-projects">重试</button>
+        </div>`
       }
-
       html += `
-          <div class="project-card project-card-placeholder" data-action="new">
-            <div class="plus">+</div>
-            <div class="label">创建新项目</div>
+        <div class="project-index-bar">
+          <div class="view-toolbar project-search-toolbar" role="search" aria-label="搜索项目">
+            <label for="project-search-input">
+              <span aria-hidden="true">SEARCH / 01</span>
+              <span class="sr-only">按名称搜索</span>
+            </label>
+            <input
+              class="form-input"
+              id="project-search-input"
+              data-role="project-search"
+              type="search"
+              value="${esc(this._searchQuery)}"
+              placeholder="输入项目名称"
+              autocomplete="off"
+            />
+            <button class="btn btn-sm btn-ghost" data-action="clear-project-search" ${this._searchQuery ? "" : "disabled"}>清除</button>
+            <span class="view-toolbar__count" data-role="project-filter-count" aria-live="polite">
+              ${this._projectCountLabel(projects.length, allProjects.length)}
+            </span>
+            <span class="bulk-toolbar__hint">当前项目优先 · 其余按最近更新排序</span>
+          </div>
+          <div class="project-index-bar__bulk">
+            ${this._renderProjectBulkToolbar(projects)}
+          </div>
+        </div>
+        <div class="project-grid">
+          ${this._renderProjectCards(projects, currentProjectId)}
+        </div>
+      `
+    }
+
+    return `${html}</section>`
+  },
+
+  _renderProjectHero(projects, currentProjectId) {
+    const currentProject = projects.find((project) => (
+      String(project.id) === String(currentProjectId || "")
+    ))
+    const currentName = currentProject ? this._projectName(currentProject) : "尚未选择"
+    const count = projects.length
+    return `
+      <header class="project-archive-hero project-toolbar">
+        <div class="project-archive-hero__folio" aria-hidden="true">
+          <span>NC</span>
+          <strong>${String(Math.max(count, 1)).padStart(2, "0")}</strong>
+          <span>2026</span>
+        </div>
+        <div class="project-archive-hero__copy">
+          <div class="project-archive-hero__kicker">
+            <span>STORY ARCHIVE</span>
+            <i aria-hidden="true"></i>
+            <span>全部项目</span>
+          </div>
+          <h1 id="project-catalog-title"><span>作品</span><em>档案</em></h1>
+          <p>收拢每一个世界，标记每一次续写。让正在发生的故事始终位于视线中心。</p>
+        </div>
+        <div class="project-archive-hero__summary">
+          <span class="project-archive-hero__summary-label">PROJECT INDEX</span>
+          <strong data-role="project-total-count">${count} 个项目</strong>
+          <div class="project-archive-hero__current">
+            <span>CURRENT / 当前</span>
+            <b title="${esc(currentName)}">${esc(currentName)}</b>
+          </div>
+          <div class="project-archive-hero__actions">
+            <button class="btn btn-primary" data-action="new">新建项目</button>
+            <button class="btn btn-ghost" data-action="toggle-import">${this._importSectionOpen ? "收起导入" : "导入小说"}</button>
+            <button class="btn btn-ghost" data-action="recycle-bin">回收站</button>
+          </div>
+        </div>
+        <div class="project-archive-hero__geometry" aria-hidden="true">
+          <i></i><i></i><i></i><i></i>
+        </div>
+      </header>
+    `
+  },
+
+  _sortedProjects(projects = state.projects) {
+    const currentProjectId = String(state.currentProjectId || "")
+    return [...projects].sort((a, b) => {
+      const aIsCurrent = currentProjectId && String(a.id) === currentProjectId
+      const bIsCurrent = currentProjectId && String(b.id) === currentProjectId
+      if (aIsCurrent !== bIsCurrent) return aIsCurrent ? -1 : 1
+      const activityDiff = this._projectActivityMs(b) - this._projectActivityMs(a)
+      if (activityDiff !== 0) return activityDiff
+      return this._projectName(a).localeCompare(this._projectName(b), "zh-CN")
+    })
+  },
+
+  _projectName(project) {
+    return String(project?.title || project?.name || "未命名项目")
+  },
+
+  _filterProjects(projects = this._sortedProjects()) {
+    const query = String(this._searchQuery || "").trim().toLocaleLowerCase("zh-CN")
+    if (!query) return projects
+    return projects.filter((project) => (
+      this._projectName(project).toLocaleLowerCase("zh-CN").includes(query)
+    ))
+  },
+
+  _visibleProjects() {
+    return this._filterProjects(this._sortedProjects(state.projects))
+  },
+
+  _projectCountLabel(filteredCount, totalCount) {
+    return `显示 ${filteredCount} / 共 ${totalCount} 个项目`
+  },
+
+  _renderProjectCards(projects, currentProjectId = state.currentProjectId || null) {
+    if (projects.length === 0) {
+      return `
+        <div class="empty-state" data-role="project-search-empty">
+          <h2>没有找到匹配项目</h2>
+          <p>没有名称包含「${esc(String(this._searchQuery || "").trim())}」的项目。</p>
+          <div class="actions">
+            <button class="btn btn-primary" data-action="clear-project-search">清除搜索</button>
           </div>
         </div>
       `
-
-
     }
 
-    return html
+    let html = ""
+    for (let index = 0; index < projects.length; index += 1) {
+      const p = projects[index]
+      const status = p.status || "active"
+      const isCanonical = status === "active" || status === "canonical"
+      const created = p.created_at ? new Date(p.created_at).toLocaleDateString("zh-CN") : ""
+      const stats = this._projectStats(p)
+      const activeTime = this._projectActivityTime(p)
+      const isCurrent = String(p.id) === String(currentProjectId || "")
+      const stage = p.current_stage ? this._stageLabel(p.current_stage) : "创作进行中"
+      const genre = p.genre || "未分类"
+      html += `
+        <article class="project-card ${index === 0 ? "project-card--lead" : ""} project-card--variant-${index % 4} ${isCurrent ? "current" : ""}" data-id="${esc(p.id)}" data-action="open-project" ${isCurrent ? 'aria-current="true"' : ""}>
+          <div class="project-card__visual" aria-hidden="true">
+            <span class="project-card__visual-code">PROJECT / ${String(index + 1).padStart(2, "0")}</span>
+            <strong>${esc(this._projectMonogram(p))}</strong>
+            <span class="project-card__visual-genre">${esc(String(genre).toUpperCase())}</span>
+            <i class="project-card__visual-line"></i>
+            <i class="project-card__visual-block"></i>
+          </div>
+          <div class="project-card__content">
+            <div class="project-card__masthead">
+              <div class="project-card-selection" data-action="noop">
+                ${renderSelectionCell(this, "project-cards", p.id, `选择 ${this._projectName(p)}`)}
+              </div>
+              <div class="project-status">
+                <span class="status-dot ${isCanonical ? "canonical" : "draft"}"></span>
+                <span>${isCanonical ? "进行中" : "已归档"}</span>
+              </div>
+              ${isCurrent ? '<span class="project-current-badge">CURRENT / 当前项目</span>' : ""}
+            </div>
+            <div class="project-card__eyebrow">
+              <span>${esc(genre)}</span>
+              <i aria-hidden="true"></i>
+              <span>${esc(stage)}</span>
+            </div>
+            <h2 class="project-title">${esc(this._projectName(p))}</h2>
+            <p class="project-desc">${esc(p.tone || p.description || "还没有写下作品简介，先从下一章继续。")}</p>
+            <dl class="project-stats" aria-label="项目统计">
+              <div title="${esc(stats.wordCountTitle)}">
+                <dt>WORDS / 字数</dt>
+                <dd>${esc(stats.wordCountText)}</dd>
+              </div>
+              <div title="${esc(stats.chapterCountTitle)}">
+                <dt>CHAPTERS / 章节</dt>
+                <dd>${esc(stats.chapterCountText)}</dd>
+              </div>
+              <div title="${esc(activeTime.full)}">
+                <dt>UPDATED / 最近</dt>
+                <dd>${esc(activeTime.relative)}</dd>
+              </div>
+            </dl>
+            <div class="project-card__footer">
+              <div class="project-meta">${created ? `创建于 ${created}` : "刚刚创建"}</div>
+              <div class="project-card__actions">
+                <button class="btn btn-sm btn-primary" data-action="continue-writing" data-id="${esc(p.id)}">继续写作</button>
+                <button class="btn btn-sm btn-ghost" data-action="edit-project" data-id="${esc(p.id)}">编辑</button>
+                <button class="btn btn-sm btn-danger" data-action="delete-project" data-id="${esc(p.id)}">删除</button>
+              </div>
+            </div>
+          </div>
+        </article>
+      `
+    }
+    return `${html}
+      <div class="project-card project-card-placeholder" data-action="new">
+        <div class="project-card-placeholder__visual" aria-hidden="true">
+          <span>+</span>
+          <i></i>
+        </div>
+        <div class="project-card-placeholder__copy">
+          <span>NEW FILE / ${String(projects.length + 1).padStart(2, "0")}</span>
+          <strong>创建新项目</strong>
+          <p>为一个新世界建立独立档案。</p>
+        </div>
+      </div>
+    `
+  },
+
+  _projectMonogram(project) {
+    const characters = Array.from(this._projectName(project).replace(/\s+/g, ""))
+    return characters.slice(0, 2).join("") || "新作"
   },
 
   onRendered() {
@@ -217,6 +384,44 @@ const projectView = {
 
   _bindEvents() {
     this._bindCardDelegation()
+    this._bindProjectSearch()
+  },
+
+  _bindProjectSearch() {
+    const workspace = document.getElementById("workspace-content")
+    const input = workspace?.querySelector('[data-role="project-search"]')
+    if (!input) return
+    input.oninput = () => {
+      this._searchQuery = input.value
+      this._updateProjectSearchResults()
+    }
+  },
+
+  _updateProjectSearchResults() {
+    const workspace = document.getElementById("workspace-content")
+    const grid = workspace?.querySelector(".project-grid")
+    if (!workspace || !grid) return
+    const projects = this._visibleProjects()
+    const total = state.projects.length
+    grid.innerHTML = this._renderProjectCards(projects)
+
+    const count = workspace.querySelector('[data-role="project-filter-count"]')
+    if (count) count.textContent = this._projectCountLabel(projects.length, total)
+    workspace.querySelectorAll('[data-action="clear-project-search"]').forEach((button) => {
+      button.disabled = !this._searchQuery && !button.closest('[data-role="project-search-empty"]')
+    })
+    const selectVisible = workspace.querySelector('[data-action="select-visible-projects"]')
+    if (selectVisible) selectVisible.disabled = projects.length === 0
+    reconcileBulkSelection(this, "project-cards", projects.map((project) => project.id))
+    syncBulkSelectionUi(this, "project-cards")
+  },
+
+  _clearProjectSearch() {
+    this._searchQuery = ""
+    const input = document.querySelector('#workspace-content [data-role="project-search"]')
+    if (input) input.value = ""
+    this._updateProjectSearchResults()
+    input?.focus()
   },
 
   _bindCardDelegation() {
@@ -235,9 +440,10 @@ const projectView = {
       },
       "bulk-run": (_e, t) => this._runProjectBulkAction(t.getAttribute("data-bulk-action")),
       "select-visible-projects": () => {
-        for (const project of state.projects) toggleBulkSelection(this, "project-cards", project.id, true)
+        for (const project of this._visibleProjects()) toggleBulkSelection(this, "project-cards", project.id, true)
         syncBulkSelectionUi(this, "project-cards")
       },
+      "clear-project-search": () => this._clearProjectSearch(),
       "continue-writing": (_e, _t, ctx) => ctx.id && this.openProject(ctx.id),
       "edit-project": (_e, _t, ctx) => ctx.id && this.editProject(ctx.id),
       "delete-project": (_e, _t, ctx) => ctx.id && this.deleteProject(ctx.id),
@@ -246,6 +452,7 @@ const projectView = {
       "toggle-import": () => this._toggleImportSection(),
       "upload-file": () => this._uploadFile(),
       "recycle-bin": () => this.showRecycleBin(),
+      "retry-projects": () => this._retryProjects(),
     })
   },
 
@@ -272,6 +479,7 @@ const projectView = {
     try {
       const data = await api.projects.list()
       state.projects = data.items || data || []
+      this._loadError = null
       if (state.currentProjectId) {
         const match = state.projects.find(p => p.id === state.currentProjectId)
         if (match) {
@@ -280,9 +488,14 @@ const projectView = {
           this._clearCurrentProjectSelection()
         }
       }
-    } catch {
-      state.projects = []
+    } catch (error) {
+      this._loadError = error?.message || "请检查连接后重试；现有项目数据没有被修改。"
     }
+  },
+
+  async _retryProjects() {
+    await this.onEnter()
+    router.refresh()
   },
 
   _clearCurrentProjectSelection() {

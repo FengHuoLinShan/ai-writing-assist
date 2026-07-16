@@ -29,7 +29,7 @@ export function createMobileQuickNote({ state, api, toast, esc, editor, onSaved 
           <span class="mobile-note-chapter">第 ${escapeHtml(projectState._currentChapter)} 章</span>
           <span class="mobile-note-wc" id="mobile-note-wc">${escapeHtml(currentText.length.toLocaleString())} 字</span>
         </div>
-        <textarea id="mobile-note-editor" class="mobile-note-editor" placeholder="在此记录灵感...">${escapeHtml(currentText)}</textarea>
+        <textarea id="mobile-note-editor" class="mobile-note-editor" aria-label="移动端速记正文" placeholder="在此记录灵感...">${escapeHtml(currentText)}</textarea>
         <div class="mobile-note-actions">
           <button class="btn btn-primary" data-action="save-mobile-note">保存为工作稿</button>
           <button class="btn btn-ghost" data-action="switch-desktop-mode">完整编辑器</button>
@@ -39,10 +39,10 @@ export function createMobileQuickNote({ state, api, toast, esc, editor, onSaved 
   }
 
   async function save() {
-    const editor = document.getElementById("mobile-note-editor")
+    const editorEl = document.getElementById("mobile-note-editor")
     const currentChapter = projectState._currentChapter
-    if (!editor || currentChapter == null) return
-    const content = editor.value
+    if (!editorEl || currentChapter == null) return
+    const content = editorEl.value
     const title = projectState._currentTitle || `第 ${currentChapter} 章`
     try {
       let savedInfo
@@ -97,6 +97,7 @@ export function createMobileQuickNote({ state, api, toast, esc, editor, onSaved 
     if (mobileEditor) {
       mobileEditor.oninput = () => {
         const count = mobileEditor.value.length
+        editor?.setState?.({ content: mobileEditor.value })
         const countEl = container.querySelector("#mobile-note-wc")
         if (countEl) countEl.textContent = `${count.toLocaleString()} 字`
       }

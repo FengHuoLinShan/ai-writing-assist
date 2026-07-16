@@ -36,7 +36,7 @@ async function createConfirmedLocationFact({
     target_entity_type: "character",
     target_name: character.name,
     dynamic_type: "location",
-    time_anchor: { scene_index: scene.scene_index },
+    time_anchor: { kind: "initial_state", scene_index: scene.scene_index },
     spatial_anchor: {
       location_entity_id: location.id,
       hex_q: q,
@@ -54,7 +54,7 @@ async function createConfirmedLocationFact({
     scene_id: scene.id,
     scene_index: scene.scene_index,
   })
-  return confirmMapObservation(novelId, mapId, observation.id)
+  return confirmMapObservation(novelId, mapId, observation)
 }
 
 test.describe("地图 Scene 动态时间轴", () => {

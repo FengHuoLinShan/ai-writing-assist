@@ -1,16 +1,27 @@
 import { test, expect } from "@playwright/test"
 import { SEL } from "./helpers/selectors.js"
 import { openWorkbench } from "./helpers/workbench.js"
-import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
+import {
+  createProject,
+  cleanupProject,
+  createWorldBibleDraft,
+  createWorldBiblePage,
+  getWorldBiblePage,
+  waitForBackend,
+} from "./helpers/api-client.js"
 
 test.describe("生成中心模块", () => {
   let testProjectId = null
+  let worldSuggestionRequests = []
+  let pageDraftApplyRequests = []
 
   test.beforeAll(async () => {
     await waitForBackend(60000)
   })
 
   test.beforeEach(async ({ page }) => {
+    worldSuggestionRequests = []
+    pageDraftApplyRequests = []
     const project = await createProject({
       title: "生成测试项目",
       genre: "fantasy",
@@ -85,7 +96,7 @@ test.describe("生成中心模块", () => {
       await route.fulfill({ status: 405, body: "Method not allowed" })
     })
 
-    await page.route("**/api/world/object-draft-chat", async (route) => {
+    await page.route("**/api/world/generation-center/chat", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -93,28 +104,109 @@ test.describe("生成中心模块", () => {
           reply: "可以设计成旧友型反派，动机来自一次被误解的牺牲。",
           model: "deepseek-v4-flash",
           provider: "fake",
+          source_snapshot: { kind: "project" },
         }),
       })
     })
 
-    await page.route("**/api/world/object-drafts/generate", async (route) => {
+    await page.route("**/api/world/generation-center/suggestions", async (route) => {
       const postBody = route.request().postDataJSON()
+      worldSuggestionRequests.push(postBody)
+      const targetKind = postBody.target.kind
+      if (targetKind === "world_bible_page" || targetKind === "world_bible_new_page") {
+        const createNew = targetKind === "world_bible_new_page"
+        await route.fulfill({
+          status: 201,
+          contentType: "application/json",
+          body: JSON.stringify({
+            model: "deepseek-v4-flash",
+            provider: "fake",
+            source_snapshot: postBody.source_context,
+            result: {
+              kind: targetKind,
+              proposal: {
+                operation: createNew ? "create_new" : "replace_existing",
+                target_page_id: createNew ? null : postBody.target.page_id,
+                design_rationale: "同时强化创意核心和规则因果。",
+                review_notes: ["作者可继续调整细节"],
+                page: {
+                  title: createNew ? "龙息潮汐纪" : "重构后的北境规则",
+                  page_type: "background",
+                  free_text: createNew ? "潮汐改变龙息矿脉与迁徙路径。" : "北境的交易与通行规则。",
+                  sections_json: [{
+                    section_id: createNew ? "ai-tide-rules" : "trade-rules",
+                    section_type: "markdown",
+                    title: "运作逻辑",
+                    body_markdown: "龙息潮每九日回流，并为势力资源争夺提供可验证的因果链。",
+                    sort_order: 0,
+                    linked_asset_ref_hashes: [],
+                    projection_policy: "eligible",
+                    sensitivity_hint: "author_safe",
+                  }],
+                  linked_asset_refs_json: [],
+                },
+              },
+              suggestion: {
+                id: createNew ? "suggestion-new-page-e2e" : "suggestion-existing-page-e2e",
+                novel_id: testProjectId,
+                target_type: "world_bible_page_draft",
+                status: "pending",
+                payload_json: {},
+              },
+            },
+          }),
+        })
+        return
+      }
       await route.fulfill({
         status: 201,
         contentType: "application/json",
         body: JSON.stringify({
-          quality_mode: postBody.quality_mode,
           model: postBody.quality_mode === "pro" ? "deepseek-v4-pro" : "deepseek-v4-flash",
           provider: "fake",
-          entity: {
-            id: "entity-generate-e2e",
-            novel_id: testProjectId,
-            entity_type: postBody.template || "character",
-            name: "沈无咎",
-            summary: "旧友型反派，公开温和，暗中推动主角面对旧秩序。",
-            status: "draft",
-            content_json: {},
+          source_snapshot: { kind: "project" },
+          result: {
+            kind: "core_entity",
+            proposal: {
+              entity_type: postBody.target.template || "character",
+              name: "沈无咎",
+              summary: "旧友型反派，公开温和，暗中推动主角面对旧秩序。",
+              content_json: {},
+            },
+            suggestion: {
+              id: "suggestion-generate-e2e",
+              novel_id: testProjectId,
+              target_type: "core_entity_draft",
+              status: "pending",
+              payload_json: {
+                entity_type: postBody.target.template || "character",
+                name: "沈无咎",
+                summary: "旧友型反派，公开温和，暗中推动主角面对旧秩序。",
+              },
+            },
           },
+        }),
+      })
+    })
+
+    await page.route("**/api/world/generation-center/suggestions/*/apply-page-draft*", async (route) => {
+      const body = route.request().postDataJSON()
+      pageDraftApplyRequests.push(body)
+      const sourcePageId = worldSuggestionRequests.at(-1)?.source_context?.page_id || null
+      const draft = await createWorldBibleDraft(testProjectId, {
+        page_id: sourcePageId,
+        title: body.page.title,
+        page_type: body.page.page_type,
+        free_text: body.page.free_text,
+        sections_json: body.page.sections_json,
+        linked_asset_refs_json: body.page.linked_asset_refs_json,
+      })
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          suggestion: { id: "applied-page-e2e", status: "accepted" },
+          draft,
         }),
       })
     })
@@ -158,13 +250,13 @@ test.describe("生成中心模块", () => {
     await expect(page.locator("#workspace-content")).toContainText("人物")
     await expect(page.locator("#workspace-content")).toContainText("高质量")
     await expect(page.locator("#workspace-content")).toContainText("生成世界对象建议")
-    await expect(page.locator("#workspace-content")).toContainText("自由对话")
+    await expect(page.locator("#workspace-content")).toContainText("世界设定")
     await expect(page.locator("#workspace-content")).toContainText("任务")
     await expect(page.locator("#workspace-content")).toContainText("上下文预览")
     await expect(page.locator("#workspace-content")).not.toContainText("粘贴已有对话")
   })
 
-  test("自由聊天不会打开 AI 参考资料确认", async ({ page }) => {
+  test("世界共创聊天不会打开 AI 参考资料确认", async ({ page }) => {
     await page.locator("#generate-chat-input").fill("帮我设计一个反派")
     await page.getByRole("button", { name: "发送" }).click()
 
@@ -179,15 +271,81 @@ test.describe("生成中心模块", () => {
 
     await expect(page.locator("#generate-result")).toContainText("沈无咎", { timeout: 15000 })
     await expect(page.locator("#generate-result")).toContainText("待处理")
-    await expect(page.locator("#generate-result")).not.toContainText("draft")
+    await expect(page.locator("#generate-result")).not.toContainText("已发布")
     await expect(page.locator("#generate-result")).toContainText("前往待处理")
+  })
+
+  test("生成中心直接新建整页提案，编辑后只进入世界书工作稿", async ({ page }) => {
+    await page.getByRole("button", { name: "新建世界书页" }).click()
+    await expect(page.getByRole("button", { name: "新建世界书页" })).toHaveClass(/active/)
+
+    await page.locator("#generate-chat-input").fill("创建一页关于龙息潮的世界规则")
+    await page.getByRole("button", { name: "生成新页提案" }).click()
+    await expect(page.locator("#generate-result")).toContainText("龙息潮汐纪", { timeout: 15000 })
+
+    await page.locator("#generate-page-title").fill("作者修订·龙息潮汐纪")
+    await page.locator("#generate-page-free-text").fill("作者确定的潮汐经济与迁徙逻辑。")
+    await page.getByRole("button", { name: "应用到工作稿" }).click()
+
+    await expect(page.locator("#topbar-module")).toContainText("世界对象", { timeout: 15000 })
+    await expect(page.locator(".world-bible-workspace")).toContainText("作者修订·龙息潮汐纪")
+    expect(worldSuggestionRequests.at(-1).target).toEqual(expect.objectContaining({
+      kind: "world_bible_new_page",
+      page_type: expect.any(String),
+    }))
+    expect(pageDraftApplyRequests.at(-1).page.title).toBe("作者修订·龙息潮汐纪")
+  })
+
+  test("完善现有页时保留 canonical，并按页面与目标隔离对话", async ({ page }) => {
+    const sourcePage = await createWorldBiblePage(testProjectId, {
+      page_type: "background",
+      title: "北境交易旧规",
+      free_text: "这是已发布基线内容。",
+      sections_json: [],
+    })
+    const before = await getWorldBiblePage(testProjectId, sourcePage.id)
+    const generationUrl = `${new URL(page.url()).origin}/#workbench/${testProjectId}/generate?tab=world&source_page_id=${sourcePage.id}&target=world_bible_page`
+    await page.goto(generationUrl)
+    await page.reload()
+    await page.waitForFunction(() => !state.loading, { timeout: 10000 })
+
+    await expect(page.locator(".generate-world-source-bar")).toContainText("北境交易旧规")
+    await page.locator("#generate-chat-input").fill("增加一个新的交易机制，并检查因果闭环")
+    await page.getByRole("button", { name: "生成整页提案" }).click()
+    await expect(page.locator("#generate-result")).toContainText("重构后的北境规则", { timeout: 15000 })
+    await page.locator("#generate-page-title").fill("作者定稿·北境规则")
+    await page.getByRole("button", { name: "应用到工作稿" }).click()
+
+    await expect(page.locator(".world-bible-workspace")).toContainText("作者定稿·北境规则", { timeout: 15000 })
+    const after = await getWorldBiblePage(testProjectId, sourcePage.id)
+    expect(after.title).toBe(before.title)
+    expect(after.free_text).toBe(before.free_text)
+
+    await page.goto(generationUrl)
+    await page.reload()
+    await page.waitForFunction(() => !state.loading, { timeout: 10000 })
+    await page.locator("#generate-chat-input").fill("只属于页面完善会话")
+    await page.getByRole("button", { name: "发送" }).click()
+    await page.getByRole("button", { name: "世界对象" }).click()
+    await expect(page.locator("#generate-chat-messages")).not.toContainText("只属于页面完善会话")
+    await page.locator("#generate-chat-input").fill("基于这页创建一个商会对象")
+    await page.getByRole("button", { name: "生成世界对象建议" }).click()
+    expect(worldSuggestionRequests.at(-1).source_context).toEqual(expect.objectContaining({
+      kind: "world_bible_page",
+      page_id: sourcePage.id,
+    }))
+    expect(worldSuggestionRequests.at(-1).target.kind).toBe("core_entity")
+
+    await page.getByRole("button", { name: "完善当前页" }).click()
+    await expect(page.locator("#generate-chat-messages")).toContainText("只属于页面完善会话")
+    await expect(page.locator("#generate-include-world-synopsis")).toBeChecked()
   })
 
   test("任务标签可执行上下文编译", async ({ page }) => {
     await page.getByRole("button", { name: "任务" }).click()
     await page.locator("#gen-task").fill("生成剧情线")
 
-    await page.getByRole("button", { name: "执行任务" }).click()
+    await page.getByRole("button", { name: "编译上下文" }).click()
 
     await expect(page.locator("#gen-task-output")).toContainText("已加载 2 段上下文", { timeout: 15000 })
     await expect(page.locator("#gen-task-output")).toContainText("characters")
@@ -196,7 +354,7 @@ test.describe("生成中心模块", () => {
   test("上下文预览标签展示最近一次编译结果", async ({ page }) => {
     await page.getByRole("button", { name: "任务" }).click()
     await page.locator('[data-preset="plot"]').click()
-    await page.getByRole("button", { name: "执行任务" }).click()
+    await page.getByRole("button", { name: "编译上下文" }).click()
     await expect(page.locator("#gen-task-output")).toContainText("已加载 2 段上下文", { timeout: 15000 })
 
     await page.getByRole("button", { name: "上下文预览" }).click()
@@ -223,7 +381,7 @@ test.describe("生成中心模块", () => {
     await page.locator("#gen-reveal").selectOption("character")
     await page.locator("#gen-viewpoint-character").fill("")
     await page.locator("#gen-task").fill("写角色视角场景")
-    await page.getByRole("button", { name: "执行任务" }).click()
+    await page.getByRole("button", { name: "编译上下文" }).click()
 
     await expect(page.locator(SEL.toastContainer)).toContainText("角色视角模式必须选择或输入视角人物 ID", { timeout: 10000 })
     expect(compileCalled).toBeFalsy()
@@ -261,7 +419,7 @@ test.describe("生成中心模块", () => {
     await page.locator("#gen-reveal").selectOption("character")
     await page.locator("#gen-viewpoint-character").fill("00000000-0000-0000-0000-000000000123")
     await page.locator("#gen-task").fill("写角色视角场景")
-    await page.getByRole("button", { name: "执行任务" }).click()
+    await page.getByRole("button", { name: "编译上下文" }).click()
 
     await expect(page.locator("#workspace-content")).toContainText("误以为", { timeout: 10000 })
     await expect(page.locator("#workspace-content")).not.toContainText("隐藏真相")
@@ -271,10 +429,10 @@ test.describe("生成中心模块", () => {
   })
 
   test("编辑模板弹窗可查看提示词并创建新模板", async ({ page }) => {
-    await page.getByRole("button", { name: "编辑模板" }).click()
+    await page.getByRole("button", { name: "编辑对象模板" }).click()
 
     await expect(page.locator(SEL.modalTitle)).toHaveText("编辑模板")
-    await expect(page.locator("#generate-template-editor-prompt")).toHaveValue(/不预设对象类型/)
+    await expect(page.locator("#generate-template-editor-prompt")).toHaveValue(/不预设固定创作框架/)
 
     await page.locator("#generate-template-editor-name").fill("DND 圣骑士")
     await page.locator("#generate-template-editor-prompt").fill("突出誓言、神术、阵营冲突。")

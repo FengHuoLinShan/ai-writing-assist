@@ -3,12 +3,16 @@
 from modules.context.contracts import CompileOptions
 from modules.context.services.confirmation_service import ContextConfirmationService
 from modules.context.services.context_compiler import SCOPE_LOADERS, ContextCompiler
-from modules.context.services.snapshot_service import ContextSnapshotService
+from modules.context.services.snapshot_service import (
+    ContextSnapshotService,
+    DurableContextSnapshotService,
+)
 
 __all__ = [
     "CompileOptions",
     "ContextConfirmationService",
     "ContextSnapshotService",
+    "DurableContextSnapshotService",
     "ContextCompiler",
     "SCOPE_LOADERS",
 ]

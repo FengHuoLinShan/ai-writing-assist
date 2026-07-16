@@ -16,7 +16,7 @@ from modules.context.services.retrieval_query_planner import RetrievalQueryPlann
         "conflict_review",
         "outline_generation",
         "world_fusion",
-        "world_object_generation",
+        "world_generation",
         "import_scene_activation",
         "reader_context",
         "character_context",
@@ -115,12 +115,12 @@ def test_world_fusion_without_structured_relations_does_not_widen_to_task() -> N
     assert plan.clauses == []
 
 
-def test_world_object_generation_uses_author_intent_as_retrieval_query() -> None:
+def test_world_generation_uses_author_intent_as_retrieval_query() -> None:
     options = CompileOptions(
         novel_id=str(uuid.uuid4()),
         task="设计一枚与主角旧友有关的黑曜钥匙",
         scope="generation_center",
-        retrieval_purpose="world_object_generation",
+        retrieval_purpose="world_generation",
     )
 
     plan = RetrievalQueryPlanner().plan(options)

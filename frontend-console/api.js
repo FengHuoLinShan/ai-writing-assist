@@ -509,6 +509,26 @@ const api = {
       return contractFetch("world.listEntities", {}, params)
     },
 
+    async getReviewTypeCatalog() {
+      return contractFetch("world.getReviewTypeCatalog")
+    },
+
+    async listRelationReviewGroups(params = {}) {
+      return contractFetch("world.listRelationReviewGroups", {}, params)
+    },
+
+    async reviewRelationsBatch(payload, novelId) {
+      return contractJson("world.reviewRelationsBatch", {}, { novel_id: novelId }, payload)
+    },
+
+    async listAliasReviewGroups(params = {}) {
+      return contractFetch("world.listAliasReviewGroups", {}, params)
+    },
+
+    async reviewAliasesBatch(payload, novelId) {
+      return contractJson("world.reviewAliasesBatch", {}, { novel_id: novelId }, payload)
+    },
+
     async listEntityTypes(novelId) {
       return request(withQuery("/world/entity-types", { novel_id: novelId }))
     },
@@ -677,14 +697,6 @@ const api = {
       return post(withQuery(`/world/bible/pages/${pageId}/organize`, { novel_id: novelId }))
     },
 
-    async generateBiblePageAi(pageId, payload, novelId, options = {}) {
-      return post(
-        withQuery(`/world/bible/pages/${pageId}/ai-generate`, { novel_id: novelId }),
-        payload,
-        { timeout: LLM_GENERATE_TIMEOUT, ...options },
-      )
-    },
-
     async listSuggestions(params = {}) {
       return request(withQuery("/world/suggestions", params))
     },
@@ -695,13 +707,6 @@ const api = {
 
     async editAndConfirmSuggestion(suggestionId, payload, novelId) {
       return post(withQuery(`/world/suggestions/${suggestionId}/edit-confirm`, { novel_id: novelId }), payload)
-    },
-
-    async applySuggestionToBibleDraft(suggestionId, payload, novelId) {
-      return post(
-        withQuery(`/world/suggestions/${suggestionId}/apply-to-world-bible-draft`, { novel_id: novelId }),
-        payload,
-      )
     },
 
     async mergeSuggestion(suggestionId, targetEntityId, novelId) {
@@ -1026,6 +1031,42 @@ const api = {
     async listMapObservations(mapId, novelId, reviewState = null) {
       return contractFetch("world.listMapObservations", { mapId }, { novel_id: novelId, review_state: reviewState })
     },
+    async listProjectMapObservationInbox(novelId, filters = {}) {
+      return contractFetch("world.listProjectMapObservationInbox", {}, {
+        novel_id: novelId,
+        dynamic_type: filters.dynamicType || null,
+        scene_id: filters.sceneId || null,
+        source: filters.source || null,
+        confidence: filters.confidence || null,
+        eligibility: filters.eligibility || null,
+        skip: filters.skip || 0,
+        limit: filters.limit || 100,
+      })
+    },
+    async updateProjectMapObservation(observationId, novelId, payload) {
+      return contractJson(
+        "world.updateProjectMapObservation",
+        { observationId },
+        { novel_id: novelId },
+        payload,
+      )
+    },
+    async assignProjectMapObservation(observationId, novelId, mapId, expectedUpdatedAt) {
+      return contractJson(
+        "world.assignProjectMapObservation",
+        { observationId },
+        { novel_id: novelId },
+        { map_id: mapId || null, expected_updated_at: expectedUpdatedAt },
+      )
+    },
+    async ignoreProjectMapObservation(observationId, novelId, expectedUpdatedAt) {
+      return contractJson(
+        "world.ignoreProjectMapObservation",
+        { observationId },
+        { novel_id: novelId },
+        { expected_updated_at: expectedUpdatedAt },
+      )
+    },
     async createMapObservation(mapId, payload, novelId) {
       return post(withQuery(`/world/maps/${mapId}/observations`, { novel_id: novelId }), payload)
     },
@@ -1035,17 +1076,25 @@ const api = {
         : { review_state: reviewState }
       return patch(withQuery(`/world/maps/${mapId}/observations/${observationId}`, { novel_id: novelId }), payload)
     },
-    async batchReviewMapObservations(mapId, observationIds, action, novelId) {
-      return post(withQuery(`/world/maps/${mapId}/observations/batch-review`, { novel_id: novelId }), { observation_ids: observationIds, action })
+    async batchReviewMapObservations(mapId, observationItems, action, novelId) {
+      return post(withQuery(`/world/maps/${mapId}/observations/batch-review`, { novel_id: novelId }), { items: observationItems, action })
     },
     async runMapBatchAction(mapId, novelId, payload) {
       return post(withQuery(`/world/maps/${mapId}/batch-actions`, { novel_id: novelId }), payload)
     },
-    async confirmMapObservation(mapId, observationId, novelId) {
-      return contractJson("world.confirmMapObservation", { mapId, observationId }, { novel_id: novelId })
+    async confirmMapObservation(mapId, observationId, novelId, expectedUpdatedAt) {
+      return contractJson(
+        "world.confirmMapObservation",
+        { mapId, observationId },
+        { novel_id: novelId },
+        { expected_updated_at: expectedUpdatedAt },
+      )
     },
-    async ignoreMapObservation(mapId, observationId, novelId) {
-      return post(withQuery(`/world/maps/${mapId}/observations/${observationId}/ignore`, { novel_id: novelId }))
+    async ignoreMapObservation(mapId, observationId, novelId, expectedUpdatedAt) {
+      return post(
+        withQuery(`/world/maps/${mapId}/observations/${observationId}/ignore`, { novel_id: novelId }),
+        { expected_updated_at: expectedUpdatedAt },
+      )
     },
     async listMapFacts(mapId, novelId, factStatus = "confirmed") {
       return request(withQuery(`/world/maps/${mapId}/facts`, { novel_id: novelId, fact_status: factStatus }))
@@ -1328,12 +1377,29 @@ const api = {
       return post("/world/generation-prompt-templates/preview", payload)
     },
 
-    async objectDraftChat(payload, options = {}) {
-      return post("/world/object-draft-chat", payload, { timeout: LLM_GENERATE_TIMEOUT, ...options })
+    async worldChat(payload, options = {}) {
+      return post("/world/generation-center/chat", payload, {
+        timeout: LLM_GENERATE_TIMEOUT,
+        ...options,
+      })
     },
 
-    async generateObjectDraft(payload, options = {}) {
-      return post("/world/object-drafts/generate", payload, { timeout: LLM_GENERATE_TIMEOUT, ...options })
+    async generateWorldSuggestion(payload, options = {}) {
+      return post("/world/generation-center/suggestions", payload, {
+        timeout: LLM_GENERATE_TIMEOUT,
+        ...options,
+      })
+    },
+
+    async applyWorldPageDraft(suggestionId, payload, novelId, options = {}) {
+      return post(
+        withQuery(
+          `/world/generation-center/suggestions/${suggestionId}/apply-page-draft`,
+          { novel_id: novelId },
+        ),
+        payload,
+        options,
+      )
     },
   },
 
