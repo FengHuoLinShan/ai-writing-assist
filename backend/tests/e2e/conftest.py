@@ -30,21 +30,12 @@ from core.database import (
     isolated_database_manager_for_testing,
 )
 from tests.e2e.config import DATABASE_URL, require_e2e_database_url
+from tests.e2e.seed_data import create_base_scene, create_full_scene
+from tests.support.http import XhrAsyncClient
 
 logging.basicConfig(level=logging.WARNING)
 
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
-
-
-class XhrAsyncClient(AsyncClient):
-    """Mirror the frontend's required marker on state-changing requests."""
-
-    async def request(self, method, url, **kwargs):  # noqa: ANN001, ANN201
-        if method.upper() not in {"GET", "HEAD", "OPTIONS"}:
-            headers = dict(kwargs.pop("headers", {}) or {})
-            headers.setdefault("X-Requested-With", "XMLHttpRequest")
-            kwargs["headers"] = headers
-        return await super().request(method, url, **kwargs)
 
 
 # ============================================================
@@ -176,3 +167,46 @@ async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, 
             yield client
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def base_scene(db_session: AsyncSession) -> dict:
+    """Create the common project/world seed and expose its semantic metadata."""
+    metadata = await create_base_scene(db_session)
+    await db_session.flush()
+    return metadata
+
+
+@pytest_asyncio.fixture
+async def full_scene(db_session: AsyncSession) -> dict:
+    """Create the complete Scene/writing seed and expose its semantic metadata."""
+    metadata = await create_full_scene(db_session)
+    await db_session.flush()
+    return metadata
+
+
+@pytest_asyncio.fixture
+async def project_client(
+    async_client: AsyncClient,
+    base_scene: dict,
+) -> tuple[AsyncClient, str]:
+    """Pair the HTTP client with a seeded active project id."""
+    return async_client, base_scene["project_id"]
+
+
+@pytest_asyncio.fixture
+async def full_project_client(
+    async_client: AsyncClient,
+    full_scene: dict,
+) -> tuple[AsyncClient, str]:
+    """Pair the HTTP client with a fully seeded active project id."""
+    return async_client, full_scene["project_id"]
+
+
+@pytest_asyncio.fixture
+async def base_scene_client(
+    async_client: AsyncClient,
+    base_scene: dict,
+) -> tuple[AsyncClient, str, dict[str, str]]:
+    """Pair the HTTP client with common project and entity identifiers."""
+    return async_client, base_scene["project_id"], base_scene["entity_ids"]

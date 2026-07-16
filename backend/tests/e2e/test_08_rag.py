@@ -19,15 +19,12 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
 class TestRagCRUD:
     """RAG 基础操作 E2E 测试 — 覆盖检索、过滤、文本分块"""
 
-    @pytest_asyncio.fixture
-    async def ctx(self, async_client: AsyncClient, db_session: AsyncSession):
-        meta = await create_base_scene(db_session)
-        await db_session.flush()
-        return async_client, meta["project_id"], meta["entity_ids"]
-
-    async def test_rag_retrieve_with_character_query_returns_200(self, ctx):
+    async def test_rag_retrieve_with_character_query_returns_200(
+        self,
+        base_scene_client,
+    ):
         """使用角色名称查询 RAG 检索应返回 200"""
-        client, pid, _ = ctx
+        client, pid, _ = base_scene_client
 
         # Act
         resp = await client.post(
@@ -37,9 +34,12 @@ class TestRagCRUD:
         # Assert
         assert resp.status_code == 200
 
-    async def test_rag_retrieve_with_entity_filter_returns_200(self, ctx):
+    async def test_rag_retrieve_with_entity_filter_returns_200(
+        self,
+        base_scene_client,
+    ):
         """使用实体 ID 过滤的 RAG 检索应返回 200"""
-        client, pid, eids = ctx
+        client, pid, eids = base_scene_client
 
         # Arrange
         payload = {"query": "值夜者", "entity_ids": [eids["值夜者"]]}
@@ -50,9 +50,12 @@ class TestRagCRUD:
         # Assert
         assert resp.status_code == 200
 
-    async def test_rag_split_text_with_paragraph_method_returns_200_or_422(self, ctx):
+    async def test_rag_split_text_with_paragraph_method_returns_200_or_422(
+        self,
+        base_scene_client,
+    ):
         """段落分块接口应返回 200 或 422"""
-        client, pid, _ = ctx
+        client, _pid, _ = base_scene_client
 
         # Arrange
         params = {

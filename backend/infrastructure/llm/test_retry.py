@@ -12,7 +12,23 @@ from infrastructure.llm.errors import (
     LLMRateLimitError,
     LLMTimeoutError,
 )
-from infrastructure.llm.retry import _is_retryable, retry_with_backoff
+from infrastructure.llm.retry import _is_retryable, retry_with_backoff, retryable
+
+
+@pytest.fixture
+def retry_waits(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Capture deterministic backoff delays without waiting in real time."""
+    waits: list[float] = []
+
+    async def capture_sleep(delay: float) -> None:
+        waits.append(delay)
+
+    monkeypatch.setattr("infrastructure.llm.retry.asyncio.sleep", capture_sleep)
+    monkeypatch.setattr(
+        "infrastructure.llm.retry.random.uniform",
+        lambda _minimum, _maximum: 1.0,
+    )
+    return waits
 
 
 class TestIsRetryable:
@@ -46,7 +62,7 @@ class TestIsRetryable:
 
 class TestRetryWithBackoff:
     @pytest.mark.asyncio
-    async def test_success_first_attempt(self) -> None:
+    async def test_success_first_attempt(self, retry_waits: list[float]) -> None:
         """第一次成功，不应重试"""
         call_count = 0
 
@@ -58,9 +74,31 @@ class TestRetryWithBackoff:
         result = await retry_with_backoff(succeed, max_attempts=3, base_delay=0.01)
         assert result == "ok"
         assert call_count == 1
+        assert retry_waits == []
 
     @pytest.mark.asyncio
-    async def test_retry_then_succeed(self) -> None:
+    async def test_retryable_decorator_preserves_arguments_and_policy(
+        self,
+        retry_waits: list[float],
+    ) -> None:
+        call_count = 0
+
+        @retryable(max_attempts=2, base_delay=0.01, max_delay=0.1)
+        async def decorated(value: str, *, suffix: str) -> str:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise LLMTimeoutError("timeout", provider="test", model="m")
+            return value + suffix
+
+        result = await decorated("ok", suffix="!")
+
+        assert result == "ok!"
+        assert call_count == 2
+        assert retry_waits == [1.0]
+
+    @pytest.mark.asyncio
+    async def test_retry_then_succeed(self, retry_waits: list[float]) -> None:
         """前两次失败，第三次成功"""
         call_count = 0
 
@@ -78,9 +116,10 @@ class TestRetryWithBackoff:
         )
         assert result == "ok"
         assert call_count == 3
+        assert retry_waits == [1.0, 1.0]
 
     @pytest.mark.asyncio
-    async def test_all_attempts_fail(self) -> None:
+    async def test_all_attempts_fail(self, retry_waits: list[float]) -> None:
         """所有重试都失败，应抛出异常"""
         call_count = 0
 
@@ -92,9 +131,13 @@ class TestRetryWithBackoff:
         with pytest.raises(LLMTimeoutError):
             await retry_with_backoff(always_fail, max_attempts=2, base_delay=0.01)
         assert call_count == 2
+        assert retry_waits == [1.0]
 
     @pytest.mark.asyncio
-    async def test_non_retryable_raises_immediately(self) -> None:
+    async def test_non_retryable_raises_immediately(
+        self,
+        retry_waits: list[float],
+    ) -> None:
         """不可重试错误不应重试"""
         call_count = 0
 
@@ -106,3 +149,4 @@ class TestRetryWithBackoff:
         with pytest.raises(LLMAuthError):
             await retry_with_backoff(auth_fail, max_attempts=3, base_delay=0.01)
         assert call_count == 1
+        assert retry_waits == []
