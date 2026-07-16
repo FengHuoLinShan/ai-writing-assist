@@ -13,7 +13,7 @@
  * 运行方式：
  *   RUN_WORKER_E2E=1 npx playwright test deep-import-worker.spec.js --reporter=list
  */
-import { test, expect } from "@playwright/test"
+import { test, expect } from "./fixtures.js"
 import { openProjectView, openWorkbench } from "./helpers/workbench.js"
 import {
   API_BASE,

@@ -38,6 +38,7 @@ globalThis.state = new Proxy(appState, {
     return true
   },
 })
+globalThis.__vitestDefaultState = globalThis.state
 
 // ============================================================
 // 模拟工具函数 (state.js)
@@ -75,6 +76,10 @@ let _currentQuery = new URLSearchParams()
 
 globalThis.router = {
   _lastSubViewMap,
+  _resetTestState() {
+    _currentQuery = new URLSearchParams()
+    for (const key of Object.keys(_lastSubViewMap)) delete _lastSubViewMap[key]
+  },
   getLastSubView(viewName) {
     return _lastSubViewMap[viewName] || null
   },

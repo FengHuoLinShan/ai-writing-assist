@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test"
+import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
 import { openWorkbench } from "./helpers/workbench.js"
 import { cleanupProject, createEntity, createProject, listEntityTypes, waitForBackend } from "./helpers/api-client.js"

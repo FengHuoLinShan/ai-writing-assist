@@ -1,35 +1,68 @@
 import { vi } from "vitest"
 
+export const defaultTestState = Object.freeze({
+  currentProjectId: null,
+  currentProject: null,
+  currentView: "project",
+  currentSubView: null,
+  selectedItem: null,
+  selectedItems: [],
+  mode: "NORMAL",
+  projects: [],
+  viewStates: {},
+  loading: false,
+  error: null,
+  toast: null,
+  backendConnected: true,
+  cache: {},
+})
+
 /**
  * 将全局 state 的公共字段重置为默认值。
  * 可在 beforeEach 中统一调用，避免各测试文件重复赋值。
  */
 export function resetState(overrides = {}) {
-  const defaults = {
-    currentProjectId: null,
-    currentProject: null,
-    currentSubView: null,
-    selectedItem: null,
-    selectedItems: [],
-    mode: "NORMAL",
-    projects: [],
-    loading: false,
-    error: null,
-    toast: null,
-    backendConnected: true,
-    cache: {},
-    viewStates: {},
-  }
   if (!globalThis.state) {
     globalThis.state = {}
   }
-  Object.assign(globalThis.state, defaults, overrides)
+  for (const key of Object.keys(globalThis.state)) {
+    delete globalThis.state[key]
+  }
+  Object.assign(globalThis.state, structuredClone(defaultTestState), overrides)
 }
 
 /** 清空 document.body，避免测试间 DOM 互相污染。 */
 export function clearDocument() {
   if (typeof document !== "undefined") {
     document.body.innerHTML = ""
+  }
+}
+
+/**
+ * 恢复每个 Vitest 用例共享的完整浏览器环境。
+ *
+ * `clearAllMocks()` 只清理调用历史，保留 setup.js 中 API/router mock 的默认
+ * implementation。这样测试可以在自己的 beforeEach 中覆盖行为，又不会把前一个
+ * 用例的调用、DOM、storage、route 或临时 state 带到下一个用例。
+ */
+export function resetTestEnvironment(stateOverrides = {}) {
+  vi.useRealTimers()
+  vi.clearAllMocks()
+  if (!globalThis.__vitestDefaultState || globalThis.state === globalThis.__vitestDefaultState) {
+    resetState(stateOverrides)
+  }
+  clearDocument()
+
+  if (typeof localStorage !== "undefined") localStorage.clear()
+  if (typeof sessionStorage !== "undefined") sessionStorage.clear()
+
+  globalThis.router?._resetTestState?.()
+  if (typeof window !== "undefined") {
+    try {
+      window.history.replaceState(null, "", "/")
+    } catch {
+      window.location.hash = ""
+    }
   }
 }
 

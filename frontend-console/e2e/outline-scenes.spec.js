@@ -1,7 +1,6 @@
-import { test, expect } from "@playwright/test"
+import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
-import { openWorkbench } from "./helpers/workbench.js"
-import { createProject, cleanupProject, createScene, waitForBackend } from "./helpers/api-client.js"
+import { createScene, waitForBackend } from "./helpers/api-client.js"
 
 test.describe("Outline View — 场景工作台", () => {
   let testProjectId = null
@@ -10,22 +9,15 @@ test.describe("Outline View — 场景工作台", () => {
     await waitForBackend(60000)
   })
 
-  test.beforeEach(async ({ page }) => {
-    const project = await createProject({
+  test.beforeEach(async ({ projectFactory, openProjectWorkbench }) => {
+    const project = await projectFactory({
       title: "场景入口 E2E 测试",
       genre: "fantasy",
       language: "zh",
     })
     testProjectId = project.id
 
-    await openWorkbench(page, project, "outline", "scenes")
-  })
-
-  test.afterEach(async () => {
-    if (testProjectId) {
-      try { await cleanupProject(testProjectId) } catch {}
-      testProjectId = null
-    }
+    await openProjectWorkbench(project, "outline", "scenes")
   })
 
   test("outline/scenes 直接显示场景工作台", async ({ page }) => {

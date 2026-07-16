@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { test, expect } from "@playwright/test"
+import { test, expect } from "./fixtures.js"
 import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
 import {
   cleanupProject,

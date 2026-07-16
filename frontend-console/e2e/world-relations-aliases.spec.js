@@ -1,12 +1,10 @@
-import { test, expect } from "@playwright/test"
+import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
-import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
+import { reloadWorkbench } from "./helpers/workbench.js"
 import {
   createAlias,
   createEntity,
-  createProject,
   createRelation,
-  cleanupProject,
   listAliases,
   listRelations,
   waitForBackend,
@@ -19,22 +17,15 @@ test.describe("世界对象 — 关系与别名", () => {
     await waitForBackend(60000)
   })
 
-  test.beforeEach(async ({ page }) => {
-    const project = await createProject({
+  test.beforeEach(async ({ projectFactory, openProjectWorkbench }) => {
+    const project = await projectFactory({
       title: "关系别名测试项目",
       genre: "fantasy",
       language: "zh",
     })
     testProjectId = project.id
 
-    await openWorkbench(page, project, "world", "objects")
-  })
-
-  test.afterEach(async () => {
-    if (testProjectId) {
-      try { await cleanupProject(testProjectId) } catch {}
-      testProjectId = null
-    }
+    await openProjectWorkbench(project, "world", "objects")
   })
 
   /*

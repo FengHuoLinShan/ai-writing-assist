@@ -1,9 +1,9 @@
-import { test, expect } from "@playwright/test"
+import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
-import { openWorkbench, reloadWorkbench } from "./helpers/workbench.js"
+import { reloadWorkbench } from "./helpers/workbench.js"
 import {
   API_BASE,
-  createProject, cleanupProject, waitForBackend,
+  waitForBackend,
   createAutosavedDraft, createDraft, createScene, deleteDraft, getLatestDraft,
 } from "./helpers/api-client.js"
 
@@ -22,23 +22,16 @@ test.describe("写作台模块", () => {
     await waitForBackend(60000)
   })
 
-  test.beforeEach(async ({ page }) => {
-    const project = await createProject({
+  test.beforeEach(async ({ page, projectFactory, openProjectWorkbench }) => {
+    const project = await projectFactory({
       title: "写作测试项目",
       genre: "fantasy",
       language: "zh",
     })
     testProjectId = project.id
 
-    await openWorkbench(page, project, "writing")
+    await openProjectWorkbench(project, "writing")
     await page.waitForFunction(() => typeof writingView !== "undefined" && writingView._loading === false)
-  })
-
-  test.afterEach(async () => {
-    if (testProjectId) {
-      try { await cleanupProject(testProjectId) } catch {}
-      testProjectId = null
-    }
   })
 
   // ============================================================

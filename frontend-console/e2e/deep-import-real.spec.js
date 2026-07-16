@@ -10,7 +10,7 @@
  * 流程：创建项目 → 上传 6 章 → 深度导入 1-6 章（同步模式 sync）→
  *       大纲界面验证 Scene 卡 → 写作工作台验证 Scene 树
  */
-import { test, expect } from "@playwright/test"
+import { test, expect } from "./fixtures.js"
 import { SEL } from "./helpers/selectors.js"
 import { openWorkbench } from "./helpers/workbench.js"
 import {

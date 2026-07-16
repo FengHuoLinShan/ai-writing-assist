@@ -19,9 +19,12 @@ npm run dev
 npm run test
 npm run test:watch
 npm run test:e2e
+npm run test:e2e:functional
 npm run test:e2e:smoke
 npm run test:e2e:map
 npm run test:e2e:map-perf
+npm run test:e2e:real-llm
+npm run test:e2e:worker
 npm run test:all
 ```
 
@@ -35,25 +38,31 @@ npm run test:all
 
 ## E2E 测试
 
-Playwright 默认启动 fresh backend/frontend，只有显式设置
-`PW_REUSE_EXISTING_SERVER=1` 时才复用本机已有服务。可通过环境变量避开端口冲突：
+Playwright 的所有 profile 都 fail-closed：必须显式提供名称含独立 `audit` / `e2e` / `test`
+标记的 PostgreSQL `DATABASE_URL`，并设置 `PW_REUSE_EXISTING_SERVER=0`。配置在创建
+`webServer` 之前完成校验，因此缺失 URL、非 PostgreSQL、开发库名或复用未知服务都会在
+migration 前失败。可通过环境变量避开端口冲突：
 
 ```bash
-BACKEND_PORT=8010 FRONTEND_PORT=8090 npm run test:e2e:smoke
+DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 \
+  BACKEND_PORT=8010 FRONTEND_PORT=8090 npm run test:e2e:smoke
 ```
 
 启动命令会在后端启动前执行 `APP_ENV=test alembic upgrade head`；
-`PW_REUSE_EXISTING_SERVER=0` 可作为显式的 fresh-server 声明：
+默认 `test:e2e` / `test:e2e:functional` 只收集功能测试，排除地图性能、真实 LLM 和
+worker 套件。各专用入口分别为：
 
 ```bash
-BACKEND_PORT=8010 FRONTEND_PORT=8090 PW_REUSE_EXISTING_SERVER=0 npm run test:e2e
+DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:functional
+DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:map-perf
+DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:real-llm
+DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm run test:e2e:worker
 ```
 
-如果默认端口已有旧服务，先停止旧服务，或像上面一样指定备用端口。
+如果默认端口已有旧服务，先停止旧服务，或像上面一样指定备用端口；测试配置不会复用它。
 `APP_ENV=test` 只切换应用模式与测试路由，不会自动改写 `DATABASE_URL`。
-若本机同时运行开发 worker，应为 Playwright 显式传入独立测试库的
-`DATABASE_URL`，避免 worker 抢占 E2E 创建的任务。`scripts/e2e-servers.sh`
-也是 E2E 专用入口，会先迁移当前 `DATABASE_URL` 指向的数据库再启动
+若本机同时运行开发 worker，应确保它不连接同一个 E2E 数据库，避免抢占 E2E 创建的任务。
+`scripts/e2e-servers.sh` 使用同一 fail-closed guard，会先校验并迁移当前 `DATABASE_URL` 再启动
 backend；通用 `backend/scripts/dev_server.py` 不自动迁移。
 
 地图功能回归使用 `npm run test:e2e:map`；专用性能采样使用

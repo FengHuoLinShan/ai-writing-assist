@@ -5,6 +5,9 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR/.."
+node --input-type=module -e \
+  'import { validateE2EDatabaseEnvironment } from "./e2e/helpers/database-guard.js"; validateE2EDatabaseEnvironment("scripts/e2e-servers.sh")'
 cd "$SCRIPT_DIR/../../backend"
 APP_ENV=test python -m alembic upgrade head
 APP_ENV=test python scripts/dev_server.py --host 0.0.0.0 --port "${BACKEND_PORT:-8000}" &
