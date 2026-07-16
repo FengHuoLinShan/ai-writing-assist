@@ -235,6 +235,7 @@ def _mock_entity(**overrides) -> MagicMock:
         "approved_by": None,
         "created_at": None,
         "updated_at": None,
+        "ranking": None,
     }
     defaults.update(overrides)
     e = MagicMock()

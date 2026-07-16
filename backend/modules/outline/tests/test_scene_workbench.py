@@ -46,6 +46,7 @@ async def _create_draft(
     novel_id: str,
     chapter_index: int,
     title: str | None = None,
+    content: str | None = None,
 ) -> dict:
     resp = await client.post(
         "/api/writing/drafts/autosave",
@@ -53,7 +54,9 @@ async def _create_draft(
             "novel_id": novel_id,
             "chapter_index": chapter_index,
             "title": title or f"第{chapter_index}章",
-            "content": f"第{chapter_index}章正文",
+            "content": (
+                content if content is not None else f"第{chapter_index}章正文"
+            ),
         },
     )
     assert resp.status_code == 201, resp.text
@@ -2557,3 +2560,189 @@ class TestSceneWorkbenchApi:
         assert created.status_code == 200
         assert created.json()["status"] == "canonical"
         assert created.json()["title"] == "新版 Scene"
+
+
+class TestSceneWorkbenchHotMode:
+    async def _seed_progress_scenes(
+        self,
+        client: AsyncClient,
+        novel_id: str,
+    ) -> list[dict]:
+        for chapter_index in range(1, 9):
+            await _create_draft(client, novel_id, chapter_index)
+        scenes = []
+        for index in range(5):
+            scenes.append(
+                await _create_scene(
+                    client,
+                    novel_id,
+                    {
+                        "scene_index": index,
+                        "title": f"过去 {index}",
+                        "chapter_ids": [str(index + 1)],
+                        "status": "draft",
+                    },
+                )
+            )
+        scenes.append(
+            await _create_scene(
+                client,
+                novel_id,
+                {
+                    "scene_index": 5,
+                    "title": "当前剧情",
+                    "chapter_ids": ["7", "9"],
+                    "status": "draft",
+                },
+            )
+        )
+        scenes.append(
+            await _create_scene(
+                client,
+                novel_id,
+                {
+                    "scene_index": 6,
+                    "title": "后续剧情",
+                    "chapter_ids": ["10"],
+                    "status": "draft",
+                },
+            )
+        )
+        scenes.append(
+            await _create_scene(
+                client,
+                novel_id,
+                {
+                    "scene_index": 7,
+                    "title": "待定位",
+                    "chapter_ids": [],
+                    "status": "draft",
+                },
+            )
+        )
+        return scenes
+
+    async def test_hot_mode_reports_progress_and_anchors_current_scene(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        await self._seed_progress_scenes(async_client, test_project_id)
+
+        response = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={
+                "novel_id": test_project_id,
+                "view_mode": "hot",
+                "anchor": "latest",
+                "limit": 2,
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["skip"] == 4
+        assert [item["scene"]["scene_index"] for item in body["items"]] == [4, 5]
+        assert body["items"][1]["segment"] == "current"
+        assert body["progress"] == {
+            "as_of_chapter": 8,
+            "current": 1,
+            "upcoming": 1,
+            "past": 5,
+            "unassigned": 1,
+        }
+
+    async def test_hot_mode_ignores_blank_high_chapter_placeholder(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        await self._seed_progress_scenes(async_client, test_project_id)
+        await _create_draft(
+            async_client,
+            test_project_id,
+            99,
+            content=" \n\t\u3000",
+        )
+
+        response = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={
+                "novel_id": test_project_id,
+                "view_mode": "hot",
+                "anchor": "latest",
+                "limit": 2,
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["progress"]["as_of_chapter"] == 8
+        assert body["skip"] == 4
+        assert body["items"][1]["segment"] == "current"
+
+    async def test_explicit_segment_and_scene_selection_override_anchor(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        scenes = await self._seed_progress_scenes(async_client, test_project_id)
+        upcoming = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={
+                "novel_id": test_project_id,
+                "view_mode": "hot",
+                "segment": "upcoming",
+                "limit": 2,
+            },
+        )
+        assert upcoming.status_code == 200
+        assert upcoming.json()["total"] == 1
+        assert upcoming.json()["items"][0]["segment"] == "upcoming"
+
+        selected = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={
+                "novel_id": test_project_id,
+                "view_mode": "hot",
+                "anchor": "latest",
+                "selected_scene_id": scenes[6]["id"],
+                "limit": 2,
+            },
+        )
+        assert selected.status_code == 200
+        assert selected.json()["skip"] == 6
+        assert selected.json()["selected_scene_id"] == scenes[6]["id"]
+
+        paged = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={
+                "novel_id": test_project_id,
+                "view_mode": "hot",
+                "anchor": "latest",
+                "skip": 2,
+                "limit": 2,
+            },
+        )
+        assert paged.status_code == 200
+        assert paged.json()["skip"] == 2
+        assert [item["scene"]["scene_index"] for item in paged.json()["items"]] == [
+            2,
+            3,
+        ]
+
+    async def test_normal_mode_keeps_progress_fields_empty(
+        self,
+        async_client: AsyncClient,
+        test_project_id: str,
+    ) -> None:
+        await self._seed_progress_scenes(async_client, test_project_id)
+        response = await async_client.get(
+            "/api/outline/scene-workbench",
+            params={"novel_id": test_project_id, "view_mode": "normal", "limit": 2},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["skip"] == 0
+        assert body["progress"] is None
+        assert all(item["segment"] is None for item in body["items"])

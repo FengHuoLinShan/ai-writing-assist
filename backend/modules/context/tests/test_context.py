@@ -14,9 +14,11 @@ Context 模块测试
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest import mock
 
 import pytest
 from httpx import AsyncClient
@@ -125,6 +127,465 @@ async def test_writing_context_loads_relevance_before_character_and_entity_topk(
     assert calls.index("world_entities") > calls.index("plot_threads")
     assert calls.index("world_entities") > calls.index("rag_chunks")
     assert calls.index("characters") > calls.index("world_entities")
+
+
+@pytest.mark.asyncio
+async def test_outline_analysis_loads_range_before_character_and_entity_topk(
+    db_session: AsyncSession,
+) -> None:
+    from modules.context.services.context_compiler import ContextCompiler
+
+    calls: list[str] = []
+    outline_started = asyncio.Event()
+    release_outline = asyncio.Event()
+    dependent_started = asyncio.Event()
+
+    class FakeLoader:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        async def load(self, _db, _options, bundle) -> None:
+            calls.append(self.name)
+            if self.name == "outline_analysis":
+                outline_started.set()
+                await release_outline.wait()
+                bundle.outline_analysis = {
+                    "start_chapter": 2,
+                    "end_chapter": 7,
+                    "scenes": [{"id": "scene-1", "scene_index": 1}],
+                    "related_character_ids": ["character-1"],
+                    "related_entity_ids": ["entity-1"],
+                }
+            elif self.name == "events":
+                dependent_started.set()
+                assert bundle.outline_analysis is not None
+            elif self.name in {"world_entities", "characters"}:
+                assert bundle.outline_analysis is not None
+
+    names = [
+        "project",
+        "outline_analysis",
+        "events",
+        "plot_threads",
+        "world_entities",
+        "characters",
+    ]
+    compiler = ContextCompiler([FakeLoader(name) for name in names])
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="分析主角选择",
+        scope="full",
+        consumer_action="outline.analyze",
+        chapter_index=2,
+        visible_until_chapter=7,
+    )
+
+    compile_task = asyncio.create_task(compiler.compile(db_session, options))
+    await outline_started.wait()
+    await asyncio.sleep(0)
+    assert dependent_started.is_set() is False
+    release_outline.set()
+    await compile_task
+
+    assert calls.index("events") > calls.index("outline_analysis")
+    assert calls.index("world_entities") > calls.index("outline_analysis")
+    assert calls.index("characters") > calls.index("outline_analysis")
+
+
+@pytest.mark.asyncio
+async def test_outline_analysis_related_assets_use_existing_topk(
+    db_session: AsyncSession,
+) -> None:
+    from modules.context.services.loaders.characters_loader import CharactersLoader
+    from modules.context.services.loaders.world_entities_loader import (
+        WorldEntitiesLoader,
+    )
+
+    seen_entity_ids: list[str] = []
+    seen_character_ids: list[str] = []
+
+    async def fake_world_context(*_args, **kwargs):
+        nonlocal seen_entity_ids
+        seen_entity_ids = list(kwargs.get("entity_ids") or [])
+        return SimpleNamespace(
+            entities=[
+                SimpleNamespace(
+                    model_dump=lambda entity_id=entity_id: {
+                        "id": entity_id,
+                        "entity_id": entity_id,
+                        "entity_type": "item",
+                        "name": entity_id,
+                        "status": "canonical",
+                    }
+                )
+                for entity_id in seen_entity_ids
+            ]
+        )
+
+    async def fake_character_context(*_args, **kwargs):
+        nonlocal seen_character_ids
+        seen_character_ids = list(kwargs.get("character_ids") or [])
+        return SimpleNamespace(
+            characters=[
+                SimpleNamespace(
+                    model_dump=lambda character_id=character_id: {
+                        "id": character_id,
+                        "character_id": character_id,
+                        "name": character_id,
+                    }
+                )
+                for character_id in seen_character_ids
+            ]
+        )
+
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="分析范围结构",
+        scope="full",
+        consumer_action="outline.analyze",
+    )
+    bundle = StructureContextBundle(
+        novel_id=options.novel_id,
+        task=options.task,
+        scope=options.scope,
+        outline_analysis={
+            "related_entity_ids": [f"item-{index}" for index in range(20)],
+            "related_character_ids": [
+                f"character-{index}" for index in range(10)
+            ],
+        },
+        budget_used={key: 0 for key in CONTEXT_BUDGET},
+    )
+
+    await WorldEntitiesLoader(fake_world_context).load(db_session, options, bundle)
+    await CharactersLoader(
+        get_characters_context_fn=fake_character_context
+    ).load(db_session, options, bundle)
+
+    assert seen_entity_ids == [f"item-{index}" for index in range(16)]
+    assert seen_character_ids == [f"character-{index}" for index in range(6)]
+    assert "世界对象候选超过 Top-16" in " ".join(bundle.warnings)
+    assert "人物候选超过 Top-6" in " ".join(bundle.warnings)
+
+
+@pytest.mark.asyncio
+async def test_outline_analysis_without_relations_does_not_load_global_objects(
+    db_session: AsyncSession,
+) -> None:
+    from modules.context.services.loaders.world_entities_loader import (
+        WorldEntitiesLoader,
+    )
+
+    get_world_context = mock.AsyncMock()
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="分析与世界对象无关的结构",
+        scope="full",
+        consumer_action="outline.analyze",
+    )
+    bundle = StructureContextBundle(
+        novel_id=options.novel_id,
+        task=options.task,
+        scope=options.scope,
+        outline_analysis={
+            "related_entity_ids": [],
+            "related_character_ids": [],
+        },
+        budget_used={key: 0 for key in CONTEXT_BUDGET},
+    )
+
+    await WorldEntitiesLoader(get_world_context).load(db_session, options, bundle)
+
+    get_world_context.assert_not_awaited()
+    assert bundle.world_entities == []
+    assert bundle.selection_trace["world_entities"] == {
+        "top_k": 16,
+        "included": [],
+        "excluded": [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_outline_analysis_range_is_not_loaded_for_reader_view(
+    db_session: AsyncSession,
+) -> None:
+    from modules.context.services.context_compiler import ContextCompiler
+    from modules.context.services.loaders.outline_analysis_loader import (
+        OutlineAnalysisLoader,
+    )
+
+    get_range = mock.AsyncMock()
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="从读者视角分析",
+        scope="full",
+        consumer_action="outline.analyze",
+        chapter_index=2,
+        visible_until_chapter=7,
+        reveal_mode="reader",
+    )
+    bundle = StructureContextBundle(
+        novel_id=options.novel_id,
+        task=options.task,
+        scope=options.scope,
+        budget_used={key: 0 for key in CONTEXT_BUDGET},
+    )
+
+    await OutlineAnalysisLoader(get_range).load(db_session, options, bundle)
+
+    get_range.assert_not_awaited()
+    assert bundle.outline_analysis is None
+    assert "不加载作者大纲分析范围资料" in " ".join(bundle.warnings)
+
+    bundle.outline_analysis = {
+        "start_chapter": 2,
+        "end_chapter": 7,
+        "scenes": [{"id": "future-scene", "title": "作者未来计划"}],
+    }
+    sections = ContextCompiler()._build_sections(bundle, options)
+    assert not any(section.key.startswith("outline_analysis_") for section in sections)
+
+
+def test_outline_analysis_confirmation_tracks_automatic_range_assets() -> None:
+    from modules.context.services.compiled_context import (
+        CompiledContext,
+        ContextSection,
+        Tier,
+    )
+    from modules.context.services.confirmation_service import (
+        ContextConfirmationService,
+    )
+
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="分析范围结构",
+        scope="full",
+        consumer_action="outline.analyze",
+        chapter_index=2,
+        visible_until_chapter=7,
+    )
+    compiled = CompiledContext(
+        sections=[
+            ContextSection(
+                key="outline_analysis_scenes",
+                tier=Tier.P1,
+                content='{"id":"scene-1"}',
+                sources=[{"type": "scene", "id": "scene-1"}],
+            ),
+            ContextSection(
+                key="outline_analysis_threads",
+                tier=Tier.P2,
+                content='{"id":"thread-1"}',
+                sources=[{"type": "plot_thread", "id": "thread-1"}],
+            ),
+        ],
+    )
+
+    selected = ContextConfirmationService._selected_asset_ids(compiled, options)
+
+    assert selected["scenes"] == ["scene-1"]
+    assert selected["plot_threads"] == ["thread-1"]
+    assert selected["context_sections"] == [
+        "outline_analysis_scenes",
+        "outline_analysis_threads",
+    ]
+
+
+def test_outline_analysis_sections_keep_scene_order_and_range_visible() -> None:
+    from modules.context.services.context_compiler import ContextCompiler
+
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="分析范围结构",
+        scope="full",
+        consumer_action="outline.analyze",
+        chapter_index=2,
+        visible_until_chapter=7,
+    )
+    bundle = StructureContextBundle(
+        novel_id=options.novel_id,
+        task=options.task,
+        scope=options.scope,
+        outline_analysis={
+            "start_chapter": 2,
+            "end_chapter": 7,
+            "scenes": [
+                {"id": "scene-early", "scene_index": 1, "title": "先发生"},
+                {"id": "scene-late", "scene_index": 4, "title": "后发生"},
+            ],
+            "arcs": [{"id": "arc-1", "title": "区间篇章"}],
+            "plot_threads": [{"id": "thread-1", "name": "区间主线"}],
+            "foreshadowing_plans": [],
+            "reveal_plans": [],
+        },
+        budget_used={key: 0 for key in CONTEXT_BUDGET},
+    )
+
+    sections = ContextCompiler()._build_sections(bundle, options)
+    by_key = {section.key: section for section in sections}
+
+    assert "章节 2-7" in by_key["outline_analysis_range"].preview
+    assert by_key["outline_analysis_range"].can_exclude is False
+    assert [source["id"] for source in by_key["outline_analysis_scenes"].sources] == [
+        "scene-early",
+        "scene-late",
+    ]
+    assert by_key["outline_analysis_scenes"].content.index("先发生") < (
+        by_key["outline_analysis_scenes"].content.index("后发生")
+    )
+    keys = [section.key for section in sections]
+    assert keys.index("outline_analysis_threads") < keys.index(
+        "outline_analysis_arcs"
+    )
+
+
+def test_outline_analysis_markdown_uses_author_facing_section_titles() -> None:
+    from modules.context.markdown_renderer import render_compiled_context
+    from modules.context.services.compiled_context import CompiledContext
+    from modules.context.services.context_compiler import ContextCompiler
+
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="分析范围结构",
+        scope="full",
+        consumer_action="outline.analyze",
+        chapter_index=2,
+        visible_until_chapter=7,
+    )
+    bundle = StructureContextBundle(
+        novel_id=options.novel_id,
+        task=options.task,
+        scope=options.scope,
+        outline_analysis={
+            "start_chapter": 2,
+            "end_chapter": 7,
+            "scenes": [{"id": "scene-1", "scene_index": 1, "title": "码头冲突"}],
+            "arcs": [{"id": "arc-1", "title": "城市卷"}],
+            "plot_threads": [{"id": "thread-1", "name": "调查主线"}],
+            "foreshadowing_plans": [{"id": "seed-1", "name": "旧钥匙"}],
+            "reveal_plans": [{"id": "reveal-1", "secret_summary": "王室徽记"}],
+        },
+        budget_used={key: 0 for key in CONTEXT_BUDGET},
+    )
+    sections = ContextCompiler()._build_sections(bundle, options)
+
+    rendered = render_compiled_context(
+        CompiledContext(sections=sections, total_tokens=1, budget_tokens=12000)
+    )
+
+    assert "## 大纲分析范围" in rendered
+    assert "## 范围内 Scene（按叙事顺序）" in rendered
+    assert "## 相关篇章纲" in rendered
+    assert "## 相关剧情线" in rendered
+    assert "## 相关伏笔计划" in rendered
+    assert "## 相关揭示计划" in rendered
+    assert "## outline_analysis_" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_outline_analysis_replay_rejects_changed_range_context(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.context.services.compiled_context import (
+        CompiledContext,
+        ContextSection,
+        Tier,
+    )
+    from modules.context.services.confirmation_service import (
+        ContextConfirmationService,
+    )
+
+    def compiled(content: str) -> CompiledContext:
+        return CompiledContext(
+            sections=[
+                ContextSection(
+                    key="outline_analysis_scenes",
+                    tier=Tier.P1,
+                    content=content,
+                    sources=[{"type": "scene", "id": "scene-1"}],
+                )
+            ]
+        )
+
+    original = compiled("确认时 Scene")
+    changed = compiled("任务开始前被修改的 Scene")
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="分析大纲",
+        scope="full",
+        consumer_action="outline.analyze",
+    )
+    options.outline_analysis_fingerprint = (
+        ContextConfirmationService._outline_analysis_fingerprint(original)
+    )
+
+    class FakeCompiler:
+        async def compile_with_tiers(self, *_args, **_kwargs):
+            return changed
+
+    service = ContextConfirmationService(compiler=FakeCompiler())
+
+    async def fake_require(*_args, **_kwargs):
+        return SimpleNamespace(
+            compile_options=ContextConfirmationService._compile_options_json(options)
+        )
+
+    monkeypatch.setattr(service, "require_confirmation", fake_require)
+
+    with pytest.raises(ValueError, match="context changed"):
+        await service.compile_from_confirmation(
+            db_session,
+            novel_id=options.novel_id,
+            action="outline.analyze",
+            confirmation_id=str(uuid.uuid4()),
+        )
+
+
+@pytest.mark.asyncio
+async def test_ranged_outline_analysis_fails_closed_when_range_loader_failed(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.context.services.compiled_context import CompiledContext
+    from modules.context.services.confirmation_service import (
+        ContextConfirmationService,
+    )
+
+    options = CompileOptions(
+        novel_id=str(uuid.uuid4()),
+        task="分析大纲",
+        scope="full",
+        consumer_action="outline.analyze",
+        chapter_index=2,
+        visible_until_chapter=7,
+    )
+
+    class FakeCompiler:
+        async def compile_with_tiers(self, *_args, **_kwargs):
+            return CompiledContext(
+                sections=[],
+                total_tokens=0,
+                budget_tokens=12000,
+                warnings=["加载 outline_analysis 时出错"],
+            )
+
+    service = ContextConfirmationService(compiler=FakeCompiler())
+
+    async def fake_require(*_args, **_kwargs):
+        return SimpleNamespace(
+            compile_options=ContextConfirmationService._compile_options_json(options)
+        )
+
+    monkeypatch.setattr(service, "require_confirmation", fake_require)
+
+    with pytest.raises(ValueError, match="range context could not be loaded"):
+        await service.compile_from_confirmation(
+            db_session,
+            novel_id=options.novel_id,
+            action="outline.analyze",
+            confirmation_id=str(uuid.uuid4()),
+        )
 
 
 @pytest.mark.asyncio
@@ -1806,6 +2267,118 @@ class TestContextConfirmation:
         assert [item["id"] for item in truncated.sources] == [
             f"source-{index}" for index in range(kept_line_count)
         ]
+
+    def test_multiple_p2_sections_share_one_remaining_budget(self) -> None:
+        from infrastructure.llm.token_estimation import estimate_token_count
+        from modules.context.services.compiled_context import (
+            CompiledContext,
+            ContextSection,
+            Tier,
+        )
+
+        p0_content = "已确认的分析范围"
+        p0_tokens = estimate_token_count(p0_content)
+        sections = [
+            ContextSection(
+                key="outline_analysis_range",
+                tier=Tier.P0,
+                content=p0_content,
+                token_count=p0_tokens,
+                can_exclude=False,
+            )
+        ]
+        for key in (
+            "outline_analysis_arcs",
+            "outline_analysis_threads",
+            "outline_analysis_foreshadowing",
+        ):
+            lines = [
+                f"{key}-{index}: " + "结构关系与因果变化。" * 30
+                for index in range(4)
+            ]
+            content = "\n".join(lines)
+            sections.append(
+                ContextSection(
+                    key=key,
+                    tier=Tier.P2,
+                    content=content,
+                    token_count=estimate_token_count(content),
+                    truncatable_per_item=True,
+                    sources=[
+                        {"type": "test", "id": f"{key}-{index}"}
+                        for index in range(4)
+                    ],
+                )
+            )
+
+        budget = p0_tokens + estimate_token_count(sections[1].content.splitlines()[0])
+        result = CompiledContext(
+            sections=sections,
+            total_tokens=sum(section.token_count for section in sections),
+            budget_tokens=budget,
+        ).enforce_budget()
+
+        assert result.total_tokens <= budget
+        assert [section.key for section in result.sections] == [
+            "outline_analysis_range",
+            "outline_analysis_arcs",
+        ]
+        kept = result.sections[1]
+        assert len(kept.content.splitlines()) == 1
+        assert [source["id"] for source in kept.sources] == [
+            "outline_analysis_arcs-0"
+        ]
+        assert {event.section_key for event in result.budget_events} == {
+            "outline_analysis_arcs",
+            "outline_analysis_threads",
+            "outline_analysis_foreshadowing",
+        }
+        assert {
+            event.section_key
+            for event in result.budget_events
+            if event.event_type == "evicted"
+        } == {
+            "outline_analysis_threads",
+            "outline_analysis_foreshadowing",
+        }
+
+    def test_p0_may_exceed_budget_but_p2_is_not_retained_without_budget(
+        self,
+    ) -> None:
+        from modules.context.services.compiled_context import (
+            CompiledContext,
+            ContextSection,
+            Tier,
+        )
+
+        result = CompiledContext(
+            sections=[
+                ContextSection(
+                    key="outline_analysis_range",
+                    tier=Tier.P0,
+                    content="不可移除的范围",
+                    token_count=100,
+                    can_exclude=False,
+                ),
+                ContextSection(
+                    key="outline_analysis_threads",
+                    tier=Tier.P2,
+                    content="剧情线",
+                    token_count=20,
+                    truncatable_per_item=True,
+                    sources=[{"type": "plot_thread", "id": "thread-1"}],
+                ),
+            ],
+            total_tokens=120,
+            budget_tokens=50,
+        ).enforce_budget()
+
+        assert [section.key for section in result.sections] == [
+            "outline_analysis_range"
+        ]
+        assert result.total_tokens == 100
+        assert result.evicted_keys == ["outline_analysis_threads"]
+        assert result.budget_events[-1].event_type == "evicted"
 
     @pytest.mark.asyncio
     async def test_confirm_context_api_creates_summary_without_rendered_context(

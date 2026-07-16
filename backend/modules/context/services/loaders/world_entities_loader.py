@@ -92,6 +92,7 @@ class WorldEntitiesLoader(Loader):
         normal_limit = CONTEXT_BUDGET.get("normal_entities", 8)
         all_limit = core_limit + normal_limit
         generation_action = options.consumer_action in {
+            "outline.analyze",
             "world.generation.chat",
             "world.generation.core_entity",
             "world.generation.world_bible_page",
@@ -134,6 +135,13 @@ class WorldEntitiesLoader(Loader):
             bundle.world_entities = entities[:all_limit]
             bundle.budget_used["core_entities"] = min(len(entities), core_limit)
             bundle.budget_used["normal_entities"] = max(0, len(entities) - core_limit)
+        elif options.consumer_action == "outline.analyze":
+            # Manual outline analysis is about the confirmed range. Loading
+            # globally important objects when that range has no real relation
+            # would add unrelated lore and consume the author's prompt budget.
+            bundle.world_entities = []
+            bundle.budget_used["core_entities"] = 0
+            bundle.budget_used["normal_entities"] = 0
         else:
             ctx = await self._get_world_context(
                 db,
@@ -167,7 +175,10 @@ class WorldEntitiesLoader(Loader):
             bundle.budget_used["core_entities"] = len(core_entities)
             bundle.budget_used["normal_entities"] = len(normal_entities)
 
-        if options.scope == "generation_center":
+        if (
+            options.scope == "generation_center"
+            or options.consumer_action == "outline.analyze"
+        ):
             actual_ids = [
                 str(item.get("entity_id") or item.get("id") or "")
                 for item in bundle.world_entities
@@ -257,6 +268,12 @@ def _related_entity_candidates(
                 ranked.append((entity_id, reason))
 
     extend(options.entity_ids, "explicit_or_source")
+    analysis = (
+        bundle.outline_analysis
+        if isinstance(bundle.outline_analysis, dict)
+        else {}
+    )
+    extend(analysis.get("related_entity_ids"), "outline_range")
     scene = bundle.scene if isinstance(bundle.scene, dict) else {}
     scene_meta = scene.get("structure_meta") or {}
     if isinstance(scene_meta, dict):

@@ -130,9 +130,6 @@
 
       <!-- 主工作区 -->
       <main id="workspace">
-        <header id="workspace-header">
-          <div id="view-actions"></div>
-        </header>
         <div id="workspace-content">
           <div id="empty-state" class="loading-skeleton" role="status" aria-live="polite" aria-busy="true">
             <span class="sr-only">应用加载中...</span>
@@ -149,7 +146,7 @@
     </div>
 
     <!-- 底部命令栏（Spotlight 风格，默认隐藏） -->
-    <div id="command-bar">
+    <div id="command-bar" inert aria-hidden="true">
       <div class="command-header">
         <span id="command-mode" class="command-mode-label command">命令模式</span>
         <span id="command-hint"></span>

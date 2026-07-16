@@ -2,7 +2,12 @@ import { test, expect } from "@playwright/test"
 import { openWorkbench } from "./helpers/workbench.js"
 import { SEL } from "./helpers/selectors.js"
 import { installLeafletStub } from "./helpers/leaflet-stub.js"
-import { createProject, cleanupProject, waitForBackend } from "./helpers/api-client.js"
+import {
+  createEntity,
+  createProject,
+  cleanupProject,
+  waitForBackend,
+} from "./helpers/api-client.js"
 
 function isLeafletStubIntegrityNoise(text) {
   return text.includes("Failed to find a valid digest in the 'integrity' attribute")
@@ -58,6 +63,15 @@ test.describe("worldView 子视图切换", () => {
 
     await openWorkbench(page, { id: testProjectId, title: "视图切换测试项目" }, "world", "objects")
 
+    await expect(page.locator('[data-action="set-discovery-mode"][data-mode="hot"]')).toHaveClass(/btn-primary/)
+    await page.locator('[data-action="set-discovery-mode"][data-mode="normal"]').click()
+    await expect(page).toHaveURL(new RegExp(`world/objects\\?.*mode=normal`))
+    await expect(page.locator('[data-action="set-discovery-mode"][data-mode="normal"]')).toHaveClass(/btn-primary/)
+    await expect.poll(() => page.evaluate(
+      (projectId) => localStorage.getItem(`novel_view_mode:${projectId}:world-objects`),
+      testProjectId,
+    )).toBe("normal")
+
     await page.locator('[data-subview="review-objects"]').click()
     await expect(page.locator('[data-subview="review-objects"]')).toHaveClass(/active/)
 
@@ -79,5 +93,32 @@ test.describe("worldView 子视图切换", () => {
 
     expect(failedResponses, `出现失败的资源请求: ${JSON.stringify(failedResponses)}`).toHaveLength(0)
     expect(consoleErrors, `控制台报错: ${JSON.stringify(consoleErrors)}`).toHaveLength(0)
+  })
+
+  test("热点模式真实展示降级状态和重要标签并支持卡片视图", async ({ page }) => {
+    const entity = await createEntity(testProjectId, {
+      entity_type: "character",
+      name: "热点主角",
+      importance: 0.9,
+      importance_level: "important",
+      status: "canonical",
+    })
+
+    await openWorkbench(
+      page,
+      { id: testProjectId, title: "视图切换测试项目" },
+      "world",
+      "objects",
+    )
+
+    await expect(page.getByText("近期出场索引暂不可用")).toBeVisible()
+    const tableRow = page.locator(`tr[data-id="${entity.id}"]`)
+    await expect(tableRow).toContainText("热点主角")
+    await expect(tableRow).toContainText("重要")
+
+    await page.locator('[data-action="set-object-view"][data-view-mode="card"]').click()
+    const card = page.locator(`.world-object-card[data-id="${entity.id}"]`)
+    await expect(card).toBeVisible()
+    await expect(card).toContainText("重要")
   })
 })

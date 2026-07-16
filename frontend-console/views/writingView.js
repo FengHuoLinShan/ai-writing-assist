@@ -433,6 +433,12 @@ const writingView = {
 
     this._scenePanel?.setScenes?.(this._scenes)
     this._scenePanel?.setCursorOffset?.(state._cursorOffset)
+    this._scenePanel?.setWritingContext?.({
+      content: state._currentContent || "",
+      draftId: state._currentDraftId,
+      versionNumber: state._currentVersionNumber,
+      isDirty: ["未保存", "仅本地修改"].includes(editor?.saveStatusText?.()),
+    })
   },
 
   _syncChapterMetaToTree(chapterIndex) {
@@ -487,13 +493,16 @@ const writingView = {
     }
 
     this._currentChapter = chapterIndex
-    this._syncSharedStateToSubModules()
 
     if (chapterIndex === null) {
+      await this._scenePanel?.update?.(null, null)
+      this._syncSharedStateToSubModules()
       delete state.viewStates.writing
       await this._rerender()
       return
     }
+
+    this._syncSharedStateToSubModules()
 
     delete state.viewStates.writing
     try {

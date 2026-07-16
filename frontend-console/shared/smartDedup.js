@@ -12,6 +12,8 @@ import {
   recoverActiveWorkflows,
 } from "./workflowProgress.js"
 import { renderWorkflowCard } from "./progressRenderer.js"
+import { createReferencePicker } from "./referencePicker.js"
+import { worldAssetDisplay } from "./assetDisplayState.js"
 
 const PAGE_SIZE = 6
 
@@ -41,6 +43,8 @@ export function createSmartDedupManager({
     _groupDraft: {},
     _activeGroupId: null,
     _groupResults: {},
+    _activeProjectId: null,
+    _manualPrimaryPickers: [],
     _currentProjectId() {
       return typeof getCurrentProjectId === "function" ? getCurrentProjectId() : null
     },
@@ -59,22 +63,39 @@ export function createSmartDedupManager({
     },
 
     _showModalHtml(title, body, buttons = [], options = {}) {
+      this._destroyManualPrimaryPickers()
       const fn = modalApi.showModalHtml || modalApi.showHtml
       if (typeof fn === "function") fn(title, body, buttons, options)
     },
 
     _closeModal() {
+      this._destroyManualPrimaryPickers()
       const fn = modalApi.closeModal || modalApi.close
       if (typeof fn === "function") fn()
     },
 
+    syncProject(projectId) {
+      const nextProjectId = projectId || null
+      if (this._activeProjectId === nextProjectId) return
+
+      this._clearScanState()
+      this._activeProjectId = nextProjectId
+      if (nextProjectId) this.recoverWorkflow(nextProjectId)
+      this._notifyRender()
+    },
+
     recoverWorkflow(projectId) {
-      if (!projectId) return
-      const workflow = recoverActiveWorkflows(projectId)
+      const nextProjectId = projectId || null
+      if (!nextProjectId) return
+      if (this._activeProjectId !== nextProjectId) {
+        this._clearScanState()
+        this._activeProjectId = nextProjectId
+      }
+      const workflow = recoverActiveWorkflows(nextProjectId)
         .find((item) => item.workflowType === "smart_dedup_scan")
       if (!workflow?.taskId) return
       this._taskId = workflow.taskId
-      this._scanProjectId = projectId
+      this._scanProjectId = nextProjectId
       this._progress = normalizeTaskProgress({
         task_id: workflow.taskId,
         task_type: "smart_dedup_scan",
@@ -90,6 +111,7 @@ export function createSmartDedupManager({
         toast("请先选择项目", "warning")
         return
       }
+      this.syncProject(projectId)
       if (this._progress && !this._progress.terminal) {
         this.showProgress()
         return
@@ -104,21 +126,29 @@ export function createSmartDedupManager({
         this._activeGroupId = null
         this._groupResults = {}
         const result = await api.projects.startSmartDedupScan(projectId, {})
-        this._taskId = result.task_id
-        this._progress = normalizeTaskProgress({
-          ...result,
-          task_type: "smart_dedup_scan",
-        }, "smart_dedup_scan")
         persistActiveWorkflow({
           taskId: result.task_id,
           workflowType: "smart_dedup_scan",
           label: "智能去重扫描",
           projectId,
         })
+        if (this._currentProjectId() !== projectId) {
+          this.syncProject(this._currentProjectId())
+          return
+        }
+        this._taskId = result.task_id
+        this._progress = normalizeTaskProgress({
+          ...result,
+          task_type: "smart_dedup_scan",
+        }, "smart_dedup_scan")
         toast("智能去重扫描已提交", "success")
-        this._startPolling(result.task_id)
+        this._startPolling(result.task_id, projectId)
         this._notifyRender()
       } catch (err) {
+        if (this._currentProjectId() !== projectId) {
+          this.syncProject(this._currentProjectId())
+          return
+        }
         toast(`智能去重启动失败：${err.message}`, "error")
       }
     },
@@ -162,6 +192,7 @@ export function createSmartDedupManager({
     },
 
     dispose() {
+      this._destroyManualPrimaryPickers()
       this._stopPolling()
     },
 
@@ -173,19 +204,16 @@ export function createSmartDedupManager({
       if (typeof onRenderActions === "function") onRenderActions()
     },
 
-    _startPolling(taskId) {
+    _startPolling(taskId, projectId = this._activeProjectId || this._currentProjectId()) {
       this._stopPolling()
-      const capturedProjectId = this._currentProjectId()
+      const capturedProjectId = projectId
       this._poller = pollTaskProgress({
         taskId,
         workflowType: "smart_dedup_scan",
         apiClient: api,
         onUpdate: (progress) => {
           if (this._currentProjectId() !== capturedProjectId) {
-            this._stopPolling()
-            this._taskId = null
-            this._progress = null
-            this._groupDraft = {}
+            this.syncProject(this._currentProjectId())
             return
           }
           this._progress = progress
@@ -193,10 +221,7 @@ export function createSmartDedupManager({
         },
         onDone: (progress) => {
           if (this._currentProjectId() !== capturedProjectId) {
-            this._stopPolling()
-            this._taskId = null
-            this._progress = null
-            this._groupDraft = {}
+            this.syncProject(this._currentProjectId())
             return
           }
           clearActiveWorkflow(progress.taskId || taskId)
@@ -209,10 +234,7 @@ export function createSmartDedupManager({
         },
         onFailed: (progress) => {
           if (this._currentProjectId() !== capturedProjectId) {
-            this._stopPolling()
-            this._taskId = null
-            this._progress = null
-            this._groupDraft = {}
+            this.syncProject(this._currentProjectId())
             return
           }
           clearActiveWorkflow(progress.taskId || taskId)
@@ -229,13 +251,9 @@ export function createSmartDedupManager({
       this._poller = null
     },
 
-    _resetResult() {
-      const taskId = this._taskId
-        || this._progress?.taskId
-        || this._progress?.id
-        || this._progress?.raw?.result?.task_id
+    _clearScanState() {
+      this._destroyManualPrimaryPickers()
       this._stopPolling()
-      if (taskId) clearActiveWorkflow(taskId)
       this._taskId = null
       this._progress = null
       this._scanTaskId = null
@@ -246,10 +264,20 @@ export function createSmartDedupManager({
       this._groupDraft = {}
       this._activeGroupId = null
       this._groupResults = {}
+    },
+
+    _resetResult() {
+      const taskId = this._taskId
+        || this._progress?.taskId
+        || this._progress?.id
+        || this._progress?.raw?.result?.task_id
+      if (taskId) clearActiveWorkflow(taskId)
+      this._clearScanState()
       this._notifyRender()
     },
 
     _showSuggestions(page = this._suggestionPage || 0) {
+      this._destroyManualPrimaryPickers()
       if (this._scanProjectId && this._scanProjectId !== this._currentProjectId()) {
         this._resetResult()
         return
@@ -283,6 +311,90 @@ export function createSmartDedupManager({
         handler: async () => this._applySuggestions(suggestions),
       }])
       this._bindSuggestionControls(suggestions)
+    },
+
+    _destroyManualPrimaryPickers() {
+      for (const picker of this._manualPrimaryPickers || []) picker?.destroy?.()
+      this._manualPrimaryPickers = []
+    },
+
+    _mountManualPrimaryPickers(suggestions) {
+      const projectId = this._currentProjectId()
+      document.querySelectorAll("[data-smart-dedup-manual-picker]").forEach((root) => {
+        const index = Number(root.getAttribute("data-smart-dedup-manual-picker"))
+        const item = suggestions[index]
+        if (!item || item.asset_type !== "world_entity") return
+        const draft = this._draftFor(index, item)
+        const picker = createReferencePicker({
+          root,
+          projectId,
+          sources: [{
+            kind: "entity",
+            label: "世界对象",
+            search: async (query, { projectId: ownerProjectId, limit }) => {
+              const data = await api.world.listEntities({
+                novel_id: ownerProjectId,
+                display_state: "active",
+                q: query || undefined,
+                skip: 0,
+                limit,
+              })
+              const suggestionIds = new Set([
+                String(item.source_asset_id || item.source_entity_id || ""),
+                String(item.target_asset_id || item.target_entity_id || ""),
+              ])
+              return (data?.items || []).filter((entry) => {
+                const entryId = String(entry.id || entry.entity_id || "")
+                return entry?.status === "canonical" && !suggestionIds.has(entryId)
+              }).map((entry) => {
+                const display = worldAssetDisplay(entry)
+                return {
+                  id: entry.id || entry.entity_id,
+                  label: entry.name || "未命名对象",
+                  description: [entry.entity_type, entry.summary || entry.description].filter(Boolean).join(" · "),
+                  status: display.label,
+                }
+              })
+            },
+            resolve: async (ids, { projectId: ownerProjectId }) => Promise.all(ids.map(async (id) => {
+              try {
+                const entry = await api.world.getEntity(id, ownerProjectId)
+                const display = worldAssetDisplay(entry)
+                return {
+                  id: entry.id || entry.entity_id,
+                  label: entry.name || "未命名对象",
+                  description: entry.entity_type || "世界对象",
+                  status: display.label,
+                  unavailable: display.isHistory,
+                }
+              } catch {
+                return { id, label: "不可用引用", unavailable: true }
+              }
+            })),
+          }],
+          placeholder: "按名称搜索其他主体对象",
+          onChange: (items, refs) => {
+            const hidden = document.querySelector(`[data-smart-dedup-manual-primary="${index}"]`)
+            if (hidden) hidden.value = refs[0]?.id || ""
+            const radio = document.querySelector(`input[name="smart-dedup-primary-${index}"][value="manual"]`)
+            if (refs[0] && radio) radio.checked = true
+            this._suggestionDraft[index] = {
+              ...(this._suggestionDraft[index] || draft),
+              primaryMode: refs[0] ? "manual" : (this._suggestionDraft[index]?.primaryMode || "target"),
+              manualPrimaryId: refs[0]?.id || "",
+              manualPrimaryLabel: items[0]?.label || "",
+            }
+          },
+        })
+        if (draft.manualPrimaryId) {
+          picker.resolve([{ kind: "entity", id: draft.manualPrimaryId }]).then((items) => {
+            if (items[0] && draft.manualPrimaryLabel) {
+              picker.setItems([{ ...items[0], label: draft.manualPrimaryLabel }])
+            }
+          })
+        }
+        this._manualPrimaryPickers.push(picker)
+      })
     },
 
     _captureGroupWorkbenchScroll() {
@@ -787,6 +899,7 @@ export function createSmartDedupManager({
           input.addEventListener(eventName, () => this._captureDraft())
         })
       })
+      this._mountManualPrimaryPickers(suggestions)
     },
 
     _renderSuggestion(item, index) {
@@ -817,6 +930,14 @@ export function createSmartDedupManager({
       const sourcePrimary = draft.primaryMode === "source" ? "checked" : ""
       const targetPrimary = draft.primaryMode === "target" ? "checked" : ""
       const manualPrimary = draft.primaryMode === "manual" ? "checked" : ""
+      const manualChoice = item.asset_type === "world_entity" ? `
+        <label style="display:block;font-size:12px;">
+          <input type="radio" name="smart-dedup-primary-${esc(index)}" data-smart-dedup-primary-mode="${esc(index)}" value="manual" ${manualPrimary} />
+          选择其他主体对象
+        </label>
+        <div data-smart-dedup-manual-picker="${esc(index)}" style="margin-top:4px;"></div>
+        <input type="hidden" data-smart-dedup-manual-primary="${esc(index)}" value="${esc(draft.manualPrimaryId || "")}" />
+      ` : ""
       const operationText = {
         merge: `保留「${primary.primaryTitle}」，合并「${primary.duplicateTitle}」`,
         alias_only: `登记为别名：将「${primary.duplicateTitle}」登记到「${primary.primaryTitle}」`,
@@ -859,17 +980,13 @@ export function createSmartDedupManager({
             </div>
             <label style="display:block;font-size:12px;margin-bottom:4px;">
               <input type="radio" name="smart-dedup-primary-${esc(index)}" data-smart-dedup-primary-mode="${esc(index)}" value="target" ${targetPrimary} />
-              保留右侧：${esc(targetTitle)} <span style="color:var(--text-dim);">(${esc(item.target_asset_id || "-")})</span>
+              保留右侧：${esc(targetTitle)}
             </label>
             <label style="display:block;font-size:12px;margin-bottom:4px;">
               <input type="radio" name="smart-dedup-primary-${esc(index)}" data-smart-dedup-primary-mode="${esc(index)}" value="source" ${sourcePrimary} />
-              保留左侧：${esc(sourceTitle)} <span style="color:var(--text-dim);">(${esc(item.source_asset_id || "-")})</span>
+              保留左侧：${esc(sourceTitle)}
             </label>
-            <label style="display:block;font-size:12px;">
-              <input type="radio" name="smart-dedup-primary-${esc(index)}" data-smart-dedup-primary-mode="${esc(index)}" value="manual" ${manualPrimary} />
-              手动主体 ID
-              <input class="form-input" data-smart-dedup-manual-primary="${esc(index)}" value="${esc(draft.manualPrimaryId || "")}" placeholder="输入要保留/登记到的对象 ID" style="margin-top:4px;" />
-            </label>
+            ${manualChoice}
           </div>
           ${riskNotice}
           ${canonical}
@@ -886,7 +1003,7 @@ export function createSmartDedupManager({
       if (!primaryMode) {
         if (recommended.id && recommended.id === item.source_asset_id) {
           primaryMode = "source"
-        } else if (recommended.id && recommended.id !== item.target_asset_id) {
+        } else if (item.asset_type === "world_entity" && recommended.id && recommended.id !== item.target_asset_id) {
           primaryMode = "manual"
           manualPrimaryId = recommended.id
         } else {
@@ -900,6 +1017,7 @@ export function createSmartDedupManager({
         ),
         primaryMode,
         manualPrimaryId,
+        manualPrimaryLabel: existing.manualPrimaryLabel || recommended.title || "",
         allowCanonicalMerge: Boolean(existing.allowCanonicalMerge),
         allowCanonicalAlias: Boolean(existing.allowCanonicalAlias),
       }
@@ -931,7 +1049,7 @@ export function createSmartDedupManager({
         : [target, source]
       if (draft.primaryMode === "manual" && draft.manualPrimaryId) {
         primary.id = draft.manualPrimaryId
-        primary.title = draft.manualPrimaryId
+        primary.title = draft.manualPrimaryLabel || "所选主体对象"
       }
       return {
         primaryId: primary.id,
@@ -955,6 +1073,7 @@ export function createSmartDedupManager({
           selected: Boolean(input.checked),
           primaryMode: primary?.value || this._suggestionDraft[index]?.primaryMode,
           manualPrimaryId: manual?.value?.trim() || "",
+          manualPrimaryLabel: this._suggestionDraft[index]?.manualPrimaryLabel || "",
           allowCanonicalMerge: Boolean(canonical?.checked),
           allowCanonicalAlias: Boolean(canonicalAlias?.checked),
         }

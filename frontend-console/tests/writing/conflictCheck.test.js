@@ -30,6 +30,8 @@ beforeEach(() => {
   globalThis.showModalHtml.mockReset()
   state._currentChapter = null
   state._currentSceneId = null
+  state._currentDraftId = null
+  state._currentVersionNumber = null
 })
 
 afterEach(() => {
@@ -56,6 +58,8 @@ describe("createConflictCheck", () => {
   it("runs conflict check with options", async () => {
     state.currentProjectId = "p1"
     state._currentChapter = 1
+    state._currentDraftId = "draft-3"
+    state._currentVersionNumber = 3
     api.writing.createConflictCheck.mockResolvedValue({ id: "check-1" })
     api.writing.listConflictChecks.mockResolvedValue({ items: [{ id: "check-1", summary_json: { total: 2 } }] })
     globalThis.showModalHtml.mockImplementation((_title, _body, buttons) => {
@@ -69,6 +73,8 @@ describe("createConflictCheck", () => {
     expect(api.writing.createConflictCheck).toHaveBeenCalledWith(expect.objectContaining({
       novel_id: "p1",
       chapter_index: 1,
+      draft_id: "draft-3",
+      version_number: 3,
       content: "正文",
       include_candidates: false,
     }))

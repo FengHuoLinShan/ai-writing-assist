@@ -40,6 +40,8 @@ def _add_term(
 async def _load_project_terms(
     db: AsyncSession,
     novel_id: uuid.UUID,
+    *,
+    strict: bool = False,
 ) -> list[dict[str, str]]:
     """加载项目词典：人物、世界对象/别名、剧情线。"""
     cached = _PROJECT_TERMS_CACHE.get(novel_id)
@@ -66,6 +68,9 @@ async def _load_project_terms(
                     target_type=target_type,
                 )
     except Exception:
+        if strict:
+            _PROJECT_TERMS_CACHE.pop(novel_id, None)
+            raise
         logger.warning(
             "rag_project_terms_load_failed novel_id=%s; "
             "continuing_without_world_terms",

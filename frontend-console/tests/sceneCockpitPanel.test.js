@@ -91,6 +91,71 @@ describe("sceneCockpitPanel", () => {
     expect(document.querySelector('[data-panel="people"]')?.classList.contains("hidden")).toBe(true)
   })
 
+  it("renders an always-visible alert summary and a dedicated alert tab", () => {
+    document.body.innerHTML = renderSceneCockpitPanel({
+      projectId: "p1",
+      scene: { id: "s1", title: "东门交锋" },
+      alerts: [
+        { id: "a1", severity: "high", source: "正文", message: "检测到禁止发生项" },
+        { id: "a2", severity: "medium", source: "最近校验", message: "校验已过期", stale: true },
+      ],
+      latestCheck: { id: "check-1" },
+      activeTab: "alerts",
+    })
+
+    expect(document.querySelector(".scene-alert-summary")?.textContent).toContain("2 项警报")
+    expect(document.querySelector(".scene-alert-summary")?.textContent).toContain("最近校验已过期")
+    expect(document.querySelector('[data-tab="alerts"]')?.classList.contains("active")).toBe(true)
+    expect(document.querySelector('[data-panel="alerts"]')?.textContent).toContain("检测到禁止发生项")
+    expect(document.querySelector('[data-action="open-cockpit-conflict-check"]')).not.toBeNull()
+    expect(document.querySelector('[data-action="run-cockpit-conflict-check"]')).not.toBeNull()
+  })
+
+  it("does not overclaim when there are no deterministic alerts and escapes alert text", () => {
+    const html = renderSceneCockpitPanel({
+      projectId: "p1",
+      scene: { id: "s1", title: "东门交锋" },
+      alerts: [{
+        id: "info",
+        severity: "info",
+        source: '<img src=x onerror="alert(1)">',
+        message: "<script>alert(1)</script>",
+      }],
+      activeTab: "alerts",
+    })
+
+    expect(html).toContain("当前未发现确定性警报")
+    expect(html).toContain("不代表正文没有其他问题")
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;")
+    expect(html).not.toContain("<script>alert(1)</script>")
+    expect(html).not.toContain("<img src=x")
+  })
+
+  it("校验还在加载时不提前显示无警报结论", () => {
+    const html = renderSceneCockpitPanel({
+      projectId: "p1",
+      scene: { id: "s1", title: "东门交锋" },
+      alerts: [],
+      alertLoading: true,
+      activeTab: "alerts",
+    })
+
+    expect(html).toContain("警报加载中")
+    expect(html).toContain("正在刷新最近校验")
+    expect(html).not.toContain("当前未发现确定性警报")
+  })
+
+  it("对异常的空警报输入安全降级", () => {
+    const html = renderSceneCockpitPanel({
+      projectId: "p1",
+      scene: { id: "s1", title: "东门交锋" },
+      alerts: null,
+      activeTab: "alerts",
+    })
+
+    expect(html).toContain("当前未发现确定性警报")
+  })
+
   it("collapses tail modules when compact mode is requested", () => {
     const html = renderSceneCockpitPanel({
       projectId: "p1",

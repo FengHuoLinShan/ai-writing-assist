@@ -61,6 +61,31 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 `entity_deprecated` 标记 context 失效。修订和 context 标记均是带独立
 savepoint 的 best-effort 辅助审计；其失败会记日志，不回滚主删除。
 
+### 对象库普通 / 热点模式
+
+`GET /api/world/entities` 新增可选 `view_mode=normal|hot`。省略参数仍为
+`normal`，完整保留原搜索相关度、`importance DESC → name → id`、分页和作者态筛选；
+普通模式不读取 RAG 活动统计，`ranking/facets/ranking_context` 均为空。
+
+热点模式读取 RAG 稳定只读 port 的原始出场章节，并在 world 内计算只读排名：
+
+```text
+semantic_importance = core 至少 0.85；important 至少 0.65；其他 clamp(importance, 0, 1)
+weighted_occurrences = Σ 2^(-(截至章 - 出场章) / 6)
+recent_heat = 1 - exp(-weighted_occurrences / 3)
+combined_score = 0.65 × semantic_importance + 0.35 × recent_heat
+```
+
+`semantic_importance >= 0.75` 或级别为 core/important 标记“重要”；
+`recent_heat >= 0.55` 标记“近期热点”，两者允许重叠。`focus=important|hot|other`
+只在热点模式有效。facets 在其他筛选后、focus 与分页前统计；搜索时文本相关度优先，其后才是
+组合分、最近出场章、名称和 ID。热点模式先读取全项目轻量投影完成排序和分页，再加载当前页
+完整对象，不在前端重排当前页。活动索引不可用时 recent heat 为零并退化为长期重要性排序。
+该派生排名不写回 `CoreEntity.importance`，也不改变生成上下文和现有 RAG importance。
+RAG 术语只消费 canonical 对象名称和仍有效的别名；`ignored/rejected/deprecated/rolled_back`
+别名及带 `rolled_back=true` 的历史别名不参与出场标注。别名忽略、工作流回滚、实体版本回滚
+和自动入库对象清理都会通过组合根 port 请求轻量重标注。
+
 ### 项目活跃门禁
 
 除不带项目语义的全局世界书模板目录，以及未提供 `novel_id` 的纯

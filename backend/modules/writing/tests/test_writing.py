@@ -31,6 +31,7 @@ from modules.writing.facade import (
     get_draft,
     get_latest_draft_for_chapter,
     list_chapter_indices,
+    list_effective_chapter_indices,
     list_latest_drafts_for_chapters,
     list_project_writing_stats,
 )
@@ -623,6 +624,42 @@ class TestWritingDraftRepository:
     ) -> None:
         indices = await repo.list_chapter_indices(db_session, uuid.uuid4())
         assert indices == []
+
+    @pytest.mark.asyncio
+    async def test_effective_chapter_indices_ignore_latest_blank_body(
+        self,
+        repo: WritingDraftRepository,
+        db_session: AsyncSession,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        nid = uuid.UUID(hex=novel_id)
+        await repo.create(
+            db_session,
+            WritingDraftCreate(
+                novel_id=novel_id,
+                chapter_index=1,
+                content="曾经有正文",
+            ),
+        )
+        await repo.create(
+            db_session,
+            WritingDraftCreate(
+                novel_id=novel_id,
+                chapter_index=1,
+                content=" \n\t\u3000",
+            ),
+        )
+        await repo.create(
+            db_session,
+            WritingDraftCreate(
+                novel_id=novel_id,
+                chapter_index=2,
+                content="有效正文",
+            ),
+        )
+
+        assert await repo.list_chapter_indices(db_session, nid) == [1, 2]
+        assert await repo.list_effective_chapter_indices(db_session, nid) == [2]
 
     @pytest.mark.asyncio
     async def test_list_chapter_summaries_uses_latest_versions(
@@ -1274,6 +1311,18 @@ class TestWritingDraftService:
         assert indices == []
 
     @pytest.mark.asyncio
+    async def test_list_effective_chapter_indices(self) -> None:
+        novel_id = str(uuid.uuid4())
+        repo = MagicMock()
+        repo.list_effective_chapter_indices = AsyncMock(return_value=[2, 4])
+        service = WritingDraftService(repo=repo)
+        db = MagicMock()
+
+        indices = await service.list_effective_chapter_indices(db, novel_id)
+
+        assert indices == [2, 4]
+
+    @pytest.mark.asyncio
     async def test_list_chapter_summaries_returns_word_counts(self) -> None:
         novel_id = str(uuid.uuid4())
         draft = _make_draft(
@@ -1767,6 +1816,17 @@ class TestWritingFacade:
     ) -> None:
         indices = await list_chapter_indices(db_session, str(uuid.uuid4()))
         assert indices == []
+
+    @pytest.mark.asyncio
+    async def test_list_effective_chapter_indices(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        await create_draft(db_session, novel_id, 1, "占位", " \n\u3000")
+        await create_draft(db_session, novel_id, 2, "正文", "有效正文")
+
+        assert await list_effective_chapter_indices(db_session, novel_id) == [2]
 
     @pytest.mark.asyncio
     async def test_list_project_writing_stats_batches_latest_versions(

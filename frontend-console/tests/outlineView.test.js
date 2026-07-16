@@ -4,10 +4,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import outlineView from "../views/outlineView.js"
 import sceneWorkbenchView from "../views/sceneWorkbenchView.js"
+import {
+  normalizeTaskProgress,
+  persistActiveWorkflow,
+  recoverActiveWorkflows,
+} from "../shared/workflowProgress.js"
 import { resetState, clearDocument, captureModalHandler, autoConfirm } from "./helpers.js"
 
 beforeEach(() => {
   outlineView._stopOutlineGeneratePolling?.()
+  outlineView._stopOutlineAnalysisPolling?.()
   clearDocument()
   localStorage.clear()
   resetState({ currentSubView: "scenes" })
@@ -35,6 +41,13 @@ beforeEach(() => {
   outlineView._outlineGeneratePoller = null
   outlineView._outlineGenerateMeta = null
   outlineView._outlineGeneratePreview = null
+  outlineView._outlineAnalysisTaskId = null
+  outlineView._outlineAnalysisProgress = null
+  outlineView._outlineAnalysisPoller = null
+  outlineView._outlineAnalysisMeta = null
+  outlineView._outlineAnalysisResult = null
+  outlineView._outlineAnalysisCancelPending = false
+  outlineView._outlineAnalysisSubmitting = false
   outlineView._sceneWorkbenchActive = false
   sceneWorkbenchView._loading = false
   sceneWorkbenchView._workbench = { total: 0, health: {}, unassigned_chapters: [], items: [] }
@@ -45,6 +58,7 @@ beforeEach(() => {
 
 afterEach(() => {
   outlineView._stopOutlineGeneratePolling?.()
+  outlineView._stopOutlineAnalysisPolling?.()
 })
 
 describe("outlineView onEnter", () => {
@@ -279,6 +293,27 @@ describe("outlineView 批量操作", () => {
 })
 
 describe("outlineView render", () => {
+  it("子导航从小说总纲到篇章纲/剧情线再到 Scene，保留旧入口", async () => {
+    state.currentProjectId = "p1"
+    state.currentSubView = "threads"
+    outlineView._loading = false
+
+    const html = await outlineView.render()
+
+    const storyIndex = html.indexOf('data-action="nav-story-outline"')
+    const arcIndex = html.indexOf('data-action="nav-arcs"')
+    const threadIndex = html.indexOf('data-action="nav-threads"')
+    const sceneIndex = html.indexOf('data-action="nav-scenes"')
+    const foreshadowingIndex = html.indexOf('data-action="nav-foreshadowing"')
+    const revealIndex = html.indexOf('data-action="nav-reveals"')
+    expect(storyIndex).toBeGreaterThanOrEqual(0)
+    expect(storyIndex).toBeLessThan(arcIndex)
+    expect(arcIndex).toBeLessThan(threadIndex)
+    expect(threadIndex).toBeLessThan(sceneIndex)
+    expect(sceneIndex).toBeLessThan(foreshadowingIndex)
+    expect(foreshadowingIndex).toBeLessThan(revealIndex)
+  })
+
   it("加载中显示加载提示", async () => {
     outlineView._loading = true
     state.currentSubView = "threads"
@@ -346,7 +381,10 @@ describe("outlineView render", () => {
     expect(html).toContain('aria-label="Scene 管理筛选"')
     expect(html).toContain('aria-label="Scene 工作台操作"')
     expect(html).toContain('data-action="scene-auto-extract"')
-    expect(html.match(/data-action="start-smart-dedup"/g)).toHaveLength(1)
+    const rendered = document.createElement("div")
+    rendered.innerHTML = html
+    expect(rendered.querySelectorAll('[data-role="smart-dedup-action"]')).toHaveLength(1)
+    expect(html.match(/data-role="smart-dedup-action"/g)).toHaveLength(1)
     expect(html.indexOf('data-action="scene-auto-extract"')).toBeLessThan(html.indexOf("scene-workbench-shell"))
   })
 
@@ -382,6 +420,9 @@ describe("outlineView render", () => {
     expect(html).toContain(`data-action="${createAction}"`)
     expect(html).toContain('data-action="plot-structure-auto-extract"')
     expect(html).toContain(extractLabel)
+    const rendered = document.createElement("div")
+    rendered.innerHTML = html
+    expect(rendered.querySelectorAll('[data-role="smart-dedup-action"]')).toHaveLength(1)
     if (subView === "arcs") expect(html).not.toContain('data-action="plot-structure-auto-extract">剧情线自动提取')
   })
 
@@ -794,6 +835,261 @@ describe("helpers", () => {
     expect(result).toEqual({ task_id: "task-1", status: "pending" })
   })
 
+  it("confirms range context before submitting a read-only outline analysis", async () => {
+    state.currentProjectId = "p1"
+    state.currentSubView = "threads"
+    document.body.innerHTML = `
+      <div id="modal-overlay" class="hidden">
+        <div id="modal-title"></div>
+        <div id="modal-body"></div>
+        <div id="modal-footer"></div>
+      </div>
+    `
+    api.context.confirm.mockResolvedValue({
+      id: "analysis-confirm-1",
+      compile_options: { chapter_index: 2, visible_until_chapter: 7 },
+      sections: [{
+        key: "outline_analysis_scenes",
+        title: "范围内 Scene（按叙事顺序）",
+        sources: [{ id: "scene-1", label: "码头冲突" }],
+      }],
+      warnings: [],
+    })
+    api.outline.analyze.mockResolvedValue({ task_id: "analysis-task-1", status: "pending" })
+
+    const promise = outlineView._analyzeOutline({
+      instruction: "判断主角的选择是否推动主线",
+      startChapter: 2,
+      endChapter: 7,
+    })
+    await Promise.resolve()
+    expect(document.getElementById("ai-ref-scope").disabled).toBe(true)
+    expect(document.getElementById("ai-ref-chapter").readOnly).toBe(true)
+    expect(document.getElementById("modal-body").textContent).toContain("结束章节")
+    document.querySelectorAll("#modal-footer button")[1].click()
+    const result = await promise
+
+    expect(api.context.confirm).toHaveBeenCalledWith(expect.objectContaining({
+      action: "outline.analyze",
+      scope: "full",
+      chapter_index: 2,
+      visible_until_chapter: 7,
+      budget_tokens: 12000,
+      context_mode: "working",
+      include_pending_objects: false,
+    }))
+    expect(api.outline.analyze).toHaveBeenCalledWith({
+      novel_id: "p1",
+      context_confirmation_id: "analysis-confirm-1",
+      start_chapter: 2,
+      end_chapter: 7,
+    })
+    expect(outlineView._outlineAnalysisMeta.context_summary.sections[0]).toEqual(
+      expect.objectContaining({
+        title: "范围内 Scene（按叙事顺序）",
+        sources: ["码头冲突"],
+      }),
+    )
+    expect(result).toEqual({ task_id: "analysis-task-1", status: "pending" })
+  })
+
+  it("keeps the previous completed analysis when a replacement enqueue fails", async () => {
+    state.currentProjectId = "p1"
+    document.body.innerHTML = `
+      <div id="modal-overlay" class="hidden">
+        <div id="modal-title"></div>
+        <div id="modal-body"></div>
+        <div id="modal-footer"></div>
+      </div>
+    `
+    outlineView._outlineAnalysisTaskId = "analysis-old"
+    outlineView._outlineAnalysisMeta = { project_id: "p1", start_chapter: 1, end_chapter: 3 }
+    outlineView._outlineAnalysisProgress = normalizeTaskProgress({
+      task_id: "analysis-old",
+      task_type: "outline_analyze",
+      status: "done",
+    }, "outline_analyze")
+    outlineView._outlineAnalysisResult = {
+      markdown: "已完成的旧分析",
+      contextSummary: {},
+    }
+    persistActiveWorkflow({
+      taskId: "analysis-old",
+      workflowType: "outline_analyze",
+      projectId: "p1",
+      view: "outline",
+    })
+    api.context.confirm.mockResolvedValue({ id: "analysis-confirm-new", sections: [] })
+    api.outline.analyze.mockRejectedValue(new Error("任务入队失败"))
+
+    const promise = outlineView._analyzeOutline({
+      instruction: "新的分析目标",
+      startChapter: 4,
+      endChapter: 6,
+    })
+    await Promise.resolve()
+    document.querySelectorAll("#modal-footer button")[1].click()
+
+    await expect(promise).rejects.toThrow("任务入队失败")
+    expect(outlineView._outlineAnalysisTaskId).toBe("analysis-old")
+    expect(outlineView._outlineAnalysisResult?.markdown).toBe("已完成的旧分析")
+    expect(recoverActiveWorkflows("p1").map((item) => item.taskId)).toEqual([
+      "analysis-old",
+    ])
+  })
+
+  it("renders outline analysis and context summary as escaped read-only content", () => {
+    outlineView._outlineAnalysisResult = {
+      markdown: "# 判断\n<img src=x onerror=alert(1)>",
+      contextSummary: {
+        sections: [{
+          title: "范围内 <Scene>",
+          sources: ["码头<script>"],
+          sourceCount: 1,
+        }],
+        warnings: ["资料 <不足>"],
+      },
+    }
+
+    const html = outlineView._renderOutlineAnalysisResult()
+
+    expect(html).toContain("只读分析")
+    expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;")
+    expect(html).toContain("码头&lt;script&gt;")
+    expect(html).not.toContain("<img src=x")
+    expect(html).not.toContain('data-action="apply')
+    expect(html).not.toContain("采用")
+  })
+
+  it("recovers an outline analysis task and keeps its result until dismissed", async () => {
+    state.currentProjectId = "p1"
+    localStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+      id: "p1:outline_analyze:analysis-task-2",
+      taskId: "analysis-task-2",
+      workflowType: "outline_analyze",
+      projectId: "p1",
+      meta: {
+        start_chapter: 1,
+        end_chapter: 4,
+        context_summary: { sections: [{ title: "相关剧情线", sources: ["主线"], sourceCount: 1 }] },
+      },
+      updatedAt: "2026-07-16T00:00:00Z",
+    }]))
+    api.tasks.get.mockResolvedValue({
+      id: "analysis-task-2",
+      task_type: "outline_analyze",
+      status: "done",
+      progress: 1,
+      result: { analysis: "## 已恢复的分析" },
+    })
+
+    outlineView._recoverOutlineAnalysisWorkflow()
+    await vi.waitFor(() => {
+      expect(outlineView._outlineAnalysisResult?.markdown).toBe("## 已恢复的分析")
+    })
+
+    expect(api.tasks.get).toHaveBeenCalledWith("analysis-task-2", "p1")
+    expect(outlineView._renderOutlineAnalysisResult()).toContain("已恢复的分析")
+    expect(JSON.parse(localStorage.getItem("novel_active_workflows_v1"))).toHaveLength(1)
+    outlineView._resetOutlineAnalysisState({ clearWorkflow: true })
+    expect(JSON.parse(localStorage.getItem("novel_active_workflows_v1"))).toEqual([])
+  })
+
+  it("recovers a cancelled outline analysis as cancelled instead of failed", async () => {
+    state.currentProjectId = "p1"
+    persistActiveWorkflow({
+      taskId: "analysis-cancelled",
+      workflowType: "outline_analyze",
+      projectId: "p1",
+      view: "outline",
+      meta: { start_chapter: 2, end_chapter: 5 },
+    })
+    api.tasks.get.mockResolvedValue({
+      id: "analysis-cancelled",
+      task_type: "outline_analyze",
+      status: "cancelled",
+      progress: 0.4,
+      result: {},
+    })
+
+    outlineView._recoverOutlineAnalysisWorkflow()
+    await vi.waitFor(() => {
+      expect(outlineView._outlineAnalysisProgress?.cancelled).toBe(true)
+    })
+
+    expect(outlineView._outlineAnalysisResult).toBeNull()
+    expect(outlineView._outlineAnalysisPoller).toBeNull()
+    expect(outlineView._renderOutlineProgressStatus()).toContain(
+      'data-action="dismiss-outline-analysis"',
+    )
+    expect(toast).toHaveBeenCalledWith("大纲分析任务已取消", "warning")
+    expect(toast).not.toHaveBeenCalledWith(expect.stringContaining("大纲分析失败"), "error")
+    expect(recoverActiveWorkflows("p1")).toHaveLength(1)
+  })
+
+  it("does not expose an outline analysis result after switching projects", () => {
+    state.currentProjectId = "p1"
+    localStorage.setItem("novel_active_workflows_v1", JSON.stringify([{
+      id: "p1:outline_analyze:analysis-task-3",
+      taskId: "analysis-task-3",
+      workflowType: "outline_analyze",
+      projectId: "p1",
+      meta: { project_id: "p1" },
+    }]))
+    outlineView._outlineAnalysisTaskId = "analysis-task-3"
+    outlineView._outlineAnalysisMeta = { project_id: "p1" }
+    outlineView._outlineAnalysisResult = {
+      markdown: "只属于项目一的分析",
+      contextSummary: {},
+    }
+
+    state.currentProjectId = "p2"
+    outlineView._syncOutlineAnalysisProject()
+
+    expect(outlineView._outlineAnalysisResult).toBeNull()
+    expect(outlineView._outlineAnalysisTaskId).toBeNull()
+    expect(JSON.parse(localStorage.getItem("novel_active_workflows_v1"))).toHaveLength(1)
+  })
+
+  it("confirms and cancels a running outline analysis for its owning project", async () => {
+    autoConfirm()
+    api.tasks.cancel.mockResolvedValue({
+      task_id: "analysis-running",
+      status: "cancelled",
+      cancelled: true,
+    })
+    outlineView._outlineAnalysisTaskId = "analysis-running"
+    outlineView._outlineAnalysisMeta = {
+      project_id: "p1",
+      start_chapter: 2,
+      end_chapter: 7,
+    }
+    outlineView._outlineAnalysisProgress = normalizeTaskProgress({
+      task_id: "analysis-running",
+      task_type: "outline_analyze",
+      status: "running",
+      available_actions: ["cancel"],
+    }, "outline_analyze")
+    persistActiveWorkflow({
+      taskId: "analysis-running",
+      workflowType: "outline_analyze",
+      projectId: "p1",
+      view: "outline",
+    })
+
+    expect(outlineView._renderOutlineProgressStatus()).toContain(
+      'data-action="cancel-outline-analysis"',
+    )
+    await outlineView._cancelOutlineAnalysisTask()
+
+    expect(api.tasks.cancel).toHaveBeenCalledWith("analysis-running", "p1")
+    expect(outlineView._outlineAnalysisProgress.cancelled).toBe(true)
+    expect(outlineView._renderOutlineProgressStatus()).toContain(
+      'data-action="dismiss-outline-analysis"',
+    )
+    expect(recoverActiveWorkflows("p1")).toHaveLength(1)
+  })
+
   it("keeps a completed outline generation as an editable preview until explicit adoption", async () => {
     state.currentProjectId = "p1"
     const draftStructure = {
@@ -994,6 +1290,8 @@ describe("render buttons", () => {
 
     expect(html).toContain("剧情线自动提取")
     expect(html).toContain('data-action="plot-structure-auto-extract"')
+    expect(html).toContain('data-action="analyze-outline"')
+    expect(html).toContain("AI 分析大纲")
   })
 
   it("renders the scene workbench in place instead of a jump button", async () => {

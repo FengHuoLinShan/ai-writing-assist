@@ -338,6 +338,20 @@ describe("route guard and normalization", () => {
     expect(window.location.hash).toBe("#workbench/p1/world/objects")
   })
 
+  it("defaults the outline workspace to the top-level story outline", async () => {
+    addWorkspace()
+    registerBasicView("outline")
+    api.projects.get.mockResolvedValue({ id: "p1", title: "项目一" })
+    window.location.hash = "#workbench/p1/outline"
+
+    await window.router.initRouter()
+
+    expect(state.currentView).toBe("outline")
+    expect(state.currentSubView).toBe("story-outline")
+    expect(window.location.hash).toBe("#workbench/p1/outline/story-outline")
+    expect(window.router.getSubViewTitle("outline", "story-outline")).toBe("小说总纲")
+  })
+
   it("redirects legacy scene routes into the outline scene workbench", async () => {
     addWorkspace()
     registerBasicView("outline")

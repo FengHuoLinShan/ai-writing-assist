@@ -85,6 +85,8 @@ class CompileOptions:
     """实际纳入候选的 world source hashes"""
     activation_included_target_hashes: list[str] = field(default_factory=list)
     """预算执行前实际入选的 target hashes"""
+    outline_analysis_fingerprint: str | None = None
+    """手动大纲分析确认时固定的完整编译上下文指纹"""
 
 
 @dataclass
@@ -369,6 +371,8 @@ class StructureContextBundle:
     """剧情线列表"""
     outline_arc: dict | None = None
     """当前篇章纲"""
+    outline_analysis: dict | None = None
+    """手动大纲分析的已确认章节范围结构包"""
     chapter_card: dict | None = None
     """当前章节卡"""
     scene: dict | None = None

@@ -14,9 +14,10 @@ from collections.abc import Sequence
 from sqlalchemy import Float, and_, case, delete, exists, func, or_, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 from sqlalchemy.sql.elements import ColumnElement
 
-from modules.rag.models import RagChunk
+from modules.rag.models import RagChunk, RagEntityAppearance, RagIndexState
 from modules.rag.schemas import RagChunkCreate
 from modules.rag.scoring import keyword_query_terms
 from shared.constants import DEFAULT_PAGE_SIZE
@@ -124,8 +125,33 @@ class RagChunkRepository:
                 )
             if not item.index_version.strip():
                 raise ValueError("RAG chunk index_version is required")
+            if item.content_mode != items[0].content_mode:
+                raise ValueError(
+                    "RAG chapter replacement requires one content_mode"
+                )
+
+        source_hashes = {
+            item.source_content_hash for item in items if item.source_content_hash
+        }
+        if len(source_hashes) > 1:
+            raise ValueError(
+                "RAG chapter replacement requires one source_content_hash"
+            )
+        current_source_hash = next(iter(source_hashes), None)
 
         await self._lock_chapter_chunks(db, novel_id, source_type, chapter_index)
+
+        old_scene_ids = (
+            await self._list_chapter_scene_ids(
+                db,
+                novel_id,
+                source_type=source_type,
+                chapter_index=chapter_index,
+                content_mode=items[0].content_mode,
+            )
+            if source_type == "chapter_text"
+            else set()
+        )
 
         rows = [self._chunk_row(novel_id, item) for item in items]
         await self._upsert_chapter_chunk_rows(db, rows)
@@ -146,6 +172,16 @@ class RagChunkRepository:
             ),
         )
         await db.execute(stale_stmt)
+        if source_type == "chapter_text":
+            await self.replace_entity_appearances(
+                db,
+                novel_id,
+                chapter_index=chapter_index,
+                content_mode=items[0].content_mode,
+                chunks=items,
+                affected_scene_ids=old_scene_ids,
+                current_source_hash=current_source_hash,
+            )
         await db.flush()
         return await self.find_by_chapter(
             db,
@@ -207,6 +243,42 @@ class RagChunkRepository:
                 text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
                 {"key": f"rag_chunks:{novel_id}:{source_type}:{chapter_index}"},
             )
+
+    async def lock_chapter_chunks(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chapter_index: int,
+    ) -> None:
+        """Share the chapter replacement fence with lightweight reannotation."""
+        await self._lock_chapter_chunks(
+            db,
+            novel_id,
+            "chapter_text",
+            chapter_index,
+        )
+
+    async def _list_chapter_scene_ids(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        source_type: str,
+        chapter_index: int,
+        content_mode: str,
+    ) -> set[uuid.UUID]:
+        result = await db.execute(
+            select(RagChunk.scene_id)
+            .where(
+                RagChunk.novel_id == novel_id,
+                RagChunk.source_type == source_type,
+                RagChunk.chapter_index == chapter_index,
+                RagChunk.content_mode == content_mode,
+                RagChunk.scene_id.is_not(None),
+            )
+            .distinct()
+        )
+        return {scene_id for scene_id in result.scalars().all() if scene_id is not None}
 
     async def _upsert_chapter_chunk_rows(
         self,
@@ -421,8 +493,316 @@ class RagChunkRepository:
             conditions.append(RagChunk.content_mode == content_mode)
         stmt = delete(RagChunk).where(*conditions)
         result = await db.execute(stmt)
+        if source_type == "chapter_text":
+            appearance_conditions = [
+                RagEntityAppearance.novel_id == novel_id,
+                RagEntityAppearance.chapter_index == chapter_index,
+            ]
+            if content_mode is not None:
+                appearance_conditions.append(
+                    RagEntityAppearance.content_mode == content_mode
+                )
+            await db.execute(
+                delete(RagEntityAppearance).where(*appearance_conditions)
+            )
         await db.flush()
         return result.rowcount
+
+    async def replace_entity_appearances(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        chapter_index: int,
+        content_mode: str,
+        chunks: Sequence[RagChunkCreate] | Sequence[RagChunk],
+        affected_scene_ids: set[uuid.UUID] | None = None,
+        current_source_hash: str | None = None,
+    ) -> None:
+        """Replace one chapter fallback plus globally deduplicated affected Scenes."""
+        source_hashes = {
+            str(getattr(chunk, "source_content_hash", "") or "") for chunk in chunks
+        }
+        source_hashes.discard("")
+        if current_source_hash is None:
+            if len(source_hashes) > 1:
+                raise ValueError(
+                    "RAG appearance replacement requires one source_content_hash"
+                )
+            current_source_hash = next(iter(source_hashes), "")
+
+        scene_ids = set(affected_scene_ids or set())
+        for chunk in chunks:
+            raw_scene_id = getattr(chunk, "scene_id", None)
+            try:
+                if raw_scene_id:
+                    scene_ids.add(uuid.UUID(str(raw_scene_id)))
+            except (TypeError, ValueError):
+                continue
+
+        await db.execute(
+            delete(RagEntityAppearance).where(
+                RagEntityAppearance.novel_id == novel_id,
+                RagEntityAppearance.chapter_index == chapter_index,
+                RagEntityAppearance.content_mode == content_mode,
+                RagEntityAppearance.scene_id.is_(None),
+            )
+        )
+        selected_chunks: list[RagChunkCreate | RagChunk] = [
+            chunk
+            for chunk in chunks
+            if str(getattr(chunk, "source_content_hash", "") or "")
+            == current_source_hash
+        ]
+        if scene_ids:
+            await db.execute(
+                delete(RagEntityAppearance).where(
+                    RagEntityAppearance.novel_id == novel_id,
+                    RagEntityAppearance.content_mode == content_mode,
+                    RagEntityAppearance.scene_id.in_(scene_ids),
+                )
+            )
+            fresh_hashes = await self.list_fresh_index_hashes(
+                db,
+                novel_id,
+                content_mode=content_mode,
+            )
+            fresh_hashes[(chapter_index, content_mode)] = current_source_hash
+            scene_chunks = await self._list_chunks_for_scenes(
+                db,
+                novel_id,
+                content_mode=content_mode,
+                scene_ids=scene_ids,
+            )
+            selected_chunks.extend(
+                chunk
+                for chunk in scene_chunks
+                if chunk.chapter_index is not None
+                and chunk.chapter_index != chapter_index
+                and chunk.source_content_hash
+                == fresh_hashes.get((chunk.chapter_index, content_mode))
+            )
+        self._add_entity_appearance_rows(db, novel_id, selected_chunks)
+        await db.flush()
+
+    async def replace_project_entity_appearances(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        chunks: Sequence[RagChunk],
+    ) -> None:
+        """Atomically replace a project's global Scene/chapter occurrence index."""
+        await db.execute(
+            delete(RagEntityAppearance).where(
+                RagEntityAppearance.novel_id == novel_id
+            )
+        )
+        self._add_entity_appearance_rows(db, novel_id, chunks)
+        await db.flush()
+
+    @staticmethod
+    def _add_entity_appearance_rows(
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        chunks: Sequence[RagChunkCreate] | Sequence[RagChunk],
+    ) -> None:
+        grouped: dict[tuple[str, uuid.UUID, str], dict] = {}
+        for chunk in chunks:
+            source_hash = str(getattr(chunk, "source_content_hash", "") or "")
+            raw_chapter_index = getattr(chunk, "chapter_index", None)
+            content_mode = str(getattr(chunk, "content_mode", "") or "")
+            if not source_hash or raw_chapter_index is None or not content_mode:
+                continue
+            chapter_index = int(raw_chapter_index)
+            raw_scene_id = getattr(chunk, "scene_id", None)
+            try:
+                scene_id = uuid.UUID(str(raw_scene_id)) if raw_scene_id else None
+            except (TypeError, ValueError):
+                scene_id = None
+            occurrence_key = (
+                f"scene:{scene_id}" if scene_id else f"chapter:{chapter_index}"
+            )
+            entity_ids = [
+                *(getattr(chunk, "entity_ids", None) or []),
+                *(getattr(chunk, "character_ids", None) or []),
+            ]
+            for raw_entity_id in dict.fromkeys(str(item) for item in entity_ids):
+                try:
+                    entity_id = uuid.UUID(raw_entity_id)
+                except (TypeError, ValueError):
+                    continue
+                key = (content_mode, entity_id, occurrence_key)
+                row = grouped.get(key)
+                if row is None:
+                    grouped[key] = {
+                        "entity_id": entity_id,
+                        "content_mode": content_mode,
+                        "chapter_index": chapter_index,
+                        "scene_id": scene_id,
+                        "occurrence_key": occurrence_key,
+                        "source_content_hash": source_hash,
+                        "chunk_count": 1,
+                    }
+                    continue
+                row["chunk_count"] += 1
+                if chapter_index > row["chapter_index"]:
+                    row["chapter_index"] = chapter_index
+                    row["source_content_hash"] = source_hash
+        if grouped:
+            db.add_all(
+                [
+                    RagEntityAppearance(novel_id=novel_id, **row)
+                    for row in grouped.values()
+                ]
+            )
+
+    async def _list_chunks_for_scenes(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        content_mode: str,
+        scene_ids: set[uuid.UUID],
+    ) -> list[RagChunk]:
+        if not scene_ids:
+            return []
+        result = await db.execute(
+            select(RagChunk)
+            .options(defer(RagChunk.embedding))
+            .where(
+                RagChunk.novel_id == novel_id,
+                RagChunk.source_type == "chapter_text",
+                RagChunk.content_mode == content_mode,
+                RagChunk.scene_id.in_(scene_ids),
+                RagChunk.chapter_index.is_not(None),
+            )
+            .order_by(RagChunk.chapter_index, RagChunk.chunk_index, RagChunk.id)
+        )
+        return list(result.scalars().all())
+
+    async def list_fresh_index_hashes(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        content_mode: str | None = None,
+    ) -> dict[tuple[int, str], str]:
+        conditions = [
+            RagIndexState.novel_id == novel_id,
+            RagIndexState.status == "succeeded",
+            RagIndexState.indexed_hash.is_not(None),
+            RagIndexState.indexed_hash == RagIndexState.requested_hash,
+        ]
+        if content_mode is not None:
+            conditions.append(RagIndexState.content_mode == content_mode)
+        rows = (
+            await db.execute(
+                select(
+                    RagIndexState.chapter_index,
+                    RagIndexState.content_mode,
+                    RagIndexState.indexed_hash,
+                ).where(*conditions)
+            )
+        ).all()
+        return {
+            (chapter_index, mode): indexed_hash
+            for chapter_index, mode, indexed_hash in rows
+            if indexed_hash
+        }
+
+    async def list_entity_activity_rows(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> tuple[list[RagEntityAppearance], list[RagIndexState]]:
+        appearances = list(
+            (
+                await db.execute(
+                    select(RagEntityAppearance)
+                    .where(RagEntityAppearance.novel_id == novel_id)
+                    .order_by(
+                        RagEntityAppearance.chapter_index,
+                        RagEntityAppearance.entity_id,
+                        RagEntityAppearance.occurrence_key,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        states = list(
+            (
+                await db.execute(
+                    select(RagIndexState)
+                    .where(RagIndexState.novel_id == novel_id)
+                    .order_by(RagIndexState.chapter_index, RagIndexState.content_mode)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return appearances, states
+
+    async def list_chapter_chunks_for_reannotation(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        *,
+        chapter_index: int | None = None,
+        content_mode: str | None = None,
+        source_content_hash: str | None = None,
+    ) -> list[RagChunk]:
+        """Load chapter chunks without touching their embedding payload."""
+        conditions = [
+            RagChunk.novel_id == novel_id,
+            RagChunk.source_type == "chapter_text",
+            RagChunk.chapter_index.is_not(None),
+        ]
+        if chapter_index is not None:
+            conditions.append(RagChunk.chapter_index == chapter_index)
+        if content_mode is not None:
+            conditions.append(RagChunk.content_mode == content_mode)
+        if source_content_hash is not None:
+            conditions.append(RagChunk.source_content_hash == source_content_hash)
+        return list(
+            (
+                await db.execute(
+                    select(RagChunk)
+                    .options(defer(RagChunk.embedding))
+                    .where(*conditions)
+                    .order_by(
+                        RagChunk.chapter_index,
+                        RagChunk.content_mode,
+                        RagChunk.chunk_index,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    async def list_reannotation_keys(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> list[tuple[int, str]]:
+        rows = (
+            await db.execute(
+                select(RagChunk.chapter_index, RagChunk.content_mode)
+                .where(
+                    RagChunk.novel_id == novel_id,
+                    RagChunk.source_type == "chapter_text",
+                    RagChunk.chapter_index.is_not(None),
+                )
+                .distinct()
+                .order_by(RagChunk.chapter_index, RagChunk.content_mode)
+            )
+        ).all()
+        return [
+            (int(chapter_index), str(content_mode))
+            for chapter_index, content_mode in rows
+        ]
 
     # ============================================================
     # 精确检索

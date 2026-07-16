@@ -139,6 +139,14 @@ async def list_chapter_indices(
     return await _service.list_chapter_indices(db, novel_id)
 
 
+async def list_effective_chapter_indices(
+    db: AsyncSession,
+    novel_id: str,
+) -> list[int]:
+    """列出最新工作版本含实质正文的章节索引（去重、升序）。"""
+    return await _service.list_effective_chapter_indices(db, novel_id)
+
+
 async def lock_chapter_versions_for_revalidation(
     db: AsyncSession,
     novel_id: str,

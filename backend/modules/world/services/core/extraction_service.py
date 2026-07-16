@@ -607,6 +607,11 @@ class EntityExtractionService:
             content["aliases"] = existing
             entity.content_json = content
             await db.flush()
+            from modules.world.services.core.entity_activity_invalidation import (
+                request_entity_activity_reannotation,
+            )
+
+            await request_entity_activity_reannotation(db, novel_id)
 
     async def _load_chapters(
         self,

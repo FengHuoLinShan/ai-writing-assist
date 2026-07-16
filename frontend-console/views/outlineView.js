@@ -1,7 +1,7 @@
 /**
  * 大纲视图
  *
- * 子标签：场景卡 | 剧情线 | 篇章纲 | 伏笔 | 揭示
+ * 子标签：小说总纲 | 篇章纲 | 剧情线 | 场景卡 | 伏笔 | 揭示
  */
 import {
   bulkResultMessage,
@@ -25,6 +25,7 @@ import {
   renderLoadingSkeleton,
 } from "../shared/viewHelper.js"
 import { confirmAiReference } from "../shared/aiReferenceModal.js"
+import { confirmAsync } from "../shared/confirmAsync.js"
 import {
   clearActiveWorkflow,
   normalizeTaskProgress,
@@ -40,6 +41,7 @@ import {
   structureAssetDisplay,
 } from "../shared/assetDisplayState.js"
 import { importAuthorizationNotice, importAuthorizationPayload } from "../shared/importAuthorization.js"
+import storyOutlineView from "./storyOutlineView.js"
 
 const SCENE_ALLOWED_TAGS = new Set(["draft", "hook", "inciting_incident", "rising_action", "climax", "valley", "transition", "payoff"])
 const ENTITY_ALLOWED_STATUSES = new Set(["canonical", "draft", "candidate", "deprecated"])
@@ -162,12 +164,21 @@ const outlineView = {
   _outlineGeneratePoller: null,
   _outlineGenerateMeta: null,
   _outlineGeneratePreview: null,
+  _outlineAnalysisTaskId: null,
+  _outlineAnalysisProgress: null,
+  _outlineAnalysisPoller: null,
+  _outlineAnalysisMeta: null,
+  _outlineAnalysisResult: null,
+  _outlineAnalysisCancelPending: false,
+  _outlineAnalysisSubmitting: false,
   _bulkSelections: {},
   _sceneWorkbenchActive: false,
+  _storyOutlineActive: false,
 
   async onEnter() {
     const loadRequestId = ++this._structureLoadRequestId
     const isCurrentLoad = () => loadRequestId === this._structureLoadRequestId
+    this._syncOutlineAnalysisProject()
     this._loading = true
     this._threads = []
     this._arcs = []
@@ -181,9 +192,13 @@ const outlineView = {
     }
     clearAllBulkSelections(this)
 
-    const subView = state.currentSubView || "threads"
+    const subView = state.currentSubView || "story-outline"
     delete this._structureLoadErrors[subView]
     if (subView === "scenes") {
+      if (this._storyOutlineActive) {
+        storyOutlineView.onLeave()
+        this._storyOutlineActive = false
+      }
       this._sceneWorkbenchActive = true
       this._loading = false
       await sceneWorkbenchView.onEnter()
@@ -192,6 +207,16 @@ const outlineView = {
     if (this._sceneWorkbenchActive) {
       sceneWorkbenchView.onLeave()
       this._sceneWorkbenchActive = false
+    }
+    if (subView === "story-outline") {
+      this._storyOutlineActive = true
+      this._loading = false
+      await storyOutlineView.onEnter()
+      return
+    }
+    if (this._storyOutlineActive) {
+      storyOutlineView.onLeave()
+      this._storyOutlineActive = false
     }
 
     if (!state.currentProjectId) {
@@ -280,6 +305,7 @@ const outlineView = {
     }
     if (!isCurrentLoad()) return
     this._recoverOutlineGenerateWorkflow()
+    this._recoverOutlineAnalysisWorkflow()
     this._loading = false
   },
 
@@ -288,18 +314,28 @@ const outlineView = {
     this._structureLoadRequestId += 1
     this._stopPlotAutoExtractPolling()
     this._stopOutlineGeneratePolling()
+    this._stopOutlineAnalysisPolling()
     if (this._sceneWorkbenchActive) {
       sceneWorkbenchView.onLeave()
       this._sceneWorkbenchActive = false
+    }
+    if (this._storyOutlineActive) {
+      storyOutlineView.onLeave()
+      this._storyOutlineActive = false
     }
   },
 
   onActivate() {
     // KeepAlive 恢复后重新绑定事件（DOM 来自缓存，事件监听器可能丢失）
+    this._syncOutlineAnalysisProject()
     if (state.currentSubView === "scenes") {
       this._sceneWorkbenchActive = true
       sceneWorkbenchView.onActivate()
+    } else if (state.currentSubView === "story-outline") {
+      this._storyOutlineActive = true
+      storyOutlineView.onActivate()
     } else {
+      this._recoverOutlineAnalysisWorkflow()
       this._bindEvents()
     }
     const saved = state.viewStates && state.viewStates.outline
@@ -318,6 +354,7 @@ const outlineView = {
       state.viewStates = state.viewStates || {}
       state.viewStates.outline = { scrollTop: container.scrollTop }
     }
+    if (this._storyOutlineActive) storyOutlineView.onDeactivate()
   },
 
   async _refreshCurrentSubViewInPlace({ preserveScroll = true } = {}) {
@@ -336,9 +373,11 @@ const outlineView = {
     content.innerHTML = await this.render()
     content.scrollTop = scrollTop
     this._bindEvents()
+    content.dispatchEvent(new Event("workspace:content-rendered", { bubbles: true }))
   },
 
   _renderOutlineHeaderTitle(subView) {
+    if (subView === "story-outline") return `小说总纲${this._renderProjectChip()}`
     if (subView === "threads") return `剧情线 <span class="view-header__count">共 ${esc(this._structureTotals.threads)} 个</span>${this._renderProjectChip()}`
     if (subView === "arcs") return `篇章纲 <span class="view-header__count">共 ${esc(this._structureTotals.arcs)} 个</span>${this._renderProjectChip()}`
     if (subView === "foreshadowing") return `伏笔 <span class="view-header__count">共 ${esc(this._structureTotals.foreshadowing)} 个</span>${this._renderProjectChip()}`
@@ -348,40 +387,50 @@ const outlineView = {
 
   _renderOutlineHeaderActions(subView) {
     const plotAutoExtract = this._renderPlotAutoExtractAction(subView)
+    const analysisBusy = Boolean(
+      this._outlineAnalysisSubmitting
+      || (this._outlineAnalysisProgress && !this._outlineAnalysisProgress.terminal),
+    )
+    const analyzeOutline = `<button class="btn btn-sm" data-action="analyze-outline" ${analysisBusy ? "disabled" : ""}>${analysisBusy ? "AI 分析中" : "AI 分析大纲"}</button>`
     if (subView === "threads") {
       return `
         <button class="btn btn-sm btn-primary" data-action="create-thread">新建剧情线</button>
+        ${analyzeOutline}
         ${plotAutoExtract}
       `
     }
     if (subView === "arcs") {
       return `
         <button class="btn btn-sm btn-primary" data-action="create-arc">新建篇章纲</button>
+        ${analyzeOutline}
         ${plotAutoExtract}
       `
     }
     if (subView === "foreshadowing") {
       return `
         <button class="btn btn-sm btn-primary" data-action="create-foreshadowing">新建伏笔</button>
+        ${analyzeOutline}
         ${plotAutoExtract}
       `
     }
     if (subView === "reveals") {
       return `
         <button class="btn btn-sm btn-primary" data-action="create-reveal">新建揭示</button>
+        ${analyzeOutline}
         ${plotAutoExtract}
       `
     }
     return ""
   },
 
-  _renderOutlineHeader(subView = state.currentSubView || "threads") {
+  _renderOutlineHeader(subView = state.currentSubView || "story-outline") {
     if (subView === "scenes") {
       return `
         <div class="subnav">
-          <span class="subnav-item ${subView === "scenes" ? "active" : ""}" data-action="nav-scenes">场景工作台</span>
-          <span class="subnav-item ${subView === "threads" ? "active" : ""}" data-action="nav-threads">剧情线</span>
+          <span class="subnav-item ${subView === "story-outline" ? "active" : ""}" data-action="nav-story-outline">小说总纲</span>
           <span class="subnav-item ${subView === "arcs" ? "active" : ""}" data-action="nav-arcs">篇章纲</span>
+          <span class="subnav-item ${subView === "threads" ? "active" : ""}" data-action="nav-threads">剧情线</span>
+          <span class="subnav-item ${subView === "scenes" ? "active" : ""}" data-action="nav-scenes">场景工作台</span>
           <span class="subnav-item ${subView === "foreshadowing" ? "active" : ""}" data-action="nav-foreshadowing">伏笔</span>
           <span class="subnav-item ${subView === "reveals" ? "active" : ""}" data-action="nav-reveals">揭示</span>
           ${sceneWorkbenchView.renderHeaderActions()}
@@ -391,9 +440,10 @@ const outlineView = {
     return `
       <div class="view-header view-header--with-tabs outline-toolbar">
         <div class="subnav">
-          <span class="subnav-item ${subView === "scenes" ? "active" : ""}" data-action="nav-scenes">场景工作台</span>
-          <span class="subnav-item ${subView === "threads" ? "active" : ""}" data-action="nav-threads">剧情线</span>
+          <span class="subnav-item ${subView === "story-outline" ? "active" : ""}" data-action="nav-story-outline">小说总纲</span>
           <span class="subnav-item ${subView === "arcs" ? "active" : ""}" data-action="nav-arcs">篇章纲</span>
+          <span class="subnav-item ${subView === "threads" ? "active" : ""}" data-action="nav-threads">剧情线</span>
+          <span class="subnav-item ${subView === "scenes" ? "active" : ""}" data-action="nav-scenes">场景工作台</span>
           <span class="subnav-item ${subView === "foreshadowing" ? "active" : ""}" data-action="nav-foreshadowing">伏笔</span>
           <span class="subnav-item ${subView === "reveals" ? "active" : ""}" data-action="nav-reveals">揭示</span>
         </div>
@@ -401,6 +451,7 @@ const outlineView = {
           <span class="view-header__title">${this._renderOutlineHeaderTitle(subView)}</span>
           <div class="view-header__actions">
             ${this._renderOutlineHeaderActions(subView)}
+            <span data-role="smart-dedup-action"></span>
           </div>
         </div>
       </div>
@@ -408,13 +459,16 @@ const outlineView = {
   },
 
   async render() {
-    const subView = state.currentSubView || "threads"
+    this._syncOutlineAnalysisProject()
+    const subView = state.currentSubView || "story-outline"
     let html = ""
 
     html += this._renderOutlineHeader(subView)
 
     if (subView === "scenes") {
       html += await sceneWorkbenchView.render()
+    } else if (subView === "story-outline") {
+      html += await storyOutlineView.render()
     } else if (this._loading) {
       html += renderLoadingSkeleton("大纲数据加载中...")
     } else if (this._structureLoadErrors[subView]) {
@@ -436,6 +490,8 @@ const outlineView = {
   onRendered() {
     if (state.currentSubView === "scenes") {
       sceneWorkbenchView.onRendered()
+    } else if (state.currentSubView === "story-outline") {
+      storyOutlineView.onRendered()
     } else {
       this._bindEvents()
     }
@@ -548,6 +604,168 @@ const outlineView = {
     this._outlineGeneratePreview = null
   },
 
+  _stopOutlineAnalysisPolling() {
+    if (this._outlineAnalysisPoller?.stop) this._outlineAnalysisPoller.stop()
+    this._outlineAnalysisPoller = null
+  },
+
+  _syncOutlineAnalysisProject() {
+    const analysisProjectId = this._outlineAnalysisMeta?.project_id
+    if (analysisProjectId && analysisProjectId !== state.currentProjectId) {
+      this._resetOutlineAnalysisState({ clearWorkflow: false })
+    }
+  },
+
+  _recoverOutlineAnalysisWorkflow() {
+    if (!state.currentProjectId || this._outlineAnalysisResult || this._outlineAnalysisPoller) return
+    const workflows = recoverActiveWorkflows(state.currentProjectId)
+      .filter((item) => (
+        item.workflowType === "outline_analyze"
+        && item.projectId === state.currentProjectId
+      ))
+      .sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")))
+    const workflow = workflows[0]
+    if (!workflow?.taskId) return
+    this._outlineAnalysisTaskId = workflow.taskId
+    this._outlineAnalysisMeta = {
+      ...(workflow.meta || {}),
+      project_id: workflow.projectId || state.currentProjectId,
+    }
+    this._outlineAnalysisProgress = this._outlineAnalysisProgress || normalizeTaskProgress({
+      id: workflow.taskId,
+      task_id: workflow.taskId,
+      task_type: "outline_analyze",
+      status: "pending",
+      meta: workflow.meta || {},
+    }, "outline_analyze")
+    this._startOutlineAnalysisPolling(
+      workflow.taskId,
+      this._outlineAnalysisMeta.project_id,
+    )
+  },
+
+  _startOutlineAnalysisPolling(taskId, projectId = state.currentProjectId) {
+    this._stopOutlineAnalysisPolling()
+    this._outlineAnalysisPoller = pollTaskProgress({
+      taskId,
+      workflowType: "outline_analyze",
+      novelId: projectId,
+      apiClient: api,
+      onUpdate: (progress) => {
+        if (
+          this._outlineAnalysisTaskId !== taskId
+          || this._outlineAnalysisMeta?.project_id !== projectId
+        ) return
+        this._outlineAnalysisProgress = progress
+        if (state.currentProjectId === projectId) router.renderCurrentView()
+      },
+      onDone: (progress, task) => {
+        if (
+          this._outlineAnalysisTaskId !== taskId
+          || this._outlineAnalysisMeta?.project_id !== projectId
+        ) return
+        this._outlineAnalysisPoller = null
+        this._outlineAnalysisCancelPending = false
+        this._outlineAnalysisProgress = progress
+        const analysis = task?.result?.analysis ?? progress?.raw?.result?.analysis
+        if (typeof analysis === "string" && analysis.trim()) {
+          this._outlineAnalysisResult = {
+            markdown: analysis,
+            contextSummary: this._outlineAnalysisMeta?.context_summary || {},
+          }
+          toast("大纲分析已完成", "success")
+        } else {
+          clearActiveWorkflow(progress.taskId || taskId)
+          this._outlineAnalysisTaskId = null
+          toast("大纲分析完成，但没有返回可展示的内容", "info")
+        }
+        if (state.currentProjectId === projectId) router.renderCurrentView()
+      },
+      onFailed: (progress) => {
+        if (
+          this._outlineAnalysisTaskId !== taskId
+          || this._outlineAnalysisMeta?.project_id !== projectId
+        ) return
+        this._outlineAnalysisPoller = null
+        this._outlineAnalysisCancelPending = false
+        this._outlineAnalysisProgress = progress
+        if (state.currentProjectId === projectId) {
+          if (progress.cancelled) {
+            toast("大纲分析任务已取消", "warning")
+          } else {
+            toast(`大纲分析失败: ${progress.errorMessage || "未知错误"}`, "error")
+          }
+          router.renderCurrentView()
+        }
+      },
+    })
+  },
+
+  _resetOutlineAnalysisState({ clearWorkflow = true } = {}) {
+    this._stopOutlineAnalysisPolling()
+    if (clearWorkflow && this._outlineAnalysisTaskId) {
+      clearActiveWorkflow(this._outlineAnalysisTaskId)
+    }
+    this._outlineAnalysisTaskId = null
+    this._outlineAnalysisProgress = null
+    this._outlineAnalysisMeta = null
+    this._outlineAnalysisResult = null
+    this._outlineAnalysisCancelPending = false
+  },
+
+  _outlineAnalysisContextSummary(confirmation) {
+    const sections = Array.isArray(confirmation?.sections)
+      ? confirmation.sections.map((section) => ({
+        key: String(section?.key || ""),
+        title: String(section?.title || section?.key || "参考资料"),
+        sources: Array.isArray(section?.sources)
+          ? section.sources.slice(0, 6).map((source) => String(source?.label || source?.id || "")).filter(Boolean)
+          : [],
+        sourceCount: Array.isArray(section?.sources) ? section.sources.length : 0,
+      }))
+      : []
+    return {
+      sections,
+      warnings: Array.isArray(confirmation?.warnings)
+        ? confirmation.warnings.map((warning) => String(warning))
+        : [],
+    }
+  },
+
+  _renderOutlineAnalysisResult() {
+    if (!this._outlineAnalysisResult?.markdown) return ""
+    const summary = this._outlineAnalysisResult.contextSummary || {}
+    const sectionItems = (summary.sections || []).map((section) => {
+      const sourceText = section.sources?.length
+        ? `：${section.sources.join("、")}${section.sourceCount > section.sources.length ? ` 等 ${section.sourceCount} 项` : ""}`
+        : ""
+      return `<li><strong>${esc(section.title)}</strong>${esc(sourceText)}</li>`
+    }).join("")
+    const warningItems = (summary.warnings || [])
+      .map((warning) => `<li>${esc(warning)}</li>`)
+      .join("")
+    const contextDetails = sectionItems || warningItems
+      ? `<details class="outline-analysis-context">
+          <summary>本次已确认参考资料</summary>
+          ${sectionItems ? `<ul>${sectionItems}</ul>` : ""}
+          ${warningItems ? `<div class="form-hint">编译提示</div><ul>${warningItems}</ul>` : ""}
+        </details>`
+      : ""
+    return `
+      <section class="outline-analysis-result" aria-labelledby="outline-analysis-result-title">
+        <div class="section-header">
+          <div>
+            <h3 id="outline-analysis-result-title">AI 大纲分析</h3>
+            <p class="form-hint">只读分析，不会写入或修改任何大纲资产。</p>
+          </div>
+          <button class="btn btn-sm btn-ghost" data-action="dismiss-outline-analysis">收起结果</button>
+        </div>
+        ${contextDetails}
+        <pre class="generate-markdown-pre outline-analysis-markdown">${esc(this._outlineAnalysisResult.markdown)}</pre>
+      </section>
+    `
+  },
+
   _renderPlotAutoExtractProgress() {
     if (!this._plotAutoExtractProgress) return ""
     const rangeText = this._plotAutoExtractMeta
@@ -655,7 +873,7 @@ const outlineView = {
           <summary>诊断筛选${workflowFilterActive ? "（1）" : ""}</summary>
           <label class="scene-filter-field scene-filter-field--wide">
             <span>Workflow 诊断 ID</span>
-            <input class="form-input" id="outline-filter-workflow-id" value="${esc(filters.workflow_id)}" placeholder="按 workflow_id 精确筛选" />
+            <input class="form-input" id="outline-filter-workflow-id" data-diagnostic-field value="${esc(filters.workflow_id)}" placeholder="按 workflow_id 精确筛选" />
           </label>
         </details>
         <div class="scene-filter-actions">
@@ -823,6 +1041,26 @@ const outlineView = {
 
   _renderOutlineProgressStatus() {
     const parts = []
+    if (this._outlineAnalysisProgress) {
+      const rangeText = this._outlineAnalysisMeta
+        ? `范围: 章节 ${this._outlineAnalysisMeta.start_chapter || 1}-${this._outlineAnalysisMeta.end_chapter || this._outlineAnalysisMeta.start_chapter || 1}`
+        : "范围: 所选章节"
+      const card = renderWorkflowCard(this._outlineAnalysisProgress, {
+        title: "AI 大纲分析",
+        destinationLabel: rangeText,
+        className: "outline-progress-mini",
+        actionsHtml: (
+          !this._outlineAnalysisProgress.terminal
+          && this._outlineAnalysisProgress.availableActions?.includes("cancel")
+        )
+          ? `<div class="workflow-progress__actions"><button class="btn btn-sm btn-ghost" data-action="cancel-outline-analysis" ${this._outlineAnalysisCancelPending ? "disabled" : ""}>${this._outlineAnalysisCancelPending ? "取消中..." : "取消任务"}</button></div>`
+          : "",
+      })
+      const dismiss = this._outlineAnalysisProgress.terminal && !this._outlineAnalysisResult
+        ? '<button class="btn btn-sm btn-ghost" data-action="dismiss-outline-analysis">关闭任务</button>'
+        : ""
+      parts.push(`<div class="outline-analysis-progress">${card}${dismiss}</div>`)
+    }
     if (this._outlineGenerateProgress) {
       const rangeText = this._outlineGenerateMeta
         ? `范围: 章节 ${this._outlineGenerateMeta.start_chapter || 1}-${this._outlineGenerateMeta.end_chapter || 10}`
@@ -848,7 +1086,8 @@ const outlineView = {
 
   _renderOutlineToolbar() {
     const status = this._renderOutlineProgressStatus()
-    return status ? `<div class="outline-toolbar-status">${status}</div>` : ""
+    const result = this._renderOutlineAnalysisResult()
+    return `${status ? `<div class="outline-toolbar-status">${status}</div>` : ""}${result}`
   },
 
   _threadDescription(thread) {
@@ -1862,6 +2101,198 @@ const outlineView = {
     }
   },
 
+  async _analyzeOutline({ instruction, startChapter, endChapter }) {
+    if (this._outlineAnalysisSubmitting) {
+      throw new Error("大纲分析正在提交，请稍候")
+    }
+    if (this._outlineAnalysisProgress && !this._outlineAnalysisProgress.terminal) {
+      throw new Error("已有大纲分析任务在运行，请先取消或等待完成")
+    }
+    this._outlineAnalysisSubmitting = true
+    const projectId = state.currentProjectId
+    if (!projectId) {
+      this._outlineAnalysisSubmitting = false
+      throw new Error("请先选择项目")
+    }
+    const requestText = String(instruction || "").trim()
+    const tabLabel = {
+      threads: "剧情线",
+      arcs: "篇章纲",
+      foreshadowing: "伏笔",
+      reveals: "揭示",
+    }[state.currentSubView] || "大纲"
+    const task = requestText
+      ? `分析章节 ${startChapter}-${endChapter} 的${tabLabel}结构。作者目标：${requestText}`
+      : `分析章节 ${startChapter}-${endChapter} 的${tabLabel}结构，找出最影响后续创作的结构判断。`
+    try {
+      const confirmation = await confirmAiReference({
+        novel_id: projectId,
+        action: "outline.analyze",
+        task,
+        scope: "full",
+        chapter_index: startChapter,
+        visible_until_chapter: endChapter,
+        budget_tokens: 12000,
+        context_mode: "working",
+        include_pending_objects: false,
+        lock_scope: true,
+        lock_chapter: true,
+      })
+      if (state.currentProjectId !== projectId) {
+        throw new Error("项目已切换，请在当前项目重新发起分析")
+      }
+      const confirmedStart = Number(confirmation?.compile_options?.chapter_index || startChapter)
+      const confirmedEnd = Number(confirmation?.compile_options?.visible_until_chapter || endChapter)
+      const result = await api.outline.analyze({
+        novel_id: projectId,
+        context_confirmation_id: confirmation.id,
+        start_chapter: confirmedStart,
+        end_chapter: confirmedEnd,
+      })
+      if (!result?.task_id) throw new Error("分析任务未返回任务编号")
+      const analysisMeta = {
+        project_id: projectId,
+        start_chapter: confirmedStart,
+        end_chapter: confirmedEnd,
+        instruction: requestText,
+        context_confirmation_id: confirmation.id,
+        context_summary: this._outlineAnalysisContextSummary(confirmation),
+      }
+      if (state.currentProjectId === projectId) {
+        this._resetOutlineAnalysisState({ clearWorkflow: true })
+      }
+      persistActiveWorkflow({
+        taskId: result.task_id,
+        workflowType: "outline_analyze",
+        label: "AI 大纲分析",
+        projectId,
+        view: "outline",
+        meta: analysisMeta,
+      })
+      if (state.currentProjectId !== projectId) return result
+      this._outlineAnalysisTaskId = result.task_id
+      this._outlineAnalysisMeta = analysisMeta
+      this._outlineAnalysisProgress = normalizeTaskProgress({
+        ...result,
+        task_type: "outline_analyze",
+        meta: this._outlineAnalysisMeta,
+      }, "outline_analyze")
+      toast("大纲分析任务已提交", "success")
+      this._startOutlineAnalysisPolling(result.task_id, projectId)
+      router.renderCurrentView()
+      return result
+    } catch (err) {
+      toast(err.message || "操作失败", "error")
+      throw err
+    } finally {
+      this._outlineAnalysisSubmitting = false
+    }
+  },
+
+  async _cancelOutlineAnalysisTask() {
+    const taskId = this._outlineAnalysisTaskId
+    const projectId = this._outlineAnalysisMeta?.project_id
+    if (!taskId || !projectId || this._outlineAnalysisCancelPending) return false
+    const confirmed = await confirmAsync(
+      "确认取消当前大纲分析任务？已返回的只读结果不会被修改。",
+      "确认取消",
+    )
+    if (!confirmed) return false
+
+    this._stopOutlineAnalysisPolling()
+    this._outlineAnalysisCancelPending = true
+    if (state.currentProjectId === projectId) router.renderCurrentView()
+    try {
+      await api.tasks.cancel(taskId, projectId)
+      if (
+        this._outlineAnalysisTaskId !== taskId
+        || this._outlineAnalysisMeta?.project_id !== projectId
+      ) return true
+      this._outlineAnalysisCancelPending = false
+      this._outlineAnalysisProgress = normalizeTaskProgress({
+        task_id: taskId,
+        task_type: "outline_analyze",
+        status: "cancelled",
+        result: { message: "任务已取消" },
+        meta: this._outlineAnalysisMeta,
+      }, "outline_analyze")
+      if (state.currentProjectId === projectId) {
+        toast("当前大纲分析任务已取消", "warning")
+        router.renderCurrentView()
+      }
+      return true
+    } catch (err) {
+      if (
+        this._outlineAnalysisTaskId === taskId
+        && this._outlineAnalysisMeta?.project_id === projectId
+      ) {
+        this._outlineAnalysisCancelPending = false
+        this._startOutlineAnalysisPolling(taskId, projectId)
+      }
+      if (state.currentProjectId === projectId) {
+        toast(err.message || "取消任务失败", "error")
+      }
+      return false
+    }
+  },
+
+  _showOutlineAnalysisForm() {
+    if (
+      this._outlineAnalysisSubmitting
+      || (this._outlineAnalysisProgress && !this._outlineAnalysisProgress.terminal)
+    ) {
+      toast("已有大纲分析任务正在处理", "info")
+      return
+    }
+    const startValue = this._outlineAnalysisMeta?.start_chapter || 1
+    const endValue = this._outlineAnalysisMeta?.end_chapter || 10
+    const formHtml = `
+      <div class="form-group">
+        <label for="outline-analysis-instruction">你想让 AI 帮你判断什么？（可选）</label>
+        <textarea class="form-textarea" id="outline-analysis-instruction" rows="4" placeholder="例如：主角在第 6 章的选择是否真正推动了主线？"></textarea>
+        <p class="form-hint">不填写时，AI 会自行识别最值得作者处理的结构关系。</p>
+      </div>
+      <div class="form-grid form-grid--2">
+        <div class="form-group">
+          <label for="outline-analysis-start">起始章节</label>
+          <input class="form-input" id="outline-analysis-start" type="number" min="1" value="${esc(startValue)}" />
+        </div>
+        <div class="form-group">
+          <label for="outline-analysis-end">结束章节</label>
+          <input class="form-input" id="outline-analysis-end" type="number" min="1" value="${esc(endValue)}" />
+        </div>
+      </div>
+      <p class="writing-form-hint" role="note">下一步会先展示本范围内的 Scene、剧情线、篇章、伏笔/揭示，以及相关人物和物品，确认后才提交分析。结果只读，不会直接修改大纲。</p>
+    `
+    showModalHtml("AI 分析大纲", formHtml, [{
+      text: "检查参考资料并分析",
+      class: "btn-primary",
+      handler: async () => {
+        const start = Number.parseInt(document.getElementById("outline-analysis-start")?.value || "", 10)
+        const end = Number.parseInt(document.getElementById("outline-analysis-end")?.value || "", 10)
+        const instruction = document.getElementById("outline-analysis-instruction")?.value || ""
+        if (!Number.isInteger(start) || start < 1 || !Number.isInteger(end) || end < 1) {
+          toast("章节编号必须是正整数", "warning")
+          return false
+        }
+        if (end < start) {
+          toast("结束章节不能小于起始章节", "warning")
+          return false
+        }
+        try {
+          await this._analyzeOutline({
+            instruction,
+            startChapter: start,
+            endChapter: end,
+          })
+          return true
+        } catch {
+          return false
+        }
+      },
+    }])
+  },
+
   async _moveSceneUp(id) {
     const sorted = [...this._scenes].sort((a, b) => (a.scene_index || 0) - (b.scene_index || 0))
     const idx = sorted.findIndex((s) => s.id === id)
@@ -2105,7 +2536,12 @@ const outlineView = {
       sceneWorkbenchView._bindEvents()
       return
     }
+    if (state.currentSubView === "story-outline") {
+      storyOutlineView._bindEvents()
+      return
+    }
     bindWorkspaceClick(this, {
+      "nav-story-outline": () => router.navigate("outline", "story-outline"),
       "nav-scenes": () => router.navigate("outline", "scenes"),
       "nav-threads": () => router.navigate("outline", "threads"),
       "nav-arcs": () => router.navigate("outline", "arcs"),
@@ -2145,6 +2581,12 @@ const outlineView = {
       "delete-arc": (_e, _t, ctx) => ctx.id && this._deleteArc(ctx.id),
       "create-scene": () => this._showCreateSceneForm(),
       "generate-structure": () => this._showGenerateStructureForm(),
+      "analyze-outline": () => this._showOutlineAnalysisForm(),
+      "cancel-outline-analysis": () => this._cancelOutlineAnalysisTask(),
+      "dismiss-outline-analysis": () => {
+        this._resetOutlineAnalysisState({ clearWorkflow: true })
+        router.renderCurrentView()
+      },
       "view-outline-generate-preview": () => this._showOutlineGeneratePreview(),
       "plot-structure-auto-extract": () => this._showPlotStructureAutoExtractForm(),
       "move-scene-up": (_e, _t, ctx) => ctx.id && this._moveSceneUp(ctx.id),

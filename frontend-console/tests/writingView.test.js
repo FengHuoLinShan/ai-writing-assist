@@ -309,6 +309,31 @@ describe("writingView chapter selection", () => {
     expect(writingView._scenePanel.getCurrentScene()).toMatchObject({ id: "scene-1" })
   })
 
+  it("清空章节选择时同步清空 Scene 和右侧警报", async () => {
+    state.currentProjectId = "p1"
+    mockChapterList()
+    api.outline.listScenesOrdered.mockResolvedValue([
+      {
+        id: "scene-1",
+        title: "抵达洛阳",
+        chapter_ids: ["1"],
+        scene_chunks: [{ chapter_index: 1, start_pos: 0, end_pos: 10 }],
+      },
+    ])
+    mockEditorLoad()
+    await writingView.onEnter()
+    await writingView._selectChapter(1)
+    expect(writingView._scenePanel.getCurrentScene()).toMatchObject({ id: "scene-1" })
+
+    await writingView._selectChapter(null)
+
+    expect(writingView._currentChapter).toBeNull()
+    expect(writingView._scenePanel.getCurrentScene()).toBeNull()
+    expect(state._currentSceneId).toBeNull()
+    expect(writingView._scenePanel.render()).toContain("请先从左侧选择章节")
+    expect(writingView._scenePanel.render()).not.toContain("抵达洛阳")
+  })
+
   it("切换章节后保留章节树和页面滚动位置", async () => {
     state.currentProjectId = "p1"
     mockChapterList()

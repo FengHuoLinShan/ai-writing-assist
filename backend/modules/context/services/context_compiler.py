@@ -26,6 +26,7 @@ from modules.context.services.loaders import (
     CharactersLoader,
     EventsLoader,
     MemoryRecordsLoader,
+    OutlineAnalysisLoader,
     OutlineArcLoader,
     PlotThreadsLoader,
     ProjectLoader,
@@ -54,6 +55,7 @@ SCOPE_LOADERS: dict[str, list[str]] = {
     ],
     "arc": [
         "scene",
+        "outline_analysis",
         "project",
         "world_entities",
         "characters",
@@ -66,6 +68,7 @@ SCOPE_LOADERS: dict[str, list[str]] = {
     ],
     "chapter": [
         "scene",
+        "outline_analysis",
         "project",
         "world_entities",
         "characters",
@@ -78,6 +81,7 @@ SCOPE_LOADERS: dict[str, list[str]] = {
     ],
     "full": [
         "scene",
+        "outline_analysis",
         "project",
         "world_entities",
         "characters",
@@ -122,6 +126,7 @@ class ContextCompiler:
             PlotThreadsLoader(),
             OutlineArcLoader(),
             SceneLoader(),
+            OutlineAnalysisLoader(),
         ]
 
     async def compile(
@@ -151,6 +156,7 @@ class ContextCompiler:
 
         relevance_generation = options.consumer_action in {
             "writing.generate",
+            "outline.analyze",
             "world.generation.chat",
             "world.generation.core_entity",
             "world.generation.world_bible_page",
@@ -163,6 +169,14 @@ class ContextCompiler:
                 for n in loader_names
                 if n == "project" or (n == "scene" and options.scene_id is not None)
             ]
+            if (
+                options.consumer_action == "outline.analyze"
+                and "outline_analysis" in loader_names
+            ):
+                # Range assets are the prerequisite for P07 relevance selection.
+                # Keep this query out of the shared-session gather and make every
+                # dependent loader observe the completed, author-confirmed range.
+                prerequisite_names.append("outline_analysis")
             dependent_names = [
                 n
                 for n in loader_names
@@ -530,6 +544,12 @@ class ContextCompiler:
                 )
             )
 
+        if bundle.outline_analysis and (
+            options is None
+            or options.reveal_mode in {"author_safe", "author_full"}
+        ):
+            sections.extend(self._build_outline_analysis_sections(bundle, options))
+
         if options is not None and options.reveal_mode == "character":
             sections.extend(self._build_character_reveal_sections(bundle, options))
             return sections
@@ -711,7 +731,7 @@ class ContextCompiler:
                 )
             )
 
-        if bundle.plot_threads:
+        if bundle.plot_threads and not bundle.outline_analysis:
             content = "\n".join(str(t) for t in bundle.plot_threads)
             sections.append(
                 ContextSection(
@@ -817,6 +837,144 @@ class ContextCompiler:
                 "compiler_warnings": 9,
             }
             sections.sort(key=lambda item: generation_order.get(item.key, 7))
+        return sections
+
+    @staticmethod
+    def _build_outline_analysis_sections(
+        bundle: StructureContextBundle,
+        options: CompileOptions | None,
+    ) -> list[ContextSection]:
+        analysis = bundle.outline_analysis or {}
+        start_chapter = analysis.get("start_chapter")
+        end_chapter = analysis.get("end_chapter")
+        status = options.context_mode if options else "canonical"
+        sections = []
+        counts = {
+            "scenes": len(analysis.get("scenes") or []),
+            "arcs": len(analysis.get("arcs") or []),
+            "plot_threads": len(analysis.get("plot_threads") or []),
+            "foreshadowing_plans": len(
+                analysis.get("foreshadowing_plans") or []
+            ),
+            "reveal_plans": len(analysis.get("reveal_plans") or []),
+        }
+        overview = json.dumps(
+            {
+                "start_chapter": start_chapter,
+                "end_chapter": end_chapter,
+                "asset_counts": counts,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        sections.append(
+            ContextSection(
+                key="outline_analysis_range",
+                tier=Tier.P0,
+                content=overview,
+                token_count=estimate_token_count(overview),
+                title="大纲分析范围",
+                preview=(
+                    f"章节 {start_chapter}-{end_chapter} · "
+                    f"{counts['scenes']} 个 Scene"
+                ),
+                status="system",
+                activation_reason="作者本次确认的分析章节范围",
+                sources=[
+                    {
+                        "type": "chapter_range",
+                        "id": f"{start_chapter}-{end_chapter}",
+                        "label": f"章节 {start_chapter}-{end_chapter}",
+                        "status": "system",
+                    }
+                ],
+                can_exclude=False,
+            )
+        )
+        specs = (
+            (
+                "outline_analysis_scenes",
+                "scenes",
+                "范围内 Scene（按叙事顺序）",
+                "scene",
+                Tier.P1,
+                False,
+            ),
+            (
+                "outline_analysis_threads",
+                "plot_threads",
+                "相关剧情线",
+                "plot_thread",
+                Tier.P2,
+                True,
+            ),
+            (
+                "outline_analysis_arcs",
+                "arcs",
+                "相关篇章纲",
+                "outline_arc",
+                Tier.P2,
+                True,
+            ),
+            (
+                "outline_analysis_foreshadowing",
+                "foreshadowing_plans",
+                "相关伏笔计划",
+                "foreshadowing_plan",
+                Tier.P2,
+                True,
+            ),
+            (
+                "outline_analysis_reveals",
+                "reveal_plans",
+                "相关揭示计划",
+                "reveal_plan",
+                Tier.P2,
+                True,
+            ),
+        )
+        for key, data_key, title, source_type, tier, can_exclude in specs:
+            items = [
+                item
+                for item in analysis.get(data_key) or []
+                if isinstance(item, dict)
+            ]
+            if not items:
+                continue
+            content = "\n".join(
+                json.dumps(item, ensure_ascii=False, sort_keys=True) for item in items
+            )
+            sections.append(
+                ContextSection(
+                    key=key,
+                    tier=tier,
+                    content=content,
+                    token_count=estimate_token_count(content),
+                    truncatable_per_item=True,
+                    title=title,
+                    preview=content[:160],
+                    status=status,
+                    activation_reason=(
+                        f"与章节 {start_chapter}-{end_chapter} 的结构范围重叠"
+                    ),
+                    sources=[
+                        {
+                            "type": source_type,
+                            "id": str(item.get("id") or ""),
+                            "label": str(
+                                item.get("title")
+                                or item.get("name")
+                                or item.get("secret_summary")
+                                or item.get("id")
+                                or title
+                            ),
+                            "status": str(item.get("status") or status),
+                        }
+                        for item in items
+                    ],
+                    can_exclude=can_exclude,
+                )
+            )
         return sections
 
     def _build_reader_reveal_sections(

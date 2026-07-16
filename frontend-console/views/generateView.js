@@ -4,8 +4,9 @@
 
 import { confirmAiReference } from "../shared/aiReferenceModal.js"
 import { bindWorkspaceClick } from "../shared/viewHelper.js"
-import { worldAssetDisplay } from "../shared/assetDisplayState.js"
+import { structureAssetDisplay, worldAssetDisplay } from "../shared/assetDisplayState.js"
 import { renderWorkspaceRail, workspaceRailKey } from "../shared/workspaceRail.js"
+import { createReferencePicker } from "../shared/referencePicker.js"
 
 const BUILTIN_TEMPLATE_PROMPTS = {
   none: "不预设固定创作框架。围绕作者真正想创造或解决的内容，找出这个对象最核心的概念、辨识度，以及它与现有世界和故事的关系。允许对象暂时跨越多个类别或尚未完成分类，不要套用人物、事件、物品等模板的固定维度。最终先收束为概念建议，作者可在采用前调整类型。",
@@ -140,6 +141,7 @@ const generateView = {
   _lastEntityContextUsage: null,
   _busy: false,
   _abortControllers: null,
+  _taskReferencePickers: null,
 
   _generateSubTab: "world",
   _taskPreset: "custom",
@@ -168,6 +170,7 @@ const generateView = {
   _pageProposalDirty: false,
 
   onLeave() {
+    this._destroyTaskReferencePickers()
     this._captureComposerDraft()
     this._persistState()
     this._clearTopbarNote()
@@ -716,6 +719,16 @@ const generateView = {
       if (synopsisHint) {
         synopsisHint.hidden = !["reader", "character"].includes(event.target.value)
       }
+    })
+    document.getElementById("gen-chapter")?.addEventListener("change", (event) => {
+      this._taskForm = {
+        ...this._taskForm,
+        chapter_index: event.target.value ? Number(event.target.value) : undefined,
+        scene_id: undefined,
+      }
+      const sceneInput = document.getElementById("gen-scene")
+      if (sceneInput) sceneInput.value = ""
+      this._taskReferencePickers?.scene?.setItems([], { notifyChange: true })
     })
     this._bindPageProposalDirtyEvents()
   },
@@ -1846,6 +1859,7 @@ const generateView = {
       this._captureComposerDraft()
       this._persistState()
     }
+    this._destroyTaskReferencePickers()
     this._invalidateRequests()
     this._activeStorageKey = storageKey
     this._resetProjectState()
@@ -2414,6 +2428,173 @@ const generateView = {
       synopsis.disabled = ["reader", "character"].includes(this._taskForm.reveal_mode)
       synopsis.checked = !synopsis.disabled && Boolean(this._taskForm.include_world_synopsis)
     }
+    this._mountTaskReferencePickers()
+  },
+
+  _destroyTaskReferencePickers() {
+    for (const picker of Object.values(this._taskReferencePickers || {})) {
+      picker?.destroy?.()
+    }
+    this._taskReferencePickers = null
+  },
+
+  _entityReferenceItem(item, kind = "entity") {
+    const display = worldAssetDisplay(item)
+    return {
+      kind,
+      id: item?.entity_id || item?.id,
+      label: item?.name || item?.title || "未命名对象",
+      description: [item?.entity_type || (kind === "character" ? "人物" : "世界对象"), item?.summary || item?.description].filter(Boolean).join(" · "),
+      status: display.label,
+      unavailable: display.isHistory || Boolean(item?.unavailable),
+    }
+  },
+
+  _sceneReferenceItem(scene) {
+    const chapters = (scene?.chapter_ids || []).map((value) => `第 ${value} 章`).join("、")
+    const display = structureAssetDisplay(scene)
+    return {
+      kind: "scene",
+      id: scene?.id,
+      label: scene?.title || "未命名 Scene",
+      description: [chapters, scene?.goal || scene?.core_conflict].filter(Boolean).join(" · "),
+      status: display.label,
+      unavailable: display.isHistory || Boolean(scene?.unavailable),
+    }
+  },
+
+  _mountTaskReferencePickers() {
+    if (this._generateSubTab !== "task") return
+    this._destroyTaskReferencePickers()
+    const projectId = state.currentProjectId
+    const create = (rootId, options) => {
+      const root = document.getElementById(rootId)
+      if (!root) return null
+      return createReferencePicker({ root, projectId, debounceMs: 200, ...options })
+    }
+    const resolveEntities = async (ids, { projectId: ownerProjectId }, kind) => Promise.all(
+      ids.map(async (id) => {
+        try {
+          const item = await api.world.getEntity(id, ownerProjectId)
+          return this._entityReferenceItem(item, kind)
+        } catch {
+          return { kind, id, label: "不可用引用", unavailable: true }
+        }
+      }),
+    )
+    const entitySource = {
+      kind: "entity",
+      label: "世界对象",
+      search: async (query, { projectId: ownerProjectId, limit }) => {
+        const data = await api.world.listEntities({
+          novel_id: ownerProjectId,
+          display_state: "active",
+          q: query || undefined,
+          skip: 0,
+          limit,
+        })
+        return (data?.items || [])
+          .filter((item) => item.entity_type !== "character")
+          .map((item) => this._entityReferenceItem(item, "entity"))
+      },
+      resolve: (ids, context) => resolveEntities(ids, context, "entity"),
+    }
+    const characterSource = {
+      kind: "character",
+      label: "人物",
+      search: async (query, { projectId: ownerProjectId, limit }) => {
+        const data = await api.world.listEntities({
+          novel_id: ownerProjectId,
+          display_state: "active",
+          entity_type: "character",
+          q: query || undefined,
+          skip: 0,
+          limit,
+        })
+        return (data?.items || []).map((item) => this._entityReferenceItem(item, "character"))
+      },
+      resolve: (ids, context) => resolveEntities(ids, context, "character"),
+    }
+    const sceneSource = {
+      kind: "scene",
+      label: "Scene",
+      search: async (query, { projectId: ownerProjectId, limit }) => {
+        const chapterIndex = Number(document.getElementById("gen-chapter")?.value || 0)
+        if (chapterIndex) {
+          const needle = String(query || "").toLowerCase()
+          const [chapterData, projectData] = await Promise.all([
+            api.outline.listScenesByChapter(ownerProjectId, chapterIndex),
+            api.outline.getSceneWorkbench(ownerProjectId, null, {
+              q: query || undefined,
+              view_mode: "normal",
+              skip: 0,
+              limit,
+            }),
+          ])
+          const chapterScenes = (Array.isArray(chapterData) ? chapterData : chapterData?.items || [])
+            .filter((scene) => scene.status !== "deprecated")
+            .filter((scene) => !needle || [scene.title, scene.goal, scene.core_conflict].some((value) => String(value || "").toLowerCase().includes(needle)))
+          const projectScenes = (projectData?.items || [])
+            .map((entry) => entry.scene || entry)
+            .filter((scene) => scene.status !== "deprecated")
+          const preferredIds = new Set(chapterScenes.map((scene) => String(scene.id)))
+          return [
+            ...chapterScenes,
+            ...projectScenes.filter((scene) => !preferredIds.has(String(scene.id))),
+          ].slice(0, limit).map((scene) => this._sceneReferenceItem(scene))
+        }
+        const data = await api.outline.getSceneWorkbench(ownerProjectId, null, {
+          q: query || undefined,
+          view_mode: "normal",
+          skip: 0,
+          limit,
+        })
+        return (data?.items || [])
+          .map((entry) => entry.scene || entry)
+          .filter((scene) => scene.status !== "deprecated")
+          .map((scene) => this._sceneReferenceItem(scene))
+      },
+      resolve: async (ids, { projectId: ownerProjectId }) => Promise.all(ids.map(async (id) => {
+        try {
+          return this._sceneReferenceItem(await api.outline.getScene(id, ownerProjectId))
+        } catch {
+          return { kind: "scene", id, label: "不可用引用", unavailable: true }
+        }
+      })),
+    }
+    const syncHidden = (id, refs, multiple = true) => {
+      const input = document.getElementById(id)
+      if (input) input.value = multiple ? refs.map((ref) => ref.id).join(",") : (refs[0]?.id || "")
+    }
+    const entities = create("gen-entities-picker", {
+      sources: [entitySource],
+      mode: "multiple",
+      maxItems: 20,
+      placeholder: "按名称搜索世界对象",
+      onChange: (_items, refs) => syncHidden("gen-entities", refs),
+    })
+    const characters = create("gen-characters-picker", {
+      sources: [characterSource],
+      mode: "multiple",
+      maxItems: 20,
+      placeholder: "按姓名或别名搜索人物",
+      onChange: (_items, refs) => syncHidden("gen-characters", refs),
+    })
+    const scene = create("gen-scene-picker", {
+      sources: [sceneSource],
+      placeholder: "按标题、目标或冲突搜索 Scene",
+      onChange: (_items, refs) => syncHidden("gen-scene", refs, false),
+    })
+    const viewpoint = create("gen-viewpoint-character-picker", {
+      sources: [characterSource],
+      placeholder: "选择视角人物",
+      onChange: (_items, refs) => syncHidden("gen-viewpoint-character", refs, false),
+    })
+    this._taskReferencePickers = { entities, characters, scene, viewpoint }
+    entities?.resolve((this._taskForm.entity_ids || []).map((id) => ({ kind: "entity", id })))
+    characters?.resolve((this._taskForm.character_ids || []).map((id) => ({ kind: "character", id })))
+    if (this._taskForm.scene_id) scene?.resolve([{ kind: "scene", id: this._taskForm.scene_id }])
+    if (this._taskForm.viewpoint_character_id) viewpoint?.resolve([{ kind: "character", id: this._taskForm.viewpoint_character_id }])
   },
 
   _readTaskForm() {
@@ -2461,7 +2642,7 @@ const generateView = {
       return false
     }
     if (params.reveal_mode === "character" && !params.viewpoint_character_id) {
-      toast("角色视角模式必须选择或输入视角人物 ID", "warning")
+      toast("角色视角模式必须选择视角人物", "warning")
       return false
     }
     return true
@@ -2645,19 +2826,22 @@ const generateView = {
               </div>
               <div class="form-group">
                 <label>相关对象</label>
-                <input class="form-input" id="gen-entities" value="${esc((form.entity_ids || []).join(", "))}" placeholder="可选 world_entity ID，逗号分隔" />
+                <div id="gen-entities-picker"></div>
+                <input id="gen-entities" type="hidden" value="${esc((form.entity_ids || []).join(","))}" />
               </div>
               <div class="form-group">
                 <label>相关人物</label>
-                <input class="form-input" id="gen-characters" value="${esc((form.character_ids || []).join(", "))}" placeholder="可选 character ID，逗号分隔" />
+                <div id="gen-characters-picker"></div>
+                <input id="gen-characters" type="hidden" value="${esc((form.character_ids || []).join(","))}" />
               </div>
               <div class="form-group">
                 <label>章节索引</label>
                 <input class="form-input" id="gen-chapter" type="number" min="1" value="${esc(form.chapter_index || "")}" placeholder="当前章节（可选）" />
               </div>
               <div class="form-group">
-                <label>Scene ID</label>
-                <input class="form-input" id="gen-scene" value="${esc(form.scene_id || "")}" placeholder="当前 Scene ID（可选，优先于章节）" />
+                <label>当前 Scene</label>
+                <div id="gen-scene-picker"></div>
+                <input id="gen-scene" type="hidden" value="${esc(form.scene_id || "")}" />
               </div>
               <div class="form-group">
                 <label>预算 (tokens)</label>
@@ -2683,8 +2867,9 @@ const generateView = {
               </p>
               <div class="form-group" id="gen-viewpoint-character-group" style="${form.reveal_mode === "character" ? "" : "display:none;"}">
                 <label>视角人物 *</label>
-                <input class="form-input" id="gen-viewpoint-character" value="${esc(form.viewpoint_character_id || "")}" placeholder="角色视角模式必须填写一个 character ID" />
-                <p class="generate-form-hint">角色视角模式仅使用此 ID 作为视角人物，与“相关人物”相互独立。</p>
+                <div id="gen-viewpoint-character-picker"></div>
+                <input id="gen-viewpoint-character" type="hidden" value="${esc(form.viewpoint_character_id || "")}" />
+                <p class="generate-form-hint">视角人物与“相关人物”独立选择，提交时仍使用稳定内部引用。</p>
               </div>
             </details>
           </div>

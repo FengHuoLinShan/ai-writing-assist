@@ -145,6 +145,23 @@ class SceneContextWindowContract:
 
 
 @dataclass(frozen=True)
+class OutlineAnalysisContextContract:
+    """Ordered outline assets that overlap one author-confirmed chapter range."""
+
+    novel_id: str
+    start_chapter: int
+    end_chapter: int
+    scenes: list[dict] = field(default_factory=list)
+    arcs: list[dict] = field(default_factory=list)
+    plot_threads: list[dict] = field(default_factory=list)
+    foreshadowing_plans: list[dict] = field(default_factory=list)
+    reveal_plans: list[dict] = field(default_factory=list)
+    related_character_ids: list[str] = field(default_factory=list)
+    related_entity_ids: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class ReaderRevealDecisionContract:
     """Reader-visible state for one target at a conservative chapter cursor."""
 

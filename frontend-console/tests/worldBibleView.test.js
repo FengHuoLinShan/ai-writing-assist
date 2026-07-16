@@ -84,12 +84,123 @@ describe("worldBibleView", () => {
         linked_asset_ref_hashes: [],
       }],
     }
-    document.body.innerHTML = worldBibleView._renderActivePage()
+    document.body.innerHTML = `<section class="world-bible-workspace">${worldBibleView._renderActivePage()}</section>`
 
     expect(document.getElementById("bible-free-text").labels[0].textContent).toContain("页面概览")
     expect(document.querySelector('[data-section-field="body_markdown"]').labels[0].textContent).toContain("分区正文")
     expect(document.querySelector('[data-action="bible-improve-with-ai"]')).not.toBeNull()
     expect(document.querySelector(".bible-ai-sidebar")).toBeNull()
+  })
+
+  it("世界书关联资产改为名称选择器并保留既有 wire 引用", async () => {
+    worldBibleView._activePage = {
+      ...speciesPage,
+      linked_asset_refs_json: [{ type: "entity", id: "entity-1" }],
+    }
+    worldBibleView._pages = [worldBibleView._activePage]
+    api.world.getEntity.mockResolvedValue({
+      id: "entity-1",
+      name: "北境商会",
+      entity_type: "faction",
+      status: "canonical",
+    })
+    document.body.innerHTML = `<section class="world-bible-workspace">${worldBibleView._renderActivePage()}</section>`
+
+    worldBibleView.bindEvents()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(document.getElementById("bible-asset-ref-picker")).not.toBeNull()
+    expect(document.getElementById("bible-asset-refs")?.hidden).toBe(true)
+    expect(JSON.parse(document.getElementById("bible-asset-refs")?.value)).toEqual([
+      { type: "entity", id: "entity-1" },
+    ])
+    expect(document.querySelector("[data-reference-selected]")?.textContent).toContain("北境商会")
+    expect(document.body.textContent).not.toContain("type:id")
+  })
+
+  it("关联资产回填保留旧字段形状和附加字段，无法解析时也不静默删除", async () => {
+    const legacyRef = {
+      source_type: "profile",
+      source_id: "entity-missing",
+      target_path: "profile.public",
+      legacy_note: "keep-me",
+    }
+    const legacyAliasRef = {
+      target_type: "core_entity",
+      target_id: "entity-missing",
+      legacy_note: "keep-second-shape",
+    }
+    worldBibleView._activePage = {
+      ...speciesPage,
+      linked_asset_refs_json: [legacyRef, legacyAliasRef],
+    }
+    worldBibleView._pages = [worldBibleView._activePage]
+    api.world.getEntity.mockRejectedValue(new Error("not found"))
+    document.body.innerHTML = `<section class="world-bible-workspace">${worldBibleView._renderActivePage()}</section>`
+
+    worldBibleView.bindEvents()
+    await vi.waitFor(() => {
+      expect(document.querySelector("[data-reference-selected]")?.textContent).toContain("不可用引用")
+    })
+
+    expect(worldBibleView._readDraftEditor().linked_asset_refs_json).toEqual([legacyRef, legacyAliasRef])
+    expect(worldBibleView._assetRefPicker.getRefs()).toEqual([
+      { kind: "core_entity", id: "entity-missing" },
+    ])
+    expect(JSON.parse(document.getElementById("bible-asset-refs").value)).toEqual([
+      legacyRef,
+      legacyAliasRef,
+    ])
+  })
+
+  it("关联资产只搜索已采用对象并由 provider context 隔离地图事实项目", async () => {
+    api.world.listEntities.mockResolvedValue({
+      items: [
+        { id: "canonical-1", name: "已采用对象", status: "canonical" },
+        { id: "draft-1", name: "工作稿对象", status: "draft" },
+      ],
+    })
+    api.world.listMaps.mockResolvedValue({ items: [{ id: "map-1", name: "旧项目地图" }] })
+    api.world.listMapFacts.mockResolvedValue({
+      items: [{ id: "fact-1", target_name: "北门", fact_status: "confirmed" }],
+    })
+    const sources = worldBibleView._assetRefSources()
+
+    const entities = await sources.find((source) => source.kind === "core_entity")
+      .search("对象", { projectId: "project-old", limit: 20 })
+    state.currentProjectId = "project-new"
+    const facts = await sources.find((source) => source.kind === "map_fact")
+      .search("北门", { projectId: "project-old", limit: 20 })
+
+    expect(entities.map((item) => item.id)).toEqual(["canonical-1"])
+    expect(api.world.listEntities).toHaveBeenCalledWith(expect.objectContaining({ novel_id: "project-old" }))
+    expect(api.world.listMaps).toHaveBeenCalledWith(expect.objectContaining({ novel_id: "project-old" }))
+    expect(api.world.listMapFacts).toHaveBeenCalledWith("map-1", "project-old", "confirmed")
+    expect(facts.map((item) => item.id)).toEqual(["fact-1"])
+  })
+
+  it("固定目标把非 adopted 的旧对象显示为不可用且不提供为搜索结果", async () => {
+    api.world.listEntities.mockResolvedValue({
+      items: [{ id: "draft-1", name: "未采用对象", status: "draft" }],
+    })
+    api.world.getEntity.mockResolvedValue({ id: "draft-1", name: "未采用对象", status: "draft" })
+    const entitySource = worldBibleView._assetRefSources().find((source) => source.kind === "core_entity")
+
+    expect(await entitySource.search("未采用", { projectId: "p1", limit: 20 })).toEqual([])
+    expect(await entitySource.resolve(["draft-1"], { projectId: "p1" })).toEqual([
+      expect.objectContaining({ id: "draft-1", unavailable: true }),
+    ])
+  })
+
+  it("AI 参考规则使用固定资料目标选择器而不是 type:id 输入", () => {
+    worldBibleView._activePage = speciesPage
+    worldBibleView._openActivationProfileEditor()
+
+    const html = showModal.mock.calls.at(-1)[1].html
+    expect(html).toContain("bible-rule-target-picker")
+    expect(html).toContain('id="bible-rule-target"')
+    expect(html).toContain('type="hidden"')
+    expect(html).not.toContain("type:id")
   })
 
   it("结构化分区可编辑并随工作稿保存", async () => {

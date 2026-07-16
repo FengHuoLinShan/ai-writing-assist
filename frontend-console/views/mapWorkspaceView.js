@@ -882,7 +882,7 @@ const mapWorkspaceView = {
           </select>
           <details class="map-inbox-diagnostic-filter">
             <summary>诊断筛选</summary>
-            <input class="form-input" aria-label="按 Scene 原始 ID 筛选" data-action="map-inbox-filter" data-filter="sceneId" value="${esc(filters.sceneId || "")}" placeholder="Scene 原始 ID" />
+            <input class="form-input" aria-label="按 Scene 原始 ID 筛选" data-diagnostic-field data-action="map-inbox-filter" data-filter="sceneId" value="${esc(filters.sceneId || "")}" placeholder="Scene 原始 ID" />
           </details>
           <select class="form-select" aria-label="按来源筛选" data-action="map-inbox-filter" data-filter="source">
             <option value="">全部来源</option>

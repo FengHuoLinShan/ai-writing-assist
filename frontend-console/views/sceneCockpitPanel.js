@@ -22,7 +22,14 @@ const LABELS = {
   foreshadowing: "伏笔 / 揭示",
 }
 
-const COCKPIT_TABS = ["people", "place", "lore", "map"]
+const COCKPIT_TABS = ["alerts", "people", "place", "lore", "map"]
+
+const ALERT_SEVERITY = {
+  high: { label: "高", symbol: "!" },
+  medium: { label: "中", symbol: "!" },
+  low: { label: "提示", symbol: "·" },
+  info: { label: "信息", symbol: "i" },
+}
 
 function normalizeActiveTab(tab) {
   return COCKPIT_TABS.includes(tab) ? tab : "lore"
@@ -61,6 +68,10 @@ export function renderSceneCockpitPanel({
   mapSummaryHtml = "",
   compact = false,
   activeTab = "lore",
+  alerts = [],
+  alertLoading = false,
+  alertError = null,
+  latestCheck = null,
 } = {}) {
   const selectedTab = normalizeActiveTab(activeTab)
   const order = loadSceneCockpitOrder(projectId)
@@ -82,6 +93,7 @@ export function renderSceneCockpitPanel({
         <span>写作副驾驶</span>
         <button class="btn btn-sm scene-cockpit-organize" data-action="open-scene-workbench">整理</button>
       </div>
+      ${scene ? renderAlertSummary(alerts, alertLoading) : ""}
       ${!scene ? `
         <div class="scene-cockpit-empty">
           当前章节未关联 Scene。${projectId ? "请从左侧选择 Scene 或到场景工作台整理。" : ""}
@@ -89,12 +101,16 @@ export function renderSceneCockpitPanel({
       ` : ""}
       ${scene ? `
         <div class="cockpit-tabs" role="tablist" aria-label="Scene 参考">
+          <button class="cockpit-tab ${selectedTab === "alerts" ? "active" : ""}" data-action="switch-cockpit-tab" data-tab="alerts" type="button">警报</button>
           <button class="cockpit-tab ${selectedTab === "people" ? "active" : ""}" data-action="switch-cockpit-tab" data-tab="people" type="button">人物</button>
           <button class="cockpit-tab ${selectedTab === "place" ? "active" : ""}" data-action="switch-cockpit-tab" data-tab="place" type="button">地点</button>
           <button class="cockpit-tab ${selectedTab === "lore" ? "active" : ""}" data-action="switch-cockpit-tab" data-tab="lore" type="button">设定</button>
           <button class="cockpit-tab ${selectedTab === "map" ? "active" : ""}" data-action="switch-cockpit-tab" data-tab="map" type="button">地图</button>
         </div>
         <div class="cockpit-body">
+          <section class="cockpit-panel ${selectedTab === "alerts" ? "" : "hidden"}" data-panel="alerts">
+            ${renderAlertPanel({ alerts, alertLoading, alertError, latestCheck })}
+          </section>
           <section class="cockpit-panel ${selectedTab === "people" ? "" : "hidden"}" data-panel="people">
             ${renderPeoplePanel(people)}
           </section>
@@ -111,6 +127,86 @@ export function renderSceneCockpitPanel({
       ` : ""}
     </div>
   `
+}
+
+function renderAlertSummary(alerts, loading) {
+  const safeAlerts = Array.isArray(alerts) ? alerts : []
+  const summary = summarizeAlerts(safeAlerts)
+  if (loading && summary.actionableCount === 0) {
+    return '<div class="scene-alert-summary scene-alert-summary--loading" aria-live="polite">警报加载中…</div>'
+  }
+  if (summary.actionableCount === 0) {
+    return `
+      <div class="scene-alert-summary scene-alert-summary--clear" aria-live="polite">
+        <span class="scene-alert-summary__mark" aria-hidden="true">✓</span>
+        <span>当前未发现确定性警报</span>
+      </div>
+    `
+  }
+  const severity = ALERT_SEVERITY[summary.highestSeverity] || ALERT_SEVERITY.info
+  return `
+    <div class="scene-alert-summary scene-alert-summary--${esc(summary.highestSeverity)}" aria-live="polite">
+      <span class="scene-alert-summary__mark" aria-hidden="true">${esc(severity.symbol)}</span>
+      <span>${esc(summary.actionableCount)} 项警报 · 最高${esc(severity.label)}严重度${summary.hasStaleCheck ? " · 最近校验已过期" : ""}</span>
+    </div>
+  `
+}
+
+function renderAlertPanel({ alerts, alertLoading, alertError, latestCheck }) {
+  const safeAlerts = Array.isArray(alerts) ? alerts : []
+  const groups = ["high", "medium", "low", "info"].map((severity) => {
+    const entries = safeAlerts.filter((item) => item?.severity === severity)
+    if (!entries.length) return ""
+    const severityMeta = ALERT_SEVERITY[severity]
+    return `
+      <section class="scene-alert-group scene-alert-group--${esc(severity)}">
+        <div class="scene-alert-group__title">${esc(severityMeta.label)}严重度 · ${esc(entries.length)}</div>
+        ${entries.map((item) => `
+          <article class="scene-alert-card scene-alert-card--${esc(severity)}">
+            <div class="scene-alert-card__head">
+              <span class="scene-alert-card__source">${esc(item.source || "现场")}</span>
+              ${item.stale ? '<span class="scene-alert-card__stale">已过期</span>' : ""}
+            </div>
+            <div class="scene-alert-card__message">${esc(item.message || "")}</div>
+            ${item.detail ? `<div class="scene-alert-card__detail">${esc(item.detail)}</div>` : ""}
+          </article>
+        `).join("")}
+      </section>
+    `
+  }).join("")
+
+  const hasMatchingErrorAlert = alertError && safeAlerts.some((item) => (
+    item?.source === "最近校验" && String(item?.message || "") === String(alertError)
+  ))
+  const status = alertError && !hasMatchingErrorAlert
+    ? `<div class="scene-alert-load-error">${esc(alertError)}</div>`
+    : (alertLoading ? '<div class="scene-alert-loading">正在刷新最近校验…</div>' : "")
+  return `
+    <div class="scene-alert-panel">
+      ${status}
+      ${groups || (alertLoading ? "" : '<div class="cockpit-empty">当前未发现确定性警报</div>')}
+      <p class="scene-alert-disclaimer">现场警报只做字面和状态检查，不代表正文没有其他问题，也不会自动运行 AI。</p>
+      <div class="scene-alert-actions">
+        ${latestCheck ? '<button class="btn btn-sm" data-action="open-cockpit-conflict-check" type="button">查看最近校验</button>' : ""}
+        <button class="btn btn-sm btn-primary" data-action="run-cockpit-conflict-check" type="button">运行规则检查</button>
+      </div>
+    </div>
+  `
+}
+
+function summarizeAlerts(alerts) {
+  const counts = { high: 0, medium: 0, low: 0, info: 0 }
+  for (const item of alerts || []) {
+    if (item?.severity in counts) counts[item.severity] += 1
+  }
+  const actionableCount = counts.high + counts.medium + counts.low
+  const highestSeverity = ["high", "medium", "low"].find((severity) => counts[severity] > 0) || "info"
+  return {
+    counts,
+    actionableCount,
+    highestSeverity,
+    hasStaleCheck: (alerts || []).some((item) => item?.stale === true),
+  }
 }
 
 function renderPeoplePanel(people) {

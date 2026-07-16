@@ -16,7 +16,6 @@ export const SEL = {
   workspace: "#workspace",
   workspaceContent: "#workspace-content",
   viewTitle: "#topbar-module",
-  viewActions: "#view-actions",
 
   // 空态 / 加载
   emptyState: ".empty-state",

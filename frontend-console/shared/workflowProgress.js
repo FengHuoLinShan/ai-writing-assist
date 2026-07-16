@@ -19,6 +19,8 @@ const WORKFLOW_LABELS = {
   world_entity_extraction: "补抽世界对象",
   plot_structure_generate: "生成剧情结构",
   outline_generate: "生成剧情结构",
+  story_outline_generate: "AI 小说总纲",
+  outline_analyze: "AI 分析大纲",
   outline_chapter_scenes_extract: "从正文整理 Scene",
   chapter_card_generation: "生成章节卡",
   chapter_scene_generate: "生成章节与场景结构",
@@ -159,6 +161,8 @@ function inferMessage({ status, workflowType, result, meta, percent }) {
   if (workflowType === "rag_retry_embeddings") return "正在重试失败向量"
   if (workflowType === "world_entity_extraction") return "正在抽取世界对象"
   if (workflowType === "plot_structure_generate" || workflowType === "outline_generate") return "正在生成剧情结构"
+  if (workflowType === "outline_analyze") return "正在分析大纲结构"
+  if (workflowType === "story_outline_generate") return "正在生成小说总纲预览"
   if (
     workflowType === "chapter_card_generation"
     || workflowType === "chapter_scene_generate"

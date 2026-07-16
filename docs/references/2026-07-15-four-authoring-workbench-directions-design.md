@@ -1,37 +1,46 @@
 # 四项作者工作台能力深化设计：版本 Diff、Scene 信号、叙事时间轴与调用透视
 
-> 性质：基于 2026-07-15 当前代码的产品/架构研究，供后续立项与 ADR 使用，
-> 不构成当前 API、schema 或 wire 契约。
-> 范围：只分析设计，不修改业务代码。
+> 性质：基于 2026-07-15 代码的产品/架构研究；Phase 0 实现状态更新于 2026-07-16，
+> 不构成新的 API、schema 或 wire 契约。
+> 范围：版本 Diff 与 Scene 驾驶舱警报已实现；时间轴与调用透视仍只保留设计研究。
 > 关联研究：`2026-07-14-novalist-sillytavern-worldbook-design-analysis.md`。
+
+> **当前产品决定（2026-07-16）**
+>
+> - Scene 实时警报不建立新侧栏，直接增强写作页右侧现有“写作副驾驶”Scene 驾驶舱。
+> - 版本 Diff 与 Scene 警报 Phase 0 已实现，未新增数据库、后端 endpoint 或公共聚合契约。
+> - 统一叙事时间轴暂缓，不进入当前实施路线。
+> - 最终 Prompt 透视器 / 调用检查暂缓，不进入当前实施路线。
+> - 下文时间轴与调用透视章节仅保留为备选研究，不代表已排期或推荐立即实施。
 
 ## 1. 执行结论
 
-这四项能力应该**按领域拆分实现、按作者工作流组合呈现**，不应建立一个同时拥有正文、
-Scene、时间、上下文和 LLM 调用数据的“大一统工作台模块”。推荐归属如下：
+这四项研究不应被合并成一个同时拥有正文、Scene、时间、上下文和 LLM 调用数据的“大一统
+工作台模块”。若分别立项，应按领域归属；当前只推进版本 Diff 与驾驶舱实时警报：
 
-| 能力 | 推荐所有者 | 产品入口 | 是否建议新顶级模块 |
+| 能力 | 推荐所有者 | 产品入口 | 当前状态 |
 |---|---|---|---|
-| 版本并排 Diff | `writing` | 写作页版本历史 / 候选采用前 | 否 |
-| Scene 实时信号侧栏 | `outline` 提供结构信号，`writing` 提供正文与校验信号，前端组合 | 写作页 Scene 侧栏 | 否；尤其不恢复 `review` |
-| 统一叙事时间轴 | 第一阶段为跨模块只读投影；需要物化或可编辑故事时间后再独立立项 | 独立时间轴工作区或 Outline 子视图 | 第一阶段否；后续需用户确认和 ADR |
-| 最终 Prompt 透视器 | 各业务生成服务构造调用，LLM 基础设施提供统一脱敏 trace，生成中心组合 | AI 生成中心“调用检查” | 否；不让 `context` 冒充最终 Prompt 所有者 |
+| 版本并排 Diff | `writing` | 写作页版本历史 / 候选采用前 | **Phase 0 已实现** |
+| Scene 实时警报 | `outline` 提供结构信号，`writing` 提供正文与校验信号，前端组合 | 右侧现有“写作副驾驶”Scene 驾驶舱 | **Phase 0 已实现**；未新增侧栏或 `review` 模块 |
+| 统一叙事时间轴 | 若重启，先做跨模块只读投影 | 待重新立项 | **暂缓** |
+| 最终 Prompt 透视器 | 若重启，由业务生成服务与 LLM 基础设施提供脱敏 trace | 待重新立项 | **暂缓** |
 
-推荐的整体关系是：
+当前实施关注点收敛为两个现有工作区增强；时间轴和调用透视不进入本轮闭环：
 
 ```mermaid
 flowchart LR
-    S["Scene 实时信号<br/>确定性、低延迟"] --> V["显式规则检查 / AI 深度校验"]
-    V --> P["生成中心：调用预览与调用记录"]
-    P --> G["生成正文候选"]
-    G --> D["版本 / 候选并排 Diff"]
+    E["正文编辑"] --> S["右侧写作副驾驶<br/>Scene 实时警报"]
+    S --> V["显式规则检查 / AI 深度校验"]
+    G["现有正文候选"] --> D["版本 / 候选并排 Diff"]
     D --> A["作者采用、继续编辑或放弃"]
     A --> W["Writing 新版本"]
-    W --> T["叙事时间轴只读投影"]
-    W -->|content_hash 变化| X["旧信号 / 校验 / 调用记录标记过期"]
+    W -->|content_hash 变化| X["驾驶舱旧警报 / 校验标记过期"]
+    T["统一叙事时间轴"] -.暂缓.-> W
+    P["Prompt 透视 / 调用检查"] -.暂缓.-> G
 ```
 
-四项的共享点不应是共同数据库表，而应是最小身份与新鲜度协议：
+当前 Scene 警报与 Diff 的共享点不应是共同数据库表，而应是最小身份与新鲜度协议；若未来
+重启时间轴或调用透视，也继续复用这一协议：
 
 ```text
 novel_id
@@ -53,9 +62,12 @@ novel_id
    confirmation、异步任务、证据、状态和修复建议。
 3. Scene 工作台已经派生“未复核、未关联章节、缺设定、待整理”等结构健康信号；其职责是
    Scene 管理、章节映射和结构整理，不是正文 AI 审稿。
-4. `context` 已有结构化 section、预算、激活原因、排除/截断、confirmation 和 snapshot；
+4. 写作页右侧已经通过 `writing/scenePanel.js` 和 `sceneCockpitPanel.js` 渲染“写作副驾驶”，
+   包含人物、地点、设定、地图标签，Scene 卡片、地图摘要和可拖拽设定模块。实时警报应增强
+   这个现有容器，不应再建立第二套右侧 Scene UI。
+5. `context` 已有结构化 section、预算、激活原因、排除/截断、confirmation 和 snapshot；
    生成中心已经有“上下文预览”，但它只展示编译上下文，不是业务服务最终发给模型的消息序列。
-5. 地图已有以 Scene 为轴的 canonical state、delta、candidate observation 和 continuity issue
+6. 地图已有以 Scene 为轴的 canonical state、delta、candidate observation 和 continuity issue
    时间线；`memory` 已有世界状态事件与 delta log；`world.Event` 有 `timeline_order`。
 
 ### 2.2 必须保留的边界
@@ -64,7 +76,8 @@ novel_id
 - 旧 `timeline` 顶级模块已归档。第一阶段不能把旧模块名和旧 API 原样复活。
 - `context` 只拥有引用选择、预算、确认和快照，不拥有每个业务工作流的 system scaffold、
   作者指令和消息编排。
-- 世界事实、Scene 结构、正文、地图状态各自仍由原模块拥有；统一时间轴只能先做只读投影。
+- 世界事实、Scene 结构、正文、地图状态各自仍由原模块拥有；时间轴当前不实施，若未来重启也
+  只能先做只读投影。
 - LLM 结果仍是建议或候选；任何采用都走拥有模块既有状态迁移。
 - 所有新读模型、比较和 trace 都必须保持 `novel_id` 隔离。
 
@@ -181,15 +194,15 @@ flowchart TD
 - 本项目不应照搬“当前 swipe 就是正史”的会话语义；正文 candidate 必须保留一等身份、
   provenance 和显式采用。
 
-## 4. 方向二：Scene 实时信号侧栏与 AI 校验的边界
+## 4. 方向二：用 Scene 实时警报增强右侧写作驾驶舱
 
 ### 4.1 重叠确实存在，但生命周期不同
 
-如果侧栏继续叫“Scene 实时分析”，并且自动输出“动机断裂、情绪跳变、POV 漂移、修复建议”，
-它会与现有 AI 校验重复，还会引入不可控调用成本。建议改名为**Scene 现场信号**或
-**Scene 状态**，把“自动信号”和“深度校验”明确分层：
+如果驾驶舱自动输出“动机断裂、情绪跳变、POV 漂移、修复建议”，它会与现有 AI 校验重复，
+还会引入不可控调用成本。新增区块应命名为**实时警报**，把“自动警报”和“深度校验”明确
+分层：
 
-| 维度 | Scene 现场信号 | 规则检查 | AI 深度校验 |
+| 维度 | 驾驶舱实时警报 | 规则检查 | AI 深度校验 |
 |---|---|---|---|
 | 触发 | 输入后 debounce / 打开 Scene 自动刷新 | 作者点击 | 作者确认引用后点击 |
 | 算法 | 确定性、低延迟 | 确定性跨域规则 | LLM + schema/guard |
@@ -198,26 +211,33 @@ flowchart TD
 | 建议 | 不生成改写建议 | 可定位证据 | 可请求 AI 修复建议 |
 | 新鲜度 | 随编辑即时重算 | 绑定 draft/content hash | 绑定 confirmation/snapshot/hash |
 
-### 4.2 推荐侧栏结构
+### 4.2 推荐驾驶舱结构
 
 ```text
-┌─ Scene 现场信号 ─────────────────────┐
-│ 当前：S-18「旧港追逐」 · 第12章       │
-│ 1,842 字 · 17 段 · 4 个人物提及       │
-├─ 结构信号 ───────────────────────────┤
-│ POV：林澈   目标：逃离港区             │
-│ ⚠ 缺 emotional_beat  ✓ 章节映射精确   │
-├─ 正文信号 ───────────────────────────┤
-│ ⚠ must_happen「拿到账本」尚未字面出现 │
-│ 地点：旧港 → 船坞（读取既有地图状态） │
-├─ 最近校验 ───────────────────────────┤
-│ 2 高 / 3 中 · 基于 v8                 │
-│ 当前为 v9，结果已过期                 │
-│ [查看结果] [运行规则检查] [AI深度校验]│
+┌─ 写作副驾驶 ─────────────────────────┐
+│ S-18「旧港追逐」 · 第12章              │
+│ ⚠ 2 项警报 · 最近校验基于 v8，已过期  │  ← 常驻摘要条
+├──────────────────────────────────────┤
+│ [警报] [人物] [地点] [设定] [地图]     │
+├─ 警报 ───────────────────────────────┤
+│ 结构：缺 emotional_beat               │
+│ 正文：未检测到 must_happen「拿到账本」│
+│ 连续性：人物上一场位于其他地图         │
+│ 最近校验：2 高 / 3 中 · 基于 v8       │
+│ [查看校验] [运行规则检查] [AI深度校验]│
 └──────────────────────────────────────┘
 ```
 
-侧栏可以展示的自动信号：
+推荐在现有驾驶舱中增加两层，而不是增加另一块侧栏：
+
+1. 驾驶舱标题下方的常驻警报摘要条：始终显示最高严重度、数量与 stale 状态；无警报时显示
+   “当前未发现确定性警报”，但不表述为“没有问题”。
+2. 与人物、地点、设定、地图并列的“警报”标签：展开结构、正文、地图/连续性与最近校验详情。
+
+严重警报摘要不应参与现有设定模块的拖拽排序，避免被拖到底部或折叠后失去可见性；详细警报
+可以在“警报”标签内按严重度和来源分组。
+
+驾驶舱可以展示的自动信号：
 
 - 当前 Scene/章节/正文版本和保存状态；
 - 字数、段落、对话比例等纯文本统计，但不把固定比例当质量标准；
@@ -226,7 +246,7 @@ flowchart TD
 - 确定性字面覆盖提示、已知实体提及和现有地图/连续性 issue 摘要；
 - 最近一次规则/AI 检查数量、状态、对应版本和是否过期。
 
-侧栏不应自动做：
+驾驶舱不应自动做：
 
 - LLM 调用；
 - 新建 `writing_conflict_items`；
@@ -243,25 +263,27 @@ flowchart TD
 - 现场信号：“must_happen 文本未字面命中”——只是提示，不等于剧情没有发生；
 - AI finding：“账本虽被提到，但未完成 Scene 要求的交接行为”——是需要人工复核的语义判断。
 
-因此，侧栏的文案要使用“未检测到、尚未配置、已有风险记录”，AI 校验才能使用“疑似漂移、
+因此，驾驶舱警报文案要使用“未检测到、尚未配置、已有风险记录”，AI 校验才能使用“疑似漂移、
 语义冲突、建议修复”。
 
 ### 4.4 模块拆分
 
-推荐不建立后端 `scene_analysis` 或 `review` 模块：
+推荐直接扩展现有 `writing/scenePanel.js → sceneCockpitPanel.js` 链路，不建立后端
+`scene_analysis`、`review` 或第二套驾驶舱模块：
 
 ```mermaid
 flowchart LR
-    O["outline facade<br/>Scene 卡、健康、映射"] --> F["写作页 Scene 信号组合器"]
-    W["writing facade/API<br/>正文 hash、检查摘要"] --> F
-    M["world.map facade/API<br/>状态与 issue 摘要"] --> F
-    F --> U["Scene 现场信号侧栏"]
-    U -->|显式操作| C["writing conflict check"]
-    U -->|深度校验| G["AI 生成中心 / 校验流程"]
+    O["outline facade/API<br/>Scene 卡、健康、映射"] --> F["writing/scenePanel.js<br/>警报状态组合与 stale guard"]
+    W["writing API<br/>正文 hash、检查摘要"] --> F
+    M["world.map API<br/>状态与 issue 摘要"] --> F
+    F --> U["sceneCockpitPanel.js<br/>常驻摘要 + 警报标签"]
+    U -->|显式操作| C["现有 writing conflict check / AI review"]
 ```
 
-P0 可以由前端并发调用现有 API 组合，避免新聚合契约。若请求数和一致性成为问题，再新增窄的
-只读 `SceneStatusProjection`：
+P0 可以沿用 `scenePanel.js` 当前加载地图摘要、人物和地点的模式，并发调用现有 API 后在前端
+组合，避免新聚合契约。所有异步结果必须核对当前 `scene_id/draft_id/content_hash`，切换 Scene
+或继续编辑后不得让旧响应覆盖新驾驶舱。若请求数和一致性成为问题，再新增窄的只读
+`SceneStatusProjection`：
 
 - Scene 结构部分由 `outline` 拥有；
 - prose/check 部分由 `writing` 提供稳定 port；
@@ -271,7 +293,7 @@ P0 可以由前端并发调用现有 API 组合，避免新聚合契约。若请
 
 ### 4.5 新鲜度协议
 
-侧栏加载检查结果时应比较：
+驾驶舱加载检查结果时应比较：
 
 ```text
 check.novel_id == current.novel_id
@@ -284,19 +306,23 @@ check.content_hash == current content_hash
 级可靠判 stale，应为检查快照增加来源 hash（additive schema/API 变化）。正文变化后只显示
 “结果已过期”，绝不能自动重跑 AI。
 
-### 4.6 与生成中心的关系
+### 4.6 与现有 AI 校验的关系
 
-侧栏的“AI 深度校验”可以跳到生成中心的任务模式，并预填：
+驾驶舱的“运行规则检查”和“AI 深度校验”应复用写作页现有冲突检查流程：
 
-- action：`writing.conflict_check.ai_review`；
-- 当前 novel/chapter/Scene/draft identity；
-- 是否包含待处理对象；
-- 已有规则检查 ID。
+- “查看校验”打开当前 scope 最近一次 `writing_conflict_check`；
+- “运行规则检查”复用现有 `POST /api/writing/conflict-checks`；
+- “AI 深度校验”仅在已有规则检查上复用现有 confirmation 和
+  `writing.conflict_check.ai_review` 异步流程；
+- 操作携带当前 novel/chapter/Scene/draft identity，并继续提供是否包含待处理对象的确认。
 
-这样侧栏保持轻量，AI 引用确认、调用预览、后台任务和结果 provenance 都在统一生成体验中，
-但最终 finding 仍由 `writing` 保存。
+这样驾驶舱保持轻量，AI 引用确认、后台任务、证据和结果 provenance 继续由现有 writing
+流程处理；不依赖暂缓的 Prompt 透视器，也不把 finding 保存到驾驶舱临时状态。
 
 ## 5. 方向三：统一叙事时间轴的四种方案
+
+> **状态：暂缓。** 本节保留已完成的方案研究，当前不创建时间轴工作区、统一查询契约、
+> projection 表或故事时间 aggregate。后续只有重新立项时才从本节继续评估。
 
 ### 5.1 先区分两种“时间”
 
@@ -306,7 +332,7 @@ check.content_hash == current content_hash
 2. **故事时间**：事件在虚构世界中实际发生的日期、时刻、持续时间和因果先后。
 
 现有数据更成熟的是第一种：Scene 顺序、`timeline_order`、地图 Scene 状态和 memory delta。
-因此第一阶段应做“以 Scene 为游标的统一观察面板”，不能假装已有完整故事历法。
+因此若未来重启，应先评估“以 Scene 为游标的统一观察面板”，不能假装已有完整故事历法。
 
 ### 5.2 方案 A：共享 Scene 游标，多块专业时间轴
 
@@ -327,7 +353,7 @@ flowchart LR
 
 优点是耦合最低、可以最早落地；缺点是无法自然做全局搜索、统一筛选、跨轨导出和稳定分页。
 
-### 5.3 方案 B：联邦只读时间轴（推荐 P0）
+### 5.3 方案 B：联邦只读时间轴（若重启时的优先候选）
 
 ```mermaid
 flowchart LR
@@ -414,13 +440,13 @@ Timeline 模块被移除时的所有权问题。只有作者明确需要编辑�
 | 方案 | 真相来源 | DB 变化 | 一致性 | 全局筛选 | 可编辑故事时间 | 建议阶段 |
 |---|---|---:|---|---|---|---|
 | A 共享游标 | 各模块 | 无 | 各模块实时 | 弱 | 否 | 最快试用 |
-| B 联邦读模型 | 各模块 | 无 | 查询时实时 | 中强 | 否 | **推荐 P0** |
+| B 联邦读模型 | 各模块 | 无 | 查询时实时 | 中强 | 否 | **若重启时优先候选** |
 | C 物化读模型 | 各模块，projection 仅派生 | 新表/任务 | 最终一致 | 强 | 否 | 数据量证明需要后 |
 | D 故事时间域 | 新时间 aggregate + 各模块绑定 | 大幅变化 | 领域事务/约束 | 强 | **是** | 独立产品立项 |
 
-### 5.7 推荐路线
+### 5.7 若未来重启时的评估顺序
 
-先做 **A 的共享 Scene 游标 + B 的统一只读契约**：
+若未来重新立项，优先评估 **A 的共享 Scene 游标 + B 的统一只读契约**：
 
 1. 先统一 Scene anchor 和 `open_target`；
 2. 接入 Outline、Map、World/Memory、Writing 四条轨；
@@ -430,12 +456,16 @@ Timeline 模块被移除时的所有权问题。只有作者明确需要编辑�
 
 这一路线既利用现有地图时间轴，也不会把 `memory_events` 或新 projection 错当成第二套正史。
 
-## 6. 方向四：将最终 Prompt 透视器纳入 AI 生成中心
+## 6. 方向四：最终 Prompt 透视器 / 调用检查备选设计
+
+> **状态：暂缓。** 当前不升级生成中心“上下文预览”，不新增调用检查 UI、
+> `PreparedLLMCall/PromptTrace` 公共契约或 provider-final trace。本节只保留未来重新立项时的
+> 安全与所有权边界。
 
 ### 6.1 结论
 
-应纳入生成中心，但产品名建议从“最终 Prompt 透视器”收敛为**调用检查**。原因是作者真正
-需要检查的不只是一个拼接后的字符串，而是：
+若未来重启，适合纳入生成中心，产品名可从“最终 Prompt 透视器”收敛为**调用检查**。作者
+真正需要检查的不只是一个拼接后的字符串，而是：
 
 - 参考资料为何进入/被排除；
 - system、作者模板、上下文和任务按什么 role/顺序组成；
@@ -575,88 +605,79 @@ flowchart LR
 - 不让 `context` 拼装业务 system prompt；
 - 公共 `PreparedLLMCall/PromptTrace` 若放入 `infrastructure/llm`，属于共享层变更，实施前必须
   逐调用方评估，并保持现有 `LLMCallRequest/LLMResponse` 兼容；
-- P0 可先由单个 Generate Center workflow 提供 business-level planned trace；
-- provider-final trace、跨工作流记录和历史保存属于 P1，可能需要 additive API/wire 变化。
+- 若重启，第一步可先由单个 Generate Center workflow 提供 business-level planned trace；
+- provider-final trace、跨工作流记录和历史保存属于后续阶段，可能需要 additive API/wire 变化。
 
-## 7. 四项之间的集成点
+## 7. 当前两个方向的集成点
 
 ### 7.1 只共享链接，不共享所有权
 
 | 从 | 到 | 共享内容 | 禁止做法 |
 |---|---|---|---|
-| Scene 侧栏 | AI 校验 | scope、draft/hash、规则检查 ID | 侧栏直接创建 AI finding |
-| AI 校验 | 调用检查 | confirmation、snapshot、trace、task ID | Context 保存 writing finding |
-| 生成中心 | Diff | candidate ID、base draft、generation provenance | Diff 自动采用候选 |
-| Diff | 时间轴 | “版本已采用/发布”的只读事件链接 | 时间轴成为 writing 真相源 |
-| 时间轴 | 各模块 | source_ref + open_target | 直接编辑 projection |
+| 驾驶舱实时警报 | 现有规则/AI 校验 | novel/chapter/Scene/draft scope、规则检查 ID | 驾驶舱直接创建 AI finding 或自动运行 LLM |
+| 现有正文候选 | Diff | candidate ID、base draft、generation provenance | Diff 自动采用候选 |
+| Diff | Writing 状态迁移 | 被选择的版本/candidate ID | Diff 直接修改 status 或覆盖正文 |
 
-### 7.2 建议的跨界共同契约
+### 7.2 当前只需要身份与新鲜度，不先抽公共契约
 
-可以抽象两个小契约，而不是一个“大工作台对象”：
+P0 优先复用现有 API 字段，不因两项前端增强先建立共享模块或公共 aggregate：
 
 ```text
-SourceIdentity
-  novel_id
-  module
-  source_type
-  source_id
-  source_revision_or_hash
-  chapter_index?
-  scene_id?
-
-OpenTarget
-  route_kind
-  object_id
-  query
+novel_id
++ chapter_index / scene_id
++ draft_id / version_number / content_hash
++ check_id / candidate_id / base_draft_id（按功能需要）
 ```
 
-`SourceIdentity` 解决证据、Diff、trace 和 stale；`OpenTarget` 解决统一时间轴/侧栏跳回来源。
-它们不能携带跨模块写权限。
+只有后续出现第三个稳定消费者时，再评估是否提取 `SourceIdentity`。已暂缓时间轴和调用透视，
+因此当前也不需要为它们提前增加 `OpenTarget`、`PromptTrace` 或 timeline 契约。
 
-## 8. 推荐实施路线
+## 8. 实施状态与后续路线
 
-### Phase 0：不改数据库的四个薄切片
+### Phase 0：不改数据库的两个薄切片（已完成，2026-07-16）
 
-1. `writing`：任意两个现有版本/候选的临时文本 Diff；
-2. 写作页：组合 Scene 健康、正文统计和最新检查摘要，明确 stale，不自动 LLM；
-3. 时间轴：共享 Scene 游标 + 联邦只读 `TimelineItem` 契约，先接 Outline 与 Map；
-4. 生成中心：把“上下文预览”升级为“调用检查”，先显示 context + business-level planned
-   message manifest。
+1. **增强右侧写作驾驶舱**：
+   - `sceneAlerts.js` / `scenePanel.js` 组合 Scene 健康、正文 must/must_not 字面提示、地图风险和最近检查摘要；
+   - `sceneCockpitPanel.js` 增加常驻警报摘要与“警报”标签；
+   - 以 novel/chapter/Scene/draft/version、编辑脏状态和现有 scope 正文摘要判断 stale，取消旧异步结果；
+   - 只提供显式“运行规则检查 / 查看最近校验”，不自动运行 LLM，不创建第二套 Scene UI。
+2. **Writing 版本 Diff**：
+   - `versions.js` 允许从版本条或历史弹窗选择任意两个 existing 版本/候选；
+   - `versionDiff.js` 临时执行段落对齐和变化块 token Diff，识别稳定移动并设置复杂度上限；
+   - 桌面并排、窄屏逐块堆叠，动态正文统一转义，比较界面不暴露任何写操作。
 
-这一步主要是 additive API/wire 或纯前端变化，原则上不需要 migration；但如果为 conflict check
-补 `content_hash`，仍需 schema/migration 评估。
+实现复用现有版本详情、地图摘要与 conflict check API，没有 migration、endpoint 或 response
+wire 变化；规则检查请求开始携带既有可选 `draft_id/version_number`。若现有响应不足以可靠判断内容级
+stale，再单独评估补 `content_hash` 的 additive schema/API 变化；不能为了驾驶舱一次性引入
+通用聚合模块。
 
-### Phase 1：闭合 provenance 与作者选择
+### Phase 1：根据 P0 使用反馈深化
 
-1. Diff 增加结构影响与校验对照；
-2. Scene 侧栏一键进入生成中心深度校验，并带上稳定 scope；
-3. 时间轴接入 World/Memory/Writing 轨和 partial-source 状态；
-4. 生成调用引入共用 `PreparedLLMCall/PromptTrace`，展示 actual usage 与 request hash。
+1. 驾驶舱警报按来源与严重度过滤，并补完整 hash 级 stale 判断；
+2. Diff 增加结构影响与校验对照；
+3. 根据前端并发请求和一致性指标，决定是否需要窄的只读 `SceneStatusProjection`。
 
-涉及 `infrastructure/llm` 的共享层变更必须单独审查；公共 wire 契约变化要同步测试与文档。
+公共 wire 契约变化要同步 Writing/Outline/World 文档和前端契约测试；仍不恢复 `review` 模块。
 
-### Phase 2：有证据再引入持久化
+### 当前明确不做
 
-- 多候选同批生成与 `generation_group_id`；
-- 物化 `story_timeline_projection`；
-- Prompt 调用历史的长期保留策略；
-- 可编辑故事时间域。
+- 统一叙事时间轴 UI、统一 `TimelineItem` API、物化 projection 和可编辑故事时间域；
+- Prompt 透视器、生成中心“调用检查”、`PreparedLLMCall/PromptTrace` 和 provider-final trace；
+- 新 `review`、`timeline`、`scene_analysis` 或通用 `generation` 顶级模块；
+- 因暂缓功能而提前修改数据库、任务或 `infrastructure/llm`。
 
-这四项都涉及 schema、任务、保留策略或新领域所有权，不能作为 Phase 0 的“顺手扩展”。
+这些研究保留在第 5、6 节，只有用户重新立项后才恢复设计与实现评估。
 
 ## 9. API、schema、wire 与 ADR 风险清单
 
-| 项目 | P0 风险 | 后续风险 | 确认/ADR |
+| 项目 | 当前状态 | P0 风险 | 后续风险 / 确认 |
 |---|---|---|---|
-| 文本 Diff | 可纯前端，无契约变化 | 后端 Diff API、导出 | API 时同步文档；通常不需 ADR |
-| 候选组 | 无 | 新字段、任务预算、状态迁移 | 需用户确认；视范围决定 ADR |
-| Scene 信号侧栏 | 前端组合现有 API | 聚合读 API、check source hash | additive API/schema；不恢复 review |
-| 联邦时间轴 | 新只读契约/API | 跨模块 port 与分页 | 跨模块设计评审；不复活旧 API |
-| 物化时间轴 | 无 | 新表、任务、rebuild | **需用户确认 + ADR** |
-| 故事时间域 | 无 | 新 aggregate/表/校验/UI | **需独立立项 + ADR** |
-| 调用检查 P0 | 单 workflow additive wire | 公共 trace 契约 | 影响 Prompt 文档与测试 |
-| provider-final trace | 无 | 改 `infrastructure/llm` 共享层 | **需高风险评审** |
-| raw system 可见 | 当前不允许 | 改 Prompt 安全边界 | **需明确产品决定 + ADR** |
+| 文本 Diff | **Phase 0 已实现** | 前端临时计算，无契约变化 | 后端 Diff API/候选组需另行评估 |
+| 驾驶舱实时警报 | **Phase 0 已实现** | 前端组合现有 API；已有旧响应和 stale guard | check source hash 或聚合读 API 属 additive 变化；不恢复 review |
+| 联邦/物化时间轴 | **暂缓** | 当前无变更 | 重启时重新评估跨模块契约、migration 与 ADR |
+| 故事时间域 | **暂缓** | 当前无变更 | 重启需独立立项与 ADR |
+| Prompt 调用检查 | **暂缓** | 当前无变更 | 重启需评估 Prompt 安全边界和 wire 契约 |
+| provider-final trace | **暂缓** | 当前不改 `infrastructure/llm` | 重启需共享层高风险评审 |
 
 ## 10. 验证策略
 
@@ -668,53 +689,35 @@ OpenTarget
 - 动态文本全部安全转义；
 - 移动端 unified 与桌面并排结果一致。
 
-### 10.2 Scene 信号
+### 10.2 写作驾驶舱实时警报
 
 - 输入 debounce 和取消旧请求；
 - draft/hash 变化后最近校验立即显示 stale；
-- side panel 不触发 LLM、不创建 finding；
+- 切换 Scene/章节后，旧异步响应不能覆盖当前驾驶舱；
+- 警报摘要常驻，详细警报可展开，无警报时不误报为“没有问题”；
+- 驾驶舱不触发自动 LLM、不直接创建 finding；
+- 现有规则检查、AI review、人物/地点/设定/地图入口保持可用；
 - 跨 `novel_id` 的 Scene/check/map 数据不可组合；
 - API 部分失败时展示来源级 warning，不伪装为“无问题”。
 
-### 10.3 时间轴
+### 10.3 暂缓方向
 
-- 同 Scene 多轨稳定排序；
-- source failure、pagination cursor、soft-deprecated 和 rebuild；
-- map candidate observation 不进入 canonical 轨；
-- 没有故事日期的 item 不伪造日期；
-- `open_target` 始终回到真实拥有模块。
-
-### 10.4 调用检查
-
-- preview 与 execute 使用同一 builder；
-- request hash 对消息顺序、内容和生成参数敏感；
-- estimated 与 actual token 明确区分；
-- API key、headers、内部 secret 和 raw SDK payload 永不出现在响应；
-- context visibility/candidate/POV 门禁不能被 viewer 放宽；
-- full rendered retention 过期与清理可验证。
+- 时间轴和调用检查没有当前验收项；
+- 回归测试不应因为预留概念而新增空接口、表、fixture 或基础设施 mock；
+- 后续若重新立项，重新启用第 5、6 节对应的验证清单，不能把当前“暂缓”当成已验收。
 
 ## 11. 最终建议
 
-四项都值得做，但优先级不是“四个独立大功能同时开工”，而是一个作者闭环中的四个薄切片：
+当前范围收敛为两个已落地的 Phase 0 能力：
 
-1. 先用 Scene 现场信号降低作者发现问题的成本；
-2. 用生成中心调用检查解释 AI 到底看到了什么；
-3. 用版本 Diff 让候选采用成为可比较决策；
-4. 用共享 Scene 游标和联邦时间轴把结果放回整体叙事位置。
+1. **已增强写作页右侧现有“写作副驾驶”**：增加常驻警报摘要和“警报”标签，组合
+   确定性 Scene/正文/地图信号与既有校验摘要；不新建侧栏，不自动运行 AI。
+2. **已加入 Writing 版本/候选 Diff**：让候选采用和历史恢复成为可比较决策，所有写入仍走
+   Writing 既有状态迁移。
 
-模块拆分是正确方向。真正应统一的是身份、来源、新鲜度和打开目标；正文、Scene、地图、世界
-状态、上下文和 LLM 调用的事实所有权仍应分开。
-
-当前最推荐的第一批组合为：
-
-- `writing`：P0 版本/候选 Diff；
-- 写作页：Scene 现场信号侧栏，仅组合确定性状态与既有检查；
-- Timeline：A+B 混合，即共享 Scene 游标 + 联邦只读轨道；
-- 生成中心：将“上下文预览”升级为三层“调用检查”，不暴露 raw secret/system payload。
-
-这个组合无需先恢复旧 `review/timeline` 模块，也无需先建立新的大表，就能验证四项是否真的
-改善作者决策。后续只有候选组、物化时间轴、可编辑故事时间和 provider-final trace 需要扩展
-到 schema、任务或共享基础设施。
+时间轴和 Prompt 透视器只保留研究，不进入当前产品路线，也不为它们预建模块、API、表或
+基础设施。当前真正需要统一的只有 novel/Scene/draft identity 与新鲜度；正文、Scene、地图和
+校验结果仍由各自拥有模块维护。
 
 ## 12. 代码证据索引
 
@@ -723,9 +726,10 @@ OpenTarget
 | 判断 | 当前代码证据 |
 |---|---|
 | 正文已有版本、hash、状态、provenance | `backend/modules/writing/models.py`、`backend/modules/writing/repositories.py` |
-| 版本 UI 只支持选择、预览、恢复和软废弃，没有 Diff | `frontend-console/views/writing/versions.js` |
+| 版本 UI 支持全状态版本的只读临时 Diff | `frontend-console/views/writing/versions.js`、`frontend-console/views/writing/versionDiff.js` |
 | 规则检查与 AI 软冲突已分层 | `backend/modules/writing/models.py`、`backend/modules/writing/conflict_ai.py`、`frontend-console/views/writingConflictModal.js` |
 | Scene 工作台拥有结构健康与映射整理 | `backend/modules/outline/scene_workbench.py`、`backend/modules/outline/README.md` |
+| 写作页右侧“写作副驾驶”已有常驻警报摘要、警报标签、stale guard 与显式校验入口 | `frontend-console/views/writing/sceneAlerts.js`、`frontend-console/views/writing/scenePanel.js`、`frontend-console/views/sceneCockpitPanel.js` |
 | 旧 review/timeline 顶级模块已归档 | `docs/archive/review-module-removed.md`、`docs/archive/timeline-module-removed.md` |
 | Context 已有 section、预算、activation trace、confirmation/snapshot | `backend/modules/context/README.md`、`backend/modules/context/models.py` |
 | 生成中心当前只展示编译上下文 | `frontend-console/views/generateView.js` |

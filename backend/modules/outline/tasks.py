@@ -20,6 +20,12 @@ def _int_or_default(value: object, default: int) -> int:
     return int(value)
 
 
+def _optional_int(value: object) -> int | None:
+    if value is None or value == "":
+        return None
+    return int(value)
+
+
 async def _require_llm_execution_snapshot(db, task, meta: dict, novel_id: str) -> dict:
     from infrastructure.tasks.facade import require_task_checkpoint_session
 
@@ -40,6 +46,61 @@ async def _require_llm_execution_snapshot(db, task, meta: dict, novel_id: str) -
     task.meta = {**meta, "llm_execution_snapshot": snapshot}
     await db.commit()
     return snapshot
+
+
+@task_handler("story_outline_generate", recovery_policy="restart_origin")
+async def handle_story_outline_generate(db, task):
+    """Generate one strict StoryOutline preview without writing domain assets."""
+    from modules.outline.story_outline_generation import (
+        STORY_OUTLINE_GENERATE_ACTION,
+        StoryOutlineGenerationService,
+    )
+    from modules.outline.story_outline_schemas import StoryOutlineGenerateRequest
+
+    meta = task.meta or {}
+    if meta.get("action") != STORY_OUTLINE_GENERATE_ACTION:
+        raise ValueError("invalid action for story_outline_generate")
+    request_payload = {
+        field_name: meta[field_name]
+        for field_name in StoryOutlineGenerateRequest.model_fields
+        if field_name in meta
+    }
+    data = StoryOutlineGenerateRequest.model_validate(request_payload)
+    submission_context_hash = _require_str(
+        meta,
+        "submission_context_hash",
+        "story_outline_generate",
+    )
+    if len(submission_context_hash) != 64 or any(
+        character not in "0123456789abcdef" for character in submission_context_hash
+    ):
+        raise ValueError(
+            "submission_context_hash must be a lowercase SHA-256 digest for "
+            "story_outline_generate"
+        )
+    snapshot = await _require_llm_execution_snapshot(
+        db,
+        task,
+        meta,
+        data.novel_id,
+    )
+
+    def _checkpoint_context(provenance: dict) -> None:
+        task.meta = {
+            **(task.meta or {}),
+            "context_provenance": provenance,
+        }
+
+    result = await StoryOutlineGenerationService().generate_for_task(
+        db,
+        data=data,
+        llm_execution_snapshot=snapshot,
+        submission_context_hash=submission_context_hash,
+        progress_callback=task.update_progress,
+        context_checkpoint=_checkpoint_context,
+    )
+    logger.info("StoryOutline preview task complete")
+    return result
 
 
 @task_handler("plot_structure_generate", recovery_policy="restart_origin")
@@ -176,6 +237,8 @@ async def handle_outline_analyze(db, task):
         confirmation_id=confirmation_id,
         task_id=str(task.id),
         instruction=meta.get("instruction"),
+        start_chapter=_optional_int(meta.get("start_chapter")),
+        end_chapter=_optional_int(meta.get("end_chapter")),
         llm_execution_snapshot=llm_execution_snapshot,
         progress_callback=task.update_progress,
     )

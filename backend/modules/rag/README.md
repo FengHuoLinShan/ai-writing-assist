@@ -33,6 +33,17 @@ RAG P@5/MRR/R@10 语义质量评测。
 
 - `rag_chunks` — 可删除重建的检索块；正文块指向具体 writing draft
 - `rag_index_state` — 按 novel/chapter/content mode 保存请求源与已索引源的 ID/hash 和状态
+- `rag_entity_appearances` — 从当前正文 chunk 派生的对象出场索引；按 Scene 去重，无法精确映射时按章去重，可删除重建
+
+对象出场索引只服务列表热点排序，不覆盖 `CoreEntity.importance`，不进入 RAG
+importance 评分或生成上下文。章节索引在替换 chunk 的同一事务内替换对应
+appearance；同一跨章 Scene 只保留一条出场并以最后一个命中章作为热度位置，无法定位 Scene
+时才按章保留一条。每章只读取新鲜的 working 索引，缺失时回退新鲜 canonical。请求 hash 与
+已索引 hash 不一致的行不参与统计。对象名称、别名、类型或采用状态变化后，world 通过组合根
+DI port 合并入队 `rag_reannotate_entities`：该任务只更新 chunk 术语关联和 appearance，
+不重新切段或计算 embedding。重标注和章节替换共用 chapter advisory lock，只读取 fresh hash
+且 defer embedding；词典 port 失败时整项回滚并按任务策略重试，不会用空词典清空关联。
+迁移会为现有活跃项目各入队一次回填任务。
 
 章节正文索引要求 `chunk_index` 和 `index_version` 始终存在。幂等键包含
 `content_mode`，canonical 与 working 分别重建；`source_id/source_content_hash`
@@ -138,6 +149,8 @@ from modules.rag.facade import retrieve, split_text_into_chunks, get_ordered_cha
   - 预热本地 embedding worker 并返回维度、耗时和缓存统计
 - `get_ordered_chapter_chunks(db, novel_id, start_chapter, end_chapter=None) -> list[RagChunkContract]`
   - 给抽取链路提供有序正文材料
+- `get_entity_activity_stats(db, novel_id) -> RagEntityActivityBundleContract`
+  - 返回对象原始出场章节、最新有效章节、覆盖章数及 `ready/partial/unavailable`；只读且不包含热点权重
 - `split_text_into_chunks(text, method, **kwargs) -> list[str]`
   - 文本分割工具
 
@@ -156,6 +169,12 @@ from modules.rag.facade import retrieve, split_text_into_chunks, get_ordered_cha
 TaskWorker commit hook，普通 session 会直接拒绝。Deletion test：让 task handler
 回用普通 `retry_embeddings()` 会再次在 provider 等待期间持有 chunk/project
 读事务；反向替换普通入口则会破坏调用方的事务所有权。
+
+`rag.request_entity_activity_reannotation` 是组合根 DI port，由 world 在对象词典变化后
+调用。请求会先清除项目词典缓存，并复用同项目已有 pending 重标注任务；若已有任务正在运行，
+则只追加一个 pending 后继任务，后续变化继续合并到该后继，避免运行中捕获的旧词典遗漏更新。worker
+执行时不修改 embedding。删除该 seam 会让 world 必须读取 RAG 实现或遗漏历史正文的术语
+重标注，因此它承载跨模块失效通知而不是 pass-through API。
 
 ## API 路由
 
@@ -201,6 +220,7 @@ RAG 检索排序、chunk schema 或跨模块稳定接口。
 | `indexing.py` | 章节索引与 embedding 重试：`IndexingService` 把草稿分块、标注入库、生成/重试 embedding |
 | `facade.py` | 对外稳定入口，组装上述模块并代理公共方法 |
 | `tasks.py` | 异步任务薄入口，校验 task meta 并委托 facade/service |
+| `entity_activity.py` | 选择有效 working/canonical 版本，汇总对象出场，并执行不触碰 embedding 的轻量重标注 |
 | `api.py` | FastAPI 路由，所有端点通过 facade 委托 |
 
 ## 依赖注入约定

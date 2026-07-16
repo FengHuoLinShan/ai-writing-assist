@@ -54,9 +54,17 @@ test.describe("Scene 工作台", () => {
 
     await openWorkbench(page, project, "outline", "scenes")
 
+    await expect(page.locator('[data-action="set-scene-view-mode"][data-mode="hot"]')).toHaveClass(/btn-primary/)
+    await page.locator('[data-action="set-scene-view-mode"][data-mode="normal"]').click()
+    await expect(page).toHaveURL(/outline\/scenes\?mode=normal$/)
+    await expect(page.locator('[data-action="set-scene-view-mode"][data-mode="normal"]')).toHaveClass(/btn-primary/)
+    await expect.poll(() => page.evaluate(
+      (projectId) => localStorage.getItem(`novel_view_mode:${projectId}:scene-workbench`),
+      project.id,
+    )).toBe("normal")
     await expect(page.locator('[data-action="scene-auto-extract"]')).toHaveCount(1)
     await expect(page.locator('[data-action="start-smart-dedup"], [data-action="show-smart-dedup-progress"]')).toHaveCount(1)
-    await expect(page.locator("#workspace-header")).toBeHidden()
+    await expect(page.locator("#workspace-header")).toHaveCount(0)
 
     const positions = await page.locator(".outline-scene-layout > .subnav").evaluate((subnav) => {
       const activeTab = subnav.querySelector('.subnav-item[data-action="nav-scenes"]')
@@ -69,6 +77,39 @@ test.describe("Scene 工作台", () => {
     })
     expect(positions.actionsInsideSubnav).toBe(true)
     expect(Math.abs(positions.activeTabTop - positions.actionsTop)).toBeLessThan(8)
+  })
+
+  test("热点进度忽略空白占位章并可筛选当前剧情", async ({ page }) => {
+    const project = await createProject({ title: "Scene 热点定位", genre: "fantasy", language: "zh" })
+    testProjectId = project.id
+    const past = await createScene(project.id, {
+      scene_index: 0,
+      title: "已经写过",
+      chapter_ids: ["1"],
+    })
+    const current = await createScene(project.id, {
+      scene_index: 1,
+      title: "正在发生",
+      chapter_ids: ["2", "4"],
+    })
+    const upcoming = await createScene(project.id, {
+      scene_index: 2,
+      title: "未来事件",
+      chapter_ids: ["5"],
+    })
+    await createDraft(project.id, 1, "第一章", "已完成正文")
+    await createDraft(project.id, 3, "第三章", "当前正文")
+    await createDraft(project.id, 99, "占位章", " \n\t　")
+
+    await openWorkbench(page, project, "outline", "scenes")
+
+    await expect(page.locator(".scene-progress-panel")).toContainText("截至第 3 章")
+    await expect(page.locator(`.scene-workbench-row[data-id="${current.id}"]`)).toContainText("当前剧情")
+    await page.locator('[data-action="filter-progress-segment"][data-segment="current"]').click()
+    await expect(page.locator('[data-action="filter-progress-segment"][data-segment="current"]')).toHaveClass(/active/)
+    await expect(page.locator(`.scene-workbench-row[data-id="${current.id}"]`)).toBeVisible()
+    await expect(page.locator(`.scene-workbench-row[data-id="${past.id}"]`)).toHaveCount(0)
+    await expect(page.locator(`.scene-workbench-row[data-id="${upcoming.id}"]`)).toHaveCount(0)
   })
 
   test("选择 Scene 写入 URL，浏览器后退恢复未选中列表", async ({ page }) => {
@@ -92,7 +133,7 @@ test.describe("Scene 工作台", () => {
     await openWorkbench(page, project, "outline", "scenes")
     await page.locator(`.scene-workbench-row[data-id="${second.id}"] [data-action="select-workbench-scene"]`).click()
 
-    await expect(page).toHaveURL(new RegExp(`outline/scenes\\?scene_id=${second.id}$`))
+    await expect(page).toHaveURL(new RegExp(`outline/scenes\\?mode=hot&scene_id=${second.id}$`))
     await expect(page.locator(`.scene-workbench-row[data-id="${second.id}"]`)).toHaveClass(/is-selected/)
 
     await page.goBack()
@@ -655,6 +696,36 @@ test.describe("Scene 工作台", () => {
     await expect(page.locator(".scene-workbench-drawer")).toHaveCount(0)
     await expect(page).not.toHaveURL(/scene_id=/)
     await expect(page.locator(".scene-workbench-row.is-selected")).toHaveCount(0)
+  })
+
+  test("390px 窄屏长列表可以滚动到分页并翻页", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    const project = await createProject({ title: "Scene 窄屏长列表", genre: "fantasy", language: "zh" })
+    testProjectId = project.id
+    await Promise.all(Array.from({ length: 21 }, (_, index) => createScene(project.id, {
+      scene_index: index,
+      title: `窄屏 Scene ${index + 1}`,
+      goal: `目标 ${index + 1}`,
+      core_conflict: `冲突 ${index + 1}`,
+      chapter_ids: [String(index + 1)],
+    })))
+
+    await openWorkbench(page, project, "outline", "scenes")
+
+    const scroller = page.locator(".scene-workbench")
+    const geometry = await scroller.evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      overflowY: getComputedStyle(element).overflowY,
+    }))
+    expect(geometry.scrollHeight).toBeGreaterThan(geometry.clientHeight)
+    expect(geometry.overflowY).toBe("auto")
+
+    await scroller.evaluate((element) => { element.scrollTop = element.scrollHeight })
+    await expectWithinViewport(page.locator(".scene-workbench-pagination"))
+    await page.locator('[data-action="next-scene-page"]').click()
+    await expect(page.locator(".scene-workbench-pagination")).toContainText("第 2 / 2 页")
+    await expectNoPageOverflow(page)
   })
 
   test("右侧 Scene 详情栏内容溢出时可滚动", async ({ page }) => {

@@ -20,6 +20,19 @@ class EntityContextService:
         self._repo = repo or CoreEntityRepository()
 
     @staticmethod
+    def _active_alias_term(alias_item: object) -> str:
+        if isinstance(alias_item, str):
+            return alias_item
+        if not isinstance(alias_item, dict):
+            return ""
+        status = str(alias_item.get("status") or "").strip().lower()
+        if status in {"ignored", "rejected", "deprecated", "rolled_back"}:
+            return ""
+        if alias_item.get("rolled_back") is True:
+            return ""
+        return str(alias_item.get("alias") or "")
+
+    @staticmethod
     def _is_pending_suggestion_shadow(entity: CoreEntity) -> bool:
         meta = dict((entity.content_json or {}).get("_meta") or {})
         return bool(
@@ -140,9 +153,7 @@ class EntityContextService:
                 continue
             item_terms = [item.name]
             aliases = (item.content_json or {}).get("aliases", [])
-            item_terms.extend(
-                a if isinstance(a, str) else a.get("alias", "") for a in aliases
-            )
+            item_terms.extend(self._active_alias_term(alias) for alias in aliases)
             terms.append(
                 {
                     "id": str(item.id),

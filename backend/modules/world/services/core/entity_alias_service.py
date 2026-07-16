@@ -44,9 +44,25 @@ class EntityAliasService:
         self,
         repo: CoreEntityRepository | None = None,
         context_marker=None,
+        activity_requester=None,
     ) -> None:
         self.repo = repo or CoreEntityRepository()
         self._context_marker = context_marker
+        self._activity_requester = activity_requester
+
+    async def _request_activity_refresh(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> None:
+        requester = self._activity_requester
+        if requester is None:
+            from modules.world.services.core.entity_activity_invalidation import (
+                request_entity_activity_reannotation,
+            )
+
+            requester = request_entity_activity_reannotation
+        await requester(db, novel_id)
 
     def _normalize_alias_item(self, alias_item: str | dict) -> tuple[str, str]:
         """将别名项归一化为 (alias_text, alias_type)，并去除别名文本首尾空格。"""
@@ -677,6 +693,7 @@ class EntityAliasService:
             entity_id=str(source.id),
             reason="alias_ignored",
         )
+        await self._request_activity_refresh(db, novel_id)
         return {"affected_ids": [str(source.id)]}
 
     async def create_alias(
@@ -732,6 +749,7 @@ class EntityAliasService:
         content["aliases"] = aliases
         entity.content_json = content
         await db.flush()
+        await self._request_activity_refresh(db, novel_id)
         return self._alias_response(entity, alias_payload)
 
     async def update_alias(
@@ -778,6 +796,7 @@ class EntityAliasService:
             content["aliases"] = aliases
             entity.content_json = content
             await db.flush()
+            await self._request_activity_refresh(db, novel_id)
             return {
                 "entity_id": str(entity.id),
                 "entity_name": entity.name,
@@ -894,6 +913,7 @@ class EntityAliasService:
                 entity_id=changed_id,
                 reason="alias_updated",
             )
+        await self._request_activity_refresh(db, novel_id)
         return {
             **self._alias_response(target, updated),
             "affected_ids": sorted(affected_ids),
@@ -1043,6 +1063,7 @@ class EntityAliasService:
                 else "candidate_resolved_as_alias"
             ),
         )
+        await self._request_activity_refresh(db, novel_id)
         affected_ids = [str(candidate.id), str(target.id)]
         return {
             **self._alias_response(target, alias_payload),
@@ -1118,6 +1139,7 @@ class EntityAliasService:
                 content["aliases"] = aliases
                 entity.content_json = content
                 await db.flush()
+                await self._request_activity_refresh(db, novel_id)
                 return True
 
         aliases.append(
@@ -1134,6 +1156,7 @@ class EntityAliasService:
         content["aliases"] = aliases
         entity.content_json = content
         await db.flush()
+        await self._request_activity_refresh(db, novel_id)
         return True
 
     async def rollback_deep_import_candidates_by_workflow(
@@ -1182,6 +1205,8 @@ class EntityAliasService:
                 entity.content_json = content
                 db.add(entity)
         await db.flush()
+        if count:
+            await self._request_activity_refresh(db, novel_id)
         return count
 
     async def delete_alias(
@@ -1220,4 +1245,5 @@ class EntityAliasService:
         content["aliases"] = new_aliases
         entity.content_json = content
         await db.flush()
+        await self._request_activity_refresh(db, novel_id)
         return {"entity_id": str(entity.id), "alias": alias, "deleted": True}

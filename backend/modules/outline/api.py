@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi import status as http_status
@@ -70,6 +71,20 @@ from modules.outline.services import (
     RevealPlanService,
     SceneService,
 )
+from modules.outline.story_outline_schemas import (
+    StoryOutlineCurrentResponse,
+    StoryOutlineGeneratedPreviewApply,
+    StoryOutlineGenerateRequest,
+    StoryOutlineRevisionApply,
+    StoryOutlineRevisionCreate,
+    StoryOutlineRevisionListResponse,
+    StoryOutlineRevisionResponse,
+)
+from modules.outline.story_outline_service import (
+    StoryOutlineConflictError,
+    StoryOutlineNotFoundError,
+    StoryOutlineService,
+)
 from modules.project.facade import require_active_project
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
@@ -82,6 +97,7 @@ _scene_service = SceneService()
 _scene_workbench_service = SceneWorkbenchService()
 _foreshadowing_service = ForeshadowingPlanService()
 _reveal_service = RevealPlanService()
+_story_outline_service = StoryOutlineService()
 
 
 def _workbench_error(exc: Exception) -> HTTPException:
@@ -95,6 +111,21 @@ def _workbench_error(exc: Exception) -> HTTPException:
         return HTTPException(status_code=400, detail=str(exc))
     logger.exception(
         "outline_scene_workbench_unexpected_error error_type=%s",
+        type(exc).__name__,
+    )
+    return HTTPException(
+        status_code=500,
+        detail="服务器内部错误，请稍后重试。",
+    )
+
+
+def _story_outline_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, StoryOutlineConflictError):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, StoryOutlineNotFoundError):
+        return HTTPException(status_code=404, detail=str(exc))
+    logger.exception(
+        "outline_story_outline_unexpected_error error_type=%s",
         type(exc).__name__,
     )
     return HTTPException(
@@ -137,6 +168,168 @@ async def _enqueue_confirmed_outline_task(
     )
     await db.flush()
     return OutlineAiTaskResponse(task_id=task_id)
+
+
+# ============================================================
+# StoryOutline
+# ============================================================
+
+
+@router.get("/story-outline", response_model=StoryOutlineCurrentResponse)
+async def api_get_story_outline(
+    db: DbSession,
+    *,
+    novel_id: NovelIdQuery,
+):
+    await require_active_project(db, novel_id)
+    try:
+        return await _story_outline_service.get_current(db, novel_id)
+    except Exception as exc:
+        raise _story_outline_error(exc) from exc
+
+
+@router.post(
+    "/story-outline/revisions",
+    response_model=StoryOutlineRevisionResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def api_create_story_outline_revision(
+    data: StoryOutlineRevisionCreate,
+    db: DbSession,
+    *,
+    novel_id: NovelIdQuery,
+):
+    await require_active_project(db, novel_id)
+    try:
+        return await _story_outline_service.create_revision(db, novel_id, data)
+    except Exception as exc:
+        raise _story_outline_error(exc) from exc
+
+
+@router.get(
+    "/story-outline/revisions",
+    response_model=StoryOutlineRevisionListResponse,
+)
+async def api_list_story_outline_revisions(
+    db: DbSession,
+    *,
+    novel_id: NovelIdQuery,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+):
+    await require_active_project(db, novel_id)
+    try:
+        return await _story_outline_service.list_revisions(
+            db,
+            novel_id,
+            skip=skip,
+            limit=limit,
+        )
+    except Exception as exc:
+        raise _story_outline_error(exc) from exc
+
+
+@router.get(
+    "/story-outline/revisions/{revision_id}",
+    response_model=StoryOutlineRevisionResponse,
+)
+async def api_get_story_outline_revision(
+    revision_id: uuid.UUID,
+    db: DbSession,
+    *,
+    novel_id: NovelIdQuery,
+):
+    await require_active_project(db, novel_id)
+    try:
+        return await _story_outline_service.get_revision(
+            db,
+            novel_id,
+            revision_id,
+        )
+    except Exception as exc:
+        raise _story_outline_error(exc) from exc
+
+
+@router.post(
+    "/story-outline/revisions/{revision_id}/apply",
+    response_model=StoryOutlineRevisionResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def api_apply_story_outline_revision(
+    revision_id: uuid.UUID,
+    data: StoryOutlineRevisionApply,
+    db: DbSession,
+    *,
+    novel_id: NovelIdQuery,
+):
+    await require_active_project(db, novel_id)
+    try:
+        return await _story_outline_service.apply_revision(
+            db,
+            novel_id,
+            revision_id,
+            data,
+        )
+    except Exception as exc:
+        raise _story_outline_error(exc) from exc
+
+
+@router.post(
+    "/story-outline/generate",
+    response_model=OutlineAiTaskResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def api_generate_story_outline(
+    data: StoryOutlineGenerateRequest,
+    db: DbSession,
+) -> OutlineAiTaskResponse:
+    """Validate the bounded source set and enqueue a preview-only task."""
+    await require_active_project(db, data.novel_id)
+    from modules.outline.story_outline_generation import (
+        STORY_OUTLINE_GENERATE_ACTION,
+        StoryOutlineGenerationService,
+    )
+    from modules.project.facade import build_project_llm_execution_snapshot
+
+    try:
+        submission_plan = await StoryOutlineGenerationService().prepare(db, data)
+    except Exception as exc:
+        if isinstance(exc, ValueError):
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _story_outline_error(exc) from exc
+    meta = data.model_dump(mode="json", exclude_none=True)
+    meta.update(
+        {
+            "action": STORY_OUTLINE_GENERATE_ACTION,
+            "submission_context_hash": submission_plan.source_fingerprint,
+            "llm_execution_snapshot": await build_project_llm_execution_snapshot(
+                db,
+                data.novel_id,
+            ),
+        }
+    )
+    task_id = enqueue_task(db, "story_outline_generate", meta=meta)
+    await db.flush()
+    return OutlineAiTaskResponse(task_id=task_id)
+
+
+@router.post(
+    "/story-outline/generate/apply",
+    response_model=StoryOutlineRevisionResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def api_apply_generated_story_outline(
+    data: StoryOutlineGeneratedPreviewApply,
+    db: DbSession,
+) -> StoryOutlineRevisionResponse:
+    """Adopt an edited AI preview with server-validated task provenance."""
+    await require_active_project(db, data.novel_id)
+    try:
+        return await _story_outline_service.apply_generated_preview(db, data)
+    except Exception as exc:
+        if isinstance(exc, ValueError):
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _story_outline_error(exc) from exc
 
 
 # ============================================================
@@ -318,6 +511,12 @@ async def api_get_scene_workbench(
     chapter_from: int | None = Query(None, ge=1, description="起始章节筛选"),
     chapter_to: int | None = Query(None, ge=1, description="结束章节筛选"),
     confidence_band: str | None = Query(None, description="置信度分档"),
+    view_mode: str = Query("normal", pattern="^(normal|hot)$"),
+    segment: str | None = Query(
+        None,
+        pattern="^(current|upcoming|past|unassigned)$",
+    ),
+    anchor: str | None = Query(None, pattern="^latest$"),
     skip: int = Query(0, ge=0),
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
 ):
@@ -339,6 +538,9 @@ async def api_get_scene_workbench(
             chapter_from=chapter_from,
             chapter_to=chapter_to,
             confidence_band=confidence_band,
+            view_mode=view_mode,
+            segment=segment,
+            anchor=anchor,
             skip=skip,
             limit=limit,
         )

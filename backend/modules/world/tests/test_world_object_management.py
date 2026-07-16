@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
+import math
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from httpx import AsyncClient
@@ -32,6 +34,153 @@ from modules.world.tests.helpers import _create_project
 
 
 class TestEntitySearchAndFilter:
+    @pytest.mark.asyncio
+    async def test_hot_mode_combines_importance_and_recent_scene_occurrences(
+        self,
+        db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        await _create_project(db_session, novel_id)
+        service = WorldEntityService()
+        core = await service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(
+                entity_type="location",
+                name="古城",
+                importance=0.0,
+                importance_level="core",
+            ),
+        )
+        hot = await service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(
+                entity_type="character",
+                name="信使",
+                importance=0.0,
+                importance_level="normal",
+            ),
+        )
+
+        async def activity(_db, _novel_id):
+            return SimpleNamespace(
+                items=[
+                    SimpleNamespace(
+                        entity_id=hot.id,
+                        appearance_chapters=[12, 12, 11, 10],
+                    )
+                ],
+                as_of_chapter=12,
+                covered_chapters=12,
+                total_chapters=12,
+                status="ready",
+            )
+
+        monkeypatch.setattr(
+            "modules.world.services.core.entity_service._container_get",
+            lambda _name: activity,
+        )
+        result = await service.list(db_session, novel_id, view_mode="hot")
+
+        by_id = {item.id: item for item in result.items}
+        assert by_id[core.id].importance == 0.0
+        assert by_id[core.id].ranking.semantic_importance == 0.85
+        weighted = sum(2 ** (-delta / 6) for delta in (0, 0, 1, 2))
+        expected_heat = 1 - math.exp(-weighted / 3)
+        assert by_id[hot.id].ranking.recent_heat == pytest.approx(expected_heat)
+        assert by_id[hot.id].ranking.labels == ["hot"]
+        assert by_id[hot.id].ranking.recent_12_chapter_occurrences == 4
+        assert result.facets.important == 1
+        assert result.facets.hot == 1
+        assert result.facets.other == 0
+        assert result.ranking_context.status == "ready"
+
+    @pytest.mark.asyncio
+    async def test_hot_mode_degrades_when_activity_port_fails(
+        self,
+        db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        await _create_project(db_session, novel_id)
+        service = WorldEntityService()
+        entity = await service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(
+                entity_type="character",
+                name="仍可展示的主角",
+                importance=0.9,
+            ),
+        )
+
+        async def unavailable_activity(_db, _novel_id):
+            raise RuntimeError("derived activity storage unavailable")
+
+        monkeypatch.setattr(
+            "modules.world.services.core.entity_service._container_get",
+            lambda _name: unavailable_activity,
+        )
+        result = await service.list(db_session, novel_id, view_mode="hot")
+
+        assert result.total == 1
+        assert result.items[0].id == entity.id
+        assert result.items[0].ranking.recent_heat == 0.0
+        assert result.items[0].ranking.combined_score == pytest.approx(0.65 * 0.9)
+        assert result.ranking_context.status == "unavailable"
+        assert result.facets.other == 0
+
+    @pytest.mark.asyncio
+    async def test_hot_focus_allows_important_and_hot_labels_to_overlap(
+        self,
+        db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        novel_id = str(uuid.uuid4())
+        await _create_project(db_session, novel_id)
+        service = WorldEntityService()
+        entity = await service.create(
+            db_session,
+            novel_id,
+            WorldEntityCreate(
+                entity_type="character",
+                name="主角",
+                importance=0.9,
+                importance_level="core",
+            ),
+        )
+
+        async def activity(_db, _novel_id):
+            return SimpleNamespace(
+                items=[
+                    SimpleNamespace(
+                        entity_id=entity.id,
+                        appearance_chapters=[20, 20, 20],
+                    )
+                ],
+                as_of_chapter=20,
+                covered_chapters=1,
+                total_chapters=1,
+                status="ready",
+            )
+
+        monkeypatch.setattr(
+            "modules.world.services.core.entity_service._container_get",
+            lambda _name: activity,
+        )
+        result = await service.list(
+            db_session,
+            novel_id,
+            view_mode="hot",
+            focus="hot",
+        )
+        assert result.total == 1
+        assert result.items[0].ranking.labels == ["important", "hot"]
+        assert result.facets.important == 1
+        assert result.facets.hot == 1
+
     @pytest.mark.asyncio
     async def test_list_entities_filter_by_entity_type(
         self,

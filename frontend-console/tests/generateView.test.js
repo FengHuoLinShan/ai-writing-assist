@@ -5,6 +5,7 @@ beforeEach(() => {
   vi.useRealTimers()
   vi.clearAllMocks()
   localStorage.clear()
+  generateView._destroyTaskReferencePickers()
   document.body.innerHTML = ""
   state.currentProjectId = "p1"
   generateView._selectedTemplateId = "builtin:none"
@@ -392,6 +393,8 @@ describe("generateView bounded local state", () => {
   })
 
   it("switching projects resets unsaved project-scoped state before restore", () => {
+    const destroyPicker = vi.fn()
+    generateView._taskReferencePickers = { scene: { destroy: destroyPicker } }
     generateView._messages = [{ role: "user", content: "项目一私有内容" }]
     generateView._lastContextBundle = { project: "p1" }
     state.currentProjectId = "p2"
@@ -402,6 +405,8 @@ describe("generateView bounded local state", () => {
     expect(generateView._messages).toEqual([])
     expect(generateView._lastContextBundle).toBeNull()
     expect(generateView._selectedTemplateId).toBe("builtin:none")
+    expect(destroyPicker).toHaveBeenCalledOnce()
+    expect(generateView._taskReferencePickers).toBeNull()
     expect(localStorage.getItem("generate_world_workspace_state_v2_p1_project_core_entity")).toContain("项目一私有内容")
     expect(localStorage.getItem("generate_world_workspace_state_v2_p2_project_core_entity")).toBeNull()
   })
@@ -550,7 +555,6 @@ describe("generateView chatbox", () => {
 
   it("在页面标题栏挂载生成中心说明，离开时清理", () => {
     document.body.innerHTML = `
-      <header id="workspace-header"><div id="view-actions"></div></header>
       <div class="topbar-center"><span id="topbar-module">生成中心</span></div>
     `
 
@@ -1168,7 +1172,7 @@ describe("generateView task tab", () => {
     await generateView._runTask()
 
     expect(api.context.compile).not.toHaveBeenCalled()
-    expect(toast).toHaveBeenCalledWith("角色视角模式必须选择或输入视角人物 ID", "warning")
+    expect(toast).toHaveBeenCalledWith("角色视角模式必须选择视角人物", "warning")
   })
 
   it("切换到非角色视角预设时清空视角人物 ID", async () => {
@@ -1788,6 +1792,62 @@ describe("generateView task execution", () => {
     expect(generateView._generateSubTab).toBe("preview")
   })
 
+  it("任务高级参数使用四类名称选择器，并只保留隐藏 ID wire 字段", async () => {
+    document.body.innerHTML = await generateView.render()
+
+    expect(document.getElementById("gen-entities-picker")).not.toBeNull()
+    expect(document.getElementById("gen-characters-picker")).not.toBeNull()
+    expect(document.getElementById("gen-scene-picker")).not.toBeNull()
+    expect(document.getElementById("gen-viewpoint-character-picker")).not.toBeNull()
+    for (const id of ["gen-entities", "gen-characters", "gen-scene", "gen-viewpoint-character"]) {
+      expect(document.getElementById(id)?.type).toBe("hidden")
+    }
+    expect(document.body.textContent).not.toContain("character ID")
+    expect(document.body.textContent).not.toContain("Scene ID")
+  })
+
+  it("选择章节后优先展示该章 Scene，同时仍可搜索项目内其他 Scene", async () => {
+    generateView._generateSubTab = "task"
+    generateView._taskForm = {
+      ...generateView._taskForm,
+      chapter_index: 2,
+    }
+    api.outline.listScenesByChapter.mockResolvedValue([
+      { id: "scene-chapter", title: "王宫密道", status: "draft", chapter_ids: ["2"] },
+    ])
+    api.outline.getSceneWorkbench.mockResolvedValue({
+      items: [
+        { scene: { id: "scene-chapter", title: "王宫密道", status: "draft", chapter_ids: ["2"] } },
+        { scene: { id: "scene-other", title: "王宫屋顶", status: "canonical", chapter_ids: ["5"] } },
+      ],
+      total: 2,
+    })
+    document.body.innerHTML = await generateView.render()
+    generateView.onRendered()
+
+    const picker = document.getElementById("gen-scene-picker")
+    const query = picker.querySelector("[data-reference-query]")
+    query.value = "王宫"
+    query.dispatchEvent(new Event("input"))
+    await new Promise((resolve) => setTimeout(resolve, 230))
+
+    const results = Array.from(picker.querySelectorAll("[data-reference-result]"))
+    expect(results.map((item) => item.textContent)).toEqual([
+      expect.stringContaining("王宫密道"),
+      expect.stringContaining("王宫屋顶"),
+    ])
+    expect(api.outline.listScenesByChapter).toHaveBeenCalledWith("p1", 2)
+    expect(api.outline.getSceneWorkbench).toHaveBeenCalledWith("p1", null, {
+      q: "王宫",
+      view_mode: "normal",
+      skip: 0,
+      limit: 20,
+    })
+
+    results[1].click()
+    expect(document.getElementById("gen-scene").value).toBe("scene-other")
+  })
+
   it("角色视角缺少人物 ID 时不提交编译", async () => {
     generateView._taskForm = {
       task: "写角色视角场景",
@@ -1802,7 +1862,7 @@ describe("generateView task execution", () => {
     await generateView._runTask()
 
     expect(api.context.compile).not.toHaveBeenCalled()
-    expect(toast).toHaveBeenCalledWith("角色视角模式必须选择或输入视角人物 ID", "warning")
+    expect(toast).toHaveBeenCalledWith("角色视角模式必须选择视角人物", "warning")
   })
 
   it("切换读者视角时立即禁用作者简介并显示原因", async () => {

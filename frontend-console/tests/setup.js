@@ -160,6 +160,13 @@ globalThis.api = {
     applyWorldPageDraft: vi.fn(),
   },
   outline: {
+    getStoryOutline: vi.fn(),
+    listStoryOutlineRevisions: vi.fn(),
+    getStoryOutlineRevision: vi.fn(),
+    createStoryOutlineRevision: vi.fn(),
+    restoreStoryOutlineRevision: vi.fn(),
+    generateStoryOutline: vi.fn(),
+    applyStoryOutlinePreview: vi.fn(),
     listScenes: vi.fn(),
     listScenesOrdered: vi.fn(),
     listScenesByChapter: vi.fn(),

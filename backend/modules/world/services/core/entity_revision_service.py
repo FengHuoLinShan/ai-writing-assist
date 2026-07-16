@@ -20,6 +20,14 @@ class EntityRevisionService:
         self._repo = EntityRevisionRepository()
         self._entity_repo = CoreEntityRepository()
 
+    @staticmethod
+    async def _request_activity_refresh(db: AsyncSession, novel_id: str) -> None:
+        from modules.world.services.core.entity_activity_invalidation import (
+            request_entity_activity_reannotation,
+        )
+
+        await request_entity_activity_reannotation(db, novel_id)
+
     async def create_snapshot(
         self,
         db: AsyncSession,
@@ -166,6 +174,8 @@ class EntityRevisionService:
         if type_changed:
             await self._invalidate_type_change(db, novel_id, entity_id)
 
+        await self._request_activity_refresh(db, novel_id)
+
         from modules.world.schemas import CoreEntityResponse
 
         return CoreEntityResponse.model_validate(entity).model_dump()
@@ -305,6 +315,7 @@ class EntityRevisionService:
         )
         db.add(rollback_archive)
         await db.flush()
+        await self._request_activity_refresh(db, novel_id)
 
         return {
             "entity_id": str(eid),
