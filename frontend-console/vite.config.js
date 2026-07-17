@@ -1,8 +1,10 @@
 import { defineConfig } from "vite"
+import vue from "@vitejs/plugin-vue"
 
 const frontendPort = Number.parseInt(process.env.FRONTEND_PORT || "8080", 10)
 
 export default defineConfig({
+  plugins: [vue()],
   server: {
     host: "0.0.0.0",
     port: Number.isNaN(frontendPort) ? 8080 : frontendPort,
